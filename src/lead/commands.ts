@@ -2,11 +2,42 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import { Type } from "typebox";
 import type { Store } from "./store.js";
 import type { TeamServer } from "./server.js";
 import type { TeamConfig, Story, Task } from "../shared/types.js";
 import { STORIES_DIR } from "../shared/types.js";
 import { spawnTeammate, dismissTeammate, hopToTeammate } from "./tmux.js";
+
+/** Helper: add a task to an existing story on disk + reload store */
+function addTaskToStory(store: Store, storyId: string, title: string, description: string, teamDir: string): void {
+  const story = store.getStory(storyId);
+  if (!story) throw new Error(`Story "${storyId}" not found`);
+
+  // Determine next sequence number
+  const existingTasks = store.getTasksForStory(storyId);
+  const nextSeq = existingTasks.length > 0
+    ? Math.max(...existingTasks.map((t) => t.seq)) + 1
+    : 1;
+  const seq = String(nextSeq).padStart(2, "0");
+  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+
+  const tasksDir = path.join(story.dirPath, "tasks");
+  const taskDir = path.join(tasksDir, `${seq}-${slug}`);
+  fs.mkdirSync(taskDir, { recursive: true });
+
+  const task: Task = {
+    id: `${storyId}/${seq}`,
+    title,
+    description,
+    status: "todo",
+    result: null,
+  };
+  fs.writeFileSync(path.join(taskDir, "task.json"), JSON.stringify(task, null, 2) + "\n");
+
+  // Reload store to pick up the new task
+  store.loadFromDisk();
+}
 
 export function registerLeadCommands(
   pi: ExtensionAPI,
@@ -262,9 +293,9 @@ export function registerLeadCommands(
 
   // /team-add-story
   pi.registerCommand("team-add-story", {
-    description: "Create a new story interactively",
-    handler: async (_args, ctx) => {
-      const id = await ctx.ui.input("Story ID (slug):", "my-story");
+    description: "Create a new story: /team-add-story [id]",
+    handler: async (args, ctx) => {
+      const id = args?.trim() || (await ctx.ui.input("Story ID (slug):", "my-story"));
       if (!id) return;
 
       const title = await ctx.ui.input("Title:", "");
@@ -276,25 +307,7 @@ export function registerLeadCommands(
       const depsStr = await ctx.ui.input("Dependencies (comma-separated story IDs, or empty):", "");
       const dependsOn = depsStr ? depsStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
 
-      // Ask for tasks
-      const tasks: { title: string; description: string }[] = [];
-      let addMore = true;
-      while (addMore) {
-        const taskTitle = await ctx.ui.input(`Task ${tasks.length + 1} title (empty to stop):`, "");
-        if (!taskTitle) {
-          addMore = false;
-          break;
-        }
-        const taskDesc = await ctx.ui.input(`Task ${tasks.length + 1} description:`, taskTitle);
-        tasks.push({ title: taskTitle, description: taskDesc || taskTitle });
-      }
-
-      if (tasks.length === 0) {
-        ctx.ui.notify("Story needs at least one task", "warning");
-        return;
-      }
-
-      // Create directory structure
+      // Create directory structure (no tasks required upfront)
       const storyDir = path.join(teamDir, STORIES_DIR, id);
       const tasksDir = path.join(storyDir, "tasks");
       fs.mkdirSync(tasksDir, { recursive: true });
@@ -303,28 +316,83 @@ export function registerLeadCommands(
       const story: Story = { id, title, description, status: "open", dependsOn };
       fs.writeFileSync(path.join(storyDir, "story.json"), JSON.stringify(story, null, 2) + "\n");
 
-      // Write task files
-      for (let i = 0; i < tasks.length; i++) {
-        const seq = String(i + 1).padStart(2, "0");
-        const slug = tasks[i].title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
-        const taskDir = path.join(tasksDir, `${seq}-${slug}`);
-        fs.mkdirSync(taskDir, { recursive: true });
-
-        const task: Task = {
-          id: `${id}/${seq}`,
-          title: tasks[i].title,
-          description: tasks[i].description,
-          status: "todo",
-          result: null,
-        };
-        fs.writeFileSync(path.join(taskDir, "task.json"), JSON.stringify(task, null, 2) + "\n");
-      }
-
       // Reload store
       const store = getStore();
       store.loadFromDisk();
 
-      ctx.ui.notify(`✓ Story "${title}" created with ${tasks.length} task(s) 🍕`, "info");
+      ctx.ui.notify(`✓ Story "${title}" created 🍕\n  Add tasks with /team-add-task ${id}\n  Or ask me to break it down from a design doc!`, "info");
+    },
+  });
+
+  // /team-add-task
+  pi.registerCommand("team-add-task", {
+    description: "Add a task to a story: /team-add-task <story-id>",
+    handler: async (args, ctx) => {
+      const storyId = args?.trim();
+      if (!storyId) {
+        ctx.ui.notify("Usage: /team-add-task <story-id>", "warning");
+        return;
+      }
+
+      const store = getStore();
+      const story = store.getStory(storyId);
+      if (!story) {
+        ctx.ui.notify(`Story "${storyId}" not found`, "error");
+        return;
+      }
+
+      const title = await ctx.ui.input("Task title:", "");
+      if (!title) return;
+
+      const description = await ctx.ui.editor("Task description (this is what the teammate receives):", title);
+      if (!description) return;
+
+      addTaskToStory(store, storyId, title, description, teamDir);
+      ctx.ui.notify(`✓ Task "${title}" added to ${storyId}`, "info");
+    },
+  });
+
+  // LLM-callable tool for adding tasks (so Pi can break down stories conversationally)
+  pi.registerTool({
+    name: "team_add_task",
+    label: "Add Team Task",
+    description:
+      "Add a task to an existing story on the pi-pizza-team board. Use this when breaking down a story into tasks, " +
+      "whether from a design document, a conversation, or planning session. Tasks are executed sequentially within a story.",
+    promptSnippet: "Add a task to a pi-pizza-team story",
+    promptGuidelines: [
+      "Use team_add_task when the user asks to break a story into tasks, plan work from a design doc, or add tasks to the kanban board.",
+      "Call team_add_task multiple times to add multiple sequential tasks to a story.",
+      "The task description should be a complete prompt that a teammate Pi can execute autonomously.",
+    ],
+    parameters: Type.Object({
+      storyId: Type.String({ description: "ID of the story to add the task to" }),
+      title: Type.String({ description: "Short title for the task" }),
+      description: Type.String({
+        description:
+          "Full task description/prompt. This is what a teammate Pi receives as their work instruction. " +
+          "Be specific and include enough context for autonomous execution.",
+      }),
+    }),
+    async execute(_toolCallId, params) {
+      const store = getStore();
+      const story = store.getStory(params.storyId);
+      if (!story) {
+        throw new Error(`Story "${params.storyId}" not found. Use /team-add-story to create it first.`);
+      }
+
+      addTaskToStory(store, params.storyId, params.title, params.description, teamDir);
+
+      const tasks = store.getTasksForStory(params.storyId);
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Added task "${params.title}" to story "${story.title}" (now ${tasks.length} tasks total)`,
+          },
+        ],
+        details: { storyId: params.storyId, taskCount: tasks.length },
+      };
     },
   });
 }

@@ -292,34 +292,42 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
   }
 }
 
+
 const BOARD_HTML = `<!DOCTYPE html>
 <html><head><title>🍕 pi-pizza-team board</title>
 <style>
   * { box-sizing: border-box; margin: 0; padding: 0; }
   body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
   h1 { margin-bottom: 20px; font-size: 1.5em; }
-  .board { display: flex; gap: 12px; overflow-x: auto; min-height: 400px; }
-  .column { flex: 1; min-width: 200px; background: #16213e; border-radius: 8px; padding: 12px; }
-  .column h2 { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; color: #7c83ff; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; }
-  .card { background: #0f3460; border-radius: 6px; padding: 10px; margin-bottom: 8px; cursor: pointer; transition: background 0.15s; }
-  .card:hover { background: #1a4080; }
-  .card-title { font-size: 0.9em; font-weight: 600; margin-bottom: 4px; }
-  .card-meta { font-size: 0.75em; color: #888; }
-  .card-assignee { font-size: 0.75em; color: #7c83ff; margin-top: 4px; }
-  .card-msg { font-size: 0.75em; color: #ffa500; margin-top: 2px; }
-  .story-group { margin-bottom: 16px; }
-  .story-label { font-size: 0.7em; color: #555; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; padding: 2px 6px; background: #0a1628; border-radius: 3px; display: inline-block; }
   .team-bar { display: flex; gap: 16px; margin-bottom: 20px; padding: 12px; background: #16213e; border-radius: 8px; flex-wrap: wrap; }
   .member { font-size: 0.85em; }
   .member-working { color: #4caf50; }
   .member-idle { color: #888; }
   .refresh { font-size: 0.7em; color: #555; }
+  .swimlane { margin-bottom: 24px; border: 1px solid #0f3460; border-radius: 8px; overflow: hidden; }
+  .swimlane-header { background: #0f3460; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; }
+  .swimlane-title { font-weight: 600; font-size: 0.95em; }
+  .swimlane-meta { font-size: 0.75em; color: #888; }
+  .swimlane-blocked { opacity: 0.5; }
+  .swimlane-blocked .swimlane-header { background: #1a1a2e; border-bottom: 1px solid #0f3460; }
+  .board { display: flex; gap: 2px; min-height: 60px; }
+  .column { flex: 1; min-width: 140px; background: #16213e; padding: 10px; }
+  .column h2 { font-size: 0.7em; text-transform: uppercase; letter-spacing: 0.05em; color: #7c83ff; margin-bottom: 8px; padding-bottom: 6px; border-bottom: 1px solid #0f3460; }
+  .card { background: #0f3460; border-radius: 6px; padding: 8px 10px; margin-bottom: 6px; cursor: pointer; transition: background 0.15s; }
+  .card:hover { background: #1a4080; }
+  .card-title { font-size: 0.8em; font-weight: 600; margin-bottom: 3px; }
+  .card-meta { font-size: 0.7em; color: #888; }
+  .card-assignee { font-size: 0.7em; color: #7c83ff; margin-top: 2px; }
+  .card-msg { font-size: 0.7em; color: #ffa500; margin-top: 2px; }
+  .progress { font-size: 0.75em; color: #4caf50; }
+  .empty-col { min-height: 20px; }
 </style></head><body>
 <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
 <div class="team-bar" id="team"></div>
-<div class="board" id="board"></div>
+<div id="board"></div>
 <script>
 const POLL_MS = 3000;
+const COLUMN_ORDER = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
 
 async function refresh() {
   try {
@@ -347,30 +355,46 @@ function renderTeam(members) {
 }
 
 function renderBoard(stories) {
-  // Collect all workflow states from tasks
-  const columns = {};
-  for (const story of stories) {
-    for (const task of story.tasks) {
-      if (!columns[task.status]) columns[task.status] = [];
-      columns[task.status].push({ ...task, storyId: story.id, storyTitle: story.title });
-    }
-  }
-
-  // Desired column order
-  const order = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
-  const allStates = [...new Set([...order, ...Object.keys(columns)])];
-  const orderedStates = allStates.filter(s => columns[s] && columns[s].length > 0 || order.includes(s));
-
   const el = document.getElementById('board');
-  el.innerHTML = orderedStates.map(state => {
-    const tasks = columns[state] || [];
-    const cards = tasks.map(t => {
-      const assignee = t.assignee ? '<div class="card-assignee">→ ' + t.assignee + '</div>' : '';
-      const msg = t.hasMessages ? '<div class="card-msg">📬 has messages</div>' : '';
-      return '<div class="card"><div class="card-title">' + t.title + '</div><div class="card-meta">' + t.storyId + '/' + String(t.seq).padStart(2,'0') + '</div>' + assignee + msg + '</div>';
+
+  // Determine all columns needed
+  const allStates = new Set(COLUMN_ORDER);
+  for (const story of stories) {
+    for (const task of story.tasks) allStates.add(task.status);
+  }
+  const columns = [...allStates].sort((a, b) => {
+    const ai = COLUMN_ORDER.indexOf(a), bi = COLUMN_ORDER.indexOf(b);
+    if (ai !== -1 && bi !== -1) return ai - bi;
+    if (ai !== -1) return -1;
+    if (bi !== -1) return 1;
+    return a.localeCompare(b);
+  });
+
+  el.innerHTML = stories.map(story => {
+    const blocked = !story.ready && story.status !== 'done';
+    const doneCount = story.tasks.filter(t => t.status === 'done').length;
+    const blockedClass = blocked ? ' swimlane-blocked' : '';
+    const blockedLabel = blocked ? ' (blocked by: ' + story.dependsOn.join(', ') + ')' : '';
+
+    const columnsHtml = columns.map(state => {
+      const tasks = story.tasks.filter(t => t.status === state);
+      const cards = tasks.map(t => {
+        const assignee = t.assignee ? '<div class="card-assignee">→ ' + t.assignee + '</div>' : '';
+        const msg = t.hasMessages ? '<div class="card-msg">📬 messages</div>' : '';
+        return '<div class="card"><div class="card-title">' + t.title + '</div><div class="card-meta">#' + t.seq + '</div>' + assignee + msg + '</div>';
+      }).join('');
+      const label = state.replace(/_/g, ' ');
+      const content = cards || '<div class="empty-col"></div>';
+      return '<div class="column"><h2>' + label + '</h2>' + content + '</div>';
     }).join('');
-    const label = state.replace(/_/g, ' ');
-    return '<div class="column"><h2>' + label + ' (' + tasks.length + ')</h2>' + cards + '</div>';
+
+    return '<div class="swimlane' + blockedClass + '">'
+      + '<div class="swimlane-header">'
+      + '<span class="swimlane-title">' + story.title + '</span>'
+      + '<span class="swimlane-meta"><span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + blockedLabel + '</span>'
+      + '</div>'
+      + '<div class="board">' + columnsHtml + '</div>'
+      + '</div>';
   }).join('');
 }
 
@@ -378,4 +402,3 @@ refresh();
 setInterval(refresh, POLL_MS);
 </script>
 </body></html>`;
-
