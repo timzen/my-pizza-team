@@ -35,6 +35,43 @@ export class TeamServer {
   }
 
   private setupRoutes(): void {
+    // Landing page
+    this.app.get("/", (c) => {
+      return c.html(`<!DOCTYPE html>
+<html><head><title>🍕 pi-pizza-team</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; background: #1a1a2e; color: #e0e0e0; }
+  h1 { font-size: 2em; }
+  a { color: #7c83ff; }
+  .status { background: #16213e; padding: 16px; border-radius: 8px; margin: 20px 0; }
+  code { background: #0f3460; padding: 2px 6px; border-radius: 4px; }
+</style></head><body>
+<h1>🍕 pi-pizza-team</h1>
+<p>The team lead API is running.</p>
+<div class="status" id="status">Loading...</div>
+<h3>API Endpoints</h3>
+<ul>
+  <li><a href="/api/status">/api/status</a> — Server status</li>
+  <li><a href="/api/stories">/api/stories</a> — All stories</li>
+  <li><a href="/api/team">/api/team</a> — Team members</li>
+  <li><a href="/board">/board</a> — Kanban board</li>
+</ul>
+<script>
+fetch('/api/status').then(r=>r.json()).then(d=>{
+  document.getElementById('status').innerHTML = 
+    '<strong>Stories:</strong> '+d.stories.open+' open, '+d.stories.done+' done<br>'+
+    '<strong>Team:</strong> '+d.members.total+' members ('+d.members.working+' working)<br>'+
+    '<strong>Inbox:</strong> '+d.inbox+' messages';
+});
+</script>
+</body></html>`);
+    });
+
+    // Kanban board
+    this.app.get("/board", (c) => {
+      return c.html(BOARD_HTML);
+    });
+
     // GET /api/status
     this.app.get("/api/status", (c) => {
       const stories = this.store.getStories();
@@ -254,3 +291,91 @@ export class TeamServer {
     return this.paused;
   }
 }
+
+const BOARD_HTML = `<!DOCTYPE html>
+<html><head><title>🍕 pi-pizza-team board</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; }
+  h1 { margin-bottom: 20px; font-size: 1.5em; }
+  .board { display: flex; gap: 12px; overflow-x: auto; min-height: 400px; }
+  .column { flex: 1; min-width: 200px; background: #16213e; border-radius: 8px; padding: 12px; }
+  .column h2 { font-size: 0.85em; text-transform: uppercase; letter-spacing: 0.05em; color: #7c83ff; margin-bottom: 12px; padding-bottom: 8px; border-bottom: 1px solid #0f3460; }
+  .card { background: #0f3460; border-radius: 6px; padding: 10px; margin-bottom: 8px; cursor: pointer; transition: background 0.15s; }
+  .card:hover { background: #1a4080; }
+  .card-title { font-size: 0.9em; font-weight: 600; margin-bottom: 4px; }
+  .card-meta { font-size: 0.75em; color: #888; }
+  .card-assignee { font-size: 0.75em; color: #7c83ff; margin-top: 4px; }
+  .card-msg { font-size: 0.75em; color: #ffa500; margin-top: 2px; }
+  .story-group { margin-bottom: 16px; }
+  .story-label { font-size: 0.7em; color: #555; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 4px; padding: 2px 6px; background: #0a1628; border-radius: 3px; display: inline-block; }
+  .team-bar { display: flex; gap: 16px; margin-bottom: 20px; padding: 12px; background: #16213e; border-radius: 8px; flex-wrap: wrap; }
+  .member { font-size: 0.85em; }
+  .member-working { color: #4caf50; }
+  .member-idle { color: #888; }
+  .refresh { font-size: 0.7em; color: #555; }
+</style></head><body>
+<h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
+<div class="team-bar" id="team"></div>
+<div class="board" id="board"></div>
+<script>
+const POLL_MS = 3000;
+
+async function refresh() {
+  try {
+    const [storiesRes, teamRes] = await Promise.all([
+      fetch('/api/stories').then(r => r.json()),
+      fetch('/api/team').then(r => r.json())
+    ]);
+    renderTeam(teamRes.members);
+    renderBoard(storiesRes.stories);
+    document.getElementById('refresh').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch(e) {
+    document.getElementById('refresh').textContent = 'error: ' + e.message;
+  }
+}
+
+function renderTeam(members) {
+  const el = document.getElementById('team');
+  if (members.length === 0) { el.innerHTML = '<span class="member member-idle">No teammates yet</span>'; return; }
+  el.innerHTML = members.map(m => {
+    const cls = m.status === 'working' ? 'member-working' : 'member-idle';
+    const icon = m.status === 'working' ? '🔨' : '☕';
+    const task = m.currentTask ? ' → ' + m.currentTask : '';
+    return '<span class="member ' + cls + '">' + icon + ' ' + m.name + task + '</span>';
+  }).join('');
+}
+
+function renderBoard(stories) {
+  // Collect all workflow states from tasks
+  const columns = {};
+  for (const story of stories) {
+    for (const task of story.tasks) {
+      if (!columns[task.status]) columns[task.status] = [];
+      columns[task.status].push({ ...task, storyId: story.id, storyTitle: story.title });
+    }
+  }
+
+  // Desired column order
+  const order = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
+  const allStates = [...new Set([...order, ...Object.keys(columns)])];
+  const orderedStates = allStates.filter(s => columns[s] && columns[s].length > 0 || order.includes(s));
+
+  const el = document.getElementById('board');
+  el.innerHTML = orderedStates.map(state => {
+    const tasks = columns[state] || [];
+    const cards = tasks.map(t => {
+      const assignee = t.assignee ? '<div class="card-assignee">→ ' + t.assignee + '</div>' : '';
+      const msg = t.hasMessages ? '<div class="card-msg">📬 has messages</div>' : '';
+      return '<div class="card"><div class="card-title">' + t.title + '</div><div class="card-meta">' + t.storyId + '/' + String(t.seq).padStart(2,'0') + '</div>' + assignee + msg + '</div>';
+    }).join('');
+    const label = state.replace(/_/g, ' ');
+    return '<div class="column"><h2>' + label + ' (' + tasks.length + ')</h2>' + cards + '</div>';
+  }).join('');
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body></html>`;
+
