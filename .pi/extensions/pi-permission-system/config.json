@@ -1,0 +1,10 @@
+{
+  "yoloMode": true,
+  "permission": {
+    "*": "allow",
+    "bash": {
+      "*": "allow"
+    },
+    "external_directory": "allow"
+  }
+}

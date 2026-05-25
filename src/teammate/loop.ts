@@ -60,8 +60,8 @@ export class WorkLoop {
 
   /** Resume autonomous work */
   resume(): void {
-    if (this.running && !this.autonomous) {
-      this.autonomous = true;
+    this.autonomous = true;
+    if (this.running) {
       this.pollForWork();
     }
   }
@@ -92,13 +92,14 @@ export class WorkLoop {
         const claim = await this.client.claimTask(response.task.id);
         if (claim.success) {
           this.currentTaskId = response.task.id;
+          this.client.heartbeat("working", response.task.id).catch(() => {});
           await this.executeTask(response.task);
         } else {
           // Someone else got it, try again
           this.schedulePoll();
         }
       } else {
-        // No work available
+        // No work available, keep polling
         this.schedulePoll();
       }
     } catch (err) {

@@ -180,14 +180,20 @@ async function setupTeammate(
     }
   }
 
-  // Join the team
-  await client.join(memberId, cwd, tmuxWindow);
+  // Join the team (retry-tolerant)
+  try {
+    await client.join(memberId, cwd, tmuxWindow);
+  } catch {
+    if (ctx.hasUI) {
+      ctx.ui.notify(`🍕 Failed to join team — will keep trying via polling`, "warning");
+    }
+  }
 
   // Create work loop
   const loop = new WorkLoop(pi, client, memberId);
 
-  // Permission bypass
-  registerPermissionBypass(pi, () => loop);
+  // Permission bypass (toggles yoloMode based on autonomous vs pairing)
+  registerPermissionBypass(pi, () => loop, cwd);
 
   // Listen for agent completion to capture results
   pi.on("agent_end", async (event) => {
@@ -216,6 +222,7 @@ async function setupTeammate(
   pi.on("input", async (event) => {
     if (event.source === "interactive" && loop.isAutonomous) {
       loop.pause();
+      // Permission config is toggled by permissions.ts input handler
       if (ctx.hasUI) {
         ctx.ui.setWidget("pi-pizza-team", ["🍕 pairing mode — autonomous work paused"]);
         ctx.ui.notify("🍕 Autonomous work paused — you're now pairing. Use /team-worker-resume when done.", "info");
@@ -229,6 +236,10 @@ async function setupTeammate(
     description: "Resume autonomous work after pairing session",
     handler: async (_args) => {
       loop.resume();
+      // Re-enable yoloMode for autonomous work
+      if ((loop as any)._setAutonomousPermissions) {
+        (loop as any)._setAutonomousPermissions(true);
+      }
       if (ctx.hasUI) {
         ctx.ui.setWidget("pi-pizza-team", ["🍕 autonomous mode — waiting for work..."]);
         ctx.ui.notify("🍕 Resuming autonomous work", "info");
