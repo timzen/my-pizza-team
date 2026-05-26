@@ -2,3 +2,6 @@ node_modules/
 *.db
 *.db-wal
 *.db-shm
+
+# Dynamically managed by pi-pizza-team (toggles yoloMode for autonomous vs pairing)
+.pi/extensions/pi-permission-system/config.json
