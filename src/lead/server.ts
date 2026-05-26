@@ -137,6 +137,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
             status: story.status,
             dependsOn: story.dependsOn,
             ready: this.store.isStoryReady(story.id),
+            dir: story.dir,
             tasks: tasks.map((task) => {
               const assignment = this.store.getAssignment(task.id);
               return {
@@ -183,7 +184,8 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         body.description,
         status,
         dependsOn,
-        body.tasks
+        body.tasks,
+        body.dir
       );
 
       const response: CreateStoryResponse = {
@@ -195,6 +197,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
           status: story.status,
           dependsOn: story.dependsOn,
           ready: this.store.isStoryReady(story.id),
+          dir: story.dir,
           tasks: tasks.map((t) => ({
             id: t.id,
             seq: t.seq,
@@ -517,6 +520,11 @@ const BOARD_HTML = `<!DOCTYPE html>
       <input type="text" id="story-depends" placeholder="Comma-separated story IDs (optional)" />
       <div class="hint">e.g. setup-db, auth-core</div>
     </div>
+    <div class="form-group">
+      <label for="story-dir">Working Directory</label>
+      <input type="text" id="story-dir" placeholder="Optional, e.g. ~/Workspace/my-project" />
+      <div class="hint">Hint for teammates about where to work</div>
+    </div>
     <div class="tasks-section">
       <h3>Tasks (optional)</h3>
       <div id="task-list"></div>
@@ -625,6 +633,7 @@ function openAddStoryModal() {
   document.getElementById('story-title').value = '';
   document.getElementById('story-desc').value = '';
   document.getElementById('story-depends').value = '';
+  document.getElementById('story-dir').value = '';
   document.getElementById('task-list').innerHTML = '';
   hideError();
   document.getElementById('btn-submit').disabled = false;
@@ -702,6 +711,7 @@ async function submitStory() {
   const title = document.getElementById('story-title').value.trim();
   const description = document.getElementById('story-desc').value.trim();
   const dependsRaw = document.getElementById('story-depends').value.trim();
+  const dir = document.getElementById('story-dir').value.trim();
 
   if (!id) { showError('ID is required.'); document.getElementById('story-id').focus(); return; }
   if (!title) { showError('Title is required.'); document.getElementById('story-title').focus(); return; }
@@ -725,7 +735,7 @@ async function submitStory() {
     const res = await fetch('/api/stories', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title, description, dependsOn, tasks: tasks.length ? tasks : undefined })
+      body: JSON.stringify({ id, title, description, dependsOn, dir: dir || undefined, tasks: tasks.length ? tasks : undefined })
     });
     const data = await res.json();
     if (!res.ok || !data.success) {
@@ -826,7 +836,7 @@ function renderBoard(stories) {
 
     return '<div class="swimlane' + blockedClass + '">'
       + '<div class="swimlane-header">'
-      + '<span class="swimlane-title">' + story.title + '</span>'
+      + '<span class="swimlane-title">' + story.title + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + story.dir + '</span>' : '') + '</span>'
       + '<span class="swimlane-meta"><span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + blockedLabel + '</span>'
       + '</div>'
       + '<div class="board">' + columnsHtml + '</div>'

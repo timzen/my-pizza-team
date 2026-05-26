@@ -29,6 +29,7 @@ export interface Story {
   description: string;
   status: "open" | "done";
   dependsOn: string[];
+  dir?: string;
 }
 
 export interface Task {

@@ -48,6 +48,7 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'open',
         depends_on TEXT DEFAULT '[]',
+        dir TEXT,
         dir_path TEXT
       );
 
@@ -92,6 +93,12 @@ export class Store {
         last_heartbeat INTEGER
       );
     `);
+
+    // Migration: add dir column if it doesn't exist (for existing databases)
+    const storyColumns = this.db.prepare("PRAGMA table_info(stories)").all() as any[];
+    if (!storyColumns.some((col: any) => col.name === "dir")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN dir TEXT");
+    }
   }
 
   // --- Load from filesystem ---
@@ -134,10 +141,10 @@ export class Store {
   private upsertStory(story: Story, dirPath: string): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(story.id, story.title, story.description, story.status, JSON.stringify(story.dependsOn), dirPath);
+      .run(story.id, story.title, story.description, story.status, JSON.stringify(story.dependsOn), story.dir || null, dirPath);
   }
 
   private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
@@ -161,6 +168,7 @@ export class Store {
         description: row.description,
         status: row.status,
         dependsOn: JSON.parse(row.depends_on),
+        dir: row.dir || undefined,
         dirPath: row.dir_path,
       }));
   }
@@ -176,7 +184,8 @@ export class Store {
     description: string,
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
-    tasks?: Array<{ title: string; description: string }>
+    tasks?: Array<{ title: string; description: string }>,
+    dir?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storiesDir = path.join(this.teamDir, "stories");
     const storyDirName = id;
@@ -186,6 +195,7 @@ export class Store {
     fs.mkdirSync(storyDirPath, { recursive: true });
 
     const storyData: Story = { id, title, description, status, dependsOn };
+    if (dir) storyData.dir = dir;
     const storyFile = path.join(storyDirPath, "story.json");
     fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
 
@@ -245,6 +255,7 @@ export class Store {
       description: row.description,
       status: row.status,
       dependsOn: JSON.parse(row.depends_on),
+      dir: row.dir || undefined,
       dirPath: row.dir_path,
     };
   }
@@ -274,6 +285,7 @@ export class Store {
         status: status,
         dependsOn: story.dependsOn,
       };
+      if (story.dir) data.dir = story.dir;
       fs.writeFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
     }
   }

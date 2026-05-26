@@ -21,6 +21,7 @@ export interface StoryView {
   status: "open" | "done";
   dependsOn: string[];
   ready: boolean; // all dependencies met?
+  dir?: string;
   tasks: TaskView[];
 }
 
@@ -117,6 +118,7 @@ export interface CreateStoryRequest {
   description: string;
   status?: "open" | "done";
   dependsOn?: string[];
+  dir?: string;
   tasks?: Array<{
     title: string;
     description: string;

@@ -422,6 +422,8 @@ export function registerLeadCommands(
       const depsStr = await ctx.ui.input("Dependencies (comma-separated story IDs, or empty):", "");
       const dependsOn = depsStr ? depsStr.split(",").map((s) => s.trim()).filter(Boolean) : [];
 
+      const dir = await ctx.ui.input("Working directory (optional, e.g. ~/Workspace/my-project):", "");
+
       // Create directory structure (no tasks required upfront)
       const storyDir = path.join(teamDir, STORIES_DIR, id);
       const tasksDir = path.join(storyDir, "tasks");
@@ -429,6 +431,7 @@ export function registerLeadCommands(
 
       // Write story.json
       const story: Story = { id, title, description, status: "open", dependsOn };
+      if (dir) story.dir = dir;
       fs.writeFileSync(path.join(storyDir, "story.json"), JSON.stringify(story, null, 2) + "\n");
 
       // Reload store
@@ -487,6 +490,9 @@ export function registerLeadCommands(
       dependsOn: Type.Optional(
         Type.Array(Type.String(), { description: "Array of story IDs this story depends on (optional)" })
       ),
+      dir: Type.Optional(
+        Type.String({ description: "Working directory hint for teammates (optional, e.g., '~/Workspace/my-project')" })
+      ),
     }),
     async execute(_toolCallId, params) {
       const store = getStore();
@@ -509,6 +515,7 @@ export function registerLeadCommands(
         status: "open",
         dependsOn: params.dependsOn || [],
       };
+      if (params.dir) story.dir = params.dir;
       fs.writeFileSync(path.join(storyDir, "story.json"), JSON.stringify(story, null, 2) + "\n");
 
       // Reload store
