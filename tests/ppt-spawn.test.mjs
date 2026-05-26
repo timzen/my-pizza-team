@@ -1,5 +1,5 @@
-// Unit tests for /team-spawn story-based spawn and auto-naming
-// Run with: node tests/team-spawn.test.mjs
+// Unit tests for /ppt-spawn story-based spawn and auto-naming
+// Run with: node tests/ppt-spawn.test.mjs
 import Database from "better-sqlite3";
 import * as fs from "node:fs";
 import * as path from "node:path";
