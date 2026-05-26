@@ -342,6 +342,38 @@ export class Store {
     }
   }
 
+  updateTaskDetails(taskId: string, updates: { title?: string; description?: string }): boolean {
+    const task = this.getTask(taskId);
+    if (!task) return false;
+
+    const newTitle = updates.title ?? task.title;
+    const newDescription = updates.description ?? task.description;
+    this.db
+      .prepare("UPDATE tasks SET title = ?, description = ?, dirty = 1 WHERE id = ?")
+      .run(newTitle, newDescription, taskId);
+    return true;
+  }
+
+  deleteTask(taskId: string): boolean {
+    const task = this.getTask(taskId);
+    if (!task) return false;
+
+    // Remove from assignments if any
+    this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
+    // Remove messages
+    this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(taskId);
+    // Remove task
+    this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+
+    // Remove task directory from disk
+    if (task.dirPath && fs.existsSync(task.dirPath)) {
+      fs.rmSync(task.dirPath, { recursive: true });
+    }
+
+    return true;
+  }
+
   /**
    * Find the next available task for a teammate.
    * Rules:

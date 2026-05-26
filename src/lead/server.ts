@@ -16,6 +16,8 @@
 // which causes GET /api/next-task to return null while paused.
 import { Hono } from "hono";
 import { serve, type ServerType } from "@hono/node-server";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import type {
@@ -35,6 +37,13 @@ import type {
   TeamResponse,
   CreateStoryRequest,
   CreateStoryResponse,
+  CreateTaskRequest,
+  CreateTaskResponse,
+  UpdateTaskRequest,
+  UpdateTaskResponse,
+  DeleteTaskResponse,
+  MoveTaskRequest,
+  MoveTaskResponse,
 } from "../shared/protocol.js";
 
 export class TeamServer {
@@ -320,6 +329,118 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       const messages = this.store.getMessages(taskId);
       const response: MessagesResponse = { messages };
       return c.json(response);
+    });
+
+    // POST /api/stories/:storyId/tasks
+    this.app.post("/api/stories/:storyId/tasks", async (c) => {
+      const storyId = c.req.param("storyId");
+      const body = (await c.req.json()) as CreateTaskRequest;
+
+      if (!body.title || typeof body.title !== "string") {
+        return c.json({ success: false, error: "Field 'title' is required" } satisfies CreateTaskResponse, 400);
+      }
+      if (!body.description || typeof body.description !== "string") {
+        return c.json({ success: false, error: "Field 'description' is required" } satisfies CreateTaskResponse, 400);
+      }
+
+      const story = this.store.getStory(storyId);
+      if (!story) {
+        return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies CreateTaskResponse, 404);
+      }
+
+      // Determine next sequence number
+      const existingTasks = this.store.getTasksForStory(storyId);
+      const nextSeq = existingTasks.length > 0
+        ? Math.max(...existingTasks.map((t) => t.seq)) + 1
+        : 1;
+      const seqStr = String(nextSeq).padStart(2, "0");
+      const slug = body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+
+      const tasksDir = path.join(story.dirPath, "tasks");
+      const taskDirPath = path.join(tasksDir, `${seqStr}-${slug}`);
+      fs.mkdirSync(taskDirPath, { recursive: true });
+
+      const taskId = `${storyId}-${nextSeq}`;
+      const taskData = {
+        id: taskId,
+        title: body.title,
+        description: body.description,
+        status: "todo",
+        result: null,
+      };
+      fs.writeFileSync(path.join(taskDirPath, "task.json"), JSON.stringify(taskData, null, 2) + "\n");
+
+      // Reload store
+      this.store.loadFromDisk();
+
+      const response: CreateTaskResponse = {
+        success: true,
+        task: { id: taskId, seq: nextSeq, title: body.title, description: body.description, status: "todo" },
+      };
+      return c.json(response, 201);
+    });
+
+    // PUT /api/tasks/:taskId
+    this.app.put("/api/tasks/:taskId", async (c) => {
+      const taskId = c.req.param("taskId");
+      const body = (await c.req.json()) as UpdateTaskRequest;
+
+      if (!body.title && !body.description) {
+        return c.json({ success: false, error: "At least one of 'title' or 'description' is required" } satisfies UpdateTaskResponse, 400);
+      }
+
+      const task = this.store.getTask(taskId);
+      if (!task) {
+        return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies UpdateTaskResponse, 404);
+      }
+
+      this.store.updateTaskDetails(taskId, { title: body.title, description: body.description });
+      return c.json({ success: true } satisfies UpdateTaskResponse);
+    });
+
+    // DELETE /api/tasks/:taskId
+    this.app.delete("/api/tasks/:taskId", async (c) => {
+      const taskId = c.req.param("taskId");
+
+      const task = this.store.getTask(taskId);
+      if (!task) {
+        return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies DeleteTaskResponse, 404);
+      }
+
+      this.store.deleteTask(taskId);
+      return c.json({ success: true } satisfies DeleteTaskResponse);
+    });
+
+    // POST /api/tasks/:taskId/move
+    this.app.post("/api/tasks/:taskId/move", async (c) => {
+      const taskId = c.req.param("taskId");
+      const body = (await c.req.json()) as MoveTaskRequest;
+
+      if (!body.status || typeof body.status !== "string") {
+        return c.json({ success: false, error: "Field 'status' is required" } satisfies MoveTaskResponse, 400);
+      }
+
+      const task = this.store.getTask(taskId);
+      if (!task) {
+        return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies MoveTaskResponse, 404);
+      }
+
+      const check = this.store.canTransition(taskId, body.status, "lead");
+      if (!check.ok) {
+        return c.json({ success: false, error: check.error } satisfies MoveTaskResponse, 403);
+      }
+
+      const fromStatus = task.status;
+      this.store.updateTaskStatus(taskId, body.status);
+
+      // Get transition instructions
+      const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, body.status);
+      const parts: string[] = [];
+      if (exitInstructions) parts.push(exitInstructions);
+      if (enterInstructions) parts.push(enterInstructions);
+      const instructions = parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
+
+      return c.json({ success: true, instructions } satisfies MoveTaskResponse);
     });
 
     // POST /api/team/join
