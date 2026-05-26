@@ -134,27 +134,69 @@ export function registerLeadCommands(
 
   // /team-spawn
   pi.registerCommand("team-spawn", {
-    description: "Hire a new teammate: /team-spawn <name> [cwd]",
+    description: "Hire a new teammate: /team-spawn <story-id|name> [cwd]",
+    getArgumentCompletions: (prefix: string) => {
+      const store = getStore();
+      const stories = store.getStories();
+      const items: { value: string; label: string; description?: string }[] = [];
+      for (const story of stories) {
+        if (story.status !== "open") continue;
+        // Only suggest stories that have available tasks
+        const tasks = store.getTasksForStory(story.id);
+        const hasAvailable = tasks.some((t) => t.status === "todo");
+        if (!hasAvailable) continue;
+        if (story.id.startsWith(prefix || "")) {
+          items.push({ value: story.id, label: story.id, description: story.title });
+        }
+      }
+      return items.length > 0 ? items : null;
+    },
     handler: async (args, ctx) => {
       const config = getConfig();
+      const store = getStore();
       const parts = args?.trim().split(/\s+/) || [];
       if (parts.length < 1 || !parts[0]) {
-        ctx.ui.notify("Usage: /team-spawn <name> [cwd]", "warning");
+        ctx.ui.notify("Usage: /team-spawn <story-id|name> [cwd]", "warning");
         return;
       }
 
-      const name = parts[0];
-      const cwd = parts[1] || ctx.cwd;
-      const resolvedCwd = cwd.startsWith("~")
-        ? cwd.replace("~", process.env.HOME || "")
-        : path.resolve(cwd);
+      const firstArg = parts[0];
+      let name: string;
+      let cwd: string;
+
+      // Check if first arg matches a story ID
+      const story = store.getStory(firstArg);
+      if (story) {
+        // Story mode: auto-generate name, use story dir
+        const members = store.getMembers();
+        const existingNames = new Set(members.map((m) => m.id));
+        name = firstArg;
+        if (existingNames.has(name)) {
+          let i = 2;
+          while (existingNames.has(`${firstArg}-${i}`)) i++;
+          name = `${firstArg}-${i}`;
+        }
+        // Use story dir, falling back to current working directory
+        const storyDir = story.dir || ctx.cwd;
+        cwd = storyDir.startsWith("~")
+          ? storyDir.replace("~", process.env.HOME || "")
+          : path.resolve(storyDir);
+      } else {
+        // Legacy mode: treat as name [cwd]
+        name = firstArg;
+        const rawCwd = parts[1] || ctx.cwd;
+        cwd = rawCwd.startsWith("~")
+          ? rawCwd.replace("~", process.env.HOME || "")
+          : path.resolve(rawCwd);
+      }
 
       try {
-        spawnTeammate(name, resolvedCwd, {
+        spawnTeammate(name, cwd, {
           session: config.tmuxSession,
           leaderUrl: config.leaderUrl,
         });
-        ctx.ui.notify(`✓ ${name} has joined the team (tmux window '${name}') 🍕`, "info");
+        const cwdDisplay = story ? (story.dir || ctx.cwd) : cwd;
+        ctx.ui.notify(`✓ ${name} has joined the team (tmux window '${name}') working in ${cwdDisplay} 🍕`, "info");
       } catch (err: any) {
         ctx.ui.notify(`Failed to spawn ${name}: ${err.message}`, "error");
       }
