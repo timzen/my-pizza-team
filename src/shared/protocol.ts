@@ -108,6 +108,25 @@ export interface HeartbeatRequest {
   currentTask?: string;
 }
 
+// POST /api/stories
+export interface CreateStoryRequest {
+  id: string;
+  title: string;
+  description: string;
+  status?: "open" | "done";
+  dependsOn?: string[];
+  tasks?: Array<{
+    title: string;
+    description: string;
+  }>;
+}
+
+export interface CreateStoryResponse {
+  success: boolean;
+  story?: StoryView;
+  error?: string;
+}
+
 // GET /api/team
 export interface TeamResponse {
   members: Array<{

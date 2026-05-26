@@ -2,15 +2,19 @@
   "name": "pi-pizza-team",
   "version": "0.1.0",
   "description": "Multi-Pi task orchestration — a π pizza team (3.14 pizzas, the perfect size 🍕)",
-  "keywords": ["pi-package"],
+  "keywords": [
+    "pi-package"
+  ],
   "license": "MIT",
   "pi": {
-    "extensions": ["./src/index.ts"]
+    "extensions": [
+      "./src/index.ts"
+    ]
   },
   "dependencies": {
+    "@hono/node-server": "^1.0.0",
     "better-sqlite3": "^11.0.0",
-    "hono": "^4.0.0",
-    "@hono/node-server": "^1.0.0"
+    "hono": "^4.0.0"
   },
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",

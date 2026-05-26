@@ -147,6 +147,77 @@ export class Store {
       }));
   }
 
+  hasStory(id: string): boolean {
+    const row = this.db.prepare("SELECT 1 FROM stories WHERE id = ?").get(id);
+    return !!row;
+  }
+
+  createStory(
+    id: string,
+    title: string,
+    description: string,
+    status: "open" | "done" = "open",
+    dependsOn: string[] = [],
+    tasks?: Array<{ title: string; description: string }>
+  ): { story: Story; tasks: TaskWithMeta[] } {
+    const storiesDir = path.join(this.teamDir, "stories");
+    const storyDirName = id;
+    const storyDirPath = path.join(storiesDir, storyDirName);
+
+    // Create directory structure
+    fs.mkdirSync(storyDirPath, { recursive: true });
+
+    const storyData: Story = { id, title, description, status, dependsOn };
+    const storyFile = path.join(storyDirPath, "story.json");
+    fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
+
+    // Insert into DB
+    this.upsertStory(storyData, storyDirPath);
+
+    const createdTasks: TaskWithMeta[] = [];
+
+    if (tasks && tasks.length > 0) {
+      const tasksDir = path.join(storyDirPath, "tasks");
+      fs.mkdirSync(tasksDir, { recursive: true });
+
+      for (let i = 0; i < tasks.length; i++) {
+        const seq = i + 1;
+        const slug = tasks[i].title
+          .toLowerCase()
+          .replace(/[^a-z0-9]+/g, "-")
+          .replace(/^-|-$/g, "")
+          .slice(0, 40);
+        const taskId = `${id}-${seq}`;
+        const taskDirName = `${String(seq).padStart(2, "0")}-${slug}`;
+        const taskDirPath = path.join(tasksDir, taskDirName);
+
+        fs.mkdirSync(taskDirPath, { recursive: true });
+
+        const taskData: Task = {
+          id: taskId,
+          title: tasks[i].title,
+          description: tasks[i].description,
+          status: "todo",
+          result: null,
+        };
+        const taskFile = path.join(taskDirPath, "task.json");
+        fs.writeFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
+
+        this.upsertTask(taskData, id, seq, slug, taskDirPath);
+
+        createdTasks.push({
+          ...taskData,
+          storyId: id,
+          seq,
+          slug,
+          dirPath: taskDirPath,
+        });
+      }
+    }
+
+    return { story: storyData, tasks: createdTasks };
+  }
+
   getStory(id: string): (Story & { dirPath: string }) | null {
     const row: any = this.db.prepare("SELECT * FROM stories WHERE id = ?").get(id);
     if (!row) return null;
