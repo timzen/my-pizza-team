@@ -250,6 +250,108 @@ export function registerLeadCommands(
     },
   });
 
+  // /team-move
+  pi.registerCommand("team-move", {
+    description: "Move a task to a new status: /team-move <task-id> [status]",
+    getArgumentCompletions: (prefix: string) => {
+      const store = getStore();
+      const config = getConfig();
+      const parts = prefix.split(/\s+/);
+
+      if (parts.length <= 1) {
+        // Autocomplete task IDs
+        const stories = store.getStories();
+        const items: { value: string; label: string; description?: string }[] = [];
+        for (const story of stories) {
+          const tasks = store.getTasksForStory(story.id);
+          for (const task of tasks) {
+            if (task.id.startsWith(parts[0] || "")) {
+              items.push({ value: task.id, label: task.id, description: `[${task.status}] ${task.title}` });
+            }
+          }
+        }
+        return items.length > 0 ? items : null;
+      }
+
+      if (parts.length === 2) {
+        // Autocomplete status for the given task
+        const taskId = parts[0];
+        const task = store.getTask(taskId);
+        if (!task) return null;
+
+        const transitions = config.workflow.transitions[task.status] || {};
+        const leadTransitions = Object.entries(transitions)
+          .filter(([_, perm]) => perm === "lead" || perm === "any")
+          .map(([state]) => state)
+          .filter((s) => s.startsWith(parts[1] || ""));
+
+        if (leadTransitions.length === 0) return null;
+        return leadTransitions.map((s) => ({ value: `${taskId} ${s}`, label: s }));
+      }
+
+      return null;
+    },
+    handler: async (args, ctx) => {
+      const parts = args?.trim().split(/\s+/) || [];
+      if (parts.length < 1 || !parts[0]) {
+        ctx.ui.notify("Usage: /team-move <task-id> [status]", "warning");
+        return;
+      }
+
+      const taskId = parts[0];
+      const store = getStore();
+      const config = getConfig();
+      const task = store.getTask(taskId);
+
+      if (!task) {
+        ctx.ui.notify(`Task "${taskId}" not found`, "error");
+        return;
+      }
+
+      // Determine available transitions for the lead from current status
+      const transitions = config.workflow.transitions[task.status] || {};
+      const leadTransitions = Object.entries(transitions)
+        .filter(([_, perm]) => perm === "lead" || perm === "any")
+        .map(([state]) => state);
+
+      if (leadTransitions.length === 0) {
+        ctx.ui.notify(`No transitions available for lead from "${task.status}"`, "warning");
+        return;
+      }
+
+      let newStatus = parts[1];
+
+      if (!newStatus) {
+        // If only one option, use it; otherwise prompt
+        if (leadTransitions.length === 1) {
+          newStatus = leadTransitions[0];
+        } else {
+          const choice = await ctx.ui.select(
+            `Move "${task.title}" [${task.status}] to:`,
+            leadTransitions
+          );
+          if (!choice) return;
+          newStatus = choice;
+        }
+      }
+
+      const check = store.canTransition(taskId, newStatus, "lead");
+      if (!check.ok) {
+        ctx.ui.notify(`Cannot move: ${check.error}`, "error");
+        return;
+      }
+
+      store.updateTaskStatus(taskId, newStatus);
+
+      // If moving back to in_progress, release assignment so it can be re-claimed
+      if (newStatus === "in_progress") {
+        store.releaseTask(taskId);
+      }
+
+      ctx.ui.notify(`✓ ${task.title} moved to ${newStatus}`, "info");
+    },
+  });
+
   // /team-pause
   pi.registerCommand("team-pause", {
     description: "Pause task distribution (teammates finish current work)",
