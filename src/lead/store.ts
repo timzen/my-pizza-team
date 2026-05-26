@@ -765,6 +765,159 @@ export class Store {
 
   // --- Workflow validation ---
 
+  // --- Archive ---
+
+  private generateSynopsis(destPath: string, story: Story & { dirPath: string }, tasks: TaskWithMeta[], archivedAt: string): void {
+    const date = archivedAt.split("T")[0];
+    const lines: string[] = [
+      `# ${story.title}`,
+      "",
+      `**Archived**: ${date}`,
+      `**ID**: ${story.id}`,
+      "",
+      "## Description",
+      story.description,
+      "",
+      "## Tasks Completed",
+      "",
+    ];
+
+    for (let i = 0; i < tasks.length; i++) {
+      const task = tasks[i];
+      lines.push(`### ${i + 1}. ${task.title}`);
+      lines.push(`**Status**: ${task.status}`);
+      if (task.result) {
+        lines.push(`**Result**: ${task.result}`);
+      }
+      lines.push("");
+    }
+
+    lines.push("## Summary");
+    lines.push(`${tasks.length} task${tasks.length === 1 ? "" : "s"} completed for this story.`);
+    lines.push("");
+
+    fs.writeFileSync(path.join(destPath, "SYNOPSIS.md"), lines.join("\n"));
+  }
+
+  isStoryArchivable(storyId: string): boolean {
+    const tasks = this.getTasksForStory(storyId);
+    if (tasks.length === 0) return false;
+    return tasks.every((t) => t.status === "done");
+  }
+
+  archiveStory(storyId: string): void {
+    if (!this.isStoryArchivable(storyId)) {
+      throw new Error(`Cannot archive story "${storyId}": not all tasks are done`);
+    }
+
+    const story = this.getStory(storyId);
+    if (!story) throw new Error(`Story "${storyId}" not found`);
+
+    const archivedDir = path.join(this.teamDir, "archived");
+    fs.mkdirSync(archivedDir, { recursive: true });
+
+    const sourcePath = story.dirPath;
+    const destPath = path.join(archivedDir, storyId);
+
+    // Move directory
+    fs.renameSync(sourcePath, destPath);
+
+    // Update story.json with archivedAt timestamp
+    const storyFile = path.join(destPath, "story.json");
+    const storyData = JSON.parse(fs.readFileSync(storyFile, "utf-8"));
+    const archivedAt = new Date().toISOString();
+    storyData.archivedAt = archivedAt;
+    fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
+
+    // Generate SYNOPSIS.md
+    const tasks = this.getTasksForStory(storyId);
+    this.generateSynopsis(destPath, story, tasks, archivedAt);
+
+    // Remove from SQLite: tasks, assignments, messages, token_usage, then story
+    for (const task of tasks) {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(task.id);
+      this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(task.id);
+      this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(task.id);
+      this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(task.id);
+    }
+    this.db.prepare("DELETE FROM tasks WHERE story_id = ?").run(storyId);
+    this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
+  }
+
+  getArchivedStories(): Array<{ id: string; title: string; synopsis: string }> {
+    const archivedDir = path.join(this.teamDir, "archived");
+    if (!fs.existsSync(archivedDir)) return [];
+
+    const results: Array<{ id: string; title: string; synopsis: string }> = [];
+    for (const dirName of fs.readdirSync(archivedDir)) {
+      const dirPath = path.join(archivedDir, dirName);
+      if (!fs.statSync(dirPath).isDirectory()) continue;
+
+      const storyFile = path.join(dirPath, "story.json");
+      if (!fs.existsSync(storyFile)) continue;
+
+      const storyData = JSON.parse(fs.readFileSync(storyFile, "utf-8"));
+
+      // Read synopsis if available, otherwise use description
+      let synopsis = storyData.description || "";
+      const synopsisFile = path.join(dirPath, "SYNOPSIS.md");
+      if (fs.existsSync(synopsisFile)) {
+        synopsis = fs.readFileSync(synopsisFile, "utf-8");
+      }
+
+      results.push({
+        id: storyData.id,
+        title: storyData.title,
+        synopsis,
+      });
+    }
+    return results;
+  }
+
+  getArchivedStoryContext(storyId: string): { story: any; tasks: any[]; messages: Record<string, Message[]> } | null {
+    const archivedDir = path.join(this.teamDir, "archived", storyId);
+    if (!fs.existsSync(archivedDir)) return null;
+
+    const storyFile = path.join(archivedDir, "story.json");
+    if (!fs.existsSync(storyFile)) return null;
+
+    const story = JSON.parse(fs.readFileSync(storyFile, "utf-8"));
+    const tasks: any[] = [];
+    const messages: Record<string, Message[]> = {};
+
+    const tasksDir = path.join(archivedDir, "tasks");
+    if (fs.existsSync(tasksDir)) {
+      const taskDirs = fs.readdirSync(tasksDir).sort();
+      for (const taskDirName of taskDirs) {
+        const taskDirPath = path.join(tasksDir, taskDirName);
+        if (!fs.statSync(taskDirPath).isDirectory()) continue;
+
+        const taskFile = path.join(taskDirPath, "task.json");
+        if (!fs.existsSync(taskFile)) continue;
+
+        const task = JSON.parse(fs.readFileSync(taskFile, "utf-8"));
+        tasks.push(task);
+
+        // Load messages for this task
+        const messagesFile = path.join(taskDirPath, "messages.jsonl");
+        if (fs.existsSync(messagesFile)) {
+          const lines = fs.readFileSync(messagesFile, "utf-8").split("\n").filter(Boolean);
+          messages[task.id] = lines.map((line: string) => JSON.parse(line) as Message);
+        }
+      }
+    }
+
+    return { story, tasks, messages };
+  }
+
+  writeArchivedSynopsis(storyId: string, content: string): void {
+    const synopsisPath = path.join(this.teamDir, "archived", storyId, "SYNOPSIS.md");
+    if (!fs.existsSync(path.dirname(synopsisPath))) {
+      throw new Error(`Archived story "${storyId}" not found`);
+    }
+    fs.writeFileSync(synopsisPath, content);
+  }
+
   canTransition(taskId: string, newStatus: string, actor: "lead" | "teammate"): { ok: boolean; error?: string } {
     const task = this.getTask(taskId);
     if (!task) return { ok: false, error: "Task not found" };

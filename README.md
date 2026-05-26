@@ -112,13 +112,21 @@ Tasks follow a configurable workflow with permission-gated transitions:
 ├── state.db                      # SQLite runtime (gitignored)
 ├── on-enter-<status>.md          # Optional: instructions when entering a status
 ├── on-exit-<status>.md           # Optional: instructions when leaving a status
-└── stories/
-    └── my-story/
-        ├── story.json            # Story metadata + dependencies + optional dir
+├── stories/
+│   └── my-story/
+│       ├── story.json            # Story metadata + dependencies + optional dir
+│       └── tasks/
+│           └── 01-first-task/
+│               ├── task.json     # Task definition + status + result
+│               └── messages.jsonl # Decision log (append-only)
+└── archived/
+    └── completed-story/
+        ├── story.json            # Includes archivedAt timestamp
+        ├── SYNOPSIS.md           # Auto-generated summary of completed work
         └── tasks/
             └── 01-first-task/
-                ├── task.json     # Task definition + status + result
-                └── messages.jsonl # Decision log (append-only)
+                ├── task.json
+                └── messages.jsonl
 ```
 
 ### story.json
@@ -162,6 +170,19 @@ These instructions are returned in API responses and prepended to the teammate's
 - **Task status** — flushed from SQLite to JSON files every 30 minutes + on shutdown
 - **Git commits** — automatic daily checkpoint (configurable, never pushes)
 - **Manual:** `/ppt-save` (flush) and `/ppt-commit` (flush + commit)
+
+## Archiving
+
+When all tasks in a story are complete, it can be archived:
+
+- **From the board:** click the 📦 Archive button on a completed story
+- **Via API:** `POST /api/stories/:id/archive`
+
+Archiving moves the story directory from `stories/` to `archived/`, generates a `SYNOPSIS.md` with a structured summary, adds an `archivedAt` timestamp to `story.json`, and removes it from the active SQLite database.
+
+Archived stories are viewable at **`http://localhost:7437/archived`** — a dedicated page listing all archived stories with their synopsis content.
+
+The `team_enrich_synopsis` LLM tool can optionally generate a richer AI-written summary for archived stories that warrant a more detailed historical record.
 
 ## Permission System Integration
 

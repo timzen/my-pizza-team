@@ -213,3 +213,20 @@ export interface MarkReadResponse {
   success: boolean;
   error?: string;
 }
+
+// POST /api/stories/:id/archive
+export interface ArchiveStoryResponse {
+  success: boolean;
+  synopsis?: string;
+  error?: string;
+}
+
+// GET /api/archived
+export interface ArchivedStoriesResponse {
+  stories: Array<{
+    id: string;
+    title: string;
+    archivedAt: string;
+    synopsis: string;
+  }>;
+}

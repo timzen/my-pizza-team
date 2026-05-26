@@ -38,9 +38,14 @@ src/
 │   ├── types.ts          # All TypeScript types, interfaces, constants, defaults
 │   └── protocol.ts       # HTTP API request/response shapes (shared contract)
 ├── lead/
-│   ├── store.ts          # SQLite store: schema, CRUD, sync to/from JSON files
-│   ├── server.ts         # Hono HTTP server: API routes + web UI (board, landing)
-│   ├── commands.ts       # Slash commands + team_add_story/team_add_task LLM tools
+│   ├── store.ts          # SQLite store: schema, CRUD, sync to/from JSON files, archiving
+│   ├── server.ts         # Hono HTTP server: API routes + web UI (board, archived, landing)
+│   ├── board.ts          # Board HTML loader
+│   ├── board.html        # Kanban board single-page app
+│   ├── archived-page.ts  # Archived page HTML loader
+│   ├── archived-page.html # Archived stories page
+│   ├── commands.ts       # Slash commands for team lead
+│   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task, team_enrich_synopsis)
 │   └── tmux.ts           # tmux session/window lifecycle management
 └── teammate/
     ├── client.ts         # HTTP client wrapping all leader API calls
@@ -109,7 +114,7 @@ The database (`state.db`) is the runtime engine. See `src/lead/store.ts` for the
 ## Sync Strategy
 
 ### Startup
-1. Walk `.pi-pizza-team/stories/` directory tree
+1. Walk `.pi-pizza-team/stories/` directory tree (NOT `archived/`)
 2. Load each `story.json` and `task.json` into SQLite
 3. Messages are NOT loaded (lazy — only on first access)
 
@@ -166,10 +171,13 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 |-------|--------|--------|
 | `/` | GET | Landing page HTML |
 | `/board` | GET | Kanban board HTML (polls API) |
+| `/archived` | GET | Archived stories page HTML |
 | `/api/status` | GET | Summary stats + workflow config |
 | `/api/stories` | GET | All stories + tasks + readiness |
 | `/api/stories` | POST | Create a new story (with optional tasks, dir) |
 | `/api/stories/:storyId/tasks` | POST | Create a task within a story |
+| `/api/stories/:id/archive` | POST | Archive a completed story (400 if tasks incomplete) |
+| `/api/archived` | GET | List archived stories with synopsis |
 | `/api/next-task?memberId=X` | GET | Next claimable task (filtered by member's cwd ↔ story dir) |
 | `/api/tasks/:id/claim` | POST | Claim a task (returns transition instructions) |
 | `/api/tasks/:id/status` | POST | Update status (enforces workflow, returns instructions) |
@@ -211,6 +219,28 @@ Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 6. **Workflow permissions are declarative** (config drives behavior, no code changes needed)
 7. **Task execution uses sendUserMessage** (keeps teammate interactive for pairing)
 8. **Permission toggle is file-based** (leverages permission system's runtime config reload)
+9. **Archived stories are directory-based** (moved from `stories/` to `archived/`, never loaded into SQLite at startup)
+
+## Archiving
+
+Completed stories can be archived to keep the active board clean:
+
+```
+stories/my-story/  ──archiveStory()──►  archived/my-story/
+                                           + story.json (archivedAt added)
+                                           + SYNOPSIS.md (auto-generated)
+                                           + tasks/ (preserved as-is)
+```
+
+**Flow:**
+1. `isStoryArchivable(id)` — checks all tasks are "done"
+2. `archiveStory(id)` — moves dir, stamps archivedAt, generates synopsis, removes from SQLite
+3. `getArchivedStories()` — reads `archived/` directory for listing
+4. `getArchivedStoryContext(id)` — reads full context (for LLM enrichment)
+
+**Key invariant:** `loadFromDisk()` only walks `stories/`, so archived stories are never re-loaded into the active database. The `archived/` directory is purely file-based.
+
+**LLM enrichment:** The `team_enrich_synopsis` tool gathers full context from an archived story (tasks, messages) and returns it for the LLM to write a richer SYNOPSIS.md.
 
 ## Extending
 
@@ -230,7 +260,8 @@ Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 3. Optionally add `on-enter-<state>.md` / `on-exit-<state>.md` for instructions
 
 ### Modifying the board UI
-1. Edit the `BOARD_HTML` constant at the bottom of `src/lead/server.ts`
+1. Edit `src/lead/board.html` (loaded by `src/lead/board.ts`)
 2. It's vanilla HTML/JS that polls the JSON API every 3 seconds
 3. Task data is stored in `taskDataMap` for safe modal access
 4. Workflow transitions are fetched from `GET /api/status` and used to render move dropdowns
+5. The archived stories page is a separate file: `src/lead/archived-page.html`

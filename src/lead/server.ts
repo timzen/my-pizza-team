@@ -21,6 +21,7 @@ import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { BOARD_HTML } from "./board.js";
+import { ARCHIVED_HTML } from "./archived-page.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -47,6 +48,8 @@ import type {
   MoveTaskResponse,
   TokenUsageRequest,
   TokenUsageResponse,
+  ArchiveStoryResponse,
+  ArchivedStoriesResponse,
 } from "../shared/protocol.js";
 
 // Cost per 1M tokens (input, output) for common models
@@ -108,6 +111,7 @@ export class TeamServer {
   <li><a href="/api/stories">/api/stories</a> — All stories</li>
   <li><a href="/api/team">/api/team</a> — Team members</li>
   <li><a href="/board">/board</a> — Kanban board</li>
+  <li><a href="/archived">/archived</a> — Archived stories</li>
 </ul>
 <script>
 fetch('/api/status').then(r=>r.json()).then(d=>{
@@ -123,6 +127,11 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
     // Kanban board
     this.app.get("/board", (c) => {
       return c.html(BOARD_HTML);
+    });
+
+    // Archived stories page
+    this.app.get("/archived", (c) => {
+      return c.html(ARCHIVED_HTML);
     });
 
     // GET /api/status
@@ -541,6 +550,46 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
             currentTask: assignment?.taskId || null,
             tmuxWindow: m.tmuxWindow,
             lastHeartbeat: m.lastHeartbeat,
+          };
+        }),
+      };
+      return c.json(response);
+    });
+
+    // --- Archive endpoints ---
+
+    // POST /api/stories/:id/archive
+    this.app.post("/api/stories/:id/archive", (c) => {
+      const storyId = c.req.param("id");
+      const story = this.store.getStory(storyId);
+      if (!story) {
+        return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies ArchiveStoryResponse, 404);
+      }
+      if (!this.store.isStoryArchivable(storyId)) {
+        return c.json({ success: false, error: "Cannot archive: not all tasks are done" } satisfies ArchiveStoryResponse, 400);
+      }
+      try {
+        this.store.archiveStory(storyId);
+        // Read back the generated synopsis
+        const archived = this.store.getArchivedStories().find(s => s.id === storyId);
+        return c.json({ success: true, synopsis: archived?.synopsis || "" } satisfies ArchiveStoryResponse);
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message } satisfies ArchiveStoryResponse, 400);
+      }
+    });
+
+    // GET /api/archived
+    this.app.get("/api/archived", (c) => {
+      const stories = this.store.getArchivedStories();
+      const response: ArchivedStoriesResponse = {
+        stories: stories.map(s => {
+          // Read archivedAt from story.json
+          const ctx = this.store.getArchivedStoryContext(s.id);
+          return {
+            id: s.id,
+            title: s.title,
+            archivedAt: ctx?.story?.archivedAt || "",
+            synopsis: s.synopsis,
           };
         }),
       };

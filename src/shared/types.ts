@@ -30,6 +30,7 @@ export interface Story {
   status: "open" | "done";
   dependsOn: string[];
   dir?: string;
+  archivedAt?: string; // ISO timestamp
 }
 
 export interface TokenUsage {
@@ -108,3 +109,4 @@ export const TEAM_DIR = ".pi-pizza-team";
 export const CONFIG_FILE = "config.json";
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
+export const ARCHIVED_DIR = "archived";

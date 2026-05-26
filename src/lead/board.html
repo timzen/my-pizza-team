@@ -146,6 +146,7 @@
   <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
   <div style="display:flex;align-items:center;gap:14px;">
     <span id="total-cost" style="font-size:0.82em;color:#4caf50;"></span>
+    <a href="/archived" class="btn-add-story" id="btn-archived" style="background:#0f3460;border:1px solid #1a4080;text-decoration:none;">📦 Archived <span id="archived-count"></span></a>
     <button class="btn-add-story" id="btn-add-story" onclick="openAddStoryModal()">+ Add Story</button>
   </div>
 </div>
@@ -269,6 +270,7 @@
     </div>
   </div>
 </div>
+
 <script>
 const POLL_MS = 3000;
 const COLUMN_ORDER = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
@@ -842,11 +844,13 @@ function renderBoard(stories) {
     }).join('');
 
     const addBtn = '<button class="btn-add-task-inline" onclick="openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
+    const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === 'done');
+    const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
 
     return '<div class="swimlane' + blockedClass + '">'
       + '<div class="swimlane-header">'
       + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + '</span>'
-      + '<span class="swimlane-meta">' + addBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
+      + '<span class="swimlane-meta">' + addBtn + archiveBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
       + '</div>'
       + '<div class="board">' + columnsHtml + '</div>'
       + '</div>';
@@ -863,7 +867,33 @@ function renderBoard(stories) {
   }
 }
 
+// --- Archive ---
+let archivedCount = 0;
+
+async function refreshArchivedCount() {
+  try {
+    const res = await fetch('/api/archived');
+    const data = await res.json();
+    archivedCount = data.stories ? data.stories.length : 0;
+    const el = document.getElementById('archived-count');
+    el.textContent = archivedCount > 0 ? '(' + archivedCount + ')' : '';
+  } catch(e) {}
+}
+
+async function archiveStory(storyId, title) {
+  if (!confirm('Archive story "' + title + '"?\n\nIt will be moved off the active board.')) return;
+  try {
+    const res = await fetch('/api/stories/' + encodeURIComponent(storyId) + '/archive', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) { alert(data.error || 'Archive failed'); return; }
+    refresh();
+    refreshArchivedCount();
+  } catch(e) { alert('Network error: ' + e.message); }
+}
+
 refresh();
 setInterval(refresh, POLL_MS);
+refreshArchivedCount();
+setInterval(refreshArchivedCount, 30000);
 </script>
 </body></html>

@@ -52,6 +52,9 @@ Optional markdown files (`on-enter-<status>.md`, `on-exit-<status>.md`) provide 
 - Review guidelines ("run tests before marking done")
 - Exit procedures ("clean up temporary files")
 
+### 8. Archiving as a first-class concept
+Completed stories can be archived to keep the active board focused on current work. Archived stories retain all their files (story.json, tasks, messages) for historical reference — they're just moved to a separate `archived/` directory and excluded from the active SQLite database. A `SYNOPSIS.md` is auto-generated on archive as a structured summary, and can optionally be enriched by the LLM for stories that warrant a richer narrative.
+
 ## Interaction Model
 
 ### Task Lifecycle
