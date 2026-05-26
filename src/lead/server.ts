@@ -45,7 +45,34 @@ import type {
   DeleteTaskResponse,
   MoveTaskRequest,
   MoveTaskResponse,
+  TokenUsageRequest,
+  TokenUsageResponse,
 } from "../shared/protocol.js";
+
+// Cost per 1M tokens (input, output) for common models
+const MODEL_COSTS: Record<string, { input: number; output: number }> = {
+  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
+  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
+  "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
+  "claude-haiku-3": { input: 0.25, output: 1.25 },
+  "claude-3-5-sonnet-20241022": { input: 3.0, output: 15.0 },
+  "claude-3-5-haiku-20241022": { input: 0.80, output: 4.0 },
+  "gpt-4o": { input: 2.5, output: 10.0 },
+  "gpt-4o-mini": { input: 0.15, output: 0.60 },
+  "gpt-4-turbo": { input: 10.0, output: 30.0 },
+  "o3": { input: 10.0, output: 40.0 },
+  "o3-mini": { input: 1.10, output: 4.40 },
+};
+
+function estimateTokenCost(model: string, inputTokens: number, outputTokens: number): number {
+  // Try exact match, then prefix match
+  let costs = MODEL_COSTS[model];
+  if (!costs) {
+    const key = Object.keys(MODEL_COSTS).find(k => model.startsWith(k) || model.includes(k));
+    costs = key ? MODEL_COSTS[key] : { input: 3.0, output: 15.0 }; // default to sonnet-ish pricing
+  }
+  return (inputTokens * costs.input + outputTokens * costs.output) / 1_000_000;
+}
 
 export class TeamServer {
   private app: Hono;
@@ -151,6 +178,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
             dir: story.dir,
             tasks: tasks.map((task) => {
               const assignment = this.store.getAssignment(task.id);
+              const tokenSummary = this.store.getTokenUsageSummary(task.id);
               return {
                 id: task.id,
                 seq: task.seq,
@@ -159,6 +187,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
                 description: task.description,
                 assignee: assignment?.memberId || null,
                 hasMessages: this.store.hasUnreadMessages(task.id),
+                tokenUsage: tokenSummary || undefined,
               };
             }),
           };
@@ -332,6 +361,26 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       const messages = this.store.getMessages(taskId);
       const response: MessagesResponse = { messages };
       return c.json(response);
+    });
+
+    // POST /api/tasks/:taskId/token-usage
+    this.app.post("/api/tasks/:taskId/token-usage", async (c) => {
+      const taskId = c.req.param("taskId");
+      const body = (await c.req.json()) as TokenUsageRequest;
+
+      if (!body.inputTokens || !body.outputTokens || !body.model) {
+        return c.json({ success: false, error: "Fields inputTokens, outputTokens, and model are required" } satisfies TokenUsageResponse, 400);
+      }
+
+      const task = this.store.getTask(taskId);
+      if (!task) {
+        return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies TokenUsageResponse, 404);
+      }
+
+      const costUsd = estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
+      this.store.addTokenUsage(taskId, body.inputTokens, body.outputTokens, body.model, costUsd);
+
+      return c.json({ success: true, costUsd } satisfies TokenUsageResponse);
     });
 
     // POST /api/stories/:storyId/tasks

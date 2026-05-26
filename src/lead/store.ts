@@ -92,6 +92,16 @@ export class Store {
         status TEXT DEFAULT 'idle',
         last_heartbeat INTEGER
       );
+
+      CREATE TABLE IF NOT EXISTS token_usage (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        task_id TEXT REFERENCES tasks(id),
+        input_tokens INTEGER,
+        output_tokens INTEGER,
+        model TEXT,
+        cost_usd REAL,
+        recorded_at INTEGER
+      );
     `);
 
     // Migration: add dir column if it doesn't exist (for existing databases)
@@ -363,6 +373,8 @@ export class Store {
     // Remove messages
     this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(taskId);
+    // Remove token usage
+    this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(taskId);
     // Remove task
     this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
 
@@ -531,6 +543,38 @@ export class Store {
     }));
   }
 
+  // --- Token Usage ---
+
+  addTokenUsage(taskId: string, inputTokens: number, outputTokens: number, model: string, costUsd: number): void {
+    const now = Date.now();
+    this.db
+      .prepare("INSERT INTO token_usage (task_id, input_tokens, output_tokens, model, cost_usd, recorded_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(taskId, inputTokens, outputTokens, model, costUsd, now);
+    // Mark task dirty so tokenUsage is included in next flush
+    this.db.prepare("UPDATE tasks SET dirty = 1 WHERE id = ?").run(taskId);
+  }
+
+  getTokenUsage(taskId: string): Array<{ inputTokens: number; outputTokens: number; model: string; costUsd: number; at: string }> {
+    const rows: any[] = this.db
+      .prepare("SELECT * FROM token_usage WHERE task_id = ? ORDER BY recorded_at")
+      .all(taskId);
+    return rows.map((row: any) => ({
+      inputTokens: row.input_tokens,
+      outputTokens: row.output_tokens,
+      model: row.model,
+      costUsd: row.cost_usd,
+      at: new Date(row.recorded_at).toISOString(),
+    }));
+  }
+
+  getTokenUsageSummary(taskId: string): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {
+    const row: any = this.db
+      .prepare("SELECT SUM(input_tokens) as inp, SUM(output_tokens) as out, SUM(cost_usd) as cost FROM token_usage WHERE task_id = ?")
+      .get(taskId);
+    if (!row || row.cost === null) return null;
+    return { totalCostUsd: row.cost, totalInputTokens: row.inp, totalOutputTokens: row.out };
+  }
+
   // --- Members ---
 
   registerMember(id: string, name: string, cwd: string, tmuxWindow: string): void {
@@ -592,13 +636,17 @@ export class Store {
   flushToDisk(): void {
     const dirtyTasks: any[] = this.db.prepare("SELECT * FROM tasks WHERE dirty = 1").all();
     for (const row of dirtyTasks) {
-      const taskData: Task = {
+      const tokenUsage = this.getTokenUsage(row.id);
+      const taskData: any = {
         id: row.id,
         title: row.title,
         description: row.description,
         status: row.status,
         result: row.result,
       };
+      if (tokenUsage.length > 0) {
+        taskData.tokenUsage = tokenUsage;
+      }
       const taskFile = path.join(row.dir_path, "task.json");
       fs.writeFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
     }

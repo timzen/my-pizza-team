@@ -14,6 +14,7 @@ import type {
   PostMessageResponse,
   MessagesResponse,
   JoinResponse,
+  TokenUsageResponse,
 } from "../shared/protocol.js";
 import type { WorkflowConfig } from "../shared/types.js";
 
@@ -78,6 +79,15 @@ export class TeamClient {
   async getMessages(taskId: string): Promise<MessagesResponse> {
     const res = await fetch(`${this.baseUrl}/api/tasks/${encodeURIComponent(taskId)}/messages`);
     return res.json() as Promise<MessagesResponse>;
+  }
+
+  async reportTokenUsage(taskId: string, usage: { inputTokens: number; outputTokens: number; model: string }): Promise<TokenUsageResponse> {
+    const res = await fetch(`${this.baseUrl}/api/tasks/${encodeURIComponent(taskId)}/token-usage`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(usage),
+    });
+    return res.json() as Promise<TokenUsageResponse>;
   }
 
   async checkServer(): Promise<boolean> {

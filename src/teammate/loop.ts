@@ -193,6 +193,17 @@ export class WorkLoop {
     const summary = lastMessage.slice(0, 500); // Keep result concise
     await this.client.postMessage(taskId, `[review] Work complete. Summary:\n${summary}`).catch(() => {});
 
+    // Report token usage
+    // TODO: Pi SDK does not yet expose per-conversation token counts directly.
+    // When available, replace these placeholder values with actual usage from
+    // something like: pi.getConversationTokenUsage() or the agent_end event payload.
+    // For now, we report placeholder values so the infrastructure is exercised.
+    await this.client.reportTokenUsage(taskId, {
+      inputTokens: 0,
+      outputTokens: 0,
+      model: "unknown",
+    }).catch(() => {});
+
     const statusResponse = await this.client.updateStatus(taskId, "review", summary);
     this.currentTaskId = null;
 

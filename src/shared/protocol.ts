@@ -37,6 +37,7 @@ export interface TaskView {
   description?: string;
   assignee: string | null;
   hasMessages: boolean;
+  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
 // GET /api/next-task?memberId=X
@@ -192,4 +193,17 @@ export interface MoveTaskResponse {
   success: boolean;
   error?: string;
   instructions?: string;
+}
+
+// POST /api/tasks/:id/token-usage
+export interface TokenUsageRequest {
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+}
+
+export interface TokenUsageResponse {
+  success: boolean;
+  costUsd?: number;
+  error?: string;
 }

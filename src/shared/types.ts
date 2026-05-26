@@ -32,12 +32,21 @@ export interface Story {
   dir?: string;
 }
 
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  model: string;
+  costUsd: number; // estimated
+  at: string; // ISO timestamp
+}
+
 export interface Task {
   id: string;
   title: string;
   description: string;
   status: string;
   result: string | null;
+  tokenUsage?: TokenUsage[];
 }
 
 export interface TaskWithMeta extends Task {
