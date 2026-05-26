@@ -1,4 +1,20 @@
 // SQLite store + JSON file sync
+//
+// This is the core data layer for the team lead. It:
+// - Initializes the SQLite schema (state.db) in WAL mode
+// - Loads story.json and task.json files from disk into SQLite at startup
+// - Lazy-loads messages.jsonl only when a task's messages are first accessed
+// - Provides CRUD operations for stories, tasks, assignments, members, messages
+// - Validates workflow transitions (canTransition)
+// - Flushes dirty task state back to JSON files periodically
+// - Commits to git on a configurable schedule
+//
+// Key invariants:
+// - JSON files are the source of truth for story/task definitions
+// - SQLite is the runtime engine for fast atomic reads/writes
+// - Messages are always appended to JSONL immediately (never lost)
+// - Assignments and members are ephemeral (never written to JSON)
+// - The `dirty` flag on tasks tracks what needs flushing to disk
 import Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";

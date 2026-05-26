@@ -1,4 +1,19 @@
 // HTTP API server for the team lead
+//
+// Serves both the REST API (for teammates) and the web UI (for humans).
+// Built with Hono for lightweight routing.
+//
+// Web routes:
+//   GET /       → Landing page with status summary
+//   GET /board  → Kanban board with swimlanes (auto-polls API)
+//
+// API routes: see docs/ARCHITECTURE.md for the full route table.
+//
+// The server enforces workflow permissions on status updates —
+// if a teammate tries a transition that requires "lead", it returns 403.
+//
+// Task distribution can be paused/resumed via /api/control/* endpoints,
+// which causes GET /api/next-task to return null while paused.
 import { Hono } from "hono";
 import { serve, type ServerType } from "@hono/node-server";
 import type { Store } from "./store.js";

@@ -1,4 +1,11 @@
 // HTTP client for teammate → leader communication
+//
+// Wraps all API calls a teammate makes to the team lead's HTTP server.
+// Each method corresponds to one API endpoint. All methods are async
+// and return typed response objects from shared/protocol.ts.
+//
+// The client is initialized with the leader's base URL and the teammate's
+// member ID (used for authentication/identification in requests).
 import type {
   StatusResponse,
   NextTaskResponse,

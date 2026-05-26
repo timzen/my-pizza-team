@@ -1,5 +1,14 @@
 // pi-pizza-team extension entry point
-// Detects role (team lead vs teammate) and sets up accordingly.
+//
+// Role detection logic:
+// 1. If .pi-pizza-team/config.json exists in cwd → Team Lead
+//    - Loads SQLite store, starts HTTP server, registers commands
+// 2. If --team-worker flag + --team-lead URL → Teammate (auto-start)
+//    - Connects to leader API, starts work loop
+// 3. If PI_TEAM_LEADER_URL env var set → Teammate (prompts to join)
+// 4. Otherwise → Inactive (only /team-init available)
+//
+// See docs/ARCHITECTURE.md for the full module map and data flow.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

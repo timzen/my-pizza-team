@@ -1,4 +1,23 @@
 // Teammate work loop: poll → claim → execute → report
+//
+// This is the autonomous execution engine for a teammate Pi.
+// It manages the lifecycle of task execution:
+//
+// 1. Polls the leader API for available tasks (every 5s)
+// 2. Claims a task atomically (prevents double-assignment)
+// 3. Sends the task description as a user message via pi.sendUserMessage()
+//    → This triggers the normal Pi agent loop (the teammate "works" on it)
+// 4. Listens for agent_end event to capture the result
+// 5. Reports completion (or asks for help if stuck)
+// 6. Loops back to polling
+//
+// Mode management:
+// - `autonomous` = true: actively polling and executing tasks
+// - `autonomous` = false: paused (human is pairing in this window)
+//
+// The loop also handles the "needs_input" flow:
+// - If the agent's response contains "NEEDS_INPUT:", it posts the question
+//   to the leader and waits for a reply before continuing.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamClient } from "./client.js";
 

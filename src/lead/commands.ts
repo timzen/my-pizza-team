@@ -1,4 +1,16 @@
-// Team lead slash commands
+// Team lead slash commands + LLM tool
+//
+// Registers all interactive commands available to the team lead:
+//   /team-init, /team-board, /team-spawn, /team-dismiss, /team-hop,
+//   /team-inbox, /team-reply, /team-move, /team-pause, /team-resume,
+//   /team-save, /team-commit, /team-add-story, /team-add-task
+//
+// Also registers the `team_add_task` LLM tool so Pi can add tasks
+// conversationally (e.g., from a design doc discussion).
+//
+// Helper: addTaskToStory() handles the filesystem operations for
+// creating a new task directory with task.json, determining the
+// next sequence number, and reloading the store.
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
