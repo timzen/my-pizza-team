@@ -277,6 +277,7 @@ export function registerLeadCommands(
         for (const story of stories) {
           const tasks = store.getTasksForStory(story.id);
           for (const task of tasks) {
+            if (task.status === "done") continue;
             if (task.id.startsWith(parts[0] || "")) {
               items.push({ value: task.id, label: task.id, description: `[${task.status}] ${task.title}` });
             }
