@@ -109,6 +109,12 @@ export class Store {
     if (!storyColumns.some((col: any) => col.name === "dir")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN dir TEXT");
     }
+
+    // Migration: add last_read_at column to tasks if it doesn't exist
+    const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as any[];
+    if (!taskColumns.some((col: any) => col.name === "last_read_at")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN last_read_at INTEGER");
+    }
   }
 
   // --- Load from filesystem ---
@@ -507,7 +513,8 @@ export class Store {
   }
 
   hasUnreadMessages(taskId: string): boolean {
-    // Check if there are messages where from != 'lead' that are newer than last lead message
+    // Check if there are teammate messages newer than both the last lead
+    // message AND the last_read_at timestamp (mark-as-read without replying).
     this.ensureMessagesLoaded(taskId);
     const lastLead: any = this.db
       .prepare(
@@ -521,8 +528,21 @@ export class Store {
       .get(taskId);
 
     if (!lastTeammate?.t) return false;
-    if (!lastLead?.t) return true;
-    return lastTeammate.t > lastLead.t;
+
+    // Determine the latest "read" point: max of last lead message and last_read_at
+    const taskRow: any = this.db
+      .prepare("SELECT last_read_at FROM tasks WHERE id = ?")
+      .get(taskId);
+    const readTimestamp = Math.max(lastLead?.t || 0, taskRow?.last_read_at || 0);
+
+    if (readTimestamp === 0) return true; // No lead message and never marked read
+    return lastTeammate.t > readTimestamp;
+  }
+
+  markMessagesRead(taskId: string): void {
+    this.db
+      .prepare("UPDATE tasks SET last_read_at = ? WHERE id = ?")
+      .run(Date.now(), taskId);
   }
 
   getInboxTasks(): TaskWithMeta[] {

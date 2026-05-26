@@ -382,6 +382,17 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       return c.json({ success: true, costUsd } satisfies TokenUsageResponse);
     });
 
+    // POST /api/tasks/:taskId/mark-read
+    this.app.post("/api/tasks/:taskId/mark-read", (c) => {
+      const taskId = c.req.param("taskId");
+      const task = this.store.getTask(taskId);
+      if (!task) {
+        return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+      }
+      this.store.markMessagesRead(taskId);
+      return c.json({ success: true });
+    });
+
     // POST /api/stories/:storyId/tasks
     this.app.post("/api/stories/:storyId/tasks", async (c) => {
       const storyId = c.req.param("storyId");

@@ -207,3 +207,9 @@ export interface TokenUsageResponse {
   costUsd?: number;
   error?: string;
 }
+
+// POST /api/tasks/:id/mark-read
+export interface MarkReadResponse {
+  success: boolean;
+  error?: string;
+}
