@@ -258,7 +258,11 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
 
       if (this.paused) return c.json({ task: null } satisfies NextTaskResponse);
 
-      const task = this.store.getNextAvailableTask();
+      // Look up member's cwd to filter tasks by matching story dir
+      const member = this.store.getMember(memberId);
+      const memberCwd = member?.cwd;
+
+      const task = this.store.getNextAvailableTask(memberCwd);
       if (!task) return c.json({ task: null } satisfies NextTaskResponse);
 
       // Get context from previous tasks in the same story

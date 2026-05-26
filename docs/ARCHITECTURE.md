@@ -170,7 +170,7 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/stories` | GET | All stories + tasks + readiness |
 | `/api/stories` | POST | Create a new story (with optional tasks, dir) |
 | `/api/stories/:storyId/tasks` | POST | Create a task within a story |
-| `/api/next-task?memberId=X` | GET | Next claimable task |
+| `/api/next-task?memberId=X` | GET | Next claimable task (filtered by member's cwd ↔ story dir) |
 | `/api/tasks/:id/claim` | POST | Claim a task (returns transition instructions) |
 | `/api/tasks/:id/status` | POST | Update status (enforces workflow, returns instructions) |
 | `/api/tasks/:id/move` | POST | Move task status (lead-only, enforces workflow) |

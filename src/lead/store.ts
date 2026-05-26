@@ -400,10 +400,18 @@ export class Store {
    * - Must be the first "todo" task in the story (sequential)
    * - Must not already be assigned
    */
-  getNextAvailableTask(): TaskWithMeta | null {
+  getNextAvailableTask(memberCwd?: string): TaskWithMeta | null {
     const stories = this.getStories();
     for (const story of stories) {
       if (!this.isStoryReady(story.id)) continue;
+
+      // If the member has a cwd, only match stories with the same dir
+      // (or stories with no dir set — those are available to anyone)
+      if (memberCwd && story.dir) {
+        const normalizedStoryDir = story.dir.replace(/\/$/, "").replace(/^~/, process.env.HOME || "~");
+        const normalizedMemberCwd = memberCwd.replace(/\/$/, "");
+        if (normalizedStoryDir !== normalizedMemberCwd) continue;
+      }
 
       const tasks = this.getTasksForStory(story.id);
       for (const task of tasks) {

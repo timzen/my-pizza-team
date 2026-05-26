@@ -42,7 +42,9 @@ The state machine is entirely in `config.json`. You can define any workflow stat
 The `messages.jsonl` files capture the back-and-forth between teammates and the lead. These get committed to git, forming a lightweight ADR (Architecture Decision Record) system — "why did we use RS256?" is right there in the task history.
 
 ### 6. Working directory per story
-Stories can specify an optional `dir` field (e.g., `"dir": "~/Workspace/my-project"`). When using `/team-spawn <story-id>`, the teammate is launched in that directory automatically. This supports multi-repo teams where different stories live in different codebases.
+Stories can specify an optional `dir` field (e.g., `"dir": "~/Workspace/my-project"`). When using `/ppt-spawn <story-id>`, the teammate is launched in that directory automatically. This supports multi-repo teams where different stories live in different codebases.
+
+**Task routing by directory:** When a teammate polls for work, the server only returns tasks from stories whose `dir` matches the teammate's working directory. Stories with no `dir` are available to any teammate. This ensures a teammate spawned in project A won't accidentally pick up tasks for project B.
 
 ### 7. Transition instructions
 Optional markdown files (`on-enter-<status>.md`, `on-exit-<status>.md`) provide contextual instructions when tasks change state. This enables:

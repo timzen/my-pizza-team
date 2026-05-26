@@ -134,7 +134,7 @@ Tasks follow a configurable workflow with permission-gated transitions:
 }
 ```
 
-The `dir` field is optional — when present, it serves as a working directory hint for teammates. Resolved at spawn time (supports `~`).
+The `dir` field is optional — when present, it determines which teammates can pick up tasks from the story. A teammate only receives tasks from stories whose `dir` matches their own working directory. Stories with no `dir` are available to any teammate. Resolved at spawn time (supports `~`).
 
 ## Transition Instructions
 
