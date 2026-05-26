@@ -23,6 +23,7 @@ import type { TeamClient } from "./client.js";
 
 const POLL_INTERVAL_MS = 5000; // 5 seconds between polls
 const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
+const MESSAGE_CHECK_INTERVAL_MS = 10000; // 10 seconds between message checks while working
 
 export class WorkLoop {
   private pi: ExtensionAPI;
@@ -33,6 +34,8 @@ export class WorkLoop {
   private currentTaskId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private messageCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private lastSeenMessageCount: number = 0;
 
   // Callback to check if we should stay autonomous
   // (e.g., detect if human is typing)
@@ -69,6 +72,7 @@ export class WorkLoop {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
     }
+    this.stopMessageChecking();
   }
 
   /** Pause autonomous work (e.g., human is mentoring) */
@@ -151,6 +155,12 @@ export class WorkLoop {
     prompt += `\n\n---\nWhen you're done, provide a brief summary of what you accomplished.`;
     prompt += `\nIf you get stuck and need human guidance, say "NEEDS_INPUT:" followed by your question.`;
 
+    // Start checking for new messages while working
+    this.startMessageChecking(task.id);
+
+    // Post a status message noting work has begun
+    await this.client.postMessage(task.id, `[status] Started working on this task.`).catch(() => {});
+
     // Send as a user message — this triggers the agent loop
     this.pi.sendUserMessage(prompt, { deliverAs: "followUp" });
 
@@ -164,10 +174,13 @@ export class WorkLoop {
 
     const taskId = this.currentTaskId;
 
+    // Stop checking messages for this task (will restart if unblocked)
+    this.stopMessageChecking();
+
     // Check if the agent is asking for help
     if (lastMessage.includes("NEEDS_INPUT:")) {
       const question = lastMessage.split("NEEDS_INPUT:").pop()?.trim() || "Need help with this task";
-      await this.client.postMessage(taskId, question);
+      await this.client.postMessage(taskId, `[needs_input] ${question}`);
       await this.client.updateStatus(taskId, "needs_input");
       this.currentTaskId = null;
 
@@ -176,9 +189,11 @@ export class WorkLoop {
       return;
     }
 
-    // Task complete
-    const result = lastMessage.slice(0, 500); // Keep result concise
-    const statusResponse = await this.client.updateStatus(taskId, "review", result);
+    // Task complete — post a summary message before transitioning
+    const summary = lastMessage.slice(0, 500); // Keep result concise
+    await this.client.postMessage(taskId, `[review] Work complete. Summary:\n${summary}`).catch(() => {});
+
+    const statusResponse = await this.client.updateStatus(taskId, "review", summary);
     this.currentTaskId = null;
 
     // If there are on-enter-review instructions, send them as a follow-up message
@@ -189,7 +204,7 @@ export class WorkLoop {
       );
     }
 
-    this.onTaskComplete?.(taskId, result);
+    this.onTaskComplete?.(taskId, summary);
 
     // Poll for next task
     this.schedulePoll();
@@ -207,6 +222,8 @@ export class WorkLoop {
         // If lead replied, resume the task
         if (lastMsg && lastMsg.from === "lead") {
           this.currentTaskId = taskId;
+          this.startMessageChecking(taskId);
+          await this.client.postMessage(taskId, `[status] Resuming work with lead's guidance.`).catch(() => {});
           const guidance = `The team lead replied to your question:\n\n"${lastMsg.body}"\n\nPlease continue working on the task with this guidance.`;
           this.pi.sendUserMessage(guidance, { deliverAs: "followUp" });
           return;
@@ -220,5 +237,54 @@ export class WorkLoop {
     };
 
     setTimeout(check, POLL_INTERVAL_MS);
+  }
+
+  // --- Message checking while working ---
+
+  /** Start periodically checking for new messages from the lead */
+  private startMessageChecking(taskId: string): void {
+    this.stopMessageChecking();
+    // Initialize with current message count so we only react to NEW messages
+    this.client.getMessages(taskId).then(res => {
+      this.lastSeenMessageCount = res.messages.length;
+    }).catch(() => {
+      this.lastSeenMessageCount = 0;
+    });
+
+    this.messageCheckTimer = setInterval(async () => {
+      if (!this.currentTaskId || this.currentTaskId !== taskId) {
+        this.stopMessageChecking();
+        return;
+      }
+      try {
+        const res = await this.client.getMessages(taskId);
+        const messages = res.messages;
+        if (messages.length > this.lastSeenMessageCount) {
+          // Find new messages from the lead
+          const newMessages = messages.slice(this.lastSeenMessageCount);
+          const leadMessages = newMessages.filter(m => m.from === "lead");
+          this.lastSeenMessageCount = messages.length;
+
+          if (leadMessages.length > 0) {
+            // Deliver lead messages to the agent as guidance
+            const bodies = leadMessages.map(m => m.body).join("\n\n");
+            this.pi.sendUserMessage(
+              `## Message from team lead\n\nThe lead sent you a message while you're working:\n\n"${bodies}"\n\nTake this into account as you continue your work. Acknowledge briefly and continue.`,
+              { deliverAs: "followUp" }
+            );
+          }
+        }
+      } catch {
+        // Server unreachable, skip this check
+      }
+    }, MESSAGE_CHECK_INTERVAL_MS);
+  }
+
+  /** Stop the message checking interval */
+  private stopMessageChecking(): void {
+    if (this.messageCheckTimer) {
+      clearInterval(this.messageCheckTimer);
+      this.messageCheckTimer = null;
+    }
   }
 }

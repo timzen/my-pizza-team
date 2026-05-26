@@ -88,6 +88,41 @@
   .btn-submit { background: #7c83ff; color: #fff; border: none; padding: 8px 20px; border-radius: 6px; font-size: 0.85em; font-weight: 600; cursor: pointer; }
   .btn-submit:hover { background: #5a62d9; }
   .btn-submit:disabled { background: #3a3f6e; cursor: not-allowed; }
+  /* Message Panel (slide-out) */
+  .msg-panel-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1100; }
+  .msg-panel-overlay.open { display: block; }
+  .msg-panel { position: fixed; top: 0; right: -420px; bottom: 0; width: 400px; max-width: 90vw; background: #16213e; border-left: 1px solid #0f3460; z-index: 1101; display: flex; flex-direction: column; transition: right 0.25s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.3); }
+  .msg-panel.open { right: 0; }
+  .msg-panel-header { padding: 16px 18px; border-bottom: 1px solid #0f3460; display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
+  .msg-panel-header h3 { font-size: 0.95em; margin: 0; color: #e0e0e0; line-height: 1.3; }
+  .msg-panel-header .msg-panel-close { background: none; border: none; color: #888; font-size: 1.3em; cursor: pointer; padding: 0 4px; }
+  .msg-panel-header .msg-panel-close:hover { color: #e0e0e0; }
+  .msg-panel-status-badge { font-size: 0.75em; margin-top: 4px; padding: 3px 8px; border-radius: 4px; display: inline-block; }
+  .msg-panel-status-badge.needs-input { background: rgba(255,152,0,0.15); color: #ffa500; border: 1px solid rgba(255,152,0,0.3); }
+  .msg-panel-messages { flex: 1; overflow-y: auto; padding: 16px 18px; display: flex; flex-direction: column; gap: 10px; }
+  .msg-empty { color: #666; font-size: 0.85em; text-align: center; margin-top: 40px; }
+  .msg-bubble { max-width: 85%; padding: 9px 12px; border-radius: 10px; font-size: 0.82em; line-height: 1.4; word-wrap: break-word; }
+  .msg-bubble .msg-sender { font-size: 0.7em; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; margin-bottom: 2px; }
+  .msg-bubble .msg-time { font-size: 0.65em; color: #888; margin-top: 3px; }
+  .msg-bubble.msg-lead { align-self: flex-end; background: #7c83ff; color: #fff; border-bottom-right-radius: 3px; }
+  .msg-bubble.msg-lead .msg-sender { color: rgba(255,255,255,0.7); }
+  .msg-bubble.msg-lead .msg-time { color: rgba(255,255,255,0.5); }
+  .msg-bubble.msg-teammate { align-self: flex-start; background: #0f3460; color: #e0e0e0; border-bottom-left-radius: 3px; }
+  .msg-bubble.msg-teammate .msg-sender { color: #7c83ff; }
+  .msg-panel-input { padding: 14px 18px; border-top: 1px solid #0f3460; flex-shrink: 0; }
+  .msg-panel-input .msg-needs-input-hint { font-size: 0.78em; color: #ffa500; margin-bottom: 8px; display: flex; align-items: center; gap: 4px; }
+  .msg-input-row { display: flex; gap: 8px; }
+  .msg-input-row input { flex: 1; background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; border-radius: 6px; padding: 9px 12px; font-size: 0.85em; font-family: inherit; outline: none; }
+  .msg-input-row input:focus { border-color: #7c83ff; }
+  .msg-input-row input::placeholder { color: #555; }
+  .msg-send-btn { background: #7c83ff; color: #fff; border: none; padding: 9px 16px; border-radius: 6px; font-size: 0.82em; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .msg-send-btn:hover { background: #5a62d9; }
+  .msg-send-btn:disabled { background: #3a3f6e; cursor: not-allowed; }
+  .msg-resume-row { margin-top: 8px; }
+  .msg-resume-btn { background: none; border: 1px solid #4caf50; color: #4caf50; padding: 6px 12px; border-radius: 5px; font-size: 0.78em; cursor: pointer; width: 100%; }
+  .msg-resume-btn:hover { background: rgba(76,175,80,0.1); }
+  .card-msg-btn { display: inline-block; margin-top: 3px; font-size: 0.7em; color: #7c83ff; cursor: pointer; }
+  .card-msg-btn:hover { text-decoration: underline; }
 </style></head><body>
 <div class="toolbar">
   <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
@@ -187,6 +222,29 @@
     <div style="white-space:pre-wrap;font-size:0.85em;line-height:1.5;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;" id="task-detail-desc"></div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeTaskDetailModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- Message Panel (slide-out) -->
+<div class="msg-panel-overlay" id="msg-panel-overlay" onclick="closeMsgPanel()"></div>
+<div class="msg-panel" id="msg-panel">
+  <div class="msg-panel-header">
+    <div>
+      <h3 id="msg-panel-title">Messages</h3>
+      <div id="msg-panel-badge"></div>
+    </div>
+    <button class="msg-panel-close" onclick="closeMsgPanel()">&times;</button>
+  </div>
+  <div class="msg-panel-messages" id="msg-panel-messages"></div>
+  <div class="msg-panel-input">
+    <div class="msg-needs-input-hint" id="msg-needs-input-hint" style="display:none;">⚠️ Waiting for your input</div>
+    <div class="msg-input-row">
+      <input type="text" id="msg-input" placeholder="Type a message..." onkeydown="if(event.key==='Enter')sendMessage()" />
+      <button class="msg-send-btn" id="msg-send-btn" onclick="sendMessage()">Send</button>
+    </div>
+    <div class="msg-resume-row" id="msg-resume-row" style="display:none;">
+      <button class="msg-resume-btn" onclick="resumeTask()">▶ Resume task (move back to in_progress)</button>
     </div>
   </div>
 </div>
@@ -445,6 +503,121 @@ function closeTaskDetailModal() {
   document.getElementById('task-detail-modal').style.display = 'none';
 }
 
+// --- Message Panel ---
+let msgPanelTaskId = null;
+let msgPanelRefreshInterval = null;
+let msgPanelJustSent = false; // flag to show resume button after send
+
+function openMsgPanel(taskId) {
+  const task = taskDataMap[taskId];
+  if (!task) return;
+  msgPanelTaskId = taskId;
+  msgPanelJustSent = false;
+  document.getElementById('msg-panel-title').textContent = task.title;
+  // Status badge
+  const badgeEl = document.getElementById('msg-panel-badge');
+  if (task.status === 'needs_input') {
+    badgeEl.innerHTML = '<span class="msg-panel-status-badge needs-input">⚠️ needs input</span>';
+  } else {
+    badgeEl.innerHTML = '';
+  }
+  // Show/hide needs_input hint
+  const hintEl = document.getElementById('msg-needs-input-hint');
+  hintEl.style.display = task.status === 'needs_input' ? 'flex' : 'none';
+  document.getElementById('msg-resume-row').style.display = 'none';
+  // Open panel
+  document.getElementById('msg-panel-overlay').classList.add('open');
+  document.getElementById('msg-panel').classList.add('open');
+  document.getElementById('msg-input').value = '';
+  loadMessages();
+  // Auto-refresh messages every 3 seconds
+  msgPanelRefreshInterval = setInterval(loadMessages, 3000);
+  setTimeout(() => document.getElementById('msg-input').focus(), 300);
+}
+
+function closeMsgPanel() {
+  msgPanelTaskId = null;
+  document.getElementById('msg-panel-overlay').classList.remove('open');
+  document.getElementById('msg-panel').classList.remove('open');
+  if (msgPanelRefreshInterval) { clearInterval(msgPanelRefreshInterval); msgPanelRefreshInterval = null; }
+}
+
+async function loadMessages() {
+  if (!msgPanelTaskId) return;
+  try {
+    const res = await fetch('/api/tasks/' + encodeURIComponent(msgPanelTaskId) + '/messages');
+    const data = await res.json();
+    renderMessages(data.messages || []);
+  } catch (e) {
+    console.error('Failed to load messages:', e);
+  }
+}
+
+function renderMessages(messages) {
+  const container = document.getElementById('msg-panel-messages');
+  if (messages.length === 0) {
+    container.innerHTML = '<div class="msg-empty">No messages yet.<br>Send a message to communicate with the teammate.</div>';
+    return;
+  }
+  container.innerHTML = messages.map(m => {
+    const isLead = m.from === 'lead';
+    const cls = isLead ? 'msg-lead' : 'msg-teammate';
+    const sender = isLead ? 'Lead' : (m.from || 'Teammate');
+    const time = m.at ? new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    return '<div class="msg-bubble ' + cls + '">' +
+      '<div class="msg-sender">' + escHtml(sender) + '</div>' +
+      '<div class="msg-body">' + escHtml(m.body) + '</div>' +
+      (time ? '<div class="msg-time">' + time + '</div>' : '') +
+      '</div>';
+  }).join('');
+  // Scroll to bottom
+  container.scrollTop = container.scrollHeight;
+}
+
+async function sendMessage() {
+  const input = document.getElementById('msg-input');
+  const body = input.value.trim();
+  if (!body || !msgPanelTaskId) return;
+  const btn = document.getElementById('msg-send-btn');
+  btn.disabled = true;
+  try {
+    await fetch('/api/tasks/' + encodeURIComponent(msgPanelTaskId) + '/message', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ from: 'lead', body: body })
+    });
+    input.value = '';
+    await loadMessages();
+    // If task is needs_input, show resume option
+    const task = taskDataMap[msgPanelTaskId];
+    if (task && task.status === 'needs_input') {
+      msgPanelJustSent = true;
+      document.getElementById('msg-resume-row').style.display = 'block';
+    }
+  } catch (e) {
+    alert('Failed to send message: ' + e.message);
+  }
+  btn.disabled = false;
+  input.focus();
+}
+
+async function resumeTask() {
+  if (!msgPanelTaskId) return;
+  try {
+    const res = await fetch('/api/tasks/' + encodeURIComponent(msgPanelTaskId) + '/move', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ status: 'in_progress' })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) { alert(data.error || 'Failed to resume task'); return; }
+    document.getElementById('msg-resume-row').style.display = 'none';
+    document.getElementById('msg-needs-input-hint').style.display = 'none';
+    document.getElementById('msg-panel-badge').innerHTML = '';
+    // Update local data
+    if (taskDataMap[msgPanelTaskId]) taskDataMap[msgPanelTaskId].status = 'in_progress';
+    refresh();
+  } catch (e) { alert('Network error: ' + e.message); }
+}
+
 // --- Delete Task ---
 async function deleteTaskConfirm(taskId, title) {
   if (!confirm('Delete task "' + title + '"? This cannot be undone.')) return;
@@ -479,6 +652,7 @@ function getLeadTransitions(currentStatus) {
 // --- Keyboard / modal handling ---
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    if (document.getElementById('msg-panel').classList.contains('open')) { closeMsgPanel(); return; }
     if (document.getElementById('task-detail-modal').style.display === 'flex') { closeTaskDetailModal(); return; }
     if (document.getElementById('task-modal').style.display === 'flex') { closeTaskModal(); return; }
     if (document.getElementById('add-story-modal').style.display === 'flex') { closeAddStoryModal(); return; }
@@ -552,6 +726,7 @@ function renderBoard(stories) {
         taskDataMap[t.id] = t;
         const assignee = t.assignee ? '<div class="card-assignee">→ ' + escHtml(t.assignee) + '</div>' : '';
         const msg = t.hasMessages ? '<div class="card-msg">📬 messages</div>' : '';
+        const msgBtn = '<div class="card-msg-btn" onclick="event.stopPropagation(); openMsgPanel(\'' + escHtml(t.id) + '\')">💬 messages</div>';
         const desc = t.description ? '<div class="card-desc">' + escHtml(t.description.slice(0, 120)) + (t.description.length > 120 ? '...' : '') + '</div>' : '';
 
         // Move dropdown
@@ -574,7 +749,7 @@ function renderBoard(stories) {
           + actions
           + '<div class="card-title">' + escHtml(t.title) + '</div>'
           + '<div class="card-meta">#' + t.seq + '</div>'
-          + desc + assignee + msg + moveHtml
+          + desc + assignee + msg + msgBtn + moveHtml
           + '</div>';
       }).join('');
       const label = state.replace(/_/g, ' ');
