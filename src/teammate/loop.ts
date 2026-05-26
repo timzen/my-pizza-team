@@ -186,7 +186,12 @@ export class WorkLoop {
   }
 
   /** Called by the agent_end handler when the agent finishes */
-  async handleAgentComplete(lastMessage: string): Promise<void> {
+  async handleAgentComplete(lastMessage: string, tokenUsage?: {
+    inputTokens: number;
+    outputTokens: number;
+    model: string;
+    costFromProvider?: number;
+  }): Promise<void> {
     if (!this.currentTaskId) return;
 
     const taskId = this.currentTaskId;
@@ -194,15 +199,14 @@ export class WorkLoop {
     // Stop checking messages for this task
     this.stopMessageChecking();
 
-    // Report token usage
-    // TODO: Pi SDK does not yet expose per-conversation token counts directly.
-    // When available, replace these placeholder values with actual usage from
-    // something like: pi.getConversationTokenUsage() or the agent_end event payload.
-    await this.client.reportTokenUsage(taskId, {
-      inputTokens: 0,
-      outputTokens: 0,
-      model: "unknown",
-    }).catch(() => {});
+    // Report token usage from the agent's actual usage data
+    if (tokenUsage && (tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0)) {
+      await this.client.reportTokenUsage(taskId, {
+        inputTokens: tokenUsage.inputTokens,
+        outputTokens: tokenUsage.outputTokens,
+        model: tokenUsage.model,
+      }).catch(() => {});
+    }
 
     // Check if the agent is asking for help
     if (lastMessage.includes("NEEDS_INPUT:")) {

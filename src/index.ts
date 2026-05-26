@@ -220,20 +220,38 @@ async function setupTeammate(
     // Extract last assistant message
     const messages = event.messages || [];
     let lastAssistantText = "";
+    let totalInputTokens = 0;
+    let totalOutputTokens = 0;
+    let totalCost = 0;
+    let model = "unknown";
+
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role === "assistant") {
-        for (const part of msg.content) {
-          if (part.type === "text") {
-            lastAssistantText = part.text;
-            break;
+        // Accumulate token usage from all assistant turns
+        if (msg.usage) {
+          totalInputTokens += msg.usage.input || 0;
+          totalOutputTokens += msg.usage.output || 0;
+          if (msg.usage.cost) totalCost += msg.usage.cost.total || 0;
+        }
+        if (msg.model && model === "unknown") model = msg.model;
+        if (!lastAssistantText) {
+          for (const part of msg.content) {
+            if (part.type === "text") {
+              lastAssistantText = part.text;
+              break;
+            }
           }
         }
-        if (lastAssistantText) break;
       }
     }
 
-    await loop.handleAgentComplete(lastAssistantText);
+    await loop.handleAgentComplete(lastAssistantText, {
+      inputTokens: totalInputTokens,
+      outputTokens: totalOutputTokens,
+      model,
+      costFromProvider: totalCost,
+    });
   });
 
   // Detect interactive input to pause autonomous work
