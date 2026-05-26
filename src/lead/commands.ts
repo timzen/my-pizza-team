@@ -5,8 +5,8 @@
 //   /team-inbox, /team-reply, /team-move, /team-pause, /team-resume,
 //   /team-save, /team-commit, /team-add-story, /team-add-task
 //
-// Also registers the `team_add_task` LLM tool so Pi can add tasks
-// conversationally (e.g., from a design doc discussion).
+// Also registers the `team_add_story` and `team_add_task` LLM tools so Pi
+// can create stories and add tasks conversationally (e.g., from a design doc).
 //
 // Helper: addTaskToStory() handles the filesystem operations for
 // creating a new task directory with task.json, determining the
@@ -463,6 +463,65 @@ export function registerLeadCommands(
 
       addTaskToStory(store, storyId, title, description, teamDir);
       ctx.ui.notify(`✓ Task "${title}" added to ${storyId}`, "info");
+    },
+  });
+
+  // LLM-callable tool for creating stories
+  pi.registerTool({
+    name: "team_add_story",
+    label: "Add Team Story",
+    description:
+      "Create a new story on the pi-pizza-team kanban board. Stories are high-level work items that contain " +
+      "sequential tasks. Use this when planning work, breaking down a project, or when the user asks to create a story.",
+    promptSnippet: "Create a new story on the pi-pizza-team board",
+    promptGuidelines: [
+      "Use team_add_story to create stories when the user discusses new features, epics, or work items for the team.",
+      "After creating a story with team_add_story, use team_add_task to add tasks to it.",
+      "Story IDs should be short slugs (lowercase, hyphens, e.g., 'auth-refactor').",
+    ],
+    parameters: Type.Object({
+      id: Type.String({ description: "Story ID slug (lowercase, hyphens, e.g., 'auth-refactor')" }),
+      title: Type.String({ description: "Human-readable title for the story" }),
+      description: Type.String({ description: "Full description of what this story accomplishes" }),
+      dependsOn: Type.Optional(
+        Type.Array(Type.String(), { description: "Array of story IDs this story depends on (optional)" })
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const store = getStore();
+
+      // Check if story already exists
+      if (store.getStory(params.id)) {
+        throw new Error(`Story "${params.id}" already exists.`);
+      }
+
+      // Create directory structure
+      const storyDir = path.join(teamDir, STORIES_DIR, params.id);
+      const tasksDir = path.join(storyDir, "tasks");
+      fs.mkdirSync(tasksDir, { recursive: true });
+
+      // Write story.json
+      const story: Story = {
+        id: params.id,
+        title: params.title,
+        description: params.description,
+        status: "open",
+        dependsOn: params.dependsOn || [],
+      };
+      fs.writeFileSync(path.join(storyDir, "story.json"), JSON.stringify(story, null, 2) + "\n");
+
+      // Reload store
+      store.loadFromDisk();
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Created story "${params.title}" (${params.id}). Add tasks with team_add_task.`,
+          },
+        ],
+        details: { storyId: params.id },
+      };
     },
   });
 
