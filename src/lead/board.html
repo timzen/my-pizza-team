@@ -714,6 +714,15 @@ function renderBoard(stories) {
     return a.localeCompare(b);
   });
 
+  if (filtered.length === 0) {
+    el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#666;font-size:0.9em;">'
+      + '<div style="font-size:2em;margin-bottom:10px;">🔍</div>'
+      + '<div>No stories match your current filters.</div>'
+      + '<div style="margin-top:6px;font-size:0.85em;color:#555;">Try adjusting your search or filter criteria.</div>'
+      + '</div>';
+    return;
+  }
+
   el.innerHTML = filtered.map(story => {
     const blocked = !story.ready && story.status !== 'done';
     const doneCount = story.tasks.filter(t => t.status === 'done').length;
