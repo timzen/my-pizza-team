@@ -18,14 +18,14 @@ pi-pizza-team is a Pi extension package that operates in two roles depending on 
 │  │         • Start autosave timers                          │
 │  │         • Show status widget                             │
 │  │                                                          │
-│  └── NO → Is --team-worker flag set or PI_TEAM_LEADER_URL?  │
+│  └── NO → Is --ppt-worker flag set or PI_TEAM_LEADER_URL?  │
 │       ├── YES → setupTeammate()                             │
 │       │         • Connect to leader HTTP API                │
 │       │         • Start work loop (poll → claim → execute)  │
 │       │         • Register permission bypass                │
 │       │         • Listen for agent_end to capture results   │
 │       │                                                     │
-│       └── NO → Register only /team-init command             │
+│       └── NO → Register only /ppt-init command             │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -156,7 +156,7 @@ File: `<teammate-cwd>/.pi/extensions/pi-permission-system/config.json`
 - **Created at spawn time** by `tmux.ts` with `yoloMode: true`
 - **Toggled dynamically** by `permissions.ts`:
   - Interactive input detected → rewrite with `yoloMode: false`
-  - `/team-worker-resume` → rewrite with `yoloMode: true`
+  - `/ppt-worker-resume` → rewrite with `yoloMode: true`
 
 ## HTTP API
 
@@ -199,7 +199,7 @@ Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 - `ensureSession()` — creates session if it doesn't exist, returns whether it was just created
 - `spawnTeammate()` — reuses default window on fresh session, creates new window otherwise
 - Writes permissive permission config to teammate's cwd before launching Pi
-- Pi is launched with flags: `--team-worker --team-lead=<url> --team-name=<name>`
+- Pi is launched with flags: `--ppt-worker --ppt-lead=<url> --ppt-name=<name>`
 
 ## Key Design Decisions
 

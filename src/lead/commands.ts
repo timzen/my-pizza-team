@@ -1,9 +1,9 @@
 // Team lead slash commands
 //
 // Registers all interactive commands available to the team lead:
-//   /team-init, /team-board, /team-spawn, /team-dismiss, /team-hop,
-//   /team-inbox, /team-reply, /team-move, /team-pause, /team-resume,
-//   /team-save, /team-commit, /team-add-story, /team-add-task
+//   /ppt-init, /ppt-board, /ppt-spawn, /ppt-dismiss, /ppt-hop,
+//   /ppt-inbox, /ppt-reply, /ppt-move, /ppt-pause, /ppt-resume,
+//   /ppt-save, /ppt-commit, /ppt-add-story, /ppt-add-task
 //
 // LLM tools (team_add_story, team_add_task) are in ./tools.ts.
 //
@@ -56,8 +56,8 @@ export function registerLeadCommands(
   getConfig: () => TeamConfig,
   teamDir: string
 ): void {
-  // /team-init
-  pi.registerCommand("team-init", {
+  // /ppt-init
+  pi.registerCommand("ppt-init", {
     description: "Initialize current directory as a pi-pizza-team board",
     handler: async (_args, ctx) => {
       if (fs.existsSync(teamDir)) {
@@ -82,8 +82,8 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-board
-  pi.registerCommand("team-board", {
+  // /ppt-board
+  pi.registerCommand("ppt-board", {
     description: "Show kanban board — stories, tasks, and team status",
     handler: async (_args, ctx) => {
       const store = getStore();
@@ -118,7 +118,7 @@ export function registerLeadCommands(
       // Team
       output += "Team:\n";
       if (members.length === 0) {
-        output += "  (no teammates yet — use /team-spawn to hire)\n";
+        output += "  (no teammates yet — use /ppt-spawn to hire)\n";
       }
       for (const member of members) {
         const assignment = store.getAssignmentForMember(member.id);
@@ -130,9 +130,9 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-spawn
-  pi.registerCommand("team-spawn", {
-    description: "Hire a new teammate: /team-spawn <story-id|name> [cwd]",
+  // /ppt-spawn
+  pi.registerCommand("ppt-spawn", {
+    description: "Hire a new teammate: /ppt-spawn <story-id|name> [cwd]",
     getArgumentCompletions: (prefix: string) => {
       const store = getStore();
       const stories = store.getStories();
@@ -154,7 +154,7 @@ export function registerLeadCommands(
       const store = getStore();
       const parts = args?.trim().split(/\s+/) || [];
       if (parts.length < 1 || !parts[0]) {
-        ctx.ui.notify("Usage: /team-spawn <story-id|name> [cwd]", "warning");
+        ctx.ui.notify("Usage: /ppt-spawn <story-id|name> [cwd]", "warning");
         return;
       }
 
@@ -201,14 +201,14 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-dismiss
-  pi.registerCommand("team-dismiss", {
-    description: "Stop a teammate: /team-dismiss <name>",
+  // /ppt-dismiss
+  pi.registerCommand("ppt-dismiss", {
+    description: "Stop a teammate: /ppt-dismiss <name>",
     handler: async (args, ctx) => {
       const config = getConfig();
       const name = args?.trim();
       if (!name) {
-        ctx.ui.notify("Usage: /team-dismiss <name>", "warning");
+        ctx.ui.notify("Usage: /ppt-dismiss <name>", "warning");
         return;
       }
 
@@ -219,14 +219,14 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-hop
-  pi.registerCommand("team-hop", {
-    description: "Jump to a teammate's tmux window: /team-hop <name>",
+  // /ppt-hop
+  pi.registerCommand("ppt-hop", {
+    description: "Jump to a teammate's tmux window: /ppt-hop <name>",
     handler: async (args, ctx) => {
       const config = getConfig();
       const name = args?.trim();
       if (!name) {
-        ctx.ui.notify("Usage: /team-hop <name>", "warning");
+        ctx.ui.notify("Usage: /ppt-hop <name>", "warning");
         return;
       }
 
@@ -239,8 +239,8 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-inbox
-  pi.registerCommand("team-inbox", {
+  // /ppt-inbox
+  pi.registerCommand("ppt-inbox", {
     description: "Show messages from teammates needing your input",
     handler: async (_args, ctx) => {
       const store = getStore();
@@ -262,18 +262,18 @@ export function registerLeadCommands(
         }
         output += "\n";
       }
-      output += "Use /team-reply <name> <message> to respond.";
+      output += "Use /ppt-reply <name> <message> to respond.";
       ctx.ui.notify(output, "info");
     },
   });
 
-  // /team-reply
-  pi.registerCommand("team-reply", {
-    description: "Reply to a teammate's message: /team-reply <task-id> <message>",
+  // /ppt-reply
+  pi.registerCommand("ppt-reply", {
+    description: "Reply to a teammate's message: /ppt-reply <task-id> <message>",
     handler: async (args, ctx) => {
       const parts = args?.trim().match(/^(\S+)\s+(.+)$/);
       if (!parts) {
-        ctx.ui.notify("Usage: /team-reply <task-id> <message>", "warning");
+        ctx.ui.notify("Usage: /ppt-reply <task-id> <message>", "warning");
         return;
       }
 
@@ -302,9 +302,9 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-move
-  pi.registerCommand("team-move", {
-    description: "Move a task to a new status: /team-move <task-id> [status]",
+  // /ppt-move
+  pi.registerCommand("ppt-move", {
+    description: "Move a task to a new status: /ppt-move <task-id> [status]",
     getArgumentCompletions: (prefix: string) => {
       const store = getStore();
       const config = getConfig();
@@ -347,7 +347,7 @@ export function registerLeadCommands(
     handler: async (args, ctx) => {
       const parts = args?.trim().split(/\s+/) || [];
       if (parts.length < 1 || !parts[0]) {
-        ctx.ui.notify("Usage: /team-move <task-id> [status]", "warning");
+        ctx.ui.notify("Usage: /ppt-move <task-id> [status]", "warning");
         return;
       }
 
@@ -405,8 +405,8 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-pause
-  pi.registerCommand("team-pause", {
+  // /ppt-pause
+  pi.registerCommand("ppt-pause", {
     description: "Pause task distribution (teammates finish current work)",
     handler: async (_args, ctx) => {
       const server = getServer();
@@ -415,8 +415,8 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-resume
-  pi.registerCommand("team-resume", {
+  // /ppt-resume
+  pi.registerCommand("ppt-resume", {
     description: "Resume task distribution",
     handler: async (_args, ctx) => {
       const server = getServer();
@@ -425,8 +425,8 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-save
-  pi.registerCommand("team-save", {
+  // /ppt-save
+  pi.registerCommand("ppt-save", {
     description: "Flush current state to JSON files",
     handler: async (_args, ctx) => {
       const store = getStore();
@@ -435,9 +435,9 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-commit
-  pi.registerCommand("team-commit", {
-    description: "Flush + git commit: /team-commit [message]",
+  // /ppt-commit
+  pi.registerCommand("ppt-commit", {
+    description: "Flush + git commit: /ppt-commit [message]",
     handler: async (args, ctx) => {
       const store = getStore();
       store.flushToDisk();
@@ -446,9 +446,9 @@ export function registerLeadCommands(
     },
   });
 
-  // /team-add-story
-  pi.registerCommand("team-add-story", {
-    description: "Create a new story: /team-add-story [id]",
+  // /ppt-add-story
+  pi.registerCommand("ppt-add-story", {
+    description: "Create a new story: /ppt-add-story [id]",
     handler: async (args, ctx) => {
       const id = args?.trim() || (await ctx.ui.input("Story ID (slug):", "my-story"));
       if (!id) return;
@@ -478,17 +478,17 @@ export function registerLeadCommands(
       const store = getStore();
       store.loadFromDisk();
 
-      ctx.ui.notify(`✓ Story "${title}" created 🍕\n  Add tasks with /team-add-task ${id}\n  Or ask me to break it down from a design doc!`, "info");
+      ctx.ui.notify(`✓ Story "${title}" created 🍕\n  Add tasks with /ppt-add-task ${id}\n  Or ask me to break it down from a design doc!`, "info");
     },
   });
 
-  // /team-add-task
-  pi.registerCommand("team-add-task", {
-    description: "Add a task to a story: /team-add-task <story-id>",
+  // /ppt-add-task
+  pi.registerCommand("ppt-add-task", {
+    description: "Add a task to a story: /ppt-add-task <story-id>",
     handler: async (args, ctx) => {
       const storyId = args?.trim();
       if (!storyId) {
-        ctx.ui.notify("Usage: /team-add-task <story-id>", "warning");
+        ctx.ui.notify("Usage: /ppt-add-task <story-id>", "warning");
         return;
       }
 

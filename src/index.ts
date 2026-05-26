@@ -3,10 +3,10 @@
 // Role detection logic:
 // 1. If .pi-pizza-team/config.json exists in cwd → Team Lead
 //    - Loads SQLite store, starts HTTP server, registers commands
-// 2. If --team-worker flag + --team-lead URL → Teammate (auto-start)
+// 2. If --ppt-worker flag + --ppt-lead URL → Teammate (auto-start)
 //    - Connects to leader API, starts work loop
 // 3. If PI_TEAM_LEADER_URL env var set → Teammate (prompts to join)
-// 4. Otherwise → Inactive (only /team-init available)
+// 4. Otherwise → Inactive (only /ppt-init available)
 //
 // See docs/ARCHITECTURE.md for the full module map and data flow.
 import * as fs from "node:fs";
@@ -18,19 +18,19 @@ export default function (pi: ExtensionAPI) {
   // --- Role Detection ---
 
   // Check CLI flags for teammate mode
-  pi.registerFlag("team-worker", {
+  pi.registerFlag("ppt-worker", {
     description: "Run as a pi-pizza-team teammate",
     type: "boolean",
     default: false,
   });
 
-  pi.registerFlag("team-lead", {
+  pi.registerFlag("ppt-lead", {
     description: "Team lead URL to connect to",
     type: "string",
     default: "",
   });
 
-  pi.registerFlag("team-name", {
+  pi.registerFlag("ppt-name", {
     description: "Teammate name",
     type: "string",
     default: "",
@@ -41,9 +41,9 @@ export default function (pi: ExtensionAPI) {
     const teamDir = path.join(cwd, TEAM_DIR);
     const configFile = path.join(teamDir, CONFIG_FILE);
 
-    const isTeamWorkerFlag = pi.getFlag("team-worker") as boolean;
-    const teamLeadUrl = (pi.getFlag("team-lead") as string) || process.env.PI_TEAM_LEADER_URL || "";
-    const teamName = (pi.getFlag("team-name") as string) || "";
+    const isTeamWorkerFlag = pi.getFlag("ppt-worker") as boolean;
+    const teamLeadUrl = (pi.getFlag("ppt-lead") as string) || process.env.PI_TEAM_LEADER_URL || "";
+    const teamName = (pi.getFlag("ppt-name") as string) || "";
 
     // --- TEAM LEAD ROLE ---
     if (fs.existsSync(configFile)) {
@@ -72,10 +72,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     // Neither lead nor teammate — extension is loaded but inactive
-    // Register team-init so they can initialize a board
+    // Register ppt-init so they can initialize a board
     const { registerLeadCommands } = await import("./lead/commands.js");
-    // Only register team-init in this case
-    pi.registerCommand("team-init", {
+    // Only register ppt-init in this case
+    pi.registerCommand("ppt-init", {
       description: "Initialize current directory as a pi-pizza-team board",
       handler: async (_args, cmdCtx) => {
         fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
@@ -261,14 +261,14 @@ async function setupTeammate(
       // Permission config is toggled by permissions.ts input handler
       if (ctx.hasUI) {
         ctx.ui.setWidget("pi-pizza-team", ["🍕 pairing mode — autonomous work paused"]);
-        ctx.ui.notify("🍕 Autonomous work paused — you're now pairing. Use /team-worker-resume when done.", "info");
+        ctx.ui.notify("🍕 Autonomous work paused — you're now pairing. Use /ppt-worker-resume when done.", "info");
       }
     }
     return { action: "continue" as const };
   });
 
   // Command to resume autonomous work after pairing
-  pi.registerCommand("team-worker-resume", {
+  pi.registerCommand("ppt-worker-resume", {
     description: "Resume autonomous work after pairing session",
     handler: async (_args) => {
       loop.resume();

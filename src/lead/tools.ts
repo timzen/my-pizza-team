@@ -112,7 +112,7 @@ export function registerLeadTools(
       const store = getStore();
       const story = store.getStory(params.storyId);
       if (!story) {
-        throw new Error(`Story "${params.storyId}" not found. Use /team-add-story to create it first.`);
+        throw new Error(`Story "${params.storyId}" not found. Use /ppt-add-story to create it first.`);
       }
 
       addTaskToStory(store, params.storyId, params.title, params.description, teamDir);

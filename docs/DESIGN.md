@@ -84,7 +84,7 @@ The permission system (`@gotgenes/pi-permission-system`) is toggled based on the
 | Autonomous (working on task) | `true` | No prompts, full freedom |
 | Pairing (human hopped in) | `false` | Normal permission rules |
 
-Detection is automatic: interactive input → pairing mode. `/team-worker-resume` → autonomous mode.
+Detection is automatic: interactive input → pairing mode. `/ppt-worker-resume` → autonomous mode.
 
 ## Data Architecture
 

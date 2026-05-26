@@ -44,7 +44,7 @@ export function spawnTeammate(name: string, cwd: string, options: TmuxOptions): 
   }
 
   // Send the pi command
-  const cmd = `cd ${cwd} && pi --team-worker --team-lead=${leaderUrl} --team-name=${name}`;
+  const cmd = `cd ${cwd} && pi --ppt-worker --ppt-lead=${leaderUrl} --ppt-name=${name}`;
   execSync(`tmux send-keys -t "${session}:${name}" '${cmd}' Enter`, { stdio: "pipe" });
 }
 

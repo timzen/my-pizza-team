@@ -23,39 +23,39 @@ pi install git:github.com/timzen/pi-pizza-team
 ```bash
 # In your project repo:
 pi
-> /team-init
-> /team-add-story my-feature
+> /ppt-init
+> /ppt-add-story my-feature
 > # Now discuss the breakdown with Pi, or add tasks manually:
-> /team-add-task my-feature
+> /ppt-add-task my-feature
 > # Or just ask Pi to break it down from a design doc!
-> /team-spawn my-feature          # spawns teammate using story's dir
-> /team-spawn alice ~/projects/my-app  # or manually name + cwd
-> /team-board
+> /ppt-spawn my-feature          # spawns teammate using story's dir
+> /ppt-spawn alice ~/projects/my-app  # or manually name + cwd
+> /ppt-board
 ```
 
 ## Commands (Team Lead)
 
 | Command | Description |
 |---------|-------------|
-| `/team-init` | Initialize kanban board |
-| `/team-board` | Show board status |
-| `/team-spawn <story-id\|name> [cwd]` | Hire a teammate (story ID auto-resolves dir + name) |
-| `/team-add-story [id]` | Create a story (prompts for title, description, dir, dependencies) |
-| `/team-add-task <story-id>` | Add a task to a story interactively |
-| `/team-move <task-id> [status]` | Move a task to a new status (autocomplete excludes done tasks) |
-| `/team-inbox` | Messages needing your input |
-| `/team-reply <task-id> <msg>` | Reply to a teammate |
-| `/team-hop <name>` | Jump to teammate's tmux window |
-| `/team-dismiss <name>` | Stop a teammate |
-| `/team-pause` / `/team-resume` | Pause/resume task distribution |
-| `/team-save` | Flush state to JSON files |
-| `/team-commit [msg]` | Flush + git commit |
+| `/ppt-init` | Initialize kanban board |
+| `/ppt-board` | Show board status |
+| `/ppt-spawn <story-id\|name> [cwd]` | Hire a teammate (story ID auto-resolves dir + name) |
+| `/ppt-add-story [id]` | Create a story (prompts for title, description, dir, dependencies) |
+| `/ppt-add-task <story-id>` | Add a task to a story interactively |
+| `/ppt-move <task-id> [status]` | Move a task to a new status (autocomplete excludes done tasks) |
+| `/ppt-inbox` | Messages needing your input |
+| `/ppt-reply <task-id> <msg>` | Reply to a teammate |
+| `/ppt-hop <name>` | Jump to teammate's tmux window |
+| `/ppt-dismiss <name>` | Stop a teammate |
+| `/ppt-pause` / `/ppt-resume` | Pause/resume task distribution |
+| `/ppt-save` | Flush state to JSON files |
+| `/ppt-commit [msg]` | Flush + git commit |
 
 ## Commands (Teammate)
 
 | Command | Description |
 |---------|-------------|
-| `/team-worker-resume` | Resume autonomous work after pairing |
+| `/ppt-worker-resume` | Resume autonomous work after pairing |
 
 ## LLM Tools
 
@@ -161,7 +161,7 @@ These instructions are returned in API responses and prepended to the teammate's
 - **Messages** — written to `messages.jsonl` immediately (never lost)
 - **Task status** — flushed from SQLite to JSON files every 30 minutes + on shutdown
 - **Git commits** — automatic daily checkpoint (configurable, never pushes)
-- **Manual:** `/team-save` (flush) and `/team-commit` (flush + commit)
+- **Manual:** `/ppt-save` (flush) and `/ppt-commit` (flush + commit)
 
 ## Permission System Integration
 
@@ -170,7 +170,7 @@ Works with [`@gotgenes/pi-permission-system`](https://www.npmjs.com/package/@got
 - **Autonomous mode** — `yoloMode: true`, no permission prompts (teammate works freely)
 - **Pairing mode** — `yoloMode: false`, normal permission rules apply (you're protected when mentoring)
 
-The toggle is automatic: when you type in a teammate's window, it switches to pairing mode. Run `/team-worker-resume` to return to autonomous.
+The toggle is automatic: when you type in a teammate's window, it switches to pairing mode. Run `/ppt-worker-resume` to return to autonomous.
 
 ## License
 
