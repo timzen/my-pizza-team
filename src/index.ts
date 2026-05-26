@@ -126,6 +126,15 @@ async function setupTeamLead(
     teamDir
   );
 
+  // Register LLM tools
+  const { registerLeadTools } = await import("./lead/tools.js");
+  registerLeadTools(
+    pi,
+    () => store,
+    () => config,
+    teamDir
+  );
+
   // Status widget
   const updateWidget = () => {
     const stories = store.getStories();
