@@ -32,6 +32,9 @@
   .md-content blockquote { border-left: 3px solid #7c83ff; padding-left: 10px; margin: 8px 0; color: #aaa; }
   .md-content a { color: #7c83ff; }
   .md-content hr { border: none; border-top: 1px solid #0f3460; margin: 12px 0; }
+  .btn-enrich { background: none; border: 1px solid #7c83ff; color: #7c83ff; padding: 5px 10px; border-radius: 5px; font-size: 0.75em; cursor: pointer; transition: all 0.15s; }
+  .btn-enrich:hover { background: #7c83ff; color: #fff; }
+  .btn-enrich:disabled { opacity: 0.5; cursor: not-allowed; }
   .md-content strong { color: #e0e0e0; }
 </style></head><body>
 <div class="nav"><a href="/board">← Back to Board</a></div>
@@ -102,16 +105,44 @@ async function load() {
 
     document.getElementById('content').innerHTML = stories.map(s => {
       const date = s.archivedAt ? new Date(s.archivedAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' }) : 'Unknown';
-      return '<div class="story-card">'
+      return '<div class="story-card" id="card-' + escHtml(s.id) + '">'
         + '<div class="story-header" onclick="toggleStory(this)">'
         + '<div><div class="story-title">' + escHtml(s.title) + '</div><div class="story-id">' + escHtml(s.id) + '</div></div>'
+        + '<div style="display:flex;align-items:center;gap:10px;">'
+        + '<button class="btn-enrich" onclick="event.stopPropagation(); enrichSynopsis(\'' + escHtml(s.id) + '\')" title="Generate detailed synopsis with message history">✨ Enrich</button>'
         + '<span class="story-date">' + escHtml(date) + '</span>'
         + '</div>'
-        + '<div class="story-body"><div class="synopsis md-content">' + renderMarkdown(s.synopsis) + '</div></div>'
+        + '</div>'
+        + '<div class="story-body"><div class="synopsis md-content" id="synopsis-' + escHtml(s.id) + '">' + renderMarkdown(s.synopsis) + '</div></div>'
         + '</div>';
     }).join('');
   } catch(e) {
     document.getElementById('content').innerHTML = '<div class="empty" style="color:#ff5252;">Error loading archived stories: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+async function enrichSynopsis(storyId) {
+  if (!confirm('Generate an enriched synopsis for this story?\n\nThis will include full task descriptions and message history.')) return;
+  // Find and disable the button
+  const card = document.getElementById('card-' + storyId);
+  const btn = card ? card.querySelector('.btn-enrich') : null;
+  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enriching...'; }
+  try {
+    const res = await fetch('/api/archived/' + encodeURIComponent(storyId) + '/enrich', { method: 'POST' });
+    const data = await res.json();
+    if (!res.ok || !data.success) { alert(data.error || 'Enrich failed'); return; }
+    // Update the synopsis in place
+    const synopsisEl = document.getElementById('synopsis-' + storyId);
+    if (synopsisEl) {
+      synopsisEl.innerHTML = renderMarkdown(data.synopsis);
+      // Open the body if not already
+      const body = synopsisEl.closest('.story-body');
+      if (body && !body.classList.contains('open')) body.classList.add('open');
+    }
+    if (btn) { btn.textContent = '✅ Enriched'; }
+  } catch(e) {
+    alert('Network error: ' + e.message);
+    if (btn) { btn.disabled = false; btn.textContent = '✨ Enrich'; }
   }
 }
 

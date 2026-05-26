@@ -596,6 +596,75 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       return c.json(response);
     });
 
+    // POST /api/archived/:id/enrich
+    this.app.post("/api/archived/:id/enrich", (c) => {
+      const storyId = c.req.param("id");
+      const context = this.store.getArchivedStoryContext(storyId);
+      if (!context) {
+        return c.json({ success: false, error: `Archived story "${storyId}" not found` }, 404);
+      }
+
+      const { story, tasks, messages } = context;
+      const date = story.archivedAt ? story.archivedAt.split("T")[0] : "Unknown";
+
+      // Generate enriched synopsis with full detail
+      const lines: string[] = [
+        `# ${story.title}`,
+        "",
+        `**Archived**: ${date}`,
+        `**ID**: ${story.id}`,
+        `**Tasks**: ${tasks.length} completed`,
+        "",
+        "## Description",
+        "",
+        story.description,
+        "",
+        "## Tasks Completed",
+        "",
+      ];
+
+      for (let i = 0; i < tasks.length; i++) {
+        const task = tasks[i];
+        lines.push(`### ${i + 1}. ${task.title}`);
+        lines.push("");
+        lines.push(task.description);
+        lines.push("");
+        if (task.result) {
+          lines.push(`**Result**: ${task.result}`);
+          lines.push("");
+        }
+
+        // Include message highlights
+        const taskMessages = messages[task.id];
+        if (taskMessages && taskMessages.length > 0) {
+          lines.push(`<details><summary>💬 ${taskMessages.length} message${taskMessages.length === 1 ? "" : "s"}</summary>`);
+          lines.push("");
+          for (const msg of taskMessages) {
+            const time = msg.at ? msg.at.split("T")[0] : "";
+            const sender = msg.from === "lead" ? "Lead" : msg.from;
+            lines.push(`> **${sender}** (${time}): ${msg.body}`);
+            lines.push("");
+          }
+          lines.push(`</details>`);
+          lines.push("");
+        }
+      }
+
+      lines.push("## Summary");
+      lines.push("");
+      lines.push(`${tasks.length} task${tasks.length === 1 ? "" : "s"} completed for this story.`);
+      const totalMessages = Object.values(messages).reduce((sum, msgs) => sum + msgs.length, 0);
+      if (totalMessages > 0) {
+        lines.push(`${totalMessages} message${totalMessages === 1 ? "" : "s"} exchanged during execution.`);
+      }
+      lines.push("");
+
+      const enrichedContent = lines.join("\n");
+      this.store.writeArchivedSynopsis(storyId, enrichedContent);
+
+      return c.json({ success: true, synopsis: enrichedContent });
+    });
+
     // Control endpoints
     this.app.post("/api/control/pause", (c) => {
       this.paused = true;

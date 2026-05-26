@@ -178,6 +178,7 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/stories/:storyId/tasks` | POST | Create a task within a story |
 | `/api/stories/:id/archive` | POST | Archive a completed story (400 if tasks incomplete) |
 | `/api/archived` | GET | List archived stories with synopsis |
+| `/api/archived/:id/enrich` | POST | Regenerate synopsis with full task descriptions + messages |
 | `/api/next-task?memberId=X` | GET | Next claimable task (filtered by member's cwd ↔ story dir) |
 | `/api/tasks/:id/claim` | POST | Claim a task (returns transition instructions) |
 | `/api/tasks/:id/status` | POST | Update status (enforces workflow, returns instructions) |
@@ -240,7 +241,7 @@ stories/my-story/  ──archiveStory()──►  archived/my-story/
 
 **Key invariant:** `loadFromDisk()` only walks `stories/`, so archived stories are never re-loaded into the active database. The `archived/` directory is purely file-based.
 
-**LLM enrichment:** The `team_enrich_synopsis` tool gathers full context from an archived story (tasks, messages) and returns it for the LLM to write a richer SYNOPSIS.md.
+**LLM enrichment:** The `team_enrich_synopsis` tool gathers full context from an archived story (tasks, messages) and returns it for the LLM to write a richer SYNOPSIS.md. The web UI also provides an "✨ Enrich" button on the `/archived` page that generates a detailed template-based synopsis including task descriptions and message history.
 
 ## Extending
 
