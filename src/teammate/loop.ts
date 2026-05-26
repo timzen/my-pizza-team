@@ -112,7 +112,7 @@ export class WorkLoop {
         if (claim.success) {
           this.currentTaskId = response.task.id;
           this.client.heartbeat("working", response.task.id).catch(() => {});
-          await this.executeTask(response.task);
+          await this.executeTask(response.task, claim.instructions);
         } else {
           // Someone else got it, try again
           this.schedulePoll();
@@ -138,9 +138,13 @@ export class WorkLoop {
     title: string;
     description: string;
     context?: string;
-  }): Promise<void> {
+  }, instructions?: string): Promise<void> {
     // Build the prompt for the Pi agent
-    let prompt = `## Task: ${task.title}\n\n${task.description}`;
+    let prompt = ``;
+    if (instructions) {
+      prompt += `## Transition Instructions\n\n${instructions}\n\n---\n\n`;
+    }
+    prompt += `## Task: ${task.title}\n\n${task.description}`;
     if (task.context) {
       prompt = `## Context from previous tasks:\n\n${task.context}\n\n---\n\n${prompt}`;
     }
@@ -174,8 +178,16 @@ export class WorkLoop {
 
     // Task complete
     const result = lastMessage.slice(0, 500); // Keep result concise
-    await this.client.updateStatus(taskId, "review", result);
+    const statusResponse = await this.client.updateStatus(taskId, "review", result);
     this.currentTaskId = null;
+
+    // If there are on-enter-review instructions, send them as a follow-up message
+    if (statusResponse.instructions) {
+      this.pi.sendUserMessage(
+        `## Review Instructions\n\n${statusResponse.instructions}`,
+        { deliverAs: "followUp" }
+      );
+    }
 
     this.onTaskComplete?.(taskId, result);
 

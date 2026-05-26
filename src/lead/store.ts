@@ -19,7 +19,7 @@ import Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { Message, Story, Task, TaskWithMeta, TeamConfig, Member, Assignment } from "../shared/types.js";
+import type { Message, Story, Task, TaskWithMeta, TeamConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
 
 export class Store {
   private db: Database.Database;
@@ -27,6 +27,8 @@ export class Store {
   private config: TeamConfig;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
+  private transitionInstructionsCache: Map<string, { content: string; mtime: number }> = new Map();
+  private transitionCacheTTL = 30000; // 30 seconds
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -590,6 +592,54 @@ export class Store {
       }
     } catch {
       // Ignore git errors (nothing to commit, etc.)
+    }
+  }
+
+  // --- Transition Instructions ---
+
+  getTransitionInstructions(
+    fromStatus: string,
+    toStatus: string
+  ): { exitInstructions?: string; enterInstructions?: string } {
+    const result: { exitInstructions?: string; enterInstructions?: string } = {};
+
+    const exitContent = this.readTransitionFile(`on-exit-${fromStatus}.md`);
+    if (exitContent) result.exitInstructions = exitContent;
+
+    const enterContent = this.readTransitionFile(`on-enter-${toStatus}.md`);
+    if (enterContent) result.enterInstructions = enterContent;
+
+    return result;
+  }
+
+  private readTransitionFile(filename: string): string | undefined {
+    const filePath = path.join(this.teamDir, filename);
+
+    // Check cache
+    const cached = this.transitionInstructionsCache.get(filename);
+    if (cached) {
+      try {
+        const stat = fs.statSync(filePath);
+        const mtime = stat.mtimeMs;
+        if (mtime === cached.mtime && Date.now() - cached.mtime < this.transitionCacheTTL) {
+          return cached.content;
+        }
+      } catch {
+        // File deleted, remove from cache
+        this.transitionInstructionsCache.delete(filename);
+        return undefined;
+      }
+    }
+
+    // Read from disk
+    try {
+      if (!fs.existsSync(filePath)) return undefined;
+      const content = fs.readFileSync(filePath, "utf-8");
+      const stat = fs.statSync(filePath);
+      this.transitionInstructionsCache.set(filename, { content, mtime: stat.mtimeMs });
+      return content;
+    } catch {
+      return undefined;
     }
   }
 

@@ -89,6 +89,11 @@ export const DEFAULT_CONFIG: TeamConfig = {
   maxTeammates: 4,
 };
 
+export interface TransitionInstructions {
+  onEnter?: string; // markdown content
+  onExit?: string;  // markdown content
+}
+
 export const TEAM_DIR = ".pi-pizza-team";
 export const CONFIG_FILE = "config.json";
 export const STATE_DB = "state.db";

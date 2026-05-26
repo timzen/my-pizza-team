@@ -52,6 +52,7 @@ export interface ClaimRequest {
 export interface ClaimResponse {
   success: boolean;
   error?: string;
+  instructions?: string;
 }
 
 // POST /api/tasks/:taskId/status
@@ -65,6 +66,7 @@ export interface StatusUpdateRequest {
 export interface StatusUpdateResponse {
   success: boolean;
   error?: string;
+  instructions?: string;
 }
 
 // POST /api/tasks/:taskId/message

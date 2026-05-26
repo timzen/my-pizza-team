@@ -242,10 +242,22 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       const taskId = c.req.param("taskId");
       const body = (await c.req.json()) as ClaimRequest;
 
+      const task = this.store.getTask(taskId);
       const success = this.store.claimTask(taskId, body.memberId);
       if (success) {
+        const fromStatus = task?.status || "todo";
         this.store.updateTaskStatus(taskId, "in_progress");
         this.store.updateMemberStatus(body.memberId, "working");
+
+        // Get transition instructions
+        const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, "in_progress");
+        const parts: string[] = [];
+        if (exitInstructions) parts.push(exitInstructions);
+        if (enterInstructions) parts.push(enterInstructions);
+        const instructions = parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
+
+        const response: ClaimResponse = { success, instructions };
+        return c.json(response);
       }
 
       const response: ClaimResponse = {
@@ -259,6 +271,9 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
     this.app.post("/api/tasks/:taskId/status", async (c) => {
       const taskId = c.req.param("taskId");
       const body = (await c.req.json()) as StatusUpdateRequest;
+
+      const task = this.store.getTask(taskId);
+      const fromStatus = task?.status || "";
 
       const check = this.store.canTransition(taskId, body.status, body.actor);
       if (!check.ok) {
@@ -274,7 +289,14 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         this.store.updateMemberStatus(body.memberId, "idle");
       }
 
-      const response: StatusUpdateResponse = { success: true };
+      // Get transition instructions
+      const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, body.status);
+      const parts: string[] = [];
+      if (exitInstructions) parts.push(exitInstructions);
+      if (enterInstructions) parts.push(enterInstructions);
+      const instructions = parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
+
+      const response: StatusUpdateResponse = { success: true, instructions };
       return c.json(response);
     });
 
@@ -397,6 +419,19 @@ const BOARD_HTML = `<!DOCTYPE html>
   .btn-add-story { background: #7c83ff; color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85em; font-weight: 600; cursor: pointer; transition: background 0.15s; }
   .btn-add-story:hover { background: #5a62d9; }
   .btn-add-story:active { background: #4a51b8; }
+  /* Filter/Sort toolbar */
+  .controls-bar { display: flex; gap: 12px; align-items: center; margin-bottom: 16px; padding: 12px 14px; background: #16213e; border-radius: 8px; flex-wrap: wrap; }
+  .controls-bar .search-input { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; border-radius: 5px; padding: 6px 10px; font-size: 0.82em; font-family: inherit; outline: none; min-width: 180px; transition: border-color 0.15s; }
+  .controls-bar .search-input:focus { border-color: #7c83ff; }
+  .controls-bar .search-input::placeholder { color: #555; }
+  .filter-group { display: flex; gap: 4px; align-items: center; }
+  .filter-btn { background: #0f3460; border: 1px solid #1a4080; color: #aaa; padding: 5px 10px; border-radius: 5px; font-size: 0.78em; cursor: pointer; transition: all 0.15s; }
+  .filter-btn:hover { border-color: #7c83ff; color: #e0e0e0; }
+  .filter-btn.active { background: #7c83ff; border-color: #7c83ff; color: #fff; }
+  .sort-select { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; border-radius: 5px; padding: 5px 8px; font-size: 0.78em; font-family: inherit; outline: none; cursor: pointer; }
+  .sort-select:focus { border-color: #7c83ff; }
+  .controls-label { font-size: 0.7em; color: #666; text-transform: uppercase; letter-spacing: 0.04em; font-weight: 600; }
+  .story-count { font-size: 0.78em; color: #888; margin-left: auto; }
   /* Modal styles */
   .modal-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.7); z-index: 1000; justify-content: center; align-items: flex-start; padding: 40px 20px; overflow-y: auto; }
   .modal { background: #16213e; border: 1px solid #0f3460; border-radius: 10px; width: 100%; max-width: 580px; padding: 24px; position: relative; }
@@ -436,6 +471,27 @@ const BOARD_HTML = `<!DOCTYPE html>
   <button class="btn-add-story" id="btn-add-story" onclick="openAddStoryModal()">+ Add Story</button>
 </div>
 <div class="team-bar" id="team"></div>
+<div class="controls-bar">
+  <input type="text" class="search-input" id="search-input" placeholder="🔍 Search stories..." oninput="applyFilters()" />
+  <span class="controls-label">Filter:</span>
+  <div class="filter-group">
+    <button class="filter-btn active" data-filter="all" onclick="setFilter('all')">All</button>
+    <button class="filter-btn" data-filter="open" onclick="setFilter('open')">Open</button>
+    <button class="filter-btn" data-filter="done" onclick="setFilter('done')">Done</button>
+    <button class="filter-btn" data-filter="ready" onclick="setFilter('ready')">Ready</button>
+    <button class="filter-btn" data-filter="blocked" onclick="setFilter('blocked')">Blocked</button>
+  </div>
+  <span class="controls-label">Sort:</span>
+  <select class="sort-select" id="sort-select" onchange="applyFilters()">
+    <option value="default">Default</option>
+    <option value="name-asc">Name (A-Z)</option>
+    <option value="name-desc">Name (Z-A)</option>
+    <option value="progress">Progress</option>
+    <option value="most-tasks">Most tasks</option>
+    <option value="fewest-tasks">Fewest tasks</option>
+  </select>
+  <span class="story-count" id="story-count"></span>
+</div>
 <div id="board"></div>
 
 <!-- Add Story Modal -->
@@ -475,6 +531,91 @@ const BOARD_HTML = `<!DOCTYPE html>
 <script>
 const POLL_MS = 3000;
 const COLUMN_ORDER = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
+
+// --- State ---
+let allStories = [];
+let currentFilter = localStorage.getItem('board-filter') || 'all';
+let currentSort = localStorage.getItem('board-sort') || 'default';
+let currentSearch = localStorage.getItem('board-search') || '';
+
+// Restore persisted state on load
+(function initControls() {
+  document.getElementById('search-input').value = currentSearch;
+  document.getElementById('sort-select').value = currentSort;
+  // Set active filter button
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === currentFilter);
+  });
+})();
+
+function setFilter(filter) {
+  currentFilter = filter;
+  localStorage.setItem('board-filter', filter);
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+  });
+  applyFilters();
+}
+
+function applyFilters() {
+  currentSearch = document.getElementById('search-input').value;
+  currentSort = document.getElementById('sort-select').value;
+  localStorage.setItem('board-search', currentSearch);
+  localStorage.setItem('board-sort', currentSort);
+  renderBoard(allStories);
+}
+
+function filterAndSortStories(stories) {
+  let filtered = stories;
+
+  // Search filter
+  const search = currentSearch.trim().toLowerCase();
+  if (search) {
+    filtered = filtered.filter(s =>
+      s.title.toLowerCase().includes(search) ||
+      s.description.toLowerCase().includes(search)
+    );
+  }
+
+  // Status filter
+  if (currentFilter === 'open') {
+    filtered = filtered.filter(s => s.status === 'open');
+  } else if (currentFilter === 'done') {
+    filtered = filtered.filter(s => s.status === 'done');
+  } else if (currentFilter === 'ready') {
+    filtered = filtered.filter(s => s.ready && s.status !== 'done');
+  } else if (currentFilter === 'blocked') {
+    filtered = filtered.filter(s => !s.ready && s.status !== 'done');
+  }
+
+  // Sort
+  if (currentSort === 'name-asc') {
+    filtered = [...filtered].sort((a, b) => a.title.localeCompare(b.title));
+  } else if (currentSort === 'name-desc') {
+    filtered = [...filtered].sort((a, b) => b.title.localeCompare(a.title));
+  } else if (currentSort === 'progress') {
+    filtered = [...filtered].sort((a, b) => {
+      const pa = a.tasks.length ? a.tasks.filter(t => t.status === 'done').length / a.tasks.length : 0;
+      const pb = b.tasks.length ? b.tasks.filter(t => t.status === 'done').length / b.tasks.length : 0;
+      return pb - pa;
+    });
+  } else if (currentSort === 'most-tasks') {
+    filtered = [...filtered].sort((a, b) => b.tasks.length - a.tasks.length);
+  } else if (currentSort === 'fewest-tasks') {
+    filtered = [...filtered].sort((a, b) => a.tasks.length - b.tasks.length);
+  }
+
+  return filtered;
+}
+
+function updateStoryCount(shown, total) {
+  const el = document.getElementById('story-count');
+  if (shown === total) {
+    el.textContent = total + ' ' + (total === 1 ? 'story' : 'stories');
+  } else {
+    el.textContent = 'Showing ' + shown + ' of ' + total + ' stories';
+  }
+}
 
 function openAddStoryModal() {
   const modal = document.getElementById('add-story-modal');
@@ -628,7 +769,8 @@ async function refresh() {
       fetch('/api/team').then(r => r.json())
     ]);
     renderTeam(teamRes.members);
-    renderBoard(storiesRes.stories);
+    allStories = storiesRes.stories;
+    renderBoard(allStories);
     document.getElementById('refresh').textContent = 'updated ' + new Date().toLocaleTimeString();
   } catch(e) {
     document.getElementById('refresh').textContent = 'error: ' + e.message;
@@ -648,10 +790,12 @@ function renderTeam(members) {
 
 function renderBoard(stories) {
   const el = document.getElementById('board');
+  const filtered = filterAndSortStories(stories);
+  updateStoryCount(filtered.length, stories.length);
 
   // Determine all columns needed
   const allStates = new Set(COLUMN_ORDER);
-  for (const story of stories) {
+  for (const story of filtered) {
     for (const task of story.tasks) allStates.add(task.status);
   }
   const columns = [...allStates].sort((a, b) => {
@@ -662,7 +806,7 @@ function renderBoard(stories) {
     return a.localeCompare(b);
   });
 
-  el.innerHTML = stories.map(story => {
+  el.innerHTML = filtered.map(story => {
     const blocked = !story.ready && story.status !== 'done';
     const doneCount = story.tasks.filter(t => t.status === 'done').length;
     const blockedClass = blocked ? ' swimlane-blocked' : '';
