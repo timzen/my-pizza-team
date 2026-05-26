@@ -36,6 +36,7 @@ export class WorkLoop {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private messageCheckTimer: ReturnType<typeof setInterval> | null = null;
   private lastSeenMessageCount: number = 0;
+  private addressingReviewFeedback: boolean = false;
 
   // Callback to check if we should stay autonomous
   // (e.g., detect if human is typing)
@@ -191,7 +192,6 @@ export class WorkLoop {
 
     // Task complete — post a summary message before transitioning
     const summary = lastMessage.slice(0, 500); // Keep result concise
-    await this.client.postMessage(taskId, `[review] Work complete. Summary:\n${summary}`).catch(() => {});
 
     // Report token usage
     // TODO: Pi SDK does not yet expose per-conversation token counts directly.
@@ -203,6 +203,19 @@ export class WorkLoop {
       outputTokens: 0,
       model: "unknown",
     }).catch(() => {});
+
+    if (this.addressingReviewFeedback) {
+      // We were addressing review feedback — task is already in review.
+      // Just post a message and wait for lead to approve or send more feedback.
+      this.addressingReviewFeedback = false;
+      await this.client.postMessage(taskId, `[review] Addressed feedback. Summary:\n${summary}`).catch(() => {});
+      this.currentTaskId = null;
+      this.onTaskComplete?.(taskId, summary);
+      this.waitForReviewFeedback(taskId);
+      return;
+    }
+
+    await this.client.postMessage(taskId, `[review] Work complete. Summary:\n${summary}`).catch(() => {});
 
     const statusResponse = await this.client.updateStatus(taskId, "review", summary);
     this.currentTaskId = null;
@@ -217,8 +230,9 @@ export class WorkLoop {
 
     this.onTaskComplete?.(taskId, summary);
 
-    // Poll for next task
-    this.schedulePoll();
+    // Watch for review feedback — if the lead posts a message or moves
+    // the task back to in_progress, pick it back up.
+    this.waitForReviewFeedback(taskId);
   }
 
   /** Wait for a blocked task to be unblocked by the lead */
@@ -248,6 +262,58 @@ export class WorkLoop {
     };
 
     setTimeout(check, POLL_INTERVAL_MS);
+  }
+
+  /** Watch a task in review for lead feedback messages */
+  private async waitForReviewFeedback(taskId: string): Promise<void> {
+    // Snapshot current message count so we only react to new lead messages
+    let baseMessageCount = 0;
+    try {
+      const res = await this.client.getMessages(taskId);
+      baseMessageCount = res.messages.length;
+    } catch { /* ignore */ }
+
+    // Also poll for new work while waiting for review
+    this.schedulePoll();
+
+    const check = async () => {
+      if (!this.running || !this.autonomous) return;
+      // If we're already working on something else, stop watching
+      if (this.currentTaskId && this.currentTaskId !== taskId) return;
+
+      try {
+        const res = await this.client.getMessages(taskId);
+        const messages = res.messages;
+
+        if (messages.length > baseMessageCount) {
+          // Look for new lead messages after our review submission
+          const newMessages = messages.slice(baseMessageCount);
+          const leadMessages = newMessages.filter(m => m.from === "lead");
+
+          if (leadMessages.length > 0) {
+            // Lead gave review feedback — pick the task back up
+            const feedback = leadMessages.map(m => m.body).join("\n\n");
+            this.currentTaskId = taskId;
+            this.addressingReviewFeedback = true;
+            this.startMessageChecking(taskId);
+            await this.client.postMessage(taskId, `[status] Addressing review feedback.`).catch(() => {});
+
+            this.pi.sendUserMessage(
+              `## Review Feedback from Lead\n\nThe lead reviewed your work and has feedback:\n\n"${feedback}"\n\nPlease address this feedback and resubmit. When done, provide a summary of the changes.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
+              { deliverAs: "followUp" }
+            );
+            return;
+          }
+        }
+      } catch {
+        // Server unreachable
+      }
+
+      // Keep checking
+      setTimeout(check, POLL_INTERVAL_MS * 2); // Check every 10s (less urgent than active work)
+    };
+
+    setTimeout(check, POLL_INTERVAL_MS * 2);
   }
 
   // --- Message checking while working ---
