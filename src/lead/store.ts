@@ -27,7 +27,7 @@ export class Store {
   private config: TeamConfig;
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
-  private transitionInstructionsCache: Map<string, { content: string; mtime: number }> = new Map();
+  private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
 
   constructor(teamDir: string, config: TeamConfig) {
@@ -713,7 +713,7 @@ export class Store {
       try {
         const stat = fs.statSync(filePath);
         const mtime = stat.mtimeMs;
-        if (mtime === cached.mtime && Date.now() - cached.mtime < this.transitionCacheTTL) {
+        if (mtime === cached.mtime && Date.now() - cached.cachedAt < this.transitionCacheTTL) {
           return cached.content;
         }
       } catch {
@@ -728,7 +728,7 @@ export class Store {
       if (!fs.existsSync(filePath)) return undefined;
       const content = fs.readFileSync(filePath, "utf-8");
       const stat = fs.statSync(filePath);
-      this.transitionInstructionsCache.set(filename, { content, mtime: stat.mtimeMs });
+      this.transitionInstructionsCache.set(filename, { content, mtime: stat.mtimeMs, cachedAt: Date.now() });
       return content;
     } catch {
       return undefined;
