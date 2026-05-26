@@ -136,6 +136,11 @@
   .md-content blockquote { border-left: 3px solid #7c83ff; padding-left: 10px; margin: 8px 0; color: #aaa; }
   .md-content a { color: #7c83ff; }
   .md-content hr { border: none; border-top: 1px solid #0f3460; margin: 12px 0; }
+  .msg-bubble .md-content h1, .msg-bubble .md-content h2, .msg-bubble .md-content h3, .msg-bubble .md-content h4 { margin: 6px 0 3px 0; }
+  .msg-bubble .md-content p { margin: 3px 0; }
+  .msg-bubble .md-content pre { background: rgba(0,0,0,0.2); }
+  .msg-bubble .md-content code { background: rgba(0,0,0,0.2); }
+  .msg-bubble.msg-lead .md-content code, .msg-bubble.msg-lead .md-content pre { background: rgba(0,0,0,0.15); }
 </style></head><body>
 <div class="toolbar">
   <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
@@ -633,7 +638,7 @@ function renderMessages(messages) {
     const time = m.at ? new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
     return '<div class="msg-bubble ' + cls + '">' +
       '<div class="msg-sender">' + escHtml(sender) + '</div>' +
-      '<div class="msg-body">' + escHtml(m.body) + '</div>' +
+      '<div class="msg-body md-content">' + renderMarkdown(m.body) + '</div>' +
       (time ? '<div class="msg-time">' + time + '</div>' : '') +
       '</div>';
   }).join('');
