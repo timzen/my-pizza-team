@@ -28,7 +28,6 @@
   .card-assignee { font-size: 0.7em; color: #7c83ff; margin-top: 2px; }
   .card-cost { font-size: 0.65em; color: #4caf50; margin-top: 2px; opacity: 0.8; }
   .card-msg { font-size: 0.7em; color: #ffa500; margin-top: 2px; }
-  .card-desc { font-size: 0.72em; color: #aaa; margin-top: 4px; max-height: 60px; overflow: hidden; white-space: pre-wrap; line-height: 1.4; }
   .card-actions { position: absolute; top: 4px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
   .card-actions button { background: none; border: none; color: #888; cursor: pointer; font-size: 0.75em; padding: 2px 4px; border-radius: 3px; }
   .card-actions button:hover { color: #e0e0e0; background: rgba(255,255,255,0.1); }
@@ -125,6 +124,18 @@
   .msg-resume-btn:hover { background: rgba(76,175,80,0.1); }
   .card-msg-btn { display: inline-block; margin-top: 3px; font-size: 0.7em; color: #7c83ff; cursor: pointer; }
   .card-msg-btn:hover { text-decoration: underline; }
+  /* Markdown content styles */
+  .md-content h1, .md-content h2, .md-content h3, .md-content h4 { color: #e0e0e0; margin: 12px 0 6px 0; }
+  .md-content h1 { font-size: 1.2em; } .md-content h2 { font-size: 1.05em; } .md-content h3 { font-size: 0.95em; }
+  .md-content p { margin: 6px 0; }
+  .md-content ul, .md-content ol { margin: 6px 0; padding-left: 20px; }
+  .md-content li { margin: 3px 0; }
+  .md-content code { background: #1a1a2e; padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+  .md-content pre { background: #1a1a2e; padding: 10px; border-radius: 5px; overflow-x: auto; margin: 8px 0; }
+  .md-content pre code { background: none; padding: 0; }
+  .md-content blockquote { border-left: 3px solid #7c83ff; padding-left: 10px; margin: 8px 0; color: #aaa; }
+  .md-content a { color: #7c83ff; }
+  .md-content hr { border: none; border-top: 1px solid #0f3460; margin: 12px 0; }
 </style></head><body>
 <div class="toolbar">
   <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
@@ -224,7 +235,7 @@
     <button class="modal-close" onclick="closeTaskDetailModal()" aria-label="Close">&times;</button>
     <h2 id="task-detail-title"></h2>
     <div style="font-size:0.78em;color:#888;margin-bottom:12px;" id="task-detail-meta"></div>
-    <div style="white-space:pre-wrap;font-size:0.85em;line-height:1.5;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;" id="task-detail-desc"></div>
+    <div style="font-size:0.85em;line-height:1.6;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;" id="task-detail-desc" class="md-content"></div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeTaskDetailModal()">Close</button>
     </div>
@@ -494,13 +505,59 @@ async function submitTaskModal() {
   btn.disabled = false;
 }
 
+// --- Simple Markdown Renderer ---
+function renderMarkdown(text) {
+  if (!text) return '<em style="color:#666;">(no description)</em>';
+  let html = escHtml(text);
+  // Code blocks (``` ... ```)
+  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
+  // Inline code
+  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
+  // Headers
+  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
+  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
+  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
+  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
+  // Bold and italic
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
+  // Blockquotes
+  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
+  // Unordered lists
+  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
+  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
+  // Horizontal rules
+  html = html.replace(/^---$/gm, '<hr>');
+  // Links
+  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
+  // Paragraphs (double newline)
+  html = html.replace(/\n\n/g, '</p><p>');
+  html = '<p>' + html + '</p>';
+  // Clean up empty paragraphs and fix nested block elements
+  html = html.replace(/<p>(<h[1-4]>)/g, '$1');
+  html = html.replace(/(<\/h[1-4]>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<pre>)/g, '$1');
+  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<ul>)/g, '$1');
+  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<blockquote>)/g, '$1');
+  html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
+  html = html.replace(/<p>(<hr>)<\/p>/g, '$1');
+  html = html.replace(/<p><\/p>/g, '');
+  // Single newlines → <br> inside paragraphs
+  html = html.replace(/<p>([\s\S]*?)<\/p>/g, function(m, inner) {
+    return '<p>' + inner.replace(/\n/g, '<br>') + '</p>';
+  });
+  return html;
+}
+
 // --- Task Detail Modal ---
 function openTaskDetailModal(taskId) {
   const task = taskDataMap[taskId];
   if (!task) return;
   document.getElementById('task-detail-title').textContent = task.title;
   document.getElementById('task-detail-meta').textContent = '#' + task.seq + ' — ' + task.status.replace(/_/g, ' ') + (task.assignee ? ' (assigned to ' + task.assignee + ')' : '');
-  document.getElementById('task-detail-desc').textContent = task.description || '(no description)';
+  document.getElementById('task-detail-desc').innerHTML = renderMarkdown(task.description);
   document.getElementById('task-detail-modal').style.display = 'flex';
 }
 
@@ -749,7 +806,7 @@ function renderBoard(stories) {
         const costBadge = t.tokenUsage && t.tokenUsage.totalCostUsd > 0 ? '<div class="card-cost">💲' + t.tokenUsage.totalCostUsd.toFixed(3) + '</div>' : '';
         const msg = t.hasMessages ? '<div class="card-msg">📬 messages</div>' : '';
         const msgBtn = '<div class="card-msg-btn" onclick="event.stopPropagation(); openMsgPanel(\'' + escHtml(t.id) + '\')">💬 messages</div>';
-        const desc = t.description ? '<div class="card-desc">' + escHtml(t.description.slice(0, 120)) + (t.description.length > 120 ? '...' : '') + '</div>' : '';
+        const desc = '';
 
         // Move dropdown
         const validMoves = getLeadTransitions(t.status);
