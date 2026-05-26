@@ -52,7 +52,6 @@ import type {
 // Cost per 1M tokens (input, output) for common models
 const MODEL_COSTS: Record<string, { input: number; output: number }> = {
   "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
-  "claude-sonnet-4-20250514": { input: 3.0, output: 15.0 },
   "claude-opus-4-20250514": { input: 15.0, output: 75.0 },
   "claude-haiku-3": { input: 0.25, output: 1.25 },
   "claude-3-5-sonnet-20241022": { input: 3.0, output: 15.0 },
@@ -368,8 +367,8 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       const taskId = c.req.param("taskId");
       const body = (await c.req.json()) as TokenUsageRequest;
 
-      if (!body.inputTokens || !body.outputTokens || !body.model) {
-        return c.json({ success: false, error: "Fields inputTokens, outputTokens, and model are required" } satisfies TokenUsageResponse, 400);
+      if (typeof body.inputTokens !== 'number' || typeof body.outputTokens !== 'number' || !body.model) {
+        return c.json({ success: false, error: "Fields inputTokens (number), outputTokens (number), and model (string) are required" } satisfies TokenUsageResponse, 400);
       }
 
       const task = this.store.getTask(taskId);
