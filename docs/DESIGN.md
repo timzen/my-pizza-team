@@ -41,6 +41,15 @@ The state machine is entirely in `config.json`. You can define any workflow stat
 ### 5. Messages as decision records
 The `messages.jsonl` files capture the back-and-forth between teammates and the lead. These get committed to git, forming a lightweight ADR (Architecture Decision Record) system — "why did we use RS256?" is right there in the task history.
 
+### 6. Working directory per story
+Stories can specify an optional `dir` field (e.g., `"dir": "~/Workspace/my-project"`). When using `/team-spawn <story-id>`, the teammate is launched in that directory automatically. This supports multi-repo teams where different stories live in different codebases.
+
+### 7. Transition instructions
+Optional markdown files (`on-enter-<status>.md`, `on-exit-<status>.md`) provide contextual instructions when tasks change state. This enables:
+- Pre-work checklists ("read the design doc first")
+- Review guidelines ("run tests before marking done")
+- Exit procedures ("clean up temporary files")
+
 ## Interaction Model
 
 ### Task Lifecycle
@@ -116,3 +125,4 @@ A project with 200 completed stories could have thousands of messages. Loading t
 - **Result summarization** — use LLM to compress task results for context passing
 - **Multi-repo support** — teammates working across different repositories
 - **Metrics/burndown** — track velocity, time-per-task, completion rates
+- **Drag-and-drop board** — reorder tasks and move between statuses visually

@@ -28,7 +28,8 @@ pi
 > # Now discuss the breakdown with Pi, or add tasks manually:
 > /team-add-task my-feature
 > # Or just ask Pi to break it down from a design doc!
-> /team-spawn alice ~/projects/my-app
+> /team-spawn my-feature          # spawns teammate using story's dir
+> /team-spawn alice ~/projects/my-app  # or manually name + cwd
 > /team-board
 ```
 
@@ -38,10 +39,10 @@ pi
 |---------|-------------|
 | `/team-init` | Initialize kanban board |
 | `/team-board` | Show board status |
-| `/team-spawn <name> [cwd]` | Hire a teammate |
-| `/team-add-story [id]` | Create a story (tasks added separately) |
+| `/team-spawn <story-id\|name> [cwd]` | Hire a teammate (story ID auto-resolves dir + name) |
+| `/team-add-story [id]` | Create a story (prompts for title, description, dir, dependencies) |
 | `/team-add-task <story-id>` | Add a task to a story interactively |
-| `/team-move <task-id> [status]` | Move a task to a new status (with autocomplete) |
+| `/team-move <task-id> [status]` | Move a task to a new status (autocomplete excludes done tasks) |
 | `/team-inbox` | Messages needing your input |
 | `/team-reply <task-id> <msg>` | Reply to a teammate |
 | `/team-hop <name>` | Jump to teammate's tmux window |
@@ -56,18 +57,32 @@ pi
 |---------|-------------|
 | `/team-worker-resume` | Resume autonomous work after pairing |
 
-## LLM Tool
+## LLM Tools
 
-The extension registers a `team_add_task` tool that the LLM can call. This means you can:
+The extension registers two LLM tools:
+
+- **`team_add_story`** — Create a new story with id, title, description, optional dir and dependencies
+- **`team_add_task`** — Add a task to an existing story
+
+This means you can:
 - Paste a design doc and say "break this into tasks for story X"
-- Discuss implementation with Pi and have it add tasks as you go
+- Discuss implementation with Pi and have it add stories + tasks as you go
 - Let Pi read existing code and propose a task breakdown
 
 ## Web UI
 
 When the team lead is running, visit:
 - **`http://localhost:7437/`** — landing page with status
-- **`http://localhost:7437/board`** — kanban board with swimlanes per story (auto-refreshes)
+- **`http://localhost:7437/board`** — kanban board with swimlanes per story (auto-refreshes every 3s)
+
+The board includes:
+- **Search** — filter stories by title/description (real-time)
+- **Filters** — All, Open, Done, Ready (dependencies met), Blocked
+- **Sort** — Default, Name A-Z/Z-A, Progress, Most/Fewest tasks
+- **Task management** — click to view details, edit ✏️, delete 🗑️, move status
+- **Add tasks** — "+Task" button on each story
+- **Add stories** — modal with title, description, dependencies, working directory, and inline tasks
+- **Persistent controls** — filter/sort/search saved in localStorage
 
 ## Workflow
 
@@ -95,14 +110,51 @@ Tasks follow a configurable workflow with permission-gated transitions:
 .pi-pizza-team/
 ├── config.json                   # Workflow, port, tmux session name
 ├── state.db                      # SQLite runtime (gitignored)
+├── on-enter-<status>.md          # Optional: instructions when entering a status
+├── on-exit-<status>.md           # Optional: instructions when leaving a status
 └── stories/
     └── my-story/
-        ├── story.json            # Story metadata + dependencies
+        ├── story.json            # Story metadata + dependencies + optional dir
         └── tasks/
             └── 01-first-task/
                 ├── task.json     # Task definition + status + result
                 └── messages.jsonl # Decision log (append-only)
 ```
+
+### story.json
+
+```json
+{
+  "id": "my-story",
+  "title": "My Story",
+  "description": "What this story delivers",
+  "status": "open",
+  "dependsOn": ["other-story"],
+  "dir": "~/Workspace/my-project"
+}
+```
+
+The `dir` field is optional — when present, it serves as a working directory hint for teammates. Resolved at spawn time (supports `~`).
+
+## Transition Instructions
+
+You can add optional markdown files to `.pi-pizza-team/` that provide instructions when tasks enter or leave a workflow status:
+
+- `on-enter-<status>.md` — injected when a task enters this status
+- `on-exit-<status>.md` — injected when a task leaves this status
+
+Example: `.pi-pizza-team/on-enter-in_progress.md`
+
+```markdown
+# Instructions for starting work
+
+Before beginning this task:
+1. Read the relevant source files mentioned in the description
+2. Check for any existing tests related to this area
+3. Create a branch named after the task slug
+```
+
+These instructions are returned in API responses and prepended to the teammate's prompt automatically. If no files exist, behavior is unchanged.
 
 ## Autosave
 

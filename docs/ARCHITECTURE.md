@@ -40,7 +40,7 @@ src/
 ├── lead/
 │   ├── store.ts          # SQLite store: schema, CRUD, sync to/from JSON files
 │   ├── server.ts         # Hono HTTP server: API routes + web UI (board, landing)
-│   ├── commands.ts       # Slash commands + team_add_task LLM tool
+│   ├── commands.ts       # Slash commands + team_add_story/team_add_task LLM tools
 │   └── tmux.ts           # tmux session/window lifecycle management
 └── teammate/
     ├── client.ts         # HTTP client wrapping all leader API calls
@@ -97,7 +97,7 @@ stories/*/tasks/*/messages.jsonl  (lazy)►  messages table
 The database (`state.db`) is the runtime engine. See `src/lead/store.ts` for the full schema.
 
 **Tables loaded from disk (source of truth = JSON files):**
-- `stories` — story metadata (id, title, description, status, depends_on, dir_path)
+- `stories` — story metadata (id, title, description, status, depends_on, dir, dir_path)
 - `tasks` — task definitions (id, story_id, seq, slug, title, description, status, result, dir_path, dirty)
 
 **Tables that are runtime-only (ephemeral, never written to JSON):**
@@ -162,22 +162,37 @@ File: `<teammate-cwd>/.pi/extensions/pi-permission-system/config.json`
 
 Server runs on the port from `config.json` (default 7437). Routes defined in `src/lead/server.ts`.
 
-| Route | Purpose |
-|-------|---------|
-| `GET /` | Landing page HTML |
-| `GET /board` | Kanban board HTML (polls API) |
-| `GET /api/status` | Summary stats |
-| `GET /api/stories` | All stories + tasks + readiness |
-| `GET /api/next-task?memberId=X` | Next claimable task |
-| `POST /api/tasks/:id/claim` | Claim a task |
-| `POST /api/tasks/:id/status` | Update status (enforces workflow) |
-| `POST /api/tasks/:id/message` | Post a message |
-| `GET /api/tasks/:id/messages` | Get message thread |
-| `POST /api/team/join` | Register a teammate |
-| `POST /api/team/heartbeat` | Keepalive |
-| `GET /api/team` | List members |
-| `POST /api/control/pause` | Pause task distribution |
-| `POST /api/control/resume` | Resume task distribution |
+| Route | Method | Purpose |
+|-------|--------|--------|
+| `/` | GET | Landing page HTML |
+| `/board` | GET | Kanban board HTML (polls API) |
+| `/api/status` | GET | Summary stats + workflow config |
+| `/api/stories` | GET | All stories + tasks + readiness |
+| `/api/stories` | POST | Create a new story (with optional tasks, dir) |
+| `/api/stories/:storyId/tasks` | POST | Create a task within a story |
+| `/api/next-task?memberId=X` | GET | Next claimable task |
+| `/api/tasks/:id/claim` | POST | Claim a task (returns transition instructions) |
+| `/api/tasks/:id/status` | POST | Update status (enforces workflow, returns instructions) |
+| `/api/tasks/:id/move` | POST | Move task status (lead-only, enforces workflow) |
+| `/api/tasks/:id` | PUT | Update task title/description |
+| `/api/tasks/:id` | DELETE | Delete a task (removes from DB + disk) |
+| `/api/tasks/:id/message` | POST | Post a message |
+| `/api/tasks/:id/messages` | GET | Get message thread |
+| `/api/team/join` | POST | Register a teammate |
+| `/api/team/heartbeat` | POST | Keepalive |
+| `/api/team` | GET | List members |
+| `/api/control/pause` | POST | Pause task distribution |
+| `/api/control/resume` | POST | Resume task distribution |
+
+## Transition Instructions
+
+The store supports optional markdown files in the team directory:
+- `.pi-pizza-team/on-enter-<status>.md` — instructions when entering a status
+- `.pi-pizza-team/on-exit-<status>.md` — instructions when leaving a status
+
+These are read by `Store.getTransitionInstructions(fromStatus, toStatus)` and returned in the API responses for `/claim`, `/status`, and `/move` endpoints. The teammate's work loop prepends enter-instructions to the task prompt and sends exit/enter-review instructions as follow-up messages.
+
+Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 
 ## tmux Integration
 
@@ -207,11 +222,15 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 ### Adding a new API endpoint
 1. Add route in `src/lead/server.ts` → `setupRoutes()`
 2. Add request/response types in `src/shared/protocol.ts`
+3. For task CRUD, consider adding a store method for DB operations
 
 ### Adding a new workflow state
 1. Just add it to `config.json` — no code changes needed
 2. Define transitions and permissions in the `transitions` map
+3. Optionally add `on-enter-<state>.md` / `on-exit-<state>.md` for instructions
 
 ### Modifying the board UI
 1. Edit the `BOARD_HTML` constant at the bottom of `src/lead/server.ts`
 2. It's vanilla HTML/JS that polls the JSON API every 3 seconds
+3. Task data is stored in `taskDataMap` for safe modal access
+4. Workflow transitions are fetched from `GET /api/status` and used to render move dropdowns
