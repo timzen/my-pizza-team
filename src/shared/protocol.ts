@@ -7,6 +7,10 @@ export interface StatusResponse {
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
   inbox: number; // unread messages needing lead attention
+  workflow?: {
+    states: string[];
+    transitions: Record<string, Record<string, string>>;
+  };
 }
 
 // GET /api/stories
@@ -30,6 +34,7 @@ export interface TaskView {
   seq: number;
   title: string;
   status: string;
+  description?: string;
   assignee: string | null;
   hasMessages: boolean;
 }
