@@ -15,15 +15,20 @@
 // - `autonomous` = true: actively polling and executing tasks
 // - `autonomous` = false: paused (human is pairing in this window)
 //
-// The loop also handles the "needs_input" flow:
-// - If the agent's response contains "NEEDS_INPUT:", it posts the question
-//   to the leader and waits for a reply before continuing.
+// Message handling is workflow-agnostic:
+// - While actively working: checks for new lead messages every 10s and
+//   delivers them to the agent as guidance.
+// - While idle (task handed off): watches for lead messages and picks the
+//   task back up to address feedback, regardless of what state it's in.
+// - The teammate never hardcodes workflow state names — it reacts purely
+//   to the presence of new lead messages.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamClient } from "./client.js";
 
 const POLL_INTERVAL_MS = 5000; // 5 seconds between polls
 const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
 const MESSAGE_CHECK_INTERVAL_MS = 10000; // 10 seconds between message checks while working
+const WATCH_INTERVAL_MS = 10000; // 10 seconds between checks on handed-off tasks
 
 export class WorkLoop {
   private pi: ExtensionAPI;
@@ -36,7 +41,11 @@ export class WorkLoop {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private messageCheckTimer: ReturnType<typeof setInterval> | null = null;
   private lastSeenMessageCount: number = 0;
-  private addressingReviewFeedback: boolean = false;
+
+  // Tasks we've handed off but are still watching for lead replies.
+  // Maps taskId → message count at time of handoff (so we only react to new messages).
+  private watchedTasks: Map<string, number> = new Map();
+  private watchTimer: ReturnType<typeof setInterval> | null = null;
 
   // Callback to check if we should stay autonomous
   // (e.g., detect if human is typing)
@@ -59,6 +68,7 @@ export class WorkLoop {
   async start(): Promise<void> {
     this.running = true;
     this.startHeartbeat();
+    this.startWatchLoop();
     this.pollForWork();
   }
 
@@ -72,6 +82,10 @@ export class WorkLoop {
     if (this.heartbeatTimer) {
       clearInterval(this.heartbeatTimer);
       this.heartbeatTimer = null;
+    }
+    if (this.watchTimer) {
+      clearInterval(this.watchTimer);
+      this.watchTimer = null;
     }
     this.stopMessageChecking();
   }
@@ -116,6 +130,8 @@ export class WorkLoop {
         const claim = await this.client.claimTask(response.task.id);
         if (claim.success) {
           this.currentTaskId = response.task.id;
+          // Stop watching this task if we had it in the watch list
+          this.watchedTasks.delete(response.task.id);
           this.client.heartbeat("working", response.task.id).catch(() => {});
           await this.executeTask(response.task, claim.instructions);
         } else {
@@ -175,148 +191,128 @@ export class WorkLoop {
 
     const taskId = this.currentTaskId;
 
-    // Stop checking messages for this task (will restart if unblocked)
+    // Stop checking messages for this task
     this.stopMessageChecking();
-
-    // Check if the agent is asking for help
-    if (lastMessage.includes("NEEDS_INPUT:")) {
-      const question = lastMessage.split("NEEDS_INPUT:").pop()?.trim() || "Need help with this task";
-      await this.client.postMessage(taskId, `[needs_input] ${question}`);
-      await this.client.updateStatus(taskId, "needs_input");
-      this.currentTaskId = null;
-
-      // Poll for when it's moved back to in_progress
-      this.waitForUnblock(taskId);
-      return;
-    }
-
-    // Task complete — post a summary message before transitioning
-    const summary = lastMessage.slice(0, 500); // Keep result concise
 
     // Report token usage
     // TODO: Pi SDK does not yet expose per-conversation token counts directly.
     // When available, replace these placeholder values with actual usage from
     // something like: pi.getConversationTokenUsage() or the agent_end event payload.
-    // For now, we report placeholder values so the infrastructure is exercised.
     await this.client.reportTokenUsage(taskId, {
       inputTokens: 0,
       outputTokens: 0,
       model: "unknown",
     }).catch(() => {});
 
-    if (this.addressingReviewFeedback) {
-      // We were addressing review feedback — task is already in review.
-      // Just post a message and wait for lead to approve or send more feedback.
-      this.addressingReviewFeedback = false;
-      await this.client.postMessage(taskId, `[review] Addressed feedback. Summary:\n${summary}`).catch(() => {});
+    // Check if the agent is asking for help
+    if (lastMessage.includes("NEEDS_INPUT:")) {
+      const question = lastMessage.split("NEEDS_INPUT:").pop()?.trim() || "Need help with this task";
+      await this.client.postMessage(taskId, question);
+      // Transition to the workflow's "blocked" state — the server decides
+      // what transitions are valid. "needs_input" is conventional but the
+      // teammate just requests it; if the workflow doesn't have it, this
+      // will 403 and the task stays in its current state (still fine — the
+      // message is posted either way, and the lead can respond).
+      await this.client.updateStatus(taskId, "needs_input").catch(() => {});
       this.currentTaskId = null;
-      this.onTaskComplete?.(taskId, summary);
-      this.waitForReviewFeedback(taskId);
+      // Watch for lead's reply
+      this.watchTask(taskId);
+      this.schedulePoll();
       return;
     }
 
-    await this.client.postMessage(taskId, `[review] Work complete. Summary:\n${summary}`).catch(() => {});
+    // Task complete — post a summary and advance to next state
+    const summary = lastMessage.slice(0, 500);
+    await this.client.postMessage(taskId, `[done] Work complete. Summary:\n${summary}`).catch(() => {});
 
-    const statusResponse = await this.client.updateStatus(taskId, "review", summary);
+    // Try to advance to "review" — if the workflow doesn't have this
+    // transition, it'll 403 and the task stays put. The lead can move it
+    // manually. The message is posted either way so they have the summary.
+    const statusResponse = await this.client.updateStatus(taskId, "review", summary).catch(() => null);
     this.currentTaskId = null;
 
-    // If there are on-enter-review instructions, send them as a follow-up message
-    if (statusResponse.instructions) {
+    // If there are transition instructions, deliver them
+    if (statusResponse?.instructions) {
       this.pi.sendUserMessage(
-        `## Review Instructions\n\n${statusResponse.instructions}`,
+        `## Transition Instructions\n\n${statusResponse.instructions}`,
         { deliverAs: "followUp" }
       );
     }
 
     this.onTaskComplete?.(taskId, summary);
 
-    // Watch for review feedback — if the lead posts a message or moves
-    // the task back to in_progress, pick it back up.
-    this.waitForReviewFeedback(taskId);
+    // Watch for lead feedback on this task
+    this.watchTask(taskId);
+    this.schedulePoll();
   }
 
-  /** Wait for a blocked task to be unblocked by the lead */
-  private async waitForUnblock(taskId: string): Promise<void> {
-    const check = async () => {
-      if (!this.running || !this.autonomous) return;
+  // ─── Unified message watching (workflow-agnostic) ──────────────────
 
-      try {
-        const messages = await this.client.getMessages(taskId);
-        const lastMsg = messages.messages[messages.messages.length - 1];
-
-        // If lead replied, resume the task
-        if (lastMsg && lastMsg.from === "lead") {
-          this.currentTaskId = taskId;
-          this.startMessageChecking(taskId);
-          await this.client.postMessage(taskId, `[status] Resuming work with lead's guidance.`).catch(() => {});
-          const guidance = `The team lead replied to your question:\n\n"${lastMsg.body}"\n\nPlease continue working on the task with this guidance.`;
-          this.pi.sendUserMessage(guidance, { deliverAs: "followUp" });
-          return;
-        }
-      } catch {
-        // Server unreachable
-      }
-
-      // Check again
-      setTimeout(check, POLL_INTERVAL_MS);
-    };
-
-    setTimeout(check, POLL_INTERVAL_MS);
-  }
-
-  /** Watch a task in review for lead feedback messages */
-  private async waitForReviewFeedback(taskId: string): Promise<void> {
-    // Snapshot current message count so we only react to new lead messages
-    let baseMessageCount = 0;
+  /**
+   * Start watching a task we've handed off. If the lead posts a new
+   * message, we'll pick it back up and address it — regardless of what
+   * workflow state the task is in.
+   */
+  private async watchTask(taskId: string): Promise<void> {
     try {
       const res = await this.client.getMessages(taskId);
-      baseMessageCount = res.messages.length;
-    } catch { /* ignore */ }
-
-    // Also poll for new work while waiting for review
-    this.schedulePoll();
-
-    const check = async () => {
-      if (!this.running || !this.autonomous) return;
-      // If we're already working on something else, stop watching
-      if (this.currentTaskId && this.currentTaskId !== taskId) return;
-
-      try {
-        const res = await this.client.getMessages(taskId);
-        const messages = res.messages;
-
-        if (messages.length > baseMessageCount) {
-          // Look for new lead messages after our review submission
-          const newMessages = messages.slice(baseMessageCount);
-          const leadMessages = newMessages.filter(m => m.from === "lead");
-
-          if (leadMessages.length > 0) {
-            // Lead gave review feedback — pick the task back up
-            const feedback = leadMessages.map(m => m.body).join("\n\n");
-            this.currentTaskId = taskId;
-            this.addressingReviewFeedback = true;
-            this.startMessageChecking(taskId);
-            await this.client.postMessage(taskId, `[status] Addressing review feedback.`).catch(() => {});
-
-            this.pi.sendUserMessage(
-              `## Review Feedback from Lead\n\nThe lead reviewed your work and has feedback:\n\n"${feedback}"\n\nPlease address this feedback and resubmit. When done, provide a summary of the changes.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
-              { deliverAs: "followUp" }
-            );
-            return;
-          }
-        }
-      } catch {
-        // Server unreachable
-      }
-
-      // Keep checking
-      setTimeout(check, POLL_INTERVAL_MS * 2); // Check every 10s (less urgent than active work)
-    };
-
-    setTimeout(check, POLL_INTERVAL_MS * 2);
+      this.watchedTasks.set(taskId, res.messages.length);
+    } catch {
+      this.watchedTasks.set(taskId, 0);
+    }
   }
 
-  // --- Message checking while working ---
+  /** Stop watching a task (e.g., we picked it back up) */
+  private unwatchTask(taskId: string): void {
+    this.watchedTasks.delete(taskId);
+  }
+
+  /**
+   * Periodic check on all watched tasks. If any have new lead messages,
+   * pick up the most recent one and address the feedback.
+   */
+  private startWatchLoop(): void {
+    this.watchTimer = setInterval(async () => {
+      if (!this.running || !this.autonomous) return;
+      // Don't interrupt active work
+      if (this.currentTaskId) return;
+
+      for (const [taskId, baseCount] of this.watchedTasks) {
+        try {
+          const res = await this.client.getMessages(taskId);
+          const messages = res.messages;
+
+          if (messages.length > baseCount) {
+            const newMessages = messages.slice(baseCount);
+            const leadMessages = newMessages.filter(m => m.from === "lead");
+
+            if (leadMessages.length > 0) {
+              // Lead sent feedback — pick this task back up
+              const feedback = leadMessages.map(m => m.body).join("\n\n");
+              this.currentTaskId = taskId;
+              this.unwatchTask(taskId);
+              this.startMessageChecking(taskId);
+              await this.client.postMessage(taskId, `[status] Addressing lead's feedback.`).catch(() => {});
+
+              this.pi.sendUserMessage(
+                `## Message from Team Lead\n\nThe lead sent feedback on a task you worked on:\n\n"${feedback}"\n\nPlease address this and provide a summary when done.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
+                { deliverAs: "followUp" }
+              );
+              return; // Handle one at a time
+            } else {
+              // New messages but not from lead (maybe our own status messages)
+              // Update the baseline so we don't re-check these
+              this.watchedTasks.set(taskId, messages.length);
+            }
+          }
+        } catch {
+          // Server unreachable, try next time
+        }
+      }
+    }, WATCH_INTERVAL_MS);
+  }
+
+  // ─── Message checking while actively working ───────────────────────
 
   /** Start periodically checking for new messages from the lead */
   private startMessageChecking(taskId: string): void {
