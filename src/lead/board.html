@@ -535,6 +535,11 @@ function openMsgPanel(taskId) {
   document.getElementById('msg-panel').classList.add('open');
   document.getElementById('msg-input').value = '';
   loadMessages();
+  // Mark messages as read (fire and forget)
+  fetch('/api/tasks/' + encodeURIComponent(taskId) + '/mark-read', { method: 'POST' }).catch(() => {});
+  // Optimistic UI: update local data and re-render to clear 📬 indicator immediately
+  if (task) task.hasMessages = false;
+  renderBoard(allStories);
   // Auto-refresh messages every 3 seconds
   msgPanelRefreshInterval = setInterval(loadMessages, 3000);
   setTimeout(() => document.getElementById('msg-input').focus(), 300);
