@@ -728,6 +728,24 @@ export function registerLeadCommands(
         output += `    ${icon} ${m.name}: ${task}\n`;
       }
 
+      // Workflows
+      const wfNames = Object.keys(config.workflows);
+      output += "\n  Workflows:\n";
+      for (const name of wfNames) {
+        const wf = config.workflows[name];
+        const badge = name === config.defaultWorkflow ? " (default)" : "";
+        output += `    • ${name}${badge}: ${wf.states.join(" → ")}\n`;
+      }
+
+      // Favorite directories
+      const favDirs = config.teammates?.favoriteDirectories || [];
+      if (favDirs.length > 0) {
+        output += "\n  Favorite Directories:\n";
+        for (const dir of favDirs) {
+          output += `    📂 ${dir}\n`;
+        }
+      }
+
       ctx.ui.notify(output, "info");
     },
   });
