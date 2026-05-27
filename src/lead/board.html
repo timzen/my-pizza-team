@@ -431,16 +431,17 @@ function openStoryDetailModal(storyId) {
   document.getElementById('story-detail-title').textContent = story.title;
 
   // Build meta info
-  const parts = [];
-  parts.push('<strong>ID:</strong> ' + escHtml(story.id));
-  parts.push('<strong>Status:</strong> ' + story.status);
-  if (story.workflow) parts.push('<strong>Workflow:</strong> ' + escHtml(story.workflow));
-  if (story.dir) parts.push('<strong>Directory:</strong> ' + escHtml(story.dir));
-  if (story.dependsOn && story.dependsOn.length > 0) parts.push('<strong>Depends on:</strong> ' + story.dependsOn.map(d => escHtml(d)).join(', '));
-  parts.push('<strong>Ready:</strong> ' + (story.ready ? 'Yes' : 'No (blocked)'));
+  const line1 = [];
+  line1.push('<strong>ID:</strong> ' + escHtml(story.id));
+  if (story.workflow) line1.push('<strong>Workflow:</strong> ' + escHtml(story.workflow));
+  if (story.dir) line1.push('<strong>Directory:</strong> ' + escHtml(story.dir));
+  if (story.dependsOn && story.dependsOn.length > 0) line1.push('<strong>Depends on:</strong> ' + story.dependsOn.map(d => escHtml(d)).join(', '));
+  const line2 = [];
+  line2.push('<strong>Status:</strong> ' + story.status);
+  line2.push('<strong>Ready:</strong> ' + (story.ready ? 'Yes' : 'No (blocked)'));
   const doneCount = story.tasks.filter(t => t.status === 'done').length;
-  parts.push('<strong>Progress:</strong> ' + doneCount + '/' + story.tasks.length + ' tasks done');
-  document.getElementById('story-detail-meta').innerHTML = parts.join(' &nbsp;•&nbsp; ');
+  line2.push('<strong>Progress:</strong> ' + doneCount + '/' + story.tasks.length + ' tasks done');
+  document.getElementById('story-detail-meta').innerHTML = line1.join(' &nbsp;•&nbsp; ') + '<br>' + line2.join(' &nbsp;•&nbsp; ');
 
   document.getElementById('story-detail-desc').innerHTML = renderMarkdown(story.description, 'no description');
   document.getElementById('story-detail-modal').style.display = 'flex';
