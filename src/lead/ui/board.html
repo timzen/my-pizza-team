@@ -117,7 +117,7 @@
     <button class="modal-close" onclick="closeTaskDetailModal()" aria-label="Close">&times;</button>
     <h2 id="task-detail-title"></h2>
     <div style="font-size:0.78em;color:#888;margin-bottom:12px;" id="task-detail-meta"></div>
-    <div style="font-size:0.85em;line-height:1.6;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;" id="task-detail-desc" class="md-content"></div>
+    <div style="font-size:0.85em;line-height:1.6;color:var(--text-secondary);background:var(--bg-tertiary);padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;" id="task-detail-desc" class="md-content"></div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeTaskDetailModal()">Close</button>
     </div>
@@ -130,7 +130,7 @@
     <button class="modal-close" onclick="closeStoryDetailModal()" aria-label="Close">&times;</button>
     <h2 id="story-detail-title"></h2>
     <div id="story-detail-meta" style="font-size:0.78em;color:#888;margin-bottom:14px;"></div>
-    <div id="story-detail-desc" class="md-content" style="font-size:0.85em;line-height:1.6;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;"></div>
+    <div id="story-detail-desc" class="md-content" style="font-size:0.85em;line-height:1.6;color:var(--text-secondary);background:var(--bg-tertiary);padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;"></div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeStoryDetailModal()">Close</button>
       <button class="btn-submit" onclick="closeStoryDetailModal(); openEditStoryModal(document.getElementById('story-detail-title').dataset.storyId)">✏️ Edit</button>
@@ -192,7 +192,7 @@
     <div class="form-group">
       <label>Working Directory</label>
       <div id="spawn-options" style="margin-bottom:10px;"></div>
-      <input type="text" id="spawn-cwd" placeholder="Or enter a path manually..." style="width:100%;background:#0f3460;border:1px solid #1a4080;color:#e0e0e0;border-radius:5px;padding:8px 10px;font-size:0.85em;font-family:inherit;outline:none;" />
+      <input type="text" id="spawn-cwd" placeholder="Or enter a path manually..." style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);border-radius:5px;padding:8px 10px;font-size:0.85em;font-family:inherit;outline:none;" />
     </div>
     <div id="spawn-error" class="form-error"></div>
     <div class="modal-footer">
