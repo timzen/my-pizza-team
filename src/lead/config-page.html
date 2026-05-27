@@ -10,6 +10,20 @@
 <div id="content"><div style="color:#888;padding:40px;text-align:center;">Loading...</div></div>
 <div class="toast" id="toast"></div>
 
+<!-- Browse Directory Modal -->
+<div class="modal-overlay" id="browse-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto;" onclick="if(event.target===this)closeBrowseModal()">
+  <div style="background:#16213e;border:1px solid #0f3460;border-radius:10px;width:100%;max-width:520px;padding:24px;position:relative;">
+    <button style="position:absolute;top:12px;right:16px;background:none;border:none;color:#888;font-size:1.3em;cursor:pointer;" onclick="closeBrowseModal()">&times;</button>
+    <h2 style="font-size:1.1em;margin-bottom:12px;">Browse Directories</h2>
+    <div id="browse-path" style="font-size:0.82em;color:#7c83ff;margin-bottom:12px;word-break:break-all;"></div>
+    <div id="browse-list" style="max-height:350px;overflow-y:auto;margin-bottom:14px;"></div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:12px;border-top:1px solid #0f3460;">
+      <button class="btn btn-outline" onclick="closeBrowseModal()">Cancel</button>
+      <button class="btn" onclick="selectBrowsedDir()">Select This Directory</button>
+    </div>
+  </div>
+</div>
+
 <script>
 let config = {};
 
@@ -109,7 +123,7 @@ function renderTeammates() {
     + '<h3 style="margin-top:18px;">Favorite Directories</h3>'
     + '<div style="font-size:0.78em;color:#888;margin-bottom:8px;">Quick-pick directories when spawning teammates.</div>'
     + dirsHtml
-    + '<div class="add-state-row"><input type="text" id="new-fav-dir" placeholder="~/Workspace/my-project" onkeydown="if(event.key===\'Enter\')addFavoriteDir()" /><button class="btn btn-sm" onclick="addFavoriteDir()">Add</button></div>'
+    + '<div class="add-state-row"><input type="text" id="new-fav-dir" placeholder="~/Workspace/my-project" onkeydown="if(event.key===\'Enter\')addFavoriteDir()" /><button class="btn btn-sm" onclick="addFavoriteDir()">Add</button><button class="btn btn-sm btn-outline" onclick="openBrowseModal()" style="margin-left:4px;">📂 Browse</button></div>'
     + '</div>';
 }
 
@@ -277,6 +291,59 @@ function removeFavoriteDir(index) {
   config.teammates.favoriteDirectories.splice(index, 1);
   if (config.teammates.favoriteDirectories.length === 0) delete config.teammates.favoriteDirectories;
   render();
+}
+
+// --- Directory Browser ---
+let currentBrowsePath = '~';
+
+async function openBrowseModal() {
+  document.getElementById('browse-modal').style.display = 'flex';
+  currentBrowsePath = '~';
+  await browseTo('~');
+}
+
+function closeBrowseModal() {
+  document.getElementById('browse-modal').style.display = 'none';
+}
+
+async function browseTo(dir) {
+  currentBrowsePath = dir;
+  document.getElementById('browse-path').textContent = dir;
+  document.getElementById('browse-list').innerHTML = '<div style="color:#888;font-size:0.85em;">Loading...</div>';
+  try {
+    const res = await fetch('/api/browse?path=' + encodeURIComponent(dir));
+    const data = await res.json();
+    if (data.error) {
+      document.getElementById('browse-list').innerHTML = '<div style="color:#e74c3c;font-size:0.85em;">' + escHtml(data.error) + '</div>';
+      return;
+    }
+    currentBrowsePath = data.path;
+    document.getElementById('browse-path').textContent = data.path;
+
+    let html = '';
+    // Parent directory link
+    if (data.path !== '~' && data.path !== '/') {
+      const parentPath = data.path.replace(/\/[^\/]+$/, '') || '/';
+      html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;color:#888;" onmouseover="this.style.background=\'#0f3460\'" onmouseout="this.style.background=\'\'" onclick="browseTo(\'' + escHtml(parentPath).replace(/'/g, "\\'") + '\')">← ..</div>';
+    }
+    if (data.dirs.length === 0) {
+      html += '<div style="padding:10px;color:#666;font-size:0.85em;">No subdirectories</div>';
+    } else {
+      for (const d of data.dirs) {
+        const fullPath = data.path === '/' ? '/' + d : data.path + '/' + d;
+        html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;" onmouseover="this.style.background=\'#0f3460\'" onmouseout="this.style.background=\'\'" onclick="browseTo(\'' + escHtml(fullPath).replace(/'/g, "\\'") + '\')">📁 ' + escHtml(d) + '</div>';
+      }
+    }
+    document.getElementById('browse-list').innerHTML = html;
+  } catch(e) {
+    document.getElementById('browse-list').innerHTML = '<div style="color:#e74c3c;font-size:0.85em;">Error: ' + escHtml(e.message) + '</div>';
+  }
+}
+
+function selectBrowsedDir() {
+  document.getElementById('new-fav-dir').value = currentBrowsePath;
+  closeBrowseModal();
+  addFavoriteDir();
 }
 
 // --- Gather form values and save ---

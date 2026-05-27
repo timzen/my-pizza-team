@@ -781,6 +781,33 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       return c.json(this.config);
     });
 
+    // GET /api/browse?path=... — list subdirectories for file browser
+    this.app.get("/api/browse", (c) => {
+      let browsePath = c.req.query("path") || "~";
+      if (browsePath.startsWith("~")) {
+        browsePath = browsePath.replace("~", process.env.HOME || "/root");
+      }
+      browsePath = path.resolve(browsePath);
+
+      try {
+        if (!fs.existsSync(browsePath) || !fs.statSync(browsePath).isDirectory()) {
+          return c.json({ path: browsePath, dirs: [], error: "Not a directory" }, 400);
+        }
+        const entries = fs.readdirSync(browsePath, { withFileTypes: true });
+        const dirs = entries
+          .filter(e => e.isDirectory() && !e.name.startsWith("."))
+          .map(e => e.name)
+          .sort();
+        // Show path with ~ for home dir
+        const displayPath = browsePath.startsWith(process.env.HOME || "")
+          ? browsePath.replace(process.env.HOME || "", "~")
+          : browsePath;
+        return c.json({ path: displayPath, resolved: browsePath, dirs });
+      } catch (e: any) {
+        return c.json({ path: browsePath, dirs: [], error: e.message }, 400);
+      }
+    });
+
     // PUT /api/config — update config and write to disk
     this.app.put("/api/config", async (c) => {
       try {
