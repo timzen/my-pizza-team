@@ -613,34 +613,6 @@ function renderBoard(stories) {
   taskDataMap = {};
   taskStoryMap = {};
 
-  // Derive column order from all workflows' states (preserves order from default workflow first)
-  const columnOrder = [];
-  const defaultWf = workflows[defaultWorkflow];
-  if (defaultWf && defaultWf.states) {
-    for (const s of defaultWf.states) { if (!columnOrder.includes(s)) columnOrder.push(s); }
-  }
-  for (const wfName of Object.keys(workflows)) {
-    const wf = workflows[wfName];
-    if (wf && wf.states) {
-      for (const s of wf.states) { if (!columnOrder.includes(s)) columnOrder.push(s); }
-    }
-  }
-  if (columnOrder.length === 0) {
-    for (const s of DEFAULT_COLUMN_ORDER) columnOrder.push(s);
-  }
-
-  const allStates = new Set(columnOrder);
-  for (const story of filtered) {
-    for (const task of story.tasks) allStates.add(task.status);
-  }
-  const columns = [...allStates].sort((a, b) => {
-    const ai = columnOrder.indexOf(a), bi = columnOrder.indexOf(b);
-    if (ai !== -1 && bi !== -1) return ai - bi;
-    if (ai !== -1) return -1;
-    if (bi !== -1) return 1;
-    return a.localeCompare(b);
-  });
-
   if (filtered.length === 0) {
     el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#666;font-size:0.9em;">'
       + '<div style="font-size:2em;margin-bottom:10px;">🔍</div>'
@@ -658,7 +630,17 @@ function renderBoard(stories) {
     const blockedClass = blocked ? ' swimlane-blocked' : '';
     const blockedLabel = blocked ? ' (blocked: ' + story.dependsOn.join(', ') + ')' : '';
 
-    const columnsHtml = columns.map(state => {
+    // Resolve columns for this story's workflow
+    const storyWfName = story.workflow || defaultWorkflow;
+    const storyWf = workflows[storyWfName] || workflows[defaultWorkflow] || {};
+    const storyStates = storyWf.states || DEFAULT_COLUMN_ORDER;
+    // Include any task statuses not in the workflow (edge case: task moved before workflow changed)
+    const storyColumns = [...storyStates];
+    for (const task of story.tasks) {
+      if (!storyColumns.includes(task.status)) storyColumns.push(task.status);
+    }
+
+    const columnsHtml = storyColumns.map(state => {
       const tasks = story.tasks.filter(t => t.status === state);
       const cards = tasks.map(t => {
         taskDataMap[t.id] = t;
