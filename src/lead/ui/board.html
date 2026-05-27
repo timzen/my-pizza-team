@@ -836,7 +836,11 @@ function renderBoard(stories) {
           + actions
           + '<div class="card-title">' + escHtml(t.title) + '</div>'
           + '<div class="card-meta">#' + t.seq + '</div>'
-          + desc + assignee + costBadge + msg + msgBtn + moveHtml
+          + desc + assignee + costBadge + msg
+          + '<div class="card-footer">'
+          + '<div class="card-footer-left">' + msgBtn + '</div>'
+          + '<div class="card-footer-right">' + moveHtml + '</div>'
+          + '</div>'
           + '</div>';
       }).join('');
       const label = state.replace(/_/g, ' ');

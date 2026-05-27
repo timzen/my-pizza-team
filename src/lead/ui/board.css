@@ -30,9 +30,12 @@ h1 { margin-bottom: 20px; font-size: 1.5em; }
 .card-actions button { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.75em; padding: 2px 4px; border-radius: 3px; }
 .card-actions button:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
 .card-actions .btn-del:hover { color: var(--danger); }
-.card-move { margin-top: 4px; display: flex; gap: 4px; flex-wrap: wrap; }
-.move-btn { background: none; border: 1px solid var(--border-light); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 0.68em; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.card-move { display: flex; flex-direction: column; gap: 3px; }
+.move-btn { background: none; border: 1px solid var(--border-light); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 0.68em; cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap; }
 .move-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
+.card-footer { display: flex; justify-content: space-between; align-items: flex-end; margin-top: 6px; gap: 8px; }
+.card-footer-left { flex: 1; }
+.card-footer-right { flex-shrink: 0; }
 .progress { font-size: 0.75em; color: var(--success); }
 .story-cost { font-size: 0.72em; color: var(--success); opacity: 0.8; margin-left: 6px; }
 .empty-col { min-height: 20px; }
