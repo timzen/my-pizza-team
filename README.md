@@ -28,8 +28,8 @@ pi
 > # Now discuss the breakdown with Pi, or add tasks manually:
 > /ppt-add-task my-feature
 > # Or just ask Pi to break it down from a design doc!
-> /ppt-spawn my-feature          # spawns teammate using story's dir
-> /ppt-spawn alice ~/projects/my-app  # or manually name + cwd
+> /ppt-spawn                     # prompts for directory, auto-names
+> /ppt-spawn ~/projects/my-app   # spawns teammate in specific dir
 > /ppt-board
 ```
 
@@ -39,7 +39,7 @@ pi
 |---------|-------------|
 | `/ppt-init` | Initialize kanban board |
 | `/ppt-board` | Show board status |
-| `/ppt-spawn <story-id\|name> [cwd]` | Hire a teammate (story ID auto-resolves dir + name) |
+| `/ppt-spawn [cwd]` | Spawn a teammate (auto-generates name, selects from story dirs/favorites) |
 | `/ppt-add-story [id]` | Create a story (prompts for title, description, dir, dependencies) |
 | `/ppt-add-task <story-id>` | Add a task to a story interactively |
 | `/ppt-delete-story <story-id>` | Permanently delete a story and all its tasks |

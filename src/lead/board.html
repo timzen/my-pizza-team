@@ -128,6 +128,24 @@
   </div>
 </div>
 
+<!-- Spawn Teammate Modal -->
+<div class="modal-overlay" id="spawn-modal">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:480px;">
+    <button class="modal-close" onclick="closeSpawnModal()" aria-label="Close">&times;</button>
+    <h2>Spawn Teammate</h2>
+    <div class="form-group">
+      <label>Working Directory</label>
+      <div id="spawn-options" style="margin-bottom:10px;"></div>
+      <input type="text" id="spawn-cwd" placeholder="Or enter a path manually..." style="width:100%;background:#0f3460;border:1px solid #1a4080;color:#e0e0e0;border-radius:5px;padding:8px 10px;font-size:0.85em;font-family:inherit;outline:none;" />
+    </div>
+    <div id="spawn-error" class="form-error"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeSpawnModal()">Cancel</button>
+      <button class="btn-submit" id="spawn-submit" onclick="submitSpawn()">Spawn</button>
+    </div>
+  </div>
+</div>
+
 <!-- Message Panel (slide-out) -->
 <div class="msg-panel-overlay" id="msg-panel-overlay" onclick="closeMsgPanel()"></div>
 <div class="msg-panel" id="msg-panel">
@@ -610,6 +628,7 @@ document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     if (document.getElementById('msg-panel').classList.contains('open')) { closeMsgPanel(); return; }
     if (document.getElementById('story-detail-modal').style.display === 'flex') { closeStoryDetailModal(); return; }
+    if (document.getElementById('spawn-modal').style.display === 'flex') { closeSpawnModal(); return; }
     if (document.getElementById('task-detail-modal').style.display === 'flex') { closeTaskDetailModal(); return; }
     if (document.getElementById('task-modal').style.display === 'flex') { closeTaskModal(); return; }
     if (document.getElementById('add-story-modal').style.display === 'flex') { closeAddStoryModal(); return; }
@@ -620,6 +639,7 @@ document.getElementById('add-story-modal').addEventListener('click', function(e)
 document.getElementById('task-modal').addEventListener('click', function(e) { if (e.target === this) closeTaskModal(); });
 document.getElementById('task-detail-modal').addEventListener('click', function(e) { if (e.target === this) closeTaskDetailModal(); });
 document.getElementById('story-detail-modal').addEventListener('click', function(e) { if (e.target === this) closeStoryDetailModal(); });
+document.getElementById('spawn-modal').addEventListener('click', function(e) { if (e.target === this) closeSpawnModal(); });
 
 // --- Data fetching ---
 async function refresh() {
@@ -642,13 +662,14 @@ async function refresh() {
 
 function renderTeam(members) {
   const el = document.getElementById('team');
-  if (members.length === 0) { el.innerHTML = '<span class="member member-idle">No teammates yet</span>'; return; }
+  const spawnBtn = '<button class="btn-add-task-inline" onclick="openSpawnModal()" style="margin-left:auto;">+ Spawn Teammate</button>';
+  if (members.length === 0) { el.innerHTML = '<span class="member member-idle">No teammates yet</span>' + spawnBtn; return; }
   el.innerHTML = members.map(m => {
     const cls = m.status === 'working' ? 'member-working' : 'member-idle';
     const icon = m.status === 'working' ? '🔨' : '☕';
     const task = m.currentTask ? ' → ' + m.currentTask : '';
     return '<span class="member ' + cls + '">' + icon + ' ' + m.name + task + '</span>';
-  }).join('');
+  }).join('') + spawnBtn;
 }
 
 function renderBoard(stories) {
@@ -784,6 +805,72 @@ async function archiveStory(storyId, title) {
     refresh();
     refreshArchivedCount();
   } catch(e) { alert('Network error: ' + e.message); }
+}
+
+// --- Spawn Teammate ---
+
+async function openSpawnModal() {
+  document.getElementById('spawn-modal').style.display = 'flex';
+  document.getElementById('spawn-cwd').value = '';
+  document.getElementById('spawn-error').style.display = 'none';
+  document.getElementById('spawn-submit').disabled = false;
+  document.getElementById('spawn-submit').textContent = 'Spawn';
+
+  // Load spawn options
+  try {
+    const res = await fetch('/api/team/spawn-options');
+    const data = await res.json();
+    const el = document.getElementById('spawn-options');
+    if (data.options && data.options.length > 0) {
+      el.innerHTML = data.options.map(o => {
+        const label = o.label ? escHtml(o.label) + ' — ' : '';
+        const badge = o.source === 'story' ? '📚' : '⭐';
+        return '<button class="btn-add-task-inline" style="margin:3px;" onclick="selectSpawnDir(\'' + escHtml(o.dir).replace(/'/g, "\\'") + '\')">' + badge + ' ' + label + escHtml(o.dir) + '</button>';
+      }).join('');
+    } else {
+      el.innerHTML = '<span style="font-size:0.8em;color:#666;">No story directories or favorites configured.</span>';
+    }
+  } catch(e) {
+    document.getElementById('spawn-options').innerHTML = '';
+  }
+}
+
+function closeSpawnModal() {
+  document.getElementById('spawn-modal').style.display = 'none';
+}
+
+function selectSpawnDir(dir) {
+  document.getElementById('spawn-cwd').value = dir;
+}
+
+async function submitSpawn() {
+  const cwd = document.getElementById('spawn-cwd').value.trim();
+  if (!cwd) {
+    document.getElementById('spawn-error').textContent = 'Please select or enter a directory.';
+    document.getElementById('spawn-error').style.display = 'block';
+    return;
+  }
+  const btn = document.getElementById('spawn-submit');
+  btn.disabled = true; btn.textContent = 'Spawning...';
+  try {
+    const res = await fetch('/api/team/spawn', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ cwd })
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      document.getElementById('spawn-error').textContent = data.error || 'Spawn failed';
+      document.getElementById('spawn-error').style.display = 'block';
+      btn.disabled = false; btn.textContent = 'Spawn';
+      return;
+    }
+    closeSpawnModal();
+    refresh();
+  } catch(e) {
+    document.getElementById('spawn-error').textContent = 'Network error: ' + e.message;
+    document.getElementById('spawn-error').style.display = 'block';
+    btn.disabled = false; btn.textContent = 'Spawn';
+  }
 }
 
 refresh();

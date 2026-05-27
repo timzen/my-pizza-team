@@ -16,7 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Store } from "./store.js";
 import type { TeamServer } from "./server.js";
 import type { TeamConfig, Story, Task } from "../shared/types.js";
-import { STORIES_DIR, slugify } from "../shared/types.js";
+import { STORIES_DIR, slugify, generateTeammateName } from "../shared/types.js";
 import { spawnTeammate, dismissTeammate, hopToTeammate } from "./tmux.js";
 
 /** Helper: add a task to an existing story on disk + reload store */
@@ -132,69 +132,84 @@ export function registerLeadCommands(
 
   // /ppt-spawn
   pi.registerCommand("ppt-spawn", {
-    description: "Hire a new teammate: /ppt-spawn <story-id|name> [cwd]",
+    description: "Hire a new teammate: /ppt-spawn [cwd]",
     getArgumentCompletions: (prefix: string) => {
+      const config = getConfig();
       const store = getStore();
-      const stories = store.getStories();
       const items: { value: string; label: string; description?: string }[] = [];
+
+      // Suggest story dirs
+      const stories = store.getStories();
       for (const story of stories) {
-        if (story.status !== "open") continue;
-        // Only suggest stories that have available tasks
+        if (story.status !== "open" || !story.dir) continue;
         const tasks = store.getTasksForStory(story.id);
         const hasAvailable = tasks.some((t) => t.status === "todo");
         if (!hasAvailable) continue;
-        if (story.id.startsWith(prefix || "")) {
-          items.push({ value: story.id, label: story.id, description: story.title });
+        if (story.dir.startsWith(prefix || "")) {
+          items.push({ value: story.dir, label: story.dir, description: story.title });
         }
       }
+
+      // Suggest favorite directories
+      const favorites = config.teammates?.favoriteDirectories || [];
+      for (const dir of favorites) {
+        if (dir.startsWith(prefix || "") && !items.some((i) => i.value === dir)) {
+          items.push({ value: dir, label: dir, description: "favorite" });
+        }
+      }
+
       return items.length > 0 ? items : null;
     },
     handler: async (args, ctx) => {
       const config = getConfig();
       const store = getStore();
-      const parts = args?.trim().split(/\s+/) || [];
-      if (parts.length < 1 || !parts[0]) {
-        ctx.ui.notify("Usage: /ppt-spawn <story-id|name> [cwd]", "warning");
-        return;
-      }
+      let cwd = args?.trim() || "";
 
-      const firstArg = parts[0];
-      let name: string;
-      let cwd: string;
+      // If no cwd provided, offer selection from stories with dirs + favorites
+      if (!cwd) {
+        const options: string[] = [];
 
-      // Check if first arg matches a story ID
-      const story = store.getStory(firstArg);
-      if (story) {
-        // Story mode: auto-generate name, use story dir
-        const members = store.getMembers();
-        const existingNames = new Set(members.map((m) => m.id));
-        name = firstArg;
-        if (existingNames.has(name)) {
-          let i = 2;
-          while (existingNames.has(`${firstArg}-${i}`)) i++;
-          name = `${firstArg}-${i}`;
+        // Stories with dirs that have available tasks
+        const stories = store.getStories();
+        for (const story of stories) {
+          if (story.status !== "open" || !story.dir) continue;
+          const tasks = store.getTasksForStory(story.id);
+          if (tasks.some((t) => t.status === "todo") && !options.includes(story.dir)) {
+            options.push(story.dir);
+          }
         }
-        // Use story dir, falling back to current working directory
-        const storyDir = story.dir || ctx.cwd;
-        cwd = storyDir.startsWith("~")
-          ? storyDir.replace("~", process.env.HOME || "")
-          : path.resolve(storyDir);
-      } else {
-        // Legacy mode: treat as name [cwd]
-        name = firstArg;
-        const rawCwd = parts[1] || ctx.cwd;
-        cwd = rawCwd.startsWith("~")
-          ? rawCwd.replace("~", process.env.HOME || "")
-          : path.resolve(rawCwd);
+
+        // Favorite directories
+        const favorites = config.teammates?.favoriteDirectories || [];
+        for (const dir of favorites) {
+          if (!options.includes(dir)) options.push(dir);
+        }
+
+        if (options.length > 0) {
+          const choice = await ctx.ui.select("Working directory for teammate:", options);
+          if (!choice) return;
+          cwd = choice;
+        } else {
+          cwd = ctx.cwd;
+        }
       }
+
+      // Resolve path
+      const resolvedCwd = cwd.startsWith("~")
+        ? cwd.replace("~", process.env.HOME || "")
+        : path.resolve(cwd);
+
+      // Generate name
+      const members = store.getMembers();
+      const existingNames = new Set(members.map((m) => m.id));
+      const name = generateTeammateName(existingNames, config.teammates);
 
       try {
-        spawnTeammate(name, cwd, {
+        spawnTeammate(name, resolvedCwd, {
           session: config.tmuxSession,
           leaderUrl: config.leaderUrl,
         });
-        const cwdDisplay = story ? (story.dir || ctx.cwd) : cwd;
-        ctx.ui.notify(`✓ ${name} has joined the team (tmux window '${name}') working in ${cwdDisplay} 🍕`, "info");
+        ctx.ui.notify(`✓ ${name} has joined the team working in ${cwd} 🍕`, "info");
       } catch (err: any) {
         ctx.ui.notify(`Failed to spawn ${name}: ${err.message}`, "error");
       }

@@ -20,7 +20,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
-import { slugify } from "../shared/types.js";
+import { slugify, generateTeammateName } from "../shared/types.js";
+import { spawnTeammate } from "./tmux.js";
 import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, SHARED_JS } from "./assets.js";
 import type {
   StatusResponse,
@@ -587,6 +588,64 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         }),
       };
       return c.json(response);
+    });
+
+    // POST /api/team/spawn — spawn a new teammate
+    this.app.post("/api/team/spawn", async (c) => {
+      try {
+        const body = await c.req.json() as { cwd?: string };
+        let cwd = body.cwd || "";
+
+        if (!cwd) {
+          return c.json({ success: false, error: "Field 'cwd' is required" }, 400);
+        }
+
+        // Resolve path
+        const resolvedCwd = cwd.startsWith("~")
+          ? cwd.replace("~", process.env.HOME || "")
+          : path.resolve(cwd);
+
+        // Generate name
+        const members = this.store.getMembers();
+        const existingNames = new Set(members.map((m) => m.id));
+        const name = generateTeammateName(existingNames, this.config.teammates);
+
+        spawnTeammate(name, resolvedCwd, {
+          session: this.config.tmuxSession,
+          leaderUrl: this.config.leaderUrl,
+        });
+
+        return c.json({ success: true, name, cwd });
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message }, 500);
+      }
+    });
+
+    // GET /api/team/spawn-options — available directories for spawning
+    this.app.get("/api/team/spawn-options", (c) => {
+      const options: Array<{ dir: string; source: string; label?: string }> = [];
+
+      // Story directories with available tasks
+      const stories = this.store.getStories();
+      for (const story of stories) {
+        if (story.status !== "open" || !story.dir) continue;
+        const tasks = this.store.getTasksForStory(story.id);
+        if (tasks.some((t) => t.status === "todo")) {
+          if (!options.some((o) => o.dir === story.dir)) {
+            options.push({ dir: story.dir, source: "story", label: story.title });
+          }
+        }
+      }
+
+      // Favorite directories
+      const favorites = this.config.teammates?.favoriteDirectories || [];
+      for (const dir of favorites) {
+        if (!options.some((o) => o.dir === dir)) {
+          options.push({ dir, source: "favorite" });
+        }
+      }
+
+      return c.json({ options });
     });
 
     // --- Delete story endpoint ---

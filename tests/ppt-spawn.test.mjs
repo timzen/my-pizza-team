@@ -1,4 +1,4 @@
-// Unit tests for /ppt-spawn story-based spawn and auto-naming
+// Unit tests for teammate spawning: name generation + directory resolution
 // Run with: node tests/ppt-spawn.test.mjs
 import Database from "better-sqlite3";
 import * as fs from "node:fs";
@@ -7,104 +7,99 @@ import * as os from "node:os";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "pi-pizza-spawn-test-"));
 const teamDir = path.join(tmpDir, ".pi-pizza-team");
-fs.mkdirSync(teamDir, { recursive: true });
+const storiesDir = path.join(teamDir, "stories");
+fs.mkdirSync(storiesDir, { recursive: true });
 
 let passed = 0;
 let failed = 0;
-
 function assert(condition, label) {
-  if (condition) {
-    console.log(`  ✓ ${label}`);
-    passed++;
-  } else {
-    console.log(`  ✗ ${label}`);
-    failed++;
-  }
+  if (condition) { console.log(`  ✓ ${label}`); passed++; }
+  else { console.log(`  ✗ ${label}`); failed++; }
 }
 
-// Set up a minimal DB mimicking the Store
-const db = new Database(path.join(teamDir, "state.db"));
+// --- DB Setup ---
+const dbPath = path.join(teamDir, "state.db");
+const db = new Database(dbPath);
 db.pragma("journal_mode = WAL");
 db.exec(`
   CREATE TABLE IF NOT EXISTS stories (
-    id TEXT PRIMARY KEY,
-    title TEXT,
-    description TEXT,
-    status TEXT DEFAULT 'open',
-    depends_on TEXT DEFAULT '[]',
-    dir TEXT,
-    dir_path TEXT
+    id TEXT PRIMARY KEY, title TEXT, description TEXT,
+    status TEXT DEFAULT 'open', depends_on TEXT DEFAULT '[]',
+    dir TEXT, workflow TEXT, dir_path TEXT
   );
   CREATE TABLE IF NOT EXISTS tasks (
-    id TEXT PRIMARY KEY,
-    story_id TEXT REFERENCES stories(id),
-    seq INTEGER,
-    slug TEXT,
-    title TEXT,
-    description TEXT,
-    status TEXT DEFAULT 'todo',
-    result TEXT,
-    dir_path TEXT,
-    dirty INTEGER DEFAULT 0
+    id TEXT PRIMARY KEY, story_id TEXT, seq INTEGER, slug TEXT,
+    title TEXT, description TEXT, status TEXT DEFAULT 'todo',
+    result TEXT, dir_path TEXT, dirty INTEGER DEFAULT 0, last_read_at INTEGER
   );
   CREATE TABLE IF NOT EXISTS members (
-    id TEXT PRIMARY KEY,
-    name TEXT,
-    cwd TEXT,
-    tmux_window TEXT,
-    status TEXT DEFAULT 'idle',
-    last_heartbeat INTEGER
+    id TEXT PRIMARY KEY, name TEXT, cwd TEXT, tmux_window TEXT,
+    status TEXT DEFAULT 'idle', last_heartbeat INTEGER
   );
 `);
 
-// Insert test stories
-db.prepare("INSERT INTO stories VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "auth-refactor", "Auth Refactor", "Refactor the auth module", "open", "[]", "~/Workspace/my-app", "/tmp/stories/auth-refactor"
+// Insert test data
+db.prepare("INSERT INTO stories VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+  "auth-refactor", "Auth Refactor", "Fix auth", "open", "[]", "~/Workspace/my-app", null, path.join(storiesDir, "auth-refactor")
 );
-db.prepare("INSERT INTO stories VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "no-dir-story", "No Dir Story", "Story without dir", "open", "[]", null, "/tmp/stories/no-dir-story"
+db.prepare("INSERT INTO stories VALUES (?, ?, ?, ?, ?, ?, ?, ?)").run(
+  "no-dir-story", "No Dir Story", "Has no dir", "open", "[]", null, null, path.join(storiesDir, "no-dir-story")
 );
-db.prepare("INSERT INTO stories VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "done-story", "Done Story", "Already done", "done", "[]", "~/done", "/tmp/stories/done-story"
+db.prepare("INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+  "auth-refactor/01", "auth-refactor", 1, "setup", "Setup", "Do setup", "todo", null, "/tmp", 0, null
 );
-db.prepare("INSERT INTO stories VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "no-tasks-story", "No Tasks Story", "Has no todo tasks", "open", "[]", "~/x", "/tmp/stories/no-tasks-story"
-);
-
-// Insert tasks
-db.prepare("INSERT INTO tasks (id, story_id, seq, slug, title, description, status) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "auth-refactor-1", "auth-refactor", 1, "setup", "Setup", "Do setup", "todo"
-);
-db.prepare("INSERT INTO tasks (id, story_id, seq, slug, title, description, status) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "no-dir-story-1", "no-dir-story", 1, "work", "Work", "Do work", "todo"
-);
-db.prepare("INSERT INTO tasks (id, story_id, seq, slug, title, description, status) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "done-story-1", "done-story", 1, "finished", "Finished", "Done", "done"
-);
-db.prepare("INSERT INTO tasks (id, story_id, seq, slug, title, description, status) VALUES (?, ?, ?, ?, ?, ?, ?)").run(
-  "no-tasks-story-1", "no-tasks-story", 1, "done-task", "Done Task", "Already done", "done"
+db.prepare("INSERT INTO tasks VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)").run(
+  "no-dir-story/01", "no-dir-story", 1, "task", "Task", "Do task", "todo", null, "/tmp", 0, null
 );
 
-// Insert an existing member to test auto-naming
-db.prepare("INSERT INTO members (id, name, cwd, tmux_window, status, last_heartbeat) VALUES (?, ?, ?, ?, ?, ?)").run(
-  "auth-refactor", "auth-refactor", "/tmp", "auth-refactor", "working", Date.now()
+// Add an existing member
+db.prepare("INSERT INTO members VALUES (?, ?, ?, ?, ?, ?)").run(
+  "swift-kirk", "swift-kirk", "/tmp", "swift-kirk", "working", Date.now()
 );
 
-// --- Helper functions that simulate the handler logic ---
+// --- Import the name generator (inline version for testing) ---
 
-function getStory(id) {
-  const row = db.prepare("SELECT * FROM stories WHERE id = ?").get(id);
-  if (!row) return null;
-  return { id: row.id, title: row.title, description: row.description, status: row.status, dependsOn: JSON.parse(row.depends_on), dir: row.dir || undefined, dirPath: row.dir_path };
+const DEFAULT_ADJECTIVES = [
+  "swift", "bold", "keen", "calm", "bright",
+  "deft", "firm", "sharp", "brave", "quick",
+  "sly", "warm", "cool", "wild", "fair",
+  "wry", "apt", "sage", "prime", "vivid",
+];
+
+const DEFAULT_NOUNS = [
+  "ripley", "kirk", "spock", "solo", "neo",
+  "trinity", "deckard", "muad-dib", "case", "molly",
+  "picard", "data", "worf", "uhura", "sulu",
+  "riker", "bones", "chekov", "scotty", "seven",
+  "janeway", "tuvok", "odo", "quark", "kira",
+  "adama", "starbuck", "gaius", "athena", "apollo",
+];
+
+function generateTeammateName(existingNames, config) {
+  const nouns = config?.nouns?.length ? config.nouns : DEFAULT_NOUNS;
+  const adjectives = DEFAULT_ADJECTIVES;
+  for (let i = 0; i < 100; i++) {
+    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    const name = `${adj}-${noun}`;
+    if (!existingNames.has(name)) return name;
+  }
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  let name = `${adj}-${noun}`;
+  let i = 2;
+  while (existingNames.has(name)) { name = `${adj}-${noun}-${i}`; i++; }
+  return name;
 }
 
+// --- Helpers ---
 function getMembers() {
-  return db.prepare("SELECT * FROM members").all().map(r => ({ id: r.id, name: r.name }));
+  return db.prepare("SELECT * FROM members").all();
 }
 
 function getStories() {
   return db.prepare("SELECT * FROM stories").all().map(r => ({
-    id: r.id, title: r.title, status: r.status, dir: r.dir || undefined
+    id: r.id, title: r.title, dir: r.dir, status: r.status
   }));
 }
 
@@ -112,135 +107,109 @@ function getTasksForStory(storyId) {
   return db.prepare("SELECT * FROM tasks WHERE story_id = ?").all(storyId);
 }
 
-function resolveSpawn(firstArg, secondArg, ctxCwd) {
-  const story = getStory(firstArg);
-  let name, cwd;
-
-  if (story) {
-    const members = getMembers();
-    const existingNames = new Set(members.map(m => m.id));
-    name = firstArg;
-    if (existingNames.has(name)) {
-      let i = 2;
-      while (existingNames.has(`${firstArg}-${i}`)) i++;
-      name = `${firstArg}-${i}`;
-    }
-    const storyDir = story.dir || ctxCwd;
-    cwd = storyDir.startsWith("~")
-      ? storyDir.replace("~", process.env.HOME || "")
-      : path.resolve(storyDir);
-  } else {
-    name = firstArg;
-    const rawCwd = secondArg || ctxCwd;
-    cwd = rawCwd.startsWith("~")
-      ? rawCwd.replace("~", process.env.HOME || "")
-      : path.resolve(rawCwd);
-  }
-
-  return { name, cwd, story };
-}
-
-function getCompletions(prefix) {
+function getSpawnOptions(favorites) {
+  const options = [];
   const stories = getStories();
-  const items = [];
   for (const story of stories) {
-    if (story.status !== "open") continue;
+    if (story.status !== "open" || !story.dir) continue;
     const tasks = getTasksForStory(story.id);
-    const hasAvailable = tasks.some(t => t.status === "todo");
-    if (!hasAvailable) continue;
-    if (story.id.startsWith(prefix || "")) {
-      items.push({ value: story.id, label: story.id, description: story.title });
+    if (tasks.some(t => t.status === "todo") && !options.some(o => o.dir === story.dir)) {
+      options.push({ dir: story.dir, source: "story", label: story.title });
     }
   }
-  return items.length > 0 ? items : null;
+  for (const dir of (favorites || [])) {
+    if (!options.some(o => o.dir === dir)) {
+      options.push({ dir, source: "favorite" });
+    }
+  }
+  return options;
 }
 
 // --- Tests ---
 
-console.log("\n--- Test 1: Spawn with story that has a dir ---");
+console.log("\n🤖 Teammate Spawn Tests\n");
+
+// Test 1: Name generation produces adjective-noun format
+console.log("Test 1: Name generation format");
 {
-  const { name, cwd, story } = resolveSpawn("auth-refactor", undefined, "/fallback");
-  // Since "auth-refactor" member already exists, should auto-increment
-  assert(name === "auth-refactor-2", `Name auto-incremented: "${name}" === "auth-refactor-2"`);
-  assert(cwd === (process.env.HOME + "/Workspace/my-app"), `Dir resolved: "${cwd}"`);
-  assert(story !== null, "Story was found");
+  const existingNames = new Set();
+  const name = generateTeammateName(existingNames, null);
+  assert(name.includes("-"), `Name has hyphen: "${name}"`);
+  const parts = name.split("-");
+  assert(parts.length >= 2, `Name has at least 2 parts: "${name}"`);
+  assert(DEFAULT_ADJECTIVES.includes(parts[0]), `First part is an adjective: "${parts[0]}"`);
+  assert(DEFAULT_NOUNS.includes(parts.slice(1).join("-")), `Rest is a noun: "${parts.slice(1).join("-")}"`);
 }
 
-console.log("\n--- Test 2: Spawn with story without dir (falls back to cwd) ---");
+// Test 2: Name generation avoids collisions
+console.log("\nTest 2: Name avoids collisions");
 {
-  const { name, cwd } = resolveSpawn("no-dir-story", undefined, "/my/current/dir");
-  assert(name === "no-dir-story", `Name is story slug: "${name}"`);
-  assert(cwd === "/my/current/dir", `Falls back to ctx.cwd: "${cwd}"`);
+  const existingNames = new Set(["swift-kirk"]);
+  const name = generateTeammateName(existingNames, null);
+  assert(name !== "swift-kirk", `Name is not the existing one: "${name}"`);
+  assert(!existingNames.has(name), "Generated name not in existing set");
 }
 
-console.log("\n--- Test 3: Auto-increment when teammate exists ---");
+// Test 3: Custom nouns config
+console.log("\nTest 3: Custom nouns");
 {
-  // Add auth-refactor-2 as well to test further increment
-  db.prepare("INSERT INTO members (id, name, cwd, tmux_window, status, last_heartbeat) VALUES (?, ?, ?, ?, ?, ?)").run(
-    "auth-refactor-2", "auth-refactor-2", "/tmp", "auth-refactor-2", "working", Date.now()
-  );
-  const { name } = resolveSpawn("auth-refactor", undefined, "/fallback");
-  assert(name === "auth-refactor-3", `Increments past existing -2: "${name}" === "auth-refactor-3"`);
+  const existingNames = new Set();
+  const config = { nouns: ["pizza", "pasta", "risotto"] };
+  const name = generateTeammateName(existingNames, config);
+  const noun = name.split("-").slice(1).join("-");
+  assert(config.nouns.includes(noun), `Noun is from custom list: "${noun}"`);
 }
 
-console.log("\n--- Test 4: Legacy mode (name + cwd, no matching story) ---");
+// Test 4: Spawn options include story dirs with available tasks
+console.log("\nTest 4: Spawn options from stories");
 {
-  const { name, cwd, story } = resolveSpawn("alice", "~/Code/project", "/fallback");
-  assert(name === "alice", `Name is as given: "${name}"`);
-  assert(cwd === (process.env.HOME + "/Code/project"), `Cwd resolved from ~: "${cwd}"`);
-  assert(story === null, "No story matched");
+  const options = getSpawnOptions([]);
+  assert(options.some(o => o.dir === "~/Workspace/my-app" && o.source === "story"), "Story dir included");
+  assert(!options.some(o => o.source === "story" && o.label === "No Dir Story"), "Story without dir excluded");
 }
 
-console.log("\n--- Test 5: Legacy mode with absolute cwd ---");
+// Test 5: Spawn options include favorites
+console.log("\nTest 5: Spawn options include favorites");
 {
-  const { name, cwd } = resolveSpawn("bob", "/absolute/path", "/fallback");
-  assert(name === "bob", `Name is as given: "${name}"`);
-  assert(cwd === "/absolute/path", `Absolute cwd preserved: "${cwd}"`);
+  const options = getSpawnOptions(["~/Projects/cool-app", "~/Workspace/my-app"]);
+  assert(options.some(o => o.dir === "~/Projects/cool-app" && o.source === "favorite"), "Favorite dir included");
+  // my-app already from story, should not duplicate
+  assert(options.filter(o => o.dir === "~/Workspace/my-app").length === 1, "No duplicate for story+favorite overlap");
 }
 
-console.log("\n--- Test 6: Legacy mode without cwd (falls back to ctx.cwd) ---");
+// Test 6: Spawn options exclude stories with no todo tasks
+console.log("\nTest 6: Stories without todo tasks excluded");
 {
-  const { name, cwd } = resolveSpawn("charlie", undefined, "/my/working/dir");
-  assert(name === "charlie", `Name is as given: "${name}"`);
-  assert(cwd === "/my/working/dir", `Falls back to ctx.cwd: "${cwd}"`);
+  db.prepare("UPDATE tasks SET status = 'done' WHERE story_id = 'auth-refactor'").run();
+  const options = getSpawnOptions([]);
+  assert(!options.some(o => o.dir === "~/Workspace/my-app"), "Story with no todo tasks excluded");
+  db.prepare("UPDATE tasks SET status = 'todo' WHERE story_id = 'auth-refactor'").run();
 }
 
-console.log("\n--- Test 7: Autocomplete shows open stories with available tasks ---");
+// Test 7: Name generation with all combinations taken falls back to numbered
+console.log("\nTest 7: Fallback to numbered name when saturated");
 {
-  const completions = getCompletions("");
-  assert(completions !== null, "Completions returned");
-  const ids = completions.map(c => c.value);
-  assert(ids.includes("auth-refactor"), "Includes auth-refactor (open, has todo tasks)");
-  assert(ids.includes("no-dir-story"), "Includes no-dir-story (open, has todo tasks)");
-  assert(!ids.includes("done-story"), "Excludes done-story (status=done)");
-  assert(!ids.includes("no-tasks-story"), "Excludes no-tasks-story (no todo tasks)");
+  // Create a set with all possible adj-noun combos for a tiny config
+  const config = { nouns: ["x"] };
+  const existingNames = new Set(DEFAULT_ADJECTIVES.map(a => `${a}-x`));
+  const name = generateTeammateName(existingNames, config);
+  assert(name.match(/-x-\d+$/), `Numbered fallback: "${name}"`);
 }
 
-console.log("\n--- Test 8: Autocomplete descriptions show story titles ---");
+// Test 8: Completions suggest story dirs and favorites
+console.log("\nTest 8: Autocomplete suggestions");
 {
-  const completions = getCompletions("auth");
-  assert(completions !== null, "Completions returned for prefix 'auth'");
-  assert(completions.length === 1, `Only one match: ${completions.length}`);
-  assert(completions[0].description === "Auth Refactor", `Description is title: "${completions[0].description}"`);
+  const favorites = ["~/MyProject"];
+  const options = getSpawnOptions(favorites);
+  assert(options.length >= 2, `Has options: ${options.length}`);
+  const dirs = options.map(o => o.dir);
+  assert(dirs.includes("~/Workspace/my-app"), "Story dir in options");
+  assert(dirs.includes("~/MyProject"), "Favorite in options");
 }
 
-console.log("\n--- Test 9: Autocomplete prefix filtering ---");
-{
-  const completions = getCompletions("no-dir");
-  assert(completions !== null, "Completions returned for prefix 'no-dir'");
-  assert(completions.length === 1, `One match for 'no-dir': ${completions.length}`);
-  assert(completions[0].value === "no-dir-story", `Matched no-dir-story: "${completions[0].value}"`);
-}
-
-console.log("\n--- Test 10: Autocomplete with no matches ---");
-{
-  const completions = getCompletions("nonexistent");
-  assert(completions === null, "Returns null when no matches");
-}
-
-// Cleanup
+// --- Cleanup ---
 db.close();
 fs.rmSync(tmpDir, { recursive: true });
 
 console.log(`\n--- Results: ${passed} passed, ${failed} failed ---`);
-process.exit(failed > 0 ? 1 : 0);
+if (failed > 0) process.exit(1);

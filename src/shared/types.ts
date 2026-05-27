@@ -8,8 +8,16 @@ export interface TeamConfig {
   autosave: AutosaveConfig;
   leaderUrl: string;
   maxTeammates?: number;
+  teammates?: TeammateConfig;
   /** @deprecated Use workflows + defaultWorkflow instead */
   workflow?: WorkflowConfig;
+}
+
+export interface TeammateConfig {
+  /** Nouns for name generation (defaults to sci-fi characters) */
+  nouns?: string[];
+  /** Favorite working directories for quick spawn */
+  favoriteDirectories?: string[];
 }
 
 export interface WorkflowConfig {
@@ -125,4 +133,44 @@ export function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
+}
+
+/** Default adjectives for teammate name generation */
+export const DEFAULT_ADJECTIVES = [
+  "swift", "bold", "keen", "calm", "bright",
+  "deft", "firm", "sharp", "brave", "quick",
+  "sly", "warm", "cool", "wild", "fair",
+  "wry", "apt", "sage", "prime", "vivid",
+];
+
+/** Default nouns for teammate name generation (sci-fi characters) */
+export const DEFAULT_NOUNS = [
+  "ripley", "kirk", "spock", "solo", "neo",
+  "trinity", "deckard", "muad-dib", "case", "molly",
+  "picard", "data", "worf", "uhura", "sulu",
+  "riker", "bones", "chekov", "scotty", "seven",
+  "janeway", "tuvok", "odo", "quark", "kira",
+  "adama", "starbuck", "gaius", "athena", "apollo",
+];
+
+/** Generate a unique teammate name (adjective-noun) that doesn't collide with existing names */
+export function generateTeammateName(existingNames: Set<string>, config?: TeammateConfig): string {
+  const nouns = config?.nouns?.length ? config.nouns : DEFAULT_NOUNS;
+  const adjectives = DEFAULT_ADJECTIVES;
+
+  // Try random combinations up to 100 times
+  for (let i = 0; i < 100; i++) {
+    const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+    const noun = nouns[Math.floor(Math.random() * nouns.length)];
+    const name = `${adj}-${noun}`;
+    if (!existingNames.has(name)) return name;
+  }
+
+  // Fallback: append a number
+  const adj = adjectives[Math.floor(Math.random() * adjectives.length)];
+  const noun = nouns[Math.floor(Math.random() * nouns.length)];
+  let name = `${adj}-${noun}`;
+  let i = 2;
+  while (existingNames.has(name)) { name = `${adj}-${noun}-${i}`; i++; }
+  return name;
 }

@@ -220,6 +220,8 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/team/join` | POST | Register a teammate |
 | `/api/team/heartbeat` | POST | Keepalive |
 | `/api/team` | GET | List members |
+| `/api/team/spawn` | POST | Spawn a new teammate (auto-generates name) |
+| `/api/team/spawn-options` | GET | Available directories for spawning |
 | `/api/control/pause` | POST | Pause task distribution |
 | `/api/control/resume` | POST | Resume task distribution |
 | `/api/config` | GET | Read current configuration |
