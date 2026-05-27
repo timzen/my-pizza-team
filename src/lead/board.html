@@ -69,8 +69,9 @@
       <div class="hint">Hint for teammates about where to work</div>
     </div>
     <div class="form-group" id="story-workflow-group" style="display:none;">
-      <label for="story-workflow">Workflow</label>
-      <select id="story-workflow"></select>
+      <label>Workflow</label>
+      <div id="story-workflow-options"></div>
+      <input type="hidden" id="story-workflow" />
       <div class="hint">Which workflow governs this story's task states</div>
     </div>
     <div class="tasks-section">
@@ -266,14 +267,17 @@ function openAddStoryModal() {
   document.getElementById('btn-submit').disabled = false;
   document.getElementById('btn-submit').textContent = 'Create Story';
 
-  // Populate workflow dropdown (only show if multiple workflows exist)
+  // Populate workflow selector (only show if multiple workflows exist)
   const wfNames = Object.keys(workflows);
   const wfGroup = document.getElementById('story-workflow-group');
-  const wfSelect = document.getElementById('story-workflow');
   if (wfNames.length > 1) {
     wfGroup.style.display = '';
-    wfSelect.innerHTML = '<option value="">(default: ' + escHtml(defaultWorkflow) + ')</option>'
-      + wfNames.filter(n => n !== defaultWorkflow).map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
+    document.getElementById('story-workflow').value = '';
+    document.getElementById('story-workflow-options').innerHTML = wfNames.map(n => {
+      const isDefault = n === defaultWorkflow;
+      const label = escHtml(n) + (isDefault ? ' (default)' : '');
+      return '<button type="button" class="btn-add-task-inline wf-btn" data-wf="' + escHtml(n) + '" style="margin:2px;' + (isDefault ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '') + '" onclick="selectWorkflow(\'' + escHtml(n).replace(/'/g, "\\'") + '\', this)">' + label + '</button>';
+    }).join('');
   } else {
     wfGroup.style.display = 'none';
   }
@@ -326,6 +330,25 @@ function toggleDep(storyId, btn) {
     btn.style.color = '#fff';
   }
   document.getElementById('story-depends').value = [...selectedDeps].join(',');
+}
+
+function selectWorkflow(wfName, btn) {
+  const current = document.getElementById('story-workflow').value;
+  const buttons = document.querySelectorAll('.wf-btn');
+  if (current === wfName && wfName !== defaultWorkflow) {
+    // Deselect back to default
+    document.getElementById('story-workflow').value = '';
+    buttons.forEach(b => {
+      if (b.dataset.wf === defaultWorkflow) { b.style.background = 'var(--accent)'; b.style.borderColor = 'var(--accent)'; b.style.color = '#fff'; }
+      else { b.style.background = ''; b.style.borderColor = ''; b.style.color = ''; }
+    });
+  } else {
+    document.getElementById('story-workflow').value = wfName === defaultWorkflow ? '' : wfName;
+    buttons.forEach(b => { b.style.background = ''; b.style.borderColor = ''; b.style.color = ''; });
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
 }
 
 function closeAddStoryModal() {
