@@ -43,7 +43,7 @@ async function saveConfig() {
 
 function render() {
   const el = document.getElementById('content');
-  el.innerHTML = renderGeneral() + renderWorkflows() + renderSaveBar();
+  el.innerHTML = renderGeneral() + renderTeammates() + renderWorkflows() + renderSaveBar();
   bindEvents();
 }
 
@@ -74,6 +74,43 @@ function renderWorkflows() {
   }
   html += '<div class="btn-group"><button class="btn btn-outline" onclick="addWorkflow()">+ New Workflow</button></div>';
   return html;
+}
+
+function renderTeammates() {
+  if (!config.teammates) config.teammates = {};
+  const nouns = config.teammates.nouns || [];
+  const favDirs = config.teammates.favoriteDirectories || [];
+
+  // Nouns section
+  const nounsHtml = nouns.length > 0
+    ? '<div class="states-list">' + nouns.map(n =>
+        '<span class="state-tag">' + escHtml(n)
+        + ' <span class="remove-state" onclick="removeNoun(\'' + escHtml(n).replace(/'/g, "\\'") + '\')" title="Remove">&times;</span>'
+        + '</span>'
+      ).join('') + '</div>'
+    : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">Using defaults (sci-fi characters)</div>';
+
+  // Favorite directories section
+  const dirsHtml = favDirs.length > 0
+    ? '<div style="margin-bottom:8px;">' + favDirs.map((d, i) =>
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
+        + '<code style="background:#0f3460;padding:3px 8px;border-radius:4px;font-size:0.82em;flex:1;">' + escHtml(d) + '</code>'
+        + '<button class="btn btn-sm btn-danger" onclick="removeFavoriteDir(' + i + ')">&times;</button>'
+        + '</div>'
+      ).join('') + '</div>'
+    : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">No favorites configured</div>';
+
+  return '<h2>Teammates</h2>'
+    + '<div class="section">'
+    + '<h3>Name Nouns</h3>'
+    + '<div style="font-size:0.78em;color:#888;margin-bottom:8px;">Custom nouns for auto-generated names (adjective-noun). Leave empty for sci-fi character defaults.</div>'
+    + nounsHtml
+    + '<div class="add-state-row"><input type="text" id="new-noun" placeholder="Add a noun..." onkeydown="if(event.key===\'Enter\')addNoun()" /><button class="btn btn-sm" onclick="addNoun()">Add</button></div>'
+    + '<h3 style="margin-top:18px;">Favorite Directories</h3>'
+    + '<div style="font-size:0.78em;color:#888;margin-bottom:8px;">Quick-pick directories when spawning teammates.</div>'
+    + dirsHtml
+    + '<div class="add-state-row"><input type="text" id="new-fav-dir" placeholder="~/Workspace/my-project" onkeydown="if(event.key===\'Enter\')addFavoriteDir()" /><button class="btn btn-sm" onclick="addFavoriteDir()">Add</button></div>'
+    + '</div>';
 }
 
 function renderWorkflowCard(name, wf, isDefault) {
@@ -204,6 +241,44 @@ function updateTransitionPerm(wfName, from, to, perm) {
   config.workflows[wfName].transitions[from][to] = perm;
 }
 
+// --- Teammates config ---
+
+function addNoun() {
+  const input = document.getElementById('new-noun');
+  const noun = input.value.trim().toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-|-$/g, '');
+  if (!noun) return;
+  if (!config.teammates) config.teammates = {};
+  if (!config.teammates.nouns) config.teammates.nouns = [];
+  if (config.teammates.nouns.includes(noun)) { toast('Noun "' + noun + '" already exists', true); return; }
+  config.teammates.nouns.push(noun);
+  render();
+}
+
+function removeNoun(noun) {
+  if (!config.teammates || !config.teammates.nouns) return;
+  config.teammates.nouns = config.teammates.nouns.filter(n => n !== noun);
+  if (config.teammates.nouns.length === 0) delete config.teammates.nouns;
+  render();
+}
+
+function addFavoriteDir() {
+  const input = document.getElementById('new-fav-dir');
+  const dir = input.value.trim();
+  if (!dir) return;
+  if (!config.teammates) config.teammates = {};
+  if (!config.teammates.favoriteDirectories) config.teammates.favoriteDirectories = [];
+  if (config.teammates.favoriteDirectories.includes(dir)) { toast('Directory already in favorites', true); return; }
+  config.teammates.favoriteDirectories.push(dir);
+  render();
+}
+
+function removeFavoriteDir(index) {
+  if (!config.teammates || !config.teammates.favoriteDirectories) return;
+  config.teammates.favoriteDirectories.splice(index, 1);
+  if (config.teammates.favoriteDirectories.length === 0) delete config.teammates.favoriteDirectories;
+  render();
+}
+
 // --- Gather form values and save ---
 
 function gatherAndSave() {
@@ -215,6 +290,7 @@ function gatherAndSave() {
   config.autosave.flushIntervalMinutes = parseInt(document.getElementById('cfg-flush').value) || 30;
   config.autosave.commitIntervalHours = parseInt(document.getElementById('cfg-commit-hrs').value) || 24;
   config.autosave.autoCommit = document.getElementById('cfg-autocommit').value === 'true';
+  // teammates config is already updated in-place by add/remove functions
   saveConfig();
 }
 

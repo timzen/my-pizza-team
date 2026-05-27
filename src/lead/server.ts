@@ -808,10 +808,13 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
             autoCommit: body.autosave.autoCommit !== false,
           };
         }
+        if (body.teammates !== undefined) {
+          this.config.teammates = body.teammates;
+        }
 
         // Write to disk (exclude runtime-only fields)
         const configFile = path.join(this.teamDir, "config.json");
-        const toWrite = {
+        const toWrite: Record<string, any> = {
           port: this.config.port,
           tmuxSession: this.config.tmuxSession,
           defaultWorkflow: this.config.defaultWorkflow,
@@ -820,6 +823,9 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
           leaderUrl: this.config.leaderUrl,
           maxTeammates: this.config.maxTeammates,
         };
+        if (this.config.teammates && Object.keys(this.config.teammates).length > 0) {
+          toWrite.teammates = this.config.teammates;
+        }
         fs.writeFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
 
         return c.json({ success: true });
