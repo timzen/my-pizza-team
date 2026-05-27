@@ -757,24 +757,16 @@ export class Store {
       `**ID**: ${story.id}`,
       "",
       "## Description",
+      "",
       story.description,
       "",
-      "## Tasks Completed",
+      "## Tasks",
       "",
     ];
 
     for (let i = 0; i < tasks.length; i++) {
-      const task = tasks[i];
-      lines.push(`### ${i + 1}. ${task.title}`);
-      lines.push(`**Status**: ${task.status}`);
-      if (task.result) {
-        lines.push(`**Result**: ${task.result}`);
-      }
-      lines.push("");
+      lines.push(`${i + 1}. ${tasks[i].title}`);
     }
-
-    lines.push("## Summary");
-    lines.push(`${tasks.length} task${tasks.length === 1 ? "" : "s"} completed for this story.`);
     lines.push("");
 
     fs.writeFileSync(path.join(destPath, "SYNOPSIS.md"), lines.join("\n"));
