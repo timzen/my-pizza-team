@@ -7,6 +7,12 @@ export interface StatusResponse {
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
   inbox: number; // unread messages needing lead attention
+  defaultWorkflow: string;
+  workflows: Record<string, {
+    states: string[];
+    transitions: Record<string, Record<string, string>>;
+  }>;
+  /** @deprecated Use workflows + defaultWorkflow */
   workflow?: {
     states: string[];
     transitions: Record<string, Record<string, string>>;
@@ -26,6 +32,7 @@ export interface StoryView {
   dependsOn: string[];
   ready: boolean; // all dependencies met?
   dir?: string;
+  workflow?: string; // workflow override name (undefined = default)
   tasks: TaskView[];
 }
 
@@ -106,7 +113,10 @@ export interface JoinRequest {
 export interface JoinResponse {
   success: boolean;
   config: {
-    workflow: import("./types.js").WorkflowConfig;
+    defaultWorkflow: string;
+    workflows: Record<string, import("./types.js").WorkflowConfig>;
+    /** @deprecated */
+    workflow?: import("./types.js").WorkflowConfig;
   };
 }
 
@@ -125,6 +135,7 @@ export interface CreateStoryRequest {
   status?: "open" | "done";
   dependsOn?: string[];
   dir?: string;
+  workflow?: string;
   tasks?: Array<{
     title: string;
     description: string;

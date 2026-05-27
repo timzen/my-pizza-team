@@ -20,7 +20,7 @@ import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { slugify } from "../shared/types.js";
-import type { Message, Story, Task, TaskWithMeta, TeamConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
+import type { Message, Story, Task, TaskWithMeta, TeamConfig, WorkflowConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
 
 export class Store {
   private db: Database.Database;
@@ -50,6 +50,7 @@ export class Store {
         status TEXT DEFAULT 'open',
         depends_on TEXT DEFAULT '[]',
         dir TEXT,
+        workflow TEXT,
         dir_path TEXT
       );
 
@@ -111,6 +112,11 @@ export class Store {
       this.db.exec("ALTER TABLE stories ADD COLUMN dir TEXT");
     }
 
+    // Migration: add workflow column if it doesn't exist
+    if (!storyColumns.some((col: any) => col.name === "workflow")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
+    }
+
     // Migration: add last_read_at column to tasks if it doesn't exist
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as any[];
     if (!taskColumns.some((col: any) => col.name === "last_read_at")) {
@@ -158,10 +164,10 @@ export class Store {
   private upsertStory(story: Story, dirPath: string): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir, workflow, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(story.id, story.title, story.description, story.status, JSON.stringify(story.dependsOn), story.dir || null, dirPath);
+      .run(story.id, story.title, story.description, story.status, JSON.stringify(story.dependsOn), story.dir || null, story.workflow || null, dirPath);
   }
 
   private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
@@ -184,6 +190,7 @@ export class Store {
       status: row.status,
       dependsOn: JSON.parse(row.depends_on),
       dir: row.dir || undefined,
+      workflow: row.workflow || undefined,
       dirPath: row.dir_path,
     };
   }
@@ -222,7 +229,8 @@ export class Store {
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
     tasks?: Array<{ title: string; description: string }>,
-    dir?: string
+    dir?: string,
+    workflow?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storiesDir = path.join(this.teamDir, "stories");
     const storyDirName = id;
@@ -233,6 +241,7 @@ export class Store {
 
     const storyData: Story = { id, title, description, status, dependsOn };
     if (dir) storyData.dir = dir;
+    if (workflow) storyData.workflow = workflow;
     const storyFile = path.join(storyDirPath, "story.json");
     fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
 
@@ -311,6 +320,7 @@ export class Store {
         dependsOn: story.dependsOn,
       };
       if (story.dir) data.dir = story.dir;
+      if (story.workflow) data.workflow = story.workflow;
       fs.writeFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
     }
   }
@@ -922,12 +932,27 @@ export class Store {
     fs.writeFileSync(synopsisPath, content);
   }
 
+  /** Resolve the effective workflow for a story (story override → defaultWorkflow) */
+  getWorkflowForStory(storyId: string): WorkflowConfig {
+    const story = this.getStory(storyId);
+    const workflowName = story?.workflow || this.config.defaultWorkflow;
+    return this.config.workflows[workflowName] || this.config.workflows[this.config.defaultWorkflow];
+  }
+
+  /** Resolve the effective workflow for a task (via its parent story) */
+  getWorkflowForTask(taskId: string): WorkflowConfig {
+    const task = this.getTask(taskId);
+    if (!task) return this.config.workflows[this.config.defaultWorkflow];
+    return this.getWorkflowForStory(task.storyId);
+  }
+
   canTransition(taskId: string, newStatus: string, actor: "lead" | "teammate"): { ok: boolean; error?: string } {
     const task = this.getTask(taskId);
     if (!task) return { ok: false, error: "Task not found" };
 
+    const workflow = this.getWorkflowForTask(taskId);
     const currentStatus = task.status;
-    const transitions = this.config.workflow.transitions[currentStatus];
+    const transitions = workflow.transitions[currentStatus];
     if (!transitions) return { ok: false, error: `No transitions from state "${currentStatus}"` };
 
     const permission = transitions[newStatus];

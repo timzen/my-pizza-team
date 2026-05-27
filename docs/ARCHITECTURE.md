@@ -140,19 +140,39 @@ The database (`state.db`) is the runtime engine. See `src/lead/store.ts` for the
 
 ## Workflow Engine
 
-The workflow is defined in `config.json` as a state machine:
+Workflows are defined in `config.json` as named state machines. Each workflow has a name, and one is designated as the default. Individual stories can override the default by specifying a `workflow` field.
 
 ```json
 {
-  "transitions": {
-    "<from_state>": { "<to_state>": "<permission>" }
+  "defaultWorkflow": "default",
+  "workflows": {
+    "default": {
+      "states": ["todo", "in_progress", "needs_input", "review", "done"],
+      "transitions": {
+        "todo": { "in_progress": "any" },
+        "in_progress": { "needs_input": "teammate", "review": "teammate" },
+        "needs_input": { "in_progress": "lead" },
+        "review": { "done": "lead", "in_progress": "lead" }
+      }
+    },
+    "simple": {
+      "states": ["todo", "in_progress", "done"],
+      "transitions": {
+        "todo": { "in_progress": "any" },
+        "in_progress": { "done": "any" }
+      }
+    }
   }
 }
 ```
 
 Permissions: `"any"`, `"teammate"`, `"lead"`
 
-Validation happens in `Store.canTransition()` — called by the HTTP API before any status update. The API returns 403 if the actor doesn't have permission for the requested transition.
+**Resolution order:**
+1. Story's `workflow` field → named workflow from config
+2. If not set (or unknown name) → `defaultWorkflow` from config
+
+Validation happens in `Store.canTransition()` which calls `getWorkflowForTask()` to resolve the effective workflow. The API returns 403 if the actor doesn't have permission for the requested transition.
 
 ## Permission System Integration
 
@@ -223,7 +243,7 @@ Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 3. **Messages use JSONL** (append-only, no read-modify-write, clean git diffs)
 4. **Messages are lazy-loaded** (startup is fast regardless of history size)
 5. **Stories own tasks sequentially** (parallelism is at the story level only)
-6. **Workflow permissions are declarative** (config drives behavior, no code changes needed)
+6. **Workflow permissions are declarative** (config drives behavior, no code changes needed; stories can override the default workflow)
 7. **Task execution uses sendUserMessage** (keeps teammate interactive for pairing)
 8. **Permission toggle is file-based** (leverages permission system's runtime config reload)
 9. **Archived stories are directory-based** (moved from `stories/` to `archived/`, never loaded into SQLite at startup)
@@ -262,9 +282,14 @@ stories/my-story/  ──archiveStory()──►  archived/my-story/
 3. For task CRUD, consider adding a store method for DB operations
 
 ### Adding a new workflow state
-1. Just add it to `config.json` — no code changes needed
-2. Define transitions and permissions in the `transitions` map
+1. Just add it to a workflow in `config.json` — no code changes needed
+2. Define transitions and permissions in the workflow's `transitions` map
 3. Optionally add `on-enter-<state>.md` / `on-exit-<state>.md` for instructions
+
+### Adding a new named workflow
+1. Add a new entry under `workflows` in `config.json`
+2. Define its `states` array and `transitions` map
+3. Stories can use it via the `workflow` field in `story.json`
 
 ### Modifying the board UI
 1. Edit `src/lead/board.html` (loaded by `src/lead/board.ts`)

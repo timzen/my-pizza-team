@@ -46,6 +46,9 @@ export function registerLeadTools(
       dir: Type.Optional(
         Type.String({ description: "Working directory hint for teammates (optional, e.g., '~/Workspace/my-project')" })
       ),
+      workflow: Type.Optional(
+        Type.String({ description: "Named workflow to use for this story (optional, defaults to the team's default workflow)" })
+      ),
     }),
     async execute(_toolCallId, params) {
       const store = getStore();
@@ -69,6 +72,7 @@ export function registerLeadTools(
         dependsOn: params.dependsOn || [],
       };
       if (params.dir) story.dir = params.dir;
+      if (params.workflow) story.workflow = params.workflow;
       fs.writeFileSync(path.join(storyDir, "story.json"), JSON.stringify(story, null, 2) + "\n");
 
       // Reload store

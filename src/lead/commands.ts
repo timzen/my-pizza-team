@@ -332,7 +332,7 @@ export function registerLeadCommands(
         const task = store.getTask(taskId);
         if (!task) return null;
 
-        const transitions = config.workflow.transitions[task.status] || {};
+        const transitions = store.getWorkflowForTask(taskId).transitions[task.status] || {};
         const leadTransitions = Object.entries(transitions)
           .filter(([_, perm]) => perm === "lead" || perm === "any")
           .map(([state]) => state)
@@ -362,7 +362,7 @@ export function registerLeadCommands(
       }
 
       // Determine available transitions for the lead from current status
-      const transitions = config.workflow.transitions[task.status] || {};
+      const transitions = store.getWorkflowForTask(taskId).transitions[task.status] || {};
       const leadTransitions = Object.entries(transitions)
         .filter(([_, perm]) => perm === "lead" || perm === "any")
         .map(([state]) => state);
@@ -464,6 +464,20 @@ export function registerLeadCommands(
 
       const dir = await ctx.ui.input("Working directory (optional, e.g. ~/Workspace/my-project):", "");
 
+      // Workflow selection (only prompt if multiple workflows defined)
+      const config = getConfig();
+      const workflowNames = Object.keys(config.workflows);
+      let workflow: string | undefined;
+      if (workflowNames.length > 1) {
+        const choice = await ctx.ui.input(
+          `Workflow (${workflowNames.join(", ")}) [default: ${config.defaultWorkflow}]:`,
+          ""
+        );
+        if (choice && workflowNames.includes(choice) && choice !== config.defaultWorkflow) {
+          workflow = choice;
+        }
+      }
+
       // Create directory structure (no tasks required upfront)
       const storyDir = path.join(teamDir, STORIES_DIR, id);
       const tasksDir = path.join(storyDir, "tasks");
@@ -472,6 +486,7 @@ export function registerLeadCommands(
       // Write story.json
       const story: Story = { id, title, description, status: "open", dependsOn };
       if (dir) story.dir = dir;
+      if (workflow) story.workflow = workflow;
       fs.writeFileSync(path.join(storyDir, "story.json"), JSON.stringify(story, null, 2) + "\n");
 
       // Reload store

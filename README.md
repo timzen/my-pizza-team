@@ -87,23 +87,35 @@ The board includes:
 
 ## Workflow
 
-Tasks follow a configurable workflow with permission-gated transitions:
+Tasks follow configurable workflows with permission-gated transitions. You can define multiple named workflows and assign them per-story:
 
 ```json
 {
-  "workflow": {
-    "states": ["todo", "in_progress", "needs_input", "review", "done"],
-    "transitions": {
-      "todo":         { "in_progress": "any" },
-      "in_progress":  { "needs_input": "teammate", "review": "teammate" },
-      "needs_input":  { "in_progress": "lead" },
-      "review":       { "done": "lead", "in_progress": "lead" }
+  "defaultWorkflow": "default",
+  "workflows": {
+    "default": {
+      "states": ["todo", "in_progress", "needs_input", "review", "done"],
+      "transitions": {
+        "todo":         { "in_progress": "any" },
+        "in_progress":  { "needs_input": "teammate", "review": "teammate" },
+        "needs_input":  { "in_progress": "lead" },
+        "review":       { "done": "lead", "in_progress": "lead" }
+      }
+    },
+    "simple": {
+      "states": ["todo", "in_progress", "done"],
+      "transitions": {
+        "todo":         { "in_progress": "any" },
+        "in_progress":  { "done": "any" }
+      }
     }
   }
 }
 ```
 
 **Transition permissions:** `"any"` (anyone), `"teammate"` (only the assigned agent), `"lead"` (only you).
+
+To assign a non-default workflow to a story, add `"workflow": "simple"` in `story.json` or select it when creating a story via the board or `/ppt-add-story`.
 
 ## Directory Structure
 
@@ -115,7 +127,7 @@ Tasks follow a configurable workflow with permission-gated transitions:
 ├── on-exit-<status>.md           # Optional: instructions when leaving a status
 ├── stories/
 │   └── my-story/
-│       ├── story.json            # Story metadata + dependencies + optional dir
+│       ├── story.json            # Story metadata + dependencies + optional dir/workflow
 │       └── tasks/
 │           └── 01-first-task/
 │               ├── task.json     # Task definition + status + result

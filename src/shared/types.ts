@@ -3,10 +3,13 @@
 export interface TeamConfig {
   port: number;
   tmuxSession: string;
-  workflow: WorkflowConfig;
+  workflows: Record<string, WorkflowConfig>;
+  defaultWorkflow: string;
   autosave: AutosaveConfig;
   leaderUrl: string;
   maxTeammates?: number;
+  /** @deprecated Use workflows + defaultWorkflow instead */
+  workflow?: WorkflowConfig;
 }
 
 export interface WorkflowConfig {
@@ -30,6 +33,7 @@ export interface Story {
   status: "open" | "done";
   dependsOn: string[];
   dir?: string;
+  workflow?: string; // name of workflow override (falls back to defaultWorkflow)
   archivedAt?: string; // ISO timestamp
 }
 
@@ -81,13 +85,16 @@ export interface Assignment {
 export const DEFAULT_CONFIG: TeamConfig = {
   port: 7437,
   tmuxSession: "pi-pizza-team",
-  workflow: {
-    states: ["todo", "in_progress", "needs_input", "review", "done"],
-    transitions: {
-      todo: { in_progress: "any" },
-      in_progress: { needs_input: "teammate", review: "teammate" },
-      needs_input: { in_progress: "lead" },
-      review: { done: "lead", in_progress: "lead" },
+  defaultWorkflow: "default",
+  workflows: {
+    default: {
+      states: ["todo", "in_progress", "needs_input", "review", "done"],
+      transitions: {
+        todo: { in_progress: "any" },
+        in_progress: { needs_input: "teammate", review: "teammate" },
+        needs_input: { in_progress: "lead" },
+        review: { done: "lead", in_progress: "lead" },
+      },
     },
   },
   autosave: {

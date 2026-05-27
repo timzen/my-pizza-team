@@ -108,6 +108,12 @@ async function setupTeamLead(
   const configData = JSON.parse(fs.readFileSync(configFile, "utf-8"));
   const config: TeamConfig = { ...DEFAULT_CONFIG, ...configData };
 
+  // Migrate legacy single-workflow config to named workflows
+  if (configData.workflow && !configData.workflows) {
+    config.workflows = { default: configData.workflow };
+    config.defaultWorkflow = "default";
+  }
+
   // Initialize store
   const store = new Store(teamDir, config);
   store.loadFromDisk();

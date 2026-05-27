@@ -189,7 +189,9 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
           idle: members.filter((m) => m.status === "idle").length,
         },
         inbox: inbox.length,
-        workflow: this.config.workflow,
+        defaultWorkflow: this.config.defaultWorkflow,
+        workflows: this.config.workflows,
+        workflow: this.config.workflows[this.config.defaultWorkflow], // legacy compat
       };
       return c.json(response);
     });
@@ -208,6 +210,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
             dependsOn: story.dependsOn,
             ready: this.store.isStoryReady(story.id),
             dir: story.dir,
+            workflow: story.workflow,
             tasks: tasks.map((task) => {
               const assignment = this.store.getAssignment(task.id);
               const tokenSummary = this.store.getTokenUsageSummary(task.id);
@@ -258,7 +261,8 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         status,
         dependsOn,
         body.tasks,
-        body.dir
+        body.dir,
+        body.workflow
       );
 
       const response: CreateStoryResponse = {
@@ -271,6 +275,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
           dependsOn: story.dependsOn,
           ready: this.store.isStoryReady(story.id),
           dir: story.dir,
+          workflow: story.workflow,
           tasks: tasks.map((t) => ({
             id: t.id,
             seq: t.seq,
@@ -537,7 +542,11 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
 
       const response: JoinResponse = {
         success: true,
-        config: { workflow: this.config.workflow },
+        config: {
+          defaultWorkflow: this.config.defaultWorkflow,
+          workflows: this.config.workflows,
+          workflow: this.config.workflows[this.config.defaultWorkflow], // legacy compat
+        },
       };
       return c.json(response);
     });

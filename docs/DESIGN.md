@@ -28,10 +28,12 @@ When a teammate needs help, you have two channels:
 There's no "human task" concept. Every task belongs to a teammate. The variable is how much mentoring they need.
 
 ### 3. Workflow as configuration
-The state machine is entirely in `config.json`. You can define any workflow states and control who can perform each transition. No code changes needed for:
+The state machine is entirely in `config.json`. You can define multiple named workflows and control who can perform each transition. Individual stories can override the default workflow. No code changes needed for:
 - Adding a QA step
 - Requiring lead approval before "done"
 - Creating a "needs_input" state only the lead can resolve
+- Using a simpler workflow for small stories
+- Defining a stricter workflow for critical work
 
 ### 4. Sequential within stories, parallel across stories
 - Tasks within a story execute in order (1 → 2 → 3)

@@ -63,6 +63,11 @@
       <input type="text" id="story-dir" placeholder="Optional, e.g. ~/Workspace/my-project" />
       <div class="hint">Hint for teammates about where to work</div>
     </div>
+    <div class="form-group" id="story-workflow-group" style="display:none;">
+      <label for="story-workflow">Workflow</label>
+      <select id="story-workflow"></select>
+      <div class="hint">Which workflow governs this story's task states</div>
+    </div>
     <div class="tasks-section">
       <h3>Tasks (optional)</h3>
       <div id="task-list"></div>
@@ -134,12 +139,14 @@
 
 <script>
 const POLL_MS = 3000;
-const COLUMN_ORDER = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
+const DEFAULT_COLUMN_ORDER = ['todo', 'in_progress', 'needs_input', 'review', 'done'];
 
 // --- State ---
 let allStories = [];
-let workflowTransitions = {};
+let workflows = {};
+let defaultWorkflow = 'default';
 let taskDataMap = {}; // id -> task object for modal access
+let taskStoryMap = {}; // taskId -> story object (for workflow lookup)
 let currentFilter = localStorage.getItem('board-filter') || 'all';
 let currentSort = localStorage.getItem('board-sort') || 'default';
 let currentSearch = localStorage.getItem('board-search') || '';
@@ -221,6 +228,19 @@ function openAddStoryModal() {
   hideError();
   document.getElementById('btn-submit').disabled = false;
   document.getElementById('btn-submit').textContent = 'Create Story';
+
+  // Populate workflow dropdown (only show if multiple workflows exist)
+  const wfNames = Object.keys(workflows);
+  const wfGroup = document.getElementById('story-workflow-group');
+  const wfSelect = document.getElementById('story-workflow');
+  if (wfNames.length > 1) {
+    wfGroup.style.display = '';
+    wfSelect.innerHTML = '<option value="">(default: ' + escHtml(defaultWorkflow) + ')</option>'
+      + wfNames.filter(n => n !== defaultWorkflow).map(n => '<option value="' + escHtml(n) + '">' + escHtml(n) + '</option>').join('');
+  } else {
+    wfGroup.style.display = 'none';
+  }
+
   setTimeout(() => document.getElementById('story-id').focus(), 50);
 }
 
@@ -285,6 +305,7 @@ async function submitStory() {
   const description = document.getElementById('story-desc').value.trim();
   const dependsRaw = document.getElementById('story-depends').value.trim();
   const dir = document.getElementById('story-dir').value.trim();
+  const workflowVal = document.getElementById('story-workflow').value;
   if (!id) { showError('ID is required.'); return; }
   if (!title) { showError('Title is required.'); return; }
   if (!description) { showError('Description is required.'); return; }
@@ -301,7 +322,7 @@ async function submitStory() {
   try {
     const res = await fetch('/api/stories', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title, description, dependsOn, dir: dir || undefined, tasks: tasks.length ? tasks : undefined })
+      body: JSON.stringify({ id, title, description, dependsOn, dir: dir || undefined, workflow: workflowVal || undefined, tasks: tasks.length ? tasks : undefined })
     });
     const data = await res.json();
     if (!res.ok || !data.success) { showError(data.error || 'Failed'); btn.disabled = false; btn.textContent = 'Create Story'; return; }
@@ -531,8 +552,11 @@ async function moveTaskStatus(taskId, newStatus) {
   } catch (e) { alert('Network error: ' + e.message); }
 }
 
-function getLeadTransitions(currentStatus) {
-  const transitions = workflowTransitions[currentStatus] || {};
+function getLeadTransitions(currentStatus, taskId) {
+  const story = taskStoryMap[taskId];
+  const wfName = (story && story.workflow) || defaultWorkflow;
+  const wf = workflows[wfName] || workflows[defaultWorkflow] || {};
+  const transitions = (wf.transitions || {})[currentStatus] || {};
   return Object.entries(transitions)
     .filter(([_, perm]) => perm === 'lead' || perm === 'any')
     .map(([state]) => state);
@@ -562,7 +586,8 @@ async function refresh() {
     ]);
     renderTeam(teamRes.members);
     allStories = storiesRes.stories;
-    if (statusRes.workflow) workflowTransitions = statusRes.workflow.transitions || {};
+    if (statusRes.workflows) workflows = statusRes.workflows;
+    if (statusRes.defaultWorkflow) defaultWorkflow = statusRes.defaultWorkflow;
     renderBoard(allStories);
     document.getElementById('refresh').textContent = 'updated ' + new Date().toLocaleTimeString();
   } catch(e) {
@@ -586,13 +611,30 @@ function renderBoard(stories) {
   const filtered = filterAndSortStories(stories);
   updateStoryCount(filtered.length, stories.length);
   taskDataMap = {};
+  taskStoryMap = {};
 
-  const allStates = new Set(COLUMN_ORDER);
+  // Derive column order from all workflows' states (preserves order from default workflow first)
+  const columnOrder = [];
+  const defaultWf = workflows[defaultWorkflow];
+  if (defaultWf && defaultWf.states) {
+    for (const s of defaultWf.states) { if (!columnOrder.includes(s)) columnOrder.push(s); }
+  }
+  for (const wfName of Object.keys(workflows)) {
+    const wf = workflows[wfName];
+    if (wf && wf.states) {
+      for (const s of wf.states) { if (!columnOrder.includes(s)) columnOrder.push(s); }
+    }
+  }
+  if (columnOrder.length === 0) {
+    for (const s of DEFAULT_COLUMN_ORDER) columnOrder.push(s);
+  }
+
+  const allStates = new Set(columnOrder);
   for (const story of filtered) {
     for (const task of story.tasks) allStates.add(task.status);
   }
   const columns = [...allStates].sort((a, b) => {
-    const ai = COLUMN_ORDER.indexOf(a), bi = COLUMN_ORDER.indexOf(b);
+    const ai = columnOrder.indexOf(a), bi = columnOrder.indexOf(b);
     if (ai !== -1 && bi !== -1) return ai - bi;
     if (ai !== -1) return -1;
     if (bi !== -1) return 1;
@@ -620,6 +662,7 @@ function renderBoard(stories) {
       const tasks = story.tasks.filter(t => t.status === state);
       const cards = tasks.map(t => {
         taskDataMap[t.id] = t;
+        taskStoryMap[t.id] = story;
         const assignee = t.assignee ? '<div class="card-assignee">→ ' + escHtml(t.assignee) + '</div>' : '';
         const costBadge = t.tokenUsage && t.tokenUsage.totalCostUsd > 0 ? '<div class="card-cost">💲' + t.tokenUsage.totalCostUsd.toFixed(3) + '</div>' : '';
         const msg = t.hasMessages ? '<div class="card-msg">📬 messages</div>' : '';
@@ -627,7 +670,7 @@ function renderBoard(stories) {
         const desc = '';
 
         // Move dropdown
-        const validMoves = getLeadTransitions(t.status);
+        const validMoves = getLeadTransitions(t.status, t.id);
         let moveHtml = '';
         if (validMoves.length > 0) {
           moveHtml = '<div class="card-move" onclick="event.stopPropagation()"><select onchange="moveTaskStatus(\'' + escHtml(t.id) + '\', this.value); this.value=\'\';">' 
@@ -662,7 +705,7 @@ function renderBoard(stories) {
 
     return '<div class="swimlane' + blockedClass + '">'
       + '<div class="swimlane-header">'
-      + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + '</span>'
+      + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + (story.workflow ? ' <span style="font-size:0.72em;color:#7c83ff;font-weight:400;">⚙️ ' + escHtml(story.workflow) + '</span>' : '') + '</span>'
       + '<span class="swimlane-meta">' + addBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
       + '</div>'
       + '<div class="board">' + columnsHtml + '</div>'
