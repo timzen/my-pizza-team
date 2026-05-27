@@ -9,62 +9,92 @@
 <h1>🍕 pi-pizza-team</h1>
 <p>The team lead API is running.</p>
 
-<div class="status-grid" id="status-grid">
-  <div class="status-card"><h4>Stories</h4><div class="value" id="stat-stories">—</div><div class="detail" id="stat-stories-detail"></div></div>
-  <div class="status-card"><h4>Team</h4><div class="value" id="stat-team">—</div><div class="detail" id="stat-team-detail"></div></div>
-  <div class="status-card"><h4>Tasks</h4><div class="value" id="stat-tasks">—</div><div class="detail" id="stat-tasks-detail"></div></div>
-  <div class="status-card"><h4>Inbox</h4><div class="value" id="stat-inbox">—</div><div class="detail" id="stat-inbox-detail"></div></div>
+<div class="tab-bar">
+  <button class="tab-btn tab-active" onclick="switchTab('status', this)">Status</button>
+  <button class="tab-btn" onclick="switchTab('endpoints', this)">Endpoints</button>
+  <button class="tab-btn" onclick="switchTab('readme', this)">Readme</button>
 </div>
 
-<div id="info-sections"></div>
+<div id="tab-status" class="tab-content">
+  <div class="status-grid">
+    <div class="status-card"><h4>Stories</h4><div class="value" id="stat-stories">—</div><div class="detail" id="stat-stories-detail"></div></div>
+    <div class="status-card"><h4>Team</h4><div class="value" id="stat-team">—</div><div class="detail" id="stat-team-detail"></div></div>
+    <div class="status-card"><h4>Tasks</h4><div class="value" id="stat-tasks">—</div><div class="detail" id="stat-tasks-detail"></div></div>
+    <div class="status-card"><h4>Inbox</h4><div class="value" id="stat-inbox">—</div><div class="detail" id="stat-inbox-detail"></div></div>
+  </div>
+  <div id="info-sections"></div>
+</div>
 
-<div class="endpoints-section">
-<h3>API Endpoints</h3>
-<h4>Status &amp; Stories</h4>
-<ul>
-  <li><a href="/api/status">GET /api/status</a> — Server status, workflow config</li>
-  <li><a href="/api/stories">GET /api/stories</a> — All stories + tasks</li>
-  <li>POST /api/stories — Create a new story</li>
-  <li>DELETE /api/stories/:id — Delete a story</li>
-  <li>POST /api/stories/:id/archive — Archive a completed story</li>
-  <li>POST /api/stories/:storyId/tasks — Create a task within a story</li>
-</ul>
-<h4>Tasks</h4>
-<ul>
-  <li>GET /api/next-task?memberId=X — Next claimable task</li>
-  <li>POST /api/tasks/:id/claim — Claim a task</li>
-  <li>POST /api/tasks/:id/status — Update task status</li>
-  <li>POST /api/tasks/:id/move — Move task (lead-only)</li>
-  <li>PUT /api/tasks/:id — Update task title/description</li>
-  <li>DELETE /api/tasks/:id — Delete a task</li>
-  <li>POST /api/tasks/:id/message — Post a message</li>
-  <li>GET /api/tasks/:id/messages — Get message thread</li>
-  <li>POST /api/tasks/:id/token-usage — Report token usage</li>
-  <li>POST /api/tasks/:id/mark-read — Mark messages as read</li>
-</ul>
-<h4>Team</h4>
-<ul>
-  <li><a href="/api/team">GET /api/team</a> — List members</li>
-  <li>POST /api/team/join — Register a teammate</li>
-  <li>POST /api/team/heartbeat — Keepalive</li>
-  <li>POST /api/team/spawn — Spawn a new teammate</li>
-  <li><a href="/api/team/spawn-options">GET /api/team/spawn-options</a> — Available directories for spawning</li>
-</ul>
-<h4>Archive</h4>
-<ul>
-  <li><a href="/api/archived">GET /api/archived</a> — List archived stories</li>
-</ul>
-<h4>Config &amp; Control</h4>
-<ul>
-  <li><a href="/api/config">GET /api/config</a> — Read configuration</li>
-  <li>PUT /api/config — Update configuration</li>
-  <li><a href="/api/browse?path=~">GET /api/browse?path=...</a> — Browse directories</li>
-  <li>POST /api/control/pause — Pause task distribution</li>
-  <li>POST /api/control/resume — Resume task distribution</li>
-</ul>
+<div id="tab-endpoints" class="tab-content" style="display:none;">
+  <h4>Status &amp; Stories</h4>
+  <ul>
+    <li><a href="/api/status">GET /api/status</a> — Server status, workflow config</li>
+    <li><a href="/api/stories">GET /api/stories</a> — All stories + tasks</li>
+    <li>POST /api/stories — Create a new story</li>
+    <li>DELETE /api/stories/:id — Delete a story</li>
+    <li>POST /api/stories/:id/archive — Archive a completed story</li>
+    <li>POST /api/stories/:storyId/tasks — Create a task within a story</li>
+  </ul>
+  <h4>Tasks</h4>
+  <ul>
+    <li>GET /api/next-task?memberId=X — Next claimable task</li>
+    <li>POST /api/tasks/:id/claim — Claim a task</li>
+    <li>POST /api/tasks/:id/status — Update task status</li>
+    <li>POST /api/tasks/:id/move — Move task (lead-only)</li>
+    <li>PUT /api/tasks/:id — Update task title/description</li>
+    <li>DELETE /api/tasks/:id — Delete a task</li>
+    <li>POST /api/tasks/:id/message — Post a message</li>
+    <li>GET /api/tasks/:id/messages — Get message thread</li>
+    <li>POST /api/tasks/:id/token-usage — Report token usage</li>
+    <li>POST /api/tasks/:id/mark-read — Mark messages as read</li>
+  </ul>
+  <h4>Team</h4>
+  <ul>
+    <li><a href="/api/team">GET /api/team</a> — List members</li>
+    <li>POST /api/team/join — Register a teammate</li>
+    <li>POST /api/team/heartbeat — Keepalive</li>
+    <li>POST /api/team/spawn — Spawn a new teammate</li>
+    <li><a href="/api/team/spawn-options">GET /api/team/spawn-options</a> — Available directories for spawning</li>
+  </ul>
+  <h4>Archive</h4>
+  <ul>
+    <li><a href="/api/archived">GET /api/archived</a> — List archived stories</li>
+  </ul>
+  <h4>Config &amp; Control</h4>
+  <ul>
+    <li><a href="/api/config">GET /api/config</a> — Read configuration</li>
+    <li>PUT /api/config — Update configuration</li>
+    <li><a href="/api/readme">GET /api/readme</a> — Project README</li>
+    <li><a href="/api/browse?path=~">GET /api/browse?path=...</a> — Browse directories</li>
+    <li>POST /api/control/pause — Pause task distribution</li>
+    <li>POST /api/control/resume — Resume task distribution</li>
+  </ul>
+</div>
+
+<div id="tab-readme" class="tab-content md-content" style="display:none;">
+  <div style="color:var(--text-muted);padding:20px;text-align:center;">Loading...</div>
 </div>
 
 <script>
+function switchTab(tabId, btn) {
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('tab-active'));
+  document.getElementById('tab-' + tabId).style.display = '';
+  btn.classList.add('tab-active');
+  localStorage.setItem('home-tab', tabId);
+  if (tabId === 'readme' && !readmeLoaded) loadReadme();
+}
+
+// Restore last tab
+const savedTab = localStorage.getItem('home-tab') || 'status';
+if (savedTab !== 'status') {
+  document.querySelectorAll('.tab-content').forEach(el => el.style.display = 'none');
+  document.querySelectorAll('.tab-btn').forEach(el => el.classList.remove('tab-active'));
+  document.getElementById('tab-' + savedTab).style.display = '';
+  document.querySelector('[onclick*="' + savedTab + '"]').classList.add('tab-active');
+}
+
+// --- Status tab ---
 async function loadStatus() {
   try {
     const [status, config] = await Promise.all([
@@ -72,7 +102,6 @@ async function loadStatus() {
       fetch('/api/config').then(r => r.json()),
     ]);
 
-    // Status cards
     document.getElementById('stat-stories').textContent = status.stories.open + ' open';
     document.getElementById('stat-stories-detail').textContent = status.stories.done + ' done, ' + status.stories.total + ' total';
 
@@ -89,7 +118,6 @@ async function loadStatus() {
     // Info sections
     let infoHtml = '';
 
-    // Workflows
     const wfNames = Object.keys(config.workflows || {});
     if (wfNames.length > 0) {
       infoHtml += '<div class="info-section"><h4>Workflows</h4>';
@@ -106,17 +134,15 @@ async function loadStatus() {
       infoHtml += '</div>';
     }
 
-    // Favorite directories
     const favDirs = config.teammates?.favoriteDirectories || [];
     if (favDirs.length > 0) {
       infoHtml += '<div class="info-section"><h4>Favorite Directories</h4><div class="tag-list">';
       for (const dir of favDirs) {
-        infoHtml += '<span class="tag">📂 ' + escHtml(dir) + '</span>';
+        infoHtml += '<span class="tag">\ud83d\udcc2 ' + escHtml(dir) + '</span>';
       }
       infoHtml += '</div></div>';
     }
 
-    // Teammate name config
     const nouns = config.teammates?.nouns;
     if (nouns && nouns.length > 0) {
       infoHtml += '<div class="info-section"><h4>Custom Name Nouns</h4><div class="tag-list">';
@@ -132,6 +158,21 @@ async function loadStatus() {
   }
 }
 
+// --- Readme tab ---
+let readmeLoaded = false;
+
+async function loadReadme() {
+  try {
+    const res = await fetch('/api/readme');
+    const data = await res.json();
+    document.getElementById('tab-readme').innerHTML = renderMarkdown(data.content, 'no README found');
+    readmeLoaded = true;
+  } catch(e) {
+    document.getElementById('tab-readme').innerHTML = '<p style="color:var(--danger);">Failed to load README: ' + escHtml(e.message) + '</p>';
+  }
+}
+
 loadStatus();
+if (savedTab === 'readme') loadReadme();
 </script>
 </body></html>

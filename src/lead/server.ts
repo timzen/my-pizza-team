@@ -699,6 +699,16 @@ export class TeamServer {
       return c.json(this.config);
     });
 
+    // GET /api/readme — serve README.md content
+    this.app.get("/api/readme", (c) => {
+      const readmePath = path.join(path.dirname(this.teamDir), "README.md");
+      if (!fs.existsSync(readmePath)) {
+        return c.json({ content: "*No README.md found in project root.*" });
+      }
+      const content = fs.readFileSync(readmePath, "utf-8");
+      return c.json({ content });
+    });
+
     // GET /api/browse?path=... — list subdirectories for file browser
     this.app.get("/api/browse", (c) => {
       let browsePath = c.req.query("path") || "~";
