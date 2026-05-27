@@ -20,9 +20,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
-import { BOARD_HTML } from "./board.js";
-import { ARCHIVED_HTML } from "./archived-page.js";
-import { BOARD_CSS, ARCHIVED_CSS, SHARED_JS } from "./css.js";
+import { slugify } from "../shared/types.js";
+import { BOARD_HTML, ARCHIVED_HTML, BOARD_CSS, ARCHIVED_CSS, SHARED_JS } from "./assets.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -90,6 +89,15 @@ export class TeamServer {
     this.config = config;
     this.app = new Hono();
     this.setupRoutes();
+  }
+
+  /** Assemble transition instructions into a single markdown string (or undefined if none) */
+  private getInstructionsMarkdown(fromStatus: string, toStatus: string): string | undefined {
+    const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, toStatus);
+    const parts: string[] = [];
+    if (exitInstructions) parts.push(exitInstructions);
+    if (enterInstructions) parts.push(enterInstructions);
+    return parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
   }
 
   private setupRoutes(): void {
@@ -322,11 +330,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         this.store.updateMemberStatus(body.memberId, "working");
 
         // Get transition instructions
-        const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, "in_progress");
-        const parts: string[] = [];
-        if (exitInstructions) parts.push(exitInstructions);
-        if (enterInstructions) parts.push(enterInstructions);
-        const instructions = parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
+        const instructions = this.getInstructionsMarkdown(fromStatus, "in_progress");
 
         const response: ClaimResponse = { success, instructions };
         return c.json(response);
@@ -362,11 +366,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       }
 
       // Get transition instructions
-      const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, body.status);
-      const parts: string[] = [];
-      if (exitInstructions) parts.push(exitInstructions);
-      if (enterInstructions) parts.push(enterInstructions);
-      const instructions = parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
+      const instructions = this.getInstructionsMarkdown(fromStatus, body.status);
 
       const response: StatusUpdateResponse = { success: true, instructions };
       return c.json(response);
@@ -445,7 +445,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         ? Math.max(...existingTasks.map((t) => t.seq)) + 1
         : 1;
       const seqStr = String(nextSeq).padStart(2, "0");
-      const slug = body.title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 40);
+      const slug = slugify(body.title);
 
       const tasksDir = path.join(story.dirPath, "tasks");
       const taskDirPath = path.join(tasksDir, `${seqStr}-${slug}`);
@@ -525,11 +525,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       this.store.updateTaskStatus(taskId, body.status);
 
       // Get transition instructions
-      const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, body.status);
-      const parts: string[] = [];
-      if (exitInstructions) parts.push(exitInstructions);
-      if (enterInstructions) parts.push(enterInstructions);
-      const instructions = parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
+      const instructions = this.getInstructionsMarkdown(fromStatus, body.status);
 
       return c.json({ success: true, instructions } satisfies MoveTaskResponse);
     });

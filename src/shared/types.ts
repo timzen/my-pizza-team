@@ -110,3 +110,12 @@ export const CONFIG_FILE = "config.json";
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
 export const ARCHIVED_DIR = "archived";
+
+/** Generate a URL-safe slug from a title (max 40 chars) */
+export function slugify(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-|-$/g, "")
+    .slice(0, 40);
+}

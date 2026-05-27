@@ -19,6 +19,7 @@ import Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { slugify } from "../shared/types.js";
 import type { Message, Story, Task, TaskWithMeta, TeamConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
 
 export class Store {
@@ -174,19 +175,39 @@ export class Store {
 
   // --- Stories ---
 
+  /** Map a raw SQLite row to a Story object */
+  private rowToStory(row: any): Story & { dirPath: string } {
+    return {
+      id: row.id,
+      title: row.title,
+      description: row.description,
+      status: row.status,
+      dependsOn: JSON.parse(row.depends_on),
+      dir: row.dir || undefined,
+      dirPath: row.dir_path,
+    };
+  }
+
+  /** Map a raw SQLite row to a TaskWithMeta object */
+  private rowToTask(row: any): TaskWithMeta {
+    return {
+      id: row.id,
+      storyId: row.story_id,
+      seq: row.seq,
+      slug: row.slug,
+      title: row.title,
+      description: row.description,
+      status: row.status,
+      result: row.result,
+      dirPath: row.dir_path,
+    };
+  }
+
   getStories(): (Story & { dirPath: string })[] {
     return this.db
       .prepare("SELECT * FROM stories ORDER BY id")
       .all()
-      .map((row: any) => ({
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        status: row.status,
-        dependsOn: JSON.parse(row.depends_on),
-        dir: row.dir || undefined,
-        dirPath: row.dir_path,
-      }));
+      .map((row: any) => this.rowToStory(row));
   }
 
   hasStory(id: string): boolean {
@@ -226,11 +247,7 @@ export class Store {
 
       for (let i = 0; i < tasks.length; i++) {
         const seq = i + 1;
-        const slug = tasks[i].title
-          .toLowerCase()
-          .replace(/[^a-z0-9]+/g, "-")
-          .replace(/^-|-$/g, "")
-          .slice(0, 40);
+        const slug = slugify(tasks[i].title);
         const taskId = `${id}-${seq}`;
         const taskDirName = `${String(seq).padStart(2, "0")}-${slug}`;
         const taskDirPath = path.join(tasksDir, taskDirName);
@@ -265,15 +282,7 @@ export class Store {
   getStory(id: string): (Story & { dirPath: string }) | null {
     const row: any = this.db.prepare("SELECT * FROM stories WHERE id = ?").get(id);
     if (!row) return null;
-    return {
-      id: row.id,
-      title: row.title,
-      description: row.description,
-      status: row.status,
-      dependsOn: JSON.parse(row.depends_on),
-      dir: row.dir || undefined,
-      dirPath: row.dir_path,
-    };
+    return this.rowToStory(row);
   }
 
   isStoryReady(storyId: string): boolean {
@@ -312,33 +321,13 @@ export class Store {
     return this.db
       .prepare("SELECT * FROM tasks WHERE story_id = ? ORDER BY seq")
       .all(storyId)
-      .map((row: any) => ({
-        id: row.id,
-        storyId: row.story_id,
-        seq: row.seq,
-        slug: row.slug,
-        title: row.title,
-        description: row.description,
-        status: row.status,
-        result: row.result,
-        dirPath: row.dir_path,
-      }));
+      .map((row: any) => this.rowToTask(row));
   }
 
   getTask(taskId: string): TaskWithMeta | null {
     const row: any = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId);
     if (!row) return null;
-    return {
-      id: row.id,
-      storyId: row.story_id,
-      seq: row.seq,
-      slug: row.slug,
-      title: row.title,
-      description: row.description,
-      status: row.status,
-      result: row.result,
-      dirPath: row.dir_path,
-    };
+    return this.rowToTask(row);
   }
 
   updateTaskStatus(taskId: string, status: string, result?: string): void {
@@ -374,15 +363,7 @@ export class Store {
     const task = this.getTask(taskId);
     if (!task) return false;
 
-    // Remove from assignments if any
-    this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
-    // Remove messages
-    this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(taskId);
-    // Remove token usage
-    this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(taskId);
-    // Remove task
-    this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+    this.removeTaskData(taskId);
 
     // Remove task directory from disk
     if (task.dirPath && fs.existsSync(task.dirPath)) {
@@ -555,20 +536,10 @@ export class Store {
 
   getInboxTasks(): TaskWithMeta[] {
     // Find tasks that are in a lead-required state with unread teammate messages
-    const tasks: any[] = this.db
+    return this.db
       .prepare("SELECT * FROM tasks WHERE status IN ('needs_input', 'review') ORDER BY story_id, seq")
-      .all();
-    return tasks.map((row: any) => ({
-      id: row.id,
-      storyId: row.story_id,
-      seq: row.seq,
-      slug: row.slug,
-      title: row.title,
-      description: row.description,
-      status: row.status,
-      result: row.result,
-      dirPath: row.dir_path,
-    }));
+      .all()
+      .map((row: any) => this.rowToTask(row));
   }
 
   // --- Token Usage ---
@@ -799,6 +770,24 @@ export class Store {
     fs.writeFileSync(path.join(destPath, "SYNOPSIS.md"), lines.join("\n"));
   }
 
+  /** Remove all task-related data from SQLite (assignments, messages, token_usage, task row) */
+  private removeTaskData(taskId: string): void {
+    this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
+  }
+
+  /** Remove a story and all its tasks from SQLite (does not touch disk) */
+  private removeStoryFromDb(storyId: string): void {
+    const tasks = this.getTasksForStory(storyId);
+    for (const task of tasks) {
+      this.removeTaskData(task.id);
+    }
+    this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
+  }
+
   /** Delete a story and all its tasks, removing from SQLite and disk */
   deleteStory(storyId: string): boolean {
     const story = this.getStory(storyId);
@@ -811,15 +800,7 @@ export class Store {
       throw new Error(`Cannot delete story "${storyId}": ${inProgress.length} task(s) are in progress`);
     }
 
-    // Remove all related data from SQLite
-    for (const task of tasks) {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(task.id);
-      this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(task.id);
-      this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(task.id);
-      this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(task.id);
-    }
-    this.db.prepare("DELETE FROM tasks WHERE story_id = ?").run(storyId);
-    this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
+    this.removeStoryFromDb(storyId);
 
     // Remove story directory from disk
     if (story.dirPath && fs.existsSync(story.dirPath)) {
@@ -863,15 +844,8 @@ export class Store {
     const tasks = this.getTasksForStory(storyId);
     this.generateSynopsis(destPath, story, tasks, archivedAt);
 
-    // Remove from SQLite: tasks, assignments, messages, token_usage, then story
-    for (const task of tasks) {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(task.id);
-      this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(task.id);
-      this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(task.id);
-      this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(task.id);
-    }
-    this.db.prepare("DELETE FROM tasks WHERE story_id = ?").run(storyId);
-    this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
+    // Remove from SQLite
+    this.removeStoryFromDb(storyId);
   }
 
   getArchivedStories(): Array<{ id: string; title: string; synopsis: string }> {

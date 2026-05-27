@@ -40,13 +40,11 @@ src/
 ├── lead/
 │   ├── store.ts          # SQLite store: schema, CRUD, sync to/from JSON files, archiving
 │   ├── server.ts         # Hono HTTP server: API routes + web UI (board, archived, landing)
-│   ├── board.ts          # Board HTML loader
+│   ├── assets.ts         # Static asset loader (HTML, CSS, JS read at module load)
 │   ├── board.html        # Kanban board single-page app
 │   ├── board.css         # Board styles
-│   ├── archived-page.ts  # Archived page HTML loader
 │   ├── archived-page.html # Archived stories page
 │   ├── archived-page.css # Archived page styles
-│   ├── css.ts            # Static asset loader (reads .css and .js at module load)
 │   ├── shared.js         # Shared browser JS utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task, team_enrich_synopsis)

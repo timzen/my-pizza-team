@@ -16,7 +16,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Store } from "./store.js";
 import type { TeamServer } from "./server.js";
 import type { TeamConfig, Story, Task } from "../shared/types.js";
-import { STORIES_DIR } from "../shared/types.js";
+import { STORIES_DIR, slugify } from "../shared/types.js";
 import { spawnTeammate, dismissTeammate, hopToTeammate } from "./tmux.js";
 
 /** Helper: add a task to an existing story on disk + reload store */
@@ -30,7 +30,7 @@ export function addTaskToStory(store: Store, storyId: string, title: string, des
     ? Math.max(...existingTasks.map((t) => t.seq)) + 1
     : 1;
   const seq = String(nextSeq).padStart(2, "0");
-  const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "");
+  const slug = slugify(title);
 
   const tasksDir = path.join(story.dirPath, "tasks");
   const taskDir = path.join(tasksDir, `${seq}-${slug}`);
