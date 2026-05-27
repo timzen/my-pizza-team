@@ -7,13 +7,12 @@
 (function() {
   // --- Theme management ---
   const THEMES = [
-    { id: 'dark', label: '🌙' , title: 'Dark' },
-    { id: 'solarized-dark', label: '🌑', title: 'Solarized Dark' },
-    { id: 'solarized-light', label: '☀️', title: 'Solarized Light' },
+    { id: 'solarized-dark', label: '🌙', title: 'Dark' },
+    { id: 'solarized-light', label: '☀️', title: 'Light' },
   ];
 
   function getTheme() {
-    return localStorage.getItem('ppt-theme') || 'dark';
+    return localStorage.getItem('ppt-theme') || 'solarized-dark';
   }
 
   function setTheme(theme) {

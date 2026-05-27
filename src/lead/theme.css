@@ -2,37 +2,6 @@
 /* Applied via data-theme attribute on <html> */
 
 :root,
-[data-theme="dark"] {
-  --bg-primary: #1a1a2e;
-  --bg-secondary: #16213e;
-  --bg-tertiary: #0f3460;
-  --border: #0f3460;
-  --border-light: #1a4080;
-  --text-primary: #e0e0e0;
-  --text-secondary: #888;
-  --text-muted: #666;
-  --text-dim: #555;
-  --accent: #7c83ff;
-  --accent-hover: #5a62d9;
-  --accent-active: #4a51b8;
-  --accent-bg: rgba(124, 131, 255, 0.1);
-  --success: #4caf50;
-  --warning: #ffa500;
-  --danger: #e74c3c;
-  --danger-hover: #c0392b;
-  --card-bg: #0f3460;
-  --card-hover: #1a4080;
-  --input-bg: #0f3460;
-  --input-border: #1a4080;
-  --modal-overlay: rgba(0, 0, 0, 0.7);
-  --shadow: rgba(0, 0, 0, 0.3);
-  --code-bg: #1a1a2e;
-  --nav-bg: #0f3460;
-  --nav-border: #1a4080;
-  --msg-lead-bg: #7c83ff;
-  --msg-teammate-bg: #0f3460;
-}
-
 [data-theme="solarized-dark"] {
   --bg-primary: #002b36;
   --bg-secondary: #073642;
