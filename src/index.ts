@@ -146,7 +146,8 @@ async function setupTeamLead(
     const stories = store.getStories();
     const members = store.getMembers();
     const inbox = store.getInboxTasks();
-    const activeStories = stories.filter((s) => s.status === "open").length;
+    const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
+    const doneTasks = allTasks.filter((t) => t.status === "done").length;
 
     const memberStatus = members
       .map((m) => {
@@ -155,9 +156,12 @@ async function setupTeamLead(
       })
       .join(" • ");
 
-    const parts = [`📋 ${activeStories} stories`];
+    const parts = [`🍕 ${doneTasks}/${allTasks.length} tasks done`];
     if (memberStatus) parts.push(memberStatus);
-    if (inbox.length > 0) parts.push(`📬 ${inbox.length} inbox`);
+    if (inbox.length > 0) {
+      const unread = inbox.filter((t) => store.hasUnreadMessages(t.id)).length;
+      parts.push(`📬 ${unread > 0 ? unread + " unread" : inbox.length + " inbox"}`);
+    }
 
     ctx.ui.setWidget("pi-pizza-team", [parts.join(" • ")]);
   };
@@ -293,14 +297,61 @@ async function setupTeammate(
   loop.resume();
   await loop.start();
 
+  // Track task timing for widget
+  let taskStartedAt: number | null = null;
+  let completedTasks = 0;
+  const originalOnComplete = loop.onTaskComplete;
+  loop.onTaskComplete = (taskId, result) => {
+    completedTasks++;
+    taskStartedAt = null;
+    originalOnComplete?.(taskId, result);
+  };
+
+  // Widget update interval
+  const updateTeammateWidget = () => {
+    if (!ctx.hasUI) return;
+    if (!loop.isAutonomous) return; // pairing mode handled separately
+    if (loop.currentTask) {
+      if (!taskStartedAt) taskStartedAt = Date.now();
+      const elapsed = Math.round((Date.now() - taskStartedAt) / 60000);
+      const timeStr = elapsed > 0 ? ` (${elapsed}m)` : '';
+      ctx.ui.setWidget("pi-pizza-team", [`🔨 Working: ${loop.currentTask}${timeStr}`]);
+    } else {
+      ctx.ui.setWidget("pi-pizza-team", ["🍕 waiting for work..."]);
+    }
+  };
+  const teammateWidgetInterval = setInterval(updateTeammateWidget, 5000);
+
   // Widget
   if (ctx.hasUI) {
     ctx.ui.setWidget("pi-pizza-team", ["🍕 teammate ready — waiting for work..."]);
     ctx.ui.setStatus("pi-pizza-team", `🍕 ${memberId}`);
   }
 
+  // /ppt-worker-status
+  pi.registerCommand("ppt-worker-status", {
+    description: "Show current teammate status and history",
+    handler: async (_args) => {
+      let output = `🍕 Teammate: ${memberId}\n`;
+      output += `Mode: ${loop.isAutonomous ? "autonomous" : "pairing"}\n\n`;
+
+      if (loop.currentTask) {
+        const elapsed = taskStartedAt ? Math.round((Date.now() - taskStartedAt) / 60000) : 0;
+        output += `🔨 Current task: ${loop.currentTask}\n`;
+        output += `   Duration: ${elapsed}m\n\n`;
+      } else {
+        output += `☕ No active task (waiting for work)\n\n`;
+      }
+
+      output += `✓ Tasks completed this session: ${completedTasks}\n`;
+
+      if (ctx.hasUI) ctx.ui.notify(output, "info");
+    },
+  });
+
   // Cleanup
   pi.on("session_shutdown", async () => {
+    clearInterval(teammateWidgetInterval);
     loop.stop();
     await client.heartbeat("idle");
   });

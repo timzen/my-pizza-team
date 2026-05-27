@@ -3,7 +3,8 @@
 // Registers all interactive commands available to the team lead:
 //   /ppt-init, /ppt-board, /ppt-spawn, /ppt-dismiss, /ppt-hop,
 //   /ppt-inbox, /ppt-reply, /ppt-move, /ppt-pause, /ppt-resume,
-//   /ppt-save, /ppt-commit, /ppt-add-story, /ppt-add-task, /ppt-delete-story
+//   /ppt-save, /ppt-commit, /ppt-add-story, /ppt-add-task,
+//   /ppt-delete-story, /ppt-archive, /ppt-status
 //
 // LLM tools (team_add_story, team_add_task) are in ./tools.ts.
 //
@@ -87,10 +88,16 @@ export function registerLeadCommands(
     description: "Show kanban board — stories, tasks, and team status",
     handler: async (_args, ctx) => {
       const store = getStore();
+      const config = getConfig();
       const stories = store.getStories();
       const members = store.getMembers();
 
-      let output = "📋 pi-pizza-team board\n══════════════════════\n\n";
+      // Summary line
+      const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
+      const doneTasks = allTasks.filter((t) => t.status === "done").length;
+      let output = `🍕 pi-pizza-team board — ${stories.length} stories, ${doneTasks}/${allTasks.length} tasks done\n`;
+      output += `🌐 ${config.leaderUrl}/board\n`;
+      output += "═".repeat(50) + "\n\n";
 
       // Stories
       output += "Stories:\n";
@@ -219,6 +226,19 @@ export function registerLeadCommands(
   // /ppt-dismiss
   pi.registerCommand("ppt-dismiss", {
     description: "Stop a teammate: /ppt-dismiss <name>",
+    getArgumentCompletions: (prefix: string) => {
+      const store = getStore();
+      const members = store.getMembers();
+      const items: { value: string; label: string; description?: string }[] = [];
+      for (const member of members) {
+        if (member.id.startsWith(prefix || "")) {
+          const assignment = store.getAssignmentForMember(member.id);
+          const desc = assignment ? `working on: ${assignment.task.title}` : "idle";
+          items.push({ value: member.id, label: member.id, description: desc });
+        }
+      }
+      return items.length > 0 ? items : null;
+    },
     handler: async (args, ctx) => {
       const config = getConfig();
       const name = args?.trim();
@@ -237,6 +257,19 @@ export function registerLeadCommands(
   // /ppt-hop
   pi.registerCommand("ppt-hop", {
     description: "Jump to a teammate's tmux window: /ppt-hop <name>",
+    getArgumentCompletions: (prefix: string) => {
+      const store = getStore();
+      const members = store.getMembers();
+      const items: { value: string; label: string; description?: string }[] = [];
+      for (const member of members) {
+        if (member.id.startsWith(prefix || "")) {
+          const assignment = store.getAssignmentForMember(member.id);
+          const desc = assignment ? `working on: ${assignment.task.title}` : "idle";
+          items.push({ value: member.id, label: member.id, description: desc });
+        }
+      }
+      return items.length > 0 ? items : null;
+    },
     handler: async (args, ctx) => {
       const config = getConfig();
       const name = args?.trim();
@@ -266,18 +299,20 @@ export function registerLeadCommands(
         return;
       }
 
-      let output = "📬 Messages needing your attention:\n\n";
+      let output = `📬 Inbox (${inboxTasks.length} task${inboxTasks.length === 1 ? "" : "s"} needing attention):\n\n`;
       for (const task of inboxTasks) {
+        const hasUnread = store.hasUnreadMessages(task.id);
         const messages = store.getMessages(task.id);
         const lastMsg = messages[messages.length - 1];
-        output += `  ${task.storyId}/${task.slug} [${task.status}]\n`;
-        output += `  "${task.title}"\n`;
+        const unreadIcon = hasUnread ? "🔴" : "⚪";
+        output += `  ${unreadIcon} ${task.id} [${task.status}]\n`;
+        output += `     "${task.title}"\n`;
         if (lastMsg) {
-          output += `  Last from ${lastMsg.from}: "${lastMsg.body.slice(0, 80)}${lastMsg.body.length > 80 ? "..." : ""}"\n`;
+          output += `     Last from ${lastMsg.from}: "${lastMsg.body.slice(0, 80)}${lastMsg.body.length > 80 ? "..." : ""}"\n`;
         }
         output += "\n";
       }
-      output += "Use /ppt-reply <name> <message> to respond.";
+      output += "🔴 = unread  ⚪ = seen\nUse /ppt-reply <task-id> <message> to respond.";
       ctx.ui.notify(output, "info");
     },
   });
@@ -584,6 +619,116 @@ export function registerLeadCommands(
       } catch (e: any) {
         ctx.ui.notify(`Error: ${e.message}`, "error");
       }
+    },
+  });
+
+  // /ppt-archive
+  pi.registerCommand("ppt-archive", {
+    description: "Archive a completed story: /ppt-archive <story-id>",
+    getArgumentCompletions: (prefix: string) => {
+      const store = getStore();
+      const stories = store.getStories();
+      const items: { value: string; label: string; description?: string }[] = [];
+      for (const story of stories) {
+        if (!store.isStoryArchivable(story.id)) continue;
+        if (story.id.startsWith(prefix || "")) {
+          items.push({ value: story.id, label: story.id, description: `✓ ${story.title} (all tasks done)` });
+        }
+      }
+      return items.length > 0 ? items : null;
+    },
+    handler: async (args, ctx) => {
+      const storyId = args?.trim();
+      if (!storyId) {
+        ctx.ui.notify("Usage: /ppt-archive <story-id>", "warning");
+        return;
+      }
+
+      const store = getStore();
+      const story = store.getStory(storyId);
+      if (!story) {
+        ctx.ui.notify(`Story "${storyId}" not found`, "error");
+        return;
+      }
+
+      if (!store.isStoryArchivable(storyId)) {
+        ctx.ui.notify(`Cannot archive "${story.title}" — not all tasks are done.`, "warning");
+        return;
+      }
+
+      store.archiveStory(storyId);
+      ctx.ui.notify(`✓ Story "${story.title}" archived! 📦`, "info");
+    },
+  });
+
+  // /ppt-status
+  pi.registerCommand("ppt-status", {
+    description: "Quick status summary of the team",
+    handler: async (_args, ctx) => {
+      const store = getStore();
+      const config = getConfig();
+      const stories = store.getStories();
+      const members = store.getMembers();
+      const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
+      const inbox = store.getInboxTasks();
+
+      const byStatus: Record<string, number> = {};
+      for (const t of allTasks) byStatus[t.status] = (byStatus[t.status] || 0) + 1;
+
+      let output = `🍕 pi-pizza-team status\n`;
+      output += `🌐 ${config.leaderUrl}/board\n\n`;
+
+      // Progress bar
+      const done = byStatus["done"] || 0;
+      const total = allTasks.length;
+      if (total > 0) {
+        const pct = Math.round((done / total) * 100);
+        const filled = Math.round(pct / 5);
+        const bar = "█".repeat(filled) + "░".repeat(20 - filled);
+        output += `  Progress: [${bar}] ${pct}% (${done}/${total} tasks)\n\n`;
+      }
+
+      // Task breakdown
+      output += "  Tasks: " + Object.entries(byStatus).map(([s, n]) => `${n} ${s.replace(/_/g, " ")}`).join(", ") + "\n";
+
+      // In-progress details
+      const inProgress = allTasks.filter((t) => t.status === "in_progress");
+      if (inProgress.length > 0) {
+        output += "\n  ▶ In Progress:\n";
+        for (const t of inProgress) {
+          const assignment = store.getAssignment(t.id);
+          output += `    • ${t.title}${assignment ? ` (→ ${assignment.memberId})` : ""}\n`;
+        }
+      }
+
+      // Blocked
+      const blocked = stories.filter((s) => s.status === "open" && !store.isStoryReady(s.id));
+      if (blocked.length > 0) {
+        output += "\n  ⛔ Blocked Stories:\n";
+        for (const s of blocked) {
+          output += `    • ${s.title} (waiting on: ${s.dependsOn.join(", ")})\n`;
+        }
+      }
+
+      // Inbox
+      if (inbox.length > 0) {
+        const unread = inbox.filter((t) => store.hasUnreadMessages(t.id)).length;
+        output += `\n  📬 Inbox: ${inbox.length} task${inbox.length === 1 ? "" : "s"} (${unread} unread)\n`;
+      }
+
+      // Team
+      output += "\n  Team:\n";
+      if (members.length === 0) {
+        output += "    (no teammates — /ppt-spawn to hire)\n";
+      }
+      for (const m of members) {
+        const assignment = store.getAssignmentForMember(m.id);
+        const icon = assignment ? "🔨" : "☕";
+        const task = assignment ? assignment.task.title : "idle";
+        output += `    ${icon} ${m.name}: ${task}\n`;
+      }
+
+      ctx.ui.notify(output, "info");
     },
   });
 }
