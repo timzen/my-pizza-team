@@ -91,9 +91,9 @@ h1 { margin-bottom: 20px; font-size: 1.5em; }
 .btn-submit:hover { background: var(--accent-hover); }
 .btn-submit:disabled { background: var(--border); cursor: not-allowed; }
 /* Message Panel (slide-out) */
-.msg-panel-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 1100; }
+.msg-panel-overlay { display: none; position: fixed; top: 0; left: 0; right: 0; bottom: 0; background: rgba(0,0,0,0.5); z-index: 9100; }
 .msg-panel-overlay.open { display: block; }
-.msg-panel { position: fixed; top: 0; right: -420px; bottom: 0; width: 400px; max-width: 90vw; background: var(--bg-secondary); border-left: 1px solid var(--bg-tertiary); z-index: 1101; display: flex; flex-direction: column; transition: right 0.25s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.3); }
+.msg-panel { position: fixed; top: 0; right: -420px; bottom: 0; width: 400px; max-width: 90vw; background: var(--bg-secondary); border-left: 1px solid var(--bg-tertiary); z-index: 9101; display: flex; flex-direction: column; transition: right 0.25s ease; box-shadow: -4px 0 20px rgba(0,0,0,0.3); }
 .msg-panel.open { right: 0; }
 .msg-panel-header { padding: 16px 18px; border-bottom: 1px solid var(--bg-tertiary); display: flex; justify-content: space-between; align-items: flex-start; flex-shrink: 0; }
 .msg-panel-header h3 { font-size: 0.95em; margin: 0; color: var(--text-primary); line-height: 1.3; }
