@@ -799,6 +799,36 @@ export class Store {
     fs.writeFileSync(path.join(destPath, "SYNOPSIS.md"), lines.join("\n"));
   }
 
+  /** Delete a story and all its tasks, removing from SQLite and disk */
+  deleteStory(storyId: string): boolean {
+    const story = this.getStory(storyId);
+    if (!story) return false;
+
+    // Check no tasks are in_progress (safety check)
+    const tasks = this.getTasksForStory(storyId);
+    const inProgress = tasks.filter((t) => t.status === "in_progress");
+    if (inProgress.length > 0) {
+      throw new Error(`Cannot delete story "${storyId}": ${inProgress.length} task(s) are in progress`);
+    }
+
+    // Remove all related data from SQLite
+    for (const task of tasks) {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(task.id);
+      this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(task.id);
+      this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(task.id);
+      this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(task.id);
+    }
+    this.db.prepare("DELETE FROM tasks WHERE story_id = ?").run(storyId);
+    this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
+
+    // Remove story directory from disk
+    if (story.dirPath && fs.existsSync(story.dirPath)) {
+      fs.rmSync(story.dirPath, { recursive: true });
+    }
+
+    return true;
+  }
+
   isStoryArchivable(storyId: string): boolean {
     const tasks = this.getTasksForStory(storyId);
     if (tasks.length === 0) return false;

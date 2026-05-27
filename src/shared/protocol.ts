@@ -214,6 +214,12 @@ export interface MarkReadResponse {
   error?: string;
 }
 
+// DELETE /api/stories/:id
+export interface DeleteStoryResponse {
+  success: boolean;
+  error?: string;
+}
+
 // POST /api/stories/:id/archive
 export interface ArchiveStoryResponse {
   success: boolean;

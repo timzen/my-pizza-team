@@ -48,6 +48,7 @@ import type {
   MoveTaskResponse,
   TokenUsageRequest,
   TokenUsageResponse,
+  DeleteStoryResponse,
   ArchiveStoryResponse,
   ArchivedStoriesResponse,
 } from "../shared/protocol.js";
@@ -554,6 +555,23 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         }),
       };
       return c.json(response);
+    });
+
+    // --- Delete story endpoint ---
+
+    // DELETE /api/stories/:id
+    this.app.delete("/api/stories/:id", async (c) => {
+      const storyId = c.req.param("id");
+      const story = this.store.getStory(storyId);
+      if (!story) {
+        return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies DeleteStoryResponse, 404);
+      }
+      try {
+        this.store.deleteStory(storyId);
+        return c.json({ success: true } satisfies DeleteStoryResponse);
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message } satisfies DeleteStoryResponse, 400);
+      }
     });
 
     // --- Archive endpoints ---

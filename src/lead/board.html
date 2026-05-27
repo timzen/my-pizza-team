@@ -846,11 +846,13 @@ function renderBoard(stories) {
     const addBtn = '<button class="btn-add-task-inline" onclick="openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
     const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === 'done');
     const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
+    const hasInProgress = story.tasks.some(t => t.status === 'in_progress');
+    const deleteBtn = !hasInProgress ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); deleteStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Delete story" style="color:#e74c3c;">🗑️ Delete</button>' : '';
 
     return '<div class="swimlane' + blockedClass + '">'
       + '<div class="swimlane-header">'
       + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + '</span>'
-      + '<span class="swimlane-meta">' + addBtn + archiveBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
+      + '<span class="swimlane-meta">' + addBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
       + '</div>'
       + '<div class="board">' + columnsHtml + '</div>'
       + '</div>';
@@ -878,6 +880,16 @@ async function refreshArchivedCount() {
     const el = document.getElementById('archived-count');
     el.textContent = archivedCount > 0 ? '(' + archivedCount + ')' : '';
   } catch(e) {}
+}
+
+async function deleteStory(storyId, title) {
+  if (!confirm('DELETE story "' + title + '"?\n\nThis will permanently remove the story and all its tasks from disk. This cannot be undone.')) return;
+  try {
+    const res = await fetch('/api/stories/' + encodeURIComponent(storyId), { method: 'DELETE' });
+    const data = await res.json();
+    if (!res.ok || !data.success) { alert(data.error || 'Delete failed'); return; }
+    refresh();
+  } catch(e) { alert('Network error: ' + e.message); }
 }
 
 async function archiveStory(storyId, title) {

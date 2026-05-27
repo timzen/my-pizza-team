@@ -176,6 +176,7 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/stories` | GET | All stories + tasks + readiness |
 | `/api/stories` | POST | Create a new story (with optional tasks, dir) |
 | `/api/stories/:storyId/tasks` | POST | Create a task within a story |
+| `/api/stories/:id` | DELETE | Delete a story and all its tasks (400 if tasks in progress) |
 | `/api/stories/:id/archive` | POST | Archive a completed story (400 if tasks incomplete) |
 | `/api/archived` | GET | List archived stories with synopsis |
 | `/api/archived/:id/enrich` | POST | Regenerate synopsis with full task descriptions + messages |

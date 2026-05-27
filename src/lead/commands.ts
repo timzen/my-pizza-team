@@ -3,7 +3,7 @@
 // Registers all interactive commands available to the team lead:
 //   /ppt-init, /ppt-board, /ppt-spawn, /ppt-dismiss, /ppt-hop,
 //   /ppt-inbox, /ppt-reply, /ppt-move, /ppt-pause, /ppt-resume,
-//   /ppt-save, /ppt-commit, /ppt-add-story, /ppt-add-task
+//   /ppt-save, /ppt-commit, /ppt-add-story, /ppt-add-task, /ppt-delete-story
 //
 // LLM tools (team_add_story, team_add_task) are in ./tools.ts.
 //
@@ -507,6 +507,53 @@ export function registerLeadCommands(
 
       addTaskToStory(store, storyId, title, description, teamDir);
       ctx.ui.notify(`✓ Task "${title}" added to ${storyId}`, "info");
+    },
+  });
+
+  // /ppt-delete-story
+  pi.registerCommand("ppt-delete-story", {
+    description: "Delete a story and all its tasks: /ppt-delete-story <story-id>",
+    getArgumentCompletions: (prefix: string) => {
+      const store = getStore();
+      const stories = store.getStories();
+      const items: { value: string; label: string; description?: string }[] = [];
+      for (const story of stories) {
+        if (story.id.startsWith(prefix || "")) {
+          items.push({ value: story.id, label: story.id, description: story.title });
+        }
+      }
+      return items.length > 0 ? items : null;
+    },
+    handler: async (args, ctx) => {
+      const storyId = args?.trim();
+      if (!storyId) {
+        ctx.ui.notify("Usage: /ppt-delete-story <story-id>", "warning");
+        return;
+      }
+
+      const store = getStore();
+      const story = store.getStory(storyId);
+      if (!story) {
+        ctx.ui.notify(`Story "${storyId}" not found`, "error");
+        return;
+      }
+
+      const tasks = store.getTasksForStory(storyId);
+      const confirm = await ctx.ui.input(
+        `Delete story "${story.title}" and its ${tasks.length} task(s)? This cannot be undone. Type "yes" to confirm:`,
+        ""
+      );
+      if (confirm?.toLowerCase() !== "yes") {
+        ctx.ui.notify("Cancelled.", "info");
+        return;
+      }
+
+      try {
+        store.deleteStory(storyId);
+        ctx.ui.notify(`✓ Story "${story.title}" deleted permanently.`, "info");
+      } catch (e: any) {
+        ctx.ui.notify(`Error: ${e.message}`, "error");
+      }
     },
   });
 }

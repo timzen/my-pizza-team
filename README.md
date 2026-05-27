@@ -42,6 +42,7 @@ pi
 | `/ppt-spawn <story-id\|name> [cwd]` | Hire a teammate (story ID auto-resolves dir + name) |
 | `/ppt-add-story [id]` | Create a story (prompts for title, description, dir, dependencies) |
 | `/ppt-add-task <story-id>` | Add a task to a story interactively |
+| `/ppt-delete-story <story-id>` | Permanently delete a story and all its tasks |
 | `/ppt-move <task-id> [status]` | Move a task to a new status (autocomplete excludes done tasks) |
 | `/ppt-inbox` | Messages needing your input |
 | `/ppt-reply <task-id> <msg>` | Reply to a teammate |
