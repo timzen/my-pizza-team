@@ -916,14 +916,6 @@ export class Store {
     return { story, tasks, messages };
   }
 
-  writeArchivedSynopsis(storyId: string, content: string): void {
-    const synopsisPath = path.join(this.teamDir, "archived", storyId, "SYNOPSIS.md");
-    if (!fs.existsSync(path.dirname(synopsisPath))) {
-      throw new Error(`Archived story "${storyId}" not found`);
-    }
-    fs.writeFileSync(synopsisPath, content);
-  }
-
   /** Resolve the effective workflow for a story (story override → defaultWorkflow) */
   getWorkflowForStory(storyId: string): WorkflowConfig {
     const story = this.getStory(storyId);

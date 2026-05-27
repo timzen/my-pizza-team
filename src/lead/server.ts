@@ -156,7 +156,6 @@ export class TeamServer {
 <h4>Archive</h4>
 <ul>
   <li><a href="/api/archived">GET /api/archived</a> — List archived stories</li>
-  <li>POST /api/archived/:id/enrich — Regenerate synopsis</li>
 </ul>
 <h4>Config &amp; Control</h4>
 <ul>
@@ -754,77 +753,6 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         }),
       };
       return c.json(response);
-    });
-
-    // POST /api/archived/:id/enrich
-    this.app.post("/api/archived/:id/enrich", (c) => {
-      const storyId = c.req.param("id");
-      const context = this.store.getArchivedStoryContext(storyId);
-      if (!context) {
-        return c.json({ success: false, error: `Archived story "${storyId}" not found` }, 404);
-      }
-
-      const { story, tasks, messages } = context;
-      const date = story.archivedAt ? story.archivedAt.split("T")[0] : "Unknown";
-
-      // Build enriched synopsis
-      const lines: string[] = [
-        `# ${story.title}`,
-        "",
-        `**Archived**: ${date}`,
-        `**ID**: ${story.id}`,
-        "",
-        "## Description",
-        "",
-        story.description,
-        "",
-        "## Tasks",
-        "",
-      ];
-
-      for (let i = 0; i < tasks.length; i++) {
-        lines.push(`${i + 1}. ${tasks[i].title}`);
-      }
-      lines.push("");
-
-      // Generate a narrative summary from task results and key messages
-      lines.push("## Summary");
-      lines.push("");
-
-      // Opening: what was accomplished
-      const totalMessages = Object.values(messages).reduce((sum, msgs) => sum + msgs.length, 0);
-      lines.push(`This work involved ${tasks.length} task${tasks.length === 1 ? "" : "s"}${totalMessages > 0 ? ` and ${totalMessages} messages between the lead and teammates` : ""}.`);
-      lines.push("");
-
-      // Per-task narrative: what was done and any key decisions
-      for (const task of tasks) {
-        const taskMsgs = messages[task.id] || [];
-        // Extract lead messages as "decisions"
-        const leadMsgs = taskMsgs.filter(m => m.from === "lead").map(m => m.body);
-        // Use the result if available, otherwise fall back to description
-        const outcome = task.result
-          ? task.result.split("\n").slice(0, 3).join(" ").slice(0, 300)
-          : task.description.split("\n").slice(0, 2).join(" ").slice(0, 200);
-
-        lines.push(`**${task.title}** — ${outcome}`);
-
-        if (leadMsgs.length > 0) {
-          // Summarize lead guidance as decisions
-          const decisions = leadMsgs
-            .filter(m => !m.startsWith("[status]"))
-            .slice(0, 3)
-            .map(m => m.split("\n")[0].slice(0, 150));
-          if (decisions.length > 0) {
-            lines.push(`  - Lead guidance: ${decisions.join("; ")}`);
-          }
-        }
-        lines.push("");
-      }
-
-      const enrichedContent = lines.join("\n");
-      this.store.writeArchivedSynopsis(storyId, enrichedContent);
-
-      return c.json({ success: true, synopsis: enrichedContent });
     });
 
     // --- Config endpoints ---

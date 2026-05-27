@@ -38,10 +38,7 @@ async function load() {
       return '<div class="story-card" id="card-' + escHtml(s.id) + '">'
         + '<div class="story-header" onclick="toggleStory(this)">'
         + '<div><div class="story-title">' + escHtml(s.title) + '</div><div class="story-id">' + escHtml(s.id) + '</div></div>'
-        + '<div style="display:flex;align-items:center;gap:10px;">'
-        + '<button class="btn-enrich" onclick="event.stopPropagation(); enrichSynopsis(\'' + escHtml(s.id) + '\')" title="Generate detailed synopsis with message history">✨ Enrich</button>'
         + '<span class="story-date">' + escHtml(date) + '</span>'
-        + '</div>'
         + '</div>'
         + '<div class="story-body"><div class="synopsis md-content" id="synopsis-' + escHtml(s.id) + '">' + renderMarkdown(s.synopsis, 'no synopsis') + '</div></div>'
         + '</div>';
@@ -51,30 +48,6 @@ async function load() {
   }
 }
 
-async function enrichSynopsis(storyId) {
-  if (!confirm('Generate an enriched synopsis for this story?\n\nThis will include full task descriptions and message history.')) return;
-  // Find and disable the button
-  const card = document.getElementById('card-' + storyId);
-  const btn = card ? card.querySelector('.btn-enrich') : null;
-  if (btn) { btn.disabled = true; btn.textContent = '⏳ Enriching...'; }
-  try {
-    const res = await fetch('/api/archived/' + encodeURIComponent(storyId) + '/enrich', { method: 'POST' });
-    const data = await res.json();
-    if (!res.ok || !data.success) { alert(data.error || 'Enrich failed'); return; }
-    // Update the synopsis in place
-    const synopsisEl = document.getElementById('synopsis-' + storyId);
-    if (synopsisEl) {
-      synopsisEl.innerHTML = renderMarkdown(data.synopsis, 'no synopsis');
-      // Open the body if not already
-      const body = synopsisEl.closest('.story-body');
-      if (body && !body.classList.contains('open')) body.classList.add('open');
-    }
-    if (btn) { btn.textContent = '✅ Enriched'; }
-  } catch(e) {
-    alert('Network error: ' + e.message);
-    if (btn) { btn.disabled = false; btn.textContent = '✨ Enrich'; }
-  }
-}
 
 load();
 </script>

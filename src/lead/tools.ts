@@ -14,7 +14,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { Store } from "./store.js";
 import type { TeamConfig, Story } from "../shared/types.js";
-import { STORIES_DIR, ARCHIVED_DIR } from "../shared/types.js";
+import { STORIES_DIR } from "../shared/types.js";
 import { addTaskToStory } from "./commands.js";
 
 export function registerLeadTools(
@@ -127,78 +127,6 @@ export function registerLeadTools(
           {
             type: "text",
             text: `Added task "${params.title}" to story "${story.title}" (now ${tasks.length} tasks total)`,
-          },
-        ],
-        details: { storyId: params.storyId, taskCount: tasks.length },
-      };
-    },
-  });
-
-  // LLM-callable tool for enriching archived story synopses
-  pi.registerTool({
-    name: "team_enrich_synopsis",
-    label: "Enrich Archived Story Synopsis",
-    description:
-      "Generate a rich, human-readable SYNOPSIS.md for an archived story using its full context " +
-      "(story description, task details, and message history). Returns the context for you to write the synopsis.",
-    promptSnippet: "Generate a rich summary for an archived story",
-    promptGuidelines: [
-      "Use team_enrich_synopsis when the user wants a polished summary of an archived story.",
-      "After calling this tool, write a well-structured markdown synopsis and use the returned write instructions.",
-    ],
-    parameters: Type.Object({
-      storyId: Type.String({ description: "ID of the archived story to generate a synopsis for" }),
-    }),
-    async execute(_toolCallId, params) {
-      const store = getStore();
-      const context = store.getArchivedStoryContext(params.storyId);
-      if (!context) {
-        throw new Error(`Archived story "${params.storyId}" not found.`);
-      }
-
-      const { story, tasks, messages } = context;
-
-      // Build a context summary for the LLM to work with
-      let contextText = `# Archived Story Context\n\n`;
-      contextText += `**Title**: ${story.title}\n`;
-      contextText += `**ID**: ${story.id}\n`;
-      contextText += `**Archived**: ${story.archivedAt || "unknown"}\n\n`;
-      contextText += `## Description\n${story.description}\n\n`;
-      contextText += `## Tasks (${tasks.length})\n\n`;
-
-      for (let i = 0; i < tasks.length; i++) {
-        const task = tasks[i];
-        contextText += `### ${i + 1}. ${task.title}\n`;
-        contextText += `**Status**: ${task.status}\n`;
-        if (task.result) {
-          contextText += `**Result**: ${task.result}\n`;
-        }
-        contextText += `${task.description}\n\n`;
-
-        const taskMessages = messages[task.id];
-        if (taskMessages && taskMessages.length > 0) {
-          contextText += `**Messages** (${taskMessages.length}):\n`;
-          // Include up to 20 messages to keep context manageable
-          const displayed = taskMessages.slice(-20);
-          for (const msg of displayed) {
-            contextText += `- [${msg.from}]: ${msg.body.slice(0, 200)}${msg.body.length > 200 ? "..." : ""}\n`;
-          }
-          contextText += `\n`;
-        }
-      }
-
-      contextText += `\n---\n\nPlease write a polished SYNOPSIS.md for this story. Include:\n`;
-      contextText += `- A title and metadata header\n`;
-      contextText += `- A narrative summary of what was accomplished\n`;
-      contextText += `- Key decisions or challenges from the message history\n`;
-      contextText += `- A list of completed tasks with brief outcomes\n\n`;
-      contextText += `After writing, save it to: ${path.join(teamDir, "archived", params.storyId, "SYNOPSIS.md")}\n`;
-
-      return {
-        content: [
-          {
-            type: "text",
-            text: contextText,
           },
         ],
         details: { storyId: params.storyId, taskCount: tasks.length },

@@ -248,9 +248,3 @@ export interface ArchivedStoriesResponse {
   }>;
 }
 
-// POST /api/archived/:id/enrich
-export interface EnrichSynopsisResponse {
-  success: boolean;
-  synopsis?: string;
-  error?: string;
-}
