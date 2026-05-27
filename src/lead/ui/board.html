@@ -821,10 +821,9 @@ function renderBoard(stories) {
         const validMoves = getLeadTransitions(t.status, t.id);
         let moveHtml = '';
         if (validMoves.length > 0) {
-          moveHtml = '<div class="card-move" onclick="event.stopPropagation()"><select onchange="moveTaskStatus(\'' + escHtml(t.id) + '\', this.value); this.value=\'\';">' 
-            + '<option value="">Move to...</option>'
-            + validMoves.map(s => '<option value="' + s + '">' + s.replace(/_/g, ' ') + '</option>').join('')
-            + '</select></div>';
+          moveHtml = '<div class="card-move" onclick="event.stopPropagation()">'
+            + validMoves.map(s => '<button class="move-btn" onclick="moveTaskStatus(\'' + escHtml(t.id) + '\', \'' + s + '\')">' + s.replace(/_/g, ' ') + '</button>').join('')
+            + '</div>';
         }
 
         // Action buttons
