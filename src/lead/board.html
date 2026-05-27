@@ -58,8 +58,9 @@
     </div>
     <div class="form-group">
       <label for="story-depends">Depends On</label>
-      <input type="text" id="story-depends" placeholder="Comma-separated story IDs (optional)" />
-      <div class="hint">e.g. setup-db, auth-core</div>
+      <div id="story-depends-options" style="margin-bottom:6px;"></div>
+      <input type="hidden" id="story-depends" />
+      <div class="hint">Click stories to add/remove as dependencies</div>
     </div>
     <div class="form-group">
       <label for="story-dir">Working Directory</label>
@@ -258,6 +259,7 @@ function openAddStoryModal() {
   document.getElementById('story-title').value = '';
   document.getElementById('story-desc').value = '';
   document.getElementById('story-depends').value = '';
+  populateDependsOptions();
   document.getElementById('story-dir').value = '';
   document.getElementById('task-list').innerHTML = '';
   hideError();
@@ -294,6 +296,36 @@ async function loadStoryDirFavorites() {
       + '⭐ ' + escHtml(o.dir) + '</button>'
     ).join('');
   } catch(e) { el.innerHTML = ''; }
+}
+
+let selectedDeps = new Set();
+
+function populateDependsOptions() {
+  selectedDeps = new Set();
+  const el = document.getElementById('story-depends-options');
+  if (!allStories || allStories.length === 0) {
+    el.innerHTML = '<span style="font-size:0.8em;color:var(--text-muted);">No existing stories</span>';
+    return;
+  }
+  el.innerHTML = allStories.map(s =>
+    '<button type="button" class="btn-add-task-inline dep-btn" data-dep="' + escHtml(s.id) + '" style="margin:2px;" onclick="toggleDep(\'' + escHtml(s.id).replace(/'/g, "\\'") + '\', this)">'
+    + escHtml(s.id) + '</button>'
+  ).join('');
+}
+
+function toggleDep(storyId, btn) {
+  if (selectedDeps.has(storyId)) {
+    selectedDeps.delete(storyId);
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  } else {
+    selectedDeps.add(storyId);
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
+  document.getElementById('story-depends').value = [...selectedDeps].join(',');
 }
 
 function closeAddStoryModal() {
