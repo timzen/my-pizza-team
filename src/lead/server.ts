@@ -767,7 +767,7 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       const { story, tasks, messages } = context;
       const date = story.archivedAt ? story.archivedAt.split("T")[0] : "Unknown";
 
-      // Build enriched synopsis: base info + tasks + summary paragraph
+      // Build enriched synopsis
       const lines: string[] = [
         `# ${story.title}`,
         "",
@@ -787,17 +787,39 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       }
       lines.push("");
 
-      // Generate summary paragraph
-      const totalMessages = Object.values(messages).reduce((sum, msgs) => sum + msgs.length, 0);
+      // Generate a narrative summary from task results and key messages
       lines.push("## Summary");
       lines.push("");
-      let summary = `This story completed ${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
-      if (totalMessages > 0) {
-        summary += ` with ${totalMessages} message${totalMessages === 1 ? "" : "s"} exchanged between the team lead and teammates`;
-      }
-      summary += ".";
-      lines.push(summary);
+
+      // Opening: what was accomplished
+      const totalMessages = Object.values(messages).reduce((sum, msgs) => sum + msgs.length, 0);
+      lines.push(`This work involved ${tasks.length} task${tasks.length === 1 ? "" : "s"}${totalMessages > 0 ? ` and ${totalMessages} messages between the lead and teammates` : ""}.`);
       lines.push("");
+
+      // Per-task narrative: what was done and any key decisions
+      for (const task of tasks) {
+        const taskMsgs = messages[task.id] || [];
+        // Extract lead messages as "decisions"
+        const leadMsgs = taskMsgs.filter(m => m.from === "lead").map(m => m.body);
+        // Use the result if available, otherwise fall back to description
+        const outcome = task.result
+          ? task.result.split("\n").slice(0, 3).join(" ").slice(0, 300)
+          : task.description.split("\n").slice(0, 2).join(" ").slice(0, 200);
+
+        lines.push(`**${task.title}** — ${outcome}`);
+
+        if (leadMsgs.length > 0) {
+          // Summarize lead guidance as decisions
+          const decisions = leadMsgs
+            .filter(m => !m.startsWith("[status]"))
+            .slice(0, 3)
+            .map(m => m.split("\n")[0].slice(0, 150));
+          if (decisions.length > 0) {
+            lines.push(`  - Lead guidance: ${decisions.join("; ")}`);
+          }
+        }
+        lines.push("");
+      }
 
       const enrichedContent = lines.join("\n");
       this.store.writeArchivedSynopsis(storyId, enrichedContent);
