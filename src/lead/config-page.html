@@ -56,15 +56,37 @@ async function saveConfig() {
   } catch(e) { toast('Network error: ' + e.message, true); }
 }
 
+let activeTab = localStorage.getItem('config-tab') || 'general';
+
 function render() {
   const el = document.getElementById('content');
-  el.innerHTML = renderGeneral() + renderTeammates() + renderWorkflows() + renderSaveBar();
+  const tabs = [
+    { id: 'general', label: 'General' },
+    { id: 'teammates', label: 'Teammates' },
+    { id: 'workflows', label: 'Workflows' },
+  ];
+  const tabBar = '<div class="tab-bar">' + tabs.map(t =>
+    '<button class="tab-btn' + (t.id === activeTab ? ' tab-active' : '') + '" onclick="switchTab(\'' + t.id + '\')">' + t.label + '</button>'
+  ).join('') + '</div>';
+
+  let content = '';
+  if (activeTab === 'general') content = renderGeneral();
+  else if (activeTab === 'teammates') content = renderTeammates();
+  else if (activeTab === 'workflows') content = renderWorkflows();
+
+  el.innerHTML = tabBar + '<div class="tab-content">' + content + '</div>' + renderSaveBar();
   bindEvents();
 }
 
+function switchTab(tab) {
+  activeTab = tab;
+  localStorage.setItem('config-tab', tab);
+  render();
+}
+
 function renderGeneral() {
-  return '<h2>General</h2>'
-    + '<div class="section">'
+  return '<div class="section">'
+    + '<h3>Server</h3>'
     + '<div class="form-row"><label>Port</label><input type="number" id="cfg-port" value="' + config.port + '" /></div>'
     + '<div class="form-row"><label>Tmux Session</label><input type="text" id="cfg-tmux" value="' + escHtml(config.tmuxSession || '') + '" /></div>'
     + '<div class="form-row"><label>Max Teammates</label><input type="number" id="cfg-max" value="' + (config.maxTeammates || 4) + '" /></div>'
@@ -72,8 +94,8 @@ function renderGeneral() {
     + Object.keys(config.workflows || {}).map(n => '<option value="' + escHtml(n) + '"' + (n === config.defaultWorkflow ? ' selected' : '') + '>' + escHtml(n) + '</option>').join('')
     + '</select></div>'
     + '</div>'
-    + '<h2>Autosave</h2>'
     + '<div class="section">'
+    + '<h3>Autosave</h3>'
     + '<div class="form-row"><label>Flush Interval (min)</label><input type="number" id="cfg-flush" value="' + (config.autosave ? config.autosave.flushIntervalMinutes : 30) + '" /></div>'
     + '<div class="form-row"><label>Commit Interval (hrs)</label><input type="number" id="cfg-commit-hrs" value="' + (config.autosave ? config.autosave.commitIntervalHours : 24) + '" /></div>'
     + '<div class="form-row"><label>Auto Commit</label><select id="cfg-autocommit"><option value="true"' + (config.autosave && config.autosave.autoCommit ? ' selected' : '') + '>Yes</option><option value="false"' + (config.autosave && !config.autosave.autoCommit ? ' selected' : '') + '>No</option></select></div>'
@@ -82,7 +104,7 @@ function renderGeneral() {
 
 function renderWorkflows() {
   const wfs = config.workflows || {};
-  let html = '<h2>Workflows</h2>';
+  let html = '';
   for (const [name, wf] of Object.entries(wfs)) {
     const isDefault = name === config.defaultWorkflow;
     html += renderWorkflowCard(name, wf, isDefault);
@@ -115,8 +137,7 @@ function renderTeammates() {
       ).join('') + '</div>'
     : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">No favorites configured</div>';
 
-  return '<h2>Teammates</h2>'
-    + '<div class="section">'
+  return '<div class="section">'
     + '<h3>Name Nouns</h3>'
     + '<div style="font-size:0.78em;color:#888;margin-bottom:8px;">Custom nouns for auto-generated names (adjective-noun). Leave empty for sci-fi character defaults.</div>'
     + nounsHtml
