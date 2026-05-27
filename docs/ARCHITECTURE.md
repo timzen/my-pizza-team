@@ -45,6 +45,8 @@ src/
 │   ├── board.css         # Board styles
 │   ├── archived-page.html # Archived stories page
 │   ├── archived-page.css # Archived page styles
+│   ├── config-page.html  # Configuration page
+│   ├── config-page.css   # Config page styles
 │   ├── shared.js         # Shared browser JS utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task, team_enrich_synopsis)
@@ -194,8 +196,10 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/` | GET | Landing page HTML |
 | `/board` | GET | Kanban board HTML (polls API) |
 | `/archived` | GET | Archived stories page HTML |
+| `/config` | GET | Configuration page HTML |
 | `/css/board.css` | GET | Board stylesheet |
 | `/css/archived-page.css` | GET | Archived page stylesheet |
+| `/css/config-page.css` | GET | Config page stylesheet |
 | `/js/shared.js` | GET | Shared browser utilities (escHtml, renderMarkdown) |
 | `/api/status` | GET | Summary stats + workflow config |
 | `/api/stories` | GET | All stories + tasks + readiness |
@@ -218,6 +222,8 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/team` | GET | List members |
 | `/api/control/pause` | POST | Pause task distribution |
 | `/api/control/resume` | POST | Resume task distribution |
+| `/api/config` | GET | Read current configuration |
+| `/api/config` | PUT | Update configuration (writes to disk) |
 
 ## Transition Instructions
 

@@ -1,0 +1,50 @@
+/* Config page styles for pi-pizza-team */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; max-width: 900px; margin: 0 auto; }
+h1 { margin-bottom: 8px; font-size: 1.5em; }
+h2 { font-size: 1.1em; margin: 24px 0 12px; color: #e0e0e0; }
+h3 { font-size: 0.95em; margin: 16px 0 8px; color: #ccc; }
+.nav { margin-bottom: 24px; font-size: 0.85em; }
+.nav a { color: #7c83ff; text-decoration: none; }
+.nav a:hover { text-decoration: underline; }
+.subtitle { color: #888; font-size: 0.85em; margin-bottom: 24px; }
+.section { border: 1px solid #0f3460; border-radius: 8px; margin-bottom: 20px; padding: 18px; background: #16213e; }
+.form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }
+.form-row label { font-size: 0.8em; font-weight: 600; color: #aaa; min-width: 140px; text-transform: uppercase; letter-spacing: 0.03em; }
+.form-row input, .form-row select { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; border-radius: 5px; padding: 7px 10px; font-size: 0.85em; font-family: inherit; outline: none; flex: 1; max-width: 300px; }
+.form-row input:focus, .form-row select:focus { border-color: #7c83ff; }
+.form-row input[type="number"] { max-width: 100px; }
+/* Workflow editor */
+.workflow-card { border: 1px solid #0f3460; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
+.workflow-header { background: #0f3460; padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }
+.workflow-header:hover { background: #1a4080; }
+.workflow-name { font-weight: 600; font-size: 0.9em; }
+.workflow-badge { font-size: 0.72em; background: #7c83ff; color: #fff; padding: 2px 8px; border-radius: 10px; }
+.workflow-body { padding: 14px 18px; background: #16213e; }
+.states-list { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 14px; }
+.state-tag { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; padding: 4px 10px; border-radius: 14px; font-size: 0.8em; display: flex; align-items: center; gap: 4px; }
+.state-tag .remove-state { cursor: pointer; color: #888; font-size: 0.85em; }
+.state-tag .remove-state:hover { color: #ff5252; }
+.add-state-row { display: flex; gap: 8px; margin-bottom: 16px; }
+.add-state-row input { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; border-radius: 5px; padding: 6px 10px; font-size: 0.82em; font-family: inherit; outline: none; flex: 1; }
+.add-state-row input:focus { border-color: #7c83ff; }
+.transitions-table { width: 100%; border-collapse: collapse; font-size: 0.8em; }
+.transitions-table th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #0f3460; color: #888; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; }
+.transitions-table td { padding: 5px 8px; border-bottom: 1px solid #0f3460; }
+.transitions-table select { background: #0f3460; border: 1px solid #1a4080; color: #e0e0e0; border-radius: 4px; padding: 3px 6px; font-size: 0.9em; outline: none; }
+.transitions-table select:focus { border-color: #7c83ff; }
+.transitions-table .from-state { font-weight: 600; color: #7c83ff; }
+.btn { background: #7c83ff; color: #fff; border: none; padding: 7px 14px; border-radius: 5px; font-size: 0.82em; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.btn:hover { background: #5a62d9; }
+.btn:disabled { background: #3a3f6e; cursor: not-allowed; }
+.btn-sm { padding: 4px 10px; font-size: 0.78em; }
+.btn-danger { background: #e74c3c; }
+.btn-danger:hover { background: #c0392b; }
+.btn-outline { background: none; border: 1px solid #0f3460; color: #7c83ff; }
+.btn-outline:hover { background: #0f3460; border-color: #7c83ff; }
+.btn-group { display: flex; gap: 8px; margin-top: 12px; }
+.save-bar { position: sticky; bottom: 0; background: #1a1a2e; border-top: 1px solid #0f3460; padding: 14px 0; display: flex; justify-content: flex-end; gap: 12px; align-items: center; }
+.save-status { font-size: 0.82em; color: #4caf50; }
+.toast { position: fixed; bottom: 20px; right: 20px; background: #4caf50; color: #fff; padding: 12px 20px; border-radius: 6px; font-size: 0.85em; font-weight: 600; z-index: 9999; display: none; }
+.toast.error { background: #e74c3c; }
+.toast.show { display: block; }

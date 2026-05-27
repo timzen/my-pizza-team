@@ -120,7 +120,7 @@ async function setupTeamLead(
   store.startTimers();
 
   // Start HTTP server
-  const server = new TeamServer(store, config);
+  const server = new TeamServer(store, config, teamDir);
   await server.start();
 
   // Register commands

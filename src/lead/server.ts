@@ -21,7 +21,7 @@ import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify } from "../shared/types.js";
-import { BOARD_HTML, ARCHIVED_HTML, BOARD_CSS, ARCHIVED_CSS, SHARED_JS } from "./assets.js";
+import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, SHARED_JS } from "./assets.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -82,11 +82,13 @@ export class TeamServer {
   private server: ServerType | null = null;
   private store: Store;
   private config: TeamConfig;
+  private teamDir: string;
   private paused = false;
 
-  constructor(store: Store, config: TeamConfig) {
+  constructor(store: Store, config: TeamConfig, teamDir: string) {
     this.store = store;
     this.config = config;
+    this.teamDir = teamDir;
     this.app = new Hono();
     this.setupRoutes();
   }
@@ -122,6 +124,7 @@ export class TeamServer {
   <li><a href="/api/team">/api/team</a> — Team members</li>
   <li><a href="/board">/board</a> — Kanban board</li>
   <li><a href="/archived">/archived</a> — Archived stories</li>
+  <li><a href="/config">/config</a> — Configuration</li>
 </ul>
 <script>
 fetch('/api/status').then(r=>r.json()).then(d=>{
@@ -144,6 +147,11 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       return c.html(ARCHIVED_HTML);
     });
 
+    // Config page
+    this.app.get("/config", (c) => {
+      return c.html(CONFIG_HTML);
+    });
+
     // CSS assets
     this.app.get("/css/board.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -152,6 +160,10 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
     this.app.get("/css/archived-page.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(ARCHIVED_CSS);
+    });
+    this.app.get("/css/config-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(CONFIG_CSS);
     });
     this.app.get("/js/shared.js", (c) => {
       c.header("Content-Type", "application/javascript");
@@ -701,6 +713,60 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       this.store.writeArchivedSynopsis(storyId, enrichedContent);
 
       return c.json({ success: true, synopsis: enrichedContent });
+    });
+
+    // --- Config endpoints ---
+
+    // GET /api/config — read current config
+    this.app.get("/api/config", (c) => {
+      return c.json(this.config);
+    });
+
+    // PUT /api/config — update config and write to disk
+    this.app.put("/api/config", async (c) => {
+      try {
+        const body = await c.req.json();
+
+        // Validate required fields
+        if (!body.workflows || typeof body.workflows !== "object" || Object.keys(body.workflows).length === 0) {
+          return c.json({ success: false, error: "At least one workflow is required" }, 400);
+        }
+        if (!body.defaultWorkflow || !body.workflows[body.defaultWorkflow]) {
+          return c.json({ success: false, error: "defaultWorkflow must reference an existing workflow" }, 400);
+        }
+
+        // Update in-memory config
+        this.config.port = body.port || this.config.port;
+        this.config.tmuxSession = body.tmuxSession || this.config.tmuxSession;
+        this.config.maxTeammates = body.maxTeammates || this.config.maxTeammates;
+        this.config.defaultWorkflow = body.defaultWorkflow;
+        this.config.workflows = body.workflows;
+        if (body.autosave) {
+          this.config.autosave = {
+            flushIntervalMinutes: body.autosave.flushIntervalMinutes || 30,
+            commitIntervalHours: body.autosave.commitIntervalHours || 24,
+            commitMessage: body.autosave.commitMessage || this.config.autosave.commitMessage,
+            autoCommit: body.autosave.autoCommit !== false,
+          };
+        }
+
+        // Write to disk (exclude runtime-only fields)
+        const configFile = path.join(this.teamDir, "config.json");
+        const toWrite = {
+          port: this.config.port,
+          tmuxSession: this.config.tmuxSession,
+          defaultWorkflow: this.config.defaultWorkflow,
+          workflows: this.config.workflows,
+          autosave: this.config.autosave,
+          leaderUrl: this.config.leaderUrl,
+          maxTeammates: this.config.maxTeammates,
+        };
+        fs.writeFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
+
+        return c.json({ success: true });
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message }, 400);
+      }
     });
 
     // Control endpoints

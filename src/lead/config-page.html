@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html><head><title>⚙️ Config — pi-pizza-team</title>
+<link rel="stylesheet" href="/css/config-page.css">
+<script src="/js/shared.js"></script>
+</head><body>
+<div class="nav"><a href="/board">← Back to Board</a></div>
+<h1>⚙️ Configuration</h1>
+<div class="subtitle">Manage workflows, autosave settings, and team configuration.</div>
+
+<div id="content"><div style="color:#888;padding:40px;text-align:center;">Loading...</div></div>
+<div class="toast" id="toast"></div>
+
+<script>
+let config = {};
+
+function toast(msg, isError) {
+  const el = document.getElementById('toast');
+  el.textContent = msg;
+  el.className = 'toast show' + (isError ? ' error' : '');
+  setTimeout(() => { el.className = 'toast'; }, 3000);
+}
+
+async function loadConfig() {
+  try {
+    const res = await fetch('/api/config');
+    config = await res.json();
+    render();
+  } catch(e) { toast('Failed to load config: ' + e.message, true); }
+}
+
+async function saveConfig() {
+  try {
+    const res = await fetch('/api/config', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) { toast(data.error || 'Save failed', true); return; }
+    toast('✓ Configuration saved');
+  } catch(e) { toast('Network error: ' + e.message, true); }
+}
+
+function render() {
+  const el = document.getElementById('content');
+  el.innerHTML = renderGeneral() + renderWorkflows() + renderSaveBar();
+  bindEvents();
+}
+
+function renderGeneral() {
+  return '<h2>General</h2>'
+    + '<div class="section">'
+    + '<div class="form-row"><label>Port</label><input type="number" id="cfg-port" value="' + config.port + '" /></div>'
+    + '<div class="form-row"><label>Tmux Session</label><input type="text" id="cfg-tmux" value="' + escHtml(config.tmuxSession || '') + '" /></div>'
+    + '<div class="form-row"><label>Max Teammates</label><input type="number" id="cfg-max" value="' + (config.maxTeammates || 4) + '" /></div>'
+    + '<div class="form-row"><label>Default Workflow</label><select id="cfg-default-wf">'
+    + Object.keys(config.workflows || {}).map(n => '<option value="' + escHtml(n) + '"' + (n === config.defaultWorkflow ? ' selected' : '') + '>' + escHtml(n) + '</option>').join('')
+    + '</select></div>'
+    + '</div>'
+    + '<h2>Autosave</h2>'
+    + '<div class="section">'
+    + '<div class="form-row"><label>Flush Interval (min)</label><input type="number" id="cfg-flush" value="' + (config.autosave ? config.autosave.flushIntervalMinutes : 30) + '" /></div>'
+    + '<div class="form-row"><label>Commit Interval (hrs)</label><input type="number" id="cfg-commit-hrs" value="' + (config.autosave ? config.autosave.commitIntervalHours : 24) + '" /></div>'
+    + '<div class="form-row"><label>Auto Commit</label><select id="cfg-autocommit"><option value="true"' + (config.autosave && config.autosave.autoCommit ? ' selected' : '') + '>Yes</option><option value="false"' + (config.autosave && !config.autosave.autoCommit ? ' selected' : '') + '>No</option></select></div>'
+    + '</div>';
+}
+
+function renderWorkflows() {
+  const wfs = config.workflows || {};
+  let html = '<h2>Workflows</h2>';
+  for (const [name, wf] of Object.entries(wfs)) {
+    const isDefault = name === config.defaultWorkflow;
+    html += renderWorkflowCard(name, wf, isDefault);
+  }
+  html += '<div class="btn-group"><button class="btn btn-outline" onclick="addWorkflow()">+ New Workflow</button></div>';
+  return html;
+}
+
+function renderWorkflowCard(name, wf, isDefault) {
+  const badge = isDefault ? ' <span class="workflow-badge">default</span>' : '';
+  const deleteBtn = !isDefault ? ' <button class="btn btn-sm btn-danger" onclick="event.stopPropagation(); deleteWorkflow(\'' + escHtml(name) + '\')">Delete</button>' : '';
+
+  // States
+  const statesHtml = (wf.states || []).map(s =>
+    '<span class="state-tag">' + escHtml(s)
+    + ' <span class="remove-state" onclick="removeState(\'' + escHtml(name) + '\', \'' + escHtml(s) + '\')" title="Remove state">×</span>'
+    + '</span>'
+  ).join('');
+
+  // Transitions table
+  let transHtml = '<table class="transitions-table"><thead><tr><th>From</th><th>To</th><th>Permission</th><th></th></tr></thead><tbody>';
+  const transitions = wf.transitions || {};
+  for (const [from, targets] of Object.entries(transitions)) {
+    for (const [to, perm] of Object.entries(targets)) {
+      transHtml += '<tr>'
+        + '<td class="from-state">' + escHtml(from) + '</td>'
+        + '<td>' + escHtml(to) + '</td>'
+        + '<td><select onchange="updateTransitionPerm(\'' + escHtml(name) + '\', \'' + escHtml(from) + '\', \'' + escHtml(to) + '\', this.value)">'
+        + '<option value="any"' + (perm === 'any' ? ' selected' : '') + '>any</option>'
+        + '<option value="teammate"' + (perm === 'teammate' ? ' selected' : '') + '>teammate</option>'
+        + '<option value="lead"' + (perm === 'lead' ? ' selected' : '') + '>lead</option>'
+        + '</select></td>'
+        + '<td><button class="btn btn-sm btn-danger" onclick="removeTransition(\'' + escHtml(name) + '\', \'' + escHtml(from) + '\', \'' + escHtml(to) + '\')">×</button></td>'
+        + '</tr>';
+    }
+  }
+  transHtml += '</tbody></table>';
+
+  // Add transition row
+  const stateOptions = (wf.states || []).map(s => '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>').join('');
+  const addTransRow = '<div class="form-row" style="margin-top:10px;">'
+    + '<select id="trans-from-' + escHtml(name) + '">' + stateOptions + '</select>'
+    + '<span style="color:#888;">→</span>'
+    + '<select id="trans-to-' + escHtml(name) + '">' + stateOptions + '</select>'
+    + '<select id="trans-perm-' + escHtml(name) + '"><option value="any">any</option><option value="teammate">teammate</option><option value="lead">lead</option></select>'
+    + '<button class="btn btn-sm" onclick="addTransition(\'' + escHtml(name) + '\')">Add</button>'
+    + '</div>';
+
+  return '<div class="workflow-card">'
+    + '<div class="workflow-header" onclick="toggleWorkflow(this)">'
+    + '<span class="workflow-name">' + escHtml(name) + badge + '</span>'
+    + '<span>' + deleteBtn + '</span>'
+    + '</div>'
+    + '<div class="workflow-body">'
+    + '<h3>States</h3>'
+    + '<div class="states-list">' + statesHtml + '</div>'
+    + '<div class="add-state-row"><input type="text" id="new-state-' + escHtml(name) + '" placeholder="New state name..." onkeydown="if(event.key===\'Enter\')addState(\'' + escHtml(name) + '\')" /><button class="btn btn-sm" onclick="addState(\'' + escHtml(name) + '\')">Add</button></div>'
+    + '<h3>Transitions</h3>'
+    + transHtml
+    + addTransRow
+    + '</div></div>';
+}
+
+function renderSaveBar() {
+  return '<div class="save-bar">'
+    + '<span class="save-status" id="save-status"></span>'
+    + '<button class="btn" onclick="gatherAndSave()">💾 Save Configuration</button>'
+    + '</div>';
+}
+
+function toggleWorkflow(el) {
+  const body = el.closest('.workflow-card').querySelector('.workflow-body');
+  body.style.display = body.style.display === 'none' ? '' : 'none';
+}
+
+// --- Workflow management ---
+
+function addWorkflow() {
+  const name = prompt('Workflow name (lowercase, hyphens):');
+  if (!name || !name.match(/^[a-z][a-z0-9-]*$/)) { if (name) toast('Invalid name: use lowercase + hyphens', true); return; }
+  if (config.workflows[name]) { toast('Workflow "' + name + '" already exists', true); return; }
+  config.workflows[name] = { states: ['todo', 'done'], transitions: { todo: { done: 'any' } } };
+  render();
+}
+
+function deleteWorkflow(name) {
+  if (!confirm('Delete workflow "' + name + '"? Stories using it will fall back to default.')) return;
+  delete config.workflows[name];
+  render();
+}
+
+function addState(wfName) {
+  const input = document.getElementById('new-state-' + wfName);
+  const state = input.value.trim().toLowerCase().replace(/[^a-z0-9_]+/g, '_');
+  if (!state) return;
+  if (config.workflows[wfName].states.includes(state)) { toast('State "' + state + '" already exists', true); return; }
+  config.workflows[wfName].states.push(state);
+  render();
+}
+
+function removeState(wfName, state) {
+  const wf = config.workflows[wfName];
+  wf.states = wf.states.filter(s => s !== state);
+  // Also remove transitions referencing this state
+  delete wf.transitions[state];
+  for (const from of Object.keys(wf.transitions)) {
+    delete wf.transitions[from][state];
+    if (Object.keys(wf.transitions[from]).length === 0) delete wf.transitions[from];
+  }
+  render();
+}
+
+function addTransition(wfName) {
+  const from = document.getElementById('trans-from-' + wfName).value;
+  const to = document.getElementById('trans-to-' + wfName).value;
+  const perm = document.getElementById('trans-perm-' + wfName).value;
+  if (!from || !to || from === to) { toast('Select different from/to states', true); return; }
+  const wf = config.workflows[wfName];
+  if (!wf.transitions[from]) wf.transitions[from] = {};
+  wf.transitions[from][to] = perm;
+  render();
+}
+
+function removeTransition(wfName, from, to) {
+  const wf = config.workflows[wfName];
+  if (wf.transitions[from]) {
+    delete wf.transitions[from][to];
+    if (Object.keys(wf.transitions[from]).length === 0) delete wf.transitions[from];
+  }
+  render();
+}
+
+function updateTransitionPerm(wfName, from, to, perm) {
+  config.workflows[wfName].transitions[from][to] = perm;
+}
+
+// --- Gather form values and save ---
+
+function gatherAndSave() {
+  config.port = parseInt(document.getElementById('cfg-port').value) || config.port;
+  config.tmuxSession = document.getElementById('cfg-tmux').value.trim() || config.tmuxSession;
+  config.maxTeammates = parseInt(document.getElementById('cfg-max').value) || 4;
+  config.defaultWorkflow = document.getElementById('cfg-default-wf').value;
+  config.autosave = config.autosave || {};
+  config.autosave.flushIntervalMinutes = parseInt(document.getElementById('cfg-flush').value) || 30;
+  config.autosave.commitIntervalHours = parseInt(document.getElementById('cfg-commit-hrs').value) || 24;
+  config.autosave.autoCommit = document.getElementById('cfg-autocommit').value === 'true';
+  saveConfig();
+}
+
+function bindEvents() {}
+
+loadConfig();
+</script>
+</body></html>
