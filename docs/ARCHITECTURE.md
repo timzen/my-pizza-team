@@ -40,14 +40,15 @@ src/
 ├── lead/
 │   ├── store.ts          # SQLite store: schema, CRUD, sync to/from JSON files, archiving
 │   ├── server.ts         # Hono HTTP server: API routes + web UI (board, archived, landing)
-│   ├── assets.ts         # Static asset loader (HTML, CSS, JS read at module load)
-│   ├── board.html        # Kanban board single-page app
-│   ├── board.css         # Board styles
-│   ├── archived-page.html # Archived stories page
-│   ├── archived-page.css # Archived page styles
-│   ├── config-page.html  # Configuration page
-│   ├── config-page.css   # Config page styles
-│   ├── shared.js         # Shared browser JS utilities (escHtml, renderMarkdown)
+│   ├── assets.ts         # Static asset loader (reads from ui/ at module load)
+│   ├── ui/               # HTML, CSS, JS for the web UI
+│   │   ├── home-page.html / .css
+│   │   ├── board.html / .css
+│   │   ├── archived-page.html / .css
+│   │   ├── config-page.html / .css
+│   │   ├── theme.css         # CSS custom properties for themes
+│   │   ├── nav.css / nav.js  # Shared navigation bar
+│   │   └── shared.js         # Shared browser utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task)
 │   └── tmux.ts           # tmux session/window lifecycle management
@@ -297,8 +298,8 @@ stories/my-story/  ──archiveStory()──►  archived/my-story/
 3. Stories can use it via the `workflow` field in `story.json`
 
 ### Modifying the board UI
-1. Edit `src/lead/board.html` (loaded by `src/lead/board.ts`)
+1. Edit `src/lead/ui/board.html` (loaded by `src/lead/assets.ts`)
 2. It's vanilla HTML/JS that polls the JSON API every 3 seconds
 3. Task data is stored in `taskDataMap` for safe modal access
 4. Workflow transitions are fetched from `GET /api/status` and used to render move dropdowns
-5. The archived stories page is a separate file: `src/lead/archived-page.html`
+5. The archived stories page is a separate file: `src/lead/ui/archived-page.html`

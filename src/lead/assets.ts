@@ -7,9 +7,10 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const dir = path.dirname(new URL(import.meta.url).pathname);
+const uiDir = path.join(dir, "ui");
 
 function loadAsset(filename: string): string {
-  return fs.readFileSync(path.join(dir, filename), "utf-8");
+  return fs.readFileSync(path.join(uiDir, filename), "utf-8");
 }
 
 // HTML pages
