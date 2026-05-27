@@ -22,6 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { BOARD_HTML } from "./board.js";
 import { ARCHIVED_HTML } from "./archived-page.js";
+import { BOARD_CSS, ARCHIVED_CSS } from "./css.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -133,6 +134,16 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
     // Archived stories page
     this.app.get("/archived", (c) => {
       return c.html(ARCHIVED_HTML);
+    });
+
+    // CSS assets
+    this.app.get("/css/board.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(BOARD_CSS);
+    });
+    this.app.get("/css/archived-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(ARCHIVED_CSS);
     });
 
     // GET /api/status

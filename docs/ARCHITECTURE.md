@@ -42,8 +42,11 @@ src/
 │   ├── server.ts         # Hono HTTP server: API routes + web UI (board, archived, landing)
 │   ├── board.ts          # Board HTML loader
 │   ├── board.html        # Kanban board single-page app
+│   ├── board.css         # Board styles
 │   ├── archived-page.ts  # Archived page HTML loader
 │   ├── archived-page.html # Archived stories page
+│   ├── archived-page.css # Archived page styles
+│   ├── css.ts            # CSS file loader (reads .css at module load)
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task, team_enrich_synopsis)
 │   └── tmux.ts           # tmux session/window lifecycle management
@@ -172,6 +175,8 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/` | GET | Landing page HTML |
 | `/board` | GET | Kanban board HTML (polls API) |
 | `/archived` | GET | Archived stories page HTML |
+| `/css/board.css` | GET | Board stylesheet |
+| `/css/archived-page.css` | GET | Archived page stylesheet |
 | `/api/status` | GET | Summary stats + workflow config |
 | `/api/stories` | GET | All stories + tasks + readiness |
 | `/api/stories` | POST | Create a new story (with optional tasks, dir) |
