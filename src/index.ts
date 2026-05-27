@@ -12,7 +12,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { TEAM_DIR, CONFIG_FILE, type TeamConfig, DEFAULT_CONFIG } from "./shared/types.js";
+import { TEAM_DIR, CONFIG_FILE, type TeamConfig, DEFAULT_CONFIG, getDoneState } from "./shared/types.js";
 
 export default function (pi: ExtensionAPI) {
   // --- Role Detection ---
@@ -147,7 +147,12 @@ async function setupTeamLead(
     const members = store.getMembers();
     const inbox = store.getInboxTasks();
     const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
-    const doneTasks = allTasks.filter((t) => t.status === "done").length;
+    let doneTasks = 0;
+    for (const story of stories) {
+      const tasks = store.getTasksForStory(story.id);
+      const wf = store.getWorkflowForStory(story.id);
+      doneTasks += tasks.filter((t) => t.status === getDoneState(wf)).length;
+    }
 
     const memberStatus = members
       .map((m) => {

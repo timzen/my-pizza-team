@@ -17,7 +17,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { Store } from "./store.js";
 import type { TeamServer } from "./server.js";
 import type { TeamConfig, Story, Task } from "../shared/types.js";
-import { STORIES_DIR, slugify, generateTeammateName } from "../shared/types.js";
+import { STORIES_DIR, slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, dismissTeammate, hopToTeammate } from "./tmux.js";
 
 /** Helper: add a task to an existing story on disk + reload store */
@@ -37,11 +37,14 @@ export function addTaskToStory(store: Store, storyId: string, title: string, des
   const taskDir = path.join(tasksDir, `${seq}-${slug}`);
   fs.mkdirSync(taskDir, { recursive: true });
 
+  const wf = store.getWorkflowForStory(storyId);
+  const initialStatus = getInitialState(wf);
+
   const task: Task = {
     id: `${storyId}/${seq}`,
     title,
     description,
-    status: "todo",
+    status: initialStatus,
     result: null,
   };
   fs.writeFileSync(path.join(taskDir, "task.json"), JSON.stringify(task, null, 2) + "\n");
@@ -93,9 +96,16 @@ export function registerLeadCommands(
       const members = store.getMembers();
 
       // Summary line
-      const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
-      const doneTasks = allTasks.filter((t) => t.status === "done").length;
-      let output = `🍕 pi-pizza-team board — ${stories.length} stories, ${doneTasks}/${allTasks.length} tasks done\n`;
+      let totalTasks = 0;
+      let totalDone = 0;
+      for (const story of stories) {
+        const tasks = store.getTasksForStory(story.id);
+        const wf = store.getWorkflowForStory(story.id);
+        const ds = getDoneState(wf);
+        totalTasks += tasks.length;
+        totalDone += tasks.filter((t) => t.status === ds).length;
+      }
+      let output = `🍕 pi-pizza-team board — ${stories.length} stories, ${totalDone}/${totalTasks} tasks done\n`;
       output += `🌐 ${config.leaderUrl}/board\n`;
       output += "═".repeat(50) + "\n\n";
 
@@ -103,7 +113,9 @@ export function registerLeadCommands(
       output += "Stories:\n";
       for (const story of stories) {
         const tasks = store.getTasksForStory(story.id);
-        const done = tasks.filter((t) => t.status === "done").length;
+        const wf = store.getWorkflowForStory(story.id);
+        const doneState = getDoneState(wf);
+        const done = tasks.filter((t) => t.status === doneState).length;
         const ready = store.isStoryReady(story.id);
         const icon = story.status === "done" ? "✓" : ready ? "●" : "○";
         const blocked = !ready && story.status !== "done" ? ` (blocked by: ${story.dependsOn.join(", ")})` : "";
@@ -113,7 +125,7 @@ export function registerLeadCommands(
           const assignment = store.getAssignment(task.id);
           const assignee = assignment ? ` → ${assignment.memberId}` : "";
           const statusIcon =
-            task.status === "done" ? "✓" :
+            task.status === doneState ? "✓" :
             task.status === "in_progress" ? "▶" :
             task.status === "needs_input" ? "❓" :
             task.status === "review" ? "👀" : "·";
@@ -150,7 +162,8 @@ export function registerLeadCommands(
       for (const story of stories) {
         if (story.status !== "open" || !story.dir) continue;
         const tasks = store.getTasksForStory(story.id);
-        const hasAvailable = tasks.some((t) => t.status === "todo");
+        const wf = store.getWorkflowForStory(story.id);
+        const hasAvailable = tasks.some((t) => t.status === getInitialState(wf));
         if (!hasAvailable) continue;
         if (story.dir.startsWith(prefix || "")) {
           items.push({ value: story.dir, label: story.dir, description: story.title });
@@ -181,7 +194,8 @@ export function registerLeadCommands(
         for (const story of stories) {
           if (story.status !== "open" || !story.dir) continue;
           const tasks = store.getTasksForStory(story.id);
-          if (tasks.some((t) => t.status === "todo") && !options.includes(story.dir)) {
+          const wf = store.getWorkflowForStory(story.id);
+          if (tasks.some((t) => t.status === getInitialState(wf)) && !options.includes(story.dir)) {
             options.push(story.dir);
           }
         }
@@ -366,8 +380,10 @@ export function registerLeadCommands(
         const items: { value: string; label: string; description?: string }[] = [];
         for (const story of stories) {
           const tasks = store.getTasksForStory(story.id);
+          const wf = store.getWorkflowForStory(story.id);
+          const ds = getDoneState(wf);
           for (const task of tasks) {
-            if (task.status === "done") continue;
+            if (task.status === ds) continue;
             if (task.id.startsWith(parts[0] || "")) {
               items.push({ value: task.id, label: task.id, description: `[${task.status}] ${task.title}` });
             }
@@ -672,6 +688,15 @@ export function registerLeadCommands(
       const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
       const inbox = store.getInboxTasks();
 
+      // Count done tasks using per-story workflow resolution
+      let doneCount = 0;
+      for (const story of stories) {
+        const tasks = store.getTasksForStory(story.id);
+        const wf = store.getWorkflowForStory(story.id);
+        const ds = getDoneState(wf);
+        doneCount += tasks.filter((t) => t.status === ds).length;
+      }
+
       const byStatus: Record<string, number> = {};
       for (const t of allTasks) byStatus[t.status] = (byStatus[t.status] || 0) + 1;
 
@@ -679,13 +704,12 @@ export function registerLeadCommands(
       output += `🌐 ${config.leaderUrl}/board\n\n`;
 
       // Progress bar
-      const done = byStatus["done"] || 0;
       const total = allTasks.length;
       if (total > 0) {
-        const pct = Math.round((done / total) * 100);
+        const pct = Math.round((doneCount / total) * 100);
         const filled = Math.round(pct / 5);
         const bar = "█".repeat(filled) + "░".repeat(20 - filled);
-        output += `  Progress: [${bar}] ${pct}% (${done}/${total} tasks)\n\n`;
+        output += `  Progress: [${bar}] ${pct}% (${doneCount}/${total} tasks)\n\n`;
       }
 
       // Task breakdown

@@ -23,6 +23,10 @@ export interface TeammateConfig {
 export interface WorkflowConfig {
   states: string[];
   transitions: Record<string, Record<string, TransitionPermission>>;
+  /** The state tasks start in (defaults to first state in states array) */
+  initialState?: string;
+  /** The terminal state meaning work is complete (defaults to last state in states array) */
+  doneState?: string;
 }
 
 export type TransitionPermission = "any" | "teammate" | "lead";
@@ -133,6 +137,16 @@ export function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
+}
+
+/** Get the initial state for a workflow (first state unless overridden) */
+export function getInitialState(wf: WorkflowConfig): string {
+  return wf.initialState || wf.states[0];
+}
+
+/** Get the done/terminal state for a workflow (last state unless overridden) */
+export function getDoneState(wf: WorkflowConfig): string {
+  return wf.doneState || wf.states[wf.states.length - 1];
 }
 
 /** Default adjectives for teammate name generation */

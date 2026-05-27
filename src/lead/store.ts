@@ -19,7 +19,7 @@ import Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { slugify } from "../shared/types.js";
+import { slugify, getInitialState, getDoneState } from "../shared/types.js";
 import type { Message, Story, Task, TaskWithMeta, TeamConfig, WorkflowConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
 
 export class Store {
@@ -250,6 +250,11 @@ export class Store {
 
     const createdTasks: TaskWithMeta[] = [];
 
+    // Resolve initial task status from the story's workflow
+    const wfName = workflow || this.config.defaultWorkflow;
+    const wf = this.config.workflows[wfName] || this.config.workflows[this.config.defaultWorkflow];
+    const initialStatus = getInitialState(wf);
+
     if (tasks && tasks.length > 0) {
       const tasksDir = path.join(storyDirPath, "tasks");
       fs.mkdirSync(tasksDir, { recursive: true });
@@ -267,7 +272,7 @@ export class Store {
           id: taskId,
           title: tasks[i].title,
           description: tasks[i].description,
-          status: "todo",
+          status: initialStatus,
           result: null,
         };
         const taskFile = path.join(taskDirPath, "task.json");
@@ -347,12 +352,16 @@ export class Store {
       this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
     }
 
-    // Check if story is complete
+    // Check if story is complete (all tasks in their workflow's done state)
     const task = this.getTask(taskId);
-    if (task && status === "done") {
-      const tasks = this.getTasksForStory(task.storyId);
-      if (tasks.every((t) => t.status === "done")) {
-        this.updateStoryStatus(task.storyId, "done");
+    if (task) {
+      const wf = this.getWorkflowForStory(task.storyId);
+      const doneState = getDoneState(wf);
+      if (status === doneState) {
+        const tasks = this.getTasksForStory(task.storyId);
+        if (tasks.every((t) => t.status === doneState)) {
+          this.updateStoryStatus(task.storyId, "done");
+        }
       }
     }
   }
@@ -387,8 +396,8 @@ export class Store {
    * Find the next available task for a teammate.
    * Rules:
    * - Story must be ready (all dependencies met)
-   * - Task must be in "todo" state
-   * - Must be the first "todo" task in the story (sequential)
+   * - Task must be in its workflow's initial state
+   * - Must be the first such task in the story (sequential)
    * - Must not already be assigned
    */
   getNextAvailableTask(memberCwd?: string): TaskWithMeta | null {
@@ -404,18 +413,22 @@ export class Store {
         if (normalizedStoryDir !== normalizedMemberCwd) continue;
       }
 
+      const wf = this.getWorkflowForStory(story.id);
+      const initialState = getInitialState(wf);
+      const doneState = getDoneState(wf);
+
       const tasks = this.getTasksForStory(story.id);
       for (const task of tasks) {
-        if (task.status === "todo") {
+        if (task.status === initialState) {
           // Check not already assigned
           const assignment: any = this.db
             .prepare("SELECT * FROM assignments WHERE task_id = ?")
             .get(task.id);
           if (!assignment) return task;
-          break; // Only first todo task per story
+          break; // Only first initial-state task per story
         }
         // If a task is not done, can't proceed to next in sequence
-        if (task.status !== "done") break;
+        if (task.status !== doneState) break;
       }
     }
     return null;
@@ -815,7 +828,9 @@ export class Store {
   isStoryArchivable(storyId: string): boolean {
     const tasks = this.getTasksForStory(storyId);
     if (tasks.length === 0) return false;
-    return tasks.every((t) => t.status === "done");
+    const wf = this.getWorkflowForStory(storyId);
+    const doneState = getDoneState(wf);
+    return tasks.every((t) => t.status === doneState);
   }
 
   archiveStory(storyId: string): void {

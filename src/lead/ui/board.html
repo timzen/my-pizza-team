@@ -238,8 +238,8 @@ function filterAndSortStories(stories) {
   else if (currentSort === 'name-desc') filtered = [...filtered].sort((a, b) => b.title.localeCompare(a.title));
   else if (currentSort === 'progress') {
     filtered = [...filtered].sort((a, b) => {
-      const pa = a.tasks.length ? a.tasks.filter(t => t.status === 'done').length / a.tasks.length : 0;
-      const pb = b.tasks.length ? b.tasks.filter(t => t.status === 'done').length / b.tasks.length : 0;
+      const pa = a.tasks.length ? a.tasks.filter(t => t.status === getStoryDoneState(a)).length / a.tasks.length : 0;
+      const pb = b.tasks.length ? b.tasks.filter(t => t.status === getStoryDoneState(b)).length / b.tasks.length : 0;
       return pb - pa;
     });
   } else if (currentSort === 'most-tasks') filtered = [...filtered].sort((a, b) => b.tasks.length - a.tasks.length);
@@ -543,7 +543,7 @@ function openStoryDetailModal(storyId) {
   const line2 = [];
   line2.push('<strong>Status:</strong> ' + story.status);
   line2.push('<strong>Ready:</strong> ' + (story.ready ? 'Yes' : 'No (blocked)'));
-  const doneCount = story.tasks.filter(t => t.status === 'done').length;
+  const doneCount = story.tasks.filter(t => t.status === getStoryDoneState(story)).length;
   line2.push('<strong>Progress:</strong> ' + doneCount + '/' + story.tasks.length + ' tasks done');
   document.getElementById('story-detail-meta').innerHTML = line1.join(' &nbsp;•&nbsp; ') + '<br>' + line2.join(' &nbsp;•&nbsp; ');
 
@@ -709,6 +709,18 @@ function getLeadTransitions(currentStatus, taskId) {
     .map(([state]) => state);
 }
 
+function getStoryDoneState(story) {
+  const wfName = (story && story.workflow) || defaultWorkflow;
+  const wf = workflows[wfName] || workflows[defaultWorkflow] || {};
+  return wf.states ? wf.states[wf.states.length - 1] : 'done';
+}
+
+function getStoryInitialState(story) {
+  const wfName = (story && story.workflow) || defaultWorkflow;
+  const wf = workflows[wfName] || workflows[defaultWorkflow] || {};
+  return wf.states ? wf.states[0] : 'todo';
+}
+
 // --- Keyboard / modal handling ---
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
@@ -778,7 +790,7 @@ function renderBoard(stories) {
   el.innerHTML = filtered.map(story => {
     storyDataMap[story.id] = story;
     const blocked = !story.ready && story.status !== 'done';
-    const doneCount = story.tasks.filter(t => t.status === 'done').length;
+    const doneCount = story.tasks.filter(t => t.status === getStoryDoneState(story)).length;
     const storyCost = story.tasks.reduce((sum, t) => sum + (t.tokenUsage ? t.tokenUsage.totalCostUsd : 0), 0);
     const storyCostLabel = storyCost > 0 ? '<span class="story-cost">$' + storyCost.toFixed(2) + '</span>' : '';
     const blockedClass = blocked ? ' swimlane-blocked' : '';
@@ -834,7 +846,7 @@ function renderBoard(stories) {
     }).join('');
 
     const addBtn = '<button class="btn-add-task-inline" onclick="event.stopPropagation(); openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
-    const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === 'done');
+    const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === getStoryDoneState(story));
     const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
     const hasInProgress = story.tasks.some(t => t.status === 'in_progress');
     const deleteBtn = !hasInProgress ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); deleteStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Delete story" style="color:#e74c3c;">🗑️ Delete</button>' : '';

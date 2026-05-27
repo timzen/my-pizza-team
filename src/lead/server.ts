@@ -20,7 +20,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
-import { slugify, generateTeammateName } from "../shared/types.js";
+import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate } from "./tmux.js";
 import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import type {
@@ -364,8 +364,11 @@ export class TeamServer {
 
       this.store.updateTaskStatus(taskId, body.status, body.result);
 
-      // If task is done, release assignment and set member to idle
-      if (body.status === "done" && body.memberId) {
+      // If task reached done state, release assignment and set member to idle
+      const taskForWf = this.store.getTask(taskId);
+      const wf = taskForWf ? this.store.getWorkflowForTask(taskId) : null;
+      const doneState = wf ? getDoneState(wf) : "done";
+      if (body.status === doneState && body.memberId) {
         this.store.releaseTask(taskId);
         this.store.updateMemberStatus(body.memberId, "idle");
       }
@@ -457,11 +460,13 @@ export class TeamServer {
       fs.mkdirSync(taskDirPath, { recursive: true });
 
       const taskId = `${storyId}-${nextSeq}`;
+      const wf = this.store.getWorkflowForStory(storyId);
+      const initialStatus = getInitialState(wf);
       const taskData = {
         id: taskId,
         title: body.title,
         description: body.description,
-        status: "todo",
+        status: initialStatus,
         result: null,
       };
       fs.writeFileSync(path.join(taskDirPath, "task.json"), JSON.stringify(taskData, null, 2) + "\n");
@@ -471,7 +476,7 @@ export class TeamServer {
 
       const response: CreateTaskResponse = {
         success: true,
-        task: { id: taskId, seq: nextSeq, title: body.title, description: body.description, status: "todo" },
+        task: { id: taskId, seq: nextSeq, title: body.title, description: body.description, status: initialStatus },
       };
       return c.json(response, 201);
     });
@@ -617,7 +622,9 @@ export class TeamServer {
       for (const story of stories) {
         if (story.status !== "open" || !story.dir) continue;
         const tasks = this.store.getTasksForStory(story.id);
-        if (tasks.some((t) => t.status === "todo")) {
+        const wf = this.store.getWorkflowForStory(story.id);
+        const initialState = getInitialState(wf);
+        if (tasks.some((t) => t.status === initialState)) {
           if (!options.some((o) => o.dir === story.dir)) {
             options.push({ dir: story.dir, source: "story", label: story.title });
           }
