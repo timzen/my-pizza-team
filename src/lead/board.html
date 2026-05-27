@@ -1,6 +1,7 @@
 <!DOCTYPE html>
 <html><head><title>🍕 pi-pizza-team board</title>
 <link rel="stylesheet" href="/css/board.css">
+<script src="/js/shared.js"></script>
 </head><body>
 <div class="toolbar">
   <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
@@ -372,59 +373,13 @@ async function submitTaskModal() {
   btn.disabled = false;
 }
 
-// --- Simple Markdown Renderer ---
-function renderMarkdown(text) {
-  if (!text) return '<em style="color:#666;">(no description)</em>';
-  let html = escHtml(text);
-  // Code blocks (``` ... ```)
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-  // Inline code
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  // Headers
-  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  // Bold and italic
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  // Blockquotes
-  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  // Unordered lists
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  // Horizontal rules
-  html = html.replace(/^---$/gm, '<hr>');
-  // Links
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-  // Paragraphs (double newline)
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = '<p>' + html + '</p>';
-  // Clean up empty paragraphs and fix nested block elements
-  html = html.replace(/<p>(<h[1-4]>)/g, '$1');
-  html = html.replace(/(<\/h[1-4]>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<pre>)/g, '$1');
-  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<ul>)/g, '$1');
-  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<blockquote>)/g, '$1');
-  html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<hr>)<\/p>/g, '$1');
-  html = html.replace(/<p><\/p>/g, '');
-  // Single newlines → <br> inside paragraphs
-  html = html.replace(/<p>([\s\S]*?)<\/p>/g, function(m, inner) {
-    return '<p>' + inner.replace(/\n/g, '<br>') + '</p>';
-  });
-  return html;
-}
-
 // --- Task Detail Modal ---
 function openTaskDetailModal(taskId) {
   const task = taskDataMap[taskId];
   if (!task) return;
   document.getElementById('task-detail-title').textContent = task.title;
   document.getElementById('task-detail-meta').textContent = '#' + task.seq + ' — ' + task.status.replace(/_/g, ' ') + (task.assignee ? ' (assigned to ' + task.assignee + ')' : '');
-  document.getElementById('task-detail-desc').innerHTML = renderMarkdown(task.description);
+  document.getElementById('task-detail-desc').innerHTML = renderMarkdown(task.description, 'no description');
   document.getElementById('task-detail-modal').style.display = 'flex';
 }
 
@@ -624,10 +579,6 @@ function renderTeam(members) {
     const task = m.currentTask ? ' → ' + m.currentTask : '';
     return '<span class="member ' + cls + '">' + icon + ' ' + m.name + task + '</span>';
   }).join('');
-}
-
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
 function renderBoard(stories) {

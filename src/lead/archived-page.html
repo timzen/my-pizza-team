@@ -1,50 +1,13 @@
 <!DOCTYPE html>
 <html><head><title>📦 Archived Stories — pi-pizza-team</title>
 <link rel="stylesheet" href="/css/archived-page.css">
+<script src="/js/shared.js"></script>
 </head><body>
 <div class="nav"><a href="/board">← Back to Board</a></div>
 <h1>📦 Archived Stories</h1>
 <div class="subtitle" id="subtitle"></div>
 <div id="content"><div class="loading">Loading...</div></div>
 <script>
-function escHtml(s) {
-  return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-function renderMarkdown(text) {
-  if (!text) return '<em style="color:#666;">(no synopsis)</em>';
-  let html = escHtml(text);
-  html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');
-  html = html.replace(/`([^`]+)`/g, '<code>$1</code>');
-  html = html.replace(/^#### (.+)$/gm, '<h4>$1</h4>');
-  html = html.replace(/^### (.+)$/gm, '<h3>$1</h3>');
-  html = html.replace(/^## (.+)$/gm, '<h2>$1</h2>');
-  html = html.replace(/^# (.+)$/gm, '<h1>$1</h1>');
-  html = html.replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>');
-  html = html.replace(/\*(.+?)\*/g, '<em>$1</em>');
-  html = html.replace(/^&gt; (.+)$/gm, '<blockquote>$1</blockquote>');
-  html = html.replace(/^- (.+)$/gm, '<li>$1</li>');
-  html = html.replace(/(<li>.*<\/li>\n?)+/g, '<ul>$&</ul>');
-  html = html.replace(/^---$/gm, '<hr>');
-  html = html.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank">$1</a>');
-  html = html.replace(/\n\n/g, '</p><p>');
-  html = '<p>' + html + '</p>';
-  html = html.replace(/<p>(<h[1-4]>)/g, '$1');
-  html = html.replace(/(<\/h[1-4]>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<pre>)/g, '$1');
-  html = html.replace(/(<\/pre>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<ul>)/g, '$1');
-  html = html.replace(/(<\/ul>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<blockquote>)/g, '$1');
-  html = html.replace(/(<\/blockquote>)<\/p>/g, '$1');
-  html = html.replace(/<p>(<hr>)<\/p>/g, '$1');
-  html = html.replace(/<p><\/p>/g, '');
-  html = html.replace(/<p>([\s\S]*?)<\/p>/g, function(m, inner) {
-    return '<p>' + inner.replace(/\n/g, '<br>') + '</p>';
-  });
-  return html;
-}
-
 function toggleStory(el) {
   const body = el.closest('.story-card').querySelector('.story-body');
   body.classList.toggle('open');
@@ -78,7 +41,7 @@ async function load() {
         + '<span class="story-date">' + escHtml(date) + '</span>'
         + '</div>'
         + '</div>'
-        + '<div class="story-body"><div class="synopsis md-content" id="synopsis-' + escHtml(s.id) + '">' + renderMarkdown(s.synopsis) + '</div></div>'
+        + '<div class="story-body"><div class="synopsis md-content" id="synopsis-' + escHtml(s.id) + '">' + renderMarkdown(s.synopsis, 'no synopsis') + '</div></div>'
         + '</div>';
     }).join('');
   } catch(e) {
@@ -99,7 +62,7 @@ async function enrichSynopsis(storyId) {
     // Update the synopsis in place
     const synopsisEl = document.getElementById('synopsis-' + storyId);
     if (synopsisEl) {
-      synopsisEl.innerHTML = renderMarkdown(data.synopsis);
+      synopsisEl.innerHTML = renderMarkdown(data.synopsis, 'no synopsis');
       // Open the body if not already
       const body = synopsisEl.closest('.story-body');
       if (body && !body.classList.contains('open')) body.classList.add('open');

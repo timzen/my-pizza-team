@@ -46,7 +46,8 @@ src/
 │   ├── archived-page.ts  # Archived page HTML loader
 │   ├── archived-page.html # Archived stories page
 │   ├── archived-page.css # Archived page styles
-│   ├── css.ts            # CSS file loader (reads .css at module load)
+│   ├── css.ts            # Static asset loader (reads .css and .js at module load)
+│   ├── shared.js         # Shared browser JS utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task, team_enrich_synopsis)
 │   └── tmux.ts           # tmux session/window lifecycle management
@@ -177,6 +178,7 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/archived` | GET | Archived stories page HTML |
 | `/css/board.css` | GET | Board stylesheet |
 | `/css/archived-page.css` | GET | Archived page stylesheet |
+| `/js/shared.js` | GET | Shared browser utilities (escHtml, renderMarkdown) |
 | `/api/status` | GET | Summary stats + workflow config |
 | `/api/stories` | GET | All stories + tasks + readiness |
 | `/api/stories` | POST | Create a new story (with optional tasks, dir) |
