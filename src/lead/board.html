@@ -115,6 +115,19 @@
   </div>
 </div>
 
+<!-- Story Detail Modal -->
+<div class="modal-overlay" id="story-detail-modal">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:640px;">
+    <button class="modal-close" onclick="closeStoryDetailModal()" aria-label="Close">&times;</button>
+    <h2 id="story-detail-title"></h2>
+    <div id="story-detail-meta" style="font-size:0.78em;color:#888;margin-bottom:14px;"></div>
+    <div id="story-detail-desc" class="md-content" style="font-size:0.85em;line-height:1.6;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeStoryDetailModal()">Close</button>
+    </div>
+  </div>
+</div>
+
 <!-- Message Panel (slide-out) -->
 <div class="msg-panel-overlay" id="msg-panel-overlay" onclick="closeMsgPanel()"></div>
 <div class="msg-panel" id="msg-panel">
@@ -409,6 +422,34 @@ function closeTaskDetailModal() {
   document.getElementById('task-detail-modal').style.display = 'none';
 }
 
+// --- Story Detail Modal ---
+let storyDataMap = {}; // id -> story object
+
+function openStoryDetailModal(storyId) {
+  const story = storyDataMap[storyId];
+  if (!story) return;
+  document.getElementById('story-detail-title').textContent = story.title;
+
+  // Build meta info
+  const parts = [];
+  parts.push('<strong>ID:</strong> ' + escHtml(story.id));
+  parts.push('<strong>Status:</strong> ' + story.status);
+  if (story.workflow) parts.push('<strong>Workflow:</strong> ' + escHtml(story.workflow));
+  if (story.dir) parts.push('<strong>Directory:</strong> ' + escHtml(story.dir));
+  if (story.dependsOn && story.dependsOn.length > 0) parts.push('<strong>Depends on:</strong> ' + story.dependsOn.map(d => escHtml(d)).join(', '));
+  parts.push('<strong>Ready:</strong> ' + (story.ready ? 'Yes' : 'No (blocked)'));
+  const doneCount = story.tasks.filter(t => t.status === 'done').length;
+  parts.push('<strong>Progress:</strong> ' + doneCount + '/' + story.tasks.length + ' tasks done');
+  document.getElementById('story-detail-meta').innerHTML = parts.join(' &nbsp;•&nbsp; ');
+
+  document.getElementById('story-detail-desc').innerHTML = renderMarkdown(story.description, 'no description');
+  document.getElementById('story-detail-modal').style.display = 'flex';
+}
+
+function closeStoryDetailModal() {
+  document.getElementById('story-detail-modal').style.display = 'none';
+}
+
 // --- Message Panel ---
 let msgPanelTaskId = null;
 let msgPanelRefreshInterval = null;
@@ -567,6 +608,7 @@ function getLeadTransitions(currentStatus, taskId) {
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
     if (document.getElementById('msg-panel').classList.contains('open')) { closeMsgPanel(); return; }
+    if (document.getElementById('story-detail-modal').style.display === 'flex') { closeStoryDetailModal(); return; }
     if (document.getElementById('task-detail-modal').style.display === 'flex') { closeTaskDetailModal(); return; }
     if (document.getElementById('task-modal').style.display === 'flex') { closeTaskModal(); return; }
     if (document.getElementById('add-story-modal').style.display === 'flex') { closeAddStoryModal(); return; }
@@ -576,6 +618,7 @@ document.addEventListener('keydown', function(e) {
 document.getElementById('add-story-modal').addEventListener('click', function(e) { if (e.target === this) closeAddStoryModal(); });
 document.getElementById('task-modal').addEventListener('click', function(e) { if (e.target === this) closeTaskModal(); });
 document.getElementById('task-detail-modal').addEventListener('click', function(e) { if (e.target === this) closeTaskDetailModal(); });
+document.getElementById('story-detail-modal').addEventListener('click', function(e) { if (e.target === this) closeStoryDetailModal(); });
 
 // --- Data fetching ---
 async function refresh() {
@@ -613,6 +656,7 @@ function renderBoard(stories) {
   updateStoryCount(filtered.length, stories.length);
   taskDataMap = {};
   taskStoryMap = {};
+  storyDataMap = {};
 
   if (filtered.length === 0) {
     el.innerHTML = '<div style="text-align:center;padding:40px 20px;color:#666;font-size:0.9em;">'
@@ -624,6 +668,7 @@ function renderBoard(stories) {
   }
 
   el.innerHTML = filtered.map(story => {
+    storyDataMap[story.id] = story;
     const blocked = !story.ready && story.status !== 'done';
     const doneCount = story.tasks.filter(t => t.status === 'done').length;
     const storyCost = story.tasks.reduce((sum, t) => sum + (t.tokenUsage ? t.tokenUsage.totalCostUsd : 0), 0);
@@ -680,14 +725,14 @@ function renderBoard(stories) {
       return '<div class="column"><h2>' + label + '</h2>' + content + '</div>';
     }).join('');
 
-    const addBtn = '<button class="btn-add-task-inline" onclick="openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
+    const addBtn = '<button class="btn-add-task-inline" onclick="event.stopPropagation(); openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
     const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === 'done');
     const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
     const hasInProgress = story.tasks.some(t => t.status === 'in_progress');
     const deleteBtn = !hasInProgress ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); deleteStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Delete story" style="color:#e74c3c;">🗑️ Delete</button>' : '';
 
     return '<div class="swimlane' + blockedClass + '">'
-      + '<div class="swimlane-header">'
+      + '<div class="swimlane-header" onclick="openStoryDetailModal(\'' + escHtml(story.id) + '\')" style="cursor:pointer;">'
       + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + (story.workflow ? ' <span style="font-size:0.72em;color:#7c83ff;font-weight:400;">⚙️ ' + escHtml(story.workflow) + '</span>' : '') + '</span>'
       + '<span class="swimlane-meta">' + addBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
       + '</div>'
