@@ -117,6 +117,9 @@ export const DEFAULT_CONFIG: TeamConfig = {
   },
   leaderUrl: "http://localhost:7437",
   maxTeammates: 4,
+  teammates: {
+    favoriteDirectories: [],
+  },
 };
 
 export interface TransitionInstructions {

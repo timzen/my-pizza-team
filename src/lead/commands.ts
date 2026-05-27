@@ -71,9 +71,20 @@ export function registerLeadCommands(
 
       const { DEFAULT_CONFIG } = await import("../shared/types.js");
       fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+
+      // Write a clean config (omit empty/default-derivable fields)
+      const configToWrite = {
+        port: DEFAULT_CONFIG.port,
+        tmuxSession: DEFAULT_CONFIG.tmuxSession,
+        defaultWorkflow: DEFAULT_CONFIG.defaultWorkflow,
+        workflows: DEFAULT_CONFIG.workflows,
+        autosave: DEFAULT_CONFIG.autosave,
+        leaderUrl: DEFAULT_CONFIG.leaderUrl,
+        maxTeammates: DEFAULT_CONFIG.maxTeammates,
+      };
       fs.writeFileSync(
         path.join(teamDir, "config.json"),
-        JSON.stringify(DEFAULT_CONFIG, null, 2) + "\n"
+        JSON.stringify(configToWrite, null, 2) + "\n"
       );
 
       // Add .gitignore for state.db
