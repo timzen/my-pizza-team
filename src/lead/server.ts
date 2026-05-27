@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName } from "../shared/types.js";
 import { spawnTeammate } from "./tmux.js";
-import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
+import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, THEME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -108,13 +108,14 @@ export class TeamServer {
     this.app.get("/", (c) => {
       return c.html(`<!DOCTYPE html>
 <html><head><title>🍕 pi-pizza-team</title>
+<link rel="stylesheet" href="/css/theme.css">
 <link rel="stylesheet" href="/css/nav.css">
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #e0e0e0; }
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: var(--bg-primary); color: var(--text-primary); }
   h1 { font-size: 2em; margin-top: 20px; }
-  a { color: #7c83ff; }
-  .status { background: #16213e; padding: 16px; border-radius: 8px; margin: 20px 0; }
-  code { background: #0f3460; padding: 2px 6px; border-radius: 4px; }
+  a { color: var(--accent); }
+  .status { background: var(--bg-secondary); padding: 16px; border-radius: 8px; margin: 20px 0; }
+  code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; }
 </style>
 <script src="/js/nav.js" defer></script>
 </head><body>
@@ -154,6 +155,10 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
     });
 
     // CSS assets
+    this.app.get("/css/theme.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(THEME_CSS);
+    });
     this.app.get("/css/board.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(BOARD_CSS);
