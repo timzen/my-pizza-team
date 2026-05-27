@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName } from "../shared/types.js";
 import { spawnTeammate } from "./tmux.js";
-import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, THEME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -106,74 +106,7 @@ export class TeamServer {
   private setupRoutes(): void {
     // Landing page
     this.app.get("/", (c) => {
-      return c.html(`<!DOCTYPE html>
-<html><head><title>🍕 pi-pizza-team</title>
-<link rel="stylesheet" href="/css/theme.css">
-<link rel="stylesheet" href="/css/nav.css">
-<style>
-  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: var(--bg-primary); color: var(--text-primary); }
-  h1 { font-size: 2em; margin-top: 20px; }
-  a { color: var(--accent); }
-  .status { background: var(--bg-secondary); padding: 16px; border-radius: 8px; margin: 20px 0; }
-  code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; }
-</style>
-<script src="/js/nav.js" defer></script>
-</head><body>
-<h1>🍕 pi-pizza-team</h1>
-<p>The team lead API is running.</p>
-<div class="status" id="status">Loading...</div>
-<h3>API Endpoints</h3>
-<h4>Status &amp; Stories</h4>
-<ul>
-  <li><a href="/api/status">GET /api/status</a> — Server status, workflow config</li>
-  <li><a href="/api/stories">GET /api/stories</a> — All stories + tasks</li>
-  <li>POST /api/stories — Create a new story</li>
-  <li>DELETE /api/stories/:id — Delete a story</li>
-  <li>POST /api/stories/:id/archive — Archive a completed story</li>
-  <li>POST /api/stories/:storyId/tasks — Create a task within a story</li>
-</ul>
-<h4>Tasks</h4>
-<ul>
-  <li>GET /api/next-task?memberId=X — Next claimable task</li>
-  <li>POST /api/tasks/:id/claim — Claim a task</li>
-  <li>POST /api/tasks/:id/status — Update task status</li>
-  <li>POST /api/tasks/:id/move — Move task (lead-only)</li>
-  <li>PUT /api/tasks/:id — Update task title/description</li>
-  <li>DELETE /api/tasks/:id — Delete a task</li>
-  <li>POST /api/tasks/:id/message — Post a message</li>
-  <li>GET /api/tasks/:id/messages — Get message thread</li>
-  <li>POST /api/tasks/:id/token-usage — Report token usage</li>
-  <li>POST /api/tasks/:id/mark-read — Mark messages as read</li>
-</ul>
-<h4>Team</h4>
-<ul>
-  <li><a href="/api/team">GET /api/team</a> — List members</li>
-  <li>POST /api/team/join — Register a teammate</li>
-  <li>POST /api/team/heartbeat — Keepalive</li>
-  <li>POST /api/team/spawn — Spawn a new teammate</li>
-  <li><a href="/api/team/spawn-options">GET /api/team/spawn-options</a> — Available directories for spawning</li>
-</ul>
-<h4>Archive</h4>
-<ul>
-  <li><a href="/api/archived">GET /api/archived</a> — List archived stories</li>
-</ul>
-<h4>Config &amp; Control</h4>
-<ul>
-  <li><a href="/api/config">GET /api/config</a> — Read configuration</li>
-  <li>PUT /api/config — Update configuration</li>
-  <li><a href="/api/browse?path=~">GET /api/browse?path=...</a> — Browse directories</li>
-  <li>POST /api/control/pause — Pause task distribution</li>
-  <li>POST /api/control/resume — Resume task distribution</li>
-</ul>
-<script>
-fetch('/api/status').then(r=>r.json()).then(d=>{
-  document.getElementById('status').innerHTML = 
-    '<strong>Stories:</strong> '+d.stories.open+' open, '+d.stories.done+' done<br>'+
-    '<strong>Team:</strong> '+d.members.total+' members ('+d.members.working+' working)<br>'+
-    '<strong>Inbox:</strong> '+d.inbox+' messages';
-});
-</script>
-</body></html>`);
+      return c.html(HOME_HTML);
     });
 
     // Kanban board
@@ -195,6 +128,10 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
     this.app.get("/css/theme.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(THEME_CSS);
+    });
+    this.app.get("/css/home-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(HOME_CSS);
     });
     this.app.get("/css/board.css", (c) => {
       c.header("Content-Type", "text/css");

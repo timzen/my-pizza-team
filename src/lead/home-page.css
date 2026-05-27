@@ -1,0 +1,23 @@
+/* Home page styles for pi-pizza-team */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; background: var(--bg-primary); color: var(--text-primary); }
+h1 { font-size: 1.8em; margin-top: 20px; margin-bottom: 8px; }
+h3 { margin: 24px 0 12px; font-size: 1.05em; }
+h4 { margin: 16px 0 8px; font-size: 0.9em; color: var(--text-secondary); }
+a { color: var(--accent); }
+p { margin-bottom: 12px; color: var(--text-secondary); font-size: 0.9em; }
+ul { padding-left: 20px; margin-bottom: 12px; }
+li { font-size: 0.85em; margin: 4px 0; color: var(--text-primary); }
+li code { background: var(--bg-tertiary); padding: 1px 5px; border-radius: 3px; font-size: 0.9em; }
+code { background: var(--bg-tertiary); padding: 2px 6px; border-radius: 4px; font-size: 0.88em; }
+.status-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin: 20px 0; }
+.status-card { background: var(--bg-secondary); padding: 14px 16px; border-radius: 8px; border: 1px solid var(--border); }
+.status-card h4 { margin: 0 0 8px; font-size: 0.8em; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+.status-card .value { font-size: 1.3em; font-weight: 700; color: var(--text-primary); }
+.status-card .detail { font-size: 0.8em; color: var(--text-secondary); margin-top: 4px; }
+.info-section { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 16px; margin-bottom: 16px; }
+.info-section h4 { margin: 0 0 10px; font-size: 0.85em; color: var(--text-primary); }
+.tag-list { display: flex; flex-wrap: wrap; gap: 6px; }
+.tag { background: var(--bg-tertiary); border: 1px solid var(--border); padding: 3px 10px; border-radius: 12px; font-size: 0.78em; color: var(--text-secondary); }
+.endpoints-section { margin-top: 24px; }
+.endpoints-section h4 { border-bottom: 1px solid var(--border); padding-bottom: 6px; }

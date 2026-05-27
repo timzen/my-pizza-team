@@ -13,12 +13,14 @@ function loadAsset(filename: string): string {
 }
 
 // HTML pages
+export const HOME_HTML = loadAsset("home-page.html");
 export const BOARD_HTML = loadAsset("board.html");
 export const ARCHIVED_HTML = loadAsset("archived-page.html");
 export const CONFIG_HTML = loadAsset("config-page.html");
 
 // Stylesheets
 export const THEME_CSS = loadAsset("theme.css");
+export const HOME_CSS = loadAsset("home-page.css");
 export const BOARD_CSS = loadAsset("board.css");
 export const ARCHIVED_CSS = loadAsset("archived-page.css");
 export const CONFIG_CSS = loadAsset("config-page.css");
