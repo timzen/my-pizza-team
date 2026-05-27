@@ -789,7 +789,6 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
 
       // Generate summary paragraph
       const totalMessages = Object.values(messages).reduce((sum, msgs) => sum + msgs.length, 0);
-      const results = tasks.filter(t => t.result).map(t => t.result);
       lines.push("## Summary");
       lines.push("");
       let summary = `This story completed ${tasks.length} task${tasks.length === 1 ? "" : "s"}`;
@@ -797,9 +796,6 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
         summary += ` with ${totalMessages} message${totalMessages === 1 ? "" : "s"} exchanged between the team lead and teammates`;
       }
       summary += ".";
-      if (results.length > 0) {
-        summary += " " + results.join(" ");
-      }
       lines.push(summary);
       lines.push("");
 
