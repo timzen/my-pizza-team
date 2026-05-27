@@ -123,10 +123,48 @@ export class TeamServer {
 <p>The team lead API is running.</p>
 <div class="status" id="status">Loading...</div>
 <h3>API Endpoints</h3>
+<h4>Status &amp; Stories</h4>
 <ul>
-  <li><a href="/api/status">/api/status</a> — Server status</li>
-  <li><a href="/api/stories">/api/stories</a> — All stories</li>
-  <li><a href="/api/team">/api/team</a> — Team members</li>
+  <li><a href="/api/status">GET /api/status</a> — Server status, workflow config</li>
+  <li><a href="/api/stories">GET /api/stories</a> — All stories + tasks</li>
+  <li>POST /api/stories — Create a new story</li>
+  <li>DELETE /api/stories/:id — Delete a story</li>
+  <li>POST /api/stories/:id/archive — Archive a completed story</li>
+  <li>POST /api/stories/:storyId/tasks — Create a task within a story</li>
+</ul>
+<h4>Tasks</h4>
+<ul>
+  <li>GET /api/next-task?memberId=X — Next claimable task</li>
+  <li>POST /api/tasks/:id/claim — Claim a task</li>
+  <li>POST /api/tasks/:id/status — Update task status</li>
+  <li>POST /api/tasks/:id/move — Move task (lead-only)</li>
+  <li>PUT /api/tasks/:id — Update task title/description</li>
+  <li>DELETE /api/tasks/:id — Delete a task</li>
+  <li>POST /api/tasks/:id/message — Post a message</li>
+  <li>GET /api/tasks/:id/messages — Get message thread</li>
+  <li>POST /api/tasks/:id/token-usage — Report token usage</li>
+  <li>POST /api/tasks/:id/mark-read — Mark messages as read</li>
+</ul>
+<h4>Team</h4>
+<ul>
+  <li><a href="/api/team">GET /api/team</a> — List members</li>
+  <li>POST /api/team/join — Register a teammate</li>
+  <li>POST /api/team/heartbeat — Keepalive</li>
+  <li>POST /api/team/spawn — Spawn a new teammate</li>
+  <li><a href="/api/team/spawn-options">GET /api/team/spawn-options</a> — Available directories for spawning</li>
+</ul>
+<h4>Archive</h4>
+<ul>
+  <li><a href="/api/archived">GET /api/archived</a> — List archived stories</li>
+  <li>POST /api/archived/:id/enrich — Regenerate synopsis</li>
+</ul>
+<h4>Config &amp; Control</h4>
+<ul>
+  <li><a href="/api/config">GET /api/config</a> — Read configuration</li>
+  <li>PUT /api/config — Update configuration</li>
+  <li><a href="/api/browse?path=~">GET /api/browse?path=...</a> — Browse directories</li>
+  <li>POST /api/control/pause — Pause task distribution</li>
+  <li>POST /api/control/resume — Resume task distribution</li>
 </ul>
 <script>
 fetch('/api/status').then(r=>r.json()).then(d=>{
