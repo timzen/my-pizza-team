@@ -65,6 +65,7 @@ pi
 The extension registers two LLM tools:
 
 - **`team_add_story`** — Create a new story with id, title, description, optional dir and dependencies
+- **`team_edit_story`** — Edit any field of an existing story (title, description, status, dependencies, dir, workflow)
 - **`team_add_task`** — Add a task to an existing story
 
 This means you can:
@@ -83,6 +84,7 @@ The board includes:
 - **Filters** — All, Open, Done, Ready (dependencies met), Blocked
 - **Sort** — Default, Name A-Z/Z-A, Progress, Most/Fewest tasks
 - **Task management** — click to view details, edit ✏️, delete 🗑️, move status
+- **Story management** — edit ✏️ any story field (title, description, dependencies, dir, workflow), delete 🗑️, archive 📦
 - **Add tasks** — "+Task" button on each story
 - **Add stories** — modal with title, description, dependencies, working directory, and inline tasks
 - **Persistent controls** — filter/sort/search saved in localStorage

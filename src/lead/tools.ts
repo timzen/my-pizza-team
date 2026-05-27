@@ -90,6 +90,68 @@ export function registerLeadTools(
     },
   });
 
+  // LLM-callable tool for editing stories
+  pi.registerTool({
+    name: "team_edit_story",
+    label: "Edit Team Story",
+    description:
+      "Edit an existing story on the pi-pizza-team kanban board. Can update title, description, status, " +
+      "dependencies, working directory, and workflow. Cannot change the story ID.",
+    promptSnippet: "Edit an existing story on the pi-pizza-team board",
+    promptGuidelines: [
+      "Use team_edit_story to modify existing stories when the user wants to update a story's title, description, dependencies, directory, or workflow.",
+      "You can update any combination of fields — only the fields you provide will be changed.",
+      "Set dir or workflow to empty string to clear them.",
+    ],
+    parameters: Type.Object({
+      storyId: Type.String({ description: "ID of the story to edit" }),
+      title: Type.Optional(Type.String({ description: "New title for the story" })),
+      description: Type.Optional(Type.String({ description: "New description for the story" })),
+      status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("done")], { description: "New status (open or done)" })),
+      dependsOn: Type.Optional(
+        Type.Array(Type.String(), { description: "New list of story IDs this story depends on" })
+      ),
+      dir: Type.Optional(
+        Type.String({ description: "New working directory hint (empty string to clear)" })
+      ),
+      workflow: Type.Optional(
+        Type.String({ description: "New workflow name (empty string to use default)" })
+      ),
+    }),
+    async execute(_toolCallId, params) {
+      const store = getStore();
+      const story = store.getStory(params.storyId);
+      if (!story) {
+        throw new Error(`Story "${params.storyId}" not found.`);
+      }
+
+      const updates: Record<string, any> = {};
+      if (params.title !== undefined) updates.title = params.title;
+      if (params.description !== undefined) updates.description = params.description;
+      if (params.status !== undefined) updates.status = params.status;
+      if (params.dependsOn !== undefined) updates.dependsOn = params.dependsOn;
+      if (params.dir !== undefined) updates.dir = params.dir || null;
+      if (params.workflow !== undefined) updates.workflow = params.workflow || null;
+
+      if (Object.keys(updates).length === 0) {
+        throw new Error("No fields to update. Provide at least one of: title, description, status, dependsOn, dir, workflow.");
+      }
+
+      store.updateStoryDetails(params.storyId, updates);
+
+      const changed = Object.keys(updates).join(", ");
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Updated story "${params.storyId}": changed ${changed}.`,
+          },
+        ],
+        details: { storyId: params.storyId, updatedFields: Object.keys(updates) },
+      };
+    },
+  });
+
   // LLM-callable tool for adding tasks (so Pi can break down stories conversationally)
   pi.registerTool({
     name: "team_add_task",

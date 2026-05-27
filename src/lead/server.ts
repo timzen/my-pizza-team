@@ -44,6 +44,8 @@ import type {
   CreateTaskResponse,
   UpdateTaskRequest,
   UpdateTaskResponse,
+  UpdateStoryRequest,
+  UpdateStoryResponse,
   DeleteTaskResponse,
   MoveTaskRequest,
   MoveTaskResponse,
@@ -287,6 +289,33 @@ export class TeamServer {
         },
       };
       return c.json(response, 201);
+    });
+
+    // PUT /api/stories/:id
+    this.app.put("/api/stories/:id", async (c) => {
+      const storyId = c.req.param("id");
+      const body = (await c.req.json()) as UpdateStoryRequest;
+
+      const story = this.store.getStory(storyId);
+      if (!story) {
+        return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies UpdateStoryResponse, 404);
+      }
+
+      // Validate: at least one field must be provided
+      if (!body.title && !body.description && !body.status && !body.dependsOn && body.dir === undefined && body.workflow === undefined) {
+        return c.json({ success: false, error: "At least one field to update is required" } satisfies UpdateStoryResponse, 400);
+      }
+
+      this.store.updateStoryDetails(storyId, {
+        title: body.title,
+        description: body.description,
+        status: body.status,
+        dependsOn: body.dependsOn,
+        dir: body.dir,
+        workflow: body.workflow,
+      });
+
+      return c.json({ success: true } satisfies UpdateStoryResponse);
     });
 
     // GET /api/next-task

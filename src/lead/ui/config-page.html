@@ -329,57 +329,28 @@ function removeFavoriteDir(index) {
   render();
 }
 
-// --- Directory Browser ---
-let currentBrowsePath = '~';
+// --- Directory Browser (uses shared DirBrowser from shared.js) ---
+const configDirBrowser = new DirBrowser({
+  modalId: 'browse-modal',
+  pathId: 'browse-path',
+  listId: 'browse-list',
+  onSelect: function(path) {
+    document.getElementById('new-fav-dir').value = path;
+    addFavoriteDir();
+  }
+});
 
-async function openBrowseModal() {
-  document.getElementById('browse-modal').style.display = 'flex';
-  currentBrowsePath = '~';
-  await browseTo('~');
+function openBrowseModal() {
+  window.__activeDirBrowser = configDirBrowser;
+  configDirBrowser.open('~');
 }
 
 function closeBrowseModal() {
-  document.getElementById('browse-modal').style.display = 'none';
-}
-
-async function browseTo(dir) {
-  currentBrowsePath = dir;
-  document.getElementById('browse-path').textContent = dir;
-  document.getElementById('browse-list').innerHTML = '<div style="color:#888;font-size:0.85em;">Loading...</div>';
-  try {
-    const res = await fetch('/api/browse?path=' + encodeURIComponent(dir));
-    const data = await res.json();
-    if (data.error) {
-      document.getElementById('browse-list').innerHTML = '<div style="color:#e74c3c;font-size:0.85em;">' + escHtml(data.error) + '</div>';
-      return;
-    }
-    currentBrowsePath = data.path;
-    document.getElementById('browse-path').textContent = data.path;
-
-    let html = '';
-    // Parent directory link
-    if (data.path !== '~' && data.path !== '/') {
-      const parentPath = data.path.replace(/\/[^\/]+$/, '') || '/';
-      html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;color:#888;" onmouseover="this.style.background=\'#0f3460\'" onmouseout="this.style.background=\'\'" onclick="browseTo(\'' + escHtml(parentPath).replace(/'/g, "\\'") + '\')">← ..</div>';
-    }
-    if (data.dirs.length === 0) {
-      html += '<div style="padding:10px;color:#666;font-size:0.85em;">No subdirectories</div>';
-    } else {
-      for (const d of data.dirs) {
-        const fullPath = data.path === '/' ? '/' + d : data.path + '/' + d;
-        html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;" onmouseover="this.style.background=\'#0f3460\'" onmouseout="this.style.background=\'\'" onclick="browseTo(\'' + escHtml(fullPath).replace(/'/g, "\\'") + '\')">📁 ' + escHtml(d) + '</div>';
-      }
-    }
-    document.getElementById('browse-list').innerHTML = html;
-  } catch(e) {
-    document.getElementById('browse-list').innerHTML = '<div style="color:#e74c3c;font-size:0.85em;">Error: ' + escHtml(e.message) + '</div>';
-  }
+  configDirBrowser.close();
 }
 
 function selectBrowsedDir() {
-  document.getElementById('new-fav-dir').value = currentBrowsePath;
-  closeBrowseModal();
-  addFavoriteDir();
+  configDirBrowser.select();
 }
 
 // --- Gather form values and save ---

@@ -50,7 +50,7 @@ src/
 │   │   ├── nav.css / nav.js  # Shared navigation bar
 │   │   └── shared.js         # Shared browser utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
-│   ├── tools.ts          # LLM-callable tools (team_add_story, team_add_task)
+│   ├── tools.ts          # LLM-callable tools (team_add_story, team_edit_story, team_add_task)
 │   └── tmux.ts           # tmux session/window lifecycle management
 └── teammate/
     ├── client.ts         # HTTP client wrapping all leader API calls
@@ -206,6 +206,7 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/stories` | GET | All stories + tasks + readiness |
 | `/api/stories` | POST | Create a new story (with optional tasks, dir) |
 | `/api/stories/:storyId/tasks` | POST | Create a task within a story |
+| `/api/stories/:id` | PUT | Update story fields (title, description, status, dependsOn, dir, workflow) |
 | `/api/stories/:id` | DELETE | Delete a story and all its tasks (400 if tasks in progress) |
 | `/api/stories/:id/archive` | POST | Archive a completed story (400 if tasks incomplete) |
 | `/api/archived` | GET | List archived stories with synopsis |

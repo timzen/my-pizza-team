@@ -311,6 +311,39 @@ export class Store {
     return true;
   }
 
+  updateStoryDetails(storyId: string, updates: { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; dir?: string | null; workflow?: string | null }): boolean {
+    const story = this.getStory(storyId);
+    if (!story) return false;
+
+    const newTitle = updates.title ?? story.title;
+    const newDescription = updates.description ?? story.description;
+    const newStatus = updates.status ?? story.status;
+    const newDependsOn = updates.dependsOn ?? story.dependsOn;
+    const newDir = updates.dir !== undefined ? (updates.dir || null) : (story.dir || null);
+    const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
+
+    this.db
+      .prepare(
+        `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, dir = ?, workflow = ? WHERE id = ?`
+      )
+      .run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newDir, newWorkflow, storyId);
+
+    // Write back to disk
+    const storyFile = path.join(story.dirPath, "story.json");
+    const data: Story = {
+      id: storyId,
+      title: newTitle,
+      description: newDescription,
+      status: newStatus,
+      dependsOn: newDependsOn,
+    };
+    if (newDir) data.dir = newDir;
+    if (newWorkflow) data.workflow = newWorkflow;
+    fs.writeFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
+
+    return true;
+  }
+
   updateStoryStatus(storyId: string, status: "open" | "done"): void {
     this.db.prepare("UPDATE stories SET status = ? WHERE id = ?").run(status, storyId);
     // Write back to disk

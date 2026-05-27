@@ -225,6 +225,21 @@ export interface MarkReadResponse {
   error?: string;
 }
 
+// PUT /api/stories/:id
+export interface UpdateStoryRequest {
+  title?: string;
+  description?: string;
+  status?: "open" | "done";
+  dependsOn?: string[];
+  dir?: string | null;
+  workflow?: string | null;
+}
+
+export interface UpdateStoryResponse {
+  success: boolean;
+  error?: string;
+}
+
 // DELETE /api/stories/:id
 export interface DeleteStoryResponse {
   success: boolean;

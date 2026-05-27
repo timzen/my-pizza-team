@@ -66,7 +66,10 @@
     <div class="form-group">
       <label for="story-dir">Working Directory</label>
       <div id="story-dir-favorites" style="margin-bottom:6px;"></div>
-      <input type="text" id="story-dir" placeholder="Optional, e.g. ~/Workspace/my-project" />
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="text" id="story-dir" placeholder="Optional, e.g. ~/Workspace/my-project" style="flex:1;" />
+        <button type="button" class="btn-add-task-inline" onclick="openDirBrowser('story-dir')" title="Browse directories">📂 Browse</button>
+      </div>
       <div class="hint">Hint for teammates about where to work</div>
     </div>
     <div class="form-group" id="story-workflow-group" style="display:none;">
@@ -130,6 +133,53 @@
     <div id="story-detail-desc" class="md-content" style="font-size:0.85em;line-height:1.6;color:#ccc;background:#0f3460;padding:14px;border-radius:6px;max-height:400px;overflow-y:auto;"></div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeStoryDetailModal()">Close</button>
+      <button class="btn-submit" onclick="closeStoryDetailModal(); openEditStoryModal(document.getElementById('story-detail-title').dataset.storyId)">✏️ Edit</button>
+    </div>
+  </div>
+</div>
+
+<!-- Edit Story Modal -->
+<div class="modal-overlay" id="edit-story-modal">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:600px;">
+    <button class="modal-close" onclick="closeEditStoryModal()" aria-label="Close">&times;</button>
+    <h2>Edit Story</h2>
+    <div class="form-error" id="edit-story-error"></div>
+    <div class="form-group">
+      <label for="edit-story-id">ID (read-only)</label>
+      <input type="text" id="edit-story-id" disabled style="opacity:0.6;" />
+    </div>
+    <div class="form-group">
+      <label for="edit-story-title">Title *</label>
+      <input type="text" id="edit-story-title" placeholder="Story title" />
+    </div>
+    <div class="form-group">
+      <label for="edit-story-desc">Description *</label>
+      <textarea id="edit-story-desc" rows="5" placeholder="Story description..."></textarea>
+    </div>
+    <div class="form-group">
+      <label for="edit-story-depends">Depends On</label>
+      <div id="edit-story-depends-options" style="margin-bottom:6px;"></div>
+      <input type="hidden" id="edit-story-depends" />
+      <div class="hint">Click stories to add/remove as dependencies</div>
+    </div>
+    <div class="form-group">
+      <label for="edit-story-dir">Working Directory</label>
+      <div id="edit-story-dir-favorites" style="margin-bottom:6px;"></div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <input type="text" id="edit-story-dir" placeholder="Optional, e.g. ~/Workspace/my-project" style="flex:1;" />
+        <button type="button" class="btn-add-task-inline" onclick="openDirBrowser('edit-story-dir')" title="Browse directories">📂 Browse</button>
+      </div>
+      <div class="hint">Hint for teammates about where to work</div>
+    </div>
+    <div class="form-group" id="edit-story-workflow-group" style="display:none;">
+      <label>Workflow</label>
+      <div id="edit-story-workflow-options"></div>
+      <input type="hidden" id="edit-story-workflow" />
+      <div class="hint">Which workflow governs this story's task states</div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeEditStoryModal()">Cancel</button>
+      <button class="btn-submit" id="edit-story-submit" onclick="submitEditStory()">Save Changes</button>
     </div>
   </div>
 </div>
@@ -148,6 +198,20 @@
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeSpawnModal()">Cancel</button>
       <button class="btn-submit" id="spawn-submit" onclick="submitSpawn()">Spawn</button>
+    </div>
+  </div>
+</div>
+
+<!-- Directory Browser Modal -->
+<div class="modal-overlay" id="dir-browse-modal">
+  <div class="modal" role="dialog" aria-modal="true" style="max-width:520px;">
+    <button class="modal-close" onclick="closeDirBrowser()" aria-label="Close">&times;</button>
+    <h2>Browse Directories</h2>
+    <div id="dir-browse-path" style="font-size:0.82em;color:#7c83ff;margin-bottom:12px;word-break:break-all;"></div>
+    <div id="dir-browse-list" style="max-height:350px;overflow-y:auto;margin-bottom:14px;"></div>
+    <div class="modal-footer">
+      <button class="btn-cancel" onclick="closeDirBrowser()">Cancel</button>
+      <button class="btn-submit" onclick="selectBrowsedDir()">Select This Directory</button>
     </div>
   </div>
 </div>
@@ -290,19 +354,8 @@ function openAddStoryModal() {
   setTimeout(() => document.getElementById('story-title').focus(), 50);
 }
 
-async function loadStoryDirFavorites() {
-  const el = document.getElementById('story-dir-favorites');
-  try {
-    const res = await fetch('/api/team/spawn-options');
-    const data = await res.json();
-    const favorites = (data.options || []).filter(o => o.source === 'favorite');
-    if (favorites.length === 0) { el.innerHTML = ''; return; }
-    el.innerHTML = favorites.map(o =>
-      '<button type="button" class="btn-add-task-inline" style="margin:2px;" onclick="document.getElementById(\'story-dir\').value=\'' + escHtml(o.dir).replace(/'/g, "\\'") + '\'">'
-      + '⭐ ' + escHtml(o.dir) + '</button>'
-    ).join('');
-  } catch(e) { el.innerHTML = ''; }
-}
+async function loadStoryDirFavorites() { await loadDirFavorites("story-dir-favorites", "story-dir"); }
+
 
 let selectedDeps = new Set();
 
@@ -533,6 +586,7 @@ function openStoryDetailModal(storyId) {
   const story = storyDataMap[storyId];
   if (!story) return;
   document.getElementById('story-detail-title').textContent = story.title;
+  document.getElementById('story-detail-title').dataset.storyId = storyId;
 
   // Build meta info
   const line1 = [];
@@ -553,6 +607,150 @@ function openStoryDetailModal(storyId) {
 
 function closeStoryDetailModal() {
   document.getElementById('story-detail-modal').style.display = 'none';
+}
+
+// --- Edit Story Modal ---
+let editStoryId = null;
+let editStorySelectedDeps = new Set();
+
+function openEditStoryModal(storyId) {
+  const story = storyDataMap[storyId];
+  if (!story) return;
+  editStoryId = storyId;
+
+  document.getElementById('edit-story-id').value = storyId;
+  document.getElementById('edit-story-title').value = story.title;
+  document.getElementById('edit-story-desc').value = story.description;
+  document.getElementById('edit-story-dir').value = story.dir || '';
+  document.getElementById('edit-story-error').style.display = 'none';
+  document.getElementById('edit-story-submit').disabled = false;
+  document.getElementById('edit-story-submit').textContent = 'Save Changes';
+
+  // Populate depends options
+  editStorySelectedDeps = new Set(story.dependsOn || []);
+  const depsEl = document.getElementById('edit-story-depends-options');
+  const otherStories = allStories.filter(s => s.id !== storyId);
+  if (otherStories.length === 0) {
+    depsEl.innerHTML = '<span style="font-size:0.8em;color:var(--text-muted);">No other stories</span>';
+  } else {
+    depsEl.innerHTML = otherStories.map(s => {
+      const isSelected = editStorySelectedDeps.has(s.id);
+      const style = isSelected ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '';
+      return '<button type="button" class="btn-add-task-inline edit-dep-btn" data-dep="' + escHtml(s.id) + '" style="margin:2px;' + style + '" onclick="toggleEditDep(\'' + escHtml(s.id).replace(/'/g, "\\'") + '\', this)">' + escHtml(s.id) + '</button>';
+    }).join('');
+  }
+  document.getElementById('edit-story-depends').value = [...editStorySelectedDeps].join(',');
+
+  // Workflow selector
+  const wfNames = Object.keys(workflows);
+  const wfGroup = document.getElementById('edit-story-workflow-group');
+  if (wfNames.length > 1) {
+    wfGroup.style.display = '';
+    const currentWf = story.workflow || '';
+    document.getElementById('edit-story-workflow').value = currentWf;
+    document.getElementById('edit-story-workflow-options').innerHTML = wfNames.map(n => {
+      const isDefault = n === defaultWorkflow;
+      const isSelected = (currentWf === n) || (!currentWf && isDefault);
+      const label = escHtml(n) + (isDefault ? ' (default)' : '');
+      const style = isSelected ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '';
+      return '<button type="button" class="btn-add-task-inline edit-wf-btn" data-wf="' + escHtml(n) + '" style="margin:2px;' + style + '" onclick="selectEditWorkflow(\'' + escHtml(n).replace(/'/g, "\\'") + '\', this)">' + label + '</button>';
+    }).join('');
+  } else {
+    wfGroup.style.display = 'none';
+  }
+
+  // Load favorite directories
+  loadDirFavorites('edit-story-dir-favorites', 'edit-story-dir');
+
+  document.getElementById('edit-story-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('edit-story-title').focus(), 50);
+}
+
+function closeEditStoryModal() {
+  document.getElementById('edit-story-modal').style.display = 'none';
+  editStoryId = null;
+}
+
+function toggleEditDep(storyId, btn) {
+  if (editStorySelectedDeps.has(storyId)) {
+    editStorySelectedDeps.delete(storyId);
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  } else {
+    editStorySelectedDeps.add(storyId);
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
+  document.getElementById('edit-story-depends').value = [...editStorySelectedDeps].join(',');
+}
+
+function selectEditWorkflow(wfName, btn) {
+  const current = document.getElementById('edit-story-workflow').value;
+  const buttons = document.querySelectorAll('.edit-wf-btn');
+  if (current === wfName && wfName !== defaultWorkflow) {
+    document.getElementById('edit-story-workflow').value = '';
+    buttons.forEach(b => {
+      if (b.dataset.wf === defaultWorkflow) { b.style.background = 'var(--accent)'; b.style.borderColor = 'var(--accent)'; b.style.color = '#fff'; }
+      else { b.style.background = ''; b.style.borderColor = ''; b.style.color = ''; }
+    });
+  } else {
+    document.getElementById('edit-story-workflow').value = wfName === defaultWorkflow ? '' : wfName;
+    buttons.forEach(b => { b.style.background = ''; b.style.borderColor = ''; b.style.color = ''; });
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
+}
+
+async function submitEditStory() {
+  const errEl = document.getElementById('edit-story-error');
+  errEl.style.display = 'none';
+
+  const title = document.getElementById('edit-story-title').value.trim();
+  const description = document.getElementById('edit-story-desc').value.trim();
+  const dir = document.getElementById('edit-story-dir').value.trim();
+  const workflowVal = document.getElementById('edit-story-workflow').value;
+  const dependsRaw = document.getElementById('edit-story-depends').value.trim();
+  const dependsOn = dependsRaw ? dependsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
+
+  if (!title) { errEl.textContent = 'Title is required.'; errEl.style.display = 'block'; return; }
+  if (!description) { errEl.textContent = 'Description is required.'; errEl.style.display = 'block'; return; }
+
+  const btn = document.getElementById('edit-story-submit');
+  btn.disabled = true;
+  btn.textContent = 'Saving...';
+
+  try {
+    const body = {
+      title,
+      description,
+      dependsOn,
+      dir: dir || null,
+      workflow: workflowVal || null,
+    };
+    const res = await fetch('/api/stories/' + encodeURIComponent(editStoryId), {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    if (!res.ok || !data.success) {
+      errEl.textContent = data.error || 'Failed to save.';
+      errEl.style.display = 'block';
+      btn.disabled = false;
+      btn.textContent = 'Save Changes';
+      return;
+    }
+    closeEditStoryModal();
+    refresh();
+  } catch (e) {
+    errEl.textContent = 'Network error: ' + e.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = 'Save Changes';
+  }
 }
 
 // --- Message Panel ---
@@ -675,7 +873,35 @@ async function resumeTask() {
   } catch (e) { alert('Network error: ' + e.message); }
 }
 
-// --- Delete Task ---
+// --- Directory Browser (uses shared DirBrowser from shared.js) ---
+let dirBrowserTargetInput = null;
+const dirBrowser = new DirBrowser({
+  modalId: 'dir-browse-modal',
+  pathId: 'dir-browse-path',
+  listId: 'dir-browse-list',
+  onSelect: function(path) {
+    if (dirBrowserTargetInput) {
+      document.getElementById(dirBrowserTargetInput).value = path;
+    }
+  }
+});
+
+function openDirBrowser(targetInputId) {
+  dirBrowserTargetInput = targetInputId;
+  window.__activeDirBrowser = dirBrowser;
+  const currentVal = document.getElementById(targetInputId).value.trim();
+  dirBrowser.open(currentVal || '~');
+}
+
+function closeDirBrowser() {
+  dirBrowser.close();
+  dirBrowserTargetInput = null;
+}
+
+function selectBrowsedDir() {
+  dirBrowser.select();
+}
+
 async function deleteTaskConfirm(taskId, title) {
   if (!confirm('Delete task "' + title + '"? This cannot be undone.')) return;
   try {
@@ -724,7 +950,9 @@ function getStoryInitialState(story) {
 // --- Keyboard / modal handling ---
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
+    if (document.getElementById('dir-browse-modal').style.display === 'flex') { closeDirBrowser(); return; }
     if (document.getElementById('msg-panel').classList.contains('open')) { closeMsgPanel(); return; }
+    if (document.getElementById('edit-story-modal').style.display === 'flex') { closeEditStoryModal(); return; }
     if (document.getElementById('story-detail-modal').style.display === 'flex') { closeStoryDetailModal(); return; }
     if (document.getElementById('spawn-modal').style.display === 'flex') { closeSpawnModal(); return; }
     if (document.getElementById('task-detail-modal').style.display === 'flex') { closeTaskDetailModal(); return; }
@@ -734,6 +962,8 @@ document.addEventListener('keydown', function(e) {
 });
 
 document.getElementById('add-story-modal').addEventListener('click', function(e) { if (e.target === this) closeAddStoryModal(); });
+document.getElementById('edit-story-modal').addEventListener('click', function(e) { if (e.target === this) closeEditStoryModal(); });
+document.getElementById('dir-browse-modal').addEventListener('click', function(e) { if (e.target === this) closeDirBrowser(); });
 document.getElementById('task-modal').addEventListener('click', function(e) { if (e.target === this) closeTaskModal(); });
 document.getElementById('task-detail-modal').addEventListener('click', function(e) { if (e.target === this) closeTaskDetailModal(); });
 document.getElementById('story-detail-modal').addEventListener('click', function(e) { if (e.target === this) closeStoryDetailModal(); });
@@ -849,6 +1079,7 @@ function renderBoard(stories) {
     }).join('');
 
     const addBtn = '<button class="btn-add-task-inline" onclick="event.stopPropagation(); openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
+    const editStoryBtn = ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); openEditStoryModal(\'' + escHtml(story.id) + '\')" title="Edit story">✏️ Edit</button>';
     const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === getStoryDoneState(story));
     const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
     const hasInProgress = story.tasks.some(t => t.status === 'in_progress');
@@ -857,7 +1088,7 @@ function renderBoard(stories) {
     return '<div class="swimlane' + blockedClass + '">'
       + '<div class="swimlane-header" onclick="openStoryDetailModal(\'' + escHtml(story.id) + '\')" style="cursor:pointer;">'
       + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + (story.workflow ? ' <span style="font-size:0.72em;color:#7c83ff;font-weight:400;">⚙️ ' + escHtml(story.workflow) + '</span>' : '') + '</span>'
-      + '<span class="swimlane-meta">' + addBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
+      + '<span class="swimlane-meta">' + addBtn + editStoryBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
       + '</div>'
       + '<div class="board">' + columnsHtml + '</div>'
       + '</div>';
