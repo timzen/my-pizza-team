@@ -53,13 +53,13 @@ class DirBrowser {
   async navigateTo(dir) {
     this.currentPath = dir;
     document.getElementById(this.pathId).textContent = dir;
-    document.getElementById(this.listId).innerHTML = '<div style="color:#888;font-size:0.85em;">Loading...</div>';
+    document.getElementById(this.listId).innerHTML = '<div style="color:var(--text-muted);font-size:0.85em;">Loading...</div>';
     const self = this;
     try {
       const res = await fetch('/api/browse?path=' + encodeURIComponent(dir));
       const data = await res.json();
       if (data.error) {
-        document.getElementById(self.listId).innerHTML = '<div style="color:#e74c3c;font-size:0.85em;">' + escHtml(data.error) + '</div>';
+        document.getElementById(self.listId).innerHTML = '<div style="color:var(--danger);font-size:0.85em;">' + escHtml(data.error) + '</div>';
         return;
       }
       self.currentPath = data.path;
@@ -68,19 +68,19 @@ class DirBrowser {
       let html = '';
       if (data.path !== '~' && data.path !== '/') {
         const parentPath = data.path.replace(/\/[^\/]+$/, '') || '/';
-        html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;color:#888;" onmouseover="this.style.background=\'#0f3460\'" onmouseout="this.style.background=\'\'" onclick="window.__dirBrowserNav(\'' + escHtml(parentPath).replace(/'/g, "\\'") + '\')">← ..</div>';
+        html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;color:var(--text-muted);" onmouseover="this.style.background=\'var(--card-hover)\'" onmouseout="this.style.background=\'\'" onclick="window.__dirBrowserNav(\'' + escHtml(parentPath).replace(/'/g, "\\'") + '\')">← ..</div>';
       }
       if (data.dirs.length === 0) {
-        html += '<div style="padding:10px;color:#666;font-size:0.85em;">No subdirectories</div>';
+        html += '<div style="padding:10px;color:var(--text-muted);font-size:0.85em;">No subdirectories</div>';
       } else {
         for (const d of data.dirs) {
           const fullPath = data.path === '/' ? '/' + d : data.path + '/' + d;
-          html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;" onmouseover="this.style.background=\'#0f3460\'" onmouseout="this.style.background=\'\'" onclick="window.__dirBrowserNav(\'' + escHtml(fullPath).replace(/'/g, "\\'") + '\')">📁 ' + escHtml(d) + '</div>';
+          html += '<div style="padding:6px 10px;cursor:pointer;border-radius:4px;font-size:0.85em;" onmouseover="this.style.background=\'var(--card-hover)\'" onmouseout="this.style.background=\'\'" onclick="window.__dirBrowserNav(\'' + escHtml(fullPath).replace(/'/g, "\\'") + '\')">📁 ' + escHtml(d) + '</div>';
         }
       }
       document.getElementById(self.listId).innerHTML = html;
     } catch(e) {
-      document.getElementById(self.listId).innerHTML = '<div style="color:#e74c3c;font-size:0.85em;">Error: ' + escHtml(e.message) + '</div>';
+      document.getElementById(self.listId).innerHTML = '<div style="color:var(--danger);font-size:0.85em;">Error: ' + escHtml(e.message) + '</div>';
     }
   }
 }
@@ -121,7 +121,7 @@ async function loadDirFavorites(targetElementId, targetInputId) {
  * @returns {string} HTML string
  */
 function renderMarkdown(text, emptyText) {
-  if (!text) return '<em style="color:#666;">(' + (emptyText || 'no content') + ')</em>';
+  if (!text) return '<em style="color:var(--text-muted);">(' + (emptyText || 'no content') + ')</em>';
   let html = escHtml(text);
   // Code blocks (``` ... ```)
   html = html.replace(/```(\w*)\n([\s\S]*?)```/g, '<pre><code>$2</code></pre>');

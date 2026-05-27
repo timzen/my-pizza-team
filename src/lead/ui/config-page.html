@@ -9,17 +9,17 @@
 <h1>⚙️ Configuration</h1>
 <div class="subtitle">Manage workflows, autosave settings, and team configuration.</div>
 
-<div id="content"><div style="color:#888;padding:40px;text-align:center;">Loading...</div></div>
+<div id="content"><div style="color:var(--text-muted);padding:40px;text-align:center;">Loading...</div></div>
 <div class="toast" id="toast"></div>
 
 <!-- Browse Directory Modal -->
-<div class="modal-overlay" id="browse-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,0.7);z-index:1000;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto;" onclick="if(event.target===this)closeBrowseModal()">
-  <div style="background:#16213e;border:1px solid #0f3460;border-radius:10px;width:100%;max-width:520px;padding:24px;position:relative;">
-    <button style="position:absolute;top:12px;right:16px;background:none;border:none;color:#888;font-size:1.3em;cursor:pointer;" onclick="closeBrowseModal()">&times;</button>
+<div class="modal-overlay" id="browse-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:var(--modal-overlay);z-index:1000;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto;" onclick="if(event.target===this)closeBrowseModal()">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;width:100%;max-width:520px;padding:24px;position:relative;">
+    <button style="position:absolute;top:12px;right:16px;background:none;border:none;color:var(--text-muted);font-size:1.3em;cursor:pointer;" onclick="closeBrowseModal()">&times;</button>
     <h2 style="font-size:1.1em;margin-bottom:12px;">Browse Directories</h2>
-    <div id="browse-path" style="font-size:0.82em;color:#7c83ff;margin-bottom:12px;word-break:break-all;"></div>
+    <div id="browse-path" style="font-size:0.82em;color:var(--accent);margin-bottom:12px;word-break:break-all;"></div>
     <div id="browse-list" style="max-height:350px;overflow-y:auto;margin-bottom:14px;"></div>
-    <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:12px;border-top:1px solid #0f3460;">
+    <div style="display:flex;justify-content:flex-end;gap:10px;padding-top:12px;border-top:1px solid var(--border);">
       <button class="btn btn-outline" onclick="closeBrowseModal()">Cancel</button>
       <button class="btn" onclick="selectBrowsedDir()">Select This Directory</button>
     </div>
@@ -135,8 +135,8 @@ function renderTeammates() {
         + ' <span class="remove-state" onclick="removeNoun(\'' + escHtml(n).replace(/'/g, "\\'") + '\')" title="Remove">&times;</span>'
         + '</span>'
       ).join('') + '</div>'
-    : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">Using defaults: '
-      + '<span style="cursor:pointer;color:#7c83ff;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\';this.textContent=this.nextElementSibling.style.display===\'none\'?\'show ▸\':\'hide ▾\';">show ▸</span>'
+    : '<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:8px;">Using defaults: '
+      + '<span style="cursor:pointer;color:var(--accent);" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\';this.textContent=this.nextElementSibling.style.display===\'none\'?\'show ▸\':\'hide ▾\';">show ▸</span>'
       + '<div style="display:none;margin-top:6px;"><div class="states-list">' 
       + DEFAULT_NOUNS.map(n => '<span class="state-tag" style="opacity:0.6;border-style:dashed;">' + escHtml(n) + '</span>').join('')
       + '</div></div></div>';
@@ -145,19 +145,19 @@ function renderTeammates() {
   const dirsHtml = favDirs.length > 0
     ? '<div style="margin-bottom:8px;">' + favDirs.map((d, i) =>
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:4px;">'
-        + '<code style="background:#0f3460;padding:3px 8px;border-radius:4px;font-size:0.82em;flex:1;">' + escHtml(d) + '</code>'
+        + '<code style="background:var(--bg-tertiary);padding:3px 8px;border-radius:4px;font-size:0.82em;flex:1;">' + escHtml(d) + '</code>'
         + '<button class="btn btn-sm btn-danger" onclick="removeFavoriteDir(' + i + ')">&times;</button>'
         + '</div>'
       ).join('') + '</div>'
-    : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">No favorites configured</div>';
+    : '<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:8px;">No favorites configured</div>';
 
   return '<div class="section">'
     + '<h3>Name Nouns</h3>'
-    + '<div style="font-size:0.78em;color:#888;margin-bottom:8px;">Custom nouns for auto-generated names (adjective-noun). Leave empty for sci-fi character defaults.</div>'
+    + '<div style="font-size:0.78em;color:var(--text-muted);margin-bottom:8px;">Custom nouns for auto-generated names (adjective-noun). Leave empty for sci-fi character defaults.</div>'
     + nounsHtml
     + '<div class="add-state-row"><input type="text" id="new-noun" placeholder="Add a noun..." onkeydown="if(event.key===\'Enter\')addNoun()" /><button class="btn btn-sm" onclick="addNoun()">Add</button></div>'
     + '<h3 style="margin-top:18px;">Favorite Directories</h3>'
-    + '<div style="font-size:0.78em;color:#888;margin-bottom:8px;">Quick-pick directories when spawning teammates.</div>'
+    + '<div style="font-size:0.78em;color:var(--text-muted);margin-bottom:8px;">Quick-pick directories when spawning teammates.</div>'
     + dirsHtml
     + '<div class="add-state-row"><input type="text" id="new-fav-dir" placeholder="~/Workspace/my-project" onkeydown="if(event.key===\'Enter\')addFavoriteDir()" /><button class="btn btn-sm" onclick="addFavoriteDir()">Add</button><button class="btn btn-sm btn-outline" onclick="openBrowseModal()" style="margin-left:4px;">📂 Browse</button></div>'
     + '</div>';
@@ -197,7 +197,7 @@ function renderWorkflowCard(name, wf, isDefault) {
   const stateOptions = (wf.states || []).map(s => '<option value="' + escHtml(s) + '">' + escHtml(s) + '</option>').join('');
   const addTransRow = '<div class="form-row" style="margin-top:10px;">'
     + '<select id="trans-from-' + escHtml(name) + '">' + stateOptions + '</select>'
-    + '<span style="color:#888;">→</span>'
+    + '<span style="color:var(--text-muted);">→</span>'
     + '<select id="trans-to-' + escHtml(name) + '">' + stateOptions + '</select>'
     + '<select id="trans-perm-' + escHtml(name) + '"><option value="any">any</option><option value="teammate">teammate</option><option value="lead">lead</option></select>'
     + '<button class="btn btn-sm" onclick="addTransition(\'' + escHtml(name) + '\')">Add</button>'
