@@ -21,6 +21,8 @@ export const CONFIG_HTML = loadAsset("config-page.html");
 export const BOARD_CSS = loadAsset("board.css");
 export const ARCHIVED_CSS = loadAsset("archived-page.css");
 export const CONFIG_CSS = loadAsset("config-page.css");
+export const NAV_CSS = loadAsset("nav.css");
 
 // Shared browser JavaScript
 export const SHARED_JS = loadAsset("shared.js");
+export const NAV_JS = loadAsset("nav.js");

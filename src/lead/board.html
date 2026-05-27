@@ -1,14 +1,15 @@
 <!DOCTYPE html>
 <html><head><title>🍕 pi-pizza-team board</title>
 <link rel="stylesheet" href="/css/board.css">
+<link rel="stylesheet" href="/css/nav.css">
 <script src="/js/shared.js"></script>
+<script src="/js/nav.js" defer></script>
 </head><body>
 <div class="toolbar">
-  <h1>🍕 pi-pizza-team board <span class="refresh" id="refresh"></span></h1>
+  <h1>🍕 Board <span class="refresh" id="refresh"></span></h1>
   <div style="display:flex;align-items:center;gap:14px;">
     <span id="total-cost" style="font-size:0.82em;color:#4caf50;"></span>
-    <a href="/config" class="btn-add-story" style="background:#0f3460;border:1px solid #1a4080;text-decoration:none;">⚙️ Config</a>
-    <a href="/archived" class="btn-add-story" id="btn-archived" style="background:#0f3460;border:1px solid #1a4080;text-decoration:none;">📦 Archived <span id="archived-count"></span></a>
+    <span id="archived-count" style="font-size:0.82em;color:#888;"></span>
     <button class="btn-add-story" id="btn-add-story" onclick="openAddStoryModal()">+ Add Story</button>
   </div>
 </div>
@@ -782,7 +783,7 @@ async function refreshArchivedCount() {
     const data = await res.json();
     archivedCount = data.stories ? data.stories.length : 0;
     const el = document.getElementById('archived-count');
-    el.textContent = archivedCount > 0 ? '(' + archivedCount + ')' : '';
+    el.textContent = archivedCount > 0 ? '📦 ' + archivedCount + ' archived' : '';
   } catch(e) {}
 }
 

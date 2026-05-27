@@ -2,9 +2,6 @@
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; padding: 20px; max-width: 900px; margin: 0 auto; }
 h1 { margin-bottom: 8px; font-size: 1.5em; }
-.nav { margin-bottom: 24px; font-size: 0.85em; }
-.nav a { color: #7c83ff; text-decoration: none; }
-.nav a:hover { text-decoration: underline; }
 .subtitle { color: #888; font-size: 0.85em; margin-bottom: 24px; }
 .story-card { border: 1px solid #0f3460; border-radius: 8px; margin-bottom: 16px; overflow: hidden; }
 .story-header { background: #0f3460; padding: 14px 18px; display: flex; justify-content: space-between; align-items: center; cursor: pointer; }

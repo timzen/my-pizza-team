@@ -4,9 +4,6 @@ body { font-family: system-ui, sans-serif; background: #1a1a2e; color: #e0e0e0; 
 h1 { margin-bottom: 8px; font-size: 1.5em; }
 h2 { font-size: 1.1em; margin: 24px 0 12px; color: #e0e0e0; }
 h3 { font-size: 0.95em; margin: 16px 0 8px; color: #ccc; }
-.nav { margin-bottom: 24px; font-size: 0.85em; }
-.nav a { color: #7c83ff; text-decoration: none; }
-.nav a:hover { text-decoration: underline; }
 .subtitle { color: #888; font-size: 0.85em; margin-bottom: 24px; }
 .section { border: 1px solid #0f3460; border-radius: 8px; margin-bottom: 20px; padding: 18px; background: #16213e; }
 .form-row { display: flex; gap: 12px; align-items: center; margin-bottom: 12px; }

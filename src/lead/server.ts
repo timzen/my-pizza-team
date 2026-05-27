@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName } from "../shared/types.js";
 import { spawnTeammate } from "./tmux.js";
-import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, SHARED_JS } from "./assets.js";
+import { BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -108,13 +108,16 @@ export class TeamServer {
     this.app.get("/", (c) => {
       return c.html(`<!DOCTYPE html>
 <html><head><title>🍕 pi-pizza-team</title>
+<link rel="stylesheet" href="/css/nav.css">
 <style>
-  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 60px auto; padding: 0 20px; background: #1a1a2e; color: #e0e0e0; }
-  h1 { font-size: 2em; }
+  body { font-family: system-ui, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background: #1a1a2e; color: #e0e0e0; }
+  h1 { font-size: 2em; margin-top: 20px; }
   a { color: #7c83ff; }
   .status { background: #16213e; padding: 16px; border-radius: 8px; margin: 20px 0; }
   code { background: #0f3460; padding: 2px 6px; border-radius: 4px; }
-</style></head><body>
+</style>
+<script src="/js/nav.js" defer></script>
+</head><body>
 <h1>🍕 pi-pizza-team</h1>
 <p>The team lead API is running.</p>
 <div class="status" id="status">Loading...</div>
@@ -123,9 +126,6 @@ export class TeamServer {
   <li><a href="/api/status">/api/status</a> — Server status</li>
   <li><a href="/api/stories">/api/stories</a> — All stories</li>
   <li><a href="/api/team">/api/team</a> — Team members</li>
-  <li><a href="/board">/board</a> — Kanban board</li>
-  <li><a href="/archived">/archived</a> — Archived stories</li>
-  <li><a href="/config">/config</a> — Configuration</li>
 </ul>
 <script>
 fetch('/api/status').then(r=>r.json()).then(d=>{
@@ -166,9 +166,17 @@ fetch('/api/status').then(r=>r.json()).then(d=>{
       c.header("Content-Type", "text/css");
       return c.body(CONFIG_CSS);
     });
+    this.app.get("/css/nav.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(NAV_CSS);
+    });
     this.app.get("/js/shared.js", (c) => {
       c.header("Content-Type", "application/javascript");
       return c.body(SHARED_JS);
+    });
+    this.app.get("/js/nav.js", (c) => {
+      c.header("Content-Type", "application/javascript");
+      return c.body(NAV_JS);
     });
 
     // GET /api/status
