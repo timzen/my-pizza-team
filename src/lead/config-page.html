@@ -28,6 +28,15 @@
 <script>
 let config = {};
 
+const DEFAULT_NOUNS = [
+  'ripley', 'kirk', 'spock', 'solo', 'neo',
+  'trinity', 'deckard', 'muad-dib', 'case', 'molly',
+  'picard', 'data', 'worf', 'uhura', 'sulu',
+  'riker', 'bones', 'chekov', 'scotty', 'seven',
+  'janeway', 'tuvok', 'odo', 'quark', 'kira',
+  'adama', 'starbuck', 'gaius', 'athena', 'apollo',
+];
+
 function toast(msg, isError) {
   const el = document.getElementById('toast');
   el.textContent = msg;
@@ -125,7 +134,11 @@ function renderTeammates() {
         + ' <span class="remove-state" onclick="removeNoun(\'' + escHtml(n).replace(/'/g, "\\'") + '\')" title="Remove">&times;</span>'
         + '</span>'
       ).join('') + '</div>'
-    : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">Using defaults (sci-fi characters)</div>';
+    : '<div style="font-size:0.8em;color:#666;margin-bottom:8px;">Using defaults: '
+      + '<span style="cursor:pointer;color:#7c83ff;" onclick="this.nextElementSibling.style.display=this.nextElementSibling.style.display===\'none\'?\'\':\'none\';this.textContent=this.nextElementSibling.style.display===\'none\'?\'show ▸\':\'hide ▾\';">show ▸</span>'
+      + '<div style="display:none;margin-top:6px;"><div class="states-list">' 
+      + DEFAULT_NOUNS.map(n => '<span class="state-tag" style="opacity:0.6;border-style:dashed;">' + escHtml(n) + '</span>').join('')
+      + '</div></div></div>';
 
   // Favorite directories section
   const dirsHtml = favDirs.length > 0
