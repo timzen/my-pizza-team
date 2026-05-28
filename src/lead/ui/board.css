@@ -123,8 +123,8 @@ h1 { margin-bottom: 20px; font-size: 1.5em; }
 .msg-resume-row { margin-top: 8px; }
 .msg-resume-btn { background: none; border: 1px solid var(--success); color: var(--success); padding: 6px 12px; border-radius: 5px; font-size: 0.78em; cursor: pointer; width: 100%; }
 .msg-resume-btn:hover { background: rgba(76,175,80,0.1); }
-.card-msg-btn { display: inline-block; margin-top: 3px; font-size: 0.7em; color: var(--accent); cursor: pointer; }
-.card-msg-btn:hover { text-decoration: underline; }
+.card-msg-btn { display: inline-block; background: none; border: 1px solid var(--border-light); color: var(--accent); padding: 2px 8px; border-radius: 4px; font-size: 0.68em; cursor: pointer; transition: all 0.15s; font-family: inherit; white-space: nowrap; }
+.card-msg-btn:hover { background: var(--accent); border-color: var(--accent); color: #fff; }
 /* Markdown content styles */
 .md-content h1, .md-content h2, .md-content h3, .md-content h4 { color: var(--text-primary); margin: 12px 0 6px 0; }
 .md-content h1 { font-size: 1.2em; } .md-content h2 { font-size: 1.05em; } .md-content h3 { font-size: 0.95em; }
