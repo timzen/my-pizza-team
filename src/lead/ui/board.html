@@ -1080,6 +1080,7 @@ function renderBoard(stories) {
     }).join('');
 
     const addBtn = '<button class="btn-add-task-inline" onclick="event.stopPropagation(); openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
+    const viewStoryBtn = ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); openStoryDetailModal(\'' + escHtml(story.id) + '\')" title="View story">👁️ View</button>';
     const editStoryBtn = ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); openEditStoryModal(\'' + escHtml(story.id) + '\')" title="Edit story">✏️ Edit</button>';
     const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === getStoryDoneState(story));
     const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
@@ -1087,9 +1088,9 @@ function renderBoard(stories) {
     const deleteBtn = !hasInProgress ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); deleteStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Delete story" style="color:#e74c3c;">🗑️ Delete</button>' : '';
 
     return '<div class="swimlane' + blockedClass + '">'
-      + '<div class="swimlane-header" onclick="openStoryDetailModal(\'' + escHtml(story.id) + '\')" style="cursor:pointer;">'
-      + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:#888;font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + (story.workflow ? ' <span style="font-size:0.72em;color:#7c83ff;font-weight:400;">⚙️ ' + escHtml(story.workflow) + '</span>' : '') + '</span>'
-      + '<span class="swimlane-meta">' + addBtn + editStoryBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
+      + '<div class="swimlane-header">'
+      + '<span class="swimlane-title">' + escHtml(story.title) + (story.dir ? ' <span style="font-size:0.75em;color:var(--text-muted);font-weight:400;">📂 ' + escHtml(story.dir) + '</span>' : '') + (story.workflow ? ' <span style="font-size:0.72em;color:var(--accent);font-weight:400;">⚙️ ' + escHtml(story.workflow) + '</span>' : '') + '</span>'
+      + '<span class="swimlane-meta">' + addBtn + viewStoryBtn + editStoryBtn + archiveBtn + deleteBtn + ' <span class="progress">' + doneCount + '/' + story.tasks.length + '</span>' + storyCostLabel + blockedLabel + '</span>'
       + '</div>'
       + '<div class="board">' + columnsHtml + '</div>'
       + '</div>';
