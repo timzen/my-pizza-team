@@ -26,7 +26,7 @@ h1 { margin-bottom: 20px; font-size: 1.5em; }
 .card-assignee { font-size: 0.7em; color: var(--accent); margin-top: 2px; }
 .card-cost { font-size: 0.65em; color: var(--success); margin-top: 2px; opacity: 0.8; }
 .card-msg { font-size: 0.7em; color: var(--warning); margin-top: 2px; }
-.card-actions { position: absolute; top: 4px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; }
+.card-actions { position: absolute; top: 4px; right: 6px; display: flex; gap: 2px; opacity: 0; transition: opacity 0.15s; background: var(--bg-tertiary); border-radius: 4px; padding: 2px 4px; box-shadow: 0 1px 4px var(--shadow); }
 .card-actions button { background: none; border: none; color: var(--text-secondary); cursor: pointer; font-size: 0.75em; padding: 2px 4px; border-radius: 3px; }
 .card-actions button:hover { color: var(--text-primary); background: rgba(255,255,255,0.1); }
 .card-actions .btn-del:hover { color: var(--danger); }
