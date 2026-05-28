@@ -1058,7 +1058,7 @@ function renderBoard(stories) {
 
         // Action buttons
         const actions = '<div class="card-actions">'
-          + '<button onclick="event.stopPropagation(); openTaskDetailModal(\'' + escHtml(t.id) + '\');" title="View">👁️</button>'
+          + '<button onclick="event.stopPropagation(); openTaskDetailModal(\'' + escHtml(t.id) + '\');" title="View">🔍</button>'
           + '<button onclick="event.stopPropagation(); openEditTaskModal(\'' + escHtml(t.id) + '\');" title="Edit">✏️</button>'
           + '<button class="btn-del" onclick="event.stopPropagation(); deleteTaskConfirm(\'' + escHtml(t.id) + '\', \'' + escHtml(t.title).replace(/'/g, "\'") + '\');" title="Delete">🗑️</button>'
           + '</div>';
@@ -1080,7 +1080,7 @@ function renderBoard(stories) {
     }).join('');
 
     const addBtn = '<button class="btn-add-task-inline" onclick="event.stopPropagation(); openCreateTaskModal(\'' + escHtml(story.id) + '\')">+ Task</button>';
-    const viewStoryBtn = ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); openStoryDetailModal(\'' + escHtml(story.id) + '\')" title="View story">👁️ View</button>';
+    const viewStoryBtn = ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); openStoryDetailModal(\'' + escHtml(story.id) + '\')" title="View story">🔍 View</button>';
     const editStoryBtn = ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); openEditStoryModal(\'' + escHtml(story.id) + '\')" title="Edit story">✏️ Edit</button>';
     const allDone = story.tasks.length > 0 && story.tasks.every(t => t.status === getStoryDoneState(story));
     const archiveBtn = allDone ? ' <button class="btn-add-task-inline" onclick="event.stopPropagation(); archiveStory(\'' + escHtml(story.id) + '\', \'' + escHtml(story.title).replace(/'/g, "\\'") + '\')" title="Archive story">📦 Archive</button>' : '';
