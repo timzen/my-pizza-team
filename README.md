@@ -38,6 +38,7 @@ pi
 | Command | Description |
 |---------|-------------|
 | `/ppt-init` | Initialize kanban board |
+| `/ppt-upgrade` | Upgrade existing board to latest layout and config format |
 | `/ppt-status` | Quick status summary with progress bar |
 | `/ppt-board` | Show board status (stories, tasks, team) |
 | `/ppt-spawn [cwd]` | Spawn a teammate (auto-generates name, selects from story dirs/favorites) |

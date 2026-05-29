@@ -92,8 +92,9 @@ export default function (pi: ExtensionAPI) {
       description: "Initialize current directory as a pi-pizza-team board",
       handler: async (_args, cmdCtx) => {
         fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+        fs.mkdirSync(path.join(teamDir, "notes"), { recursive: true });
 
-        // Write a clean config (omit empty/default-derivable fields)
+        // Write a clean config with all current fields
         const configToWrite = {
           port: DEFAULT_CONFIG.port,
           tmuxSession: DEFAULT_CONFIG.tmuxSession,
@@ -102,6 +103,7 @@ export default function (pi: ExtensionAPI) {
           autosave: DEFAULT_CONFIG.autosave,
           leaderUrl: DEFAULT_CONFIG.leaderUrl,
           maxTeammates: DEFAULT_CONFIG.maxTeammates,
+          categories: DEFAULT_CONFIG.categories,
         };
         fs.writeFileSync(
           path.join(teamDir, "config.json"),

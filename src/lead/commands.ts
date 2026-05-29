@@ -71,6 +71,7 @@ export function registerLeadCommands(
 
       const { DEFAULT_CONFIG } = await import("../shared/types.js");
       fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+      fs.mkdirSync(path.join(teamDir, "notes"), { recursive: true });
 
       // Write a clean config (omit empty/default-derivable fields)
       const configToWrite = {
@@ -81,6 +82,7 @@ export function registerLeadCommands(
         autosave: DEFAULT_CONFIG.autosave,
         leaderUrl: DEFAULT_CONFIG.leaderUrl,
         maxTeammates: DEFAULT_CONFIG.maxTeammates,
+        categories: DEFAULT_CONFIG.categories,
       };
       fs.writeFileSync(
         path.join(teamDir, "config.json"),
@@ -94,6 +96,113 @@ export function registerLeadCommands(
       );
 
       ctx.ui.notify("✓ Initialized .pi-pizza-team/ — your kanban board is ready! 🍕", "info");
+    },
+  });
+
+  // /ppt-upgrade
+  pi.registerCommand("ppt-upgrade", {
+    description: "Upgrade .pi-pizza-team/ to the latest layout and config format",
+    handler: async (_args, ctx) => {
+      if (!fs.existsSync(teamDir)) {
+        ctx.ui.notify("No .pi-pizza-team/ found. Use /ppt-init first.", "warning");
+        return;
+      }
+
+      const { DEFAULT_CONFIG, DEFAULT_CATEGORIES } = await import("../shared/types.js");
+      const configFile = path.join(teamDir, "config.json");
+      const changes: string[] = [];
+
+      // --- Directory structure ---
+      const storiesDir = path.join(teamDir, "stories");
+      if (!fs.existsSync(storiesDir)) {
+        fs.mkdirSync(storiesDir, { recursive: true });
+        changes.push("Created stories/ directory");
+      }
+
+      const notesDir = path.join(teamDir, "notes");
+      if (!fs.existsSync(notesDir)) {
+        fs.mkdirSync(notesDir, { recursive: true });
+        changes.push("Created notes/ directory");
+      }
+
+      // --- .gitignore ---
+      const gitignorePath = path.join(teamDir, ".gitignore");
+      const expectedGitignore = "state.db\nstate.db-wal\nstate.db-shm\n";
+      if (!fs.existsSync(gitignorePath)) {
+        fs.writeFileSync(gitignorePath, expectedGitignore);
+        changes.push("Created .gitignore");
+      } else {
+        const current = fs.readFileSync(gitignorePath, "utf-8");
+        if (!current.includes("state.db-wal")) {
+          fs.writeFileSync(gitignorePath, expectedGitignore);
+          changes.push("Updated .gitignore (added WAL/SHM entries)");
+        }
+      }
+
+      // --- Config migration ---
+      if (fs.existsSync(configFile)) {
+        const config = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+
+        // Migrate legacy single workflow → named workflows
+        if (config.workflow && !config.workflows) {
+          config.workflows = { default: config.workflow };
+          config.defaultWorkflow = "default";
+          delete config.workflow;
+          changes.push("Migrated legacy 'workflow' → 'workflows.default'");
+        }
+
+        // Ensure defaultWorkflow field exists
+        if (!config.defaultWorkflow) {
+          config.defaultWorkflow = "default";
+          changes.push("Added 'defaultWorkflow' field");
+        }
+
+        // Ensure workflows exist
+        if (!config.workflows || Object.keys(config.workflows).length === 0) {
+          config.workflows = DEFAULT_CONFIG.workflows;
+          changes.push("Added default workflows");
+        }
+
+        // Ensure autosave config
+        if (!config.autosave) {
+          config.autosave = DEFAULT_CONFIG.autosave;
+          changes.push("Added 'autosave' config");
+        } else {
+          if (config.autosave.autoCommit === undefined) {
+            config.autosave.autoCommit = true;
+            changes.push("Added 'autosave.autoCommit' field");
+          }
+        }
+
+        // Ensure leaderUrl
+        if (!config.leaderUrl) {
+          config.leaderUrl = `http://localhost:${config.port || DEFAULT_CONFIG.port}`;
+          changes.push("Added 'leaderUrl' field");
+        }
+
+        // Ensure maxTeammates
+        if (config.maxTeammates === undefined) {
+          config.maxTeammates = DEFAULT_CONFIG.maxTeammates;
+          changes.push("Added 'maxTeammates' field");
+        }
+
+        // Ensure categories
+        if (!config.categories) {
+          config.categories = DEFAULT_CATEGORIES;
+          changes.push("Added 'categories' field (defaults: " + DEFAULT_CATEGORIES.join(", ") + ")");
+        }
+
+        // Write updated config
+        if (changes.length > 0) {
+          fs.writeFileSync(configFile, JSON.stringify(config, null, 2) + "\n");
+        }
+      }
+
+      if (changes.length === 0) {
+        ctx.ui.notify("✓ Already up to date! No changes needed.", "info");
+      } else {
+        ctx.ui.notify("✓ Upgraded .pi-pizza-team/:\n\n" + changes.map(c => "  • " + c).join("\n") + "\n\nRestart Pi to apply changes.", "info");
+      }
     },
   });
 
