@@ -60,3 +60,10 @@ h1 { margin-bottom: 8px; font-size: 1.5em; }
 .assistant-status .dot { width: 8px; height: 8px; border-radius: 50%; }
 .assistant-status .dot.online { background: var(--success); }
 .assistant-status .dot.offline { background: var(--text-muted); }
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  body { padding: 12px; }
+  .input-section textarea { min-height: 60px; }
+  .queue-item { padding: 10px 12px; }
+}

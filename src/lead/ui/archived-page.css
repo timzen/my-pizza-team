@@ -28,3 +28,8 @@ h1 { margin-bottom: 8px; font-size: 1.5em; }
 .md-content a { color: var(--accent); }
 .md-content hr { border: none; border-top: 1px solid var(--bg-tertiary); margin: 12px 0; }
 .md-content strong { color: var(--text-primary); }
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  body { padding: 12px; }
+}

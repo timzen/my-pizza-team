@@ -142,3 +142,32 @@ h1 { margin-bottom: 20px; font-size: 1.5em; }
 .msg-bubble .md-content pre { background: rgba(0,0,0,0.2); }
 .msg-bubble .md-content code { background: rgba(0,0,0,0.2); }
 .msg-bubble.msg-lead .md-content code, .msg-bubble.msg-lead .md-content pre { background: rgba(0,0,0,0.15); }
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  body { padding: 10px; }
+  .toolbar { flex-direction: column; align-items: flex-start; gap: 10px; }
+  .toolbar h1 { font-size: 1.2em; }
+  .controls-bar { flex-direction: column; align-items: stretch; gap: 8px; padding: 10px; }
+  .controls-bar .search-input { min-width: 0; width: 100%; }
+  .filter-group { flex-wrap: wrap; }
+  .story-count { margin-left: 0; }
+  .board { flex-direction: column; gap: 0; }
+  .column { min-width: 0; }
+  .swimlane-header { flex-direction: column; align-items: flex-start; gap: 8px; }
+  .swimlane-meta { flex-wrap: wrap; }
+  .card-actions { opacity: 1; }
+  .modal-overlay { padding: 20px 10px; }
+  .modal { padding: 16px; max-width: 100%; }
+  .team-bar { gap: 8px; padding: 8px; }
+}
+
+@media (max-width: 480px) {
+  body { padding: 6px; }
+  .toolbar h1 { font-size: 1em; }
+  .btn-add-story { font-size: 0.78em; padding: 6px 12px; }
+  .swimlane-title { font-size: 0.85em; }
+  .column h2 { font-size: 0.65em; }
+  .card-title { font-size: 0.75em; }
+  .msg-panel { width: 100%; max-width: 100%; right: -100%; }
+}

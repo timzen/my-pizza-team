@@ -13,3 +13,20 @@
 .theme-btn.active { color: var(--accent); border-color: var(--accent); }
 /* Push page content below fixed nav */
 body { padding-top: 58px !important; }
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  .site-nav { padding: 0 10px; }
+  .site-nav-inner { height: 44px; }
+  .site-nav-brand { font-size: 0.88em; }
+  .site-nav-links { gap: 2px; overflow-x: auto; -webkit-overflow-scrolling: touch; }
+  .site-nav-link { padding: 6px 8px; font-size: 0.75em; white-space: nowrap; }
+  .theme-toggle { margin-left: 8px; padding-left: 8px; }
+  .theme-btn { font-size: 0.7em; padding: 3px 6px; }
+  body { padding-top: 52px !important; }
+}
+
+@media (max-width: 480px) {
+  .site-nav-brand { display: none; }
+  .site-nav-inner { justify-content: center; }
+}

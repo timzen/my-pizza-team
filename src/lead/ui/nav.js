@@ -40,6 +40,12 @@
     meta.content = '#268bd2';
     document.head.appendChild(meta);
   }
+  if (!document.querySelector('meta[name="viewport"]')) {
+    const meta = document.createElement('meta');
+    meta.name = 'viewport';
+    meta.content = 'width=device-width, initial-scale=1, viewport-fit=cover';
+    document.head.appendChild(meta);
+  }
   if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
     const meta = document.createElement('meta');
     meta.name = 'apple-mobile-web-app-capable';

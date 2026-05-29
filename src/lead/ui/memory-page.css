@@ -46,3 +46,14 @@ h1 { margin-bottom: 8px; font-size: 1.5em; }
 /* Empty state */
 .empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 0.88em; }
 .empty-state .icon { font-size: 2em; margin-bottom: 8px; }
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  body { padding: 12px; }
+  .search-bar { flex-direction: column; }
+  .search-bar input { min-width: 0; }
+  .cat-tabs { gap: 0; }
+  .cat-tab { padding: 8px 10px; font-size: 0.8em; }
+  .memory-item { padding: 12px; }
+  .memory-item-content { max-height: 100px; }
+}

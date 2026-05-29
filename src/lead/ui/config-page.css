@@ -51,3 +51,14 @@ h3 { font-size: 0.95em; margin: 16px 0 8px; color: var(--text-primary); }
 .toast { position: fixed; bottom: 20px; right: 20px; background: var(--success); color: #fff; padding: 12px 20px; border-radius: 6px; font-size: 0.85em; font-weight: 600; z-index: 9999; display: none; }
 .toast.error { background: var(--danger); }
 .toast.show { display: block; }
+
+/* --- Responsive --- */
+@media (max-width: 768px) {
+  body { padding: 12px; }
+  .form-row { flex-direction: column; gap: 4px; }
+  .form-row label { min-width: 0; }
+  .form-row input, .form-row select { max-width: 100%; }
+  .form-row input[type="number"] { max-width: 100%; }
+  .transitions-table { font-size: 0.75em; }
+  .section { padding: 12px; }
+}
