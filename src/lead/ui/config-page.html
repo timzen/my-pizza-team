@@ -178,8 +178,8 @@ function renderCategories() {
     : '<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:8px;">No categories configured</div>';
 
   return '<div class="section">'
-    + '<h3>Note Categories</h3>'
-    + '<div style="font-size:0.78em;color:var(--text-muted);margin-bottom:8px;">Categories for organizing notes in the assistant knowledge base. Notes can be tagged with one or more categories for targeted search.</div>'
+    + '<h3>Memory Categories</h3>'
+    + '<div style="font-size:0.78em;color:var(--text-muted);margin-bottom:8px;">Categories for organizing memories in the knowledge base. Memories can be tagged with one or more categories for targeted search.</div>'
     + catsHtml
     + '<div class="add-state-row"><input type="text" id="new-category" placeholder="e.g. architecture" onkeydown="if(event.key===\'Enter\')addCategory()" /><button class="btn btn-sm" onclick="addCategory()">Add</button></div>'
     + '</div>';

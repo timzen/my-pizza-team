@@ -99,7 +99,7 @@ export class TeamServer {
     this.rebuildSearchIndex();
   }
 
-  /** Rebuild the BM25 search index from notes on disk */
+  /** Rebuild the BM25 search index from memories on disk */
   private rebuildSearchIndex(): void {
     const notes = this.store.getAssistantNotes();
     this.searchEngine.rebuild(

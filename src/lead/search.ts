@@ -1,4 +1,4 @@
-// BM25 search index for notes
+// BM25 search index for memories
 //
 // Provides keyword-based search over notes, organized by category.
 // Each category maintains its own index for targeted retrieval.
@@ -118,7 +118,7 @@ class CategoryIndex {
   }
 }
 
-/** Note with parsed frontmatter */
+/** Memory item with parsed frontmatter */
 export interface ParsedNote {
   id: string;
   title: string;
@@ -127,7 +127,7 @@ export interface ParsedNote {
   rawContent: string; // full file content including frontmatter
 }
 
-/** Parse frontmatter from a note's content */
+/** Parse frontmatter from a memory's content */
 export function parseFrontmatter(raw: string): { categories: string[]; body: string } {
   const match = raw.match(/^---\n([\s\S]*?)\n---\n([\s\S]*)$/);
   if (!match) return { categories: [], body: raw };
@@ -147,14 +147,14 @@ export function parseFrontmatter(raw: string): { categories: string[]; body: str
   return { categories, body };
 }
 
-/** Serialize frontmatter into a note */
+/** Serialize frontmatter into a memory file */
 export function serializeFrontmatter(categories: string[], body: string): string {
   if (categories.length === 0) return body;
   return `---\ncategories: [${categories.join(", ")}]\n---\n${body}`;
 }
 
 /**
- * Multi-category BM25 search engine for notes.
+ * Multi-category BM25 search engine for memories.
  * Maintains one index per category + an "all" index for global search.
  */
 export class NotesSearchEngine {
@@ -162,7 +162,7 @@ export class NotesSearchEngine {
   private allIndex: CategoryIndex = new CategoryIndex();
   private notes: Map<string, ParsedNote> = new Map();
 
-  /** Rebuild all indexes from a list of parsed notes */
+  /** Rebuild all indexes from a list of parsed memories */
   rebuild(notes: ParsedNote[]): void {
     this.notes.clear();
     this.categoryIndexes.clear();
@@ -205,7 +205,7 @@ export class NotesSearchEngine {
     return this.allIndex.search(query, limit);
   }
 
-  /** Get a note by ID */
+  /** Get a memory by ID */
   getNote(id: string): ParsedNote | undefined {
     return this.notes.get(id);
   }

@@ -203,12 +203,12 @@ export function registerLeadTools(
     label: "Queue Assistant Request",
     description:
       "Queue a request for the pi-pizza-team assistant to process. The assistant can create stories, " +
-      "add tasks, spawn teammates, save notes, or handle any operational request.",
+      "add tasks, spawn teammates, save memories, or handle any operational request.",
     promptSnippet: "Queue a request for the team assistant",
     promptGuidelines: [
       "Use team_queue_request when you want to delegate operational work to the assistant.",
       "The assistant processes requests asynchronously — it will handle them in order.",
-      "Good for: creating multiple stories, breaking down plans, spawning teammates, saving research notes.",
+      "Good for: creating multiple stories, breaking down plans, spawning teammates, saving research memories.",
     ],
     parameters: Type.Object({
       prompt: Type.String({ description: "Free-form request for the assistant to process" }),

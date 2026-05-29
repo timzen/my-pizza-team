@@ -7,7 +7,7 @@
 // Unlike the teammate work loop, the assistant:
 // - Processes free-form prompts (not structured task descriptions)
 // - Has access to leader tools (create stories, tasks, etc.)
-// - Can save notes via the API
+// - Can save memories via the API
 // - Doesn't follow story/task workflow states
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { AssistantClient } from "./client.js";
@@ -95,7 +95,7 @@ export class AssistantLoop {
   }
 
   private async executeItem(item: { id: string; prompt: string }): Promise<void> {
-    const prompt = `## Assistant Request\n\n${item.prompt}\n\n---\nYou are the team assistant. Execute this request using your available tools (create stories, add tasks, edit stories, spawn teammates, save notes, etc.). When done, provide a brief summary of what you accomplished.`;
+    const prompt = `## Assistant Request\n\n${item.prompt}\n\n---\nYou are the team assistant. Execute this request using your available tools (create stories, add tasks, edit stories, spawn teammates, save memories, etc.). When done, provide a brief summary of what you accomplished.`;
 
     this.pi.sendUserMessage(prompt, { deliverAs: "followUp" });
     // The agent_end event handler (registered in index.ts) will call handleAgentComplete

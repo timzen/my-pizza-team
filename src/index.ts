@@ -248,15 +248,15 @@ async function setupTeammate(
     }
   }
 
-  // Register search_notes tool for teammates
+  // Register search_memory tool for teammates
   const { Type: TeammateType } = await import("typebox");
   pi.registerTool({
-    name: "search_notes",
+    name: "search_memory",
     label: "Search Memory",
-    description: "Search the team's memory (knowledge base) by keyword. Can filter by category.",
+    description: "Search the team's memory by keyword. Can filter by category.",
     promptSnippet: "Search team memory for relevant information",
     promptGuidelines: [
-      "Use search_notes to find relevant context, conventions, or research from the team's knowledge base.",
+      "Use search_memory to find relevant context, conventions, or research from the team's knowledge base.",
       "Search within a specific category for more targeted results (e.g. 'coding', 'research', 'doc-writing').",
     ],
     parameters: TeammateType.Object({
@@ -487,15 +487,15 @@ async function setupAssistant(
   } catch { /* use defaults */ }
   const categoryList = configuredCategories.join(", ");
 
-  // Register a save_note tool for the assistant
+  // Register a save_memory tool for the assistant
   const { Type } = await import("typebox");
   pi.registerTool({
-    name: "save_note",
-    label: "Save Note",
-    description: `Save a note to the team's memory. IMPORTANT: You MUST specify at least one category from: [${categoryList}]. Notes without categories are hard to find.`,
-    promptSnippet: "Save a note for the team",
+    name: "save_memory",
+    label: "Save Memory",
+    description: `Save a memory to the team's memory. IMPORTANT: You MUST specify at least one category from: [${categoryList}]. Notes without categories are hard to find.`,
+    promptSnippet: "Save a memory for the team",
     promptGuidelines: [
-      "Use save_note to persist information, research, decisions, or context for the team.",
+      "Use save_memory to persist information, research, decisions, or context for the team.",
       "Memories are stored as markdown files and visible on the Memory page.",
       `You MUST always include the 'categories' parameter. Available categories: ${categoryList}`,
       "Pick the most relevant category(ies) for the content being saved.",
@@ -511,22 +511,22 @@ async function setupAssistant(
         ? params.categories
         : [configuredCategories[0]];
       const result = await client.saveNote(params.title, params.content, cats);
-      if (!result.success) throw new Error(result.error || "Failed to save note");
+      if (!result.success) throw new Error(result.error || "Failed to save memory");
       return {
-        content: [{ type: "text", text: `Saved note: "${params.title}" [${cats.join(", ")}]` }],
+        content: [{ type: "text", text: `Saved memory: "${params.title}" [${cats.join(", ")}]` }],
         details: { noteId: result.note?.id },
       };
     },
   });
 
-  // Register a search_notes tool for the assistant
+  // Register a search_memory tool for the assistant
   pi.registerTool({
-    name: "search_notes",
-    label: "Search Notes",
-    description: "Search the team's memory (knowledge base) by keyword. Can filter by category.",
-    promptSnippet: "Search team notes for relevant information",
+    name: "search_memory",
+    label: "Search Memory",
+    description: "Search the team's memory by keyword. Can filter by category.",
+    promptSnippet: "Search team memory for relevant information",
     promptGuidelines: [
-      "Use search_notes to find relevant memories/context before working on a task.",
+      "Use search_memory to find relevant memories/context before working on a task.",
       "Search within a specific category for more targeted results.",
       "Available categories are configured per-team (typically: coding, research, doc-writing).",
     ],
@@ -540,11 +540,11 @@ async function setupAssistant(
       const data = await res.json() as any;
       const results = data.results || [];
       if (results.length === 0) {
-        return { content: [{ type: "text", text: "No matching notes found." }] };
+        return { content: [{ type: "text", text: "No matching memories found." }] };
       }
       const formatted = results.map((r: any) => `- **${r.title}** (score: ${r.score}) — ${r.snippet}`).join("\n");
       return {
-        content: [{ type: "text", text: `Found ${results.length} notes:\n${formatted}` }],
+        content: [{ type: "text", text: `Found ${results.length} memories:\n${formatted}` }],
         details: { results },
       };
     },

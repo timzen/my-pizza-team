@@ -9,7 +9,7 @@ export interface TeamConfig {
   leaderUrl: string;
   maxTeammates?: number;
   teammates?: TeammateConfig;
-  /** Configurable note categories for the knowledge base */
+  /** Configurable memory categories for the knowledge base */
   categories?: string[];
   /** @deprecated Use workflows + defaultWorkflow instead */
   workflow?: WorkflowConfig;
@@ -22,7 +22,7 @@ export interface TeammateConfig {
   favoriteDirectories?: string[];
 }
 
-/** Default note categories for the assistant knowledge base */
+/** Default memory categories for the knowledge base */
 export const DEFAULT_CATEGORIES = ["coding", "research", "doc-writing"];
 
 export interface WorkflowConfig {
