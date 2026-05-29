@@ -449,17 +449,52 @@ async function setupAssistant(
     promptGuidelines: [
       "Use save_note to persist information, research, decisions, or context for the team.",
       "Notes are stored as markdown files and visible in the web UI.",
+      "Always specify relevant categories to organize the note for search.",
     ],
     parameters: Type.Object({
       title: Type.String({ description: "Title for the note" }),
       content: Type.String({ description: "Markdown content of the note" }),
+      categories: Type.Optional(
+        Type.Array(Type.String(), { description: "Categories for the note (e.g. 'coding', 'research', 'doc-writing')" })
+      ),
     }),
     async execute(_toolCallId, params) {
-      const result = await client.saveNote(params.title, params.content);
+      const result = await client.saveNote(params.title, params.content, params.categories);
       if (!result.success) throw new Error(result.error || "Failed to save note");
       return {
-        content: [{ type: "text", text: `Saved note: "${params.title}"` }],
+        content: [{ type: "text", text: `Saved note: "${params.title}"${params.categories?.length ? ` [${params.categories.join(", ")}]` : ""}` }],
         details: { noteId: result.note?.id },
+      };
+    },
+  });
+
+  // Register a search_notes tool for the assistant
+  pi.registerTool({
+    name: "search_notes",
+    label: "Search Notes",
+    description: "Search the team's knowledge base of notes by keyword. Can filter by category.",
+    promptSnippet: "Search team notes for relevant information",
+    promptGuidelines: [
+      "Use search_notes to find relevant context before working on a task.",
+      "Search within a specific category for more targeted results.",
+      "Available categories are configured per-team (typically: coding, research, doc-writing).",
+    ],
+    parameters: Type.Object({
+      query: Type.String({ description: "Search query (keywords)" }),
+      category: Type.Optional(Type.String({ description: "Category to search within (optional, searches all if omitted)" })),
+      limit: Type.Optional(Type.Number({ description: "Max results to return (default: 5)" })),
+    }),
+    async execute(_toolCallId, params) {
+      const res = await fetch(`${leaderUrl}/api/assistant/notes/search?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ""}${params.limit ? `&limit=${params.limit}` : ""}`);
+      const data = await res.json() as any;
+      const results = data.results || [];
+      if (results.length === 0) {
+        return { content: [{ type: "text", text: "No matching notes found." }] };
+      }
+      const formatted = results.map((r: any) => `- **${r.title}** (score: ${r.score}) — ${r.snippet}`).join("\n");
+      return {
+        content: [{ type: "text", text: `Found ${results.length} notes:\n${formatted}` }],
+        details: { results },
       };
     },
   });

@@ -21,6 +21,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { slugify, getInitialState, getDoneState } from "../shared/types.js";
 import type { Message, Story, Task, TaskWithMeta, TeamConfig, WorkflowConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
+import { parseFrontmatter, serializeFrontmatter } from "./search.js";
 
 export class Store {
   private db: Database.Database;
@@ -1063,23 +1064,28 @@ export class Store {
 
   // --- Notes ---
 
-  getAssistantNotes(): Array<{ id: string; title: string; content: string; createdAt: string; updatedAt: string }> {
+  getAssistantNotes(): Array<{ id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string }> {
     const notesDir = path.join(this.teamDir, "notes");
     if (!fs.existsSync(notesDir)) return [];
-    const results: Array<{ id: string; title: string; content: string; createdAt: string; updatedAt: string }> = [];
+    const results: Array<{ id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string }> = [];
     for (const filename of fs.readdirSync(notesDir).sort()) {
       if (!filename.endsWith(".md")) continue;
       const filePath = path.join(notesDir, filename);
       const stat = fs.statSync(filePath);
-      const content = fs.readFileSync(filePath, "utf-8");
+      const rawContent = fs.readFileSync(filePath, "utf-8");
       const id = filename.replace(/\.md$/, "");
-      // Extract title from first line (# Title) or use filename
-      const firstLine = content.split("\n")[0];
+
+      // Parse frontmatter for categories
+      const { categories, body } = parseFrontmatter(rawContent);
+
+      // Extract title from first line of body (# Title) or use filename
+      const firstLine = body.trim().split("\n")[0];
       const title = firstLine.startsWith("# ") ? firstLine.slice(2).trim() : id;
       results.push({
         id,
         title,
-        content,
+        content: body,
+        categories,
         createdAt: new Date(stat.birthtime).toISOString(),
         updatedAt: new Date(stat.mtime).toISOString(),
       });
@@ -1087,21 +1093,37 @@ export class Store {
     return results;
   }
 
-  saveAssistantNote(title: string, content: string): { id: string; title: string; content: string; createdAt: string; updatedAt: string } {
+  saveAssistantNote(title: string, content: string, categories?: string[]): { id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string } {
     const notesDir = path.join(this.teamDir, "notes");
     fs.mkdirSync(notesDir, { recursive: true });
     const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || `note-${Date.now()}`;
     const filePath = path.join(notesDir, `${id}.md`);
-    const fullContent = content.startsWith("# ") ? content : `# ${title}\n\n${content}`;
+    const body = content.startsWith("# ") ? content : `# ${title}\n\n${content}`;
+    const cats = categories || [];
+
+    const fullContent = serializeFrontmatter(cats, body);
     fs.writeFileSync(filePath, fullContent);
     const stat = fs.statSync(filePath);
     return {
       id,
       title,
-      content: fullContent,
+      content: body,
+      categories: cats,
       createdAt: new Date(stat.birthtime).toISOString(),
       updatedAt: new Date(stat.mtime).toISOString(),
     };
+  }
+
+  updateNoteCategories(id: string, categories: string[]): boolean {
+    const notesDir = path.join(this.teamDir, "notes");
+    const filePath = path.join(notesDir, `${id}.md`);
+    if (!fs.existsSync(filePath)) return false;
+
+    const rawContent = fs.readFileSync(filePath, "utf-8");
+    const { body } = parseFrontmatter(rawContent);
+    const newContent = serializeFrontmatter(categories, body);
+    fs.writeFileSync(filePath, newContent);
+    return true;
   }
 
   deleteAssistantNote(id: string): boolean {

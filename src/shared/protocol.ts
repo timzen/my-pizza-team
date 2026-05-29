@@ -328,6 +328,7 @@ export interface AssistantNote {
   id: string;
   title: string;
   content: string;
+  categories: string[];
   createdAt: string;
   updatedAt: string;
 }
@@ -336,6 +337,7 @@ export interface AssistantNote {
 export interface AssistantSaveNoteRequest {
   title: string;
   content: string;
+  categories?: string[];
 }
 
 export interface AssistantSaveNoteResponse {

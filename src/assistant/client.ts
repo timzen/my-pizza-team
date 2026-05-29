@@ -67,11 +67,11 @@ export class AssistantClient {
     return res.json() as Promise<AssistantCompleteResponse>;
   }
 
-  async saveNote(title: string, content: string): Promise<AssistantSaveNoteResponse> {
+  async saveNote(title: string, content: string, categories?: string[]): Promise<AssistantSaveNoteResponse> {
     const res = await fetch(`${this.baseUrl}/api/assistant/notes`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ title, content }),
+      body: JSON.stringify({ title, content, categories }),
     });
     return res.json() as Promise<AssistantSaveNoteResponse>;
   }

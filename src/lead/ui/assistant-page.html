@@ -139,13 +139,60 @@ function renderNotes(notes) {
   }
   el.innerHTML = notes.map(note => {
     const time = note.updatedAt ? new Date(note.updatedAt).toLocaleString() : '';
+    const cats = (note.categories || []).map(c =>
+      '<span style="display:inline-block;background:var(--accent-bg);color:var(--accent);font-size:0.72em;padding:2px 8px;border-radius:10px;margin-right:4px;">' + escHtml(c) + '</span>'
+    ).join('');
+    const catsHtml = cats ? '<div style="margin-bottom:6px;">' + cats
+      + '<button onclick="editNoteCategories(\'' + escHtml(note.id) + '\')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.72em;" title="Edit categories">✏️</button>'
+      + '</div>' : '<div style="margin-bottom:4px;"><button onclick="editNoteCategories(\'' + escHtml(note.id) + '\')" style="background:none;border:none;color:var(--text-muted);cursor:pointer;font-size:0.72em;" title="Add categories">+ category</button></div>';
     return '<div class="note-item">'
       + '<div class="note-item-actions"><button onclick="deleteNote(\'' + escHtml(note.id) + '\')" title="Delete">✕</button></div>'
       + '<div class="note-item-title">' + escHtml(note.title) + '</div>'
+      + catsHtml
       + '<div class="note-item-content md-content">' + renderMarkdown(note.content) + '</div>'
       + '<div class="note-item-meta">Updated: ' + time + '</div>'
       + '</div>';
   }).join('');
+}
+
+// --- Edit note categories ---
+let allCategories = [];
+
+async function editNoteCategories(noteId) {
+  // Fetch configured categories
+  try {
+    const res = await fetch('/api/assistant/categories');
+    const data = await res.json();
+    allCategories = data.configured || [];
+  } catch(e) { /* use defaults */ }
+
+  // Find current note categories
+  const notesRes = await fetch('/api/assistant/notes').then(r => r.json());
+  const note = (notesRes.notes || []).find(n => n.id === noteId);
+  const current = note ? (note.categories || []) : [];
+
+  const choices = allCategories.length > 0 ? allCategories : ['coding', 'research', 'doc-writing'];
+  const selected = new Set(current);
+
+  // Simple prompt-based UI (toggle categories)
+  const result = prompt(
+    'Categories for "' + (note ? note.title : noteId) + '"\n\n'
+    + 'Available: ' + choices.join(', ') + '\n'
+    + 'Current: ' + (current.length > 0 ? current.join(', ') : '(none)') + '\n\n'
+    + 'Enter comma-separated categories:',
+    current.join(', ')
+  );
+  if (result === null) return;
+
+  const newCats = result.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    await fetch('/api/assistant/notes/' + encodeURIComponent(noteId) + '/categories', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: newCats })
+    });
+    refresh();
+  } catch(e) { alert('Error: ' + e.message); }
 }
 
 // --- Check assistant status ---

@@ -23,6 +23,7 @@ import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, spawnAssistant } from "./tmux.js";
 import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
+import { NotesSearchEngine, parseFrontmatter } from "./search.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -87,6 +88,7 @@ export class TeamServer {
   private config: TeamConfig;
   private teamDir: string;
   private paused = false;
+  private searchEngine: NotesSearchEngine = new NotesSearchEngine();
 
   constructor(store: Store, config: TeamConfig, teamDir: string) {
     this.store = store;
@@ -94,6 +96,21 @@ export class TeamServer {
     this.teamDir = teamDir;
     this.app = new Hono();
     this.setupRoutes();
+    this.rebuildSearchIndex();
+  }
+
+  /** Rebuild the BM25 search index from notes on disk */
+  private rebuildSearchIndex(): void {
+    const notes = this.store.getAssistantNotes();
+    this.searchEngine.rebuild(
+      notes.map((n) => ({
+        id: n.id,
+        title: n.title,
+        content: n.content,
+        categories: n.categories,
+        rawContent: "",
+      }))
+    );
   }
 
   /** Assemble transition instructions into a single markdown string (or undefined if none) */
@@ -828,8 +845,23 @@ export class TeamServer {
       if (!body.content || typeof body.content !== "string") {
         return c.json({ success: false, error: "Field 'content' is required" }, 400);
       }
-      const note = this.store.saveAssistantNote(body.title, body.content);
+      const categories = Array.isArray(body.categories) ? body.categories : [];
+      const note = this.store.saveAssistantNote(body.title, body.content, categories);
+      this.rebuildSearchIndex();
       return c.json({ success: true, note }, 201);
+    });
+
+    // PUT /api/assistant/notes/:id/categories
+    this.app.put("/api/assistant/notes/:id/categories", async (c) => {
+      const id = c.req.param("id");
+      const body = await c.req.json();
+      if (!Array.isArray(body.categories)) {
+        return c.json({ success: false, error: "Field 'categories' must be an array" }, 400);
+      }
+      const success = this.store.updateNoteCategories(id, body.categories);
+      if (!success) return c.json({ success: false, error: "Note not found" }, 404);
+      this.rebuildSearchIndex();
+      return c.json({ success: true });
     });
 
     // DELETE /api/assistant/notes/:id
@@ -837,7 +869,25 @@ export class TeamServer {
       const id = c.req.param("id");
       const success = this.store.deleteAssistantNote(id);
       if (!success) return c.json({ success: false, error: "Note not found" }, 404);
+      this.rebuildSearchIndex();
       return c.json({ success: true });
+    });
+
+    // GET /api/assistant/notes/search
+    this.app.get("/api/assistant/notes/search", (c) => {
+      const query = c.req.query("q") || "";
+      const category = c.req.query("category") || undefined;
+      const limit = parseInt(c.req.query("limit") || "5", 10);
+      if (!query) return c.json({ results: [] });
+      const results = this.searchEngine.search(query, category, limit);
+      return c.json({ results });
+    });
+
+    // GET /api/assistant/categories
+    this.app.get("/api/assistant/categories", (c) => {
+      const configured = this.config.categories || [];
+      const indexed = this.searchEngine.getCategories();
+      return c.json({ configured, indexed });
     });
 
     // --- Config endpoints ---

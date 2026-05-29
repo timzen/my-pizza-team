@@ -58,6 +58,7 @@ src/
 │   │   └── shared.js         # Shared browser utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_edit_story, team_add_task, team_queue_request)
+│   ├── search.ts         # BM25 search engine for notes (per-category indexing)
 │   └── tmux.ts           # tmux session/window lifecycle management
 └── assistant/
     ├── client.ts         # HTTP client for assistant → leader API calls
@@ -246,8 +247,11 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/assistant/queue/:id` | DELETE | Remove a queue item |
 | `/api/assistant/spawn` | POST | Spawn the assistant Pi instance in tmux |
 | `/api/assistant/notes` | GET | List saved notes |
-| `/api/assistant/notes` | POST | Save a new note |
+| `/api/assistant/notes` | POST | Save a new note (with optional categories) |
 | `/api/assistant/notes/:id` | DELETE | Delete a note |
+| `/api/assistant/notes/:id/categories` | PUT | Update a note's categories |
+| `/api/assistant/notes/search` | GET | BM25 keyword search (?q=...&category=...&limit=) |
+| `/api/assistant/categories` | GET | List configured + indexed categories |
 
 ## Transition Instructions
 

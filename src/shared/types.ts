@@ -9,6 +9,8 @@ export interface TeamConfig {
   leaderUrl: string;
   maxTeammates?: number;
   teammates?: TeammateConfig;
+  /** Configurable note categories for the knowledge base */
+  categories?: string[];
   /** @deprecated Use workflows + defaultWorkflow instead */
   workflow?: WorkflowConfig;
 }
@@ -19,6 +21,9 @@ export interface TeammateConfig {
   /** Favorite working directories for quick spawn */
   favoriteDirectories?: string[];
 }
+
+/** Default note categories for the assistant knowledge base */
+export const DEFAULT_CATEGORIES = ["coding", "research", "doc-writing"];
 
 export interface WorkflowConfig {
   states: string[];
@@ -117,6 +122,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
   },
   leaderUrl: "http://localhost:7437",
   maxTeammates: 4,
+  categories: DEFAULT_CATEGORIES,
   teammates: {
     favoriteDirectories: [],
   },

@@ -109,7 +109,7 @@ The assistant is a dedicated Pi instance that processes a queue of free-form req
 - Web UI: type a prompt on the `/assistant` page
 - Leader Pi: use the `team_queue_request` tool
 
-**Notes:** The assistant can save markdown notes to `.pi-pizza-team/notes/` using the `save_note` tool. These are visible on the assistant page's Notes tab.
+**Notes:** The assistant can save markdown notes to `.pi-pizza-team/notes/` using the `save_note` tool. Notes support **categories** (configurable in `config.json`, defaults: `coding`, `research`, `doc-writing`) and are indexed with a BM25 search engine for keyword retrieval. Use `search_notes` to find relevant notes by keyword, optionally filtered by category. These are visible on the assistant page's Notes tab.
 
 ## Workflow
 
