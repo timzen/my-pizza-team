@@ -30,19 +30,20 @@
   // --- PWA: inject manifest + meta tags + register service worker ---
   if (!document.querySelector('link[rel="manifest"]')) {
     // Inline manifest as data URI to avoid proxy 403 on static file fetches
+    const origin = window.location.origin;
     const manifest = {
       name: 'pi-pizza-team',
       short_name: 'Pizza Team',
       description: 'Multi-agent task orchestration board',
-      id: '/',
-      start_url: '/board',
-      scope: '/',
+      id: origin + '/',
+      start_url: origin + '/board',
+      scope: origin + '/',
       display: 'standalone',
       background_color: '#002b36',
       theme_color: '#268bd2',
       icons: [
-        { src: '/icon-192.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
-        { src: '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }
+        { src: origin + '/icon-192.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'any' },
+        { src: origin + '/icon-maskable.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' }
       ]
     };
     const blob = new Blob([JSON.stringify(manifest)], { type: 'application/manifest+json' });
