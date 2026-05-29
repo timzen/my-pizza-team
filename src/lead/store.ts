@@ -1017,9 +1017,18 @@ export class Store {
   }
 
   getAssistantQueue(): Array<{ id: string; prompt: string; status: string; result: string | null; createdAt: number; startedAt: number | null; completedAt: number | null }> {
-    return this.db
+    const rows: any[] = this.db
       .prepare("SELECT * FROM assistant_queue ORDER BY created_at DESC")
-      .all() as any[];
+      .all();
+    return rows.map((row) => ({
+      id: row.id,
+      prompt: row.prompt,
+      status: row.status,
+      result: row.result,
+      createdAt: row.created_at,
+      startedAt: row.started_at,
+      completedAt: row.completed_at,
+    }));
   }
 
   getNextAssistantItem(): { id: string; prompt: string } | null {

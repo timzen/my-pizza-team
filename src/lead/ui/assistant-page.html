@@ -18,8 +18,8 @@
 </div>
 
 <div class="tabs">
-  <button class="tab-btn active" data-tab="queue" onclick="switchTab('queue')">Queue</button>
-  <button class="tab-btn" data-tab="notes" onclick="switchTab('notes')">Notes</button>
+  <button class="tab-btn active" data-tab="queue" onclick="switchTab('queue')">Queue <span id="queue-badge"></span></button>
+  <button class="tab-btn" data-tab="notes" onclick="switchTab('notes')">Notes <span id="notes-badge"></span></button>
 </div>
 
 <div class="tab-content active" id="tab-queue">
@@ -164,13 +164,19 @@ async function updateAssistantStatus(members) {
 async function refresh() {
   try {
     const [queueRes, notesRes, teamRes] = await Promise.all([
-      fetch('/api/assistant/queue').then(r => r.json()),
-      fetch('/api/assistant/notes').then(r => r.json()),
-      fetch('/api/team').then(r => r.json()),
+      fetch('/api/assistant/queue').then(r => r.json()).catch(() => ({ items: [] })),
+      fetch('/api/assistant/notes').then(r => r.json()).catch(() => ({ notes: [] })),
+      fetch('/api/team').then(r => r.json()).catch(() => ({ members: [] })),
     ]);
-    renderQueue(queueRes.items);
-    renderNotes(notesRes.notes);
-    updateAssistantStatus(teamRes.members);
+    renderQueue(queueRes.items || []);
+    renderNotes(notesRes.notes || []);
+    updateAssistantStatus(teamRes.members || []);
+
+    // Update tab badges
+    const pending = (queueRes.items || []).filter(i => i.status === 'pending' || i.status === 'processing').length;
+    document.getElementById('queue-badge').textContent = pending > 0 ? '(' + pending + ')' : '';
+    const noteCount = (notesRes.notes || []).length;
+    document.getElementById('notes-badge').textContent = noteCount > 0 ? '(' + noteCount + ')' : '';
   } catch (e) {
     console.error('Refresh error:', e);
   }

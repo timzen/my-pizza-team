@@ -21,7 +21,7 @@ import * as path from "node:path";
 import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
-import { spawnTeammate } from "./tmux.js";
+import { spawnTeammate, spawnAssistant } from "./tmux.js";
 import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import type {
   StatusResponse,
@@ -748,7 +748,7 @@ export class TeamServer {
           prompt: item.prompt,
           status: item.status,
           result: item.result || undefined,
-          createdAt: new Date(item.createdAt).toISOString(),
+          createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(),
           startedAt: item.startedAt ? new Date(item.startedAt).toISOString() : undefined,
           completedAt: item.completedAt ? new Date(item.completedAt).toISOString() : undefined,
         })),
@@ -800,7 +800,6 @@ export class TeamServer {
     // POST /api/assistant/spawn — spawn the assistant Pi instance
     this.app.post("/api/assistant/spawn", (c) => {
       try {
-        const { spawnAssistant } = require("./tmux.js");
         const cwd = path.dirname(this.teamDir);
         spawnAssistant(cwd, {
           session: this.config.tmuxSession,
