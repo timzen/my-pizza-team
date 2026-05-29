@@ -248,6 +248,7 @@ export class TeamServer {
             ready: this.store.isStoryReady(story.id),
             dir: story.dir,
             workflow: story.workflow,
+            categories: story.categories,
             tasks: tasks.map((task) => {
               const assignment = this.store.getAssignment(task.id);
               const tokenSummary = this.store.getTokenUsageSummary(task.id);
@@ -299,7 +300,8 @@ export class TeamServer {
         dependsOn,
         body.tasks,
         body.dir,
-        body.workflow
+        body.workflow,
+        body.categories
       );
 
       const response: CreateStoryResponse = {
@@ -313,6 +315,7 @@ export class TeamServer {
           ready: this.store.isStoryReady(story.id),
           dir: story.dir,
           workflow: story.workflow,
+          categories: story.categories,
           tasks: tasks.map((t) => ({
             id: t.id,
             seq: t.seq,
@@ -348,6 +351,7 @@ export class TeamServer {
         dependsOn: body.dependsOn,
         dir: body.dir,
         workflow: body.workflow,
+        categories: body.categories,
       });
 
       return c.json({ success: true } satisfies UpdateStoryResponse);
@@ -374,13 +378,35 @@ export class TeamServer {
         .map((t) => `[${t.title}]: ${t.result}`)
         .join("\n\n");
 
+      // Get relevant memory context from the story's categories
+      const story = this.store.getStory(task.storyId);
+      const storyCategories = story?.categories || [];
+      let memoryContext = "";
+      if (storyCategories.length > 0) {
+        const searchQuery = task.title + " " + task.description.slice(0, 200);
+        const memoryResults: Array<{ title: string; snippet: string }> = [];
+        for (const cat of storyCategories) {
+          const results = this.searchEngine.search(searchQuery, cat, 3);
+          for (const r of results) {
+            if (!memoryResults.some(m => m.title === r.title)) {
+              memoryResults.push({ title: r.title, snippet: r.snippet });
+            }
+          }
+        }
+        if (memoryResults.length > 0) {
+          memoryContext = memoryResults.slice(0, 5).map(r => `[${r.title}]: ${r.snippet}`).join("\n");
+        }
+      }
+
+      const fullContext = [previousResults, memoryContext].filter(Boolean).join("\n\n---\n\n");
+
       const response: NextTaskResponse = {
         task: {
           id: task.id,
           storyId: task.storyId,
           title: task.title,
           description: task.description,
-          context: previousResults || undefined,
+          context: fullContext || undefined,
         },
       };
       return c.json(response);

@@ -248,6 +248,42 @@ async function setupTeammate(
     }
   }
 
+  // Register search_notes tool for teammates
+  const { Type: TeammateType } = await import("typebox");
+  pi.registerTool({
+    name: "search_notes",
+    label: "Search Memory",
+    description: "Search the team's memory (knowledge base) by keyword. Can filter by category.",
+    promptSnippet: "Search team memory for relevant information",
+    promptGuidelines: [
+      "Use search_notes to find relevant context, conventions, or research from the team's knowledge base.",
+      "Search within a specific category for more targeted results (e.g. 'coding', 'research', 'doc-writing').",
+    ],
+    parameters: TeammateType.Object({
+      query: TeammateType.String({ description: "Search query (keywords)" }),
+      category: TeammateType.Optional(TeammateType.String({ description: "Category to search within (optional)" })),
+      limit: TeammateType.Optional(TeammateType.Number({ description: "Max results (default: 5)" })),
+    }),
+    async execute(_toolCallId, params) {
+      try {
+        const url = `${leaderUrl}/api/assistant/notes/search?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ""}${params.limit ? `&limit=${params.limit}` : ""}`;
+        const res = await fetch(url);
+        const data = await res.json() as any;
+        const results = data.results || [];
+        if (results.length === 0) {
+          return { content: [{ type: "text", text: "No matching memories found." }] };
+        }
+        const formatted = results.map((r: any) => `- **${r.title}** (score: ${r.score}) \u2014 ${r.snippet}`).join("\n");
+        return {
+          content: [{ type: "text", text: `Found ${results.length} memories:\n${formatted}` }],
+          details: { results },
+        };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to search memory (leader unreachable)." }] };
+      }
+    },
+  });
+
   // Create work loop
   const loop = new WorkLoop(pi, client, memberId);
 

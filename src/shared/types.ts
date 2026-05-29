@@ -51,6 +51,7 @@ export interface Story {
   dependsOn: string[];
   dir?: string;
   workflow?: string; // name of workflow override (falls back to defaultWorkflow)
+  categories?: string[]; // memory categories relevant to this story's tasks
   archivedAt?: string; // ISO timestamp
 }
 

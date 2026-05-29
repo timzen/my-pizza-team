@@ -52,6 +52,7 @@ export class Store {
         depends_on TEXT DEFAULT '[]',
         dir TEXT,
         workflow TEXT,
+        categories TEXT DEFAULT '[]',
         dir_path TEXT
       );
 
@@ -128,6 +129,11 @@ export class Store {
       this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
     }
 
+    // Migration: add categories column if it doesn't exist
+    if (!storyColumns.some((col: any) => col.name === "categories")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN categories TEXT DEFAULT '[]'");
+    }
+
     // Migration: add last_read_at column to tasks if it doesn't exist
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as any[];
     if (!taskColumns.some((col: any) => col.name === "last_read_at")) {
@@ -175,10 +181,10 @@ export class Store {
   private upsertStory(story: Story, dirPath: string): void {
     this.db
       .prepare(
-        `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir, workflow, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+        `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir, workflow, categories, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
       )
-      .run(story.id, story.title, story.description, story.status, JSON.stringify(story.dependsOn), story.dir || null, story.workflow || null, dirPath);
+      .run(story.id, story.title, story.description, story.status, JSON.stringify(story.dependsOn), story.dir || null, story.workflow || null, JSON.stringify(story.categories || []), dirPath);
   }
 
   private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
@@ -202,6 +208,7 @@ export class Store {
       dependsOn: JSON.parse(row.depends_on),
       dir: row.dir || undefined,
       workflow: row.workflow || undefined,
+      categories: row.categories ? JSON.parse(row.categories) : undefined,
       dirPath: row.dir_path,
     };
   }
@@ -241,7 +248,8 @@ export class Store {
     dependsOn: string[] = [],
     tasks?: Array<{ title: string; description: string }>,
     dir?: string,
-    workflow?: string
+    workflow?: string,
+    categories?: string[]
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storiesDir = path.join(this.teamDir, "stories");
     const storyDirName = id;
@@ -253,6 +261,7 @@ export class Store {
     const storyData: Story = { id, title, description, status, dependsOn };
     if (dir) storyData.dir = dir;
     if (workflow) storyData.workflow = workflow;
+    if (categories && categories.length > 0) storyData.categories = categories;
     const storyFile = path.join(storyDirPath, "story.json");
     fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
 
@@ -322,7 +331,7 @@ export class Store {
     return true;
   }
 
-  updateStoryDetails(storyId: string, updates: { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; dir?: string | null; workflow?: string | null }): boolean {
+  updateStoryDetails(storyId: string, updates: { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; dir?: string | null; workflow?: string | null; categories?: string[] | null }): boolean {
     const story = this.getStory(storyId);
     if (!story) return false;
 
@@ -332,12 +341,13 @@ export class Store {
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
     const newDir = updates.dir !== undefined ? (updates.dir || null) : (story.dir || null);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
+    const newCategories = updates.categories !== undefined ? (updates.categories || []) : (story.categories || []);
 
     this.db
       .prepare(
-        `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, dir = ?, workflow = ? WHERE id = ?`
+        `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, dir = ?, workflow = ?, categories = ? WHERE id = ?`
       )
-      .run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newDir, newWorkflow, storyId);
+      .run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newDir, newWorkflow, JSON.stringify(newCategories), storyId);
 
     // Write back to disk
     const storyFile = path.join(story.dirPath, "story.json");
@@ -350,6 +360,7 @@ export class Store {
     };
     if (newDir) data.dir = newDir;
     if (newWorkflow) data.workflow = newWorkflow;
+    if (newCategories.length > 0) data.categories = newCategories;
     fs.writeFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
 
     return true;

@@ -33,6 +33,7 @@ export interface StoryView {
   ready: boolean; // all dependencies met?
   dir?: string;
   workflow?: string; // workflow override name (undefined = default)
+  categories?: string[]; // memory categories for context injection
   tasks: TaskView[];
 }
 
@@ -136,6 +137,7 @@ export interface CreateStoryRequest {
   dependsOn?: string[];
   dir?: string;
   workflow?: string;
+  categories?: string[];
   tasks?: Array<{
     title: string;
     description: string;
@@ -233,6 +235,7 @@ export interface UpdateStoryRequest {
   dependsOn?: string[];
   dir?: string | null;
   workflow?: string | null;
+  categories?: string[] | null;
 }
 
 export interface UpdateStoryResponse {
