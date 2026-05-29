@@ -477,30 +477,43 @@ async function setupAssistant(
     });
   }
 
+  // Fetch configured categories to embed in tool descriptions
+  const { DEFAULT_CATEGORIES } = await import("./shared/types.js");
+  let configuredCategories: string[] = DEFAULT_CATEGORIES;
+  try {
+    const catRes = await fetch(`${leaderUrl}/api/assistant/categories`);
+    const catData = await catRes.json() as any;
+    if (catData.configured && catData.configured.length > 0) configuredCategories = catData.configured;
+  } catch { /* use defaults */ }
+  const categoryList = configuredCategories.join(", ");
+
   // Register a save_note tool for the assistant
   const { Type } = await import("typebox");
   pi.registerTool({
     name: "save_note",
     label: "Save Note",
-    description: "Save a note/document for the team. Notes are markdown files stored in .pi-pizza-team/notes/.",
+    description: `Save a note to the team's memory. IMPORTANT: You MUST specify at least one category from: [${categoryList}]. Notes without categories are hard to find.`,
     promptSnippet: "Save a note for the team",
     promptGuidelines: [
       "Use save_note to persist information, research, decisions, or context for the team.",
-      "Memories are stored as markdown files in .pi-pizza-team/notes/ and visible on the Memory page.",
-      "Always specify relevant categories to organize the note for search.",
+      "Memories are stored as markdown files and visible on the Memory page.",
+      `You MUST always include the 'categories' parameter. Available categories: ${categoryList}`,
+      "Pick the most relevant category(ies) for the content being saved.",
     ],
     parameters: Type.Object({
       title: Type.String({ description: "Title for the note" }),
       content: Type.String({ description: "Markdown content of the note" }),
-      categories: Type.Optional(
-        Type.Array(Type.String(), { description: "Categories for the note (e.g. 'coding', 'research', 'doc-writing')" })
-      ),
+      categories: Type.Array(Type.String(), { description: `Categories for the note. REQUIRED. Choose from: ${categoryList}` }),
     }),
     async execute(_toolCallId, params) {
-      const result = await client.saveNote(params.title, params.content, params.categories);
+      // Ensure categories are always set (fallback to first configured if empty)
+      const cats = params.categories && params.categories.length > 0
+        ? params.categories
+        : [configuredCategories[0]];
+      const result = await client.saveNote(params.title, params.content, cats);
       if (!result.success) throw new Error(result.error || "Failed to save note");
       return {
-        content: [{ type: "text", text: `Saved note: "${params.title}"${params.categories?.length ? ` [${params.categories.join(", ")}]` : ""}` }],
+        content: [{ type: "text", text: `Saved note: "${params.title}" [${cats.join(", ")}]` }],
         details: { noteId: result.note?.id },
       };
     },
