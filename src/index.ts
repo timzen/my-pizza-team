@@ -448,7 +448,7 @@ async function setupAssistant(
     promptSnippet: "Save a note for the team",
     promptGuidelines: [
       "Use save_note to persist information, research, decisions, or context for the team.",
-      "Notes are stored as markdown files and visible in the web UI.",
+      "Memories are stored as markdown files in .pi-pizza-team/notes/ and visible on the Memory page.",
       "Always specify relevant categories to organize the note for search.",
     ],
     parameters: Type.Object({
@@ -472,10 +472,10 @@ async function setupAssistant(
   pi.registerTool({
     name: "search_notes",
     label: "Search Notes",
-    description: "Search the team's knowledge base of notes by keyword. Can filter by category.",
+    description: "Search the team's memory (knowledge base) by keyword. Can filter by category.",
     promptSnippet: "Search team notes for relevant information",
     promptGuidelines: [
-      "Use search_notes to find relevant context before working on a task.",
+      "Use search_notes to find relevant memories/context before working on a task.",
       "Search within a specific category for more targeted results.",
       "Available categories are configured per-team (typically: coding, research, doc-writing).",
     ],

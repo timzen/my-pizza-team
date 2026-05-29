@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, spawnAssistant } from "./tmux.js";
-import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import { NotesSearchEngine, parseFrontmatter } from "./search.js";
 import type {
   StatusResponse,
@@ -148,6 +148,11 @@ export class TeamServer {
       return c.html(ASSISTANT_HTML);
     });
 
+    // Memory page
+    this.app.get("/memory", (c) => {
+      return c.html(MEMORY_HTML);
+    });
+
     // CSS assets
     this.app.get("/css/theme.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -172,6 +177,10 @@ export class TeamServer {
     this.app.get("/css/assistant-page.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(ASSISTANT_CSS);
+    });
+    this.app.get("/css/memory-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(MEMORY_CSS);
     });
     this.app.get("/css/nav.css", (c) => {
       c.header("Content-Type", "text/css");

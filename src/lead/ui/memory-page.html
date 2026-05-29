@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html><head><title>🧠 pi-pizza-team memory</title>
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/memory-page.css">
+<link rel="stylesheet" href="/css/nav.css">
+<script src="/js/shared.js"></script>
+<script src="/js/nav.js" defer></script>
+</head><body>
+<h1>🧠 Memory</h1>
+<p class="subtitle">Team knowledge base — notes organized by category, searchable by keyword.</p>
+
+<div class="search-bar">
+  <input type="text" id="search-input" placeholder="Search memory..." onkeydown="if(event.key==='Enter')doSearch()" />
+  <button class="btn" onclick="doSearch()">🔍 Search</button>
+</div>
+<div id="search-results" style="display:none;"></div>
+
+<div class="cat-tabs" id="cat-tabs"></div>
+<div class="memory-list" id="memory-list">
+  <div class="empty-state"><div class="icon">🧠</div>Loading...</div>
+</div>
+
+<script>
+const POLL_MS = 5000;
+let allNotes = [];
+let categories = [];
+let activeCategory = 'all';
+
+// --- Search ---
+async function doSearch() {
+  const query = document.getElementById('search-input').value.trim();
+  if (!query) { document.getElementById('search-results').style.display = 'none'; return; }
+
+  const category = activeCategory !== 'all' ? activeCategory : '';
+  const url = '/api/assistant/notes/search?q=' + encodeURIComponent(query) + (category ? '&category=' + encodeURIComponent(category) : '') + '&limit=10';
+  try {
+    const res = await fetch(url);
+    const data = await res.json();
+    renderSearchResults(data.results || [], query);
+  } catch(e) {
+    console.error('Search error:', e);
+  }
+}
+
+function renderSearchResults(results, query) {
+  const el = document.getElementById('search-results');
+  if (results.length === 0) {
+    el.innerHTML = '<div class="search-results"><h3>No results for "' + escHtml(query) + '"</h3></div>';
+    el.style.display = 'block';
+    return;
+  }
+  el.innerHTML = '<div class="search-results"><h3>Results for "' + escHtml(query) + '"' + (activeCategory !== 'all' ? ' in ' + escHtml(activeCategory) : '') + '</h3>'
+    + results.map(r =>
+      '<div class="search-result-item">'
+      + '<span class="search-result-title" onclick="scrollToNote(\'' + escHtml(r.id) + '\')">' + escHtml(r.title) + '</span>'
+      + '<span class="search-result-score">score: ' + r.score + '</span>'
+      + '<div class="search-result-snippet">' + escHtml(r.snippet) + '</div>'
+      + '</div>'
+    ).join('')
+    + '</div>';
+  el.style.display = 'block';
+}
+
+function scrollToNote(id) {
+  // Switch to the right category tab if needed
+  const note = allNotes.find(n => n.id === id);
+  if (note && note.categories && note.categories.length > 0 && activeCategory !== 'all') {
+    if (!note.categories.includes(activeCategory)) {
+      switchCategory('all');
+    }
+  }
+  // Scroll to element
+  setTimeout(() => {
+    const el = document.getElementById('note-' + id);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 100);
+}
+
+// --- Category tabs ---
+function switchCategory(cat) {
+  activeCategory = cat;
+  renderTabs();
+  renderMemory();
+}
+
+function renderTabs() {
+  const el = document.getElementById('cat-tabs');
+  const allCount = allNotes.length;
+  const uncategorized = allNotes.filter(n => !n.categories || n.categories.length === 0).length;
+
+  let tabs = '<button class="cat-tab' + (activeCategory === 'all' ? ' active' : '') + '" onclick="switchCategory(\'all\')">All <span class="count">(' + allCount + ')</span></button>';
+
+  for (const cat of categories) {
+    const count = allNotes.filter(n => n.categories && n.categories.includes(cat)).length;
+    tabs += '<button class="cat-tab' + (activeCategory === cat ? ' active' : '') + '" onclick="switchCategory(\'' + escHtml(cat) + '\')">' + escHtml(cat) + ' <span class="count">(' + count + ')</span></button>';
+  }
+
+  if (uncategorized > 0) {
+    tabs += '<button class="cat-tab' + (activeCategory === 'uncategorized' ? ' active' : '') + '" onclick="switchCategory(\'uncategorized\')">uncategorized <span class="count">(' + uncategorized + ')</span></button>';
+  }
+
+  el.innerHTML = tabs;
+}
+
+// --- Render memory items ---
+function renderMemory() {
+  const el = document.getElementById('memory-list');
+  let filtered = allNotes;
+
+  if (activeCategory === 'uncategorized') {
+    filtered = allNotes.filter(n => !n.categories || n.categories.length === 0);
+  } else if (activeCategory !== 'all') {
+    filtered = allNotes.filter(n => n.categories && n.categories.includes(activeCategory));
+  }
+
+  if (filtered.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">🧠</div>No memories in this category yet.</div>';
+    return;
+  }
+
+  el.innerHTML = filtered.map(note => {
+    const time = note.updatedAt ? new Date(note.updatedAt).toLocaleString() : '';
+    const cats = (note.categories || []).map(c =>
+      '<span class="cat-badge">' + escHtml(c) + '</span>'
+    ).join('');
+    const catsHtml = '<div class="memory-item-categories">' + cats
+      + ' <button class="edit-cats" onclick="editCategories(\'' + escHtml(note.id) + '\')" title="Edit categories">✏️</button>'
+      + '</div>';
+    return '<div class="memory-item" id="note-' + escHtml(note.id) + '">'
+      + '<div class="memory-item-header">'
+      + '<div class="memory-item-title">' + escHtml(note.title) + '</div>'
+      + '<div class="memory-item-actions">'
+      + '<button onclick="deleteMemory(\'' + escHtml(note.id) + '\')" title="Delete">✕</button>'
+      + '</div>'
+      + '</div>'
+      + catsHtml
+      + '<div class="memory-item-content md-content" id="content-' + escHtml(note.id) + '">' + renderMarkdown(note.content) + '</div>'
+      + '<button class="memory-item-expand" onclick="toggleExpand(\'' + escHtml(note.id) + '\')">show more</button>'
+      + '<div class="memory-item-meta">Updated: ' + time + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+function toggleExpand(id) {
+  const el = document.getElementById('content-' + id);
+  if (el) el.classList.toggle('expanded');
+}
+
+// --- Edit categories ---
+async function editCategories(noteId) {
+  const note = allNotes.find(n => n.id === noteId);
+  const current = note ? (note.categories || []) : [];
+  const choices = categories.length > 0 ? categories : ['coding', 'research', 'doc-writing'];
+
+  const result = prompt(
+    'Categories for "' + (note ? note.title : noteId) + '"\n\n'
+    + 'Available: ' + choices.join(', ') + '\n'
+    + 'Current: ' + (current.length > 0 ? current.join(', ') : '(none)') + '\n\n'
+    + 'Enter comma-separated categories:',
+    current.join(', ')
+  );
+  if (result === null) return;
+
+  const newCats = result.split(',').map(s => s.trim()).filter(Boolean);
+  try {
+    await fetch('/api/assistant/notes/' + encodeURIComponent(noteId) + '/categories', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ categories: newCats })
+    });
+    refresh();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// --- Delete ---
+async function deleteMemory(id) {
+  if (!confirm('Delete this memory?')) return;
+  try {
+    await fetch('/api/assistant/notes/' + encodeURIComponent(id), { method: 'DELETE' });
+    refresh();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// --- Refresh ---
+async function refresh() {
+  try {
+    const [notesRes, catsRes] = await Promise.all([
+      fetch('/api/assistant/notes').then(r => r.json()).catch(() => ({ notes: [] })),
+      fetch('/api/assistant/categories').then(r => r.json()).catch(() => ({ configured: [] })),
+    ]);
+    allNotes = notesRes.notes || [];
+    categories = catsRes.configured || [];
+    renderTabs();
+    renderMemory();
+  } catch(e) {
+    console.error('Refresh error:', e);
+  }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body></html>

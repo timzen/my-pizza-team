@@ -20,6 +20,8 @@ export const ARCHIVED_HTML = loadAsset("archived-page.html");
 export const CONFIG_HTML = loadAsset("config-page.html");
 export const ASSISTANT_HTML = loadAsset("assistant-page.html");
 export const ASSISTANT_CSS = loadAsset("assistant-page.css");
+export const MEMORY_HTML = loadAsset("memory-page.html");
+export const MEMORY_CSS = loadAsset("memory-page.css");
 
 // Stylesheets
 export const THEME_CSS = loadAsset("theme.css");

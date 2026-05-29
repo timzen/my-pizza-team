@@ -32,6 +32,7 @@
     { href: '/', label: '🍕 Home', match: /^\/$/ },
     { href: '/board', label: '📋 Board', match: /^\/board/ },
     { href: '/assistant', label: '🤖 Assistant', match: /^\/assistant/ },
+    { href: '/memory', label: '🧠 Memory', match: /^\/memory/ },
     { href: '/archived', label: '📦 Archived', match: /^\/archived/ },
     { href: '/config', label: '⚙️ Config', match: /^\/config/ },
   ];
