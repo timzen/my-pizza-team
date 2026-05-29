@@ -78,6 +78,12 @@
       <input type="hidden" id="story-workflow" />
       <div class="hint">Which workflow governs this story's task states</div>
     </div>
+    <div class="form-group">
+      <label>Memory Categories</label>
+      <div id="story-categories-options"></div>
+      <input type="hidden" id="story-categories" />
+      <div class="hint">Which memory categories to inject as context for tasks</div>
+    </div>
     <div class="tasks-section">
       <h3>Tasks (optional)</h3>
       <div id="task-list"></div>
@@ -176,6 +182,12 @@
       <div id="edit-story-workflow-options"></div>
       <input type="hidden" id="edit-story-workflow" />
       <div class="hint">Which workflow governs this story's task states</div>
+    </div>
+    <div class="form-group">
+      <label>Memory Categories</label>
+      <div id="edit-story-categories-options"></div>
+      <input type="hidden" id="edit-story-categories" />
+      <div class="hint">Which memory categories to inject as context for tasks in this story</div>
     </div>
     <div class="modal-footer">
       <button class="btn-cancel" onclick="closeEditStoryModal()">Cancel</button>
@@ -348,6 +360,9 @@ function openAddStoryModal() {
     wfGroup.style.display = 'none';
   }
 
+  // Populate memory categories
+  populateCategoryOptions('story-categories-options', 'story-categories', new Set());
+
   // Populate favorite directories
   loadStoryDirFavorites();
 
@@ -404,6 +419,50 @@ function selectWorkflow(wfName, btn) {
     btn.style.borderColor = 'var(--accent)';
     btn.style.color = '#fff';
   }
+}
+
+// --- Memory Categories Selection ---
+let configuredCategories = [];
+
+async function loadConfiguredCategories() {
+  try {
+    const res = await fetch('/api/assistant/categories');
+    const data = await res.json();
+    configuredCategories = data.configured || ['coding', 'research', 'doc-writing'];
+  } catch(e) { configuredCategories = ['coding', 'research', 'doc-writing']; }
+}
+loadConfiguredCategories();
+
+function populateCategoryOptions(optionsElId, hiddenElId, selectedSet) {
+  const el = document.getElementById(optionsElId);
+  if (configuredCategories.length === 0) {
+    el.innerHTML = '<span style="font-size:0.8em;color:var(--text-muted);">No categories configured</span>';
+    return;
+  }
+  el.innerHTML = configuredCategories.map(c => {
+    const isSelected = selectedSet.has(c);
+    const style = isSelected ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '';
+    return '<button type="button" class="btn-add-task-inline cat-sel-btn" data-cat="' + escHtml(c) + '" style="margin:2px;' + style + '" onclick="toggleCategorySelection(\'' + escHtml(c) + '\', this, \'' + hiddenElId + '\')">' + escHtml(c) + '</button>';
+  }).join('');
+  document.getElementById(hiddenElId).value = [...selectedSet].join(',');
+}
+
+function toggleCategorySelection(cat, btn, hiddenElId) {
+  const hiddenEl = document.getElementById(hiddenElId);
+  const current = hiddenEl.value ? hiddenEl.value.split(',').filter(Boolean) : [];
+  const set = new Set(current);
+  if (set.has(cat)) {
+    set.delete(cat);
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  } else {
+    set.add(cat);
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
+  hiddenEl.value = [...set].join(',');
 }
 
 function closeAddStoryModal() {
@@ -477,6 +536,8 @@ async function submitStory() {
   const dependsRaw = document.getElementById('story-depends').value.trim();
   const dir = document.getElementById('story-dir').value.trim();
   const workflowVal = document.getElementById('story-workflow').value;
+  const categoriesVal = document.getElementById('story-categories').value.trim();
+  const categories = categoriesVal ? categoriesVal.split(',').filter(Boolean) : [];
   if (!id) { showError('ID is required.'); return; }
   if (!title) { showError('Title is required.'); return; }
   if (!description) { showError('Description is required.'); return; }
@@ -493,7 +554,7 @@ async function submitStory() {
   try {
     const res = await fetch('/api/stories', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id, title, description, dependsOn, dir: dir || undefined, workflow: workflowVal || undefined, tasks: tasks.length ? tasks : undefined })
+      body: JSON.stringify({ id, title, description, dependsOn, dir: dir || undefined, workflow: workflowVal || undefined, categories: categories.length ? categories : undefined, tasks: tasks.length ? tasks : undefined })
     });
     const data = await res.json();
     if (!res.ok || !data.success) { showError(data.error || 'Failed'); btn.disabled = false; btn.textContent = 'Create Story'; return; }
@@ -662,6 +723,10 @@ function openEditStoryModal(storyId) {
   // Load favorite directories
   loadDirFavorites('edit-story-dir-favorites', 'edit-story-dir');
 
+  // Populate memory categories
+  const storyCats = new Set(story.categories || []);
+  populateCategoryOptions('edit-story-categories-options', 'edit-story-categories', storyCats);
+
   document.getElementById('edit-story-modal').style.display = 'flex';
   setTimeout(() => document.getElementById('edit-story-title').focus(), 50);
 }
@@ -712,6 +777,8 @@ async function submitEditStory() {
   const description = document.getElementById('edit-story-desc').value.trim();
   const dir = document.getElementById('edit-story-dir').value.trim();
   const workflowVal = document.getElementById('edit-story-workflow').value;
+  const categoriesVal = document.getElementById('edit-story-categories').value.trim();
+  const categoriesArr = categoriesVal ? categoriesVal.split(',').filter(Boolean) : [];
   const dependsRaw = document.getElementById('edit-story-depends').value.trim();
   const dependsOn = dependsRaw ? dependsRaw.split(',').map(s => s.trim()).filter(Boolean) : [];
 
@@ -729,6 +796,7 @@ async function submitEditStory() {
       dependsOn,
       dir: dir || null,
       workflow: workflowVal || null,
+      categories: categoriesArr,
     };
     const res = await fetch('/api/stories/' + encodeURIComponent(editStoryId), {
       method: 'PUT',
