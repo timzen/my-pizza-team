@@ -430,15 +430,31 @@ function selectBrowsedDir() {
 // --- Gather form values and save ---
 
 function gatherAndSave() {
-  config.port = parseInt(document.getElementById('cfg-port').value) || config.port;
-  config.tmuxSession = document.getElementById('cfg-tmux').value.trim() || config.tmuxSession;
-  config.maxTeammates = parseInt(document.getElementById('cfg-max').value) || 4;
-  config.defaultWorkflow = document.getElementById('cfg-default-wf').value;
-  config.autosave = config.autosave || {};
-  config.autosave.flushIntervalMinutes = parseInt(document.getElementById('cfg-flush').value) || 30;
-  config.autosave.commitIntervalHours = parseInt(document.getElementById('cfg-commit-hrs').value) || 24;
-  config.autosave.autoCommit = document.getElementById('cfg-autocommit').value === 'true';
-  // teammates config is already updated in-place by add/remove functions
+  // Only read DOM inputs if they exist (they're only rendered on the General tab)
+  const portEl = document.getElementById('cfg-port');
+  if (portEl) config.port = parseInt(portEl.value) || config.port;
+  const tmuxEl = document.getElementById('cfg-tmux');
+  if (tmuxEl) config.tmuxSession = tmuxEl.value.trim() || config.tmuxSession;
+  const maxEl = document.getElementById('cfg-max');
+  if (maxEl) config.maxTeammates = parseInt(maxEl.value) || 4;
+  const wfEl = document.getElementById('cfg-default-wf');
+  if (wfEl) config.defaultWorkflow = wfEl.value;
+  const flushEl = document.getElementById('cfg-flush');
+  if (flushEl) {
+    config.autosave = config.autosave || {};
+    config.autosave.flushIntervalMinutes = parseInt(flushEl.value) || 30;
+  }
+  const commitEl = document.getElementById('cfg-commit-hrs');
+  if (commitEl) {
+    config.autosave = config.autosave || {};
+    config.autosave.commitIntervalHours = parseInt(commitEl.value) || 24;
+  }
+  const autocommitEl = document.getElementById('cfg-autocommit');
+  if (autocommitEl) {
+    config.autosave = config.autosave || {};
+    config.autosave.autoCommit = autocommitEl.value === 'true';
+  }
+  // workflows, teammates, and categories are already updated in-place
   saveConfig();
 }
 
