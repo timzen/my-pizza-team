@@ -6,7 +6,7 @@
 <script src="/js/shared.js"></script>
 <script src="/js/nav.js" defer></script>
 </head><body>
-<h1>🧠 Memory</h1>
+<h1>🧠 Memory <button class="btn" onclick="openMemoryModal()" style="font-size:0.6em;vertical-align:middle;margin-left:12px;">+ Add Memory</button></h1>
 <p class="subtitle">Team knowledge base — memories organized by category, searchable by keyword.</p>
 
 <div class="search-bar">
@@ -18,6 +18,31 @@
 <div class="cat-tabs" id="cat-tabs"></div>
 <div class="memory-list" id="memory-list">
   <div class="empty-state"><div class="icon">🧠</div>Loading...</div>
+</div>
+
+<!-- Add/Edit Memory Modal -->
+<div class="modal-overlay" id="memory-modal" style="display:none;position:fixed;top:0;left:0;right:0;bottom:0;background:var(--modal-overlay);z-index:9200;justify-content:center;align-items:flex-start;padding:40px 20px;overflow-y:auto;" onclick="if(event.target===this)closeMemoryModal()">
+  <div style="background:var(--bg-secondary);border:1px solid var(--border);border-radius:10px;width:100%;max-width:640px;padding:24px;position:relative;">
+    <button style="position:absolute;top:12px;right:16px;background:none;border:none;color:var(--text-muted);font-size:1.3em;cursor:pointer;" onclick="closeMemoryModal()">&times;</button>
+    <h2 id="memory-modal-title" style="font-size:1.1em;margin-bottom:16px;">Add Memory</h2>
+    <div id="memory-modal-error" style="display:none;color:var(--danger);font-size:0.85em;margin-bottom:10px;"></div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.8em;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Title *</label>
+      <input type="text" id="memory-modal-title-input" placeholder="Memory title" style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);border-radius:6px;padding:8px 12px;font-size:0.88em;font-family:inherit;outline:none;" />
+    </div>
+    <div style="margin-bottom:12px;">
+      <label style="font-size:0.8em;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Categories</label>
+      <div id="memory-modal-categories" style="display:flex;flex-wrap:wrap;gap:4px;"></div>
+    </div>
+    <div style="margin-bottom:16px;">
+      <label style="font-size:0.8em;font-weight:600;color:var(--text-secondary);display:block;margin-bottom:4px;">Content * (Markdown)</label>
+      <textarea id="memory-modal-content" rows="10" placeholder="Markdown content..." style="width:100%;background:var(--input-bg);border:1px solid var(--input-border);color:var(--text-primary);border-radius:6px;padding:10px 12px;font-size:0.85em;font-family:inherit;outline:none;resize:vertical;"></textarea>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:10px;">
+      <button onclick="closeMemoryModal()" style="background:none;border:1px solid var(--border);color:var(--text-secondary);padding:8px 16px;border-radius:6px;font-size:0.85em;cursor:pointer;">Cancel</button>
+      <button id="memory-modal-submit" onclick="submitMemoryModal()" style="background:var(--accent);color:#fff;border:none;padding:8px 16px;border-radius:6px;font-size:0.85em;font-weight:600;cursor:pointer;">Save</button>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -130,6 +155,7 @@ function renderMemory() {
       + '<div class="memory-item-header">'
       + '<div class="memory-item-title">' + escHtml(note.title) + '</div>'
       + '<div class="memory-item-actions">'
+      + '<button onclick="openEditMemoryModal(\'' + escHtml(note.id) + '\')" title="Edit">✏️</button>'
       + '<button onclick="deleteMemory(\'' + escHtml(note.id) + '\')" title="Delete">✕</button>'
       + '</div>'
       + '</div>'
@@ -211,6 +237,123 @@ async function deleteMemory(id) {
     refresh();
   } catch(e) { alert('Error: ' + e.message); }
 }
+
+// --- Add/Edit Memory Modal ---
+let memoryModalMode = 'create'; // 'create' or 'edit'
+let memoryModalEditId = null;
+let memoryModalSelectedCats = new Set();
+
+function openMemoryModal() {
+  memoryModalMode = 'create';
+  memoryModalEditId = null;
+  memoryModalSelectedCats = new Set();
+  document.getElementById('memory-modal-title').textContent = 'Add Memory';
+  document.getElementById('memory-modal-title-input').value = '';
+  document.getElementById('memory-modal-content').value = '';
+  document.getElementById('memory-modal-error').style.display = 'none';
+  document.getElementById('memory-modal-submit').textContent = 'Save';
+  renderModalCategories();
+  document.getElementById('memory-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('memory-modal-title-input').focus(), 50);
+}
+
+function openEditMemoryModal(noteId) {
+  const note = allNotes.find(n => n.id === noteId);
+  if (!note) return;
+  memoryModalMode = 'edit';
+  memoryModalEditId = noteId;
+  memoryModalSelectedCats = new Set(note.categories || []);
+  document.getElementById('memory-modal-title').textContent = 'Edit Memory';
+  document.getElementById('memory-modal-title-input').value = note.title;
+  // Strip the "# Title\n\n" prefix from content if present
+  let content = note.content || '';
+  const titleLine = '# ' + note.title;
+  if (content.startsWith(titleLine)) {
+    content = content.slice(titleLine.length).replace(/^\n+/, '');
+  }
+  document.getElementById('memory-modal-content').value = content;
+  document.getElementById('memory-modal-error').style.display = 'none';
+  document.getElementById('memory-modal-submit').textContent = 'Save Changes';
+  renderModalCategories();
+  document.getElementById('memory-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('memory-modal-title-input').focus(), 50);
+}
+
+function closeMemoryModal() {
+  document.getElementById('memory-modal').style.display = 'none';
+}
+
+function renderModalCategories() {
+  const el = document.getElementById('memory-modal-categories');
+  const choices = categories.length > 0 ? categories : ['coding', 'research', 'doc-writing'];
+  el.innerHTML = choices.map(c => {
+    const isSelected = memoryModalSelectedCats.has(c);
+    const style = isSelected ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '';
+    return '<button type="button" style="cursor:pointer;border:1px solid var(--border);padding:3px 10px;border-radius:12px;font-size:0.8em;' + style + '" onclick="toggleModalCat(\'' + escHtml(c) + '\', this)">' + escHtml(c) + '</button>';
+  }).join(' ');
+}
+
+function toggleModalCat(cat, btn) {
+  if (memoryModalSelectedCats.has(cat)) {
+    memoryModalSelectedCats.delete(cat);
+    btn.style.background = '';
+    btn.style.borderColor = 'var(--border)';
+    btn.style.color = '';
+  } else {
+    memoryModalSelectedCats.add(cat);
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
+}
+
+async function submitMemoryModal() {
+  const errEl = document.getElementById('memory-modal-error');
+  errEl.style.display = 'none';
+  const title = document.getElementById('memory-modal-title-input').value.trim();
+  const content = document.getElementById('memory-modal-content').value.trim();
+  if (!title) { errEl.textContent = 'Title is required'; errEl.style.display = 'block'; return; }
+  if (!content) { errEl.textContent = 'Content is required'; errEl.style.display = 'block'; return; }
+
+  const cats = [...memoryModalSelectedCats];
+  const btn = document.getElementById('memory-modal-submit');
+  btn.disabled = true;
+
+  try {
+    if (memoryModalMode === 'create') {
+      const res = await fetch('/api/assistant/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content, categories: cats })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { errEl.textContent = data.error || 'Failed'; errEl.style.display = 'block'; btn.disabled = false; return; }
+    } else {
+      // Edit: delete old and create new (since ID is derived from title, it might change)
+      // First update categories, then overwrite the file content
+      const fullContent = '# ' + title + '\n\n' + content;
+      // Delete old and recreate
+      await fetch('/api/assistant/notes/' + encodeURIComponent(memoryModalEditId), { method: 'DELETE' });
+      const res = await fetch('/api/assistant/notes', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, content: fullContent, categories: cats })
+      });
+      const data = await res.json();
+      if (!res.ok || !data.success) { errEl.textContent = data.error || 'Failed'; errEl.style.display = 'block'; btn.disabled = false; return; }
+    }
+    closeMemoryModal();
+    refresh();
+  } catch(e) { errEl.textContent = 'Error: ' + e.message; errEl.style.display = 'block'; }
+  btn.disabled = false;
+}
+
+// Escape key to close modal
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape' && document.getElementById('memory-modal').style.display === 'flex') {
+    closeMemoryModal();
+  }
+});
 
 // --- Refresh ---
 async function refresh() {
