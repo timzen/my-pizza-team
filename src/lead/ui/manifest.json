@@ -1,21 +1,25 @@
 {
   "name": "pi-pizza-team",
-  "short_name": "🍕 Pizza Team",
+  "short_name": "Pizza Team",
   "description": "Multi-agent task orchestration board",
+  "id": "/",
   "start_url": "/board",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#002b36",
   "theme_color": "#268bd2",
   "icons": [
     {
       "src": "/icon-192.svg",
-      "sizes": "192x192",
-      "type": "image/svg+xml"
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
     },
     {
-      "src": "/icon-512.svg",
-      "sizes": "512x512",
-      "type": "image/svg+xml"
+      "src": "/icon-maskable.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "maskable"
     }
   ]
 }

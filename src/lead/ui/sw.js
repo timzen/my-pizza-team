@@ -1,22 +1,10 @@
 // Minimal service worker for PWA installability
-// Caches the app shell for offline support
+// Network-first strategy with optional offline shell caching
 
-const CACHE_NAME = 'ppt-v1';
-const SHELL_ASSETS = [
-  '/',
-  '/board',
-  '/assistant',
-  '/memory',
-  '/css/theme.css',
-  '/css/nav.css',
-  '/js/shared.js',
-  '/js/nav.js',
-];
+const CACHE_NAME = 'ppt-v2';
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => cache.addAll(SHELL_ASSETS))
-  );
+  // Don't block install on caching — just skip waiting
   self.skipWaiting();
 });
 
@@ -30,13 +18,23 @@ self.addEventListener('activate', (event) => {
 });
 
 self.addEventListener('fetch', (event) => {
-  // Network-first strategy for API calls
-  if (event.request.url.includes('/api/')) {
-    event.respondWith(fetch(event.request).catch(() => caches.match(event.request)));
-    return;
-  }
-  // Cache-first for shell assets, network fallback
+  // Only handle same-origin requests
+  if (!event.request.url.startsWith(self.location.origin)) return;
+
+  // Network-first for everything (API and pages)
   event.respondWith(
-    caches.match(event.request).then((cached) => cached || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        // Cache successful GET responses for offline fallback
+        if (event.request.method === 'GET' && response.status === 200) {
+          const clone = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, clone)).catch(() => {});
+        }
+        return response;
+      })
+      .catch(() => {
+        // Offline fallback: try cache
+        return caches.match(event.request);
+      })
   );
 });

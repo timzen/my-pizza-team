@@ -39,3 +39,4 @@ export const NAV_JS = loadAsset("nav.js");
 export const MANIFEST_JSON = loadAsset("manifest.json");
 export const SW_JS = loadAsset("sw.js");
 export const ICON_SVG = loadAsset("icon.svg");
+export const ICON_MASKABLE_SVG = loadAsset("icon-maskable.svg");

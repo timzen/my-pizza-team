@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, spawnAssistant } from "./tmux.js";
-import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG, ICON_MASKABLE_SVG } from "./assets.js";
 import { NotesSearchEngine, parseFrontmatter } from "./search.js";
 import type {
   StatusResponse,
@@ -210,6 +210,10 @@ export class TeamServer {
     this.app.get("/icon-512.svg", (c) => {
       c.header("Content-Type", "image/svg+xml");
       return c.body(ICON_SVG);
+    });
+    this.app.get("/icon-maskable.svg", (c) => {
+      c.header("Content-Type", "image/svg+xml");
+      return c.body(ICON_MASKABLE_SVG);
     });
 
     // GET /api/status
