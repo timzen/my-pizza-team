@@ -32,6 +32,8 @@ export interface WorkflowConfig {
   initialState?: string;
   /** The terminal state meaning work is complete (defaults to last state in states array) */
   doneState?: string;
+  /** Default memory categories for stories using this workflow */
+  categories?: string[];
 }
 
 export type TransitionPermission = "any" | "teammate" | "lead";

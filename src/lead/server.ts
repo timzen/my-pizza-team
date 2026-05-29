@@ -378,9 +378,12 @@ export class TeamServer {
         .map((t) => `[${t.title}]: ${t.result}`)
         .join("\n\n");
 
-      // Get relevant memory context from the story's categories
+      // Get relevant memory context from the story's categories (falls back to workflow categories)
       const story = this.store.getStory(task.storyId);
-      const storyCategories = story?.categories || [];
+      const wf = this.store.getWorkflowForStory(task.storyId);
+      const storyCategories = (story?.categories && story.categories.length > 0)
+        ? story.categories
+        : (wf.categories || []);
       let memoryContext = "";
       if (storyCategories.length > 0) {
         const searchQuery = task.title + " " + task.description.slice(0, 200);
