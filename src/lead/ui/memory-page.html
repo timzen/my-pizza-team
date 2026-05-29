@@ -123,7 +123,7 @@ function renderMemory() {
     const cats = (note.categories || []).map(c =>
       '<span class="cat-badge">' + escHtml(c) + '</span>'
     ).join('');
-    const catsHtml = '<div class="memory-item-categories">' + cats
+    const catsHtml = '<div class="memory-item-categories" id="cats-' + escHtml(note.id) + '">' + cats
       + ' <button class="edit-cats" onclick="editCategories(\'' + escHtml(note.id) + '\')" title="Edit categories">✏️</button>'
       + '</div>';
     return '<div class="memory-item" id="note-' + escHtml(note.id) + '">'
@@ -149,19 +149,50 @@ function toggleExpand(id) {
 // --- Edit categories ---
 async function editCategories(noteId) {
   const note = allNotes.find(n => n.id === noteId);
-  const current = note ? (note.categories || []) : [];
+  if (!note) return;
+  const current = new Set(note.categories || []);
   const choices = categories.length > 0 ? categories : ['coding', 'research', 'doc-writing'];
 
-  const result = prompt(
-    'Categories for "' + (note ? note.title : noteId) + '"\n\n'
-    + 'Available: ' + choices.join(', ') + '\n'
-    + 'Current: ' + (current.length > 0 ? current.join(', ') : '(none)') + '\n\n'
-    + 'Enter comma-separated categories:',
-    current.join(', ')
-  );
-  if (result === null) return;
+  // Build inline editor replacing the categories div
+  const container = document.getElementById('cats-' + noteId);
+  if (!container) return;
 
-  const newCats = result.split(',').map(s => s.trim()).filter(Boolean);
+  const buttonsHtml = choices.map(c => {
+    const isSelected = current.has(c);
+    const style = isSelected ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '';
+    return '<button type="button" class="cat-badge" data-selected="' + (isSelected ? '1' : '0') + '" style="cursor:pointer;border:1px solid var(--border);' + style + '" onclick="toggleMemoryCat(\'' + escHtml(noteId) + '\', \'' + escHtml(c) + '\', this)">' + escHtml(c) + '</button>';
+  }).join(' ');
+
+  container.innerHTML = buttonsHtml
+    + ' <button onclick="saveMemoryCats(\'' + escHtml(noteId) + '\')" style="background:var(--accent);color:#fff;border:none;padding:2px 10px;border-radius:4px;font-size:0.75em;cursor:pointer;margin-left:6px;">Save</button>'
+    + ' <button onclick="refresh()" style="background:none;border:1px solid var(--border);color:var(--text-muted);padding:2px 8px;border-radius:4px;font-size:0.75em;cursor:pointer;">Cancel</button>';
+}
+
+function toggleMemoryCat(noteId, cat, btn) {
+  // Toggle data attribute to track state
+  if (btn.dataset.selected === '1') {
+    btn.dataset.selected = '0';
+    btn.style.background = '';
+    btn.style.borderColor = 'var(--border)';
+    btn.style.color = '';
+  } else {
+    btn.dataset.selected = '1';
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
+  }
+}
+
+async function saveMemoryCats(noteId) {
+  const container = document.getElementById('cats-' + noteId);
+  if (!container) return;
+  const buttons = container.querySelectorAll('.cat-badge');
+  const newCats = [];
+  buttons.forEach(btn => {
+    if (btn.dataset.selected === '1') {
+      newCats.push(btn.textContent.trim());
+    }
+  });
   try {
     await fetch('/api/assistant/notes/' + encodeURIComponent(noteId) + '/categories', {
       method: 'PUT',
