@@ -27,6 +27,29 @@
   // Apply theme immediately (before nav renders) to prevent flash
   document.documentElement.setAttribute('data-theme', getTheme());
 
+  // --- PWA: inject manifest + meta tags + register service worker ---
+  if (!document.querySelector('link[rel="manifest"]')) {
+    const link = document.createElement('link');
+    link.rel = 'manifest';
+    link.href = '/manifest.json';
+    document.head.appendChild(link);
+  }
+  if (!document.querySelector('meta[name="theme-color"]')) {
+    const meta = document.createElement('meta');
+    meta.name = 'theme-color';
+    meta.content = '#268bd2';
+    document.head.appendChild(meta);
+  }
+  if (!document.querySelector('meta[name="apple-mobile-web-app-capable"]')) {
+    const meta = document.createElement('meta');
+    meta.name = 'apple-mobile-web-app-capable';
+    meta.content = 'yes';
+    document.head.appendChild(meta);
+  }
+  if ('serviceWorker' in navigator) {
+    navigator.serviceWorker.register('/sw.js').catch(() => {});
+  }
+
   // --- Navigation ---
   const navItems = [
     { href: '/', label: '🍕 Home', match: /^\/$/ },

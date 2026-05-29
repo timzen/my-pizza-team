@@ -34,3 +34,8 @@ export const NAV_CSS = loadAsset("nav.css");
 // Shared browser JavaScript
 export const SHARED_JS = loadAsset("shared.js");
 export const NAV_JS = loadAsset("nav.js");
+
+// PWA assets
+export const MANIFEST_JSON = loadAsset("manifest.json");
+export const SW_JS = loadAsset("sw.js");
+export const ICON_SVG = loadAsset("icon.svg");

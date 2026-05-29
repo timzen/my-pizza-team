@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, spawnAssistant } from "./tmux.js";
-import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG } from "./assets.js";
 import { NotesSearchEngine, parseFrontmatter } from "./search.js";
 import type {
   StatusResponse,
@@ -193,6 +193,23 @@ export class TeamServer {
     this.app.get("/js/nav.js", (c) => {
       c.header("Content-Type", "application/javascript");
       return c.body(NAV_JS);
+    });
+    this.app.get("/manifest.json", (c) => {
+      c.header("Content-Type", "application/manifest+json");
+      return c.body(MANIFEST_JSON);
+    });
+    this.app.get("/sw.js", (c) => {
+      c.header("Content-Type", "application/javascript");
+      c.header("Service-Worker-Allowed", "/");
+      return c.body(SW_JS);
+    });
+    this.app.get("/icon-192.svg", (c) => {
+      c.header("Content-Type", "image/svg+xml");
+      return c.body(ICON_SVG);
+    });
+    this.app.get("/icon-512.svg", (c) => {
+      c.header("Content-Type", "image/svg+xml");
+      return c.body(ICON_SVG);
     });
 
     // GET /api/status
