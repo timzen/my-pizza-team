@@ -335,43 +335,34 @@ function updateTransitionPerm(wfName, from, to, perm) {
 
 // --- Workflow categories ---
 function renderWorkflowCategoriesHtml(wfName, wf) {
-  const wfCats = wf.categories || [];
+  const wfCats = new Set(wf.categories || []);
   const allCats = config.categories || [];
-  let html = '';
-  if (wfCats.length > 0) {
-    html += '<div class="states-list">' + wfCats.map(c =>
-      '<span class="state-tag">' + escHtml(c)
-      + ' <span class="remove-state" onclick="removeWorkflowCategory(\'' + escHtml(wfName) + '\', \'' + escHtml(c) + '\')" title="Remove">&times;</span>'
-      + '</span>'
-    ).join('') + '</div>';
-  } else {
-    html += '<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:8px;">None (stories need categories set individually)</div>';
+  if (allCats.length === 0) {
+    return '<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:8px;">No categories configured (add them in the Categories tab)</div>';
   }
-  const availCats = allCats.filter(c => !wfCats.includes(c));
-  if (availCats.length > 0) {
-    html += '<div class="add-state-row"><select id="wf-cat-' + escHtml(wfName) + '">' + availCats.map(c => '<option value="' + escHtml(c) + '">' + escHtml(c) + '</option>').join('') + '</select>'
-      + '<button class="btn btn-sm" onclick="addWorkflowCategory(\'' + escHtml(wfName) + '\')">Add</button></div>';
-  }
-  return html;
+  return '<div style="display:flex;flex-wrap:wrap;gap:4px;">' + allCats.map(c => {
+    const isSelected = wfCats.has(c);
+    const style = isSelected ? 'background:var(--accent);border-color:var(--accent);color:#fff;' : '';
+    return '<button type="button" class="btn btn-sm btn-outline" style="margin:2px;' + style + '" onclick="toggleWorkflowCategory(\'' + escHtml(wfName) + '\', \'' + escHtml(c) + '\', this)">' + escHtml(c) + '</button>';
+  }).join('') + '</div>';
 }
 
-function addWorkflowCategory(wfName) {
-  const sel = document.getElementById('wf-cat-' + wfName);
-  if (!sel || !sel.value) return;
+function toggleWorkflowCategory(wfName, cat, btn) {
   const wf = config.workflows[wfName];
   if (!wf.categories) wf.categories = [];
-  if (!wf.categories.includes(sel.value)) {
-    wf.categories.push(sel.value);
-    render();
+  const idx = wf.categories.indexOf(cat);
+  if (idx >= 0) {
+    wf.categories.splice(idx, 1);
+    if (wf.categories.length === 0) delete wf.categories;
+    btn.style.background = '';
+    btn.style.borderColor = '';
+    btn.style.color = '';
+  } else {
+    wf.categories.push(cat);
+    btn.style.background = 'var(--accent)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = '#fff';
   }
-}
-
-function removeWorkflowCategory(wfName, cat) {
-  const wf = config.workflows[wfName];
-  if (!wf.categories) return;
-  wf.categories = wf.categories.filter(c => c !== cat);
-  if (wf.categories.length === 0) delete wf.categories;
-  render();
 }
 
 // --- Teammates config ---
