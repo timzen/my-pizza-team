@@ -31,7 +31,7 @@
   if (!document.querySelector('link[rel="manifest"]')) {
     const link = document.createElement('link');
     link.rel = 'manifest';
-    link.href = '/manifest.json';
+    link.href = '/app.webmanifest';
     document.head.appendChild(link);
   }
   if (!document.querySelector('meta[name="theme-color"]')) {

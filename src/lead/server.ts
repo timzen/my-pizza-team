@@ -198,6 +198,10 @@ export class TeamServer {
       c.header("Content-Type", "application/manifest+json");
       return c.body(MANIFEST_JSON);
     });
+    this.app.get("/app.webmanifest", (c) => {
+      c.header("Content-Type", "application/manifest+json");
+      return c.body(MANIFEST_JSON);
+    });
     this.app.get("/sw.js", (c) => {
       c.header("Content-Type", "application/javascript");
       c.header("Service-Worker-Allowed", "/");
