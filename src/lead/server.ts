@@ -964,6 +964,9 @@ export class TeamServer {
         if (body.teammates !== undefined) {
           this.config.teammates = body.teammates;
         }
+        if (body.categories !== undefined) {
+          this.config.categories = body.categories;
+        }
 
         // Write to disk (exclude runtime-only fields)
         const configFile = path.join(this.teamDir, "config.json");
@@ -978,6 +981,9 @@ export class TeamServer {
         };
         if (this.config.teammates && Object.keys(this.config.teammates).length > 0) {
           toWrite.teammates = this.config.teammates;
+        }
+        if (this.config.categories && this.config.categories.length > 0) {
+          toWrite.categories = this.config.categories;
         }
         fs.writeFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
 

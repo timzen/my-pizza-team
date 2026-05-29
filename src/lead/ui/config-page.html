@@ -73,6 +73,7 @@ function render() {
   const tabs = [
     { id: 'general', label: 'General' },
     { id: 'teammates', label: 'Teammates' },
+    { id: 'categories', label: 'Categories' },
     { id: 'workflows', label: 'Workflows' },
   ];
   const tabBar = '<div class="tab-bar">' + tabs.map(t =>
@@ -83,6 +84,7 @@ function render() {
   if (activeTab === 'general') content = renderGeneral();
   else if (activeTab === 'teammates') content = renderTeammates();
   else if (activeTab === 'workflows') content = renderWorkflows();
+  else if (activeTab === 'categories') content = renderCategories();
 
   el.innerHTML = tabBar + '<div class="tab-content">' + content + '</div>' + renderSaveBar();
   bindEvents();
@@ -161,6 +163,43 @@ function renderTeammates() {
     + dirsHtml
     + '<div class="add-state-row"><input type="text" id="new-fav-dir" placeholder="~/Workspace/my-project" onkeydown="if(event.key===\'Enter\')addFavoriteDir()" /><button class="btn btn-sm" onclick="addFavoriteDir()">Add</button><button class="btn btn-sm btn-outline" onclick="openBrowseModal()" style="margin-left:4px;">📂 Browse</button></div>'
     + '</div>';
+}
+
+function renderCategories() {
+  if (!config.categories) config.categories = ['coding', 'research', 'doc-writing'];
+  const cats = config.categories;
+
+  const catsHtml = cats.length > 0
+    ? '<div class="states-list">' + cats.map((c, i) =>
+        '<span class="state-tag">' + escHtml(c)
+        + ' <span class="remove-state" onclick="removeCategory(' + i + ')" title="Remove">&times;</span>'
+        + '</span>'
+      ).join('') + '</div>'
+    : '<div style="font-size:0.8em;color:var(--text-muted);margin-bottom:8px;">No categories configured</div>';
+
+  return '<div class="section">'
+    + '<h3>Note Categories</h3>'
+    + '<div style="font-size:0.78em;color:var(--text-muted);margin-bottom:8px;">Categories for organizing notes in the assistant knowledge base. Notes can be tagged with one or more categories for targeted search.</div>'
+    + catsHtml
+    + '<div class="add-state-row"><input type="text" id="new-category" placeholder="e.g. architecture" onkeydown="if(event.key===\'Enter\')addCategory()" /><button class="btn btn-sm" onclick="addCategory()">Add</button></div>'
+    + '</div>';
+}
+
+function addCategory() {
+  const input = document.getElementById('new-category');
+  const val = input.value.trim().toLowerCase().replace(/[^a-z0-9-]/g, '-').replace(/^-|-$/g, '');
+  if (!val) { toast('Enter a category name', true); return; }
+  if (!config.categories) config.categories = [];
+  if (config.categories.includes(val)) { toast('Category already exists', true); return; }
+  config.categories.push(val);
+  input.value = '';
+  render();
+}
+
+function removeCategory(index) {
+  if (!config.categories) return;
+  config.categories.splice(index, 1);
+  render();
 }
 
 function renderWorkflowCard(name, wf, isDefault) {
