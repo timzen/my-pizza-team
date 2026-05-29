@@ -263,3 +263,90 @@ export interface ArchivedStoriesResponse {
   }>;
 }
 
+// --- Assistant Queue ---
+
+// GET /api/assistant/queue
+export interface AssistantQueueResponse {
+  items: AssistantQueueItem[];
+}
+
+export interface AssistantQueueItem {
+  id: string;
+  prompt: string;
+  status: "pending" | "processing" | "done" | "failed";
+  result?: string;
+  createdAt: string;
+  startedAt?: string;
+  completedAt?: string;
+}
+
+// POST /api/assistant/queue
+export interface AssistantEnqueueRequest {
+  prompt: string;
+}
+
+export interface AssistantEnqueueResponse {
+  success: boolean;
+  item?: AssistantQueueItem;
+  error?: string;
+}
+
+// GET /api/assistant/next
+export interface AssistantNextResponse {
+  item: { id: string; prompt: string } | null;
+}
+
+// POST /api/assistant/queue/:id/claim
+export interface AssistantClaimResponse {
+  success: boolean;
+  error?: string;
+}
+
+// POST /api/assistant/queue/:id/complete
+export interface AssistantCompleteRequest {
+  result?: string;
+  status?: "done" | "failed";
+}
+
+export interface AssistantCompleteResponse {
+  success: boolean;
+  error?: string;
+}
+
+// DELETE /api/assistant/queue/:id
+export interface AssistantDeleteResponse {
+  success: boolean;
+  error?: string;
+}
+
+// GET /api/assistant/notes
+export interface AssistantNotesResponse {
+  notes: AssistantNote[];
+}
+
+export interface AssistantNote {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+// POST /api/assistant/notes
+export interface AssistantSaveNoteRequest {
+  title: string;
+  content: string;
+}
+
+export interface AssistantSaveNoteResponse {
+  success: boolean;
+  note?: AssistantNote;
+  error?: string;
+}
+
+// DELETE /api/assistant/notes/:id
+export interface AssistantDeleteNoteResponse {
+  success: boolean;
+  error?: string;
+}
+

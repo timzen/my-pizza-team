@@ -16,6 +16,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig, Story } from "../shared/types.js";
 import { STORIES_DIR } from "../shared/types.js";
 import { addTaskToStory } from "./commands.js";
+import { spawnAssistant } from "./tmux.js";
 
 export function registerLeadTools(
   pi: ExtensionAPI,
@@ -192,6 +193,38 @@ export function registerLeadTools(
           },
         ],
         details: { storyId: params.storyId, taskCount: tasks.length },
+      };
+    },
+  });
+
+  // LLM-callable tool for queuing requests to the assistant
+  pi.registerTool({
+    name: "team_queue_request",
+    label: "Queue Assistant Request",
+    description:
+      "Queue a request for the pi-pizza-team assistant to process. The assistant can create stories, " +
+      "add tasks, spawn teammates, save notes, or handle any operational request.",
+    promptSnippet: "Queue a request for the team assistant",
+    promptGuidelines: [
+      "Use team_queue_request when you want to delegate operational work to the assistant.",
+      "The assistant processes requests asynchronously — it will handle them in order.",
+      "Good for: creating multiple stories, breaking down plans, spawning teammates, saving research notes.",
+    ],
+    parameters: Type.Object({
+      prompt: Type.String({ description: "Free-form request for the assistant to process" }),
+    }),
+    async execute(_toolCallId, params) {
+      const store = getStore();
+      const item = store.enqueueAssistantItem(params.prompt);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Queued request for assistant (id: ${item.id}). It will be processed when the assistant picks it up.`,
+          },
+        ],
+        details: { itemId: item.id },
       };
     },
   });

@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate } from "./tmux.js";
-import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS } from "./assets.js";
 import type {
   StatusResponse,
   StoriesResponse,
@@ -126,6 +126,11 @@ export class TeamServer {
       return c.html(CONFIG_HTML);
     });
 
+    // Assistant page
+    this.app.get("/assistant", (c) => {
+      return c.html(ASSISTANT_HTML);
+    });
+
     // CSS assets
     this.app.get("/css/theme.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -146,6 +151,10 @@ export class TeamServer {
     this.app.get("/css/config-page.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(CONFIG_CSS);
+    });
+    this.app.get("/css/assistant-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(ASSISTANT_CSS);
     });
     this.app.get("/css/nav.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -726,6 +735,110 @@ export class TeamServer {
         }),
       };
       return c.json(response);
+    });
+
+    // --- Assistant Queue endpoints ---
+
+    // GET /api/assistant/queue
+    this.app.get("/api/assistant/queue", (c) => {
+      const items = this.store.getAssistantQueue();
+      return c.json({
+        items: items.map((item) => ({
+          id: item.id,
+          prompt: item.prompt,
+          status: item.status,
+          result: item.result || undefined,
+          createdAt: new Date(item.createdAt).toISOString(),
+          startedAt: item.startedAt ? new Date(item.startedAt).toISOString() : undefined,
+          completedAt: item.completedAt ? new Date(item.completedAt).toISOString() : undefined,
+        })),
+      });
+    });
+
+    // POST /api/assistant/queue
+    this.app.post("/api/assistant/queue", async (c) => {
+      const body = await c.req.json();
+      if (!body.prompt || typeof body.prompt !== "string") {
+        return c.json({ success: false, error: "Field 'prompt' is required" }, 400);
+      }
+      const item = this.store.enqueueAssistantItem(body.prompt);
+      return c.json({ success: true, item }, 201);
+    });
+
+    // GET /api/assistant/next
+    this.app.get("/api/assistant/next", (c) => {
+      const item = this.store.getNextAssistantItem();
+      return c.json({ item });
+    });
+
+    // POST /api/assistant/queue/:id/claim
+    this.app.post("/api/assistant/queue/:id/claim", (c) => {
+      const id = c.req.param("id");
+      const success = this.store.claimAssistantItem(id);
+      if (!success) return c.json({ success: false, error: "Item not available" }, 409);
+      return c.json({ success: true });
+    });
+
+    // POST /api/assistant/queue/:id/complete
+    this.app.post("/api/assistant/queue/:id/complete", async (c) => {
+      const id = c.req.param("id");
+      const body = await c.req.json();
+      const failed = body.status === "failed";
+      const success = this.store.completeAssistantItem(id, body.result, failed);
+      if (!success) return c.json({ success: false, error: "Item not in processing state" }, 400);
+      return c.json({ success: true });
+    });
+
+    // DELETE /api/assistant/queue/:id
+    this.app.delete("/api/assistant/queue/:id", (c) => {
+      const id = c.req.param("id");
+      const success = this.store.deleteAssistantItem(id);
+      if (!success) return c.json({ success: false, error: "Item not found" }, 404);
+      return c.json({ success: true });
+    });
+
+    // POST /api/assistant/spawn — spawn the assistant Pi instance
+    this.app.post("/api/assistant/spawn", (c) => {
+      try {
+        const { spawnAssistant } = require("./tmux.js");
+        const cwd = path.dirname(this.teamDir);
+        spawnAssistant(cwd, {
+          session: this.config.tmuxSession,
+          leaderUrl: this.config.leaderUrl,
+        });
+        return c.json({ success: true });
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message }, 500);
+      }
+    });
+
+    // --- Assistant Notes endpoints ---
+
+    // GET /api/assistant/notes
+    this.app.get("/api/assistant/notes", (c) => {
+      const notes = this.store.getAssistantNotes();
+      return c.json({ notes });
+    });
+
+    // POST /api/assistant/notes
+    this.app.post("/api/assistant/notes", async (c) => {
+      const body = await c.req.json();
+      if (!body.title || typeof body.title !== "string") {
+        return c.json({ success: false, error: "Field 'title' is required" }, 400);
+      }
+      if (!body.content || typeof body.content !== "string") {
+        return c.json({ success: false, error: "Field 'content' is required" }, 400);
+      }
+      const note = this.store.saveAssistantNote(body.title, body.content);
+      return c.json({ success: true, note }, 201);
+    });
+
+    // DELETE /api/assistant/notes/:id
+    this.app.delete("/api/assistant/notes/:id", (c) => {
+      const id = c.req.param("id");
+      const success = this.store.deleteAssistantNote(id);
+      if (!success) return c.json({ success: false, error: "Note not found" }, 404);
+      return c.json({ success: true });
     });
 
     // --- Config endpoints ---

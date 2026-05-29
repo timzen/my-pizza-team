@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html><head><title>🤖 pi-pizza-team assistant</title>
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/assistant-page.css">
+<link rel="stylesheet" href="/css/nav.css">
+<script src="/js/shared.js"></script>
+<script src="/js/nav.js" defer></script>
+</head><body>
+<h1>🤖 Assistant <span class="assistant-status" id="assistant-status"><span class="dot offline"></span> checking...</span></h1>
+<p class="subtitle">Queue tasks for your assistant Pi — create stories, spawn teammates, save notes, or anything else.</p>
+
+<div class="input-section">
+  <textarea id="prompt-input" placeholder="What would you like the assistant to do? e.g. 'Create a story for implementing dark mode with 3 tasks'"></textarea>
+  <div class="input-row">
+    <button class="btn" id="submit-btn" onclick="submitPrompt()">Submit</button>
+    <span class="input-hint">Press Ctrl+Enter to submit</span>
+  </div>
+</div>
+
+<div class="tabs">
+  <button class="tab-btn active" data-tab="queue" onclick="switchTab('queue')">Queue</button>
+  <button class="tab-btn" data-tab="notes" onclick="switchTab('notes')">Notes</button>
+</div>
+
+<div class="tab-content active" id="tab-queue">
+  <div class="queue-list" id="queue-list">
+    <div class="empty-state"><div class="icon">📭</div>No items in queue</div>
+  </div>
+</div>
+
+<div class="tab-content" id="tab-notes">
+  <div class="notes-list" id="notes-list">
+    <div class="empty-state"><div class="icon">📝</div>No notes yet</div>
+  </div>
+</div>
+
+<script>
+const POLL_MS = 3000;
+
+// --- Tab switching ---
+function switchTab(tab) {
+  document.querySelectorAll('.tab-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.tab === tab));
+  document.querySelectorAll('.tab-content').forEach(el => el.classList.toggle('active', el.id === 'tab-' + tab));
+}
+
+// --- Submit prompt ---
+async function submitPrompt() {
+  const input = document.getElementById('prompt-input');
+  const prompt = input.value.trim();
+  if (!prompt) return;
+
+  const btn = document.getElementById('submit-btn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  try {
+    const res = await fetch('/api/assistant/queue', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt })
+    });
+    const data = await res.json();
+    if (data.success) {
+      input.value = '';
+      refresh();
+    } else {
+      alert(data.error || 'Failed to submit');
+    }
+  } catch (e) {
+    alert('Network error: ' + e.message);
+  }
+  btn.disabled = false;
+  btn.textContent = 'Submit';
+}
+
+// Ctrl+Enter to submit
+document.getElementById('prompt-input').addEventListener('keydown', function(e) {
+  if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+    e.preventDefault();
+    submitPrompt();
+  }
+});
+
+// --- Delete queue item ---
+async function deleteQueueItem(id) {
+  if (!confirm('Remove this item from the queue?')) return;
+  try {
+    await fetch('/api/assistant/queue/' + encodeURIComponent(id), { method: 'DELETE' });
+    refresh();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+// --- Delete note ---
+async function deleteNote(id) {
+  if (!confirm('Delete this note?')) return;
+  try {
+    await fetch('/api/assistant/notes/' + encodeURIComponent(id), { method: 'DELETE' });
+    refresh();
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+// --- Render queue ---
+function renderQueue(items) {
+  const el = document.getElementById('queue-list');
+  if (!items || items.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📭</div>No items in queue. Submit a prompt above!</div>';
+    return;
+  }
+  el.innerHTML = items.map(item => {
+    const statusCls = item.status;
+    const time = item.createdAt ? new Date(item.createdAt).toLocaleString() : '';
+    const duration = item.startedAt && item.completedAt
+      ? ' • ' + Math.round((new Date(item.completedAt) - new Date(item.startedAt)) / 1000) + 's'
+      : item.startedAt ? ' • running...' : '';
+    const resultHtml = item.result
+      ? '<div class="queue-item-result">' + escHtml(item.result) + '</div>'
+      : '';
+    const deleteBtn = item.status !== 'processing'
+      ? '<div class="queue-item-actions"><button onclick="deleteQueueItem(\'' + escHtml(item.id) + '\')" title="Remove">✕</button></div>'
+      : '';
+    return '<div class="queue-item ' + statusCls + '">'
+      + deleteBtn
+      + '<div class="queue-item-header">'
+      + '<span class="queue-item-status ' + statusCls + '">' + item.status + '</span>'
+      + '</div>'
+      + '<div class="queue-item-prompt">' + escHtml(item.prompt) + '</div>'
+      + resultHtml
+      + '<div class="queue-item-meta">' + time + duration + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// --- Render notes ---
+function renderNotes(notes) {
+  const el = document.getElementById('notes-list');
+  if (!notes || notes.length === 0) {
+    el.innerHTML = '<div class="empty-state"><div class="icon">📝</div>No notes yet. The assistant can save notes as it works.</div>';
+    return;
+  }
+  el.innerHTML = notes.map(note => {
+    const time = note.updatedAt ? new Date(note.updatedAt).toLocaleString() : '';
+    return '<div class="note-item">'
+      + '<div class="note-item-actions"><button onclick="deleteNote(\'' + escHtml(note.id) + '\')" title="Delete">✕</button></div>'
+      + '<div class="note-item-title">' + escHtml(note.title) + '</div>'
+      + '<div class="note-item-content md-content">' + renderMarkdown(note.content) + '</div>'
+      + '<div class="note-item-meta">Updated: ' + time + '</div>'
+      + '</div>';
+  }).join('');
+}
+
+// --- Check assistant status ---
+async function updateAssistantStatus(members) {
+  const el = document.getElementById('assistant-status');
+  const assistant = members.find(m => m.name === 'assistant');
+  if (assistant && (Date.now() - assistant.lastHeartbeat < 60000)) {
+    const statusText = assistant.status === 'working' ? 'working' : 'online';
+    el.innerHTML = '<span class="dot online"></span> ' + statusText;
+  } else {
+    el.innerHTML = '<span class="dot offline"></span> offline <button onclick="spawnAssistant()" style="margin-left:8px;background:var(--accent);color:#fff;border:none;padding:3px 10px;border-radius:4px;font-size:0.85em;cursor:pointer;">Start</button>';
+  }
+}
+
+// --- Refresh data ---
+async function refresh() {
+  try {
+    const [queueRes, notesRes, teamRes] = await Promise.all([
+      fetch('/api/assistant/queue').then(r => r.json()),
+      fetch('/api/assistant/notes').then(r => r.json()),
+      fetch('/api/team').then(r => r.json()),
+    ]);
+    renderQueue(queueRes.items);
+    renderNotes(notesRes.notes);
+    updateAssistantStatus(teamRes.members);
+  } catch (e) {
+    console.error('Refresh error:', e);
+  }
+}
+
+// --- Spawn assistant ---
+async function spawnAssistant() {
+  try {
+    const res = await fetch('/api/assistant/spawn', { method: 'POST' });
+    const data = await res.json();
+    if (!data.success) { alert(data.error || 'Failed to spawn'); return; }
+    setTimeout(refresh, 2000);
+  } catch (e) { alert('Error: ' + e.message); }
+}
+
+refresh();
+setInterval(refresh, POLL_MS);
+</script>
+</body></html>

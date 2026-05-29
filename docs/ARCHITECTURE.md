@@ -19,13 +19,20 @@ pi-pizza-team is a Pi extension package that operates in two roles depending on 
 │  │         • Show status widget                             │
 │  │                                                          │
 │  └── NO → Is --ppt-worker flag set or PI_TEAM_LEADER_URL?  │
-│       ├── YES → setupTeammate()                             │
-│       │         • Connect to leader HTTP API                │
-│       │         • Start work loop (poll → claim → execute)  │
-│       │         • Register permission bypass                │
-│       │         • Listen for agent_end to capture results   │
-│       │                                                     │
-│       └── NO → Register only /ppt-init command             │
+│       ├── YES → Is --ppt-assistant also set?                    │
+│       │         ├── YES → setupAssistant()                       │
+│       │         │         • Connect to leader HTTP API            │
+│       │         │         • Register leader tools (create/edit)    │
+│       │         │         • Register save_note tool                │
+│       │         │         • Start queue work loop (poll → claim)   │
+│       │         │                                                 │
+│       │         └── NO → setupTeammate()                        │
+│       │                   • Connect to leader HTTP API            │
+│       │                   • Start work loop (poll → claim → execute)│
+│       │                   • Register permission bypass             │
+│       │                   • Listen for agent_end to capture results│
+│       │                                                          │
+│       └── NO → Register only /ppt-init command                  │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -50,8 +57,11 @@ src/
 │   │   ├── nav.css / nav.js  # Shared navigation bar
 │   │   └── shared.js         # Shared browser utilities (escHtml, renderMarkdown)
 │   ├── commands.ts       # Slash commands for team lead
-│   ├── tools.ts          # LLM-callable tools (team_add_story, team_edit_story, team_add_task)
+│   ├── tools.ts          # LLM-callable tools (team_add_story, team_edit_story, team_add_task, team_queue_request)
 │   └── tmux.ts           # tmux session/window lifecycle management
+└── assistant/
+    ├── client.ts         # HTTP client for assistant → leader API calls
+    └── loop.ts           # Assistant work loop: poll queue → claim → execute → report
 └── teammate/
     ├── client.ts         # HTTP client wrapping all leader API calls
     ├── loop.ts           # Work loop: poll → claim → execute → report
@@ -227,6 +237,17 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/control/resume` | POST | Resume task distribution |
 | `/api/config` | GET | Read current configuration |
 | `/api/config` | PUT | Update configuration (writes to disk) |
+| `/assistant` | GET | Assistant queue page HTML |
+| `/api/assistant/queue` | GET | List all queue items |
+| `/api/assistant/queue` | POST | Enqueue a new prompt |
+| `/api/assistant/next` | GET | Next pending queue item (for assistant polling) |
+| `/api/assistant/queue/:id/claim` | POST | Claim a queue item for processing |
+| `/api/assistant/queue/:id/complete` | POST | Mark item done/failed with result |
+| `/api/assistant/queue/:id` | DELETE | Remove a queue item |
+| `/api/assistant/spawn` | POST | Spawn the assistant Pi instance in tmux |
+| `/api/assistant/notes` | GET | List saved notes |
+| `/api/assistant/notes` | POST | Save a new note |
+| `/api/assistant/notes/:id` | DELETE | Delete a note |
 
 ## Transition Instructions
 

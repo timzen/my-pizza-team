@@ -36,14 +36,27 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
+  pi.registerFlag("ppt-assistant", {
+    description: "Run as the pi-pizza-team assistant",
+    type: "boolean",
+    default: false,
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     const cwd = ctx.cwd;
     const teamDir = path.join(cwd, TEAM_DIR);
     const configFile = path.join(teamDir, CONFIG_FILE);
 
     const isTeamWorkerFlag = pi.getFlag("ppt-worker") as boolean;
+    const isAssistantFlag = pi.getFlag("ppt-assistant") as boolean;
     const teamLeadUrl = (pi.getFlag("ppt-lead") as string) || process.env.PI_TEAM_LEADER_URL || "";
     const teamName = (pi.getFlag("ppt-name") as string) || "";
+
+    // --- ASSISTANT ROLE (must check before lead, since it runs in the leader's cwd) ---
+    if (isAssistantFlag && teamLeadUrl) {
+      await setupAssistant(pi, ctx, teamLeadUrl, cwd);
+      return;
+    }
 
     // --- TEAM LEAD ROLE ---
     if (fs.existsSync(configFile)) {
@@ -368,6 +381,126 @@ async function setupTeammate(
   // Cleanup
   pi.on("session_shutdown", async () => {
     clearInterval(teammateWidgetInterval);
+    loop.stop();
+    await client.heartbeat("idle");
+  });
+}
+
+// --- Assistant Setup ---
+async function setupAssistant(
+  pi: ExtensionAPI,
+  ctx: any,
+  leaderUrl: string,
+  cwd: string
+): Promise<void> {
+  const { AssistantClient } = await import("./assistant/client.js");
+  const { AssistantLoop } = await import("./assistant/loop.js");
+
+  const memberId = "assistant";
+  const client = new AssistantClient(leaderUrl, memberId);
+
+  // Check server reachability
+  const serverUp = await client.checkServer();
+  if (!serverUp && ctx.hasUI) {
+    ctx.ui.notify(`🤖 Cannot reach team lead at ${leaderUrl} — will retry...`, "warning");
+  }
+
+  // Join the team as the assistant
+  try {
+    await client.join(cwd);
+  } catch {
+    if (ctx.hasUI) {
+      ctx.ui.notify(`🤖 Failed to join team — will keep trying via polling`, "warning");
+    }
+  }
+
+  // Register leader tools so the assistant can create stories, tasks, etc.
+  // These proxy to the leader's API via the same tools the leader uses,
+  // but since we're in the leader's cwd, we load the store tools.
+  const teamDir = path.join(cwd, TEAM_DIR);
+  const configFile = path.join(teamDir, CONFIG_FILE);
+  if (fs.existsSync(configFile)) {
+    const configData = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+    const { Store } = await import("./lead/store.js");
+    const config: TeamConfig = { ...DEFAULT_CONFIG, ...configData };
+    if (configData.workflow && !configData.workflows) {
+      config.workflows = { default: configData.workflow };
+      config.defaultWorkflow = "default";
+    }
+    const store = new Store(teamDir, config);
+    store.loadFromDisk();
+
+    const { registerLeadTools } = await import("./lead/tools.js");
+    registerLeadTools(pi, () => store, () => config, teamDir);
+
+    // Cleanup store on shutdown
+    pi.on("session_shutdown", async () => {
+      store.close();
+    });
+  }
+
+  // Register a save_note tool for the assistant
+  const { Type } = await import("typebox");
+  pi.registerTool({
+    name: "save_note",
+    label: "Save Note",
+    description: "Save a note/document for the team. Notes are markdown files stored in .pi-pizza-team/notes/.",
+    promptSnippet: "Save a note for the team",
+    promptGuidelines: [
+      "Use save_note to persist information, research, decisions, or context for the team.",
+      "Notes are stored as markdown files and visible in the web UI.",
+    ],
+    parameters: Type.Object({
+      title: Type.String({ description: "Title for the note" }),
+      content: Type.String({ description: "Markdown content of the note" }),
+    }),
+    async execute(_toolCallId, params) {
+      const result = await client.saveNote(params.title, params.content);
+      if (!result.success) throw new Error(result.error || "Failed to save note");
+      return {
+        content: [{ type: "text", text: `Saved note: "${params.title}"` }],
+        details: { noteId: result.note?.id },
+      };
+    },
+  });
+
+  // Create the work loop
+  const loop = new AssistantLoop(pi, client);
+
+  // Listen for agent completion
+  pi.on("agent_end", async (event) => {
+    if (!loop.isWorking) return;
+
+    const messages = event.messages || [];
+    let lastAssistantText = "";
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const msg = messages[i];
+      if (msg.role === "assistant") {
+        for (const part of msg.content) {
+          if (part.type === "text") {
+            lastAssistantText = part.text;
+            break;
+          }
+        }
+        if (lastAssistantText) break;
+      }
+    }
+
+    await loop.handleAgentComplete(lastAssistantText);
+  });
+
+  // Start the loop
+  await loop.start();
+
+  // Widget
+  if (ctx.hasUI) {
+    ctx.ui.setWidget("pi-pizza-team", ["🤖 assistant ready — waiting for requests..."]);
+    ctx.ui.setStatus("pi-pizza-team", "🤖 assistant");
+    ctx.ui.notify("🤖 pi-pizza-team assistant active", "info");
+  }
+
+  // Cleanup
+  pi.on("session_shutdown", async () => {
     loop.stop();
     await client.heartbeat("idle");
   });

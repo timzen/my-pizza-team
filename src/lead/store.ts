@@ -104,6 +104,16 @@ export class Store {
         cost_usd REAL,
         recorded_at INTEGER
       );
+
+      CREATE TABLE IF NOT EXISTS assistant_queue (
+        id TEXT PRIMARY KEY,
+        prompt TEXT,
+        status TEXT DEFAULT 'pending',
+        result TEXT,
+        created_at INTEGER,
+        started_at INTEGER,
+        completed_at INTEGER
+      );
     `);
 
     // Migration: add dir column if it doesn't exist (for existing databases)
@@ -993,6 +1003,104 @@ export class Store {
     if (permission === "any") return { ok: true };
     if (permission === actor) return { ok: true };
     return { ok: false, error: `Transition "${currentStatus}" → "${newStatus}" requires "${permission}", got "${actor}"` };
+  }
+
+  // --- Assistant Queue ---
+
+  enqueueAssistantItem(prompt: string): { id: string; prompt: string; status: string; createdAt: string } {
+    const id = `asst-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    const now = Date.now();
+    this.db
+      .prepare("INSERT INTO assistant_queue (id, prompt, status, created_at) VALUES (?, ?, 'pending', ?)")
+      .run(id, prompt, now);
+    return { id, prompt, status: "pending", createdAt: new Date(now).toISOString() };
+  }
+
+  getAssistantQueue(): Array<{ id: string; prompt: string; status: string; result: string | null; createdAt: number; startedAt: number | null; completedAt: number | null }> {
+    return this.db
+      .prepare("SELECT * FROM assistant_queue ORDER BY created_at DESC")
+      .all() as any[];
+  }
+
+  getNextAssistantItem(): { id: string; prompt: string } | null {
+    const row: any = this.db
+      .prepare("SELECT * FROM assistant_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1")
+      .get();
+    if (!row) return null;
+    return { id: row.id, prompt: row.prompt };
+  }
+
+  claimAssistantItem(id: string): boolean {
+    const row: any = this.db.prepare("SELECT status FROM assistant_queue WHERE id = ?").get(id);
+    if (!row || row.status !== "pending") return false;
+    this.db.prepare("UPDATE assistant_queue SET status = 'processing', started_at = ? WHERE id = ?").run(Date.now(), id);
+    return true;
+  }
+
+  completeAssistantItem(id: string, result?: string, failed = false): boolean {
+    const row: any = this.db.prepare("SELECT status FROM assistant_queue WHERE id = ?").get(id);
+    if (!row || row.status !== "processing") return false;
+    const status = failed ? "failed" : "done";
+    this.db.prepare("UPDATE assistant_queue SET status = ?, result = ?, completed_at = ? WHERE id = ?").run(status, result || null, Date.now(), id);
+    return true;
+  }
+
+  deleteAssistantItem(id: string): boolean {
+    const row: any = this.db.prepare("SELECT * FROM assistant_queue WHERE id = ?").get(id);
+    if (!row) return false;
+    this.db.prepare("DELETE FROM assistant_queue WHERE id = ?").run(id);
+    return true;
+  }
+
+  // --- Notes ---
+
+  getAssistantNotes(): Array<{ id: string; title: string; content: string; createdAt: string; updatedAt: string }> {
+    const notesDir = path.join(this.teamDir, "notes");
+    if (!fs.existsSync(notesDir)) return [];
+    const results: Array<{ id: string; title: string; content: string; createdAt: string; updatedAt: string }> = [];
+    for (const filename of fs.readdirSync(notesDir).sort()) {
+      if (!filename.endsWith(".md")) continue;
+      const filePath = path.join(notesDir, filename);
+      const stat = fs.statSync(filePath);
+      const content = fs.readFileSync(filePath, "utf-8");
+      const id = filename.replace(/\.md$/, "");
+      // Extract title from first line (# Title) or use filename
+      const firstLine = content.split("\n")[0];
+      const title = firstLine.startsWith("# ") ? firstLine.slice(2).trim() : id;
+      results.push({
+        id,
+        title,
+        content,
+        createdAt: new Date(stat.birthtime).toISOString(),
+        updatedAt: new Date(stat.mtime).toISOString(),
+      });
+    }
+    return results;
+  }
+
+  saveAssistantNote(title: string, content: string): { id: string; title: string; content: string; createdAt: string; updatedAt: string } {
+    const notesDir = path.join(this.teamDir, "notes");
+    fs.mkdirSync(notesDir, { recursive: true });
+    const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || `note-${Date.now()}`;
+    const filePath = path.join(notesDir, `${id}.md`);
+    const fullContent = content.startsWith("# ") ? content : `# ${title}\n\n${content}`;
+    fs.writeFileSync(filePath, fullContent);
+    const stat = fs.statSync(filePath);
+    return {
+      id,
+      title,
+      content: fullContent,
+      createdAt: new Date(stat.birthtime).toISOString(),
+      updatedAt: new Date(stat.mtime).toISOString(),
+    };
+  }
+
+  deleteAssistantNote(id: string): boolean {
+    const notesDir = path.join(this.teamDir, "notes");
+    const filePath = path.join(notesDir, `${id}.md`);
+    if (!fs.existsSync(filePath)) return false;
+    fs.rmSync(filePath);
+    return true;
   }
 
   // --- Cleanup ---

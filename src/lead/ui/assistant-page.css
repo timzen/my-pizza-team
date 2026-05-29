@@ -1,0 +1,62 @@
+/* Assistant page styles for pi-pizza-team */
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: system-ui, sans-serif; background: var(--bg-primary); color: var(--text-primary); padding: 20px; max-width: 900px; margin: 0 auto; }
+h1 { margin-bottom: 8px; font-size: 1.5em; }
+.subtitle { color: var(--text-secondary); font-size: 0.85em; margin-bottom: 20px; }
+
+/* Input area */
+.input-section { margin-bottom: 24px; }
+.input-section textarea { width: 100%; background: var(--input-bg); border: 1px solid var(--input-border); color: var(--text-primary); border-radius: 8px; padding: 12px 14px; font-size: 0.9em; font-family: inherit; outline: none; resize: vertical; min-height: 80px; }
+.input-section textarea:focus { border-color: var(--accent); }
+.input-section .input-row { display: flex; gap: 10px; margin-top: 10px; align-items: center; }
+.input-section .btn { background: var(--accent); color: #fff; border: none; padding: 9px 18px; border-radius: 6px; font-size: 0.85em; font-weight: 600; cursor: pointer; transition: background 0.15s; }
+.input-section .btn:hover { background: var(--accent-hover); }
+.input-section .btn:disabled { background: var(--border); cursor: not-allowed; }
+.input-hint { font-size: 0.78em; color: var(--text-muted); }
+
+/* Tabs */
+.tabs { display: flex; gap: 2px; margin-bottom: 16px; border-bottom: 1px solid var(--border); }
+.tab-btn { background: none; border: none; border-bottom: 2px solid transparent; color: var(--text-secondary); padding: 10px 16px; font-size: 0.85em; font-weight: 600; cursor: pointer; transition: all 0.15s; font-family: inherit; }
+.tab-btn:hover { color: var(--text-primary); }
+.tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+.tab-content { display: none; }
+.tab-content.active { display: block; }
+
+/* Queue items */
+.queue-list { display: flex; flex-direction: column; gap: 10px; }
+.queue-item { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; position: relative; }
+.queue-item.processing { border-left: 3px solid var(--warning); }
+.queue-item.done { border-left: 3px solid var(--success); opacity: 0.8; }
+.queue-item.failed { border-left: 3px solid var(--danger); opacity: 0.8; }
+.queue-item-header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 6px; }
+.queue-item-status { font-size: 0.72em; font-weight: 600; text-transform: uppercase; padding: 2px 8px; border-radius: 10px; }
+.queue-item-status.pending { background: var(--accent-bg); color: var(--accent); }
+.queue-item-status.processing { background: rgba(181, 137, 0, 0.15); color: var(--warning); }
+.queue-item-status.done { background: rgba(133, 153, 0, 0.15); color: var(--success); }
+.queue-item-status.failed { background: rgba(220, 50, 47, 0.15); color: var(--danger); }
+.queue-item-prompt { font-size: 0.88em; line-height: 1.5; color: var(--text-primary); white-space: pre-wrap; word-break: break-word; }
+.queue-item-meta { font-size: 0.75em; color: var(--text-muted); margin-top: 8px; }
+.queue-item-result { font-size: 0.82em; color: var(--text-secondary); margin-top: 8px; padding: 10px; background: var(--bg-tertiary); border-radius: 6px; white-space: pre-wrap; word-break: break-word; }
+.queue-item-actions { position: absolute; top: 10px; right: 12px; }
+.queue-item-actions button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85em; padding: 2px 6px; border-radius: 3px; }
+.queue-item-actions button:hover { color: var(--danger); background: rgba(220, 50, 47, 0.1); }
+
+/* Notes */
+.notes-list { display: flex; flex-direction: column; gap: 10px; }
+.note-item { background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 14px 16px; position: relative; }
+.note-item-title { font-weight: 600; font-size: 0.92em; margin-bottom: 6px; }
+.note-item-content { font-size: 0.82em; color: var(--text-secondary); line-height: 1.5; max-height: 120px; overflow: hidden; }
+.note-item-meta { font-size: 0.72em; color: var(--text-muted); margin-top: 8px; }
+.note-item-actions { position: absolute; top: 10px; right: 12px; }
+.note-item-actions button { background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 0.85em; padding: 2px 6px; border-radius: 3px; }
+.note-item-actions button:hover { color: var(--danger); background: rgba(220, 50, 47, 0.1); }
+
+/* Empty state */
+.empty-state { text-align: center; padding: 40px 20px; color: var(--text-muted); font-size: 0.88em; }
+.empty-state .icon { font-size: 2em; margin-bottom: 8px; }
+
+/* Assistant status */
+.assistant-status { display: inline-flex; align-items: center; gap: 6px; font-size: 0.8em; padding: 4px 10px; border-radius: 12px; background: var(--bg-secondary); border: 1px solid var(--border); }
+.assistant-status .dot { width: 8px; height: 8px; border-radius: 50%; }
+.assistant-status .dot.online { background: var(--success); }
+.assistant-status .dot.offline { background: var(--text-muted); }

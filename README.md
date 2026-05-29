@@ -62,22 +62,25 @@ pi
 
 ## LLM Tools
 
-The extension registers two LLM tools:
+The extension registers LLM tools:
 
 - **`team_add_story`** — Create a new story with id, title, description, optional dir and dependencies
 - **`team_edit_story`** — Edit any field of an existing story (title, description, status, dependencies, dir, workflow)
 - **`team_add_task`** — Add a task to an existing story
+- **`team_queue_request`** — Queue a free-form request for the assistant to process
 
 This means you can:
 - Paste a design doc and say "break this into tasks for story X"
 - Discuss implementation with Pi and have it add stories + tasks as you go
 - Let Pi read existing code and propose a task breakdown
+- Queue operational work for the assistant ("create 3 stories for the API refactor")
 
 ## Web UI
 
 When the team lead is running, visit:
 - **`http://localhost:7437/`** — landing page with status
 - **`http://localhost:7437/board`** — kanban board with swimlanes per story (auto-refreshes every 3s)
+- **`http://localhost:7437/assistant`** — assistant queue: submit prompts, view status, manage notes
 
 The board includes:
 - **Search** — filter stories by title/description (real-time)
@@ -88,6 +91,25 @@ The board includes:
 - **Add tasks** — "+Task" button on each story
 - **Add stories** — modal with title, description, dependencies, working directory, and inline tasks
 - **Persistent controls** — filter/sort/search saved in localStorage
+
+## Assistant
+
+The assistant is a dedicated Pi instance that processes a queue of free-form requests. Unlike teammates (who work on sequential coding tasks), the assistant handles operational/meta work:
+
+- Creating stories and tasks from high-level descriptions
+- Spawning teammates
+- Saving notes and research for the team
+- Any other operational request you'd normally do yourself in the leader Pi
+
+**Start the assistant:**
+- From the web UI: visit `/assistant` and click "Start" if offline
+- From the leader Pi: the assistant is spawned in the tmux session
+
+**Queue requests:**
+- Web UI: type a prompt on the `/assistant` page
+- Leader Pi: use the `team_queue_request` tool
+
+**Notes:** The assistant can save markdown notes to `.pi-pizza-team/notes/` using the `save_note` tool. These are visible on the assistant page's Notes tab.
 
 ## Workflow
 

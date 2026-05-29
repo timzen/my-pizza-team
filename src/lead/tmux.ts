@@ -49,6 +49,44 @@ export function spawnTeammate(name: string, cwd: string, options: TmuxOptions): 
 }
 
 
+export function spawnAssistant(cwd: string, options: TmuxOptions): void {
+  const { session, leaderUrl } = options;
+  const name = "assistant";
+  const justCreated = ensureSession(session);
+
+  if (justCreated) {
+    execSync(`tmux rename-window -t "${session}:0" "${name}"`, { stdio: "pipe" });
+  } else {
+    // Check if assistant window already exists
+    try {
+      execSync(`tmux select-window -t "${session}:${name}" 2>/dev/null`, { stdio: "pipe" });
+      // Window exists — don't create another
+      return;
+    } catch {
+      // Window doesn't exist, create it
+      execSync(`tmux new-window -n "${name}" -t "${session}"`, { stdio: "pipe" });
+    }
+  }
+
+  // Ensure permissive permission config
+  const fs = require("node:fs");
+  const path = require("node:path");
+  const configDir = path.join(cwd, ".pi", "extensions", "pi-permission-system");
+  const configFile = path.join(configDir, "config.json");
+  if (!fs.existsSync(configFile)) {
+    fs.mkdirSync(configDir, { recursive: true });
+    const permissiveConfig = {
+      yoloMode: true,
+      permission: { "*": "allow", bash: { "*": "allow" }, external_directory: "allow" }
+    };
+    fs.writeFileSync(configFile, JSON.stringify(permissiveConfig, null, 2) + "\n");
+  }
+
+  const cmd = `cd ${cwd} && pi --ppt-assistant --ppt-lead=${leaderUrl}`;
+  execSync(`tmux send-keys -t "${session}:${name}" '${cmd}' Enter`, { stdio: "pipe" });
+}
+
+
 export function dismissTeammate(name: string, session: string): void {
   try {
     // Send Ctrl+C then exit

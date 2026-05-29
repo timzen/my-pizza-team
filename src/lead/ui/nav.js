@@ -31,6 +31,7 @@
   const navItems = [
     { href: '/', label: '🍕 Home', match: /^\/$/ },
     { href: '/board', label: '📋 Board', match: /^\/board/ },
+    { href: '/assistant', label: '🤖 Assistant', match: /^\/assistant/ },
     { href: '/archived', label: '📦 Archived', match: /^\/archived/ },
     { href: '/config', label: '⚙️ Config', match: /^\/config/ },
   ];
