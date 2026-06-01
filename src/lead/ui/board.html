@@ -10,7 +10,8 @@
   <h1>🍕 Board <span class="refresh" id="refresh"></span></h1>
   <div style="display:flex;align-items:center;gap:14px;">
     <span id="total-cost" style="font-size:0.82em;color:#4caf50;"></span>
-    <span id="archived-count" style="font-size:0.82em;color:#888;"></span>
+    <span id="backlog-count" style="font-size:0.82em;color:var(--text-muted);"></span>
+    <span id="archived-count" style="font-size:0.82em;color:var(--text-muted);"></span>
     <button class="btn-add-story" id="btn-add-story" onclick="openAddStoryModal()">+ Add Story</button>
   </div>
 </div>
@@ -1189,6 +1190,18 @@ async function refreshArchivedCount() {
   } catch(e) {}
 }
 
+let backlogCount = 0;
+
+async function refreshBacklogCount() {
+  try {
+    const res = await fetch('/api/backlog');
+    const data = await res.json();
+    backlogCount = data.stories ? data.stories.length : 0;
+    const el = document.getElementById('backlog-count');
+    el.textContent = backlogCount > 0 ? '📥 ' + backlogCount + ' backlog' : '';
+  } catch(e) {}
+}
+
 async function deleteStory(storyId, title) {
   if (!confirm('DELETE story "' + title + '"?\n\nThis will permanently remove the story and all its tasks from disk. This cannot be undone.')) return;
   try {
@@ -1220,6 +1233,7 @@ async function backlogStory(storyId, title) {
       alert('Moved ' + data.moved.length + ' stories to backlog:\n' + data.moved.join(', '));
     }
     refresh();
+    refreshBacklogCount();
   } catch(e) { alert('Network error: ' + e.message); }
 }
 
@@ -1293,5 +1307,7 @@ refresh();
 setInterval(refresh, POLL_MS);
 refreshArchivedCount();
 setInterval(refreshArchivedCount, 30000);
+refreshBacklogCount();
+setInterval(refreshBacklogCount, 30000);
 </script>
 </body></html>
