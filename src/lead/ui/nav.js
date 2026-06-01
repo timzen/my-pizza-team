@@ -75,32 +75,34 @@
   }
 
   // --- Navigation ---
-  const navItems = [
-    { href: '/', label: '🍕 Home', match: /^\/$/ },
-    { href: '/board', label: '📋 Board', match: /^\/board/ },
-    { href: '/backlog', label: '📥 Backlog', match: /^\/backlog/ },
-    { href: '/assistant', label: '🤖 Assistant', match: /^\/assistant/ },
-    { href: '/memory', label: '🧠 Memory', match: /^\/memory/ },
-    { href: '/archived', label: '📦 Archived', match: /^\/archived/ },
-    { href: '/config', label: '⚙️ Config', match: /^\/config/ },
-  ];
-
   const currentPath = window.location.pathname;
+
+  function isActive(pattern) { return pattern.test(currentPath) ? ' site-nav-active' : ''; }
 
   const nav = document.createElement('nav');
   nav.className = 'site-nav';
   nav.innerHTML = '<div class="site-nav-inner">'
-    + '<span class="site-nav-brand">🍕 pi-pizza-team</span>'
+    + '<a href="/" class="site-nav-brand' + isActive(/^\/$/) + '" title="Home">🍕</a>'
     + '<div class="site-nav-links">'
-    + navItems.map(item => {
-        const active = item.match.test(currentPath) ? ' site-nav-active' : '';
-        return '<a href="' + item.href + '" class="site-nav-link' + active + '">' + item.label + '</a>';
-      }).join('')
+    + '<div class="site-nav-dropdown">'
+    +   '<a href="/board" class="site-nav-link' + isActive(/^\/(board|backlog|archived)/) + '">📋 Board</a>'
+    +   '<div class="site-nav-dropdown-menu">'
+    +     '<a href="/board" class="site-nav-dropdown-item' + isActive(/^\/board$/) + '">📋 Active Board</a>'
+    +     '<a href="/backlog" class="site-nav-dropdown-item' + isActive(/^\/backlog/) + '">📥 Backlog</a>'
+    +     '<a href="/archived" class="site-nav-dropdown-item' + isActive(/^\/archived/) + '">📦 Archived</a>'
+    +   '</div>'
+    + '</div>'
+    + '<a href="/assistant" class="site-nav-link' + isActive(/^\/assistant/) + '">🤖 Assistant</a>'
+    + '<a href="/memory" class="site-nav-link' + isActive(/^\/memory/) + '">🧠 Memory</a>'
+    + '</div>'
+    + '<div class="site-nav-right">'
     + '<span class="theme-toggle">'
     + THEMES.map(t =>
         '<button class="theme-btn' + (getTheme() === t.id ? ' active' : '') + '" data-theme="' + t.id + '" title="' + t.title + '">' + t.label + '</button>'
       ).join('')
     + '</span>'
+    + '<span class="site-nav-divider"></span>'
+    + '<a href="/config" class="site-nav-link site-nav-icon' + isActive(/^\/config/) + '" title="Settings">⚙️</a>'
     + '</div>'
     + '</div>';
 
