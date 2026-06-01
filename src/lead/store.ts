@@ -1017,6 +1017,126 @@ export class Store {
     return { ok: false, error: `Transition "${currentStatus}" → "${newStatus}" requires "${permission}", got "${actor}"` };
   }
 
+  // --- Backlog ---
+
+  /**
+   * Move a story to the backlog. Also moves any stories that depend on it
+   * (transitively) to prevent broken dependency chains on the active board.
+   * Returns the list of story IDs that were moved.
+   */
+  moveToBacklog(storyId: string): string[] {
+    const story = this.getStory(storyId);
+    if (!story) throw new Error(`Story "${storyId}" not found`);
+
+    // Check no tasks are in_progress
+    const tasks = this.getTasksForStory(storyId);
+    const inProgress = tasks.filter((t) => t.status === "in_progress");
+    if (inProgress.length > 0) {
+      throw new Error(`Cannot backlog story "${storyId}": ${inProgress.length} task(s) are in progress`);
+    }
+
+    // Find all stories that depend on this one (transitively)
+    const toMove = this.getDependentStoriesTransitive(storyId);
+    toMove.unshift(storyId); // Include the original story first
+
+    const backlogDir = path.join(this.teamDir, "backlog");
+    fs.mkdirSync(backlogDir, { recursive: true });
+
+    for (const id of toMove) {
+      const s = this.getStory(id);
+      if (!s) continue;
+
+      const sourcePath = s.dirPath;
+      const destPath = path.join(backlogDir, id);
+
+      // Move directory
+      fs.renameSync(sourcePath, destPath);
+
+      // Update story.json with backloggedAt timestamp
+      const storyFile = path.join(destPath, "story.json");
+      const storyData = JSON.parse(fs.readFileSync(storyFile, "utf-8"));
+      storyData.backloggedAt = new Date().toISOString();
+      fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
+
+      // Remove from SQLite
+      this.removeStoryFromDb(id);
+    }
+
+    return toMove;
+  }
+
+  /**
+   * Move a story from backlog back to active stories.
+   * Re-loads it into SQLite.
+   */
+  moveFromBacklog(storyId: string): void {
+    const backlogDir = path.join(this.teamDir, "backlog");
+    const sourcePath = path.join(backlogDir, storyId);
+    if (!fs.existsSync(sourcePath)) {
+      throw new Error(`Story "${storyId}" not found in backlog`);
+    }
+
+    const storiesDir = path.join(this.teamDir, "stories");
+    const destPath = path.join(storiesDir, storyId);
+
+    // Update story.json (remove backloggedAt)
+    const storyFile = path.join(sourcePath, "story.json");
+    const storyData = JSON.parse(fs.readFileSync(storyFile, "utf-8"));
+    delete storyData.backloggedAt;
+    fs.writeFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
+
+    // Move directory back
+    fs.renameSync(sourcePath, destPath);
+
+    // Reload into SQLite
+    this.loadFromDisk();
+  }
+
+  /** Get all stories in the backlog */
+  getBacklogStories(): Array<{ id: string; title: string; description: string; dependsOn: string[]; backloggedAt?: string }> {
+    const backlogDir = path.join(this.teamDir, "backlog");
+    if (!fs.existsSync(backlogDir)) return [];
+
+    const results: Array<{ id: string; title: string; description: string; dependsOn: string[]; backloggedAt?: string }> = [];
+    for (const dirName of fs.readdirSync(backlogDir)) {
+      const dirPath = path.join(backlogDir, dirName);
+      if (!fs.statSync(dirPath).isDirectory()) continue;
+
+      const storyFile = path.join(dirPath, "story.json");
+      if (!fs.existsSync(storyFile)) continue;
+
+      const storyData = JSON.parse(fs.readFileSync(storyFile, "utf-8"));
+      results.push({
+        id: storyData.id,
+        title: storyData.title,
+        description: storyData.description || "",
+        dependsOn: storyData.dependsOn || [],
+        backloggedAt: storyData.backloggedAt,
+      });
+    }
+    return results;
+  }
+
+  /** Find all stories that transitively depend on the given story */
+  private getDependentStoriesTransitive(storyId: string): string[] {
+    const allStories = this.getStories();
+    const result: string[] = [];
+    const visited = new Set<string>();
+
+    const findDependents = (id: string) => {
+      for (const s of allStories) {
+        if (s.dependsOn.includes(id) && !visited.has(s.id)) {
+          visited.add(s.id);
+          result.push(s.id);
+          findDependents(s.id);
+        }
+      }
+    };
+
+    findDependents(storyId);
+    return result;
+  }
+
   // --- Assistant Queue ---
 
   enqueueAssistantItem(prompt: string): { id: string; prompt: string; status: string; createdAt: string } {

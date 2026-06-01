@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, spawnAssistant } from "./tmux.js";
-import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG, ICON_MASKABLE_SVG } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, BACKLOG_HTML, BACKLOG_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG, ICON_MASKABLE_SVG } from "./assets.js";
 import { NotesSearchEngine, parseFrontmatter } from "./search.js";
 import type {
   StatusResponse,
@@ -153,6 +153,11 @@ export class TeamServer {
       return c.html(MEMORY_HTML);
     });
 
+    // Backlog page
+    this.app.get("/backlog", (c) => {
+      return c.html(BACKLOG_HTML);
+    });
+
     // CSS assets
     this.app.get("/css/theme.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -181,6 +186,10 @@ export class TeamServer {
     this.app.get("/css/memory-page.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(MEMORY_CSS);
+    });
+    this.app.get("/css/backlog-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(BACKLOG_CSS);
     });
     this.app.get("/css/nav.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -951,6 +960,40 @@ export class TeamServer {
       const configured = this.config.categories || [];
       const indexed = this.searchEngine.getCategories();
       return c.json({ configured, indexed });
+    });
+
+    // --- Backlog endpoints ---
+
+    // GET /api/backlog
+    this.app.get("/api/backlog", (c) => {
+      const stories = this.store.getBacklogStories();
+      return c.json({ stories });
+    });
+
+    // POST /api/stories/:id/backlog (move to backlog)
+    this.app.post("/api/stories/:id/backlog", (c) => {
+      const storyId = c.req.param("id");
+      const story = this.store.getStory(storyId);
+      if (!story) {
+        return c.json({ success: false, error: `Story "${storyId}" not found` }, 404);
+      }
+      try {
+        const moved = this.store.moveToBacklog(storyId);
+        return c.json({ success: true, moved });
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message }, 400);
+      }
+    });
+
+    // POST /api/backlog/:id/restore (move from backlog to active)
+    this.app.post("/api/backlog/:id/restore", (c) => {
+      const storyId = c.req.param("id");
+      try {
+        this.store.moveFromBacklog(storyId);
+        return c.json({ success: true });
+      } catch (e: any) {
+        return c.json({ success: false, error: e.message }, 400);
+      }
     });
 
     // --- Config endpoints ---
