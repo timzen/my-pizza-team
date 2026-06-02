@@ -35,8 +35,8 @@ export interface WorkflowConfig {
   doneState?: string;
   /** Default memory categories for stories using this workflow */
   categories?: string[];
-  /** Transition instruction files per state (relative to workflow directory) */
-  instructions?: Record<string, { "on-enter"?: string; "on-exit"?: string }>;
+  /** Instruction files per state (relative to workflow directory) */
+  instructions?: Record<string, string>;
 }
 
 export type TransitionPermission = "any" | "teammate" | "lead";

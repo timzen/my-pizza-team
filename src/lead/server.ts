@@ -135,8 +135,12 @@ export class TeamServer {
     }
     const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, toStatus, workflowName);
     const parts: string[] = [];
-    if (exitInstructions) parts.push(exitInstructions);
-    if (enterInstructions) parts.push(enterInstructions);
+    if (exitInstructions) {
+      parts.push(`## Transition: leaving "${fromStatus}"\n\n${exitInstructions}`);
+    }
+    if (enterInstructions) {
+      parts.push(`## Transition: entering "${toStatus}"\n\n${enterInstructions}`);
+    }
     return parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
   }
 

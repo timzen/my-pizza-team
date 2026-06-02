@@ -226,26 +226,39 @@ export function registerLeadCommands(
         }
 
         // Migrate team-level transition instructions to default workflow dir
-        // and build the instructions map in workflow.json
+        // Merge on-enter/on-exit files for same state into a single file
         const defaultWfName = config.defaultWorkflow || "default";
         const defaultWfDir = path.join(teamDir, "workflows", defaultWfName);
         fs.mkdirSync(defaultWfDir, { recursive: true });
-        const instructionsMap: Record<string, { "on-enter"?: string; "on-exit"?: string }> = {};
+        const stateFiles: Record<string, { enter?: string; exit?: string }> = {};
         for (const file of fs.readdirSync(teamDir)) {
           const match = file.match(/^on-(enter|exit)-(.+)\.md$/);
           if (!match) continue;
           const [, direction, state] = match;
-          const src = path.join(teamDir, file);
-          const dest = path.join(defaultWfDir, file);
-          if (!fs.existsSync(dest)) {
-            fs.renameSync(src, dest);
-            changes.push("Moved " + file + " to workflows/" + defaultWfName + "/");
-          }
-          if (!instructionsMap[state]) instructionsMap[state] = {};
-          if (direction === "enter") instructionsMap[state]["on-enter"] = file;
-          else instructionsMap[state]["on-exit"] = file;
+          if (!stateFiles[state]) stateFiles[state] = {};
+          if (direction === "enter") stateFiles[state].enter = file;
+          else stateFiles[state].exit = file;
         }
-        // Update workflow.json with instructions map if we found any
+        // Merge into single state instruction files
+        const instructionsMap: Record<string, string> = {};
+        for (const [state, files] of Object.entries(stateFiles)) {
+          const parts: string[] = [];
+          if (files.enter) {
+            const content = fs.readFileSync(path.join(teamDir, files.enter), "utf-8");
+            parts.push("## On Enter\n\n" + content.trim());
+            fs.unlinkSync(path.join(teamDir, files.enter));
+          }
+          if (files.exit) {
+            const content = fs.readFileSync(path.join(teamDir, files.exit), "utf-8");
+            parts.push("## On Exit\n\n" + content.trim());
+            fs.unlinkSync(path.join(teamDir, files.exit));
+          }
+          const mergedFile = state + ".md";
+          fs.writeFileSync(path.join(defaultWfDir, mergedFile), parts.join("\n\n"));
+          instructionsMap[state] = mergedFile;
+          changes.push("Created workflows/" + defaultWfName + "/" + mergedFile + " from on-enter/on-exit files");
+        }
+        // Update workflow.json with instructions map
         if (Object.keys(instructionsMap).length > 0) {
           const wfFile = path.join(defaultWfDir, "workflow.json");
           if (fs.existsSync(wfFile)) {

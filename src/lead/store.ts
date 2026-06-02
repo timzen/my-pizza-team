@@ -878,15 +878,15 @@ export class Store {
     const wf = this.workflows[wfName];
     if (!wf?.instructions) return result;
 
-    // Look up on-exit for the state we're leaving
-    const exitFile = wf.instructions[fromStatus]?.["on-exit"];
+    // Read instruction file for the state we're leaving
+    const exitFile = wf.instructions[fromStatus];
     if (exitFile) {
       const content = this.readInstructionFile(wfName, exitFile);
       if (content) result.exitInstructions = content;
     }
 
-    // Look up on-enter for the state we're entering
-    const enterFile = wf.instructions[toStatus]?.["on-enter"];
+    // Read instruction file for the state we're entering
+    const enterFile = wf.instructions[toStatus];
     if (enterFile) {
       const content = this.readInstructionFile(wfName, enterFile);
       if (content) result.enterInstructions = content;
