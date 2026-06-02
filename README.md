@@ -115,59 +115,70 @@ The assistant is a dedicated Pi instance that processes a queue of free-form req
 
 ## Workflow
 
-Tasks follow configurable workflows with permission-gated transitions. You can define multiple named workflows and assign them per-story:
+Tasks follow configurable workflows with permission-gated transitions. Each workflow lives in its own directory under `.pi-pizza-team/workflows/`:
+
+```
+.pi-pizza-team/workflows/
+├── default/
+│   ├── workflow.json
+│   └── enter-review.md
+└── simple/
+    └── workflow.json
+```
+
+**`workflows/default/workflow.json`:**
 
 ```json
 {
-  "defaultWorkflow": "default",
-  "workflows": {
-    "default": {
-      "states": ["todo", "in_progress", "needs_input", "review", "done"],
-      "transitions": {
-        "todo":         { "in_progress": "any" },
-        "in_progress":  { "needs_input": "teammate", "review": "teammate" },
-        "needs_input":  { "in_progress": "lead" },
-        "review":       { "done": "lead", "in_progress": "lead" }
-      }
-    },
-    "simple": {
-      "states": ["todo", "in_progress", "done"],
-      "transitions": {
-        "todo":         { "in_progress": "any" },
-        "in_progress":  { "done": "any" }
-      }
-    }
+  "states": ["todo", "in_progress", "needs_input", "review", "done"],
+  "transitions": {
+    "todo":         { "in_progress": "any" },
+    "in_progress":  { "needs_input": "teammate", "review": "teammate" },
+    "needs_input":  { "in_progress": "lead" },
+    "review":       { "done": "lead", "in_progress": "lead" }
+  },
+  "categories": ["coding"],
+  "instructions": {
+    "review": { "on-enter": "enter-review.md" }
   }
 }
 ```
 
 **Transition permissions:** `"any"` (anyone), `"teammate"` (only the assigned agent), `"lead"` (only you).
 
-To assign a non-default workflow to a story, add `"workflow": "simple"` in `story.json` or select it when creating a story via the board or `/ppt-add-story`.
+**Memory categories:** Stories using this workflow inherit these categories for auto-context injection (unless the story overrides).
+
+**Instructions:** Map states to markdown files in the workflow directory. `on-enter` fires when entering that state, `on-exit` fires when leaving.
+
+To assign a non-default workflow to a story, add `"workflow": "simple"` in `story.json` or select it when creating/editing a story.
 
 ## Directory Structure
 
 ```
 .pi-pizza-team/
-├── config.json                   # Workflow, port, tmux session name
+├── config.json                   # Port, tmux session, defaultWorkflow, categories
 ├── state.db                      # SQLite runtime (gitignored)
-├── on-enter-<status>.md          # Optional: instructions when entering a status
-├── on-exit-<status>.md           # Optional: instructions when leaving a status
+├── workflows/
+│   ├── default/
+│   │   ├── workflow.json          # States, transitions, categories, instructions
+│   │   └── enter-review.md       # Transition instruction file
+│   └── simple/
+│       └── workflow.json
 ├── stories/
 │   └── my-story/
-│       ├── story.json            # Story metadata + dependencies + optional dir/workflow
+│       ├── story.json            # Story metadata + dependencies + dir/workflow
 │       └── tasks/
 │           └── 01-first-task/
 │               ├── task.json     # Task definition + status + result
-│               └── messages.jsonl # Decision log (append-only)
-└── archived/
-    └── completed-story/
-        ├── story.json            # Includes archivedAt timestamp
-        ├── SYNOPSIS.md           # Auto-generated summary of completed work
-        └── tasks/
-            └── 01-first-task/
-                ├── task.json
-                └── messages.jsonl
+│               ├── messages.jsonl # Decision log (append-only)
+│               └── attachments/  # File attachments (diffs, images, etc.)
+├── backlog/                      # Deferred stories (not loaded into SQLite)
+├── archived/                     # Completed stories
+│   └── completed-story/
+│       ├── story.json
+│       ├── SYNOPSIS.md
+│       └── tasks/
+└── notes/                        # Team memory (markdown, categorized)
 ```
 
 ### story.json
@@ -187,23 +198,33 @@ The `dir` field is optional — when present, it determines which teammates can 
 
 ## Transition Instructions
 
-You can add optional markdown files to `.pi-pizza-team/` that provide instructions when tasks enter or leave a workflow status:
+Workflows can reference markdown files that are injected into the teammate's prompt when tasks transition between states. Configure them in `workflow.json`:
 
-- `on-enter-<status>.md` — injected when a task enters this status
-- `on-exit-<status>.md` — injected when a task leaves this status
-
-Example: `.pi-pizza-team/on-enter-in_progress.md`
-
-```markdown
-# Instructions for starting work
-
-Before beginning this task:
-1. Read the relevant source files mentioned in the description
-2. Check for any existing tests related to this area
-3. Create a branch named after the task slug
+```json
+{
+  "instructions": {
+    "review": { "on-enter": "enter-review.md" },
+    "in_progress": {
+      "on-enter": "start-work.md",
+      "on-exit": "leaving-progress.md"
+    }
+  }
+}
 ```
 
-These instructions are returned in API responses and prepended to the teammate's prompt automatically. If no files exist, behavior is unchanged.
+Files are relative to the workflow's directory (e.g., `.pi-pizza-team/workflows/default/enter-review.md`).
+
+Example `enter-review.md`:
+
+```markdown
+## Before submitting for review
+
+Generate a diff of your changes and upload it using the upload_attachment tool:
+- filename: changes.diff
+- content: output of git diff
+```
+
+These instructions are returned in API responses and prepended to the teammate's prompt automatically. If no instructions are configured for a transition, behavior is unchanged.
 
 ## Autosave
 
