@@ -1127,7 +1127,7 @@ function renderBoard(stories) {
 
         // Action buttons
         const actions = '<div class="card-actions">'
-          + '<button onclick="event.stopPropagation(); openTaskDetailModal(\'' + escHtml(t.id) + '\');" title="View">🔍</button>'
+          + '<button onclick="event.stopPropagation(); window.location.href=\'/task/' + encodeURIComponent(story.id) + '/' + encodeURIComponent(t.id) + '\';" title="View">🔍</button>'
           + '<button onclick="event.stopPropagation(); openEditTaskModal(\'' + escHtml(t.id) + '\');" title="Edit">✏️</button>'
           + '<button class="btn-del" onclick="event.stopPropagation(); deleteTaskConfirm(\'' + escHtml(t.id) + '\', \'' + escHtml(t.title).replace(/'/g, "\'") + '\');" title="Delete">🗑️</button>'
           + '</div>';

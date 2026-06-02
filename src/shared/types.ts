@@ -81,10 +81,17 @@ export interface TaskWithMeta extends Task {
   dirPath: string;
 }
 
+export interface MessageAttachment {
+  name: string;
+  size: number;
+  type: string; // "diff" | "markdown" | "json" | "xml" | "image" | "review" | "other"
+}
+
 export interface Message {
   from: string;
   body: string;
   at: string; // ISO timestamp
+  attachments?: MessageAttachment[];
 }
 
 export interface Member {

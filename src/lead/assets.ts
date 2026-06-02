@@ -24,6 +24,8 @@ export const MEMORY_HTML = loadAsset("memory-page.html");
 export const MEMORY_CSS = loadAsset("memory-page.css");
 export const BACKLOG_HTML = loadAsset("backlog-page.html");
 export const BACKLOG_CSS = loadAsset("backlog-page.css");
+export const TASK_HTML = loadAsset("task-page.html");
+export const TASK_CSS = loadAsset("task-page.css");
 
 // Stylesheets
 export const THEME_CSS = loadAsset("theme.css");

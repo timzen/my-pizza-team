@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html><head><title>🍕 Task Detail</title>
+<link rel="stylesheet" href="/css/theme.css">
+<link rel="stylesheet" href="/css/task-page.css">
+<link rel="stylesheet" href="/css/nav.css">
+<script src="/js/shared.js"></script>
+<script src="/js/nav.js" defer></script>
+</head><body>
+<div class="task-header" id="task-header">
+  <h1 id="task-title">Loading...</h1>
+  <div class="task-meta" id="task-meta"></div>
+</div>
+
+<div class="task-layout">
+  <div class="task-main">
+    <div class="task-description md-content" id="task-desc"></div>
+    <div id="viewer-area"></div>
+    <div id="review-area"></div>
+  </div>
+  <div class="task-sidebar">
+    <div class="attachments-section" id="attachments-section" style="display:none;">
+      <h3>Attachments</h3>
+      <div class="attachment-list" id="attachment-list"></div>
+    </div>
+    <div class="messages-section">
+      <div class="messages-header">Messages</div>
+      <div class="messages-list" id="messages-list"></div>
+      <div class="messages-input">
+        <input type="text" id="msg-input" placeholder="Message..." onkeydown="if(event.key==='Enter')sendMsg()" />
+        <button onclick="sendMsg()">Send</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+// Parse task ID from URL: /task/:storyId/:taskId
+const pathParts = window.location.pathname.split('/');
+const storyId = decodeURIComponent(pathParts[2] || '');
+const taskId = decodeURIComponent(pathParts[3] || '');
+let currentTask = null;
+let reviewComments = []; // accumulated review comments
+let activeViewerFile = null;
+
+// --- Load task data ---
+async function loadTask() {
+  try {
+    const [storiesRes, msgsRes, attachRes] = await Promise.all([
+      fetch('/api/stories').then(r => r.json()),
+      fetch('/api/tasks/' + encodeURIComponent(taskId) + '/messages').then(r => r.json()),
+      fetch('/api/tasks/' + encodeURIComponent(taskId) + '/attachments').then(r => r.json()),
+    ]);
+
+    // Find task in stories
+    const story = (storiesRes.stories || []).find(s => s.id === storyId);
+    const task = story ? (story.tasks || []).find(t => t.id === taskId) : null;
+    currentTask = task;
+
+    if (!task) {
+      document.getElementById('task-title').textContent = 'Task not found';
+      return;
+    }
+
+    document.title = task.title + ' — pi-pizza-team';
+    document.getElementById('task-title').textContent = task.title;
+    document.getElementById('task-meta').innerHTML =
+      '<span class="badge badge-status">' + task.status.replace(/_/g, ' ') + '</span>'
+      + '<span>Story: ' + escHtml(storyId) + '</span>'
+      + (task.assignee ? '<span>Assigned: ' + escHtml(task.assignee) + '</span>' : '');
+
+    document.getElementById('task-desc').innerHTML = renderMarkdown(task.description || '', 'No description');
+
+    // Render attachments
+    const attachments = attachRes.attachments || [];
+    if (attachments.length > 0) {
+      document.getElementById('attachments-section').style.display = '';
+      renderAttachments(attachments);
+    }
+
+    // Render messages
+    renderMessages(msgsRes.messages || []);
+  } catch(e) {
+    document.getElementById('task-title').textContent = 'Error loading task';
+    console.error(e);
+  }
+}
+
+// --- Attachments ---
+function renderAttachments(attachments) {
+  const el = document.getElementById('attachment-list');
+  const icons = { diff: '📄', markdown: '📝', json: '{}', xml: '📋', image: '🖼️', other: '📎' };
+  el.innerHTML = attachments.map(a => {
+    const ext = a.name.split('.').pop().toLowerCase();
+    const typeMap = { diff: 'diff', patch: 'diff', md: 'markdown', json: 'json', xml: 'xml', png: 'image', jpg: 'image', jpeg: 'image', gif: 'image', webp: 'image' };
+    const type = typeMap[ext] || 'other';
+    const icon = icons[type] || '📎';
+    return '<div class="attachment-item" onclick="openAttachment(\'' + escHtml(a.storedName) + '\', \'' + escHtml(a.name) + '\', \'' + type + '\')">'
+      + '<span class="icon">' + icon + '</span>'
+      + '<span class="name">' + escHtml(a.name) + '</span>'
+      + '<span class="size">' + formatSize(a.size) + '</span>'
+      + '</div>';
+  }).join('');
+}
+
+function formatSize(bytes) {
+  if (bytes < 1024) return bytes + ' B';
+  if (bytes < 1024*1024) return (bytes/1024).toFixed(1) + ' KB';
+  return (bytes/(1024*1024)).toFixed(1) + ' MB';
+}
+
+// --- Open attachment viewer ---
+async function openAttachment(storedName, displayName, type) {
+  activeViewerFile = storedName;
+  const url = '/api/tasks/' + encodeURIComponent(taskId) + '/attachments/' + encodeURIComponent(storedName);
+
+  if (type === 'diff') {
+    const res = await fetch(url);
+    const text = await res.text();
+    renderDiffViewer(text, displayName);
+  } else if (type === 'markdown') {
+    const res = await fetch(url);
+    const text = await res.text();
+    document.getElementById('viewer-area').innerHTML = '<div class="diff-viewer"><div class="diff-viewer-header"><h3>' + escHtml(displayName) + '</h3></div><div style="padding:16px;" class="md-content">' + renderMarkdown(text) + '</div></div>';
+  } else if (type === 'image') {
+    document.getElementById('viewer-area').innerHTML = '<div class="image-viewer"><img src="' + url + '" alt="' + escHtml(displayName) + '" /></div>';
+  } else if (type === 'json') {
+    const res = await fetch(url);
+    const text = await res.text();
+    document.getElementById('viewer-area').innerHTML = '<div class="diff-viewer"><div class="diff-viewer-header"><h3>' + escHtml(displayName) + '</h3></div><div style="padding:16px;"><pre style="font-size:0.82em;overflow-x:auto;color:var(--text-primary);">' + escHtml(text) + '</pre></div></div>';
+  } else {
+    // Download
+    window.open(url, '_blank');
+  }
+}
+
+// --- Diff Viewer ---
+function renderDiffViewer(diffText, filename) {
+  const lines = diffText.split('\n');
+  let lineNum = 0;
+  const linesHtml = lines.map((line, idx) => {
+    let cls = '';
+    if (line.startsWith('+') && !line.startsWith('+++')) cls = 'diff-line-add';
+    else if (line.startsWith('-') && !line.startsWith('---')) cls = 'diff-line-del';
+    else if (line.startsWith('@@')) cls = 'diff-line-hunk';
+
+    if (!line.startsWith('@@') && !line.startsWith('---') && !line.startsWith('+++') && !line.startsWith('diff ')) {
+      lineNum++;
+    }
+
+    const commentExists = reviewComments.some(c => c.line === idx);
+    const commentCls = commentExists ? ' has-comment' : '';
+
+    return '<div class="diff-line ' + cls + commentCls + '" data-line="' + idx + '" onclick="toggleCommentInput(' + idx + ', this)">'
+      + '<span class="diff-line-num">' + (cls === 'diff-line-hunk' ? '' : lineNum) + '</span>'
+      + '<span class="diff-line-content">' + escHtml(line) + '</span>'
+      + '</div>';
+  }).join('');
+
+  document.getElementById('viewer-area').innerHTML = '<div class="diff-viewer">'
+    + '<div class="diff-viewer-header"><h3>' + escHtml(filename) + '</h3><span style="font-size:0.78em;color:var(--text-muted);">Click a line to add a comment</span></div>'
+    + '<div class="diff-viewer-body">' + linesHtml + '</div></div>';
+
+  updateReviewPanel();
+}
+
+// --- Inline comment input ---
+function toggleCommentInput(lineIdx, lineEl) {
+  // Remove any existing comment input
+  const existing = document.querySelector('.diff-comment-row');
+  if (existing) {
+    if (existing.dataset.line === String(lineIdx)) { existing.remove(); return; }
+    existing.remove();
+  }
+
+  const lines = document.querySelectorAll('.diff-line');
+  const line = lines[lineIdx];
+  if (!line) return;
+
+  const quote = line.querySelector('.diff-line-content').textContent;
+  const row = document.createElement('div');
+  row.className = 'diff-comment-row';
+  row.dataset.line = lineIdx;
+  row.innerHTML = '<textarea placeholder="Add a comment on this line..." id="comment-input-' + lineIdx + '"></textarea>'
+    + '<div class="actions"><button class="btn-add" onclick="addReviewComment(' + lineIdx + ')">Add Comment</button>'
+    + '<button class="btn-cancel" onclick="this.closest(\'.diff-comment-row\').remove()">Cancel</button></div>';
+  line.after(row);
+  row.querySelector('textarea').focus();
+}
+
+// --- Review comments ---
+function addReviewComment(lineIdx) {
+  const textarea = document.getElementById('comment-input-' + lineIdx);
+  const body = textarea ? textarea.value.trim() : '';
+  if (!body) return;
+
+  const lines = document.querySelectorAll('.diff-line');
+  const line = lines[lineIdx];
+  const quote = line ? line.querySelector('.diff-line-content').textContent.trim() : '';
+
+  reviewComments.push({ line: lineIdx, quote: quote.slice(0, 100), body });
+
+  // Remove input row
+  const row = document.querySelector('.diff-comment-row[data-line="' + lineIdx + '"]');
+  if (row) row.remove();
+
+  // Mark line
+  if (line) line.classList.add('has-comment');
+
+  updateReviewPanel();
+}
+
+function removeReviewComment(idx) {
+  const removed = reviewComments.splice(idx, 1)[0];
+  // Unmark line
+  if (removed) {
+    const line = document.querySelectorAll('.diff-line')[removed.line];
+    if (line && !reviewComments.some(c => c.line === removed.line)) {
+      line.classList.remove('has-comment');
+    }
+  }
+  updateReviewPanel();
+}
+
+function updateReviewPanel() {
+  const area = document.getElementById('review-area');
+  if (reviewComments.length === 0) {
+    area.innerHTML = '';
+    return;
+  }
+
+  const commentsHtml = reviewComments.map((c, i) =>
+    '<div class="review-comment"><span class="line-ref">Line ' + (c.line + 1) + ':</span> ' + escHtml(c.body)
+    + ' <button onclick="removeReviewComment(' + i + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.8em;">✕</button></div>'
+  ).join('');
+
+  area.innerHTML = '<div class="review-panel">'
+    + '<h3>Review (' + reviewComments.length + ' comment' + (reviewComments.length > 1 ? 's' : '') + ')</h3>'
+    + '<div class="review-comments">' + commentsHtml + '</div>'
+    + '<div class="review-summary"><textarea id="review-summary" placeholder="Overall summary (optional)..."></textarea></div>'
+    + '<div class="review-submit"><button onclick="submitReview()" id="submit-review-btn">Submit Review</button></div>'
+    + '</div>';
+}
+
+async function submitReview() {
+  if (reviewComments.length === 0) return;
+  const summary = (document.getElementById('review-summary') || {}).value || '';
+  const btn = document.getElementById('submit-review-btn');
+  btn.disabled = true;
+  btn.textContent = 'Submitting...';
+
+  // Build review file content
+  const review = {
+    file: activeViewerFile,
+    comments: reviewComments.map(c => ({ line: c.line + 1, quote: c.quote, body: c.body })),
+    summary: summary
+  };
+
+  // Save review as attachment
+  const reviewFileName = 'review-' + Date.now() + '.review.json';
+  await fetch('/api/tasks/' + encodeURIComponent(taskId) + '/attachments', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ name: reviewFileName, content: JSON.stringify(review, null, 2), encoding: 'utf-8' })
+  });
+
+  // Build readable message body
+  let msgBody = 'Review of ' + (activeViewerFile || 'changes') + ' (' + reviewComments.length + ' comments):\n\n';
+  for (const c of reviewComments) {
+    msgBody += 'Line ' + (c.line + 1) + ': ' + c.body + '\n';
+    if (c.quote) msgBody += '  > ' + c.quote + '\n';
+    msgBody += '\n';
+  }
+  if (summary) msgBody += 'Summary: ' + summary;
+
+  // Post as a single message with the review file attached
+  await fetch('/api/tasks/' + encodeURIComponent(taskId) + '/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      from: 'lead',
+      body: msgBody.trim(),
+      attachments: [{ name: reviewFileName, size: JSON.stringify(review).length, type: 'review' }]
+    })
+  });
+
+  // Clear review state
+  reviewComments = [];
+  updateReviewPanel();
+  loadTask(); // Refresh
+
+  btn.disabled = false;
+  btn.textContent = 'Submit Review';
+}
+
+// --- Messages ---
+function renderMessages(messages) {
+  const el = document.getElementById('messages-list');
+  if (messages.length === 0) {
+    el.innerHTML = '<div style="text-align:center;color:var(--text-muted);padding:20px;font-size:0.85em;">No messages yet</div>';
+    return;
+  }
+  el.innerHTML = messages.map(m => {
+    const cls = m.from === 'lead' ? 'msg-lead' : 'msg-teammate';
+    const time = m.at ? new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    let attachHtml = '';
+    if (m.attachments && m.attachments.length > 0) {
+      attachHtml = '<div class="msg-attachment">📎 ' + m.attachments.map(a => escHtml(a.name)).join(', ') + '</div>';
+    }
+    return '<div class="msg-bubble ' + cls + '">'
+      + '<div class="md-content">' + renderMarkdown(m.body) + '</div>'
+      + attachHtml
+      + '<div class="msg-time">' + time + '</div>'
+      + '</div>';
+  }).join('');
+  el.scrollTop = el.scrollHeight;
+}
+
+async function sendMsg() {
+  const input = document.getElementById('msg-input');
+  const body = input.value.trim();
+  if (!body) return;
+  await fetch('/api/tasks/' + encodeURIComponent(taskId) + '/message', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ from: 'lead', body })
+  });
+  input.value = '';
+  loadTask();
+}
+
+// --- Init ---
+loadTask();
+setInterval(loadTask, 5000);
+</script>
+</body></html>

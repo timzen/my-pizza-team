@@ -22,7 +22,7 @@ import type { Store } from "./store.js";
 import type { TeamConfig } from "../shared/types.js";
 import { slugify, generateTeammateName, getInitialState, getDoneState } from "../shared/types.js";
 import { spawnTeammate, spawnAssistant } from "./tmux.js";
-import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, BACKLOG_HTML, BACKLOG_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG, ICON_MASKABLE_SVG } from "./assets.js";
+import { HOME_HTML, BOARD_HTML, ARCHIVED_HTML, CONFIG_HTML, ASSISTANT_HTML, ASSISTANT_CSS, MEMORY_HTML, MEMORY_CSS, BACKLOG_HTML, BACKLOG_CSS, TASK_HTML, TASK_CSS, THEME_CSS, HOME_CSS, BOARD_CSS, ARCHIVED_CSS, CONFIG_CSS, NAV_CSS, SHARED_JS, NAV_JS, MANIFEST_JSON, SW_JS, ICON_SVG, ICON_MASKABLE_SVG } from "./assets.js";
 import { NotesSearchEngine, parseFrontmatter } from "./search.js";
 import type {
   StatusResponse,
@@ -166,6 +166,11 @@ export class TeamServer {
       return c.html(BACKLOG_HTML);
     });
 
+    // Task detail page
+    this.app.get("/task/:storyId/:taskId", (c) => {
+      return c.html(TASK_HTML);
+    });
+
     // CSS assets
     this.app.get("/css/theme.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -198,6 +203,10 @@ export class TeamServer {
     this.app.get("/css/backlog-page.css", (c) => {
       c.header("Content-Type", "text/css");
       return c.body(BACKLOG_CSS);
+    });
+    this.app.get("/css/task-page.css", (c) => {
+      c.header("Content-Type", "text/css");
+      return c.body(TASK_CSS);
     });
     this.app.get("/css/nav.css", (c) => {
       c.header("Content-Type", "text/css");
@@ -523,10 +532,72 @@ export class TeamServer {
       const taskId = c.req.param("taskId");
       const body = (await c.req.json()) as PostMessageRequest;
 
-      this.store.addMessage(taskId, body.from, body.body);
+      this.store.addMessage(taskId, body.from, body.body, body.attachments);
 
       const response: PostMessageResponse = { success: true };
       return c.json(response);
+    });
+
+    // POST /api/tasks/:taskId/attachments — upload a file
+    this.app.post("/api/tasks/:taskId/attachments", async (c) => {
+      const taskId = c.req.param("taskId");
+      const task = this.store.getTask(taskId);
+      if (!task) return c.json({ success: false, error: "Task not found" }, 404);
+
+      const contentType = c.req.header("content-type") || "";
+      let filename: string;
+      let data: Buffer;
+
+      if (contentType.includes("multipart/form-data")) {
+        const formData = await c.req.formData();
+        const file = formData.get("file") as File;
+        if (!file) return c.json({ success: false, error: "No file provided" }, 400);
+        filename = file.name;
+        data = Buffer.from(await file.arrayBuffer());
+      } else {
+        // JSON body with base64 content
+        const body = await c.req.json();
+        if (!body.name || !body.content) return c.json({ success: false, error: "Fields 'name' and 'content' required" }, 400);
+        filename = body.name;
+        data = Buffer.from(body.content, body.encoding === "base64" ? "base64" : "utf-8");
+      }
+
+      const storedName = this.store.saveAttachment(taskId, filename, data);
+      if (!storedName) return c.json({ success: false, error: "Failed to save" }, 500);
+
+      // Detect file type
+      const ext = filename.split(".").pop()?.toLowerCase() || "";
+      const typeMap: Record<string, string> = { diff: "diff", patch: "diff", md: "markdown", json: "json", xml: "xml", png: "image", jpg: "image", jpeg: "image", gif: "image", webp: "image" };
+      const fileType = typeMap[ext] || "other";
+
+      return c.json({ success: true, storedName, name: filename, type: fileType, size: data.length });
+    });
+
+    // GET /api/tasks/:taskId/attachments — list attachments
+    this.app.get("/api/tasks/:taskId/attachments", (c) => {
+      const taskId = c.req.param("taskId");
+      const attachments = this.store.getAttachments(taskId);
+      return c.json({ attachments });
+    });
+
+    // GET /api/tasks/:taskId/attachments/:name — serve a file
+    this.app.get("/api/tasks/:taskId/attachments/:name", (c) => {
+      const taskId = c.req.param("taskId");
+      const name = c.req.param("name");
+      const filePath = this.store.getAttachmentPath(taskId, name);
+      if (!filePath) return c.json({ error: "Not found" }, 404);
+
+      const fs = require("node:fs");
+      const content = fs.readFileSync(filePath);
+      const ext = name.split(".").pop()?.toLowerCase() || "";
+      const mimeTypes: Record<string, string> = {
+        diff: "text/x-diff", patch: "text/x-diff", md: "text/markdown",
+        json: "application/json", xml: "application/xml",
+        png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+        gif: "image/gif", webp: "image/webp", txt: "text/plain",
+      };
+      c.header("Content-Type", mimeTypes[ext] || "application/octet-stream");
+      return c.body(content);
     });
 
     // GET /api/tasks/:taskId/messages

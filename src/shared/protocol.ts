@@ -88,6 +88,7 @@ export interface StatusUpdateResponse {
 export interface PostMessageRequest {
   from: string;
   body: string;
+  attachments?: Array<{ name: string; size: number; type: string }>;
 }
 
 export interface PostMessageResponse {
@@ -100,6 +101,7 @@ export interface MessagesResponse {
     from: string;
     body: string;
     at: string;
+    attachments?: Array<{ name: string; size: number; type: string }>;
   }>;
 }
 

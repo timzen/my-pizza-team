@@ -552,18 +552,16 @@ export class Store {
   }
 
   getMessages(taskId: string): Message[] {
-    this.ensureMessagesLoaded(taskId);
-    return this.db
-      .prepare("SELECT * FROM messages WHERE task_id = ? ORDER BY created_at")
-      .all(taskId)
-      .map((row: any) => ({
-        from: row.from_id,
-        body: row.body,
-        at: new Date(row.created_at).toISOString(),
-      }));
+    // Read directly from JSONL for full fidelity (includes attachments)
+    const task = this.getTask(taskId);
+    if (!task) return [];
+    const messagesFile = path.join(task.dirPath, "messages.jsonl");
+    if (!fs.existsSync(messagesFile)) return [];
+    const lines = fs.readFileSync(messagesFile, "utf-8").split("\n").filter(Boolean);
+    return lines.map((line) => JSON.parse(line) as Message);
   }
 
-  addMessage(taskId: string, from: string, body: string): void {
+  addMessage(taskId: string, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
     const now = Date.now();
     this.ensureMessagesLoaded(taskId);
     this.db
@@ -575,8 +573,49 @@ export class Store {
     if (task) {
       const messagesFile = path.join(task.dirPath, "messages.jsonl");
       const msg: Message = { from, body, at: new Date(now).toISOString() };
+      if (attachments && attachments.length > 0) msg.attachments = attachments;
       fs.appendFileSync(messagesFile, JSON.stringify(msg) + "\n");
     }
+  }
+
+  /** Save an attachment file for a task */
+  saveAttachment(taskId: string, filename: string, data: Buffer | string): string | null {
+    const task = this.getTask(taskId);
+    if (!task) return null;
+    const attachDir = path.join(task.dirPath, "attachments");
+    fs.mkdirSync(attachDir, { recursive: true });
+    // Prefix with timestamp for uniqueness
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const storedName = `${Date.now()}-${safeName}`;
+    fs.writeFileSync(path.join(attachDir, storedName), data);
+    return storedName;
+  }
+
+  /** Get an attachment file path */
+  getAttachmentPath(taskId: string, filename: string): string | null {
+    const task = this.getTask(taskId);
+    if (!task) return null;
+    const filePath = path.join(task.dirPath, "attachments", filename);
+    if (!fs.existsSync(filePath)) return null;
+    // Security: ensure the resolved path is within the attachments directory
+    const resolved = path.resolve(filePath);
+    const attachDir = path.resolve(path.join(task.dirPath, "attachments"));
+    if (!resolved.startsWith(attachDir)) return null;
+    return resolved;
+  }
+
+  /** List attachments for a task */
+  getAttachments(taskId: string): Array<{ name: string; storedName: string; size: number }> {
+    const task = this.getTask(taskId);
+    if (!task) return [];
+    const attachDir = path.join(task.dirPath, "attachments");
+    if (!fs.existsSync(attachDir)) return [];
+    return fs.readdirSync(attachDir).map((f) => {
+      const stat = fs.statSync(path.join(attachDir, f));
+      // Strip timestamp prefix for display name
+      const displayName = f.replace(/^\d+-/, "");
+      return { name: displayName, storedName: f, size: stat.size };
+    });
   }
 
   hasUnreadMessages(taskId: string): boolean {
