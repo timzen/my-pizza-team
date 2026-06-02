@@ -28,7 +28,7 @@ When a teammate needs help, you have two channels:
 There's no "human task" concept. Every task belongs to a teammate. The variable is how much mentoring they need.
 
 ### 3. Workflow as configuration
-The state machine is entirely in `config.json`. You can define multiple named workflows and control who can perform each transition. Individual stories can override the default workflow. No code changes needed for:
+The state machine is entirely configuration-driven. Each workflow lives in its own directory under `.pi-pizza-team/workflows/` with a `workflow.json` defining states, transitions, and permissions. You can define multiple named workflows and control who can perform each transition. Individual stories can override the default workflow. No code changes needed for:
 - Adding a QA step
 - Requiring lead approval before "done"
 - Creating a "needs_input" state only the lead can resolve
@@ -49,13 +49,23 @@ Stories can specify an optional `dir` field (e.g., `"dir": "~/Workspace/my-proje
 **Task routing by directory:** When a teammate polls for work, the server only returns tasks from stories whose `dir` matches the teammate's working directory. Stories with no `dir` are available to any teammate. This ensures a teammate spawned in project A won't accidentally pick up tasks for project B.
 
 ### 7. Transition instructions
-Optional markdown files (`on-enter-<status>.md`, `on-exit-<status>.md`) provide contextual instructions when tasks change state. This enables:
+Each workflow directory can contain markdown files named after states (e.g., `review.md`, `in_progress.md`). These provide contextual instructions when tasks transition — the full file is injected with a preamble indicating direction ("entering" or "leaving"). The file uses headings to organize on-enter, exit criteria, and on-exit instructions. This enables:
 - Pre-work checklists ("read the design doc first")
-- Review guidelines ("run tests before marking done")
+- Exit criteria ("tests must pass, diff uploaded")
+- Review guidelines ("generate a diff and upload it")
 - Exit procedures ("clean up temporary files")
 
 ### 8. Archiving as a first-class concept
 Completed stories can be archived to keep the active board focused on current work. Archived stories retain all their files (story.json, tasks, messages) for historical reference — they're just moved to a separate `archived/` directory and excluded from the active SQLite database. A `SYNOPSIS.md` is auto-generated on archive as a structured summary, and can optionally be enriched by the LLM for stories that warrant a richer narrative.
+
+### 9. Backlog as deferred work
+Stories can be moved to a backlog when they're not ready to be worked on. Moving a story to the backlog cascades to any stories that depend on it — preventing broken dependency chains on the active board. Restoring from backlog brings stories back to active.
+
+### 10. Team memory
+The assistant and teammates share a categorized knowledge base (`.pi-pizza-team/notes/`). Memories are markdown files with YAML frontmatter for categories, indexed by a BM25 search engine. Stories declare which categories are relevant; the system auto-injects matching memories as context when teammates start tasks.
+
+### 11. File attachments and code review
+Messages support file attachments (diffs, images, documents). A dedicated task page with a diff viewer enables batched inline code review — the leader accumulates comments and submits them as a single review message, preventing the agent from churning on partial feedback.
 
 ## Interaction Model
 

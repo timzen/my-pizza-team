@@ -51,11 +51,17 @@ src/
 │   ├── ui/               # HTML, CSS, JS for the web UI
 │   │   ├── home-page.html / .css
 │   │   ├── board.html / .css
+│   │   ├── task-page.html / .css
+│   │   ├── assistant-page.html / .css
+│   │   ├── memory-page.html / .css
+│   │   ├── backlog-page.html / .css
 │   │   ├── archived-page.html / .css
 │   │   ├── config-page.html / .css
 │   │   ├── theme.css         # CSS custom properties for themes
-│   │   ├── nav.css / nav.js  # Shared navigation bar
-│   │   └── shared.js         # Shared browser utilities (escHtml, renderMarkdown)
+│   │   ├── nav.css / nav.js  # Shared navigation bar + PWA setup
+│   │   ├── shared.js         # Shared browser utilities (escHtml, renderMarkdown, DirBrowser)
+│   │   ├── sw.js             # Service worker for PWA
+│   │   └── manifest.json     # Web app manifest
 │   ├── commands.ts       # Slash commands for team lead
 │   ├── tools.ts          # LLM-callable tools (team_add_story, team_edit_story, team_add_task, team_queue_request)
 │   ├── search.ts         # BM25 search engine for notes (per-category indexing)
@@ -154,29 +160,33 @@ The database (`state.db`) is the runtime engine. See `src/lead/store.ts` for the
 
 ## Workflow Engine
 
-Workflows are defined in `config.json` as named state machines. Each workflow has a name, and one is designated as the default. Individual stories can override the default by specifying a `workflow` field.
+Workflows are defined as directories under `.pi-pizza-team/workflows/`. Each
+directory contains a `workflow.json` and optional instruction files named
+after states (e.g., `review.md`, `in_progress.md`).
+
+The `config.json` specifies `defaultWorkflow` (the name of the directory).
+Individual stories can override by specifying a `workflow` field.
+
+```
+.pi-pizza-team/workflows/
+├── default/
+│   ├── workflow.json      # states, transitions, categories
+│   ├── review.md         # instructions for review state
+│   └── in_progress.md    # instructions for in_progress state
+└── simple/
+    └── workflow.json
+```
 
 ```json
 {
-  "defaultWorkflow": "default",
-  "workflows": {
-    "default": {
-      "states": ["todo", "in_progress", "needs_input", "review", "done"],
-      "transitions": {
-        "todo": { "in_progress": "any" },
-        "in_progress": { "needs_input": "teammate", "review": "teammate" },
-        "needs_input": { "in_progress": "lead" },
-        "review": { "done": "lead", "in_progress": "lead" }
-      }
-    },
-    "simple": {
-      "states": ["todo", "in_progress", "done"],
-      "transitions": {
-        "todo": { "in_progress": "any" },
-        "in_progress": { "done": "any" }
-      }
-    }
-  }
+  "states": ["todo", "in_progress", "needs_input", "review", "done"],
+  "transitions": {
+    "todo": { "in_progress": "any" },
+    "in_progress": { "needs_input": "teammate", "review": "teammate" },
+    "needs_input": { "in_progress": "lead" },
+    "review": { "done": "lead", "in_progress": "lead" }
+  },
+  "categories": ["coding"]
 }
 ```
 
@@ -252,14 +262,27 @@ Server runs on the port from `config.json` (default 7437). Routes defined in `sr
 | `/api/assistant/notes/:id/categories` | PUT | Update a note's categories |
 | `/api/assistant/notes/search` | GET | BM25 keyword search (?q=...&category=...&limit=) |
 | `/api/assistant/categories` | GET | List configured + indexed categories |
+| `/api/backlog` | GET | List backlogged stories |
+| `/api/stories/:id/backlog` | POST | Move story to backlog (cascades dependents) |
+| `/api/backlog/:id/restore` | POST | Restore story from backlog to active |
+| `/task/:storyId/:taskId` | GET | Task detail page HTML |
+| `/api/tasks/:id/attachments` | POST | Upload a file attachment |
+| `/api/tasks/:id/attachments` | GET | List attachments for a task |
+| `/api/tasks/:id/attachments/:name` | GET | Serve an attachment file |
 
 ## Transition Instructions
 
-The store supports optional markdown files in the team directory:
-- `.pi-pizza-team/on-enter-<status>.md` — instructions when entering a status
-- `.pi-pizza-team/on-exit-<status>.md` — instructions when leaving a status
+Each workflow directory can contain markdown files named after states
+(e.g., `review.md`, `in_progress.md`). When a task transitions, the
+relevant file is read and injected with a preamble:
 
-These are read by `Store.getTransitionInstructions(fromStatus, toStatus)` and returned in the API responses for `/claim`, `/status`, and `/move` endpoints. The teammate's work loop prepends enter-instructions to the task prompt and sends exit/enter-review instructions as follow-up messages.
+- Entering a state → reads `{toStatus}.md` → prefixes with `## Transition: entering "{state}"`
+- Leaving a state → reads `{fromStatus}.md` → prefixes with `## Transition: leaving "{state}"`
+
+The file contains all relevant info (On Enter, Exit Criteria, On Exit) using
+headings. The agent reads the headings and knows which parts apply.
+
+Resolution: `workflow.instructions[state]` (explicit override) → `{state}.md` (convention).
 
 Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 
@@ -281,6 +304,10 @@ Files are cached in memory with a 30-second TTL and mtime-based invalidation.
 7. **Task execution uses sendUserMessage** (keeps teammate interactive for pairing)
 8. **Permission toggle is file-based** (leverages permission system's runtime config reload)
 9. **Archived stories are directory-based** (moved from `stories/` to `archived/`, never loaded into SQLite at startup)
+10. **Workflows are directory-based** (each workflow is a directory under `workflows/` with its own `workflow.json` and instruction files)
+11. **Backlogged stories are directory-based** (moved from `stories/` to `backlog/`, never loaded; dependents move together)
+12. **Memory uses BM25 search** (per-category indexing, rebuilt on startup + changes)
+13. **File attachments live with the task** (in `attachments/` subdirectory, referenced by messages)
 
 ## Archiving
 
@@ -314,14 +341,15 @@ stories/my-story/  ──archiveStory()──►  archived/my-story/
 3. For task CRUD, consider adding a store method for DB operations
 
 ### Adding a new workflow state
-1. Just add it to a workflow in `config.json` — no code changes needed
-2. Define transitions and permissions in the workflow's `transitions` map
-3. Optionally add `on-enter-<state>.md` / `on-exit-<state>.md` for instructions
+1. Add it to `states` in the workflow's `workflow.json`
+2. Define transitions and permissions in the `transitions` map
+3. Optionally add a `{state}.md` file for instructions
 
 ### Adding a new named workflow
-1. Add a new entry under `workflows` in `config.json`
-2. Define its `states` array and `transitions` map
-3. Stories can use it via the `workflow` field in `story.json`
+1. Create a new directory under `.pi-pizza-team/workflows/`
+2. Add a `workflow.json` with `states`, `transitions`, and optional `categories`
+3. Optionally add instruction files (e.g., `review.md`)
+4. Stories can use it via the `workflow` field in `story.json`
 
 ### Modifying the board UI
 1. Edit `src/lead/ui/board.html` (loaded by `src/lead/assets.ts`)
