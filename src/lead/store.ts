@@ -875,27 +875,30 @@ export class Store {
   ): { exitInstructions?: string; enterInstructions?: string } {
     const result: { exitInstructions?: string; enterInstructions?: string } = {};
     const wfName = workflowName || this.config.defaultWorkflow;
+    const wf = this.workflows[wfName];
+    if (!wf?.instructions) return result;
 
-    // Look in workflow directory first, then fall back to team directory
-    const exitContent = this.readTransitionFile(`on-exit-${fromStatus}.md`, wfName);
-    if (exitContent) result.exitInstructions = exitContent;
+    // Look up on-exit for the state we're leaving
+    const exitFile = wf.instructions[fromStatus]?.["on-exit"];
+    if (exitFile) {
+      const content = this.readInstructionFile(wfName, exitFile);
+      if (content) result.exitInstructions = content;
+    }
 
-    const enterContent = this.readTransitionFile(`on-enter-${toStatus}.md`, wfName);
-    if (enterContent) result.enterInstructions = enterContent;
+    // Look up on-enter for the state we're entering
+    const enterFile = wf.instructions[toStatus]?.["on-enter"];
+    if (enterFile) {
+      const content = this.readInstructionFile(wfName, enterFile);
+      if (content) result.enterInstructions = content;
+    }
 
     return result;
   }
 
-  private readTransitionFile(filename: string, workflowName?: string): string | undefined {
-    // Try workflow-specific directory first
-    const wfPath = workflowName
-      ? path.join(this.teamDir, "workflows", workflowName, filename)
-      : null;
-    // Fall back to team-level directory
-    const teamPath = path.join(this.teamDir, filename);
-
-    const filePath = (wfPath && fs.existsSync(wfPath)) ? wfPath : teamPath;
-    const cacheKey = (workflowName || "_team") + "/" + filename;
+  /** Read an instruction file from the workflow's directory */
+  private readInstructionFile(workflowName: string, filename: string): string | undefined {
+    const filePath = path.join(this.teamDir, "workflows", workflowName, filename);
+    const cacheKey = workflowName + "/" + filename;
 
     // Check cache
     const cached = this.transitionInstructionsCache.get(cacheKey);

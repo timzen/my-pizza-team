@@ -226,16 +226,33 @@ export function registerLeadCommands(
         }
 
         // Migrate team-level transition instructions to default workflow dir
-        const defaultWfDir = path.join(teamDir, "workflows", config.defaultWorkflow || "default");
+        // and build the instructions map in workflow.json
+        const defaultWfName = config.defaultWorkflow || "default";
+        const defaultWfDir = path.join(teamDir, "workflows", defaultWfName);
         fs.mkdirSync(defaultWfDir, { recursive: true });
+        const instructionsMap: Record<string, { "on-enter"?: string; "on-exit"?: string }> = {};
         for (const file of fs.readdirSync(teamDir)) {
-          if (file.match(/^on-(enter|exit)-.+\.md$/)) {
-            const src = path.join(teamDir, file);
-            const dest = path.join(defaultWfDir, file);
-            if (!fs.existsSync(dest)) {
-              fs.renameSync(src, dest);
-              changes.push("Moved " + file + " to workflows/" + (config.defaultWorkflow || "default") + "/");
-            }
+          const match = file.match(/^on-(enter|exit)-(.+)\.md$/);
+          if (!match) continue;
+          const [, direction, state] = match;
+          const src = path.join(teamDir, file);
+          const dest = path.join(defaultWfDir, file);
+          if (!fs.existsSync(dest)) {
+            fs.renameSync(src, dest);
+            changes.push("Moved " + file + " to workflows/" + defaultWfName + "/");
+          }
+          if (!instructionsMap[state]) instructionsMap[state] = {};
+          if (direction === "enter") instructionsMap[state]["on-enter"] = file;
+          else instructionsMap[state]["on-exit"] = file;
+        }
+        // Update workflow.json with instructions map if we found any
+        if (Object.keys(instructionsMap).length > 0) {
+          const wfFile = path.join(defaultWfDir, "workflow.json");
+          if (fs.existsSync(wfFile)) {
+            const wfData = JSON.parse(fs.readFileSync(wfFile, "utf-8"));
+            wfData.instructions = { ...(wfData.instructions || {}), ...instructionsMap };
+            fs.writeFileSync(wfFile, JSON.stringify(wfData, null, 2) + "\n");
+            changes.push("Added instructions references to workflow.json");
           }
         }
 
