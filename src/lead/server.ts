@@ -90,6 +90,14 @@ export class TeamServer {
   private paused = false;
   private searchEngine: NotesSearchEngine = new NotesSearchEngine();
 
+  /** Validate that an ID is safe for use in filesystem paths (no traversal) */
+  private static isSafeId(id: string): boolean {
+    if (!id || id.length > 100) return false;
+    if (id.includes("/") || id.includes("\\") || id.includes("..")) return false;
+    if (id.startsWith(".") || id.startsWith("-")) return false;
+    return /^[a-zA-Z0-9][a-zA-Z0-9._-]*$/.test(id);
+  }
+
   constructor(store: Store, config: TeamConfig, teamDir: string) {
     this.store = store;
     this.config = config;
@@ -310,6 +318,9 @@ export class TeamServer {
       // Validate required fields
       if (!body.id || typeof body.id !== "string") {
         return c.json({ success: false, error: "Field 'id' is required and must be a string" } satisfies CreateStoryResponse, 400);
+      }
+      if (!TeamServer.isSafeId(body.id)) {
+        return c.json({ success: false, error: "Invalid story ID: must be alphanumeric with hyphens/dots, no path separators" } satisfies CreateStoryResponse, 400);
       }
       if (!body.title || typeof body.title !== "string") {
         return c.json({ success: false, error: "Field 'title' is required and must be a string" } satisfies CreateStoryResponse, 400);
@@ -1014,12 +1025,19 @@ export class TeamServer {
     });
 
     // GET /api/browse?path=... — list subdirectories for file browser
+    // Restricted to user's home directory for security
     this.app.get("/api/browse", (c) => {
+      const homeDir = process.env.HOME || "/root";
       let browsePath = c.req.query("path") || "~";
       if (browsePath.startsWith("~")) {
-        browsePath = browsePath.replace("~", process.env.HOME || "/root");
+        browsePath = browsePath.replace("~", homeDir);
       }
       browsePath = path.resolve(browsePath);
+
+      // Security: restrict browsing to home directory
+      if (!browsePath.startsWith(homeDir)) {
+        return c.json({ path: browsePath, dirs: [], error: "Access denied: can only browse within home directory" }, 403);
+      }
 
       try {
         if (!fs.existsSync(browsePath) || !fs.statSync(browsePath).isDirectory()) {
@@ -1031,8 +1049,8 @@ export class TeamServer {
           .map(e => e.name)
           .sort();
         // Show path with ~ for home dir
-        const displayPath = browsePath.startsWith(process.env.HOME || "")
-          ? browsePath.replace(process.env.HOME || "", "~")
+        const displayPath = browsePath.startsWith(homeDir)
+          ? browsePath.replace(homeDir, "~")
           : browsePath;
         return c.json({ path: displayPath, resolved: browsePath, dirs });
       } catch (e: any) {
@@ -1112,7 +1130,8 @@ export class TeamServer {
   }
 
   async start(): Promise<void> {
-    this.server = serve({ fetch: this.app.fetch, port: this.config.port });
+    // Bind to localhost only (not 0.0.0.0) to prevent network exposure
+    this.server = serve({ fetch: this.app.fetch, port: this.config.port, hostname: "127.0.0.1" });
   }
 
   async stop(): Promise<void> {
