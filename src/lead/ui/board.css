@@ -171,3 +171,8 @@ h1 { margin-bottom: 20px; font-size: 1.5em; }
   .card-title { font-size: 0.75em; }
   .msg-panel { width: 100%; max-width: 100%; right: -100%; }
 }
+
+/* Message attachment links */
+.msg-attach { margin-top: 4px; }
+.msg-attach-link { display: inline-block; font-size: 0.78em; color: var(--accent); text-decoration: underline; cursor: pointer; margin-right: 6px; }
+.msg-bubble.msg-lead .msg-attach-link { color: rgba(255,255,255,0.85); }

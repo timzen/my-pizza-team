@@ -888,9 +888,19 @@ function renderMessages(messages) {
     const cls = isLead ? 'msg-lead' : 'msg-teammate';
     const sender = isLead ? 'Lead' : (m.from || 'Teammate');
     const time = m.at ? new Date(m.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    let attachHtml = '';
+    if (m.attachments && m.attachments.length > 0) {
+      const story = taskStoryMap[msgPanelTaskId];
+      const storyId = story ? story.id : '';
+      const taskUrl = '/task/' + encodeURIComponent(storyId) + '/' + encodeURIComponent(msgPanelTaskId);
+      attachHtml = '<div class="msg-attach">' + m.attachments.map(a =>
+        '<a href="' + taskUrl + '" class="msg-attach-link" title="Open in task page">📎 ' + escHtml(a.name) + '</a>'
+      ).join(' ') + '</div>';
+    }
     return '<div class="msg-bubble ' + cls + '">' +
       '<div class="msg-sender">' + escHtml(sender) + '</div>' +
       '<div class="msg-body md-content">' + renderMarkdown(m.body) + '</div>' +
+      attachHtml +
       (time ? '<div class="msg-time">' + time + '</div>' : '') +
       '</div>';
   }).join('');
