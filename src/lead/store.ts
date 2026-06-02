@@ -876,21 +876,16 @@ export class Store {
     const result: { exitInstructions?: string; enterInstructions?: string } = {};
     const wfName = workflowName || this.config.defaultWorkflow;
     const wf = this.workflows[wfName];
-    if (!wf?.instructions) return result;
 
-    // Read instruction file for the state we're leaving
-    const exitFile = wf.instructions[fromStatus];
-    if (exitFile) {
-      const content = this.readInstructionFile(wfName, exitFile);
-      if (content) result.exitInstructions = content;
-    }
+    // Resolve filename: explicit in instructions map, or default to {state}.md
+    const exitFile = wf?.instructions?.[fromStatus] || `${fromStatus}.md`;
+    const enterFile = wf?.instructions?.[toStatus] || `${toStatus}.md`;
 
-    // Read instruction file for the state we're entering
-    const enterFile = wf.instructions[toStatus];
-    if (enterFile) {
-      const content = this.readInstructionFile(wfName, enterFile);
-      if (content) result.enterInstructions = content;
-    }
+    const exitContent = this.readInstructionFile(wfName, exitFile);
+    if (exitContent) result.exitInstructions = exitContent;
+
+    const enterContent = this.readInstructionFile(wfName, enterFile);
+    if (enterContent) result.enterInstructions = enterContent;
 
     return result;
   }

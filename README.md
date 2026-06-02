@@ -121,7 +121,8 @@ Tasks follow configurable workflows with permission-gated transitions. Each work
 .pi-pizza-team/workflows/
 ├── default/
 │   ├── workflow.json
-│   └── enter-review.md
+│   ├── in_progress.md
+│   └── review.md
 └── simple/
     └── workflow.json
 ```
@@ -137,18 +138,13 @@ Tasks follow configurable workflows with permission-gated transitions. Each work
     "needs_input":  { "in_progress": "lead" },
     "review":       { "done": "lead", "in_progress": "lead" }
   },
-  "categories": ["coding"],
-  "instructions": {
-    "review": { "on-enter": "enter-review.md" }
-  }
+  "categories": ["coding"]
 }
 ```
 
 **Transition permissions:** `"any"` (anyone), `"teammate"` (only the assigned agent), `"lead"` (only you).
 
 **Memory categories:** Stories using this workflow inherit these categories for auto-context injection (unless the story overrides).
-
-**Instructions:** Map states to markdown files in the workflow directory. `on-enter` fires when entering that state, `on-exit` fires when leaving.
 
 To assign a non-default workflow to a story, add `"workflow": "simple"` in `story.json` or select it when creating/editing a story.
 
@@ -160,8 +156,9 @@ To assign a non-default workflow to a story, add `"workflow": "simple"` in `stor
 ├── state.db                      # SQLite runtime (gitignored)
 ├── workflows/
 │   ├── default/
-│   │   ├── workflow.json          # States, transitions, categories, instructions
-│   │   └── enter-review.md       # Transition instruction file
+│   │   ├── workflow.json          # States, transitions, categories
+│   │   ├── in_progress.md        # Instructions for in_progress state
+│   │   └── review.md             # Instructions for review state
 │   └── simple/
 │       └── workflow.json
 ├── stories/
@@ -198,33 +195,55 @@ The `dir` field is optional — when present, it determines which teammates can 
 
 ## Transition Instructions
 
-Workflows can reference markdown files that are injected into the teammate's prompt when tasks transition between states. Configure them in `workflow.json`:
+Add a markdown file named after the state to the workflow's directory. When a task enters or leaves that state, the file contents are injected into the teammate's prompt with a preamble indicating the direction.
+
+For example, `.pi-pizza-team/workflows/default/review.md`:
+
+```markdown
+## On Enter
+
+Generate a diff of your changes and upload it using the upload_attachment tool.
+
+## Exit Criteria
+
+- Diff uploaded for lead review
+- All review comments addressed
+- Tests passing
+
+## On Exit
+
+Summarize what was changed in the task result.
+```
+
+When entering review, the teammate sees:
+
+```
+## Transition: entering "review"
+
+<full contents of review.md>
+```
+
+When leaving review, they see:
+
+```
+## Transition: leaving "review"
+
+<full contents of review.md again>
+```
+
+The headings within the file are self-documenting — the agent reads "On Enter" vs "Exit Criteria" vs "On Exit" and knows which parts apply.
+
+**Convention:** The file is named `{state}.md` (e.g., `review.md`, `in_progress.md`). To override this, add an explicit mapping in `workflow.json`:
 
 ```json
 {
   "instructions": {
-    "review": { "on-enter": "enter-review.md" },
-    "in_progress": {
-      "on-enter": "start-work.md",
-      "on-exit": "leaving-progress.md"
-    }
+    "review": "custom-review-process.md"
   }
 }
 ```
 
-Files are relative to the workflow's directory (e.g., `.pi-pizza-team/workflows/default/enter-review.md`).
-
-Example `enter-review.md`:
-
-```markdown
-## Before submitting for review
-
-Generate a diff of your changes and upload it using the upload_attachment tool:
-- filename: changes.diff
-- content: output of git diff
-```
-
-These instructions are returned in API responses and prepended to the teammate's prompt automatically. If no instructions are configured for a transition, behavior is unchanged.
+If no file exists for a state, no instructions are injected for that transition.
 
 ## Autosave
 
