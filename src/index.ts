@@ -288,22 +288,24 @@ async function setupTeammate(
   pi.registerTool({
     name: "upload_attachment",
     label: "Upload Attachment",
-    description: "Upload a file as an attachment to the current task. Use this to share diffs, screenshots, or other artifacts with the lead for review.",
+    description: "Upload a file as an attachment to a task. Use this to share diffs, screenshots, or other artifacts with the lead for review. Works for the current task or the most recently completed task.",
     promptSnippet: "Upload a file to the current task",
     promptGuidelines: [
       "Use upload_attachment when transition instructions ask you to provide a diff or other file for review.",
       "Generate the file content first (e.g. run git diff), then upload it with a descriptive filename.",
       "The lead will be able to view the file and provide inline comments.",
+      "You can specify a taskId if the task has already been handed off, or omit it to use the current/last task.",
     ],
     parameters: TeammateType.Object({
       filename: TeammateType.String({ description: "Filename with extension (e.g. 'changes.diff', 'design.md')" }),
       content: TeammateType.String({ description: "File content as text" }),
       message: TeammateType.Optional(TeammateType.String({ description: "Optional message to post alongside the attachment" })),
+      taskId: TeammateType.Optional(TeammateType.String({ description: "Task ID to attach to (defaults to current or most recent task)" })),
     }),
     async execute(_toolCallId, params) {
       try {
-        const taskId = loop.currentTask;
-        if (!taskId) return { content: [{ type: "text", text: "No active task to attach file to." }] };
+        const taskId = params.taskId || loop.currentTask || loop.lastTask;
+        if (!taskId) return { content: [{ type: "text", text: "No task to attach file to. Specify a taskId parameter." }] };
 
         // Upload the file
         const uploadRes = await fetch(`${leaderUrl}/api/tasks/${encodeURIComponent(taskId)}/attachments`, {

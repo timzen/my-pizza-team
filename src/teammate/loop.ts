@@ -37,6 +37,7 @@ export class WorkLoop {
   private running = false;
   private autonomous = false;
   private currentTaskId: string | null = null;
+  private lastCompletedTaskId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
   private messageCheckTimer: ReturnType<typeof setInterval> | null = null;
@@ -63,6 +64,11 @@ export class WorkLoop {
 
   get currentTask(): string | null {
     return this.currentTaskId;
+  }
+
+  /** The most recently completed task (for tools that run after task handoff) */
+  get lastTask(): string | null {
+    return this.lastCompletedTaskId;
   }
 
   async start(): Promise<void> {
@@ -218,7 +224,8 @@ export class WorkLoop {
       // will 403 and the task stays in its current state (still fine — the
       // message is posted either way, and the lead can respond).
       await this.client.updateStatus(taskId, "needs_input").catch(() => {});
-      this.currentTaskId = null;
+      this.lastCompletedTaskId = this.currentTaskId;
+    this.currentTaskId = null;
       // Watch for lead's reply
       this.watchTask(taskId);
       this.schedulePoll();
@@ -233,6 +240,7 @@ export class WorkLoop {
     // transition, it'll 403 and the task stays put. The lead can move it
     // manually. The message is posted either way so they have the summary.
     const statusResponse = await this.client.updateStatus(taskId, "review", summary).catch(() => null);
+    this.lastCompletedTaskId = this.currentTaskId;
     this.currentTaskId = null;
 
     // If there are transition instructions, deliver them
