@@ -97,3 +97,23 @@ body { font-family: system-ui, sans-serif; background: var(--bg-primary); color:
   .diff-viewer-body { font-size: 0.7em; }
   .msg-bubble { max-width: 90%; }
 }
+
+/* Inline comment shown persistently below a diff line */
+.diff-inline-comment { padding: 4px 12px 4px 52px; font-size: 0.8em; color: var(--accent); background: rgba(38, 139, 210, 0.05); border-left: 3px solid var(--accent); margin-bottom: 2px; }
+.diff-inline-comment .line-ref { margin-right: 4px; }
+
+/* Viewer modal footer (review panel) */
+.viewer-modal-footer { border-top: 1px solid var(--border); flex-shrink: 0; max-height: 40vh; overflow-y: auto; }
+.review-panel-inline { padding: 14px 18px; }
+.review-panel-inline .review-panel-header h3 { font-size: 0.9em; margin-bottom: 8px; }
+.review-panel-inline .review-comments { display: flex; flex-direction: column; gap: 6px; margin-bottom: 10px; }
+.review-panel-inline .review-comment { font-size: 0.82em; padding: 6px 10px; background: var(--bg-tertiary); border-radius: 4px; border-left: 3px solid var(--accent); }
+.review-panel-inline .review-comment .line-ref { font-weight: 600; color: var(--accent); }
+.review-panel-inline .review-summary textarea { width: 100%; background: var(--input-bg); border: 1px solid var(--input-border); color: var(--text-primary); border-radius: 4px; padding: 8px; font-size: 0.85em; font-family: inherit; min-height: 50px; resize: vertical; outline: none; }
+.review-panel-inline .review-summary textarea:focus { border-color: var(--accent); }
+.review-panel-inline .review-actions { display: flex; justify-content: space-between; margin-top: 10px; }
+.btn-cancel-review { background: none; border: 1px solid var(--danger); color: var(--danger); padding: 8px 16px; border-radius: 6px; font-size: 0.85em; cursor: pointer; }
+.btn-cancel-review:hover { background: rgba(220, 50, 47, 0.1); }
+.btn-submit-review { background: var(--accent); color: #fff; border: none; padding: 8px 16px; border-radius: 6px; font-size: 0.85em; font-weight: 600; cursor: pointer; }
+.btn-submit-review:hover { background: var(--accent-hover); }
+.btn-submit-review:disabled { background: var(--border); cursor: not-allowed; }

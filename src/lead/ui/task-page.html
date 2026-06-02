@@ -32,7 +32,6 @@
   </div>
 </div>
 
-<div id="review-area"></div>
 
 <!-- Viewer Modal -->
 <div class="viewer-modal-overlay" id="viewer-modal" onclick="if(event.target===this)closeViewer()">
@@ -42,6 +41,7 @@
       <button class="viewer-modal-close" onclick="closeViewer()">&times;</button>
     </div>
     <div class="viewer-modal-body" id="viewer-modal-body"></div>
+    <div class="viewer-modal-footer" id="viewer-modal-footer" style="display:none;"></div>
   </div>
 </div>
 
@@ -179,8 +179,11 @@ function openAttachmentByName(displayName) {
   openAttachment(a.storedName, a.name, type);
 }
 
-// --- Diff Viewer ---
+// --- Diff Viewer (rendered inside modal) ---
+let currentDiffText = '';
+
 function renderDiffHtml(diffText) {
+  currentDiffText = diffText;
   const lines = diffText.split('\n');
   let lineNum = 0;
   const linesHtml = lines.map((line, idx) => {
@@ -191,17 +194,31 @@ function renderDiffHtml(diffText) {
 
     if (!line.startsWith('@@') && !line.startsWith('---') && !line.startsWith('+++') && !line.startsWith('diff ')) lineNum++;
 
-    const commentExists = reviewComments.some(c => c.line === idx);
-    const commentCls = commentExists ? ' has-comment' : '';
+    const comment = reviewComments.find(c => c.line === idx);
+    const commentCls = comment ? ' has-comment' : '';
 
-    return '<div class="diff-line ' + cls + commentCls + '" data-line="' + idx + '" onclick="toggleCommentInput(' + idx + ')">'
+    let html = '<div class="diff-line ' + cls + commentCls + '" data-line="' + idx + '" onclick="toggleCommentInput(' + idx + ')">'
       + '<span class="diff-line-num">' + (cls === 'diff-line-hunk' ? '' : lineNum) + '</span>'
       + '<span class="diff-line-content">' + escHtml(line) + '</span>'
       + '</div>';
+
+    // Show persistent comment below the line
+    if (comment) {
+      html += '<div class="diff-inline-comment"><span class="line-ref">💬</span> ' + escHtml(comment.body) + '</div>';
+    }
+
+    return html;
   }).join('');
 
   return '<div class="diff-viewer-body">' + linesHtml + '</div>'
     + '<div style="padding:8px 12px;font-size:0.78em;color:var(--text-muted);">Click a line to add a review comment</div>';
+}
+
+// Re-render the diff (to update comment indicators)
+function refreshDiffViewer() {
+  if (!currentDiffText) return;
+  document.getElementById('viewer-modal-body').innerHTML = renderDiffHtml(currentDiffText);
+  updateReviewFooter();
 }
 
 // --- Inline comment input ---
@@ -236,39 +253,46 @@ function addReviewComment(lineIdx) {
   const line = lines[lineIdx];
   const quote = line ? line.querySelector('.diff-line-content').textContent.trim() : '';
 
+  // Remove existing comment on same line (replace)
+  reviewComments = reviewComments.filter(c => c.line !== lineIdx);
   reviewComments.push({ line: lineIdx, quote: quote.slice(0, 100), body });
 
-  const row = document.querySelector('.diff-comment-row[data-line="' + lineIdx + '"]');
-  if (row) row.remove();
-  if (line) line.classList.add('has-comment');
-
-  updateReviewPanel();
+  // Re-render to show persistent comment
+  refreshDiffViewer();
 }
 
 function removeReviewComment(idx) {
-  const removed = reviewComments.splice(idx, 1)[0];
-  if (removed) {
-    const lines = document.querySelectorAll('.diff-line');
-    const line = lines[removed.line];
-    if (line && !reviewComments.some(c => c.line === removed.line)) line.classList.remove('has-comment');
-  }
-  updateReviewPanel();
+  reviewComments.splice(idx, 1);
+  refreshDiffViewer();
 }
 
-function updateReviewPanel() {
-  const area = document.getElementById('review-area');
-  if (reviewComments.length === 0) { area.innerHTML = ''; return; }
+function cancelReview() {
+  reviewComments = [];
+  refreshDiffViewer();
+}
 
+function updateReviewFooter() {
+  const footer = document.getElementById('viewer-modal-footer');
+  if (reviewComments.length === 0) {
+    footer.style.display = 'none';
+    footer.innerHTML = '';
+    return;
+  }
+
+  footer.style.display = 'block';
   const commentsHtml = reviewComments.map((c, i) =>
     '<div class="review-comment"><span class="line-ref">Line ' + (c.line + 1) + ':</span> ' + escHtml(c.body)
     + ' <button onclick="removeReviewComment(' + i + ')" style="background:none;border:none;color:var(--danger);cursor:pointer;font-size:0.8em;">✕</button></div>'
   ).join('');
 
-  area.innerHTML = '<div class="review-panel">'
-    + '<h3>Review (' + reviewComments.length + ' comment' + (reviewComments.length > 1 ? 's' : '') + ')</h3>'
+  footer.innerHTML = '<div class="review-panel-inline">'
+    + '<div class="review-panel-header"><h3>Review (' + reviewComments.length + ' comment' + (reviewComments.length > 1 ? 's' : '') + ')</h3></div>'
     + '<div class="review-comments">' + commentsHtml + '</div>'
     + '<div class="review-summary"><textarea id="review-summary" placeholder="Overall summary (optional)..."></textarea></div>'
-    + '<div class="review-submit"><button onclick="submitReview()" id="submit-review-btn">Submit Review</button></div>'
+    + '<div class="review-actions">'
+    + '<button class="btn-cancel-review" onclick="cancelReview()">Discard All</button>'
+    + '<button class="btn-submit-review" onclick="submitReview()" id="submit-review-btn">Submit Review</button>'
+    + '</div>'
     + '</div>';
 }
 
@@ -311,12 +335,9 @@ async function submitReview() {
   });
 
   reviewComments = [];
-  updateReviewPanel();
+  currentDiffText = '';
   closeViewer();
   loadTask();
-
-  btn.disabled = false;
-  btn.textContent = 'Submit Review';
 }
 
 // --- Messages ---
