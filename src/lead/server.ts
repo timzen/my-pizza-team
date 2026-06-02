@@ -1092,7 +1092,9 @@ export class TeamServer {
 
     // GET /api/config — read current config
     this.app.get("/api/config", (c) => {
-      return c.json(this.config);
+      // Include workflows from the store (they live in directories now, not config.json)
+      const response = { ...this.config, workflows: this.store.getWorkflows() };
+      return c.json(response);
     });
 
     // GET /api/readme — serve README.md content
