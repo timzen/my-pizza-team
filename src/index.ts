@@ -284,6 +284,55 @@ async function setupTeammate(
     },
   });
 
+  // Register upload_attachment tool for teammates
+  pi.registerTool({
+    name: "upload_attachment",
+    label: "Upload Attachment",
+    description: "Upload a file as an attachment to the current task. Use this to share diffs, screenshots, or other artifacts with the lead for review.",
+    promptSnippet: "Upload a file to the current task",
+    promptGuidelines: [
+      "Use upload_attachment when transition instructions ask you to provide a diff or other file for review.",
+      "Generate the file content first (e.g. run git diff), then upload it with a descriptive filename.",
+      "The lead will be able to view the file and provide inline comments.",
+    ],
+    parameters: TeammateType.Object({
+      filename: TeammateType.String({ description: "Filename with extension (e.g. 'changes.diff', 'design.md')" }),
+      content: TeammateType.String({ description: "File content as text" }),
+      message: TeammateType.Optional(TeammateType.String({ description: "Optional message to post alongside the attachment" })),
+    }),
+    async execute(_toolCallId, params) {
+      try {
+        const taskId = loop.currentTask;
+        if (!taskId) return { content: [{ type: "text", text: "No active task to attach file to." }] };
+
+        // Upload the file
+        const uploadRes = await fetch(`${leaderUrl}/api/tasks/${encodeURIComponent(taskId)}/attachments`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: params.filename, content: params.content, encoding: "utf-8" }),
+        });
+        const uploadData = await uploadRes.json() as any;
+        if (!uploadData.success) throw new Error(uploadData.error || "Upload failed");
+
+        // Post a message referencing the attachment
+        const msgBody = params.message || `Attached ${params.filename} for review.`;
+        await fetch(`${leaderUrl}/api/tasks/${encodeURIComponent(taskId)}/message`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            from: memberId,
+            body: msgBody,
+            attachments: [{ name: params.filename, size: params.content.length, type: uploadData.type || "other" }],
+          }),
+        });
+
+        return { content: [{ type: "text", text: `Uploaded ${params.filename} (${params.content.length} bytes) and posted message.` }] };
+      } catch (e: any) {
+        return { content: [{ type: "text", text: `Failed to upload: ${e.message}` }] };
+      }
+    },
+  });
+
   // Create work loop
   const loop = new WorkLoop(pi, client, memberId);
 
