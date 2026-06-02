@@ -3,7 +3,8 @@
 export interface TeamConfig {
   port: number;
   tmuxSession: string;
-  workflows: Record<string, WorkflowConfig>;
+  /** @deprecated Use workflows directory instead. Kept for migration. */
+  workflows?: Record<string, WorkflowConfig>;
   defaultWorkflow: string;
   autosave: AutosaveConfig;
   leaderUrl: string;
@@ -149,6 +150,7 @@ export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
 export const ARCHIVED_DIR = "archived";
 export const BACKLOG_DIR = "backlog";
+export const WORKFLOWS_DIR = "workflows";
 
 /** Generate a URL-safe slug from a title (max 40 chars) */
 export function slugify(text: string): string {

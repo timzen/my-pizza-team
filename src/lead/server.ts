@@ -122,8 +122,18 @@ export class TeamServer {
   }
 
   /** Assemble transition instructions into a single markdown string (or undefined if none) */
-  private getInstructionsMarkdown(fromStatus: string, toStatus: string): string | undefined {
-    const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, toStatus);
+  /** Assemble transition instructions into a single markdown string (or undefined if none) */
+  private getInstructionsMarkdown(fromStatus: string, toStatus: string, taskId?: string): string | undefined {
+    // Resolve workflow name from the task's story
+    let workflowName: string | undefined;
+    if (taskId) {
+      const task = this.store.getTask(taskId);
+      if (task) {
+        const story = this.store.getStory(task.storyId);
+        workflowName = story?.workflow || this.config.defaultWorkflow;
+      }
+    }
+    const { exitInstructions, enterInstructions } = this.store.getTransitionInstructions(fromStatus, toStatus, workflowName);
     const parts: string[] = [];
     if (exitInstructions) parts.push(exitInstructions);
     if (enterInstructions) parts.push(enterInstructions);
@@ -278,8 +288,8 @@ export class TeamServer {
         },
         inbox: inbox.length,
         defaultWorkflow: this.config.defaultWorkflow,
-        workflows: this.config.workflows,
-        workflow: this.config.workflows[this.config.defaultWorkflow], // legacy compat
+        workflows: this.store.getWorkflows(),
+        workflow: this.store.getWorkflows()[this.config.defaultWorkflow], // legacy compat
       };
       return c.json(response);
     });
@@ -482,7 +492,7 @@ export class TeamServer {
         this.store.updateMemberStatus(body.memberId, "working");
 
         // Get transition instructions
-        const instructions = this.getInstructionsMarkdown(fromStatus, "in_progress");
+        const instructions = this.getInstructionsMarkdown(fromStatus, "in_progress", taskId);
 
         const response: ClaimResponse = { success, instructions };
         return c.json(response);
@@ -521,7 +531,7 @@ export class TeamServer {
       }
 
       // Get transition instructions
-      const instructions = this.getInstructionsMarkdown(fromStatus, body.status);
+      const instructions = this.getInstructionsMarkdown(fromStatus, body.status, taskId);
 
       const response: StatusUpdateResponse = { success: true, instructions };
       return c.json(response);
@@ -744,7 +754,7 @@ export class TeamServer {
       this.store.updateTaskStatus(taskId, body.status);
 
       // Get transition instructions
-      const instructions = this.getInstructionsMarkdown(fromStatus, body.status);
+      const instructions = this.getInstructionsMarkdown(fromStatus, body.status, taskId);
 
       return c.json({ success: true, instructions } satisfies MoveTaskResponse);
     });
@@ -758,8 +768,8 @@ export class TeamServer {
         success: true,
         config: {
           defaultWorkflow: this.config.defaultWorkflow,
-          workflows: this.config.workflows,
-          workflow: this.config.workflows[this.config.defaultWorkflow], // legacy compat
+          workflows: this.store.getWorkflows(),
+          workflow: this.store.getWorkflows()[this.config.defaultWorkflow], // legacy compat
         },
       };
       return c.json(response);
@@ -1148,6 +1158,13 @@ export class TeamServer {
         this.config.maxTeammates = body.maxTeammates || this.config.maxTeammates;
         this.config.defaultWorkflow = body.defaultWorkflow;
         this.config.workflows = body.workflows;
+        // Save workflows to their directories
+        if (body.workflows) {
+          for (const [name, wf] of Object.entries(body.workflows)) {
+            this.store.saveWorkflow(name, wf as any);
+          }
+          this.store.reloadWorkflows();
+        }
         if (body.autosave) {
           this.config.autosave = {
             flushIntervalMinutes: body.autosave.flushIntervalMinutes || 30,
@@ -1169,7 +1186,7 @@ export class TeamServer {
           port: this.config.port,
           tmuxSession: this.config.tmuxSession,
           defaultWorkflow: this.config.defaultWorkflow,
-          workflows: this.config.workflows,
+          workflows: this.store.getWorkflows(),
           autosave: this.config.autosave,
           leaderUrl: this.config.leaderUrl,
           maxTeammates: this.config.maxTeammates,

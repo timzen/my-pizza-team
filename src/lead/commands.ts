@@ -72,13 +72,21 @@ export function registerLeadCommands(
       const { DEFAULT_CONFIG } = await import("../shared/types.js");
       fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
       fs.mkdirSync(path.join(teamDir, "notes"), { recursive: true });
+      fs.mkdirSync(path.join(teamDir, "workflows"), { recursive: true });
 
-      // Write a clean config (omit empty/default-derivable fields)
+      // Write default workflow to its directory
+      const defaultWfDir = path.join(teamDir, "workflows", DEFAULT_CONFIG.defaultWorkflow);
+      fs.mkdirSync(defaultWfDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(defaultWfDir, "workflow.json"),
+        JSON.stringify(DEFAULT_CONFIG.workflows[DEFAULT_CONFIG.defaultWorkflow], null, 2) + "\n"
+      );
+
+      // Write config (workflows live in their own directory, not in config)
       const configToWrite = {
         port: DEFAULT_CONFIG.port,
         tmuxSession: DEFAULT_CONFIG.tmuxSession,
         defaultWorkflow: DEFAULT_CONFIG.defaultWorkflow,
-        workflows: DEFAULT_CONFIG.workflows,
         autosave: DEFAULT_CONFIG.autosave,
         leaderUrl: DEFAULT_CONFIG.leaderUrl,
         maxTeammates: DEFAULT_CONFIG.maxTeammates,
@@ -123,6 +131,12 @@ export function registerLeadCommands(
       if (!fs.existsSync(notesDir)) {
         fs.mkdirSync(notesDir, { recursive: true });
         changes.push("Created notes/ directory");
+      }
+
+      const workflowsDir = path.join(teamDir, "workflows");
+      if (!fs.existsSync(workflowsDir)) {
+        fs.mkdirSync(workflowsDir, { recursive: true });
+        changes.push("Created workflows/ directory");
       }
 
       // --- .gitignore ---
@@ -190,6 +204,39 @@ export function registerLeadCommands(
         if (!config.categories) {
           config.categories = DEFAULT_CATEGORIES;
           changes.push("Added 'categories' field (defaults: " + DEFAULT_CATEGORIES.join(", ") + ")");
+        }
+
+        // Migrate workflows from config to workflows/ directory
+        if (config.workflows && Object.keys(config.workflows).length > 0) {
+          const wfDir = path.join(teamDir, "workflows");
+          let migratedAny = false;
+          for (const [name, wf] of Object.entries(config.workflows)) {
+            const wfPath = path.join(wfDir, name);
+            if (!fs.existsSync(path.join(wfPath, "workflow.json"))) {
+              fs.mkdirSync(wfPath, { recursive: true });
+              fs.writeFileSync(path.join(wfPath, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
+              migratedAny = true;
+            }
+          }
+          if (migratedAny) {
+            changes.push("Migrated workflows from config.json to workflows/ directory");
+          }
+          // Remove workflows from config (they now live in their own directory)
+          delete config.workflows;
+        }
+
+        // Migrate team-level transition instructions to default workflow dir
+        const defaultWfDir = path.join(teamDir, "workflows", config.defaultWorkflow || "default");
+        fs.mkdirSync(defaultWfDir, { recursive: true });
+        for (const file of fs.readdirSync(teamDir)) {
+          if (file.match(/^on-(enter|exit)-.+\.md$/)) {
+            const src = path.join(teamDir, file);
+            const dest = path.join(defaultWfDir, file);
+            if (!fs.existsSync(dest)) {
+              fs.renameSync(src, dest);
+              changes.push("Moved " + file + " to workflows/" + (config.defaultWorkflow || "default") + "/");
+            }
+          }
         }
 
         // Write updated config

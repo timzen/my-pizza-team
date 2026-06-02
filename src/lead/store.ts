@@ -19,7 +19,7 @@ import Database from "better-sqlite3";
 import { execSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { slugify, getInitialState, getDoneState } from "../shared/types.js";
+import { slugify, getInitialState, getDoneState, DEFAULT_CONFIG as FALLBACK_CONFIG } from "../shared/types.js";
 import type { Message, Story, Task, TaskWithMeta, TeamConfig, WorkflowConfig, Member, Assignment, TransitionInstructions } from "../shared/types.js";
 import { parseFrontmatter, serializeFrontmatter } from "./search.js";
 
@@ -27,6 +27,7 @@ export class Store {
   private db: Database.Database;
   private teamDir: string;
   private config: TeamConfig;
+  private workflows: Record<string, WorkflowConfig> = {};
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
@@ -40,6 +41,68 @@ export class Store {
     this.db.pragma("journal_mode = WAL");
     this.db.pragma("busy_timeout = 5000");
     this.initSchema();
+    this.loadWorkflows();
+  }
+
+  /** Load workflows from the workflows/ directory (falls back to config.workflows) */
+  private loadWorkflows(): void {
+    const workflowsDir = path.join(this.teamDir, "workflows");
+    this.workflows = {};
+
+    // Load from directory if it exists
+    if (fs.existsSync(workflowsDir)) {
+      for (const dirName of fs.readdirSync(workflowsDir)) {
+        const wfDir = path.join(workflowsDir, dirName);
+        if (!fs.statSync(wfDir).isDirectory()) continue;
+        const wfFile = path.join(wfDir, "workflow.json");
+        if (!fs.existsSync(wfFile)) continue;
+        try {
+          const wf: WorkflowConfig = JSON.parse(fs.readFileSync(wfFile, "utf-8"));
+          this.workflows[dirName] = wf;
+        } catch {
+          // Skip malformed workflow files
+        }
+      }
+    }
+
+    // Fall back to config.workflows if directory is empty/missing
+    if (Object.keys(this.workflows).length === 0 && this.config.workflows) {
+      this.workflows = { ...this.config.workflows };
+    }
+
+    // Final fallback: default workflow from DEFAULT_CONFIG
+    if (Object.keys(this.workflows).length === 0) {
+      this.workflows = { ...FALLBACK_CONFIG.workflows };
+      this.workflows = { ...DEFAULT_CONFIG.workflows };
+    }
+  }
+
+  /** Get all loaded workflows */
+  getWorkflows(): Record<string, WorkflowConfig> {
+    return this.workflows;
+  }
+
+  /** Reload workflows from disk (called after config changes) */
+  reloadWorkflows(): void {
+    this.loadWorkflows();
+  }
+
+  /** Save a workflow to its directory */
+  saveWorkflow(name: string, wf: WorkflowConfig): void {
+    const workflowsDir = path.join(this.teamDir, "workflows");
+    const wfDir = path.join(workflowsDir, name);
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(path.join(wfDir, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
+    this.workflows[name] = wf;
+  }
+
+  /** Delete a workflow directory */
+  deleteWorkflow(name: string): boolean {
+    const wfDir = path.join(this.teamDir, "workflows", name);
+    if (!fs.existsSync(wfDir)) return false;
+    fs.rmSync(wfDir, { recursive: true });
+    delete this.workflows[name];
+    return true;
   }
 
   private initSchema(): void {
@@ -272,7 +335,7 @@ export class Store {
 
     // Resolve initial task status from the story's workflow
     const wfName = workflow || this.config.defaultWorkflow;
-    const wf = this.config.workflows[wfName] || this.config.workflows[this.config.defaultWorkflow];
+    const wf = this.workflows[wfName] || this.workflows[this.config.defaultWorkflow];
     const initialStatus = getInitialState(wf);
 
     if (tasks && tasks.length > 0) {
@@ -807,24 +870,35 @@ export class Store {
 
   getTransitionInstructions(
     fromStatus: string,
-    toStatus: string
+    toStatus: string,
+    workflowName?: string
   ): { exitInstructions?: string; enterInstructions?: string } {
     const result: { exitInstructions?: string; enterInstructions?: string } = {};
+    const wfName = workflowName || this.config.defaultWorkflow;
 
-    const exitContent = this.readTransitionFile(`on-exit-${fromStatus}.md`);
+    // Look in workflow directory first, then fall back to team directory
+    const exitContent = this.readTransitionFile(`on-exit-${fromStatus}.md`, wfName);
     if (exitContent) result.exitInstructions = exitContent;
 
-    const enterContent = this.readTransitionFile(`on-enter-${toStatus}.md`);
+    const enterContent = this.readTransitionFile(`on-enter-${toStatus}.md`, wfName);
     if (enterContent) result.enterInstructions = enterContent;
 
     return result;
   }
 
-  private readTransitionFile(filename: string): string | undefined {
-    const filePath = path.join(this.teamDir, filename);
+  private readTransitionFile(filename: string, workflowName?: string): string | undefined {
+    // Try workflow-specific directory first
+    const wfPath = workflowName
+      ? path.join(this.teamDir, "workflows", workflowName, filename)
+      : null;
+    // Fall back to team-level directory
+    const teamPath = path.join(this.teamDir, filename);
+
+    const filePath = (wfPath && fs.existsSync(wfPath)) ? wfPath : teamPath;
+    const cacheKey = (workflowName || "_team") + "/" + filename;
 
     // Check cache
-    const cached = this.transitionInstructionsCache.get(filename);
+    const cached = this.transitionInstructionsCache.get(cacheKey);
     if (cached) {
       try {
         const stat = fs.statSync(filePath);
@@ -834,7 +908,7 @@ export class Store {
         }
       } catch {
         // File deleted, remove from cache
-        this.transitionInstructionsCache.delete(filename);
+        this.transitionInstructionsCache.delete(cacheKey);
         return undefined;
       }
     }
@@ -844,7 +918,7 @@ export class Store {
       if (!fs.existsSync(filePath)) return undefined;
       const content = fs.readFileSync(filePath, "utf-8");
       const stat = fs.statSync(filePath);
-      this.transitionInstructionsCache.set(filename, { content, mtime: stat.mtimeMs, cachedAt: Date.now() });
+      this.transitionInstructionsCache.set(cacheKey, { content, mtime: stat.mtimeMs, cachedAt: Date.now() });
       return content;
     } catch {
       return undefined;
@@ -1029,13 +1103,13 @@ export class Store {
   getWorkflowForStory(storyId: string): WorkflowConfig {
     const story = this.getStory(storyId);
     const workflowName = story?.workflow || this.config.defaultWorkflow;
-    return this.config.workflows[workflowName] || this.config.workflows[this.config.defaultWorkflow];
+    return this.workflows[workflowName] || this.workflows[this.config.defaultWorkflow];
   }
 
   /** Resolve the effective workflow for a task (via its parent story) */
   getWorkflowForTask(taskId: string): WorkflowConfig {
     const task = this.getTask(taskId);
-    if (!task) return this.config.workflows[this.config.defaultWorkflow];
+    if (!task) return this.workflows[this.config.defaultWorkflow];
     return this.getWorkflowForStory(task.storyId);
   }
 
