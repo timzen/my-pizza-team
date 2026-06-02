@@ -47,11 +47,12 @@ pi-pizza-team/
 │   ├── ARCHITECTURE.md       # Internal technical docs (keep updated!)
 │   └── DESIGN.md             # Design philosophy (keep updated!)
 ├── src/
-│   ├── index.ts              # Extension entry point
+│   ├── index.ts              # Extension entry point (role detection)
 │   ├── shared/               # Types, constants, protocol definitions
-│   ├── lead/                 # Team lead: store, server, board UI, tools
+│   ├── lead/                 # Team lead: store, server, board UI, tools, search
+│   ├── assistant/            # Assistant: client, queue work loop
 │   └── teammate/             # Teammate: client, work loop, permissions
-└── tests/                    # End-to-end tests (node --test or direct execution)
+└── tests/                    # Tests (node tests/*.test.mjs)
 ```
 
 ## Key Invariants
@@ -60,7 +61,11 @@ These must never be violated:
 
 - JSON files in `stories/` are the source of truth for active story/task definitions
 - SQLite is the runtime engine — never the source of truth for persistent data
-- `loadFromDisk()` only reads from `stories/`, never from `archived/`
+- `loadFromDisk()` only reads from `stories/`, never from `archived/` or `backlog/`
 - Messages are appended to JSONL immediately (never buffered, never lost)
-- Archived stories retain all original files for historical reference
+- Archived and backlogged stories retain all original files for historical reference
+- Workflows live in `workflows/{name}/` directories with a `workflow.json` — not in config.json
+- Transition instructions are resolved by filename convention (`{state}.md`) or explicit `instructions` map
 - The workflow state machine is entirely configuration-driven (no hardcoded states)
+- The server binds to `127.0.0.1` only (never `0.0.0.0` without explicit opt-in)
+- Story IDs must be safe for filesystem paths (validated by `isSafeId()`)
