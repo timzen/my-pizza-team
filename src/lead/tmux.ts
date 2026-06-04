@@ -3,7 +3,7 @@ import { execSync } from "node:child_process";
 
 /** Sanitize a string for safe use in shell commands (remove dangerous chars) */
 function shellSafe(s: string): string {
-  return s.replace(/[^a-zA-Z0-9._~\/-]/g, "");
+  return s.replace(/[^a-zA-Z0-9._~/:@-]/g, "");
 }
 
 export interface TmuxOptions {
