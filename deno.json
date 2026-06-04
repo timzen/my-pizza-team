@@ -3,13 +3,17 @@
   "tasks": {
     "dev": "deno run --allow-net --allow-read --allow-env --watch daemon/main.ts",
     "start": "deno run --allow-net --allow-read --allow-env daemon/main.ts",
-    "test": "deno test --allow-net --allow-read --allow-env tests/",
-    "check": "deno check daemon/main.ts cli/main.ts"
+    "test": "deno test --allow-net --allow-read --allow-write --allow-env --allow-ffi tests/",
+    "check": "deno check daemon/main.ts daemon/store.ts cli/main.ts"
   },
   "imports": {
     "hono": "jsr:@hono/hono@^4",
     "hono/": "jsr:@hono/hono@^4/",
+    "@db/sqlite": "jsr:@db/sqlite@^0.12",
     "@std/assert": "jsr:@std/assert@^1",
+    "@std/fs": "jsr:@std/fs@^1",
+    "@std/fs/": "jsr:@std/fs@^1/",
+    "@std/path": "jsr:@std/path@^1",
     "@std/testing": "jsr:@std/testing@^1"
   },
   "compilerOptions": {
