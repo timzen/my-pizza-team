@@ -25,6 +25,7 @@ import type {
 } from "../shared/protocol.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
+import { resolveDistDir, staticMiddleware } from "./static.ts";
 
 // Cost per 1M tokens (input, output) for common models
 const MODEL_COSTS: Record<string, { input: number; output: number }> = {
@@ -62,6 +63,12 @@ function isSafeId(id: string): boolean {
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
   const app = new Hono();
   let paused = false;
+
+  // Serve static UI files if dist directory exists
+  const distDir = resolveDistDir();
+  if (distDir) {
+    app.use("*", staticMiddleware(distDir));
+  }
 
   /** Assemble transition instructions into markdown */
   function getInstructionsMarkdown(fromStatus: string, toStatus: string, taskId?: string): string | undefined {
