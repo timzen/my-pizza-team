@@ -198,11 +198,12 @@ export class WorkLoop {
     if (instructions) {
       prompt += `## Transition Instructions\n\n${instructions}\n\n---\n\n`;
     }
-    prompt += `## Task: ${task.title}\n\n${task.description}`;
+    prompt += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}`;
     if (task.context) {
       prompt = `## Context from previous tasks:\n\n${task.context}\n\n---\n\n${prompt}`;
     }
-    prompt += `\n\n---\nWhen you're done, provide a brief summary of what you accomplished.`;
+    prompt += `\n\n---\n**Remember: you are working on task ${task.id}. Ignore any task IDs from earlier in this conversation.**`;
+    prompt += `\nWhen you're done, provide a brief summary of what you accomplished.`;
     prompt += `\nIf you get stuck and need human guidance, say "NEEDS_INPUT:" followed by your question.`;
 
     // Start checking for new messages while working
