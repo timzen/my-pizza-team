@@ -4,7 +4,7 @@
     "dev": "deno run --allow-net --allow-read --allow-env --watch daemon/main.ts",
     "start": "deno run --allow-net --allow-read --allow-env daemon/main.ts",
     "test": "deno test --allow-net --allow-read --allow-write --allow-env --allow-ffi tests/",
-    "check": "deno check daemon/main.ts daemon/store.ts cli/main.ts"
+    "check": "deno check daemon/main.ts daemon/server.ts daemon/store.ts cli/main.ts"
   },
   "imports": {
     "hono": "jsr:@hono/hono@^4",
