@@ -47,12 +47,32 @@ deno task ui:dev
 # Build the UI for production
 deno task ui:build
 
+# Compile single binary (builds UI + compiles daemon with embedded assets)
+deno task compile
+
+# Run the compiled binary
+./mpt
+
 # Run tests
 deno task test
 
 # Type-check
 deno task check
 ```
+
+## Building
+
+The project can be compiled into a single self-contained binary:
+
+```bash
+deno task compile
+```
+
+This produces a `./mpt` binary (~70MB on macOS arm64) that:
+- Embeds the React UI (served at `/`)
+- Runs the Hono HTTP API
+- Manages SQLite via native FFI
+- Requires no runtime dependencies (no Deno, no Node.js)
 
 ## API Endpoints
 
