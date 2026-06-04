@@ -8,6 +8,11 @@ import { HomePage } from "./pages/HomePage";
 import { BoardPage } from "./pages/BoardPage";
 import { TeamPage } from "./pages/TeamPage";
 import { MemoryPage } from "./pages/MemoryPage";
+import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { AssistantPage } from "./pages/AssistantPage";
+import { BacklogPage } from "./pages/BacklogPage";
+import { ArchivedPage } from "./pages/ArchivedPage";
+import { ConfigPage } from "./pages/ConfigPage";
 
 function App() {
   return (
@@ -20,6 +25,11 @@ function App() {
             <Route path="/board" element={<BoardPage />} />
             <Route path="/team" element={<TeamPage />} />
             <Route path="/memory" element={<MemoryPage />} />
+            <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
+            <Route path="/assistant" element={<AssistantPage />} />
+            <Route path="/backlog" element={<BacklogPage />} />
+            <Route path="/archived" element={<ArchivedPage />} />
+            <Route path="/config" element={<ConfigPage />} />
           </Routes>
         </main>
       </div>
