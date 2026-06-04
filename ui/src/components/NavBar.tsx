@@ -11,6 +11,10 @@ const NAV_ITEMS = [
   { path: "/board", label: "Board" },
   { path: "/team", label: "Team" },
   { path: "/memory", label: "Memory" },
+  { path: "/assistant", label: "Assistant" },
+  { path: "/backlog", label: "Backlog" },
+  { path: "/archived", label: "Archived" },
+  { path: "/config", label: "Config" },
 ];
 
 export function NavBar() {
