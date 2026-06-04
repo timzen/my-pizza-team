@@ -1,0 +1,86 @@
+/**
+ * AddStoryDialog — Modal for creating a new story with optional tasks.
+ */
+
+import { useState } from "react";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Textarea } from "@/components/ui/textarea";
+import { Plus, X } from "lucide-react";
+import { apiPost } from "@/hooks/useApi";
+
+interface AddStoryDialogProps {
+  onCreated: () => void;
+}
+
+export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
+  const [open, setOpen] = useState(false);
+  const [id, setId] = useState("");
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [dir, setDir] = useState("");
+  const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
+  const [error, setError] = useState("");
+
+  const reset = () => { setId(""); setTitle(""); setDescription(""); setDir(""); setTasks([]); setError(""); };
+
+  const addTask = () => setTasks([...tasks, { title: "", description: "" }]);
+  const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
+  const updateTask = (i: number, field: "title" | "description", value: string) => {
+    const updated = [...tasks];
+    updated[i] = { ...updated[i]!, [field]: value };
+    setTasks(updated);
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setError("");
+    const body: Record<string, unknown> = { id, title, description };
+    if (dir) body.dir = dir;
+    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title);
+
+    const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
+    if (res.success) { setOpen(false); reset(); onCreated(); }
+    else setError(res.error || "Failed to create story");
+  };
+
+  return (
+    <>
+      <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4 mr-1" /> Add Story</Button>
+      <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
+      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+        <DialogHeader><DialogTitle>New Story</DialogTitle></DialogHeader>
+        <form onSubmit={handleSubmit} className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label htmlFor="story-id">ID</Label><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
+            <div><Label htmlFor="story-dir">Directory (optional)</Label><Input id="story-dir" value={dir} onChange={e => setDir(e.target.value)} placeholder="~/projects/foo" /></div>
+          </div>
+          <div><Label htmlFor="story-title">Title</Label><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
+          <div><Label htmlFor="story-desc">Description</Label><Textarea id="story-desc" value={description} onChange={e => setDescription(e.target.value)} rows={3} required /></div>
+
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <Label>Tasks</Label>
+              <Button type="button" variant="outline" size="sm" onClick={addTask}><Plus className="h-3 w-3 mr-1" />Task</Button>
+            </div>
+            {tasks.map((task, i) => (
+              <div key={i} className="flex gap-2 mb-2 items-start">
+                <div className="flex-1 space-y-1">
+                  <Input placeholder="Task title" value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
+                  <Input placeholder="Description" value={task.description} onChange={e => updateTask(i, "description", e.target.value)} />
+                </div>
+                <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeTask(i)}><X className="h-3 w-3" /></Button>
+              </div>
+            ))}
+          </div>
+
+          {error && <p className="text-sm text-destructive">{error}</p>}
+          <Button type="submit" className="w-full">Create Story</Button>
+        </form>
+      </DialogContent>
+    </Dialog>
+    </>
+  );
+}
