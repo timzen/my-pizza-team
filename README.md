@@ -17,7 +17,10 @@ my-pizza-team/
 │   └── store.ts       # SQLite data layer (jsr:@db/sqlite)
 ├── cli/               # Command-line interface
 │   └── main.ts        # CLI entry point
-├── ui/                # Frontend (TBD)
+├── ui/                # Frontend (React + Vite + shadcn/ui)
+│   ├── src/           # React source (App, pages, components)
+│   ├── vite.config.ts # Vite config with API proxy
+│   └── package.json   # UI dependencies
 ├── shared/            # Types and utilities shared across modules
 │   ├── types.ts       # Common type definitions, workflow helpers
 │   └── frontmatter.ts # Frontmatter parsing for memory notes
@@ -37,6 +40,12 @@ deno task dev
 
 # Start the daemon (production)
 deno task start
+
+# Start the UI (dev mode with Vite)
+deno task ui:dev
+
+# Build the UI for production
+deno task ui:build
 
 # Run tests
 deno task test
