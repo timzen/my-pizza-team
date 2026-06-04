@@ -1,11 +1,19 @@
-## Before submitting for review
+## On Enter
 
-Create a unified diff of all changes you made during this task and upload it for the lead to review.
+Generate a diff of your changes and upload it for the lead to review.
 
-1. Generate the diff of your changes (e.g. `git diff main -- .` or appropriate range)
-2. Use the `upload_attachment` tool to upload the diff:
-   - filename: `changes.diff`
-   - content: the full diff output
-   - message: a brief summary of what changed
+1. Write the diff to a temp file: `git diff main -- . > /tmp/changes.diff`
+2. Use the `upload_attachment` tool with `filePath: "/tmp/changes.diff"` and `filename: "changes.diff"`
+3. Include a brief summary of what changed in the message
 
 The lead will review your diff with inline comments and send you consolidated feedback.
+
+## Exit Criteria
+
+- Diff uploaded for lead review
+- All review comments addressed (if any)
+- Tests passing
+
+## On Exit
+
+Summarize what was accomplished in the task result.
