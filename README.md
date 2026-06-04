@@ -13,14 +13,17 @@ my-pizza-team/
 ├── deno.json          # Project config, tasks, import map
 ├── daemon/            # HTTP server (Hono on Deno.serve)
 │   ├── main.ts        # Entry point — starts the server
-│   └── app.ts         # Hono app and route registration
+│   ├── app.ts         # Hono app and route registration
+│   └── store.ts       # SQLite data layer (jsr:@db/sqlite)
 ├── cli/               # Command-line interface
 │   └── main.ts        # CLI entry point
 ├── ui/                # Frontend (TBD)
 ├── shared/            # Types and utilities shared across modules
-│   └── types.ts       # Common type definitions
+│   ├── types.ts       # Common type definitions, workflow helpers
+│   └── frontmatter.ts # Frontmatter parsing for memory notes
 ├── tests/             # Test files
-│   └── health.test.ts # Health endpoint test
+│   ├── health.test.ts # Health endpoint test
+│   └── store.test.ts  # Store CRUD and workflow tests
 └── docs/              # Documentation
     ├── ARCHITECTURE.md
     └── DESIGN.md
