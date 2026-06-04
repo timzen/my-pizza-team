@@ -49,3 +49,10 @@ mpt-mcp-server/
 ├── src/
 └── tests/                    # Tests (node tests/*.test.mjs)
 ```
+
+## Reference
+
+Original code can be found at
+
+- git: https://github.com/timzen/pi-pizza-team.git
+- local: /Users/timvance/Workspace/pi-pizza-team
