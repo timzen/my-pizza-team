@@ -24,6 +24,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName).
 - `protocol.ts` — API request/response type contracts for all HTTP endpoints.
 - `frontmatter.ts` — Parsing/serialization of YAML-like frontmatter for memory notes.
+- `search.ts` — BM25 search engine for memory notes, with per-category indexes.
 
 ### tests/
 - `health.test.ts` — Integration test for the `/health` endpoint using Hono's `app.request()` test helper.
