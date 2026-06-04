@@ -13,8 +13,13 @@ import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 
+export interface AppContext {
+  app: Hono;
+  store: Store | null;
+}
+
 /** Create the full app with store, or a minimal app for health-only mode */
-export function createApp(teamDir?: string): Hono {
+export function createApp(teamDir?: string): AppContext {
   if (teamDir && existsSync(teamDir)) {
     const configFile = path.join(teamDir, "config.json");
     const config: TeamConfig = existsSync(configFile)
@@ -25,13 +30,13 @@ export function createApp(teamDir?: string): Hono {
     store.loadFromDisk();
     store.startTimers();
 
-    return buildApp(store, config, teamDir);
+    return { app: buildApp(store, config, teamDir), store };
   }
 
   // Minimal app (no store) — just health check
   const app = new Hono();
   app.get("/health", (c) => c.json({ status: "ok", service: "my-pizza-team" }));
-  return app;
+  return { app, store: null };
 }
 
 // Export a default minimal app for simple test imports
