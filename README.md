@@ -1,2 +1,2 @@
-# my-pizza-team
+# mpt-mcp-server
 WIP
