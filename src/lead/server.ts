@@ -478,6 +478,7 @@ export class TeamServer {
           title: task.title,
           description: task.description,
           context: fullContext || undefined,
+          workflow: wf,
         },
       };
       return c.json(response);

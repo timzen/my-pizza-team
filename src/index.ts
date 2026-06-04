@@ -240,8 +240,12 @@ async function setupTeammate(
   }
 
   // Join the team (retry-tolerant)
+  let joinedWorkflows: Record<string, any> = {};
   try {
-    await client.join(memberId, cwd, tmuxWindow);
+    const joinRes = await client.join(memberId, cwd, tmuxWindow);
+    if (joinRes.config?.workflows) {
+      joinedWorkflows = joinRes.config.workflows;
+    }
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to join team — will keep trying via polling`, "warning");
@@ -337,6 +341,12 @@ async function setupTeammate(
 
   // Create work loop
   const loop = new WorkLoop(pi, client, memberId);
+
+  // Set default workflow if we got one from join
+  const defaultWfName = Object.keys(joinedWorkflows)[0];
+  if (defaultWfName && joinedWorkflows[defaultWfName]) {
+    loop.setWorkflow(joinedWorkflows[defaultWfName]);
+  }
 
   // Permission bypass (toggles yoloMode based on autonomous vs pairing)
   registerPermissionBypass(pi, () => loop, cwd);

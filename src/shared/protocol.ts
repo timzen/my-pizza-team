@@ -56,6 +56,7 @@ export interface NextTaskResponse {
     title: string;
     description: string;
     context?: string; // previous task results for continuity
+    workflow?: import("./types.js").WorkflowConfig; // task's effective workflow
   } | null;
 }
 

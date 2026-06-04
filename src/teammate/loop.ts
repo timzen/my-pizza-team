@@ -24,6 +24,7 @@
 //   to the presence of new lead messages.
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import type { TeamClient } from "./client.js";
+import type { WorkflowConfig } from "../shared/types.js";
 
 const POLL_INTERVAL_MS = 5000; // 5 seconds between polls
 const HEARTBEAT_INTERVAL_MS = 30000; // 30 seconds
@@ -56,6 +57,28 @@ export class WorkLoop {
     this.pi = pi;
     this.client = client;
     this.memberId = memberId;
+  }
+
+  /** Set the workflow config (received from server on join) */
+  setWorkflow(wf: WorkflowConfig): void {
+    this._workflow = wf;
+  }
+  private _workflow: WorkflowConfig | null = null;
+
+  /**
+   * Find the next valid state for a teammate from the current state.
+   * Looks at transitions from currentStatus where permission is "teammate".
+   * Falls back to the given default if no match found.
+   */
+  private resolveTeammateTransition(currentStatus: string, fallback: string): string {
+    if (!this._workflow) return fallback;
+    const transitions = this._workflow.transitions[currentStatus];
+    if (!transitions) return fallback;
+    // Find a state the teammate can transition to
+    for (const [state, perm] of Object.entries(transitions)) {
+      if (perm === "teammate" || perm === "any") return state;
+    }
+    return fallback;
   }
 
   get isAutonomous(): boolean {
@@ -132,6 +155,10 @@ export class WorkLoop {
       const response = await this.client.getNextTask();
 
       if (response.task) {
+        // Update workflow for this task (may differ per story)
+        if (response.task.workflow) {
+          this._workflow = response.task.workflow;
+        }
         // Claim the task
         const claim = await this.client.claimTask(response.task.id);
         if (claim.success) {
@@ -239,7 +266,8 @@ export class WorkLoop {
     // Try to advance to "review" — if the workflow doesn't have this
     // transition, it'll 403 and the task stays put. The lead can move it
     // manually. The message is posted either way so they have the summary.
-    const statusResponse = await this.client.updateStatus(taskId, "review", summary).catch(() => null);
+    const reviewState = this.resolveTeammateTransition("in_progress", "review");
+    const statusResponse = await this.client.updateStatus(taskId, reviewState, summary).catch(() => null);
     this.lastCompletedTaskId = this.currentTaskId;
     this.currentTaskId = null;
 
