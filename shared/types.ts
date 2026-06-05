@@ -95,17 +95,17 @@ export interface TaskWithMeta extends Task {
   dirPath: string;
 }
 
-export interface MessageAttachment {
+export interface CommentAttachment {
   name: string;
   size: number;
   type: string;
 }
 
-export interface Message {
+export interface Comment {
   from: string;
   body: string;
   at: string;
-  attachments?: MessageAttachment[];
+  attachments?: CommentAttachment[];
 }
 
 export interface Member {

@@ -15,7 +15,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `main.ts` — Entry point. Reads PORT/TEAM_DIR from env, starts `Deno.serve()`.
 - `app.ts` — Creates the Hono application, wires Store to routes.
 - `server.ts` — All API route handlers (buildApp function). Implements the full REST protocol.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/messages, workflow validation, JSON file sync, and autosave timers.
+- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, and autosave timers.
 
 ### cli/
 - `main.ts` — CLI entry point (stub).
@@ -28,8 +28,8 @@ my-pizza-team is a Deno-based application organized into four main modules:
 
 ### tests/
 - `health.test.ts` — Integration test for the `/health` endpoint using Hono's `app.request()` test helper.
-- `server.test.ts` — API route tests (stories, tasks, claims, transitions, messages, team, pause/resume).
-- `store.test.ts` — Unit tests for Store CRUD operations, workflow transitions, message persistence, and disk sync.
+- `server.test.ts` — API route tests (stories, tasks, claims, transitions, comments, team, pause/resume).
+- `store.test.ts` — Unit tests for Store CRUD operations, workflow transitions, comment persistence, and disk sync.
 
 ## Data Flow
 
@@ -45,7 +45,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **No build step** — Deno runs TypeScript directly.
 - **jsr:@db/sqlite** — Native FFI SQLite binding for Deno. API mirrors better-sqlite3 (synchronous, prepared statements). WAL mode for concurrent reads.
 - **JSON files as source of truth** — Story/task definitions live on disk as JSON. SQLite is the fast runtime index, synced via the `dirty` flag and periodic flush.
-- **Messages append to JSONL** — Never lost; append-only file per task.
+- **Comments append to JSONL** — Never lost; append-only file per task.
 
 ## API Routes
 
@@ -66,10 +66,10 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/tasks/:id/move` | Lead moves a task to new status |
 | PUT | `/api/tasks/:id` | Update task title/description |
 | DELETE | `/api/tasks/:id` | Delete a task |
-| POST | `/api/tasks/:id/message` | Post a message on a task |
-| GET | `/api/tasks/:id/messages` | Get task messages |
+| POST | `/api/tasks/:id/comment` | Post a comment on a task |
+| GET | `/api/tasks/:id/comments` | Get task comments |
 | POST | `/api/tasks/:id/token-usage` | Record token usage |
-| POST | `/api/tasks/:id/mark-read` | Mark messages as read |
+| POST | `/api/tasks/:id/mark-read` | Mark comments as read |
 | POST | `/api/team/join` | Register a teammate |
 | POST | `/api/team/heartbeat` | Teammate heartbeat |
 | GET | `/api/team` | List team members |
@@ -97,8 +97,8 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/agents/claim/:taskId` | Claim task ownership (no state change) |
 | POST | `/api/agents/transition/:taskId` | Advance task to next state |
 | POST | `/api/agents/release/:taskId` | Release task (when blocked by lead transition) |
-| GET | `/api/agents/messages/:taskId` | Get task comments |
-| POST | `/api/agents/messages/:taskId` | Post a comment on a task |
+| GET | `/api/agents/comments/:taskId` | Get task comments |
+| POST | `/api/agents/comments/:taskId` | Post a comment on a task |
 | GET | `/api/agents` | List all registered agents |
 | DELETE | `/api/agents/:id` | Unregister an agent |
 
@@ -115,5 +115,5 @@ Agents own tasks across multiple state transitions. The flow:
 6. Agent polls again → re-discovers task, sees comments, claims, continues
 ```
 
-Messages are task-level comments, not real-time chat. Agents load them when
+Comments are task-level, not real-time chat. Agents load them when
 starting work to see lead feedback or rework instructions.

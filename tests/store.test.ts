@@ -189,21 +189,21 @@ Deno.test("Store: claim and release task assignment", () => {
   }
 });
 
-Deno.test("Store: messages append to JSONL", () => {
+Deno.test("Store: comments append to JSONL", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
-    store.createStory("msg-test", "MT", "Messages", "open", [], [
+    store.createStory("msg-test", "MT", "Comments", "open", [], [
       { title: "T1", description: "D1" },
     ]);
 
-    store.addMessage("msg-test-1", "teammate-1", "Hello, lead!");
-    store.addMessage("msg-test-1", "lead", "Hi there!");
+    store.addComment("msg-test-1", "teammate-1", "Hello, lead!");
+    store.addComment("msg-test-1", "lead", "Hi there!");
 
-    const messages = store.getMessages("msg-test-1");
-    assertEquals(messages.length, 2);
-    assertEquals(messages[0]!.from, "teammate-1");
-    assertEquals(messages[1]!.from, "lead");
+    const comments = store.getComments("msg-test-1");
+    assertEquals(comments.length, 2);
+    assertEquals(comments[0]!.from, "teammate-1");
+    assertEquals(comments[1]!.from, "lead");
 
     store.close();
   } finally {

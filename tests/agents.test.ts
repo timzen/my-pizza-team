@@ -6,7 +6,7 @@
  * - Claim assigns ownership without changing state
  * - Transition advances state (auto-releases on done)
  * - Release lets agents park tasks when blocked by lead-only transitions
- * - Messages are task-level comments loaded at work start
+ * - Comments are task-level, loaded at work start
  */
 
 import { assertEquals } from "@std/assert";
@@ -119,7 +119,7 @@ Deno.test("GET /api/agents/next-work includes comments from lead", async () => {
     store.registerMember("a1", "neo", "/tmp", "a1");
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
     // Lead adds a comment
-    store.addMessage("s1-1", "lead", "Please check the edge cases");
+    store.addComment("s1-1", "lead", "Please check the edge cases");
     const res = await app.request("/api/agents/next-work?agentId=a1");
     const body = await res.json();
     assertEquals(body.task?.comments?.length, 1);
@@ -373,7 +373,7 @@ Deno.test("Rework flow: lead sends task back, agent re-picks-up with comments", 
     await post(app, "/api/agents/release/s1-1", { agentId: "a1" });
 
     // Lead reviews, adds comments, sends back to coding
-    store.addMessage("s1-1", "lead", "Please fix the edge case in parser.ts");
+    store.addComment("s1-1", "lead", "Please fix the edge case in parser.ts");
     await post(app, "/api/tasks/s1-1/move", { status: "coding" });
 
     // Agent polls again — should find the task with comments
@@ -392,18 +392,18 @@ Deno.test("Rework flow: lead sends task back, agent re-picks-up with comments", 
   } finally { cleanup(teamDir, store); }
 });
 
-// --- Messages ---
+// --- Comments ---
 
-Deno.test("POST/GET /api/agents/messages/:taskId roundtrip", async () => {
+Deno.test("POST/GET /api/agents/comments/:taskId roundtrip", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
-    await post(app, "/api/agents/messages/s1-1", { agentId: "a1", body: "Status update: halfway done" });
-    const res = await app.request("/api/agents/messages/s1-1");
+    await post(app, "/api/agents/comments/s1-1", { agentId: "a1", body: "Status update: halfway done" });
+    const res = await app.request("/api/agents/comments/s1-1");
     const body = await res.json();
-    assertEquals(body.messages.length, 1);
-    assertEquals(body.messages[0].from, "a1");
-    assertEquals(body.messages[0].body, "Status update: halfway done");
+    assertEquals(body.comments.length, 1);
+    assertEquals(body.comments[0].from, "a1");
+    assertEquals(body.comments[0].body, "Status update: halfway done");
   } finally { cleanup(teamDir, store); }
 });
 

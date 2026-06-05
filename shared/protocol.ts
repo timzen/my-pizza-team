@@ -44,7 +44,7 @@ export interface TaskView {
   status: string;
   description?: string;
   assignee: string | null;
-  hasMessages: boolean;
+  hasComments: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
@@ -68,12 +68,12 @@ export interface ClaimResponse { success: boolean; error?: string; instructions?
 export interface StatusUpdateRequest { status: string; result?: string; actor: "lead" | "teammate"; memberId?: string }
 export interface StatusUpdateResponse { success: boolean; error?: string; instructions?: string }
 
-// POST /api/tasks/:taskId/message
-export interface PostMessageRequest { from: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }
-export interface PostMessageResponse { success: boolean }
+// POST /api/tasks/:taskId/comment
+export interface PostCommentRequest { from: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }
+export interface PostCommentResponse { success: boolean }
 
-// GET /api/tasks/:taskId/messages
-export interface MessagesResponse { messages: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
+// GET /api/tasks/:taskId/comments
+export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/team/join
 export interface JoinRequest { id: string; name: string; cwd: string; tmuxWindow: string }
@@ -153,22 +153,26 @@ export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" 
 export interface AgentHeartbeatResponse { success: boolean }
 
 // GET /api/agents/next-work?agentId=X
-export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string; description: string; context?: string; workflow?: WorkflowConfig } | null }
+export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string; description: string; status: string; context?: string; comments?: Array<{ from: string; body: string; at: string }>; workflow?: WorkflowConfig; availableTransitions: Array<{ state: string; permission: string }> } | null }
 
 // POST /api/agents/claim/:taskId
 export interface AgentClaimRequest { agentId: string }
-export interface AgentClaimResponse { success: boolean; error?: string; instructions?: string }
+export interface AgentClaimResponse { success: boolean; error?: string; task?: { id: string; storyId: string; title: string; description: string; status: string }; availableTransitions?: Array<{ state: string; permission: string }> }
 
-// POST /api/agents/complete/:taskId
-export interface AgentCompleteRequest { agentId: string; result?: string; status?: string }
-export interface AgentCompleteResponse { success: boolean; error?: string; instructions?: string }
+// POST /api/agents/transition/:taskId
+export interface AgentTransitionRequest { agentId: string; status: string; result?: string }
+export interface AgentTransitionResponse { success: boolean; error?: string; released?: boolean; instructions?: string; availableTransitions?: Array<{ state: string; permission: string }> }
 
-// GET /api/agents/messages/:taskId
-export interface AgentMessagesResponse { messages: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
+// POST /api/agents/release/:taskId
+export interface AgentReleaseRequest { agentId: string }
+export interface AgentReleaseResponse { success: boolean; error?: string }
 
-// POST /api/agents/messages/:taskId
-export interface AgentPostMessageRequest { agentId: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }
-export interface AgentPostMessageResponse { success: boolean }
+// GET /api/agents/comments/:taskId
+export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
+
+// POST /api/agents/comments/:taskId
+export interface AgentPostCommentRequest { agentId: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }
+export interface AgentPostCommentResponse { success: boolean }
 
 // GET /api/agents
 export interface AgentListResponse { agents: Array<{ id: string; name: string; cwd: string; status: string; currentTask: string | null; lastHeartbeat: number; capabilities?: string[] }> }
