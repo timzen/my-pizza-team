@@ -1,22 +1,76 @@
 // Leader role: tmux management, spawn request polling, LLM tools
 //
-// The leader no longer runs an HTTP server or SQLite store — the daemon
-// owns all state. The leader's responsibilities are:
-//   1. Register with the daemon as a "leader" agent
-//   2. Poll for spawn requests and execute them via tmux
-//   3. Provide slash commands for team management (spawn, dismiss, hop)
-//   4. Register LLM tools (via shared tools.ts)
+// The leader is the Pi-specific host coordinator. It doesn't own state —
+// the daemon does. The leader's responsibilities are:
+//   1. Register with daemon as { role: "leader", harness: "pi", hostId }
+//   2. Poll GET /api/spawn-requests?hostId=X every 5s for pending spawns
+//   3. Execute spawns locally via tmux (multi-harness: pi, claude-code, codex)
+//   4. Acknowledge spawns: POST /api/spawn-requests/:id/ack
+//   5. Register LLM tools for the lead user
+//   6. Provide tmux commands: /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status
+//   7. Show status widget with team progress
+//
+// Multi-harness support:
+//   Spawn requests may specify a harness type. The leader uses command
+//   templates to spawn the appropriate agent process. Default is "pi".
+//   Templates use {name}, {url}, {cwd} placeholders.
 
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
 import { registerTools } from "./tools.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
+const WIDGET_UPDATE_INTERVAL_MS = 10000;
+
+// ─── Harness command templates ───────────────────────────────────────
+
+/** Command templates for spawning agents by harness type */
+interface HarnessTemplates {
+  [harness: string]: string;
+}
+
+const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
+  pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}",
+  "claude-code": "mpt-claude-runner --name={name} --daemon={url} --cwd={cwd}",
+  codex: "mpt-codex-runner --name={name} --daemon={url} --cwd={cwd}",
+};
+
+// ─── Name generation ─────────────────────────────────────────────────
+
+const ADJECTIVES = [
+  "swift", "bold", "keen", "calm", "bright",
+  "deft", "firm", "sharp", "brave", "quick",
+  "sly", "warm", "cool", "wild", "fair",
+];
+
+const NOUNS = [
+  "ripley", "kirk", "spock", "solo", "neo",
+  "trinity", "deckard", "case", "molly", "picard",
+  "data", "worf", "uhura", "sulu", "riker",
+];
+
+function generateName(existingNames: Set<string>): string {
+  for (let i = 0; i < 100; i++) {
+    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
+    const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
+    const name = `${adj}-${noun}`;
+    if (!existingNames.has(name)) return name;
+  }
+  return `agent-${Date.now()}`;
+}
+
+// ─── Shell safety ────────────────────────────────────────────────────
 
 /** Sanitize a string for safe use in shell commands */
 function shellSafe(s: string): string {
   return s.replace(/[^a-zA-Z0-9._~/:@-]/g, "");
 }
+
+// ═══════════════════════════════════════════════════════════════════════
+// SETUP
+// ═══════════════════════════════════════════════════════════════════════
 
 export async function setupLeader(
   pi: ExtensionAPI,
@@ -26,13 +80,16 @@ export async function setupLeader(
 ): Promise<void> {
   const { execSync } = await import("node:child_process");
 
-  // Get host config from daemon (tmux session name, etc.)
+  // Configuration from daemon
   let tmuxSession = "pi-pizza-team";
+  let favoriteDirectories: string[] = [];
+  let harnessTemplates: HarnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES };
 
   // Register with daemon
   try {
     const regRes = await client.register({ name: "leader", cwd });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
+    if (regRes.config?.favoriteDirectories) favoriteDirectories = regRes.config.favoriteDirectories;
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register with daemon — will retry via heartbeat`, "warning");
@@ -44,9 +101,29 @@ export async function setupLeader(
     try {
       const hostConfig = await client.getHostConfig();
       if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
+      if (hostConfig.favoriteDirectories?.length) favoriteDirectories = hostConfig.favoriteDirectories;
     } catch {
-      // Use default
+      // Use defaults
     }
+  }
+
+  // Try to load harness templates from daemon config
+  try {
+    const daemonConfig = await client.getConfig();
+    if (daemonConfig.harnessCommands) {
+      harnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES, ...daemonConfig.harnessCommands };
+    }
+  } catch {
+    // Use defaults
+  }
+
+  // Track active windows for name collision detection
+  const activeNames = new Set<string>();
+  try {
+    const windows = listWindows(tmuxSession, execSync);
+    for (const w of windows) activeNames.add(w);
+  } catch {
+    // No session yet
   }
 
   // Register LLM tools (stories, tasks, queue, search)
@@ -59,10 +136,24 @@ export async function setupLeader(
       const res = await client.getSpawnRequests();
       for (const req of res.requests) {
         try {
-          spawnTeammate(req.name, req.cwd, { session: tmuxSession, daemonUrl: client.url }, execSync);
+          // Generate a unique name for the agent
+          const name = generateName(activeNames);
+          activeNames.add(name);
+
+          // Determine harness (default to "pi" until daemon supports harness field)
+          const harness = (req as any).harness || "pi";
+          const spawnCwd = req.cwd || cwd;
+
+          spawnAgent(name, spawnCwd, {
+            session: tmuxSession,
+            daemonUrl: client.url,
+            harness,
+            harnessTemplates,
+          }, execSync);
+
           await client.ackSpawnRequest(req.id);
-        } catch (err: any) {
-          // Log but don't crash — retry next poll
+        } catch {
+          // Failed to spawn — will retry next poll cycle
         }
       }
     } catch {
@@ -76,14 +167,18 @@ export async function setupLeader(
     description: "Hire a new teammate: /ppt-spawn [name] [cwd]",
     handler: async (args, cmdCtx) => {
       const parts = args?.trim().split(/\s+/) || [];
-      const name = parts[0] || `teammate-${Date.now()}`;
-      const spawnCwd = parts[1] || cwd;
-      const resolvedCwd = spawnCwd.startsWith("~")
-        ? spawnCwd.replace("~", process.env.HOME || "")
-        : spawnCwd;
+      const name = parts[0] || generateName(activeNames);
+      const spawnCwd = parts[1] || (favoriteDirectories.length > 0 ? favoriteDirectories[0] : cwd);
+      const resolvedCwd = resolvePath(spawnCwd);
 
       try {
-        spawnTeammate(name, resolvedCwd, { session: tmuxSession, daemonUrl: client.url }, execSync);
+        spawnAgent(name, resolvedCwd, {
+          session: tmuxSession,
+          daemonUrl: client.url,
+          harness: "pi",
+          harnessTemplates,
+        }, execSync);
+        activeNames.add(name);
         cmdCtx.ui.notify(`✓ ${name} has joined the team working in ${spawnCwd} 🍕`, "info");
       } catch (err: any) {
         cmdCtx.ui.notify(`Failed to spawn ${name}: ${err.message}`, "error");
@@ -98,12 +193,8 @@ export async function setupLeader(
       if (!name) { cmdCtx.ui.notify("Usage: /ppt-dismiss <name>", "warning"); return; }
 
       try {
-        const safeName = shellSafe(name);
-        const safeSession = shellSafe(tmuxSession);
-        execSync(`tmux send-keys -t "${safeSession}:${safeName}" C-c`, { stdio: "pipe" });
-        setTimeout(() => {
-          try { execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'exit' Enter`, { stdio: "pipe" }); } catch {}
-        }, 1000);
+        dismissAgent(name, tmuxSession, execSync);
+        activeNames.delete(name);
         cmdCtx.ui.notify(`✓ ${name} has left the team`, "info");
       } catch {
         cmdCtx.ui.notify(`No tmux window named "${name}" found`, "error");
@@ -138,6 +229,13 @@ export async function setupLeader(
         if (byStatus) output += ` (${byStatus})`;
         output += `\n  Team: ${status.members.total} members (${status.members.working} working, ${status.members.idle} idle)\n`;
         if (status.inbox > 0) output += `  📬 Inbox: ${status.inbox} items needing attention\n`;
+
+        // List active tmux windows
+        const windows = listWindows(tmuxSession, execSync);
+        if (windows.length > 0) {
+          output += `\n  tmux windows: ${windows.join(", ")}\n`;
+        }
+
         cmdCtx.ui.notify(output, "info");
       } catch {
         cmdCtx.ui.notify("Cannot reach daemon", "error");
@@ -145,12 +243,30 @@ export async function setupLeader(
     },
   });
 
+  pi.registerCommand("ppt-browse", {
+    description: "Show favorite working directories for spawning",
+    handler: async (_args, cmdCtx) => {
+      if (favoriteDirectories.length === 0) {
+        cmdCtx.ui.notify("No favorite directories configured.\nAdd them via the daemon's host config.", "info");
+        return;
+      }
+      let output = "📂 Favorite directories:\n";
+      for (const dir of favoriteDirectories) {
+        output += `  • ${dir}\n`;
+      }
+      output += `\nUse /ppt-spawn <name> <dir> to spawn in a specific directory.`;
+      cmdCtx.ui.notify(output, "info");
+    },
+  });
+
   // ─── Widget ────────────────────────────────────────────────────────
 
   const updateWidget = async () => {
+    if (!ctx.hasUI) return;
     try {
       const status = await client.getStatus();
-      const parts = [`🍕 ${status.tasks.byStatus.done || 0}/${status.tasks.total} tasks done`];
+      const done = status.tasks.byStatus.done || 0;
+      const parts = [`🍕 ${done}/${status.tasks.total} tasks done`];
       if (status.members.working > 0) parts.push(`${status.members.working} working`);
       if (status.inbox > 0) parts.push(`📬 ${status.inbox} inbox`);
       ctx.ui.setWidget("pi-pizza-team", [parts.join(" • ")]);
@@ -160,7 +276,7 @@ export async function setupLeader(
   };
 
   updateWidget();
-  const widgetInterval = setInterval(updateWidget, 10000);
+  const widgetInterval = setInterval(updateWidget, WIDGET_UPDATE_INTERVAL_MS);
 
   // ─── Cleanup ───────────────────────────────────────────────────────
 
@@ -175,8 +291,17 @@ export async function setupLeader(
   }
 }
 
-// ─── tmux helpers ──────────────────────────────────────────────────────
+// ═══════════════════════════════════════════════════════════════════════
+// TMUX HELPERS
+// ═══════════════════════════════════════════════════════════════════════
 
+/** Resolve ~ and relative paths */
+function resolvePath(p: string): string {
+  if (p.startsWith("~")) return p.replace("~", process.env.HOME || "");
+  return path.resolve(p);
+}
+
+/** Ensure a tmux session exists. Returns true if just created. */
 function ensureSession(session: string, execSync: any): boolean {
   const safeSession = shellSafe(session);
   try {
@@ -188,40 +313,100 @@ function ensureSession(session: string, execSync: any): boolean {
   }
 }
 
-function spawnTeammate(
+/** List tmux window names in a session */
+function listWindows(session: string, execSync: any): string[] {
+  const safeSession = shellSafe(session);
+  try {
+    const output = execSync(
+      `tmux list-windows -t "${safeSession}" -F "#{window_name}"`,
+      { stdio: "pipe" }
+    ).toString();
+    return output.trim().split("\n").filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Spawn an agent in a tmux window.
+ *
+ * Supports multiple harness types via command templates. The template
+ * uses {name}, {url}, {cwd} placeholders that are replaced with the
+ * actual values.
+ */
+function spawnAgent(
   name: string,
-  cwd: string,
-  options: { session: string; daemonUrl: string },
+  agentCwd: string,
+  options: {
+    session: string;
+    daemonUrl: string;
+    harness: string;
+    harnessTemplates: HarnessTemplates;
+  },
   execSync: any
 ): void {
-  const { session, daemonUrl } = options;
+  const { session, daemonUrl, harness, harnessTemplates } = options;
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
-  const safeCwd = shellSafe(cwd);
-  const safeUrl = shellSafe(daemonUrl);
+  const safeCwd = shellSafe(agentCwd);
   const justCreated = ensureSession(session, execSync);
 
+  // Create or reuse tmux window
   if (justCreated) {
-    try { execSync(`tmux rename-window -t "${safeSession}" "${safeName}"`, { stdio: "pipe" }); }
-    catch { execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" }); }
+    try {
+      execSync(`tmux rename-window -t "${safeSession}" "${safeName}"`, { stdio: "pipe" });
+    } catch {
+      execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
+    }
   } else {
     execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
   }
 
-  // Ensure permissive permission config
-  const fs = require("node:fs");
-  const path = require("node:path");
-  const configDir = path.join(cwd, ".pi", "extensions", "pi-permission-system");
+  // Ensure permissive permission config for Pi-based agents
+  if (harness === "pi") {
+    ensurePermissiveConfig(agentCwd);
+  }
+
+  // Resolve the command template
+  const template = harnessTemplates[harness] || harnessTemplates.pi;
+  const cmd = template
+    .replace(/\{name\}/g, shellSafe(name))
+    .replace(/\{url\}/g, shellSafe(daemonUrl))
+    .replace(/\{cwd\}/g, safeCwd);
+
+  // Send the command to the tmux window
+  execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'cd ${safeCwd} && ${cmd}' Enter`, { stdio: "pipe" });
+}
+
+/**
+ * Dismiss an agent by sending Ctrl+C then exit to its tmux window.
+ */
+function dismissAgent(name: string, session: string, execSync: any): void {
+  const safeName = shellSafe(name);
+  const safeSession = shellSafe(session);
+  execSync(`tmux send-keys -t "${safeSession}:${safeName}" C-c`, { stdio: "pipe" });
+  setTimeout(() => {
+    try {
+      execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'exit' Enter`, { stdio: "pipe" });
+    } catch {
+      // Window may already be gone
+    }
+  }, 1000);
+}
+
+/**
+ * Ensure permissive permission config exists for autonomous Pi agents.
+ * Writes to <cwd>/.pi/extensions/pi-permission-system/config.json
+ */
+function ensurePermissiveConfig(agentCwd: string): void {
+  const configDir = path.join(agentCwd, ".pi", "extensions", "pi-permission-system");
   const configFile = path.join(configDir, "config.json");
   if (!fs.existsSync(configFile)) {
     fs.mkdirSync(configDir, { recursive: true });
     const permissiveConfig = {
       yoloMode: true,
-      permission: { "*": "allow", bash: { "*": "allow" }, external_directory: "allow" }
+      permission: { "*": "allow", bash: { "*": "allow" }, external_directory: "allow" },
     };
     fs.writeFileSync(configFile, JSON.stringify(permissiveConfig, null, 2) + "\n");
   }
-
-  const cmd = `cd ${safeCwd} && pi --ppt-worker --ppt-daemon=${safeUrl} --ppt-name=${safeName}`;
-  execSync(`tmux send-keys -t "${safeSession}:${safeName}" '${cmd}' Enter`, { stdio: "pipe" });
 }

@@ -145,9 +145,12 @@ export interface NotesSearchResponse {
 export interface SpawnRequestsResponse {
   requests: Array<{
     id: string;
-    name: string;
-    cwd: string;
-    leaderUrl: string;
+    hostId: string;
+    cwd?: string;
+    storyId?: string;
+    reason?: string;
+    status: string;
+    createdAt: string;
   }>;
 }
 
