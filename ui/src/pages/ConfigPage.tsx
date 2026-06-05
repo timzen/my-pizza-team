@@ -473,28 +473,44 @@ function WorkflowCard({
             {/* Transitions */}
             <div>
               <h3 className="text-sm font-medium mb-2">Transitions</h3>
-              <div className="space-y-1 mb-3">
-                {Object.entries(workflow.transitions).flatMap(([from, targets]) =>
-                  Object.entries(targets).map(([to, perm]) => (
-                    <div key={`${from}-${to}`} className="flex items-center gap-2 text-xs">
-                      <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{from}</span>
-                      <span className="text-muted-foreground">→</span>
-                      <span className="font-mono bg-muted px-1.5 py-0.5 rounded">{to}</span>
-                      <Select value={perm} onValueChange={(v) => { if (v) updatePerm(from, to, v); }}>
-                        <SelectTrigger className="h-7 w-[100px] text-xs"><SelectValue /></SelectTrigger>
-                        <SelectContent>
-                          <SelectItem value="any">any</SelectItem>
-                          <SelectItem value="teammate">teammate</SelectItem>
-                          <SelectItem value="lead">lead</SelectItem>
-                        </SelectContent>
-                      </Select>
-                      <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeTransition(from, to)}>
-                        <X className="h-3 w-3" />
-                      </Button>
-                    </div>
-                  ))
-                )}
-              </div>
+              <table className="w-full text-xs mb-3">
+                <thead>
+                  <tr className="text-left text-muted-foreground border-b border-border">
+                    <th className="pb-1 font-medium">From</th>
+                    <th className="pb-1 font-medium">To</th>
+                    <th className="pb-1 font-medium text-right">Permission</th>
+                    <th className="pb-1 w-8"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {Object.entries(workflow.transitions)
+                    .flatMap(([from, targets]) =>
+                      Object.entries(targets).map(([to, perm]) => ({ from, to, perm }))
+                    )
+                    .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
+                    .map(({ from, to, perm }) => (
+                      <tr key={`${from}-${to}`} className="border-b border-border/50">
+                        <td className="py-1.5"><span className="font-mono bg-muted px-1.5 py-0.5 rounded">{from}</span></td>
+                        <td className="py-1.5"><span className="font-mono bg-muted px-1.5 py-0.5 rounded">{to}</span></td>
+                        <td className="py-1.5 text-right">
+                          <Select value={perm} onValueChange={(v) => { if (v) updatePerm(from, to, v); }}>
+                            <SelectTrigger className="h-7 w-[100px] text-xs ml-auto"><SelectValue /></SelectTrigger>
+                            <SelectContent>
+                              <SelectItem value="any">any</SelectItem>
+                              <SelectItem value="teammate">teammate</SelectItem>
+                              <SelectItem value="lead">lead</SelectItem>
+                            </SelectContent>
+                          </Select>
+                        </td>
+                        <td className="py-1.5 text-right">
+                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeTransition(from, to)}>
+                            <X className="h-3 w-3" />
+                          </Button>
+                        </td>
+                      </tr>
+                    ))}
+                </tbody>
+              </table>
               <div className="flex items-center gap-2">
                 <Select value={transFrom} onValueChange={(v) => { if (v) setTransFrom(v); }}>
                   <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue placeholder="From" /></SelectTrigger>
