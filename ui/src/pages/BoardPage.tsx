@@ -153,6 +153,7 @@ export function BoardPage() {
             onAddTask={setAddTaskStoryId}
             onArchive={handleArchive}
             onBacklog={handleBacklog}
+            onStatusChange={refetch}
           />
         ))}
         {sorted.length === 0 && (

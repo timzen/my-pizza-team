@@ -1,11 +1,15 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows status badge, assignee, unread indicator, and actions.
+ * Shows status badge, assignee, unread indicator, quick status buttons,
+ * and a link to the task detail/comments page.
  */
 
+import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { MessageCircle, User } from "lucide-react";
+import { MessageCircle, User, ChevronLeft, ChevronRight } from "lucide-react";
+import { apiPost } from "@/hooks/useApi";
 
 interface TaskCardProps {
   task: {
@@ -18,7 +22,10 @@ interface TaskCardProps {
     hasMessages: boolean;
     tokenUsage?: { totalCostUsd: number };
   };
+  storyId?: string;
+  states?: string[];
   onEdit?: (taskId: string) => void;
+  onStatusChange?: () => void;
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -29,7 +36,19 @@ const STATUS_COLORS: Record<string, string> = {
   done: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
 };
 
-export function TaskCard({ task, onEdit }: TaskCardProps) {
+export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: TaskCardProps) {
+  const currentIndex = states?.indexOf(task.status) ?? -1;
+
+  /** Move task to the previous or next state */
+  const moveStatus = async (direction: "prev" | "next", e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!states || currentIndex < 0) return;
+    const targetIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
+    if (targetIndex < 0 || targetIndex >= states.length) return;
+    await apiPost(`/api/tasks/${task.id}/move`, { status: states[targetIndex] });
+    onStatusChange?.();
+  };
+
   return (
     <Card
       className="cursor-pointer hover:shadow-md transition-shadow"
@@ -53,7 +72,18 @@ export function TaskCard({ task, onEdit }: TaskCardProps) {
               {task.assignee}
             </span>
           )}
-          {task.hasMessages && (
+          {task.hasMessages && storyId && (
+            <Link
+              to={`/task/${storyId}/${task.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="flex items-center gap-1 text-orange-500 hover:underline"
+              title="View comments"
+            >
+              <MessageCircle className="h-3 w-3" />
+              unread
+            </Link>
+          )}
+          {task.hasMessages && !storyId && (
             <span className="flex items-center gap-1 text-orange-500">
               <MessageCircle className="h-3 w-3" />
               unread
@@ -63,6 +93,48 @@ export function TaskCard({ task, onEdit }: TaskCardProps) {
             <span className="ml-auto">${task.tokenUsage.totalCostUsd.toFixed(3)}</span>
           )}
         </div>
+
+        {/* Quick status-change buttons */}
+        {states && states.length > 0 && (
+          <div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              disabled={currentIndex <= 0}
+              onClick={(e) => moveStatus("prev", e)}
+              title={currentIndex > 0 ? `Move to ${states[currentIndex - 1].replace(/_/g, " ")}` : undefined}
+            >
+              <ChevronLeft className="h-3.5 w-3.5" />
+            </Button>
+            <span className="text-xs text-muted-foreground">
+              {task.status.replace(/_/g, " ")}
+            </span>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-6 w-6"
+              disabled={currentIndex >= (states?.length ?? 1) - 1}
+              onClick={(e) => moveStatus("next", e)}
+              title={currentIndex < (states?.length ?? 1) - 1 ? `Move to ${states[currentIndex + 1].replace(/_/g, " ")}` : undefined}
+            >
+              <ChevronRight className="h-3.5 w-3.5" />
+            </Button>
+          </div>
+        )}
+
+        {/* Link to task detail / comments page */}
+        {storyId && (
+          <div className="mt-1.5 text-right">
+            <Link
+              to={`/task/${storyId}/${task.id}`}
+              onClick={(e) => e.stopPropagation()}
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+            >
+              details & comments →
+            </Link>
+          </div>
+        )}
       </CardContent>
     </Card>
   );
