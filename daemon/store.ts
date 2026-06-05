@@ -8,7 +8,7 @@
  * Key invariants:
  * - JSON files are the source of truth for story/task definitions
  * - SQLite is the runtime engine for fast atomic reads/writes
- * - Messages are always appended to JSONL immediately (never lost)
+ * - Comments are always appended to JSONL immediately (never lost)
  * - Assignments and members are ephemeral (never written to JSON)
  * - The `dirty` flag on tasks tracks what needs flushing to disk
  */
@@ -19,7 +19,7 @@ import {
   getInitialState,
   getDoneState,
   DEFAULT_CONFIG,
-  type Message,
+  type Comment,
   type Story,
   type Task,
   type TaskWithMeta,
@@ -145,7 +145,7 @@ export class Store {
         claimed_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS messages (
+      CREATE TABLE IF NOT EXISTS comments (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         task_id TEXT REFERENCES tasks(id),
         from_id TEXT,
@@ -153,7 +153,7 @@ export class Store {
         created_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS messages_loaded (
+      CREATE TABLE IF NOT EXISTS comments_loaded (
         task_id TEXT PRIMARY KEY REFERENCES tasks(id),
         loaded_at INTEGER
       );
@@ -642,54 +642,54 @@ export class Store {
     return { taskId: row.task_id as string, memberId: row.member_id as string, claimedAt: row.claimed_at as number, task };
   }
 
-  // --- Messages ---
+  // --- Comments ---
 
-  private ensureMessagesLoaded(taskId: string): void {
-    const loaded = this.db.prepare("SELECT * FROM messages_loaded WHERE task_id = ?").get(taskId);
+  private ensureCommentsLoaded(taskId: string): void {
+    const loaded = this.db.prepare("SELECT * FROM comments_loaded WHERE task_id = ?").get(taskId);
     if (loaded) return;
 
     const task = this.getTask(taskId);
     if (!task) return;
 
-    const messagesFile = path.join(task.dirPath, "messages.jsonl");
-    if (existsSync(messagesFile)) {
-      const content = Deno.readTextFileSync(messagesFile);
+    const commentsFile = path.join(task.dirPath, "comments.jsonl");
+    if (existsSync(commentsFile)) {
+      const content = Deno.readTextFileSync(commentsFile);
       const lines = content.split("\n").filter(Boolean);
       const insert = this.db.prepare(
-        "INSERT INTO messages (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)"
+        "INSERT INTO comments (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)"
       );
       for (const line of lines) {
-        const msg: Message = JSON.parse(line);
-        insert.run(taskId, msg.from, msg.body, new Date(msg.at).getTime());
+        const comment: Comment = JSON.parse(line);
+        insert.run(taskId, comment.from, comment.body, new Date(comment.at).getTime());
       }
     }
 
-    this.db.prepare("INSERT INTO messages_loaded (task_id, loaded_at) VALUES (?, ?)").run(taskId, Date.now());
+    this.db.prepare("INSERT INTO comments_loaded (task_id, loaded_at) VALUES (?, ?)").run(taskId, Date.now());
   }
 
-  getMessages(taskId: string): Message[] {
+  getComments(taskId: string): Comment[] {
     // Read directly from JSONL for full fidelity (includes attachments)
     const task = this.getTask(taskId);
     if (!task) return [];
-    const messagesFile = path.join(task.dirPath, "messages.jsonl");
-    if (!existsSync(messagesFile)) return [];
-    const content = Deno.readTextFileSync(messagesFile);
+    const commentsFile = path.join(task.dirPath, "comments.jsonl");
+    if (!existsSync(commentsFile)) return [];
+    const content = Deno.readTextFileSync(commentsFile);
     const lines = content.split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line) as Message);
+    return lines.map((line) => JSON.parse(line) as Comment);
   }
 
-  addMessage(taskId: string, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
+  addComment(taskId: string, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
     const now = Date.now();
-    this.ensureMessagesLoaded(taskId);
-    this.db.prepare("INSERT INTO messages (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)").run(taskId, from, body, now);
+    this.ensureCommentsLoaded(taskId);
+    this.db.prepare("INSERT INTO comments (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)").run(taskId, from, body, now);
 
     // Immediately append to JSONL file
     const task = this.getTask(taskId);
     if (task) {
-      const messagesFile = path.join(task.dirPath, "messages.jsonl");
-      const msg: Message = { from, body, at: new Date(now).toISOString() };
-      if (attachments && attachments.length > 0) msg.attachments = attachments;
-      Deno.writeTextFileSync(messagesFile, JSON.stringify(msg) + "\n", { append: true });
+      const commentsFile = path.join(task.dirPath, "comments.jsonl");
+      const comment: Comment = { from, body, at: new Date(now).toISOString() };
+      if (attachments && attachments.length > 0) comment.attachments = attachments;
+      Deno.writeTextFileSync(commentsFile, JSON.stringify(comment) + "\n", { append: true });
     }
   }
 
@@ -739,13 +739,13 @@ export class Store {
     return results;
   }
 
-  hasUnreadMessages(taskId: string): boolean {
-    this.ensureMessagesLoaded(taskId);
+  hasUnreadComments(taskId: string): boolean {
+    this.ensureCommentsLoaded(taskId);
     const lastLead = this.db.prepare(
-      "SELECT MAX(created_at) as t FROM messages WHERE task_id = ? AND from_id = 'lead'"
+      "SELECT MAX(created_at) as t FROM comments WHERE task_id = ? AND from_id = 'lead'"
     ).get(taskId) as Record<string, unknown> | undefined;
     const lastTeammate = this.db.prepare(
-      "SELECT MAX(created_at) as t FROM messages WHERE task_id = ? AND from_id != 'lead'"
+      "SELECT MAX(created_at) as t FROM comments WHERE task_id = ? AND from_id != 'lead'"
     ).get(taskId) as Record<string, unknown> | undefined;
 
     if (!lastTeammate?.t) return false;
@@ -757,7 +757,7 @@ export class Store {
     return (lastTeammate.t as number) > readTimestamp;
   }
 
-  markMessagesRead(taskId: string): void {
+  markCommentsRead(taskId: string): void {
     this.db.prepare("UPDATE tasks SET last_read_at = ? WHERE id = ?").run(Date.now(), taskId);
   }
 
@@ -1004,11 +1004,11 @@ export class Store {
     Deno.writeTextFileSync(path.join(destPath, "SYNOPSIS.md"), lines.join("\n"));
   }
 
-  /** Remove all task-related data from SQLite (assignments, messages, token_usage, task row) */
+  /** Remove all task-related data from SQLite (assignments, comments, token_usage, task row) */
   private removeTaskData(taskId: string): void {
     this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM messages WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM messages_loaded WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM comments WHERE task_id = ?").run(taskId);
+    this.db.prepare("DELETE FROM comments_loaded WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
   }
@@ -1104,7 +1104,7 @@ export class Store {
     return results;
   }
 
-  getArchivedStoryContext(storyId: string): { story: Record<string, unknown>; tasks: Record<string, unknown>[]; messages: Record<string, Message[]> } | null {
+  getArchivedStoryContext(storyId: string): { story: Record<string, unknown>; tasks: Record<string, unknown>[]; comments: Record<string, Comment[]> } | null {
     const archivedDir = path.join(this.teamDir, "archived", storyId);
     if (!existsSync(archivedDir)) return null;
 
@@ -1113,7 +1113,7 @@ export class Store {
 
     const story = JSON.parse(Deno.readTextFileSync(storyFile));
     const tasks: Record<string, unknown>[] = [];
-    const messages: Record<string, Message[]> = {};
+    const comments: Record<string, Comment[]> = {};
 
     const tasksDir = path.join(archivedDir, "tasks");
     if (existsSync(tasksDir)) {
@@ -1129,15 +1129,15 @@ export class Store {
         const task = JSON.parse(Deno.readTextFileSync(taskFile));
         tasks.push(task);
 
-        const messagesFile = path.join(taskDirPath, "messages.jsonl");
-        if (existsSync(messagesFile)) {
-          const lines = Deno.readTextFileSync(messagesFile).split("\n").filter(Boolean);
-          messages[task.id] = lines.map((line: string) => JSON.parse(line) as Message);
+        const commentsFile = path.join(taskDirPath, "comments.jsonl");
+        if (existsSync(commentsFile)) {
+          const lines = Deno.readTextFileSync(commentsFile).split("\n").filter(Boolean);
+          comments[task.id] = lines.map((line: string) => JSON.parse(line) as Comment);
         }
       }
     }
 
-    return { story, tasks, messages };
+    return { story, tasks, comments };
   }
 
   /** Resolve the effective workflow for a story (story override → defaultWorkflow) */

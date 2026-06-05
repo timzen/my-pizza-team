@@ -16,8 +16,8 @@ import { Store } from "./store.ts";
 import { getDoneState, getInitialState, slugify, type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
 import type {
   StatusResponse, StoriesResponse, NextTaskResponse, ClaimRequest, ClaimResponse,
-  StatusUpdateRequest, StatusUpdateResponse, PostMessageRequest, PostMessageResponse,
-  MessagesResponse, JoinRequest, JoinResponse, HeartbeatRequest, TeamResponse,
+  StatusUpdateRequest, StatusUpdateResponse, PostCommentRequest, PostCommentResponse,
+  CommentsResponse, JoinRequest, JoinResponse, HeartbeatRequest, TeamResponse,
   CreateStoryRequest, CreateStoryResponse, CreateTaskRequest, CreateTaskResponse,
   UpdateTaskRequest, UpdateTaskResponse, UpdateStoryRequest, UpdateStoryResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse, TokenUsageRequest,
@@ -127,7 +127,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   /**
    * GET /api/stories — List all active stories with their tasks.
    * Returns the full board state: each story with its tasks, assignees,
-   * unread message flags, and token usage. Used by the UI board view
+   * unread comment flags, and token usage. Used by the UI board view
    * and CLI to display current work.
    */
   app.get("/api/stories", (c) => {
@@ -143,7 +143,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
           tasks: tasks.map(task => {
             const assignment = store.getAssignment(task.id);
             const tokenSummary = store.getTokenUsageSummary(task.id);
-            return { id: task.id, seq: task.seq, title: task.title, status: task.status, description: task.description, assignee: assignment?.memberId || null, hasMessages: store.hasUnreadMessages(task.id), tokenUsage: tokenSummary || undefined };
+            return { id: task.id, seq: task.seq, title: task.title, status: task.status, description: task.description, assignee: assignment?.memberId || null, hasComments: store.hasUnreadComments(task.id), tokenUsage: tokenSummary || undefined };
           }),
         };
       }),
@@ -166,7 +166,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
 
     const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], body.tasks, body.dir, body.workflow, body.categories);
-    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), dir: story.dir, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null, hasMessages: false })) } } satisfies CreateStoryResponse, 201);
+    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), dir: story.dir, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null, hasComments: false })) } } satisfies CreateStoryResponse, 201);
   });
 
   /**
@@ -261,26 +261,26 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   /**
-   * POST /api/tasks/:taskId/message — Post a message on a task.
-   * Appends a message to the task's JSONL message log. Used for lead↔teammate
-   * communication: asking questions (NEEDS_INPUT), giving feedback in review,
+   * POST /api/tasks/:taskId/comment — Post a comment on a task.
+   * Appends a comment to the task's JSONL log. Used for lead↔teammate
+   * communication: asking questions, giving feedback in review,
    * or providing additional context.
    */
-  app.post("/api/tasks/:taskId/message", async (c) => {
+  app.post("/api/tasks/:taskId/comment", async (c) => {
     const taskId = c.req.param("taskId");
-    const body = (await c.req.json()) as PostMessageRequest;
-    store.addMessage(taskId, body.from, body.body, body.attachments);
-    return c.json({ success: true } satisfies PostMessageResponse);
+    const body = (await c.req.json()) as PostCommentRequest;
+    store.addComment(taskId, body.from, body.body, body.attachments);
+    return c.json({ success: true } satisfies PostCommentResponse);
   });
 
   /**
-   * GET /api/tasks/:taskId/messages — Get all messages for a task.
+   * GET /api/tasks/:taskId/comments — Get all comments for a task.
    * Returns the full conversation history from the JSONL file.
    * Used by UI and teammates to read feedback or instructions.
    */
-  app.get("/api/tasks/:taskId/messages", (c) => {
+  app.get("/api/tasks/:taskId/comments", (c) => {
     const taskId = c.req.param("taskId");
-    return c.json({ messages: store.getMessages(taskId) } satisfies MessagesResponse);
+    return c.json({ comments: store.getComments(taskId) } satisfies CommentsResponse);
   });
 
   /**
@@ -302,14 +302,14 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   /**
-   * POST /api/tasks/:taskId/mark-read — Mark messages as read.
-   * Updates the read timestamp so hasUnreadMessages() returns false.
-   * Called by the lead UI when viewing a task's messages.
+   * POST /api/tasks/:taskId/mark-read — Mark comments as read.
+   * Updates the read timestamp so hasUnreadComments() returns false.
+   * Called by the lead UI when viewing a task's comments.
    */
   app.post("/api/tasks/:taskId/mark-read", (c) => {
     const taskId = c.req.param("taskId");
     if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
-    store.markMessagesRead(taskId);
+    store.markCommentsRead(taskId);
     return c.json({ success: true });
   });
 
@@ -603,8 +603,8 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   // A streamlined agent-facing interface designed for autonomous coding agents.
   // Agents own tasks across multiple state transitions. They claim a task,
   // drive it through every teammate-allowed transition, and release when
-  // blocked by a lead-only transition. Messages are task comments — loaded
-  // once when work begins, not polled continuously.
+  // blocked by a lead-only transition. Comments are loaded once when work
+  // begins, not polled continuously.
 
   /**
    * POST /api/agents/register — Register a new agent.
@@ -665,7 +665,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
       .map(t => `[${t.title}]: ${t.result}`)
       .join("\n\n");
     const wf = store.getWorkflowForStory(task.storyId);
-    const messages = store.getMessages(task.id);
+    const comments = store.getComments(task.id);
 
     return c.json({
       task: {
@@ -675,7 +675,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
         description: task.description,
         status: task.status,
         context: previousResults || undefined,
-        comments: messages.length > 0 ? messages : undefined,
+        comments: comments.length > 0 ? comments : undefined,
         workflow: wf,
         availableTransitions,
       },
@@ -800,26 +800,26 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   /**
-   * GET /api/agents/messages/:taskId — Get comments/messages for a task.
+   * GET /api/agents/comments/:taskId — Get comments for a task.
    * Returns the full conversation history. Agents load this when they
    * start working on a task to see lead feedback, review comments, or
-   * rework instructions. Messages are task-level comments, not a real-time
+   * rework instructions. Comments are task-level, not a real-time
    * communication channel.
    */
-  app.get("/api/agents/messages/:taskId", (c) => {
+  app.get("/api/agents/comments/:taskId", (c) => {
     const taskId = c.req.param("taskId");
     const task = store.getTask(taskId);
-    if (!task) return c.json({ messages: [] });
-    return c.json({ messages: store.getMessages(taskId) });
+    if (!task) return c.json({ comments: [] });
+    return c.json({ comments: store.getComments(taskId) });
   });
 
   /**
-   * POST /api/agents/messages/:taskId — Agent posts a comment on a task.
+   * POST /api/agents/comments/:taskId — Agent posts a comment on a task.
    * Used for status updates, summaries of work done, or questions.
    * These are task-level comments visible to the lead and any future
    * agent that picks up the task.
    */
-  app.post("/api/agents/messages/:taskId", async (c) => {
+  app.post("/api/agents/comments/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const body = await c.req.json() as { agentId?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
     if (!body.agentId || !body.body) return c.json({ success: false, error: "Fields 'agentId' and 'body' are required" }, 400);
@@ -827,7 +827,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
 
-    store.addMessage(taskId, body.agentId, body.body, body.attachments);
+    store.addComment(taskId, body.agentId, body.body, body.attachments);
     return c.json({ success: true });
   });
 

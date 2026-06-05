@@ -153,18 +153,18 @@ Deno.test("GET /api/next-task returns null when paused", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST/GET messages roundtrip", async () => {
+Deno.test("POST/GET comments roundtrip", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
-    await app.request("/api/tasks/s1-1/message", {
+    await app.request("/api/tasks/s1-1/comment", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ from: "teammate-1", body: "Hello!" }),
     });
-    const res = await app.request("/api/tasks/s1-1/messages");
+    const res = await app.request("/api/tasks/s1-1/comments");
     const body = await res.json();
-    assertEquals(body.messages.length, 1);
-    assertEquals(body.messages[0].from, "teammate-1");
+    assertEquals(body.comments.length, 1);
+    assertEquals(body.comments[0].from, "teammate-1");
   } finally { cleanup(teamDir, store); }
 });
