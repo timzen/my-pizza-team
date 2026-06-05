@@ -1,13 +1,11 @@
 // Smoke test for DaemonClient
 // Run with: node tests/client.test.mjs
 //
-// Tests that the DaemonClient class can be instantiated and constructs
-// correct URLs. Does NOT require a running daemon.
+// Tests that the DaemonClient class source has expected exports and
+// method signatures matching the daemon's agent protocol.
+// Does NOT require a running daemon.
 
 import * as assert from "node:assert";
-
-// We can't import TypeScript directly, so we test the module shape
-// by checking the source file exists and has expected exports.
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -32,16 +30,79 @@ function test(label, fn) {
 
 console.log("DaemonClient source checks:");
 
+// ─── Class structure ─────────────────────────────────────────────
+
 test("exports DaemonClient class", () => {
   assert.ok(clientSrc.includes("export class DaemonClient"));
 });
 
-test("has checkServer method", () => {
-  assert.ok(clientSrc.includes("async checkServer()"));
+test("exports DaemonError class", () => {
+  assert.ok(clientSrc.includes("export class DaemonError extends Error"));
 });
 
-test("has register method", () => {
-  assert.ok(clientSrc.includes("async register("));
+test("constructor takes daemonUrl, agentId, options", () => {
+  assert.ok(clientSrc.includes("constructor(daemonUrl: string, agentId: string, options?"));
+});
+
+test("has hostId property derived from os.hostname()", () => {
+  assert.ok(clientSrc.includes("this.hostId = options?.hostId || os.hostname()"));
+});
+
+test("has authToken for future Phase 2 auth", () => {
+  assert.ok(clientSrc.includes("private authToken"));
+  assert.ok(clientSrc.includes("Authorization"));
+});
+
+// ─── Error handling ──────────────────────────────────────────────
+
+test("throws DaemonError on non-2xx responses", () => {
+  assert.ok(clientSrc.includes("throw new DaemonError("));
+  assert.ok(clientSrc.includes("if (!res.ok)"));
+});
+
+test("DaemonError has statusCode", () => {
+  assert.ok(clientSrc.includes("public statusCode: number"));
+});
+
+// ─── Health ──────────────────────────────────────────────────────
+
+test("has checkHealth method (not checkServer)", () => {
+  assert.ok(clientSrc.includes("async checkHealth()"));
+  assert.ok(!clientSrc.includes("async checkServer()"));
+});
+
+test("checkHealth uses GET /health", () => {
+  assert.ok(clientSrc.includes('`${this.baseUrl}/health`'));
+});
+
+// ─── Agent Protocol ──────────────────────────────────────────────
+
+test("has register method with opts object", () => {
+  assert.ok(clientSrc.includes("async register(opts:"));
+});
+
+test("register sends id, name, cwd, hostId, capabilities", () => {
+  assert.ok(clientSrc.includes("id: this.agentId"));
+  assert.ok(clientSrc.includes("name: opts.name"));
+  assert.ok(clientSrc.includes("cwd: opts.cwd"));
+  assert.ok(clientSrc.includes("hostId: this.hostId"));
+  assert.ok(clientSrc.includes("capabilities: opts.capabilities"));
+});
+
+test("has deregister method (DELETE /api/agents/:id)", () => {
+  assert.ok(clientSrc.includes("async deregister()"));
+  assert.ok(clientSrc.includes("DELETE"));
+  assert.ok(clientSrc.includes("/api/agents/"));
+});
+
+test("has heartbeat method (never throws)", () => {
+  assert.ok(clientSrc.includes("async heartbeat("));
+  // Should catch errors internally
+  assert.ok(clientSrc.match(/async heartbeat[\s\S]*?catch/));
+});
+
+test("heartbeat sends { id, status, currentTask }", () => {
+  assert.ok(clientSrc.includes("id: this.agentId"));
 });
 
 test("has getNextWork method", () => {
@@ -49,43 +110,117 @@ test("has getNextWork method", () => {
 });
 
 test("has claimTask method", () => {
-  assert.ok(clientSrc.includes("async claimTask("));
+  assert.ok(clientSrc.includes("async claimTask(taskId"));
 });
 
-test("has transitionTask method", () => {
-  assert.ok(clientSrc.includes("async transitionTask("));
+test("has transitionTask method with status param", () => {
+  assert.ok(clientSrc.includes("async transitionTask(taskId: string, status: string"));
 });
 
 test("has releaseTask method", () => {
-  assert.ok(clientSrc.includes("async releaseTask("));
+  assert.ok(clientSrc.includes("async releaseTask(taskId"));
 });
 
-test("has heartbeat method", () => {
-  assert.ok(clientSrc.includes("async heartbeat("));
+// ─── Comments (not messages) ─────────────────────────────────────
+
+test("has getComments method", () => {
+  assert.ok(clientSrc.includes("async getComments(taskId"));
 });
 
-test("has getComments method (not messages)", () => {
-  assert.ok(clientSrc.includes("async getComments("));
+test("has postComment method with agentId", () => {
+  assert.ok(clientSrc.includes("async postComment(taskId"));
+  assert.ok(clientSrc.includes("agentId: this.agentId"));
 });
 
-test("has postComment method", () => {
-  assert.ok(clientSrc.includes("async postComment("));
+test("uses /api/agents/comments/ routes (not /api/tasks/.../messages)", () => {
+  assert.ok(clientSrc.includes("/api/agents/comments/"));
+  assert.ok(!clientSrc.includes("/messages"));
 });
 
-test("uses /api/agents/ routes", () => {
-  assert.ok(clientSrc.includes("/api/agents/register"));
-  assert.ok(clientSrc.includes("/api/agents/heartbeat"));
-  assert.ok(clientSrc.includes("/api/agents/next-work"));
-  assert.ok(clientSrc.includes("/api/agents/claim/"));
-  assert.ok(clientSrc.includes("/api/agents/transition/"));
-  assert.ok(clientSrc.includes("/api/agents/release/"));
+// ─── Spawn Requests ──────────────────────────────────────────────
+
+test("has getSpawnRequests (uses this.hostId)", () => {
+  assert.ok(clientSrc.includes("async getSpawnRequests()"));
+  assert.ok(clientSrc.includes("this.hostId"));
 });
 
-test("uses /api/tasks/:id/comments (not messages)", () => {
-  assert.ok(clientSrc.includes("/api/tasks/"));
-  assert.ok(clientSrc.includes("/comments"));
-  assert.ok(!clientSrc.includes("/api/tasks/${encodeURIComponent(taskId)}/messages"));
+test("has ackSpawnRequest method", () => {
+  assert.ok(clientSrc.includes("async ackSpawnRequest(requestId"));
 });
+
+// ─── Assistant Queue ─────────────────────────────────────────────
+
+test("has getNextQueueItem (not getNextAssistantItem)", () => {
+  assert.ok(clientSrc.includes("async getNextQueueItem()"));
+  assert.ok(!clientSrc.includes("async getNextAssistantItem"));
+});
+
+test("has claimQueueItem (not claimAssistantItem)", () => {
+  assert.ok(clientSrc.includes("async claimQueueItem(id"));
+  assert.ok(!clientSrc.includes("async claimAssistantItem"));
+});
+
+test("has completeQueueItem (not completeAssistantItem)", () => {
+  assert.ok(clientSrc.includes("async completeQueueItem(id"));
+  assert.ok(!clientSrc.includes("async completeAssistantItem"));
+});
+
+// ─── Memory Notes ────────────────────────────────────────────────
+
+test("has saveNote method", () => {
+  assert.ok(clientSrc.includes("async saveNote(title"));
+});
+
+test("has searchNotes method", () => {
+  assert.ok(clientSrc.includes("async searchNotes(query"));
+});
+
+test("searchNotes uses POST /api/assistant/notes/search", () => {
+  assert.ok(clientSrc.includes("/api/assistant/notes/search"));
+});
+
+// ─── Stories / Tasks ─────────────────────────────────────────────
+
+test("has createStory method", () => {
+  assert.ok(clientSrc.includes("async createStory(story"));
+});
+
+test("has updateStory method", () => {
+  assert.ok(clientSrc.includes("async updateStory(storyId"));
+});
+
+test("has createTask method (not addTask)", () => {
+  assert.ok(clientSrc.includes("async createTask(storyId"));
+  assert.ok(!clientSrc.includes("async addTask("));
+});
+
+test("has uploadAttachment method", () => {
+  assert.ok(clientSrc.includes("async uploadAttachment(taskId"));
+});
+
+test("has enqueueAssistantRequest method", () => {
+  assert.ok(clientSrc.includes("async enqueueAssistantRequest(prompt"));
+});
+
+// ─── Response types ──────────────────────────────────────────────
+
+test("AgentNextWorkResponse includes availableTransitions", () => {
+  assert.ok(clientSrc.includes("availableTransitions: Array<{ state: string; permission: string }>"));
+});
+
+test("AgentClaimResponse includes availableTransitions", () => {
+  assert.ok(clientSrc.includes("availableTransitions?: Array<{ state: string; permission: string }>"));
+});
+
+test("AgentTransitionResponse includes released and availableTransitions", () => {
+  assert.ok(clientSrc.includes("released?: boolean"));
+});
+
+test("CommentsResponse has correct shape", () => {
+  assert.ok(clientSrc.includes("comments: Array<"));
+});
+
+// ─── No server-side dependencies ─────────────────────────────────
 
 test("does not import better-sqlite3", () => {
   assert.ok(!clientSrc.includes("better-sqlite3"));
@@ -93,6 +228,11 @@ test("does not import better-sqlite3", () => {
 
 test("does not import hono", () => {
   assert.ok(!clientSrc.includes("hono"));
+});
+
+test("only imports os and shared/types", () => {
+  const imports = clientSrc.match(/^import .+ from .+$/gm) || [];
+  assert.ok(imports.length === 2, `Expected 2 imports, got ${imports.length}: ${imports.join(', ')}`);
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

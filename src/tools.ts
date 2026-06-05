@@ -131,7 +131,7 @@ export function registerTools(
       description: Type.String({ description: "Full task description/prompt for the teammate to execute" }),
     }),
     async execute(_toolCallId, params) {
-      const result = await client.addTask(params.storyId, params.title, params.description);
+      const result = await client.createTask(params.storyId, params.title, params.description);
       if (!result.success) throw new Error(result.error || "Failed to add task");
 
       return {

@@ -7,10 +7,8 @@
 //   3. Provide slash commands for team management (spawn, dismiss, hop)
 //   4. Register LLM tools (via shared tools.ts)
 
-import * as os from "node:os";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
-import { DEFAULT_DAEMON_URL } from "./shared/types.js";
 import { registerTools } from "./tools.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
@@ -27,24 +25,28 @@ export async function setupLeader(
   cwd: string
 ): Promise<void> {
   const { execSync } = await import("node:child_process");
-  const hostId = os.hostname();
+
+  // Get host config from daemon (tmux session name, etc.)
+  let tmuxSession = "pi-pizza-team";
 
   // Register with daemon
   try {
-    await client.register("leader", cwd, "leader");
+    const regRes = await client.register({ name: "leader", cwd });
+    if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register with daemon — will retry via heartbeat`, "warning");
     }
   }
 
-  // Get host config from daemon (tmux session name, etc.)
-  let tmuxSession = "pi-pizza-team";
-  try {
-    const hostConfig = await client.getHostConfig(hostId);
-    if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
-  } catch {
-    // Use default
+  // Fall back to host-specific config if register didn't provide tmuxSession
+  if (tmuxSession === "pi-pizza-team") {
+    try {
+      const hostConfig = await client.getHostConfig();
+      if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
+    } catch {
+      // Use default
+    }
   }
 
   // Register LLM tools (stories, tasks, queue, search)
@@ -54,7 +56,7 @@ export async function setupLeader(
 
   const spawnPollTimer = setInterval(async () => {
     try {
-      const res = await client.getSpawnRequests(hostId);
+      const res = await client.getSpawnRequests();
       for (const req of res.requests) {
         try {
           spawnTeammate(req.name, req.cwd, { session: tmuxSession, daemonUrl: client.url }, execSync);
@@ -165,7 +167,7 @@ export async function setupLeader(
   pi.on("session_shutdown", async () => {
     clearInterval(spawnPollTimer);
     clearInterval(widgetInterval);
-    await client.heartbeat("idle");
+    await client.deregister().catch(() => {});
   });
 
   if (ctx.hasUI) {

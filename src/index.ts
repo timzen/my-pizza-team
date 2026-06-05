@@ -106,7 +106,7 @@ async function setupTeammateRole(
   const { registerTools } = await import("./tools.js");
 
   // Check daemon reachability
-  const serverUp = await client.checkServer();
+  const serverUp = await client.checkHealth();
   if (!serverUp && ctx.hasUI) {
     ctx.ui.notify(`🍕 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
@@ -114,7 +114,7 @@ async function setupTeammateRole(
   // Register with daemon
   let workflows: Record<string, any> = {};
   try {
-    const regRes = await client.register(memberId, cwd, "teammate");
+    const regRes = await client.register({ name: memberId, cwd });
     if (regRes.config?.workflows) workflows = regRes.config.workflows;
   } catch {
     if (ctx.hasUI) {
@@ -257,7 +257,7 @@ async function setupTeammateRole(
   pi.on("session_shutdown", async () => {
     clearInterval(widgetInterval);
     loop.stop();
-    await client.heartbeat("idle");
+    await client.deregister().catch(() => {});
   });
 }
 
@@ -272,14 +272,14 @@ async function setupAssistantRole(
   const { registerTools } = await import("./tools.js");
 
   // Check daemon reachability
-  const serverUp = await client.checkServer();
+  const serverUp = await client.checkHealth();
   if (!serverUp && ctx.hasUI) {
     ctx.ui.notify(`🤖 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
   // Register with daemon
   try {
-    await client.register("assistant", cwd, "assistant");
+    await client.register({ name: "assistant", cwd });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🤖 Failed to register — will keep trying via polling`, "warning");
@@ -333,6 +333,6 @@ async function setupAssistantRole(
   // Cleanup
   pi.on("session_shutdown", async () => {
     loop.stop();
-    await client.heartbeat("idle");
+    await client.deregister().catch(() => {});
   });
 }

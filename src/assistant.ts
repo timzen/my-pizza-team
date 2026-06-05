@@ -63,10 +63,10 @@ export class AssistantLoop {
     }
 
     try {
-      const response = await this.client.getNextAssistantItem();
+      const response = await this.client.getNextQueueItem();
 
       if (response.item) {
-        const claim = await this.client.claimAssistantItem(response.item.id);
+        const claim = await this.client.claimQueueItem(response.item.id);
         if (claim.success) {
           this.currentItemId = response.item.id;
           this.client.heartbeat("working").catch(() => {});
@@ -100,7 +100,7 @@ export class AssistantLoop {
     const summary = lastMessage.slice(0, 1000);
 
     try {
-      await this.client.completeAssistantItem(itemId, summary, false);
+      await this.client.completeQueueItem(itemId, summary, false);
     } catch {
       // If reporting fails, still move on
     }
@@ -116,7 +116,7 @@ export class AssistantLoop {
 
     const itemId = this.currentItemId;
     try {
-      await this.client.completeAssistantItem(itemId, error, true);
+      await this.client.completeQueueItem(itemId, error, true);
     } catch {
       // Move on
     }
