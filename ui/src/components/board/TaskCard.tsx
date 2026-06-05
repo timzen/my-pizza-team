@@ -19,7 +19,7 @@ interface TaskCardProps {
     status: string;
     description?: string;
     assignee: string | null;
-    hasMessages: boolean;
+    hasComments: boolean;
     tokenUsage?: { totalCostUsd: number };
   };
   storyId?: string;
@@ -72,7 +72,7 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
               {task.assignee}
             </span>
           )}
-          {task.hasMessages && storyId && (
+          {task.hasComments && storyId && (
             <Link
               to={`/task/${storyId}/${task.id}`}
               onClick={(e) => e.stopPropagation()}
@@ -83,7 +83,7 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
               unread
             </Link>
           )}
-          {task.hasMessages && !storyId && (
+          {task.hasComments && !storyId && (
             <span className="flex items-center gap-1 text-orange-500">
               <MessageCircle className="h-3 w-3" />
               unread

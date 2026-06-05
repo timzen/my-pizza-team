@@ -40,7 +40,7 @@ interface StoryView {
     status: string;
     description?: string;
     assignee: string | null;
-    hasMessages: boolean;
+    hasComments: boolean;
     tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
   }>;
 }

@@ -11,7 +11,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Send } from "lucide-react";
 
-interface Message {
+interface Comment {
   from: string;
   body: string;
   at: string;
@@ -25,7 +25,7 @@ interface TaskData {
   status: string;
   description?: string;
   assignee: string | null;
-  hasMessages: boolean;
+  hasComments: boolean;
 }
 
 interface StoryView {
@@ -37,7 +37,7 @@ interface StoryView {
 export function TaskDetailPage() {
   const { storyId, taskId } = useParams<{ storyId: string; taskId: string }>();
   const { data: storiesData } = useApi<{ stories: StoryView[] }>("/api/stories");
-  const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Message[] }>(`/api/tasks/${taskId}/comments`);
+  const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/tasks/${taskId}/comments`);
   const [newComment, setNewComment] = useState("");
 
   const story = storiesData?.stories.find(s => s.id === storyId);
