@@ -601,23 +601,22 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
 
   // --- Agents API ---
   // A streamlined agent-facing interface designed for autonomous coding agents.
-  // Wraps the team/task operations with simpler semantics: register, poll for
-  // work, claim, complete. This is the universal fallback for agents that don't
-  // have their own HTTP server (file-based agents poll these endpoints).
+  // Agents own tasks across multiple state transitions. They claim a task,
+  // drive it through every teammate-allowed transition, and release when
+  // blocked by a lead-only transition. Messages are task comments — loaded
+  // once when work begins, not polled continuously.
 
   /**
    * POST /api/agents/register — Register a new agent.
-   * Similar to /api/team/join but with agent-specific semantics.
    * Called once when an agent starts. The agent provides its ID, display name,
-   * and working directory. Returns workflow config for the agent to understand
-   * what states/transitions are available.
+   * and working directory. Returns workflow config so the agent understands
+   * available states and transitions.
    */
   app.post("/api/agents/register", async (c) => {
     const body = await c.req.json() as { id?: string; name?: string; cwd?: string; capabilities?: string[] };
     if (!body.id || !body.name || !body.cwd) {
       return c.json({ success: false, error: "Fields 'id', 'name', and 'cwd' are required" }, 400);
     }
-    // Register as a team member (tmuxWindow defaults to agent id)
     store.registerMember(body.id, body.name, body.cwd, body.id);
     return c.json({
       success: true,
@@ -632,7 +631,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
    * release its assigned tasks.
    */
   app.post("/api/agents/heartbeat", async (c) => {
-    const body = await c.req.json() as { id?: string; status?: string; currentTask?: string };
+    const body = await c.req.json() as { id?: string; status?: string };
     if (!body.id || !body.status) {
       return c.json({ success: false, error: "Fields 'id' and 'status' are required" }, 400);
     }
@@ -642,10 +641,13 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
 
   /**
    * GET /api/agents/next-work?agentId=X — Poll for available work.
-   * The agent polls this endpoint to discover tasks it can work on.
-   * Returns the next available task (matching the agent's cwd) with
-   * context from prior completed tasks in the same story. Returns
-   * {task: null} if no work is available or distribution is paused.
+   * Returns the next unclaimed task that has a teammate-allowed transition
+   * from its current state. This covers both fresh tasks (in initial state)
+   * and tasks that have been returned by the lead (e.g., moved from B back
+   * to A with comments). Includes task comments so the agent can see any
+   * lead feedback before starting work.
+   *
+   * Returns {task: null} if no work is available or distribution is paused.
    */
   app.get("/api/agents/next-work", (c) => {
     const agentId = c.req.query("agentId");
@@ -653,21 +655,39 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     if (paused) return c.json({ task: null });
 
     const member = store.getMember(agentId);
-    const task = store.getNextAvailableTask(member?.cwd);
-    if (!task) return c.json({ task: null });
+    const result = store.getNextWorkableTask(member?.cwd);
+    if (!result) return c.json({ task: null });
 
+    const { availableTransitions, ...task } = result;
     const storyTasks = store.getTasksForStory(task.storyId);
-    const previousResults = storyTasks.filter(t => t.seq < task.seq && t.result).map(t => `[${t.title}]: ${t.result}`).join("\n\n");
+    const previousResults = storyTasks
+      .filter(t => t.seq < task.seq && t.result)
+      .map(t => `[${t.title}]: ${t.result}`)
+      .join("\n\n");
     const wf = store.getWorkflowForStory(task.storyId);
-    return c.json({ task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description, context: previousResults || undefined, workflow: wf } });
+    const messages = store.getMessages(task.id);
+
+    return c.json({
+      task: {
+        id: task.id,
+        storyId: task.storyId,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+        context: previousResults || undefined,
+        comments: messages.length > 0 ? messages : undefined,
+        workflow: wf,
+        availableTransitions,
+      },
+    });
   });
 
   /**
-   * POST /api/agents/claim/:taskId — Agent claims a task.
-   * After discovering a task via next-work, the agent claims it to begin
-   * work. This assigns the task, transitions it to in_progress, and
-   * marks the agent as working. Returns transition instructions (e.g.
-   * "read AGENTS.md before starting").
+   * POST /api/agents/claim/:taskId — Agent claims a task (ownership only).
+   * Assigns the task to the agent without changing its state. The agent
+   * should then call /transition to advance the task. This separation
+   * allows the agent to read instructions and comments before deciding
+   * which transition to make.
    */
   app.post("/api/agents/claim/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
@@ -678,65 +698,113 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
 
     const success = store.claimTask(taskId, body.agentId);
-    if (!success) return c.json({ success: false, error: "Task already claimed" });
+    if (!success) return c.json({ success: false, error: "Task already claimed" }, 409);
 
-    const fromStatus = task.status;
-    store.updateTaskStatus(taskId, "in_progress");
     store.updateMemberStatus(body.agentId, "working");
 
-    const instructions = getInstructionsMarkdown(fromStatus, "in_progress", taskId);
-    return c.json({ success: true, instructions });
+    // Return current state info so the agent knows where it's starting
+    const wf = store.getWorkflowForTask(taskId);
+    const transitions = wf.transitions[task.status] || {};
+    const available = Object.entries(transitions)
+      .filter(([_, perm]) => perm === "teammate" || perm === "any")
+      .map(([state, perm]) => ({ state, permission: perm as string }));
+
+    return c.json({
+      success: true,
+      task: {
+        id: task.id,
+        storyId: task.storyId,
+        title: task.title,
+        description: task.description,
+        status: task.status,
+      },
+      availableTransitions: available,
+    });
   });
 
   /**
-   * POST /api/agents/complete/:taskId — Agent submits work results.
-   * Called when the agent finishes a task. Transitions the task to the
-   * next valid state (prefers "review" if available, otherwise the first
-   * teammate-allowed transition). Stores the result summary, releases
-   * the assignment, and marks the agent idle. The caller can override
-   * the target status if the workflow has multiple completion paths.
+   * POST /api/agents/transition/:taskId — Agent advances task to a new state.
+   * The agent calls this after completing work for the current state.
+   * Validates the transition against workflow permissions. On success:
+   * - Updates task status (and optionally stores a result summary)
+   * - If the new state is the done state, auto-releases the assignment
+   * - Returns the next available transitions so the agent knows if it
+   *   can keep going or needs to release
+   * - Returns transition instructions for the new state
    */
-  app.post("/api/agents/complete/:taskId", async (c) => {
+  app.post("/api/agents/transition/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
-    const body = await c.req.json() as { agentId?: string; result?: string; status?: string };
+    const body = await c.req.json() as { agentId?: string; status: string; result?: string };
     if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+    if (!body.status) return c.json({ success: false, error: "Field 'status' is required" }, 400);
 
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
 
-    // Determine target state from the task's workflow.
-    // If caller provides a status, use it; otherwise find the first
-    // teammate-allowed transition from the current state.
-    const wf = store.getWorkflowForTask(taskId);
-    let targetStatus = body.status;
-    if (!targetStatus) {
-      const transitions = wf.transitions[task.status];
-      if (transitions) {
-        // Find first transition a teammate can make (prefer "review"-like states)
-        const candidates = Object.entries(transitions)
-          .filter(([_, perm]) => perm === "teammate" || perm === "any")
-          .map(([state]) => state);
-        targetStatus = candidates.find(s => s === "review") || candidates[0];
-      }
+    // Verify the agent owns this task
+    const assignment = store.getAssignment(taskId);
+    if (!assignment || assignment.memberId !== body.agentId) {
+      return c.json({ success: false, error: "Task not claimed by this agent" }, 403);
     }
-    if (!targetStatus) return c.json({ success: false, error: "No valid completion transition found in workflow" }, 400);
 
-    const check = store.canTransition(taskId, targetStatus, "teammate");
+    const check = store.canTransition(taskId, body.status, "teammate");
     if (!check.ok) return c.json({ success: false, error: check.error }, 403);
 
     const fromStatus = task.status;
-    store.updateTaskStatus(taskId, targetStatus, body.result);
-    store.releaseTask(taskId);
-    store.updateMemberStatus(body.agentId, "idle");
+    store.updateTaskStatus(taskId, body.status, body.result);
 
-    const instructions = getInstructionsMarkdown(fromStatus, targetStatus, taskId);
-    return c.json({ success: true, instructions });
+    // Check if task reached done state — auto-release
+    const wf = store.getWorkflowForTask(taskId);
+    const doneState = getDoneState(wf);
+    let released = false;
+    if (body.status === doneState) {
+      store.releaseTask(taskId);
+      store.updateMemberStatus(body.agentId, "idle");
+      released = true;
+    }
+
+    // Compute next available transitions from the new state
+    const nextTransitions = wf.transitions[body.status] || {};
+    const available = Object.entries(nextTransitions)
+      .filter(([_, perm]) => perm === "teammate" || perm === "any")
+      .map(([state, perm]) => ({ state, permission: perm as string }));
+
+    const instructions = getInstructionsMarkdown(fromStatus, body.status, taskId);
+    return c.json({
+      success: true,
+      released,
+      instructions,
+      availableTransitions: available,
+    });
   });
 
   /**
-   * GET /api/agents/messages/:taskId — Get messages for a task.
-   * Agents read messages to check for lead feedback, NEEDS_INPUT responses,
-   * or review comments. Returns the full conversation history.
+   * POST /api/agents/release/:taskId — Agent releases a task.
+   * Called when the agent hits a state where only the lead can make the
+   * next transition. Releases the assignment so the lead (or another
+   * process) can claim it. Marks the agent as idle.
+   */
+  app.post("/api/agents/release/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json() as { agentId?: string };
+    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+
+    const assignment = store.getAssignment(taskId);
+    if (!assignment || assignment.memberId !== body.agentId) {
+      return c.json({ success: false, error: "Task not claimed by this agent" }, 403);
+    }
+
+    store.releaseTask(taskId);
+    store.updateMemberStatus(body.agentId, "idle");
+    return c.json({ success: true });
+  });
+
+  /**
+   * GET /api/agents/messages/:taskId — Get comments/messages for a task.
+   * Returns the full conversation history. Agents load this when they
+   * start working on a task to see lead feedback, review comments, or
+   * rework instructions. Messages are task-level comments, not a real-time
+   * communication channel.
    */
   app.get("/api/agents/messages/:taskId", (c) => {
     const taskId = c.req.param("taskId");
@@ -746,9 +814,10 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   /**
-   * POST /api/agents/messages/:taskId — Agent posts a message.
-   * Used for status updates, asking questions (NEEDS_INPUT), or
-   * providing additional context. Supports attachments metadata.
+   * POST /api/agents/messages/:taskId — Agent posts a comment on a task.
+   * Used for status updates, summaries of work done, or questions.
+   * These are task-level comments visible to the lead and any future
+   * agent that picks up the task.
    */
   app.post("/api/agents/messages/:taskId", async (c) => {
     const taskId = c.req.param("taskId");

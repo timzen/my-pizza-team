@@ -557,6 +557,63 @@ export class Store {
     return null;
   }
 
+  /**
+   * Find the next workable task for an agent.
+   * A task is "workable" if:
+   * - Its story is ready (dependencies met)
+   * - It is NOT claimed by anyone
+   * - It has at least one "teammate" or "any" transition from its current state
+   * - Its story dir matches the agent's cwd (if both are set)
+   * - It is the first non-done task in the story (sequential ordering)
+   *
+   * This supports multi-transition ownership: an agent picks up a task,
+   * drives it through all teammate-allowed transitions, releases when
+   * blocked by a lead-only transition, and re-picks-up when the lead
+   * moves it to a state with teammate transitions available again.
+   */
+  getNextWorkableTask(memberCwd?: string): (TaskWithMeta & { availableTransitions: Array<{ state: string; permission: string }> }) | null {
+    const stories = this.getStories();
+    for (const story of stories) {
+      if (!this.isStoryReady(story.id)) continue;
+
+      // If the member has a cwd, only match stories with the same dir
+      if (memberCwd && story.dir) {
+        const normalizedStoryDir = story.dir.replace(/\/$/, "").replace(/^~/, Deno.env.get("HOME") || "~");
+        const normalizedMemberCwd = memberCwd.replace(/\/$/, "");
+        if (normalizedStoryDir !== normalizedMemberCwd) continue;
+      }
+
+      const wf = this.getWorkflowForStory(story.id);
+      const doneState = getDoneState(wf);
+
+      const tasks = this.getTasksForStory(story.id);
+      for (const task of tasks) {
+        // Skip done tasks
+        if (task.status === doneState) continue;
+
+        // Must not be claimed by anyone
+        const assignment = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(task.id);
+        if (assignment) break; // Sequential: if this task is claimed, don't look further in this story
+
+        // Must have at least one teammate-allowed transition from current state
+        const transitions = wf.transitions[task.status];
+        if (!transitions) break;
+
+        const available = Object.entries(transitions)
+          .filter(([_, perm]) => perm === "teammate" || perm === "any")
+          .map(([state, perm]) => ({ state, permission: perm as string }));
+
+        if (available.length > 0) {
+          return { ...task, availableTransitions: available };
+        }
+
+        // No teammate transitions available from this state — stop looking in this story
+        break;
+      }
+    }
+    return null;
+  }
+
   // --- Assignments ---
 
   claimTask(taskId: string, memberId: string): boolean {
