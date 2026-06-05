@@ -1,5 +1,5 @@
 /**
- * TeamPage — Agents panel showing connected agents with status,
+ * AgentsPage — Agents panel showing connected agents with status,
  * host, heartbeat, and current task assignment.
  */
 
@@ -33,7 +33,7 @@ function formatHeartbeat(ts: number): string {
   return `${Math.round(ago / 3600)}h ago`;
 }
 
-export function TeamPage() {
+export function AgentsPage() {
   const { data, refetch } = useApi<{ agents: Agent[] }>("/api/agents");
   const agents = data?.agents || [];
 

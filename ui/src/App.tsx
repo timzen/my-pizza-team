@@ -6,7 +6,7 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
 import { HomePage } from "./pages/HomePage";
 import { BoardPage } from "./pages/BoardPage";
-import { TeamPage } from "./pages/TeamPage";
+import { AgentsPage } from "./pages/AgentsPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { AssistantPage } from "./pages/AssistantPage";
@@ -23,7 +23,7 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/board" element={<BoardPage />} />
-            <Route path="/team" element={<TeamPage />} />
+            <Route path="/team" element={<AgentsPage />} />
             <Route path="/memory" element={<MemoryPage />} />
             <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
             <Route path="/assistant" element={<AssistantPage />} />
