@@ -49,7 +49,7 @@ interface StoryView {
 
 interface StatusData {
   defaultWorkflow: string;
-  workflows: Record<string, { states: string[] }>;
+  workflows: Record<string, { states: string[]; transitions?: Record<string, Record<string, string>> }>;
 }
 
 type SortOption = "title" | "status" | "ready";
