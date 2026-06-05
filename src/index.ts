@@ -293,6 +293,15 @@ async function setupAssistantRole(
 
   // Create the work loop
   const loop = new AssistantLoop(pi, client);
+  let completedItems = 0;
+
+  // Track completions for widget
+  loop.onItemComplete = (_itemId, _summary) => {
+    completedItems++;
+    if (ctx.hasUI) {
+      ctx.ui.setWidget("pi-pizza-team", [`🤖 assistant idle — ${completedItems} processed`]);
+    }
+  };
 
   // Listen for agent completion
   pi.on("agent_end", async (event) => {
