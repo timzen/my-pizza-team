@@ -37,7 +37,7 @@ interface StoryView {
 export function TaskDetailPage() {
   const { storyId, taskId } = useParams<{ storyId: string; taskId: string }>();
   const { data: storiesData } = useApi<{ stories: StoryView[] }>("/api/stories");
-  const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/tasks/${taskId}/comments`);
+  const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/tasks/${encodeURIComponent(taskId || "")}/comments`);
   const [newComment, setNewComment] = useState("");
 
   const story = storiesData?.stories.find(s => s.id === storyId);
@@ -46,14 +46,14 @@ export function TaskDetailPage() {
 
   const sendComment = async () => {
     if (!newComment.trim() || !taskId) return;
-    await apiPost(`/api/tasks/${taskId}/comment`, { from: "lead", body: newComment });
+    await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/comment`, { from: "lead", body: newComment });
     setNewComment("");
     refetchComments();
   };
 
   const markRead = async () => {
     if (!taskId) return;
-    await apiPost(`/api/tasks/${taskId}/mark-read`);
+    await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/mark-read`);
   };
 
   if (!task) {

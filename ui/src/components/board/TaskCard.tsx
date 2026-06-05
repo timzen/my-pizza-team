@@ -45,7 +45,7 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
     if (!states || currentIndex < 0) return;
     const targetIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
     if (targetIndex < 0 || targetIndex >= states.length) return;
-    await apiPost(`/api/tasks/${task.id}/move`, { status: states[targetIndex] });
+    await apiPost(`/api/tasks/${encodeURIComponent(task.id)}/move`, { status: states[targetIndex] });
     onStatusChange?.();
   };
 
