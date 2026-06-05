@@ -141,3 +141,37 @@ export interface AssistantNotesResponse { notes: AssistantNote[] }
 export interface AssistantSaveNoteRequest { title: string; content: string; categories?: string[] }
 export interface AssistantSaveNoteResponse { success: boolean; note?: AssistantNote; error?: string }
 export interface AssistantDeleteNoteResponse { success: boolean; error?: string }
+
+// --- Agents API ---
+
+// POST /api/agents/register
+export interface AgentRegisterRequest { id: string; name: string; cwd: string; capabilities?: string[] }
+export interface AgentRegisterResponse { success: boolean; config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig> }; error?: string }
+
+// POST /api/agents/heartbeat
+export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" | "pairing" | "offline"; currentTask?: string }
+export interface AgentHeartbeatResponse { success: boolean }
+
+// GET /api/agents/next-work?agentId=X
+export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string; description: string; context?: string; workflow?: WorkflowConfig } | null }
+
+// POST /api/agents/claim/:taskId
+export interface AgentClaimRequest { agentId: string }
+export interface AgentClaimResponse { success: boolean; error?: string; instructions?: string }
+
+// POST /api/agents/complete/:taskId
+export interface AgentCompleteRequest { agentId: string; result?: string }
+export interface AgentCompleteResponse { success: boolean; error?: string; instructions?: string }
+
+// GET /api/agents/messages/:taskId
+export interface AgentMessagesResponse { messages: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
+
+// POST /api/agents/messages/:taskId
+export interface AgentPostMessageRequest { agentId: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }
+export interface AgentPostMessageResponse { success: boolean }
+
+// GET /api/agents
+export interface AgentListResponse { agents: Array<{ id: string; name: string; cwd: string; status: string; currentTask: string | null; lastHeartbeat: number; capabilities?: string[] }> }
+
+// DELETE /api/agents/:id
+export interface AgentDeleteResponse { success: boolean; error?: string }
