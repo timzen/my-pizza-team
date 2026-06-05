@@ -1,26 +1,27 @@
-// Teammate work loop: poll → claim → execute → report
+// Teammate work loop: multi-transition ownership model
 //
 // Autonomous execution engine for a teammate agent. Uses the daemon's
-// agent protocol (/api/agents/*) instead of the old leader server API.
+// agent protocol (/api/agents/*) with multi-transition ownership:
 //
 // Lifecycle:
-// 1. Polls daemon for available work (GET /api/agents/next-work)
-// 2. Claims a task (POST /api/agents/claim/:taskId)
-// 3. Sends task description as a user message via pi.sendUserMessage()
-// 4. Listens for agent_end event to capture the result
-// 5. Transitions task to next state (POST /api/agents/transition/:taskId)
-// 6. Loops back to polling
+// 1. Poll GET /api/agents/next-work → finds unclaimed task with teammate transitions
+// 2. Claim POST /api/agents/claim/:taskId → assigns ownership (no state change)
+// 3. Transition POST /api/agents/transition/:taskId → advance to first working state
+// 4. Execute work (send task as user message to Pi agent)
+// 5. On agent_end, transition to next state (repeatable if multiple teammate states)
+// 6. When availableTransitions is empty → POST /api/agents/release/:taskId
+// 7. Lead acts (review, sends comments), task reappears on next poll
 //
-// The teammate never hardcodes workflow state names — it uses the daemon's
-// agent protocol which determines valid transitions server-side.
+// The teammate never assumes workflow state names — it relies entirely on
+// the daemon's availableTransitions to know what moves are valid and when
+// to release. This makes it compatible with any workflow configuration.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient } from "./client.js";
-import type { WorkflowConfig } from "./shared/types.js";
+import type { DaemonClient, AgentTransitionResponse } from "./client.js";
 
 const POLL_INTERVAL_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
-const MESSAGE_CHECK_INTERVAL_MS = 10000;
+const COMMENT_CHECK_INTERVAL_MS = 12000;
 const WATCH_INTERVAL_MS = 10000;
 
 export class TeammateLoop {
@@ -32,23 +33,24 @@ export class TeammateLoop {
   private lastCompletedTaskId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private messageCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private commentCheckTimer: ReturnType<typeof setInterval> | null = null;
   private lastSeenCommentCount: number = 0;
-  private _workflow: WorkflowConfig | null = null;
 
-  // Tasks we've handed off but are still watching for lead replies
+  // Available transitions from the task's current state (updated after each transition)
+  private availableTransitions: Array<{ state: string; permission: string }> = [];
+
+  // Tasks we've released but are still watching for lead action (comments/rework)
   private watchedTasks: Map<string, number> = new Map();
   private watchTimer: ReturnType<typeof setInterval> | null = null;
 
   public onTaskComplete: ((taskId: string, result: string) => void) | null = null;
 
+  /** Expose a way for external code to toggle permissions */
+  public setAutonomousPermissions: ((autonomous: boolean) => void) | null = null;
+
   constructor(pi: ExtensionAPI, client: DaemonClient) {
     this.pi = pi;
     this.client = client;
-  }
-
-  setWorkflow(wf: WorkflowConfig): void {
-    this._workflow = wf;
   }
 
   get isAutonomous(): boolean {
@@ -61,19 +63,6 @@ export class TeammateLoop {
 
   get lastTask(): string | null {
     return this.lastCompletedTaskId;
-  }
-
-  /**
-   * Find the next valid state for a teammate from the current state.
-   */
-  private resolveTeammateTransition(currentStatus: string, fallback: string): string {
-    if (!this._workflow) return fallback;
-    const transitions = this._workflow.transitions[currentStatus];
-    if (!transitions) return fallback;
-    for (const [state, perm] of Object.entries(transitions)) {
-      if (perm === "teammate" || perm === "any") return state;
-    }
-    return fallback;
   }
 
   async start(): Promise<void> {
@@ -89,21 +78,24 @@ export class TeammateLoop {
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
-    this.stopMessageChecking();
+    this.stopCommentChecking();
   }
 
+  /** Pause autonomous work (human is pairing) */
   pause(): void {
     this.autonomous = false;
     this.client.heartbeat("pairing").catch(() => {});
   }
 
+  /** Resume autonomous work */
   resume(): void {
     this.autonomous = true;
     if (this.running) this.pollForWork();
   }
 
-  /** Expose a way for external code to toggle permissions */
-  public setAutonomousPermissions: ((autonomous: boolean) => void) | null = null;
+  // ═══════════════════════════════════════════════════════════════════
+  // HEARTBEAT
+  // ═══════════════════════════════════════════════════════════════════
 
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(() => {
@@ -113,6 +105,10 @@ export class TeammateLoop {
       this.client.heartbeat(status, this.currentTaskId || undefined).catch(() => {});
     }, HEARTBEAT_INTERVAL_MS);
   }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // POLL → CLAIM → TRANSITION → EXECUTE
+  // ═══════════════════════════════════════════════════════════════════
 
   private async pollForWork(): Promise<void> {
     if (!this.running || !this.autonomous || this.currentTaskId) {
@@ -124,17 +120,36 @@ export class TeammateLoop {
       const response = await this.client.getNextWork();
 
       if (response.task) {
-        if (response.task.workflow) {
-          this._workflow = response.task.workflow;
-        }
+        // Claim ownership (no state change yet)
         const claim = await this.client.claimTask(response.task.id);
-        if (claim.success) {
-          this.currentTaskId = response.task.id;
-          this.watchedTasks.delete(response.task.id);
-          this.client.heartbeat("working", response.task.id).catch(() => {});
-          await this.executeTask(response.task, claim.instructions);
-        } else {
+        if (!claim.success) {
+          // Someone else claimed it — try again
           this.schedulePoll();
+          return;
+        }
+
+        // We now own this task
+        this.currentTaskId = response.task.id;
+        this.watchedTasks.delete(response.task.id);
+        this.availableTransitions = claim.availableTransitions || response.task.availableTransitions || [];
+        this.client.heartbeat("working", response.task.id).catch(() => {});
+
+        // Immediately transition to first working state
+        const firstTransition = this.availableTransitions[0];
+        if (firstTransition) {
+          const transRes = await this.client.transitionTask(response.task.id, firstTransition.state).catch(() => null);
+          if (transRes?.success) {
+            this.availableTransitions = transRes.availableTransitions || [];
+            await this.executeTask(response.task, transRes.instructions);
+          } else {
+            // Transition failed — release and retry
+            await this.client.releaseTask(response.task.id).catch(() => {});
+            this.currentTaskId = null;
+            this.schedulePoll();
+          }
+        } else {
+          // No transitions available (shouldn't happen from next-work, but handle gracefully)
+          await this.executeTask(response.task, undefined);
         }
       } else {
         this.schedulePoll();
@@ -149,33 +164,73 @@ export class TeammateLoop {
     this.pollTimer = setTimeout(() => this.pollForWork(), POLL_INTERVAL_MS);
   }
 
-  private async executeTask(task: {
-    id: string;
-    storyId: string;
-    title: string;
-    description: string;
-    context?: string;
-    instructions?: string;
-  }, claimInstructions?: string): Promise<void> {
-    const instructions = claimInstructions || task.instructions;
+  /**
+   * Execute a task: build the prompt and send it to the Pi agent.
+   *
+   * Includes transition instructions, task description, lead comments
+   * (for rework context), and previous task results.
+   */
+  private async executeTask(
+    task: {
+      id: string;
+      storyId: string;
+      title: string;
+      description: string;
+      status?: string;
+      context?: string;
+      comments?: Array<{ from: string; body: string; at: string }>;
+    },
+    instructions?: string
+  ): Promise<void> {
     let prompt = ``;
+
+    // Transition instructions (from entering the new state)
     if (instructions) {
       prompt += `## Transition Instructions\n\n${instructions}\n\n---\n\n`;
     }
+
+    // Lead comments (feedback/rework context)
+    const leadComments = task.comments?.filter(c => c.from === "lead") || [];
+    if (leadComments.length > 0) {
+      const commentBodies = leadComments.map(c => `> ${c.body}`).join("\n\n");
+      prompt += `## Comments from Team Lead\n\n${commentBodies}\n\n---\n\n`;
+    }
+
+    // Task description
     prompt += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}`;
+
+    // Context from previous tasks in the story
     if (task.context) {
       prompt = `## Context from previous tasks:\n\n${task.context}\n\n---\n\n${prompt}`;
     }
+
     prompt += `\n\n---\n**Remember: you are working on task ${task.id}. Ignore any task IDs from earlier in this conversation.**`;
     prompt += `\nWhen you're done, provide a brief summary of what you accomplished.`;
     prompt += `\nIf you get stuck and need human guidance, say "NEEDS_INPUT:" followed by your question.`;
 
-    this.startMessageChecking(task.id);
+    // Start checking for new comments while working
+    this.startCommentChecking(task.id);
+
+    // Post status comment
     await this.client.postComment(task.id, `[status] Started working on this task.`).catch(() => {});
+
+    // Send to Pi agent — this triggers the agent loop
     this.pi.sendUserMessage(prompt, { deliverAs: "followUp" });
   }
 
-  /** Called by the agent_end handler when the agent finishes */
+  // ═══════════════════════════════════════════════════════════════════
+  // AGENT COMPLETION → TRANSITION → RELEASE
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Called by the agent_end handler when the Pi agent finishes.
+   *
+   * Handles the multi-transition model:
+   * 1. If NEEDS_INPUT → transition to blocked state, release, watch
+   * 2. Otherwise → transition to next state
+   *    - If more teammate transitions remain, deliver instructions and continue
+   *    - If no more transitions (or auto-released at done), release and watch
+   */
   async handleAgentComplete(lastMessage: string, tokenUsage?: {
     inputTokens: number;
     outputTokens: number;
@@ -185,7 +240,7 @@ export class TeammateLoop {
     if (!this.currentTaskId) return;
 
     const taskId = this.currentTaskId;
-    this.stopMessageChecking();
+    this.stopCommentChecking();
 
     // Report token usage
     if (tokenUsage && (tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0)) {
@@ -196,44 +251,146 @@ export class TeammateLoop {
       }).catch(() => {});
     }
 
-    // Check if agent is asking for help
+    // ─── NEEDS_INPUT: agent is stuck ─────────────────────────────────
     if (lastMessage.includes("NEEDS_INPUT:")) {
       const question = lastMessage.split("NEEDS_INPUT:").pop()?.trim() || "Need help with this task";
       await this.client.postComment(taskId, question);
-      // Try to transition to needs_input (or equivalent)
-      const blockedState = this.resolveTeammateTransition("in_progress", "needs_input");
-      await this.client.transitionTask(taskId, blockedState).catch(() => {});
-      this.lastCompletedTaskId = this.currentTaskId;
+
+      // Try to transition to a blocked/needs_input state if available
+      const blockedTransition = this.availableTransitions.find(
+        t => t.state.includes("needs_input") || t.state.includes("blocked")
+      ) || this.availableTransitions[0];
+
+      if (blockedTransition) {
+        await this.client.transitionTask(taskId, blockedTransition.state).catch(() => {});
+      }
+
+      // Release the task — lead needs to unblock
+      await this.client.releaseTask(taskId).catch(() => {});
+      this.lastCompletedTaskId = taskId;
       this.currentTaskId = null;
+      this.availableTransitions = [];
       this.watchTask(taskId);
       this.schedulePoll();
       return;
     }
 
-    // Task complete — post summary and advance state
+    // ─── Normal completion: advance to next state ────────────────────
     const summary = lastMessage.slice(0, 500);
     await this.client.postComment(taskId, `[done] Work complete. Summary:\n${summary}`).catch(() => {});
 
-    const reviewState = this.resolveTeammateTransition("in_progress", "review");
-    const transitionRes = await this.client.transitionTask(taskId, reviewState, summary).catch(() => null);
-    this.lastCompletedTaskId = this.currentTaskId;
-    this.currentTaskId = null;
+    // Transition to the next available state
+    const nextTransition = this.availableTransitions[0];
+    if (nextTransition) {
+      const transRes = await this.client.transitionTask(taskId, nextTransition.state, summary).catch(() => null);
 
-    // If there are transition instructions, deliver them
-    if (transitionRes?.instructions) {
-      this.pi.sendUserMessage(
-        `## Transition Instructions\n\n${transitionRes.instructions}`,
-        { deliverAs: "followUp" }
-      );
+      if (transRes?.success) {
+        // Was the task auto-released (reached done state)?
+        if (transRes.released) {
+          this.lastCompletedTaskId = taskId;
+          this.currentTaskId = null;
+          this.availableTransitions = [];
+          this.onTaskComplete?.(taskId, summary);
+          this.schedulePoll();
+          return;
+        }
+
+        // Update available transitions from the new state
+        this.availableTransitions = transRes.availableTransitions || [];
+
+        // If more teammate transitions are available, the agent can keep going
+        if (this.availableTransitions.length > 0 && transRes.instructions) {
+          // There are more states AND transition instructions — let the agent continue
+          this.startCommentChecking(taskId);
+          this.pi.sendUserMessage(
+            `## Transition Instructions\n\nYou've advanced the task to a new state. Here are the instructions for this phase:\n\n${transRes.instructions}\n\n---\nContinue working. When done with this phase, provide a brief summary.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
+            { deliverAs: "followUp" }
+          );
+          return; // Wait for next agent_end
+        }
+
+        // No more teammate transitions from this state — release
+        if (this.availableTransitions.length === 0) {
+          await this.client.releaseTask(taskId).catch(() => {});
+          this.lastCompletedTaskId = taskId;
+          this.currentTaskId = null;
+          this.onTaskComplete?.(taskId, summary);
+          this.watchTask(taskId);
+          this.schedulePoll();
+          return;
+        }
+
+        // Transitions available but no instructions — auto-advance without agent work
+        // (e.g., a pass-through state). Keep transitioning until blocked or done.
+        await this.autoAdvance(taskId, summary);
+        return;
+      }
     }
 
+    // No transitions available or transition failed — release
+    await this.client.releaseTask(taskId).catch(() => {});
+    this.lastCompletedTaskId = taskId;
+    this.currentTaskId = null;
+    this.availableTransitions = [];
     this.onTaskComplete?.(taskId, summary);
     this.watchTask(taskId);
     this.schedulePoll();
   }
 
-  // ─── Message watching (workflow-agnostic) ──────────────────────────
+  /**
+   * Auto-advance through transitions that don't have instructions.
+   * Keeps transitioning until we hit a state with instructions (needs agent work),
+   * no more transitions (release), or the task is auto-released (done).
+   */
+  private async autoAdvance(taskId: string, result: string): Promise<void> {
+    while (this.availableTransitions.length > 0) {
+      const next = this.availableTransitions[0];
+      const transRes = await this.client.transitionTask(taskId, next.state, result).catch(() => null);
 
+      if (!transRes?.success) break;
+
+      if (transRes.released) {
+        this.lastCompletedTaskId = taskId;
+        this.currentTaskId = null;
+        this.availableTransitions = [];
+        this.onTaskComplete?.(taskId, result);
+        this.schedulePoll();
+        return;
+      }
+
+      this.availableTransitions = transRes.availableTransitions || [];
+
+      // If the new state has instructions, let the agent handle it
+      if (transRes.instructions && this.availableTransitions.length > 0) {
+        this.startCommentChecking(taskId);
+        this.pi.sendUserMessage(
+          `## Transition Instructions\n\nYou've advanced the task to a new state. Here are the instructions for this phase:\n\n${transRes.instructions}\n\n---\nContinue working. When done with this phase, provide a brief summary.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
+          { deliverAs: "followUp" }
+        );
+        return;
+      }
+    }
+
+    // No more transitions — release
+    await this.client.releaseTask(taskId).catch(() => {});
+    this.lastCompletedTaskId = taskId;
+    this.currentTaskId = null;
+    this.availableTransitions = [];
+    this.onTaskComplete?.(taskId, result);
+    this.watchTask(taskId);
+    this.schedulePoll();
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // COMMENT WATCHING (while working + after release)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Start watching a released task for new lead comments.
+   * If the lead posts new comments (feedback, sends it back), the task
+   * will reappear on next-work and we'll pick it up again naturally
+   * through the normal poll cycle.
+   */
   private async watchTask(taskId: string): Promise<void> {
     try {
       const res = await this.client.getComments(taskId);
@@ -243,6 +400,12 @@ export class TeammateLoop {
     }
   }
 
+  /**
+   * Periodic check on released tasks. If the task reappears on next-work
+   * with new comments, it will be picked up by pollForWork. This loop
+   * provides an additional fast-path: if we see new lead comments on a
+   * watched task, we can proactively try to claim it.
+   */
   private startWatchLoop(): void {
     this.watchTimer = setInterval(async () => {
       if (!this.running || !this.autonomous || this.currentTaskId) return;
@@ -254,52 +417,59 @@ export class TeammateLoop {
 
           if (comments.length > baseCount) {
             const newComments = comments.slice(baseCount);
-            const leadComments = newComments.filter(m => m.from === "lead");
+            const leadComments = newComments.filter(c => c.from === "lead");
 
             if (leadComments.length > 0) {
-              const feedback = leadComments.map(m => m.body).join("\n\n");
-              this.currentTaskId = taskId;
-              this.watchedTasks.delete(taskId);
-              this.startMessageChecking(taskId);
-              await this.client.postComment(taskId, `[status] Addressing lead's feedback.`).catch(() => {});
+              // Lead posted feedback — try to claim and work on it.
+              // The task should appear on next-work if the lead moved it back.
+              // Update the baseline so we don't re-trigger on same comments.
+              this.watchedTasks.set(taskId, comments.length);
 
-              this.pi.sendUserMessage(
-                `## Message from Team Lead\n\nThe lead sent feedback on a task you worked on:\n\n"${feedback}"\n\nPlease address this and provide a summary when done.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
-                { deliverAs: "followUp" }
-              );
+              // Trigger an immediate poll to pick it up via normal flow
+              if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
+              this.pollForWork();
               return;
             } else {
+              // Non-lead comments (our own status updates) — update baseline
               this.watchedTasks.set(taskId, comments.length);
             }
           }
         } catch {
-          // Server unreachable
+          // Daemon unreachable — try next cycle
         }
       }
     }, WATCH_INTERVAL_MS);
   }
 
-  private startMessageChecking(taskId: string): void {
-    this.stopMessageChecking();
+  /**
+   * Start periodically checking for new lead comments while actively working.
+   * If the lead posts a comment while we're mid-task, deliver it to the agent
+   * as guidance.
+   */
+  private startCommentChecking(taskId: string): void {
+    this.stopCommentChecking();
+
+    // Initialize with current comment count
     this.client.getComments(taskId).then(res => {
       this.lastSeenCommentCount = res.comments.length;
     }).catch(() => { this.lastSeenCommentCount = 0; });
 
-    this.messageCheckTimer = setInterval(async () => {
+    this.commentCheckTimer = setInterval(async () => {
       if (!this.currentTaskId || this.currentTaskId !== taskId) {
-        this.stopMessageChecking();
+        this.stopCommentChecking();
         return;
       }
       try {
         const res = await this.client.getComments(taskId);
         const comments = res.comments;
+
         if (comments.length > this.lastSeenCommentCount) {
           const newComments = comments.slice(this.lastSeenCommentCount);
-          const leadComments = newComments.filter(m => m.from === "lead");
+          const leadComments = newComments.filter(c => c.from === "lead");
           this.lastSeenCommentCount = comments.length;
 
           if (leadComments.length > 0) {
-            const bodies = leadComments.map(m => m.body).join("\n\n");
+            const bodies = leadComments.map(c => c.body).join("\n\n");
             this.pi.sendUserMessage(
               `## Message from team lead\n\nThe lead sent you a message while you're working:\n\n"${bodies}"\n\nTake this into account as you continue your work. Acknowledge briefly and continue.`,
               { deliverAs: "followUp" }
@@ -307,15 +477,16 @@ export class TeammateLoop {
           }
         }
       } catch {
-        // Server unreachable
+        // Daemon unreachable — skip this check
       }
-    }, MESSAGE_CHECK_INTERVAL_MS);
+    }, COMMENT_CHECK_INTERVAL_MS);
   }
 
-  private stopMessageChecking(): void {
-    if (this.messageCheckTimer) {
-      clearInterval(this.messageCheckTimer);
-      this.messageCheckTimer = null;
+  /** Stop the comment checking interval */
+  private stopCommentChecking(): void {
+    if (this.commentCheckTimer) {
+      clearInterval(this.commentCheckTimer);
+      this.commentCheckTimer = null;
     }
   }
 }

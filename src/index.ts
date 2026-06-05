@@ -112,10 +112,8 @@ async function setupTeammateRole(
   }
 
   // Register with daemon
-  let workflows: Record<string, any> = {};
   try {
-    const regRes = await client.register({ name: memberId, cwd });
-    if (regRes.config?.workflows) workflows = regRes.config.workflows;
+    await client.register({ name: memberId, cwd });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register — will keep trying via polling`, "warning");
@@ -124,12 +122,6 @@ async function setupTeammateRole(
 
   // Create work loop
   const loop = new TeammateLoop(pi, client);
-
-  // Set workflow if received
-  const firstWfName = Object.keys(workflows)[0];
-  if (firstWfName && workflows[firstWfName]) {
-    loop.setWorkflow(workflows[firstWfName]);
-  }
 
   // Register tools (with upload_attachment for teammates)
   registerTools(pi, client, {
