@@ -1,23 +1,25 @@
 // pi-pizza-team extension entry point
 //
-// Role detection logic:
-// 1. If .pi-pizza-team/config.json exists in cwd → Team Lead
-//    - Loads SQLite store, starts HTTP server, registers commands
-// 2. If --ppt-worker flag + --ppt-lead URL → Teammate (auto-start)
-//    - Connects to leader API, starts work loop
-// 3. If PI_TEAM_LEADER_URL env var set → Teammate (prompts to join)
-// 4. Otherwise → Inactive (only /ppt-init available)
+// Role detection logic (simplified for daemon architecture):
+// 1. If --ppt-lead flag → Team Lead
+//    - Registers with daemon, polls spawn requests, manages tmux
+// 2. If --ppt-worker flag → Teammate (autonomous agent)
+//    - Connects to daemon, starts work loop
+// 3. If --ppt-assistant flag → Assistant (queue processor)
+//    - Connects to daemon, polls assistant queue
+// 4. Otherwise → Inactive
+//
+// All roles communicate with the my-pizza-team daemon via HTTP.
+// The daemon URL is configured via --ppt-daemon (default: http://localhost:7437).
 //
 // See docs/ARCHITECTURE.md for the full module map and data flow.
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { TEAM_DIR, CONFIG_FILE, type TeamConfig, DEFAULT_CONFIG, getDoneState } from "./shared/types.js";
+import { DEFAULT_DAEMON_URL } from "./shared/types.js";
+import { DaemonClient } from "./client.js";
 
 export default function (pi: ExtensionAPI) {
-  // --- Role Detection ---
+  // --- Flag Registration ---
 
-  // Check CLI flags for teammate mode
   pi.registerFlag("ppt-worker", {
     description: "Run as a pi-pizza-team teammate",
     type: "boolean",
@@ -25,13 +27,13 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerFlag("ppt-lead", {
-    description: "Team lead URL to connect to",
-    type: "string",
-    default: "",
+    description: "Run as the pi-pizza-team leader",
+    type: "boolean",
+    default: false,
   });
 
   pi.registerFlag("ppt-name", {
-    description: "Teammate name",
+    description: "Agent name (for teammate/assistant)",
     type: "string",
     default: "",
   });
@@ -42,336 +44,124 @@ export default function (pi: ExtensionAPI) {
     default: false,
   });
 
+  pi.registerFlag("ppt-daemon", {
+    description: "Daemon URL (default: http://localhost:7437)",
+    type: "string",
+    default: DEFAULT_DAEMON_URL,
+  });
+
   pi.on("session_start", async (_event, ctx) => {
     const cwd = ctx.cwd;
-    const teamDir = path.join(cwd, TEAM_DIR);
-    const configFile = path.join(teamDir, CONFIG_FILE);
 
-    const isTeamWorkerFlag = pi.getFlag("ppt-worker") as boolean;
-    const isAssistantFlag = pi.getFlag("ppt-assistant") as boolean;
-    const teamLeadUrl = (pi.getFlag("ppt-lead") as string) || process.env.PI_TEAM_LEADER_URL || "";
-    const teamName = (pi.getFlag("ppt-name") as string) || "";
+    const isWorker = pi.getFlag("ppt-worker") as boolean;
+    const isLead = pi.getFlag("ppt-lead") as boolean;
+    const isAssistant = pi.getFlag("ppt-assistant") as boolean;
+    const daemonUrl = (pi.getFlag("ppt-daemon") as string) || DEFAULT_DAEMON_URL;
+    const agentName = (pi.getFlag("ppt-name") as string) || "";
 
-    // --- ASSISTANT ROLE (must check before lead, since it runs in the leader's cwd) ---
-    if (isAssistantFlag && teamLeadUrl) {
-      await setupAssistant(pi, ctx, teamLeadUrl, cwd);
+    // No role selected — extension is inactive
+    if (!isWorker && !isLead && !isAssistant) {
       return;
     }
 
-    // --- TEAM LEAD ROLE ---
-    if (fs.existsSync(configFile)) {
-      await setupTeamLead(pi, ctx, teamDir, configFile);
+    // ─── LEADER ROLE ───────────────────────────────────────────────
+
+    if (isLead) {
+      const client = new DaemonClient(daemonUrl, "leader");
+      const { setupLeader } = await import("./leader.js");
+      await setupLeader(pi, ctx, client, cwd);
       return;
     }
 
-    // --- TEAMMATE ROLE (explicit flag) ---
-    if (isTeamWorkerFlag && teamLeadUrl) {
-      await setupTeammate(pi, ctx, teamLeadUrl, teamName, cwd);
+    // ─── ASSISTANT ROLE ────────────────────────────────────────────
+
+    if (isAssistant) {
+      const memberId = "assistant";
+      const client = new DaemonClient(daemonUrl, memberId);
+      await setupAssistantRole(pi, ctx, client, cwd);
       return;
     }
 
-    // --- TEAMMATE ROLE (auto-detect via env var) ---
-    if (teamLeadUrl) {
-      if (ctx.hasUI) {
-        const join = await ctx.ui.confirm(
-          "🍕 pi-pizza-team",
-          `Team lead detected at ${teamLeadUrl}. Join the team?`
-        );
-        if (join) {
-          await setupTeammate(pi, ctx, teamLeadUrl, teamName, cwd);
-        }
-      }
+    // ─── TEAMMATE ROLE ─────────────────────────────────────────────
+
+    if (isWorker) {
+      const memberId = agentName || process.env.TMUX_PANE || `teammate-${Date.now()}`;
+      const client = new DaemonClient(daemonUrl, memberId);
+      await setupTeammateRole(pi, ctx, client, memberId, cwd);
       return;
     }
-
-    // Neither lead nor teammate — extension is loaded but inactive
-    // Register ppt-init so they can initialize a board
-    const { registerLeadCommands } = await import("./lead/commands.js");
-    // Only register ppt-init in this case
-    pi.registerCommand("ppt-init", {
-      description: "Initialize current directory as a pi-pizza-team board",
-      handler: async (_args, cmdCtx) => {
-        fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-        fs.mkdirSync(path.join(teamDir, "notes"), { recursive: true });
-
-        // Write a clean config with all current fields
-        const configToWrite = {
-          port: DEFAULT_CONFIG.port,
-          tmuxSession: DEFAULT_CONFIG.tmuxSession,
-          defaultWorkflow: DEFAULT_CONFIG.defaultWorkflow,
-          workflows: DEFAULT_CONFIG.workflows,
-          autosave: DEFAULT_CONFIG.autosave,
-          leaderUrl: DEFAULT_CONFIG.leaderUrl,
-          maxTeammates: DEFAULT_CONFIG.maxTeammates,
-          categories: DEFAULT_CONFIG.categories,
-        };
-        fs.writeFileSync(
-          path.join(teamDir, "config.json"),
-          JSON.stringify(configToWrite, null, 2) + "\n"
-        );
-        fs.writeFileSync(
-          path.join(teamDir, ".gitignore"),
-          "state.db\nstate.db-wal\nstate.db-shm\n"
-        );
-        cmdCtx.ui.notify("✓ Initialized .pi-pizza-team/ — your kanban board is ready! 🍕\nRestart Pi to activate team lead mode.", "info");
-      },
-    });
   });
-}
-
-// --- Team Lead Setup ---
-async function setupTeamLead(
-  pi: ExtensionAPI,
-  ctx: any,
-  teamDir: string,
-  configFile: string
-): Promise<void> {
-  const { Store } = await import("./lead/store.js");
-  const { TeamServer } = await import("./lead/server.js");
-  const { registerLeadCommands } = await import("./lead/commands.js");
-
-  // Load config
-  const configData = JSON.parse(fs.readFileSync(configFile, "utf-8"));
-  const config: TeamConfig = { ...DEFAULT_CONFIG, ...configData };
-
-  // Migrate legacy single-workflow config to named workflows
-  if (configData.workflow && !configData.workflows) {
-    config.workflows = { default: configData.workflow };
-    config.defaultWorkflow = "default";
-  }
-
-  // Initialize store
-  const store = new Store(teamDir, config);
-  store.loadFromDisk();
-  store.startTimers();
-
-  // Start HTTP server
-  const server = new TeamServer(store, config, teamDir);
-  await server.start();
-
-  // Register commands
-  registerLeadCommands(
-    pi,
-    () => store,
-    () => server,
-    () => config,
-    teamDir
-  );
-
-  // Register LLM tools
-  const { registerLeadTools } = await import("./lead/tools.js");
-  registerLeadTools(
-    pi,
-    () => store,
-    () => config,
-    teamDir
-  );
-
-  // Status widget
-  const updateWidget = () => {
-    const stories = store.getStories();
-    const members = store.getMembers();
-    const inbox = store.getInboxTasks();
-    const allTasks = stories.flatMap((s) => store.getTasksForStory(s.id));
-    let doneTasks = 0;
-    for (const story of stories) {
-      const tasks = store.getTasksForStory(story.id);
-      const wf = store.getWorkflowForStory(story.id);
-      doneTasks += tasks.filter((t) => t.status === getDoneState(wf)).length;
-    }
-
-    const memberStatus = members
-      .map((m) => {
-        const assignment = store.getAssignmentForMember(m.id);
-        return assignment ? `${m.name} 🔨` : `${m.name} ☕`;
-      })
-      .join(" • ");
-
-    const parts = [`🍕 ${doneTasks}/${allTasks.length} tasks done`];
-    if (memberStatus) parts.push(memberStatus);
-    if (inbox.length > 0) {
-      const unread = inbox.filter((t) => store.hasUnreadMessages(t.id)).length;
-      parts.push(`📬 ${unread > 0 ? unread + " unread" : inbox.length + " inbox"}`);
-    }
-
-    ctx.ui.setWidget("pi-pizza-team", [parts.join(" • ")]);
-  };
-
-  updateWidget();
-  const widgetInterval = setInterval(updateWidget, 10000);
-
-  // Cleanup on shutdown
-  pi.on("session_shutdown", async () => {
-    clearInterval(widgetInterval);
-    await server.stop();
-    store.close();
-  });
-
-  if (ctx.hasUI) {
-    ctx.ui.notify(`🍕 pi-pizza-team lead active on port ${config.port}`, "info");
-  }
 }
 
 // --- Teammate Setup ---
-async function setupTeammate(
+async function setupTeammateRole(
   pi: ExtensionAPI,
   ctx: any,
-  leaderUrl: string,
-  name: string,
+  client: DaemonClient,
+  memberId: string,
   cwd: string
 ): Promise<void> {
-  const { TeamClient } = await import("./teammate/client.js");
-  const { WorkLoop } = await import("./teammate/loop.js");
-  const { registerPermissionBypass } = await import("./teammate/permissions.js");
+  const { TeammateLoop } = await import("./teammate.js");
+  const { registerPermissionBypass, updatePermissionConfig } = await import("./permissions.js");
+  const { registerTools } = await import("./tools.js");
 
-  // Determine identity
-  const memberId = name || process.env.TMUX_PANE || `teammate-${Date.now()}`;
-  const tmuxWindow = process.env.TMUX_PANE || memberId;
-
-  // Create client and join
-  const client = new TeamClient(leaderUrl, memberId);
-
-  // Check if server is reachable
+  // Check daemon reachability
   const serverUp = await client.checkServer();
-  if (!serverUp) {
-    if (ctx.hasUI) {
-      ctx.ui.notify(`🍕 Cannot reach team lead at ${leaderUrl} — will retry...`, "warning");
-    }
+  if (!serverUp && ctx.hasUI) {
+    ctx.ui.notify(`🍕 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Join the team (retry-tolerant)
-  let joinedWorkflows: Record<string, any> = {};
+  // Register with daemon
+  let workflows: Record<string, any> = {};
   try {
-    const joinRes = await client.join(memberId, cwd, tmuxWindow);
-    if (joinRes.config?.workflows) {
-      joinedWorkflows = joinRes.config.workflows;
-    }
+    const regRes = await client.register(memberId, cwd, "teammate");
+    if (regRes.config?.workflows) workflows = regRes.config.workflows;
   } catch {
     if (ctx.hasUI) {
-      ctx.ui.notify(`🍕 Failed to join team — will keep trying via polling`, "warning");
+      ctx.ui.notify(`🍕 Failed to register — will keep trying via polling`, "warning");
     }
   }
 
-  // Register search_memory tool for teammates
-  const { Type: TeammateType } = await import("typebox");
-  pi.registerTool({
-    name: "search_memory",
-    label: "Search Memory",
-    description: "Search the team's memory by keyword. Can filter by category.",
-    promptSnippet: "Search team memory for relevant information",
-    promptGuidelines: [
-      "Use search_memory to find relevant context, conventions, or research from the team's knowledge base.",
-      "Search within a specific category for more targeted results (e.g. 'coding', 'research', 'doc-writing').",
-    ],
-    parameters: TeammateType.Object({
-      query: TeammateType.String({ description: "Search query (keywords)" }),
-      category: TeammateType.Optional(TeammateType.String({ description: "Category to search within (optional)" })),
-      limit: TeammateType.Optional(TeammateType.Number({ description: "Max results (default: 5)" })),
-    }),
-    async execute(_toolCallId, params) {
-      try {
-        const url = `${leaderUrl}/api/assistant/notes/search?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ""}${params.limit ? `&limit=${params.limit}` : ""}`;
-        const res = await fetch(url);
-        const data = await res.json() as any;
-        const results = data.results || [];
-        if (results.length === 0) {
-          return { content: [{ type: "text", text: "No matching memories found." }] };
-        }
-        const formatted = results.map((r: any) => `- **${r.title}** (score: ${r.score}) \u2014 ${r.snippet}`).join("\n");
-        return {
-          content: [{ type: "text", text: `Found ${results.length} memories:\n${formatted}` }],
-          details: { results },
-        };
-      } catch {
-        return { content: [{ type: "text", text: "Failed to search memory (leader unreachable)." }] };
-      }
-    },
-  });
-
-  // Register upload_attachment tool for teammates
-  pi.registerTool({
-    name: "upload_attachment",
-    label: "Upload Attachment",
-    description: "Upload a file as an attachment to a task. For large files (>10KB), write to disk first and pass filePath instead of content.",
-    promptSnippet: "Upload a file to the current task",
-    promptGuidelines: [
-      "Use upload_attachment when transition instructions ask you to provide a diff or other file for review.",
-      "For LARGE files (>10KB like diffs): write the file to disk first (e.g. `git diff main > /tmp/changes.diff`), then use the filePath parameter.",
-      "For SMALL files: you can pass content directly as a string.",
-      "You MUST provide either 'content' OR 'filePath' (not both).",
-      "The lead will be able to view the file and provide inline comments.",
-    ],
-    parameters: TeammateType.Object({
-      filename: TeammateType.String({ description: "Filename with extension (e.g. 'changes.diff', 'design.md')" }),
-      content: TeammateType.Optional(TeammateType.String({ description: "File content as text (for small files <10KB)" })),
-      filePath: TeammateType.Optional(TeammateType.String({ description: "Absolute path to a file on disk to upload (for large files)" })),
-      message: TeammateType.Optional(TeammateType.String({ description: "Optional message to post alongside the attachment" })),
-      taskId: TeammateType.Optional(TeammateType.String({ description: "Task ID to attach to (defaults to current or most recent task)" })),
-    }),
-    async execute(_toolCallId, params) {
-      try {
-        const taskId = params.taskId || loop.currentTask || loop.lastTask;
-        if (!taskId) return { content: [{ type: "text", text: "No task to attach file to. Specify a taskId parameter." }] };
-
-        // Resolve file content from either content string or file path
-        let fileContent: string;
-        if (params.filePath) {
-          const fs = require("node:fs");
-          if (!fs.existsSync(params.filePath)) {
-            return { content: [{ type: "text", text: `File not found: ${params.filePath}` }] };
-          }
-          fileContent = fs.readFileSync(params.filePath, "utf-8");
-        } else if (params.content) {
-          fileContent = params.content;
-        } else {
-          return { content: [{ type: "text", text: "Provide either 'content' or 'filePath'." }] };
-        }
-
-        // Upload the file
-        const uploadRes = await fetch(`${leaderUrl}/api/tasks/${encodeURIComponent(taskId)}/attachments`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: params.filename, content: fileContent, encoding: "utf-8" }),
-        });
-        const uploadData = await uploadRes.json() as any;
-        if (!uploadData.success) throw new Error(uploadData.error || "Upload failed");
-
-        // Post a message referencing the attachment
-        const msgBody = params.message || `Attached ${params.filename} for review.`;
-        await fetch(`${leaderUrl}/api/tasks/${encodeURIComponent(taskId)}/message`, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            from: memberId,
-            body: msgBody,
-            attachments: [{ name: params.filename, size: fileContent.length, type: uploadData.type || "other" }],
-          }),
-        });
-
-        return { content: [{ type: "text", text: `Uploaded ${params.filename} (${fileContent.length} bytes) and posted message.` }] };
-      } catch (e: any) {
-        return { content: [{ type: "text", text: `Failed to upload: ${e.message}` }] };
-      }
-    },
-  });
-
   // Create work loop
-  const loop = new WorkLoop(pi, client, memberId);
+  const loop = new TeammateLoop(pi, client);
 
-  // Set default workflow if we got one from join
-  const defaultWfName = Object.keys(joinedWorkflows)[0];
-  if (defaultWfName && joinedWorkflows[defaultWfName]) {
-    loop.setWorkflow(joinedWorkflows[defaultWfName]);
+  // Set workflow if received
+  const firstWfName = Object.keys(workflows)[0];
+  if (firstWfName && workflows[firstWfName]) {
+    loop.setWorkflow(workflows[firstWfName]);
   }
 
-  // Permission bypass (toggles yoloMode based on autonomous vs pairing)
-  registerPermissionBypass(pi, () => loop, cwd);
+  // Register tools (with upload_attachment for teammates)
+  registerTools(pi, client, {
+    canUpload: true,
+    getCurrentTaskId: () => loop.currentTask || loop.lastTask,
+  });
 
-  // Listen for agent completion to capture results
+  // Permission bypass
+  registerPermissionBypass(
+    pi,
+    () => loop.isAutonomous,
+    () => {
+      loop.pause();
+      if (ctx.hasUI) {
+        ctx.ui.setWidget("pi-pizza-team", ["🍕 pairing mode — autonomous work paused"]);
+        ctx.ui.notify("🍕 Autonomous work paused — you're now pairing. Use /ppt-worker-resume when done.", "info");
+      }
+    },
+    cwd
+  );
+
+  // Store permission toggler on the loop
+  const path = await import("node:path");
+  const configPath = path.join(cwd, ".pi/extensions/pi-permission-system/config.json");
+  loop.setAutonomousPermissions = (autonomous: boolean) => {
+    updatePermissionConfig(configPath, autonomous);
+  };
+
+  // Listen for agent completion
   pi.on("agent_end", async (event) => {
     if (!loop.isAutonomous || !loop.currentTask) return;
 
-    // Extract last assistant message
     const messages = event.messages || [];
     let lastAssistantText = "";
     let totalInputTokens = 0;
@@ -382,7 +172,6 @@ async function setupTeammate(
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role === "assistant") {
-        // Accumulate token usage from all assistant turns
         if (msg.usage) {
           totalInputTokens += msg.usage.input || 0;
           totalOutputTokens += msg.usage.output || 0;
@@ -391,10 +180,7 @@ async function setupTeammate(
         if (msg.model && model === "unknown") model = msg.model;
         if (!lastAssistantText) {
           for (const part of msg.content) {
-            if (part.type === "text") {
-              lastAssistantText = part.text;
-              break;
-            }
+            if (part.type === "text") { lastAssistantText = part.text; break; }
           }
         }
       }
@@ -408,28 +194,12 @@ async function setupTeammate(
     });
   });
 
-  // Detect interactive input to pause autonomous work
-  pi.on("input", async (event) => {
-    if (event.source === "interactive" && loop.isAutonomous) {
-      loop.pause();
-      // Permission config is toggled by permissions.ts input handler
-      if (ctx.hasUI) {
-        ctx.ui.setWidget("pi-pizza-team", ["🍕 pairing mode — autonomous work paused"]);
-        ctx.ui.notify("🍕 Autonomous work paused — you're now pairing. Use /ppt-worker-resume when done.", "info");
-      }
-    }
-    return { action: "continue" as const };
-  });
-
   // Command to resume autonomous work after pairing
   pi.registerCommand("ppt-worker-resume", {
     description: "Resume autonomous work after pairing session",
     handler: async (_args) => {
       loop.resume();
-      // Re-enable yoloMode for autonomous work
-      if ((loop as any)._setAutonomousPermissions) {
-        (loop as any)._setAutonomousPermissions(true);
-      }
+      loop.setAutonomousPermissions?.(true);
       if (ctx.hasUI) {
         ctx.ui.setWidget("pi-pizza-team", ["🍕 autonomous mode — waiting for work..."]);
         ctx.ui.notify("🍕 Resuming autonomous work", "info");
@@ -441,20 +211,16 @@ async function setupTeammate(
   loop.resume();
   await loop.start();
 
-  // Track task timing for widget
+  // Widget update
   let taskStartedAt: number | null = null;
   let completedTasks = 0;
-  const originalOnComplete = loop.onTaskComplete;
-  loop.onTaskComplete = (taskId, result) => {
+  loop.onTaskComplete = (_taskId, _result) => {
     completedTasks++;
     taskStartedAt = null;
-    originalOnComplete?.(taskId, result);
   };
 
-  // Widget update interval
-  const updateTeammateWidget = () => {
-    if (!ctx.hasUI) return;
-    if (!loop.isAutonomous) return; // pairing mode handled separately
+  const updateWidget = () => {
+    if (!ctx.hasUI || !loop.isAutonomous) return;
     if (loop.currentTask) {
       if (!taskStartedAt) taskStartedAt = Date.now();
       const elapsed = Math.round((Date.now() - taskStartedAt) / 60000);
@@ -464,9 +230,8 @@ async function setupTeammate(
       ctx.ui.setWidget("pi-pizza-team", ["🍕 waiting for work..."]);
     }
   };
-  const teammateWidgetInterval = setInterval(updateTeammateWidget, 5000);
+  const widgetInterval = setInterval(updateWidget, 5000);
 
-  // Widget
   if (ctx.hasUI) {
     ctx.ui.setWidget("pi-pizza-team", ["🍕 teammate ready — waiting for work..."]);
     ctx.ui.setStatus("pi-pizza-team", `🍕 ${memberId}`);
@@ -474,157 +239,64 @@ async function setupTeammate(
 
   // /ppt-worker-status
   pi.registerCommand("ppt-worker-status", {
-    description: "Show current teammate status and history",
+    description: "Show current teammate status",
     handler: async (_args) => {
-      let output = `🍕 Teammate: ${memberId}\n`;
-      output += `Mode: ${loop.isAutonomous ? "autonomous" : "pairing"}\n\n`;
-
+      let output = `🍕 Teammate: ${memberId}\nMode: ${loop.isAutonomous ? "autonomous" : "pairing"}\n\n`;
       if (loop.currentTask) {
         const elapsed = taskStartedAt ? Math.round((Date.now() - taskStartedAt) / 60000) : 0;
-        output += `🔨 Current task: ${loop.currentTask}\n`;
-        output += `   Duration: ${elapsed}m\n\n`;
+        output += `🔨 Current task: ${loop.currentTask} (${elapsed}m)\n`;
       } else {
-        output += `☕ No active task (waiting for work)\n\n`;
+        output += `☕ No active task (waiting for work)\n`;
       }
-
-      output += `✓ Tasks completed this session: ${completedTasks}\n`;
-
+      output += `\n✓ Tasks completed this session: ${completedTasks}\n`;
       if (ctx.hasUI) ctx.ui.notify(output, "info");
     },
   });
 
   // Cleanup
   pi.on("session_shutdown", async () => {
-    clearInterval(teammateWidgetInterval);
+    clearInterval(widgetInterval);
     loop.stop();
     await client.heartbeat("idle");
   });
 }
 
 // --- Assistant Setup ---
-async function setupAssistant(
+async function setupAssistantRole(
   pi: ExtensionAPI,
   ctx: any,
-  leaderUrl: string,
+  client: DaemonClient,
   cwd: string
 ): Promise<void> {
-  const { AssistantClient } = await import("./assistant/client.js");
-  const { AssistantLoop } = await import("./assistant/loop.js");
+  const { AssistantLoop } = await import("./assistant.js");
+  const { registerTools } = await import("./tools.js");
 
-  const memberId = "assistant";
-  const client = new AssistantClient(leaderUrl, memberId);
-
-  // Check server reachability
+  // Check daemon reachability
   const serverUp = await client.checkServer();
   if (!serverUp && ctx.hasUI) {
-    ctx.ui.notify(`🤖 Cannot reach team lead at ${leaderUrl} — will retry...`, "warning");
+    ctx.ui.notify(`🤖 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Join the team as the assistant
+  // Register with daemon
   try {
-    await client.join(cwd);
+    await client.register("assistant", cwd, "assistant");
   } catch {
     if (ctx.hasUI) {
-      ctx.ui.notify(`🤖 Failed to join team — will keep trying via polling`, "warning");
+      ctx.ui.notify(`🤖 Failed to register — will keep trying via polling`, "warning");
     }
   }
 
-  // Register leader tools so the assistant can create stories, tasks, etc.
-  // These proxy to the leader's API via the same tools the leader uses,
-  // but since we're in the leader's cwd, we load the store tools.
-  const teamDir = path.join(cwd, TEAM_DIR);
-  const configFile = path.join(teamDir, CONFIG_FILE);
-  if (fs.existsSync(configFile)) {
-    const configData = JSON.parse(fs.readFileSync(configFile, "utf-8"));
-    const { Store } = await import("./lead/store.js");
-    const config: TeamConfig = { ...DEFAULT_CONFIG, ...configData };
-    if (configData.workflow && !configData.workflows) {
-      config.workflows = { default: configData.workflow };
-      config.defaultWorkflow = "default";
-    }
-    const store = new Store(teamDir, config);
-    store.loadFromDisk();
-
-    const { registerLeadTools } = await import("./lead/tools.js");
-    registerLeadTools(pi, () => store, () => config, teamDir);
-
-    // Cleanup store on shutdown
-    pi.on("session_shutdown", async () => {
-      store.close();
-    });
-  }
-
-  // Fetch configured categories to embed in tool descriptions
-  const { DEFAULT_CATEGORIES } = await import("./shared/types.js");
-  let configuredCategories: string[] = DEFAULT_CATEGORIES;
+  // Fetch categories from daemon config
+  let categories: string[] = ["coding", "research", "doc-writing"];
   try {
-    const catRes = await fetch(`${leaderUrl}/api/assistant/categories`);
-    const catData = await catRes.json() as any;
-    if (catData.configured && catData.configured.length > 0) configuredCategories = catData.configured;
+    const config = await client.getConfig();
+    if (config.categories?.length) categories = config.categories;
   } catch { /* use defaults */ }
-  const categoryList = configuredCategories.join(", ");
 
-  // Register a save_memory tool for the assistant
-  const { Type } = await import("typebox");
-  pi.registerTool({
-    name: "save_memory",
-    label: "Save Memory",
-    description: `Save a memory to the team's memory. IMPORTANT: You MUST specify at least one category from: [${categoryList}]. Notes without categories are hard to find.`,
-    promptSnippet: "Save a memory for the team",
-    promptGuidelines: [
-      "Use save_memory to persist information, research, decisions, or context for the team.",
-      "Memories are stored as markdown files and visible on the Memory page.",
-      `You MUST always include the 'categories' parameter. Available categories: ${categoryList}`,
-      "Pick the most relevant category(ies) for the content being saved.",
-    ],
-    parameters: Type.Object({
-      title: Type.String({ description: "Title for the note" }),
-      content: Type.String({ description: "Markdown content of the note" }),
-      categories: Type.Array(Type.String(), { description: `Categories for the note. REQUIRED. Choose from: ${categoryList}` }),
-    }),
-    async execute(_toolCallId, params) {
-      // Ensure categories are always set (fallback to first configured if empty)
-      const cats = params.categories && params.categories.length > 0
-        ? params.categories
-        : [configuredCategories[0]];
-      const result = await client.saveNote(params.title, params.content, cats);
-      if (!result.success) throw new Error(result.error || "Failed to save memory");
-      return {
-        content: [{ type: "text", text: `Saved memory: "${params.title}" [${cats.join(", ")}]` }],
-        details: { noteId: result.note?.id },
-      };
-    },
-  });
-
-  // Register a search_memory tool for the assistant
-  pi.registerTool({
-    name: "search_memory",
-    label: "Search Memory",
-    description: "Search the team's memory by keyword. Can filter by category.",
-    promptSnippet: "Search team memory for relevant information",
-    promptGuidelines: [
-      "Use search_memory to find relevant memories/context before working on a task.",
-      "Search within a specific category for more targeted results.",
-      "Available categories are configured per-team (typically: coding, research, doc-writing).",
-    ],
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query (keywords)" }),
-      category: Type.Optional(Type.String({ description: "Category to search within (optional, searches all if omitted)" })),
-      limit: Type.Optional(Type.Number({ description: "Max results to return (default: 5)" })),
-    }),
-    async execute(_toolCallId, params) {
-      const res = await fetch(`${leaderUrl}/api/assistant/notes/search?q=${encodeURIComponent(params.query)}${params.category ? `&category=${encodeURIComponent(params.category)}` : ""}${params.limit ? `&limit=${params.limit}` : ""}`);
-      const data = await res.json() as any;
-      const results = data.results || [];
-      if (results.length === 0) {
-        return { content: [{ type: "text", text: "No matching memories found." }] };
-      }
-      const formatted = results.map((r: any) => `- **${r.title}** (score: ${r.score}) — ${r.snippet}`).join("\n");
-      return {
-        content: [{ type: "text", text: `Found ${results.length} memories:\n${formatted}` }],
-        details: { results },
-      };
-    },
+  // Register tools (with save_memory for assistant)
+  registerTools(pi, client, {
+    canSaveMemory: true,
+    categories,
   });
 
   // Create the work loop
@@ -640,10 +312,7 @@ async function setupAssistant(
       const msg = messages[i];
       if (msg.role === "assistant") {
         for (const part of msg.content) {
-          if (part.type === "text") {
-            lastAssistantText = part.text;
-            break;
-          }
+          if (part.type === "text") { lastAssistantText = part.text; break; }
         }
         if (lastAssistantText) break;
       }
@@ -655,7 +324,6 @@ async function setupAssistant(
   // Start the loop
   await loop.start();
 
-  // Widget
   if (ctx.hasUI) {
     ctx.ui.setWidget("pi-pizza-team", ["🤖 assistant ready — waiting for requests..."]);
     ctx.ui.setStatus("pi-pizza-team", "🤖 assistant");

@@ -1,6 +1,6 @@
 {
   "name": "pi-pizza-team",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Multi-Pi task orchestration — a π pizza team (3.14 pizzas, the perfect size 🍕)",
   "keywords": [
     "pi-package"
@@ -11,17 +11,11 @@
       "./src/index.ts"
     ]
   },
-  "dependencies": {
-    "@hono/node-server": "^1.0.0",
-    "better-sqlite3": "^11.0.0",
-    "hono": "^4.0.0"
-  },
+  "dependencies": {},
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
-  "devDependencies": {
-    "@types/better-sqlite3": "^7.0.0"
-  }
+  "devDependencies": {}
 }

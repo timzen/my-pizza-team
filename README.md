@@ -2,13 +2,14 @@
 
 Because the industry has "two pizza teams" and "one pizza teams", but we're a **π pizza team** (3.14 pizzas, the perfect size).
 
-A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration via tmux and a kanban-style task board backed by git.
+A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration. Connects to the [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) for state management and coordinates teammates via tmux.
 
 ## What It Does
 
-- **Team Lead Pi** — runs in a git repo with `.pi-pizza-team/`, starts an HTTP API, manages the kanban board
-- **Teammate Pis** — run in tmux windows, poll for tasks, execute autonomously, report back
-- **You (the Mentor)** — review work, reply to questions async, or hop into any teammate's window to pair
+- **Team Lead Pi** — connects to the daemon, polls for spawn requests, manages tmux windows
+- **Teammate Pis** — poll the daemon for tasks, execute autonomously, report back
+- **Assistant Pi** — processes free-form requests from the assistant queue
+- **You (the Mentor)** — review work via the daemon's web UI, or hop into any teammate's window to pair
 
 ## Install
 
@@ -18,259 +19,94 @@ pi install /path/to/pi-pizza-team
 pi install git:github.com/timzen/pi-pizza-team
 ```
 
+## Prerequisites
+
+The [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) must be running (default: `http://localhost:7437`).
+
 ## Quick Start
 
 ```bash
-# In your project repo:
-pi
-> /ppt-init
-> /ppt-add-story my-feature
-> # Now discuss the breakdown with Pi, or add tasks manually:
-> /ppt-add-task my-feature
-> # Or just ask Pi to break it down from a design doc!
-> /ppt-spawn                     # prompts for directory, auto-names
-> /ppt-spawn ~/projects/my-app   # spawns teammate in specific dir
-> /ppt-board
+# Start the daemon first (see my-pizza-team docs)
+
+# Run as team lead:
+pi --ppt-lead
+
+# Or spawn a teammate:
+pi --ppt-worker --ppt-name=swift-ripley
+
+# Or run the assistant:
+pi --ppt-assistant
 ```
+
+## CLI Flags
+
+| Flag | Type | Default | Description |
+|------|------|---------|-------------|
+| `--ppt-lead` | boolean | false | Run as team leader |
+| `--ppt-worker` | boolean | false | Run as teammate |
+| `--ppt-assistant` | boolean | false | Run as assistant |
+| `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
+| `--ppt-name` | string | (auto) | Agent name |
 
 ## Commands (Team Lead)
 
 | Command | Description |
 |---------|-------------|
-| `/ppt-init` | Initialize kanban board |
-| `/ppt-upgrade` | Upgrade existing board to latest layout and config format |
-| `/ppt-status` | Quick status summary with progress bar |
-| `/ppt-board` | Show board status (stories, tasks, team) |
-| `/ppt-spawn [cwd]` | Spawn a teammate (auto-generates name, selects from story dirs/favorites) |
-| `/ppt-add-story [id]` | Create a story (prompts for title, description, dir, dependencies) |
-| `/ppt-add-task <story-id>` | Add a task to a story interactively |
-| `/ppt-delete-story <story-id>` | Permanently delete a story and all its tasks |
-| `/ppt-archive <story-id>` | Archive a completed story |
-| `/ppt-move <task-id> [status]` | Move a task to a new status (autocomplete excludes done tasks) |
-| `/ppt-inbox` | Messages needing your input (shows unread indicators) |
-| `/ppt-reply <task-id> <msg>` | Reply to a teammate |
-| `/ppt-hop <name>` | Jump to teammate's tmux window (autocomplete) |
-| `/ppt-dismiss <name>` | Stop a teammate (autocomplete) |
-| `/ppt-pause` / `/ppt-resume` | Pause/resume task distribution |
-| `/ppt-save` | Flush state to JSON files |
-| `/ppt-commit [msg]` | Flush + git commit |
+| `/ppt-spawn [name] [cwd]` | Spawn a teammate in a tmux window |
+| `/ppt-dismiss <name>` | Stop a teammate |
+| `/ppt-hop <name>` | Jump to teammate's tmux window |
+| `/ppt-status` | Quick status summary from daemon |
 
 ## Commands (Teammate)
 
 | Command | Description |
 |---------|-------------|
 | `/ppt-worker-resume` | Resume autonomous work after pairing |
+| `/ppt-worker-status` | Show current teammate status |
 
 ## LLM Tools
 
-The extension registers LLM tools:
+The extension registers LLM tools (all communicate with the daemon):
 
 - **`team_add_story`** — Create a new story with id, title, description, optional dir and dependencies
-- **`team_edit_story`** — Edit any field of an existing story (title, description, status, dependencies, dir, workflow)
+- **`team_edit_story`** — Edit any field of an existing story
 - **`team_add_task`** — Add a task to an existing story
-- **`team_queue_request`** — Queue a free-form request for the assistant to process
-
-This means you can:
-- Paste a design doc and say "break this into tasks for story X"
-- Discuss implementation with Pi and have it add stories + tasks as you go
-- Let Pi read existing code and propose a task breakdown
-- Queue operational work for the assistant ("create 3 stories for the API refactor")
-
-## Web UI
-
-When the team lead is running, visit:
-- **`http://localhost:7437/`** — landing page with status
-- **`http://localhost:7437/board`** — kanban board with swimlanes per story (auto-refreshes every 3s)
-- **`http://localhost:7437/assistant`** — assistant queue: submit prompts, view processing status
-- **`http://localhost:7437/memory`** — team knowledge base: notes organized by category with search
-
-The board includes:
-- **Search** — filter stories by title/description (real-time)
-- **Filters** — All, Open, Done, Ready (dependencies met), Blocked
-- **Sort** — Default, Name A-Z/Z-A, Progress, Most/Fewest tasks
-- **Task management** — click to view details, edit ✏️, delete 🗑️, move status
-- **Story management** — edit ✏️ any story field (title, description, dependencies, dir, workflow), delete 🗑️, archive 📦
-- **Add tasks** — "+Task" button on each story
-- **Add stories** — modal with title, description, dependencies, working directory, and inline tasks
-- **Persistent controls** — filter/sort/search saved in localStorage
-
-## Assistant
-
-The assistant is a dedicated Pi instance that processes a queue of free-form requests. Unlike teammates (who work on sequential coding tasks), the assistant handles operational/meta work:
-
-- Creating stories and tasks from high-level descriptions
-- Spawning teammates
-- Saving notes and research for the team
-- Any other operational request you'd normally do yourself in the leader Pi
-
-**Start the assistant:**
-- From the web UI: visit `/assistant` and click "Start" if offline
-- From the leader Pi: the assistant is spawned in the tmux session
-
-**Queue requests:**
-- Web UI: type a prompt on the `/assistant` page
-- Leader Pi: use the `team_queue_request` tool
-
-**Memory:** The assistant can save markdown notes to `.pi-pizza-team/notes/` using the `save_memory` tool. Memories support **categories** (configurable in `config.json`, defaults: `coding`, `research`, `doc-writing`) and are indexed with a BM25 search engine for keyword retrieval. Use `search_memory` to find relevant memories by keyword, optionally filtered by category. These are visible on the dedicated Memory page (`/memory`) with a tab per category.
+- **`team_queue_request`** — Queue a free-form request for the assistant
+- **`search_memory`** — Search the team's knowledge base by keyword
+- **`save_memory`** — Save a memory note (assistant only)
+- **`upload_attachment`** — Upload a file to the current task (teammate only)
 
 ## Workflow
 
-Tasks follow configurable workflows with permission-gated transitions. Each workflow lives in its own directory under `.pi-pizza-team/workflows/`:
+Tasks follow configurable workflows managed by the daemon. The teammate is workflow-agnostic — it uses the daemon's agent protocol to claim tasks and transition states without hardcoding state names.
+
+**Transition permissions:** `"any"` (anyone), `"teammate"` (only the assigned agent), `"lead"` (only you via the web UI or daemon API).
+
+## Architecture
+
+This extension is a **thin daemon client**. It owns no state:
 
 ```
-.pi-pizza-team/workflows/
-├── default/
-│   ├── workflow.json
-│   ├── in_progress.md
-│   └── review.md
-└── simple/
-    └── workflow.json
+src/
+├── index.ts          # Entry point: flag registration, role detection
+├── client.ts         # DaemonClient: unified HTTP client for daemon API
+├── leader.ts         # Leader: tmux management, spawn polling, slash commands
+├── teammate.ts       # TeammateLoop: autonomous work loop
+├── assistant.ts      # AssistantLoop: queue processing loop
+├── tools.ts          # LLM tool registration (all roles)
+├── permissions.ts    # Dynamic yoloMode toggling
+└── shared/
+    └── types.ts      # Minimal types (WorkflowConfig, constants)
 ```
 
-**`workflows/default/workflow.json`:**
-
-```json
-{
-  "states": ["todo", "in_progress", "needs_input", "review", "done"],
-  "transitions": {
-    "todo":         { "in_progress": "any" },
-    "in_progress":  { "needs_input": "teammate", "review": "teammate" },
-    "needs_input":  { "in_progress": "lead" },
-    "review":       { "done": "lead", "in_progress": "lead" }
-  },
-  "categories": ["coding"]
-}
-```
-
-**Transition permissions:** `"any"` (anyone), `"teammate"` (only the assigned agent), `"lead"` (only you).
-
-**Memory categories:** Stories using this workflow inherit these categories for auto-context injection (unless the story overrides).
-
-To assign a non-default workflow to a story, add `"workflow": "simple"` in `story.json` or select it when creating/editing a story.
-
-## Directory Structure
-
-```
-.pi-pizza-team/
-├── config.json                   # Port, tmux session, defaultWorkflow, categories
-├── state.db                      # SQLite runtime (gitignored)
-├── workflows/
-│   ├── default/
-│   │   ├── workflow.json          # States, transitions, categories
-│   │   ├── in_progress.md        # Instructions for in_progress state
-│   │   └── review.md             # Instructions for review state
-│   └── simple/
-│       └── workflow.json
-├── stories/
-│   └── my-story/
-│       ├── story.json            # Story metadata + dependencies + dir/workflow
-│       └── tasks/
-│           └── 01-first-task/
-│               ├── task.json     # Task definition + status + result
-│               ├── messages.jsonl # Decision log (append-only)
-│               └── attachments/  # File attachments (diffs, images, etc.)
-├── backlog/                      # Deferred stories (not loaded into SQLite)
-├── archived/                     # Completed stories
-│   └── completed-story/
-│       ├── story.json
-│       ├── SYNOPSIS.md
-│       └── tasks/
-└── notes/                        # Team memory (markdown, categorized)
-```
-
-### story.json
-
-```json
-{
-  "id": "my-story",
-  "title": "My Story",
-  "description": "What this story delivers",
-  "status": "open",
-  "dependsOn": ["other-story"],
-  "dir": "~/Workspace/my-project"
-}
-```
-
-The `dir` field is optional — when present, it determines which teammates can pick up tasks from the story. A teammate only receives tasks from stories whose `dir` matches their own working directory. Stories with no `dir` are available to any teammate. Resolved at spawn time (supports `~`).
-
-## Transition Instructions
-
-Add a markdown file named after the state to the workflow's directory. When a task enters or leaves that state, the file contents are injected into the teammate's prompt with a preamble indicating the direction.
-
-For example, `.pi-pizza-team/workflows/default/review.md`:
-
-```markdown
-## On Enter
-
-Generate a diff of your changes and upload it using the upload_attachment tool.
-
-## Exit Criteria
-
-- Diff uploaded for lead review
-- All review comments addressed
-- Tests passing
-
-## On Exit
-
-Summarize what was changed in the task result.
-```
-
-When entering review, the teammate sees:
-
-```
-## Transition: entering "review"
-
-<full contents of review.md>
-```
-
-When leaving review, they see:
-
-```
-## Transition: leaving "review"
-
-<full contents of review.md again>
-```
-
-The headings within the file are self-documenting — the agent reads "On Enter" vs "Exit Criteria" vs "On Exit" and knows which parts apply.
-
-**Convention:** The file is named `{state}.md` (e.g., `review.md`, `in_progress.md`). To override this, add an explicit mapping in `workflow.json`:
-
-```json
-{
-  "instructions": {
-    "review": "custom-review-process.md"
-  }
-}
-```
-
-If no file exists for a state, no instructions are injected for that transition.
-
-## Autosave
-
-- **Messages** — written to `messages.jsonl` immediately (never lost)
-- **Task status** — flushed from SQLite to JSON files every 30 minutes + on shutdown
-- **Git commits** — automatic daily checkpoint (configurable, never pushes)
-- **Manual:** `/ppt-save` (flush) and `/ppt-commit` (flush + commit)
-
-## Archiving
-
-When all tasks in a story are complete, it can be archived:
-
-- **From the board:** click the 📦 Archive button on a completed story
-- **Via API:** `POST /api/stories/:id/archive`
-
-Archiving moves the story directory from `stories/` to `archived/`, generates a `SYNOPSIS.md` with a structured summary, adds an `archivedAt` timestamp to `story.json`, and removes it from the active SQLite database.
-
-Archived stories are viewable at **`http://localhost:7437/archived`** — a dedicated page listing all archived stories with their synopsis content.
-
-The `team_enrich_synopsis` LLM tool can optionally generate a richer AI-written summary for archived stories that warrant a more detailed historical record.
+See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed data flow and API routes.
 
 ## Permission System Integration
 
 Works with [`@gotgenes/pi-permission-system`](https://www.npmjs.com/package/@gotgenes/pi-permission-system):
 
 - **Autonomous mode** — `yoloMode: true`, no permission prompts (teammate works freely)
-- **Pairing mode** — `yoloMode: false`, normal permission rules apply (you're protected when mentoring)
+- **Pairing mode** — `yoloMode: false`, normal permission rules apply
 
 The toggle is automatic: when you type in a teammate's window, it switches to pairing mode. Run `/ppt-worker-resume` to return to autonomous.
 

@@ -4,35 +4,33 @@ This document explains how pi-pizza-team is structured internally, for developer
 
 ## Overview
 
-pi-pizza-team is a Pi extension package that operates in two roles depending on where it's launched:
+pi-pizza-team is a **thin Pi extension** that connects to the my-pizza-team daemon. It does NOT own any state — all data operations go through the daemon's HTTP API.
+
+The extension operates in one of three roles:
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Extension loads (src/index.ts)                              │
 │                                                              │
-│  Does .pi-pizza-team/config.json exist in cwd?              │
-│  ├── YES → setupTeamLead()                                  │
-│  │         • Load config + SQLite store                     │
-│  │         • Start HTTP server                              │
-│  │         • Register lead commands + LLM tools             │
-│  │         • Start autosave timers                          │
-│  │         • Show status widget                             │
+│  Which --ppt-* flag is set?                                 │
+│  ├── --ppt-lead → setupLeader()                             │
+│  │         • Register with daemon as "leader" agent          │
+│  │         • Poll daemon for spawn requests → tmux           │
+│  │         • Register LLM tools + slash commands             │
+│  │         • Show status widget                              │
 │  │                                                          │
-│  └── NO → Is --ppt-worker flag set or PI_TEAM_LEADER_URL?  │
-│       ├── YES → Is --ppt-assistant also set?                    │
-│       │         ├── YES → setupAssistant()                       │
-│       │         │         • Connect to leader HTTP API            │
-│       │         │         • Register leader tools (create/edit)    │
-│       │         │         • Register save_note tool                │
-│       │         │         • Start queue work loop (poll → claim)   │
-│       │         │                                                 │
-│       │         └── NO → setupTeammate()                        │
-│       │                   • Connect to leader HTTP API            │
-│       │                   • Start work loop (poll → claim → execute)│
-│       │                   • Register permission bypass             │
-│       │                   • Listen for agent_end to capture results│
-│       │                                                          │
-│       └── NO → Register only /ppt-init command                  │
+│  ├── --ppt-assistant → setupAssistantRole()                 │
+│  │         • Register with daemon as "assistant" agent       │
+│  │         • Poll assistant queue → claim → execute          │
+│  │         • Register save_memory + search_memory tools      │
+│  │                                                          │
+│  ├── --ppt-worker → setupTeammateRole()                     │
+│  │         • Register with daemon as "teammate" agent        │
+│  │         • Poll for work → claim → execute → transition    │
+│  │         • Register permission bypass                      │
+│  │         • Listen for agent_end to capture results         │
+│  │                                                          │
+│  └── (none) → Extension is inactive                         │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -40,320 +38,164 @@ pi-pizza-team is a Pi extension package that operates in two roles depending on 
 
 ```
 src/
-├── index.ts              # Entry point: role detection + setup orchestration
-├── shared/
-│   ├── types.ts          # All TypeScript types, interfaces, constants, defaults
-│   └── protocol.ts       # HTTP API request/response shapes (shared contract)
-├── lead/
-│   ├── store.ts          # SQLite store: schema, CRUD, sync to/from JSON files, archiving
-│   ├── server.ts         # Hono HTTP server: API routes + web UI (board, archived, landing)
-│   ├── assets.ts         # Static asset loader (reads from ui/ at module load)
-│   ├── ui/               # HTML, CSS, JS for the web UI
-│   │   ├── home-page.html / .css
-│   │   ├── board.html / .css
-│   │   ├── task-page.html / .css
-│   │   ├── assistant-page.html / .css
-│   │   ├── memory-page.html / .css
-│   │   ├── backlog-page.html / .css
-│   │   ├── archived-page.html / .css
-│   │   ├── config-page.html / .css
-│   │   ├── theme.css         # CSS custom properties for themes
-│   │   ├── nav.css / nav.js  # Shared navigation bar + PWA setup
-│   │   ├── shared.js         # Shared browser utilities (escHtml, renderMarkdown, DirBrowser)
-│   │   ├── sw.js             # Service worker for PWA
-│   │   └── manifest.json     # Web app manifest
-│   ├── commands.ts       # Slash commands for team lead
-│   ├── tools.ts          # LLM-callable tools (team_add_story, team_edit_story, team_add_task, team_queue_request)
-│   ├── search.ts         # BM25 search engine for notes (per-category indexing)
-│   └── tmux.ts           # tmux session/window lifecycle management
-└── assistant/
-    ├── client.ts         # HTTP client for assistant → leader API calls
-    └── loop.ts           # Assistant work loop: poll queue → claim → execute → report
-└── teammate/
-    ├── client.ts         # HTTP client wrapping all leader API calls
-    ├── loop.ts           # Work loop: poll → claim → execute → report
-    └── permissions.ts    # Dynamic yoloMode toggling for permission system
+├── index.ts              # Entry point: flag registration, role detection, setup
+├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
+├── leader.ts             # Leader role: tmux management, spawn polling, slash commands
+├── teammate.ts           # TeammateLoop: poll → claim → execute → transition work loop
+├── assistant.ts          # AssistantLoop: poll queue → claim → execute → complete
+├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
+├── permissions.ts        # Dynamic yoloMode toggling for permission system
+└── shared/
+    └── types.ts          # Minimal types: WorkflowConfig, DEFAULT_DAEMON_URL, helpers
 ```
 
 ## Data Flow
 
-### Team Lead (server side)
+All state is owned by the **my-pizza-team daemon**. The extension is a pure client.
 
-```
-JSON files on disk                    SQLite (state.db)
-─────────────────                    ─────────────────
-stories/*/story.json  ──loadFromDisk()──►  stories table
-stories/*/tasks/*/task.json  ──────────►  tasks table
-stories/*/tasks/*/messages.jsonl  (lazy)►  messages table
-
-                         SQLite
-                        ─────────
-                    tasks.dirty = 1
-                           │
-              flushToDisk() (every 30 min + shutdown)
-                           │
-                           ▼
-                    task.json files updated
-                           │
-              commitToGit() (daily)
-                           │
-                           ▼
-                    git add + commit
-```
-
-### Teammate (client side)
+### Teammate (agent protocol)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  WorkLoop                                                │
+│  TeammateLoop                                            │
 │                                                          │
-│  1. GET /api/next-task?memberId=X                       │
-│  2. POST /api/tasks/:id/claim                           │
+│  1. GET  /api/agents/next-work?agentId=X                │
+│  2. POST /api/agents/claim/:taskId                      │
 │  3. pi.sendUserMessage(task.description)                │
 │     └── Pi agent executes the task autonomously         │
 │  4. agent_end event fires                               │
 │     └── handleAgentComplete(lastAssistantMessage)       │
-│         ├── If "NEEDS_INPUT:" → POST message + status   │
-│         └── Else → POST status=review + result          │
+│         ├── If "NEEDS_INPUT:" → post comment + transition│
+│         └── Else → transition to review + post summary  │
 │  5. Back to step 1                                      │
 └─────────────────────────────────────────────────────────┘
 ```
 
-## SQLite Schema
-
-The database (`state.db`) is the runtime engine. See `src/lead/store.ts` for the full schema.
-
-**Tables loaded from disk (source of truth = JSON files):**
-- `stories` — story metadata (id, title, description, status, depends_on, dir, dir_path)
-- `tasks` — task definitions (id, story_id, seq, slug, title, description, status, result, dir_path, dirty)
-
-**Tables that are runtime-only (ephemeral, never written to JSON):**
-- `assignments` — which teammate has claimed which task
-- `members` — registered teammates with heartbeat timestamps
-- `messages` — cached messages (loaded lazily from messages.jsonl on first access)
-- `messages_loaded` — tracks which tasks have had their messages loaded from disk
-
-## Sync Strategy
-
-### Startup
-1. Walk `.pi-pizza-team/stories/` directory tree (NOT `archived/`)
-2. Load each `story.json` and `task.json` into SQLite
-3. Messages are NOT loaded (lazy — only on first access)
-
-### Runtime writes
-| Event | Action |
-|-------|--------|
-| New message | Append to `messages.jsonl` immediately + insert into SQLite |
-| Task status change | Update SQLite, mark `dirty = 1` |
-| Story completion | Update SQLite + write `story.json` immediately |
-
-### Periodic flush (configurable, default 30 min)
-- All tasks with `dirty = 1` → write back to `task.json`, clear dirty flag
-
-### Daily commit (configurable)
-- `git add .pi-pizza-team/ && git commit -m "checkpoint..."`
-- Only if there are staged changes
-- Never pushes (that's manual)
-
-### Shutdown
-- Flush all dirty state immediately
-
-## Workflow Engine
-
-Workflows are defined as directories under `.pi-pizza-team/workflows/`. Each
-directory contains a `workflow.json` and optional instruction files named
-after states (e.g., `review.md`, `in_progress.md`).
-
-The `config.json` specifies `defaultWorkflow` (the name of the directory).
-Individual stories can override by specifying a `workflow` field.
+### Leader (spawn management)
 
 ```
-.pi-pizza-team/workflows/
-├── default/
-│   ├── workflow.json      # states, transitions, categories
-│   ├── review.md         # instructions for review state
-│   └── in_progress.md    # instructions for in_progress state
-└── simple/
-    └── workflow.json
+┌─────────────────────────────────────────────────────────┐
+│  Leader                                                  │
+│                                                          │
+│  1. POST /api/agents/register (role=leader)             │
+│  2. Poll GET /api/spawn-requests?hostId=X (every 5s)   │
+│     └── For each request: spawn tmux window + ack       │
+│  3. User tools → POST /api/stories, /api/stories/:id/tasks │
+└─────────────────────────────────────────────────────────┘
 ```
 
-```json
-{
-  "states": ["todo", "in_progress", "needs_input", "review", "done"],
-  "transitions": {
-    "todo": { "in_progress": "any" },
-    "in_progress": { "needs_input": "teammate", "review": "teammate" },
-    "needs_input": { "in_progress": "lead" },
-    "review": { "done": "lead", "in_progress": "lead" }
-  },
-  "categories": ["coding"]
-}
+### Assistant (queue processing)
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  AssistantLoop                                           │
+│                                                          │
+│  1. GET  /api/assistant/next                            │
+│  2. POST /api/assistant/queue/:id/claim                 │
+│  3. pi.sendUserMessage(item.prompt)                     │
+│  4. agent_end → POST /api/assistant/queue/:id/complete  │
+│  5. Back to step 1                                      │
+└─────────────────────────────────────────────────────────┘
 ```
 
-Permissions: `"any"`, `"teammate"`, `"lead"`
+## Daemon API (consumed by this extension)
 
-**Resolution order:**
-1. Story's `workflow` field → named workflow from config
-2. If not set (or unknown name) → `defaultWorkflow` from config
+The extension communicates with the my-pizza-team daemon (default: `http://localhost:7437`).
 
-Validation happens in `Store.canTransition()` which calls `getWorkflowForTask()` to resolve the effective workflow. The API returns 403 if the actor doesn't have permission for the requested transition.
+### Agent Protocol Routes (new)
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/agents/register` | POST | Register agent with daemon |
+| `/api/agents/heartbeat` | POST | Agent keepalive |
+| `/api/agents/next-work?agentId=X` | GET | Poll for unclaimed tasks |
+| `/api/agents/claim/:taskId` | POST | Claim task ownership |
+| `/api/agents/transition/:taskId` | POST | Advance task state |
+| `/api/agents/release/:taskId` | POST | Release task |
+
+### Task Routes
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/tasks/:id/comment` | POST | Post a comment |
+| `/api/tasks/:id/comments` | GET | Get task comments |
+| `/api/tasks/:id/token-usage` | POST | Record token usage |
+| `/api/tasks/:id/attachments` | POST | Upload file attachment |
+
+### Story/Task Management (leader tools)
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/stories` | POST | Create story |
+| `/api/stories/:id` | PUT | Update story |
+| `/api/stories/:storyId/tasks` | POST | Add task to story |
+| `/api/assistant/queue` | POST | Enqueue assistant request |
+
+### Assistant Queue
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/assistant/next` | GET | Next pending item |
+| `/api/assistant/queue/:id/claim` | POST | Claim item |
+| `/api/assistant/queue/:id/complete` | POST | Complete item |
+| `/api/assistant/notes` | POST | Save memory note |
+| `/api/assistant/notes/search` | GET | Search notes |
+
+### Spawn / Config
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/spawn-requests?hostId=X` | GET | Poll pending spawns |
+| `/api/spawn-requests/:id/ack` | POST | Acknowledge spawn |
+| `/api/config` | GET | Get daemon config |
+| `/api/hosts/:hostId` | GET | Host-specific config |
+| `/health` | GET | Health check |
+| `/api/status` | GET | Dashboard summary |
+
+## CLI Flags
+
+| Flag | Type | Default | Purpose |
+|------|------|---------|---------|
+| `--ppt-lead` | boolean | false | Run as team leader |
+| `--ppt-worker` | boolean | false | Run as teammate |
+| `--ppt-assistant` | boolean | false | Run as assistant |
+| `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
+| `--ppt-name` | string | (auto) | Agent name |
 
 ## Permission System Integration
 
-Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, which is read fresh on every tool call.
+Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, read fresh on every tool call.
 
-File: `<teammate-cwd>/.pi/extensions/pi-permission-system/config.json`
+File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
-- **Created at spawn time** by `tmux.ts` with `yoloMode: true`
+- **Created at spawn time** by leader's tmux spawner with `yoloMode: true`
 - **Toggled dynamically** by `permissions.ts`:
-  - Interactive input detected → rewrite with `yoloMode: false`
-  - `/ppt-worker-resume` → rewrite with `yoloMode: true`
+  - Interactive input detected → rewrite with `yoloMode: false` + pause loop
+  - `/ppt-worker-resume` → rewrite with `yoloMode: true` + resume loop
 
-## HTTP API
+## tmux Integration (leader only)
 
-Server runs on the port from `config.json` (default 7437). Routes defined in `src/lead/server.ts`.
-
-| Route | Method | Purpose |
-|-------|--------|--------|
-| `/` | GET | Landing page HTML |
-| `/board` | GET | Kanban board HTML (polls API) |
-| `/archived` | GET | Archived stories page HTML |
-| `/config` | GET | Configuration page HTML |
-| `/css/board.css` | GET | Board stylesheet |
-| `/css/archived-page.css` | GET | Archived page stylesheet |
-| `/css/config-page.css` | GET | Config page stylesheet |
-| `/js/shared.js` | GET | Shared browser utilities (escHtml, renderMarkdown) |
-| `/api/status` | GET | Summary stats + workflow config |
-| `/api/stories` | GET | All stories + tasks + readiness |
-| `/api/stories` | POST | Create a new story (with optional tasks, dir) |
-| `/api/stories/:storyId/tasks` | POST | Create a task within a story |
-| `/api/stories/:id` | PUT | Update story fields (title, description, status, dependsOn, dir, workflow) |
-| `/api/stories/:id` | DELETE | Delete a story and all its tasks (400 if tasks in progress) |
-| `/api/stories/:id/archive` | POST | Archive a completed story (400 if tasks incomplete) |
-| `/api/archived` | GET | List archived stories with synopsis |
-| `/api/next-task?memberId=X` | GET | Next claimable task (filtered by member's cwd ↔ story dir) |
-| `/api/tasks/:id/claim` | POST | Claim a task (returns transition instructions) |
-| `/api/tasks/:id/status` | POST | Update status (enforces workflow, returns instructions) |
-| `/api/tasks/:id/move` | POST | Move task status (lead-only, enforces workflow) |
-| `/api/tasks/:id` | PUT | Update task title/description |
-| `/api/tasks/:id` | DELETE | Delete a task (removes from DB + disk) |
-| `/api/tasks/:id/message` | POST | Post a message |
-| `/api/tasks/:id/messages` | GET | Get message thread |
-| `/api/team/join` | POST | Register a teammate |
-| `/api/team/heartbeat` | POST | Keepalive |
-| `/api/team` | GET | List members |
-| `/api/team/spawn` | POST | Spawn a new teammate (auto-generates name) |
-| `/api/team/spawn-options` | GET | Available directories for spawning |
-| `/api/control/pause` | POST | Pause task distribution |
-| `/api/control/resume` | POST | Resume task distribution |
-| `/api/config` | GET | Read current configuration |
-| `/api/config` | PUT | Update configuration (writes to disk) |
-| `/assistant` | GET | Assistant queue page HTML |
-| `/api/assistant/queue` | GET | List all queue items |
-| `/api/assistant/queue` | POST | Enqueue a new prompt |
-| `/api/assistant/next` | GET | Next pending queue item (for assistant polling) |
-| `/api/assistant/queue/:id/claim` | POST | Claim a queue item for processing |
-| `/api/assistant/queue/:id/complete` | POST | Mark item done/failed with result |
-| `/api/assistant/queue/:id` | DELETE | Remove a queue item |
-| `/api/assistant/spawn` | POST | Spawn the assistant Pi instance in tmux |
-| `/api/assistant/notes` | GET | List saved notes |
-| `/api/assistant/notes` | POST | Save a new note (with optional categories) |
-| `/api/assistant/notes/:id` | DELETE | Delete a note |
-| `/api/assistant/notes/:id/categories` | PUT | Update a note's categories |
-| `/api/assistant/notes/search` | GET | BM25 keyword search (?q=...&category=...&limit=) |
-| `/api/assistant/categories` | GET | List configured + indexed categories |
-| `/api/backlog` | GET | List backlogged stories |
-| `/api/stories/:id/backlog` | POST | Move story to backlog (cascades dependents) |
-| `/api/backlog/:id/restore` | POST | Restore story from backlog to active |
-| `/task/:storyId/:taskId` | GET | Task detail page HTML |
-| `/api/tasks/:id/attachments` | POST | Upload a file attachment |
-| `/api/tasks/:id/attachments` | GET | List attachments for a task |
-| `/api/tasks/:id/attachments/:name` | GET | Serve an attachment file |
-
-## Transition Instructions
-
-Each workflow directory can contain markdown files named after states
-(e.g., `review.md`, `in_progress.md`). When a task transitions, the
-relevant file is read and injected with a preamble:
-
-- Entering a state → reads `{toStatus}.md` → prefixes with `## Transition: entering "{state}"`
-- Leaving a state → reads `{fromStatus}.md` → prefixes with `## Transition: leaving "{state}"`
-
-The file contains all relevant info (On Enter, Exit Criteria, On Exit) using
-headings. The agent reads the headings and knows which parts apply.
-
-Resolution: `workflow.instructions[state]` (explicit override) → `{state}.md` (convention).
-
-Files are cached in memory with a 30-second TTL and mtime-based invalidation.
-
-## tmux Integration
-
-- `ensureSession()` — creates session if it doesn't exist, returns whether it was just created
-- `spawnTeammate()` — reuses default window on fresh session, creates new window otherwise
-- Writes permissive permission config to teammate's cwd before launching Pi
-- Pi is launched with flags: `--ppt-worker --ppt-lead=<url> --ppt-name=<name>`
+- Polls daemon for spawn requests via `/api/spawn-requests`
+- Creates tmux windows with `pi --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
+- Writes permissive permission config to teammate's cwd before launching
 
 ## Key Design Decisions
 
-1. **JSON files are the source of truth** for stories/tasks (committable, diffable, human-readable)
-2. **SQLite is the runtime engine** (fast, atomic, handles concurrent access)
-3. **Messages use JSONL** (append-only, no read-modify-write, clean git diffs)
-4. **Messages are lazy-loaded** (startup is fast regardless of history size)
-5. **Stories own tasks sequentially** (parallelism is at the story level only)
-6. **Workflow permissions are declarative** (config drives behavior, no code changes needed; stories can override the default workflow)
-7. **Task execution uses sendUserMessage** (keeps teammate interactive for pairing)
-8. **Permission toggle is file-based** (leverages permission system's runtime config reload)
-9. **Archived stories are directory-based** (moved from `stories/` to `archived/`, never loaded into SQLite at startup)
-10. **Workflows are directory-based** (each workflow is a directory under `workflows/` with its own `workflow.json` and instruction files)
-11. **Backlogged stories are directory-based** (moved from `stories/` to `backlog/`, never loaded; dependents move together)
-12. **Memory uses BM25 search** (per-category indexing, rebuilt on startup + changes)
-13. **File attachments live with the task** (in `attachments/` subdirectory, referenced by messages)
-
-## Archiving
-
-Completed stories can be archived to keep the active board clean:
-
-```
-stories/my-story/  ──archiveStory()──►  archived/my-story/
-                                           + story.json (archivedAt added)
-                                           + SYNOPSIS.md (auto-generated)
-                                           + tasks/ (preserved as-is)
-```
-
-**Flow:**
-1. `isStoryArchivable(id)` — checks all tasks are "done"
-2. `archiveStory(id)` — moves dir, stamps archivedAt, generates synopsis, removes from SQLite
-3. `getArchivedStories()` — reads `archived/` directory for listing
-4. `getArchivedStoryContext(id)` — reads full context for listing
-
-**Key invariant:** `loadFromDisk()` only walks `stories/`, so archived stories are never re-loaded into the active database. The `archived/` directory is purely file-based.
+1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
+2. **Daemon owns all state** — stories, tasks, workflows, notes, queue
+3. **Agent protocol for teammates** — `/api/agents/*` routes with claim/transition semantics
+4. **Workflow-agnostic teammate** — never hardcodes state names, uses daemon transitions
+5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
+6. **Permission toggle is file-based** — leverages permission system's runtime config reload
+7. **Spawn via daemon requests** — leader polls for spawns, executes locally via tmux
+8. **Comments replace messages** — daemon uses `/api/tasks/:id/comment[s]`
 
 ## Extending
 
-### Adding a new command
-1. Add to `src/lead/commands.ts` inside `registerLeadCommands()`
-2. Use `getStore()` for data access, `getConfig()` for config
-3. Add autocomplete via `getArgumentCompletions` if applicable
+### Adding a new tool
+1. Add to `src/tools.ts` inside `registerTools()`
+2. Use the `client` parameter for all daemon API calls
+3. Add response type to `src/client.ts` if needed
 
-### Adding a new API endpoint
-1. Add route in `src/lead/server.ts` → `setupRoutes()`
-2. Add request/response types in `src/shared/protocol.ts`
-3. For task CRUD, consider adding a store method for DB operations
+### Adding a new slash command (leader)
+1. Add to `src/leader.ts` inside `setupLeader()`
+2. Use `client` for data access
 
-### Adding a new workflow state
-1. Add it to `states` in the workflow's `workflow.json`
-2. Define transitions and permissions in the `transitions` map
-3. Optionally add a `{state}.md` file for instructions
-
-### Adding a new named workflow
-1. Create a new directory under `.pi-pizza-team/workflows/`
-2. Add a `workflow.json` with `states`, `transitions`, and optional `categories`
-3. Optionally add instruction files (e.g., `review.md`)
-4. Stories can use it via the `workflow` field in `story.json`
-
-### Modifying the board UI
-1. Edit `src/lead/ui/board.html` (loaded by `src/lead/assets.ts`)
-2. It's vanilla HTML/JS that polls the JSON API every 3 seconds
-3. Task data is stored in `taskDataMap` for safe modal access
-4. Workflow transitions are fetched from `GET /api/status` and used to render move dropdowns
-5. The archived stories page is a separate file: `src/lead/ui/archived-page.html`
+### Modifying the work loop
+1. Edit `src/teammate.ts` (`TeammateLoop` class)
+2. All daemon communication goes through `this.client`
