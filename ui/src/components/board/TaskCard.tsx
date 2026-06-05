@@ -94,47 +94,45 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
           )}
         </div>
 
-        {/* Quick status-change buttons */}
-        {states && states.length > 0 && (
-          <div className="flex items-center justify-between mt-2 pt-2 border-t border-border">
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              disabled={currentIndex <= 0}
-              onClick={(e) => moveStatus("prev", e)}
-              title={currentIndex > 0 ? `Move to ${states[currentIndex - 1].replace(/_/g, " ")}` : undefined}
-            >
-              <ChevronLeft className="h-3.5 w-3.5" />
-            </Button>
-            <span className="text-xs text-muted-foreground">
-              {task.status.replace(/_/g, " ")}
-            </span>
-            <Button
-              variant="ghost"
-              size="icon"
-              className="h-6 w-6"
-              disabled={currentIndex >= (states?.length ?? 1) - 1}
-              onClick={(e) => moveStatus("next", e)}
-              title={currentIndex < (states?.length ?? 1) - 1 ? `Move to ${states[currentIndex + 1].replace(/_/g, " ")}` : undefined}
-            >
-              <ChevronRight className="h-3.5 w-3.5" />
-            </Button>
-          </div>
-        )}
-
-        {/* Link to task detail / comments page */}
-        {storyId && (
-          <div className="mt-1.5 text-right">
+        {/* Status controls & detail link */}
+        <div className="flex items-center mt-2 pt-2 border-t border-border">
+          {states && states.length > 0 && (
+            <>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                disabled={currentIndex <= 0}
+                onClick={(e) => moveStatus("prev", e)}
+                title={currentIndex > 0 ? `Move to ${states[currentIndex - 1].replace(/_/g, " ")}` : undefined}
+              >
+                <ChevronLeft className="h-3.5 w-3.5" />
+              </Button>
+              <span className="text-xs text-muted-foreground">
+                {task.status.replace(/_/g, " ")}
+              </span>
+              <Button
+                variant="ghost"
+                size="icon"
+                className="h-6 w-6"
+                disabled={currentIndex >= (states?.length ?? 1) - 1}
+                onClick={(e) => moveStatus("next", e)}
+                title={currentIndex < (states?.length ?? 1) - 1 ? `Move to ${states[currentIndex + 1].replace(/_/g, " ")}` : undefined}
+              >
+                <ChevronRight className="h-3.5 w-3.5" />
+              </Button>
+            </>
+          )}
+          {storyId && (
             <Link
               to={`/task/${storyId}/${task.id}`}
               onClick={(e) => e.stopPropagation()}
-              className="text-xs text-muted-foreground hover:text-foreground hover:underline"
+              className="ml-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
             >
               details & comments →
             </Link>
-          </div>
-        )}
+          )}
+        </div>
       </CardContent>
     </Card>
   );
