@@ -1,7 +1,7 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows status badge, assignee, unread indicator, quick status buttons,
- * and a link to the task detail/comments page.
+ * Shows title, assignee, unread indicator, quick status-change buttons
+ * with a colored badge, and a link to the task detail/comments page.
  */
 
 import { Link } from "react-router-dom";
@@ -10,6 +10,25 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { MessageCircle, User, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
+
+/**
+ * Derive a color class based on a task's position within its workflow states.
+ * First state = muted, last = green, middle states cycle through colors.
+ */
+function statusColor(status: string, states?: string[]): string {
+  if (!states || states.length === 0) return "";
+  const index = states.indexOf(status);
+  if (index < 0) return "";
+  if (index === 0) return "bg-muted text-muted-foreground";
+  if (index === states.length - 1) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
+  const midColors = [
+    "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
+    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
+    "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
+    "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
+  ];
+  return midColors[(index - 1) % midColors.length];
+}
 
 interface TaskCardProps {
   task: {
@@ -27,14 +46,6 @@ interface TaskCardProps {
   onEdit?: (taskId: string) => void;
   onStatusChange?: () => void;
 }
-
-const STATUS_COLORS: Record<string, string> = {
-  todo: "bg-muted text-muted-foreground",
-  in_progress: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  needs_input: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  review: "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-  done: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-};
 
 export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: TaskCardProps) {
   const currentIndex = states?.indexOf(task.status) ?? -1;
@@ -55,16 +66,13 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
       onClick={() => onEdit?.(task.id)}
     >
       <CardContent className="p-3">
-        <div className="flex items-start justify-between gap-2">
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium truncate">{task.title}</p>
-            <p className="text-xs text-muted-foreground mt-0.5">{task.id}</p>
-          </div>
-          <Badge variant="secondary" className={`text-xs shrink-0 ${STATUS_COLORS[task.status] || ""}`}>
-            {task.status.replace(/_/g, " ")}
-          </Badge>
+        {/* Title & ID */}
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-medium truncate">{task.title}</p>
+          <p className="text-xs text-muted-foreground mt-0.5">{task.id}</p>
         </div>
 
+        {/* Assignee, unread, cost */}
         <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
           {task.assignee && (
             <span className="flex items-center gap-1">
@@ -108,9 +116,9 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
               >
                 <ChevronLeft className="h-3.5 w-3.5" />
               </Button>
-              <span className="text-xs text-muted-foreground">
+              <Badge variant="secondary" className={`text-xs ${statusColor(task.status, states)}`}>
                 {task.status.replace(/_/g, " ")}
-              </span>
+              </Badge>
               <Button
                 variant="ghost"
                 size="icon"
