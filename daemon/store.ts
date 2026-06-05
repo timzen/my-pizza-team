@@ -39,6 +39,7 @@ export class Store {
   private workflows: Record<string, WorkflowConfig> = {};
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
+  private heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null;
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
 
@@ -844,6 +845,56 @@ export class Store {
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
   }
 
+  /**
+   * Check all registered agents for heartbeat timeout.
+   * If an agent's last heartbeat is older than agentTimeoutSeconds:
+   * - Mark it as offline
+   * - Release any tasks it has claimed
+   * - Log a warning
+   *
+   * Returns the list of agent IDs that were marked offline.
+   */
+  reapOfflineAgents(): string[] {
+    const timeoutMs = (this.config.agentTimeoutSeconds ?? 90) * 1000;
+    const cutoff = Date.now() - timeoutMs;
+    const reaped: string[] = [];
+
+    const rows = this.db.prepare(
+      "SELECT * FROM members WHERE status != 'offline' AND last_heartbeat < ?"
+    ).all(cutoff) as Array<Record<string, unknown>>;
+
+    for (const row of rows) {
+      const id = row.id as string;
+      const name = row.name as string;
+      const lastHb = row.last_heartbeat as number;
+      const agoSec = Math.round((Date.now() - lastHb) / 1000);
+
+      // Release any claimed tasks
+      const assignment = this.db.prepare(
+        "SELECT task_id FROM assignments WHERE member_id = ?"
+      ).get(id) as Record<string, unknown> | undefined;
+
+      if (assignment) {
+        const taskId = assignment.task_id as string;
+        this.releaseTask(taskId);
+        console.warn(
+          `⚠️  Agent "${name}" (${id}) timed out (no heartbeat for ${agoSec}s). ` +
+          `Released task "${taskId}".`
+        );
+      } else {
+        console.warn(
+          `⚠️  Agent "${name}" (${id}) timed out (no heartbeat for ${agoSec}s). Marked offline.`
+        );
+      }
+
+      // Mark offline
+      this.db.prepare("UPDATE members SET status = 'offline' WHERE id = ?").run(id);
+      reaped.push(id);
+    }
+
+    return reaped;
+  }
+
   // --- Flush to disk ---
 
   flushToDisk(): void {
@@ -878,11 +929,15 @@ export class Store {
       const commitMs = this.config.autosave.commitIntervalHours * 60 * 60 * 1000;
       this.commitTimer = setInterval(() => this.commitToGit(), commitMs);
     }
+
+    // Check for offline agents every 30 seconds
+    this.heartbeatCheckTimer = setInterval(() => this.reapOfflineAgents(), 30_000);
   }
 
   stopTimers(): void {
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.commitTimer) clearInterval(this.commitTimer);
+    if (this.heartbeatCheckTimer) clearInterval(this.heartbeatCheckTimer);
   }
 
   commitToGit(message?: string): void {

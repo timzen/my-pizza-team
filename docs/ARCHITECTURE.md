@@ -15,7 +15,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `main.ts` — Entry point. Reads PORT/TEAM_DIR from env, starts `Deno.serve()`.
 - `app.ts` — Creates the Hono application, wires Store to routes.
 - `server.ts` — All API route handlers (buildApp function). Implements the full REST protocol.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, and autosave timers.
+- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping.
 
 ### cli/
 - `main.ts` — CLI entry point (stub).

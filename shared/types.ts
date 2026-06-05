@@ -23,6 +23,8 @@ export interface TeamConfig {
   teammates?: TeammateConfig;
   /** Configurable memory categories for the knowledge base */
   categories?: string[];
+  /** Seconds without heartbeat before an agent is marked offline (default: 90) */
+  agentTimeoutSeconds?: number;
   /** @deprecated Use workflows + defaultWorkflow instead */
   workflow?: WorkflowConfig;
 }
@@ -146,6 +148,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
   },
   leaderUrl: "http://localhost:7437",
   maxTeammates: 4,
+  agentTimeoutSeconds: 90,
   categories: DEFAULT_CATEGORIES,
   teammates: {
     favoriteDirectories: [],
