@@ -770,11 +770,27 @@ export class Store {
     this.db.prepare("UPDATE tasks SET last_read_at = ? WHERE id = ?").run(Date.now(), taskId);
   }
 
+  /**
+   * Returns tasks whose current state has at least one transition requiring
+   * the "lead" actor. These are tasks waiting for lead action (e.g. review,
+   * approval, or unblocking).
+   */
   getInboxTasks(): TaskWithMeta[] {
-    const rows = this.db.prepare(
-      "SELECT * FROM tasks WHERE status IN ('needs_input', 'review') ORDER BY story_id, seq"
+    const allTasks = this.db.prepare(
+      "SELECT * FROM tasks ORDER BY story_id, seq"
     ).all() as Array<Record<string, unknown>>;
-    return rows.map((row) => this.rowToTask(row));
+
+    const results: TaskWithMeta[] = [];
+    for (const row of allTasks) {
+      const task = this.rowToTask(row);
+      const workflow = this.getWorkflowForTask(task.id);
+      const transitions = workflow.transitions[task.status];
+      if (!transitions) continue;
+      // Include task if any outgoing transition requires "lead"
+      const needsLead = Object.values(transitions).some(perm => perm === "lead");
+      if (needsLead) results.push(task);
+    }
+    return results;
   }
 
   // --- Token Usage ---
