@@ -419,5 +419,131 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   // --- Config ---
   app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows() }));
 
+  // --- Agents API ---
+  // A streamlined agent-facing interface that wraps the team/task operations
+
+  // POST /api/agents/register
+  app.post("/api/agents/register", async (c) => {
+    const body = await c.req.json() as { id?: string; name?: string; cwd?: string; capabilities?: string[] };
+    if (!body.id || !body.name || !body.cwd) {
+      return c.json({ success: false, error: "Fields 'id', 'name', and 'cwd' are required" }, 400);
+    }
+    // Register as a team member (tmuxWindow defaults to agent id)
+    store.registerMember(body.id, body.name, body.cwd, body.id);
+    return c.json({
+      success: true,
+      config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows() },
+    });
+  });
+
+  // POST /api/agents/heartbeat
+  app.post("/api/agents/heartbeat", async (c) => {
+    const body = await c.req.json() as { id?: string; status?: string; currentTask?: string };
+    if (!body.id || !body.status) {
+      return c.json({ success: false, error: "Fields 'id' and 'status' are required" }, 400);
+    }
+    store.heartbeat(body.id, body.status);
+    return c.json({ success: true });
+  });
+
+  // GET /api/agents/next-work?agentId=X
+  app.get("/api/agents/next-work", (c) => {
+    const agentId = c.req.query("agentId");
+    if (!agentId) return c.json({ task: null });
+    if (paused) return c.json({ task: null });
+
+    const member = store.getMember(agentId);
+    const task = store.getNextAvailableTask(member?.cwd);
+    if (!task) return c.json({ task: null });
+
+    const storyTasks = store.getTasksForStory(task.storyId);
+    const previousResults = storyTasks.filter(t => t.seq < task.seq && t.result).map(t => `[${t.title}]: ${t.result}`).join("\n\n");
+    const wf = store.getWorkflowForStory(task.storyId);
+    return c.json({ task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description, context: previousResults || undefined, workflow: wf } });
+  });
+
+  // POST /api/agents/claim/:taskId
+  app.post("/api/agents/claim/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json() as { agentId?: string };
+    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+
+    const success = store.claimTask(taskId, body.agentId);
+    if (!success) return c.json({ success: false, error: "Task already claimed" });
+
+    const fromStatus = task.status;
+    store.updateTaskStatus(taskId, "in_progress");
+    store.updateMemberStatus(body.agentId, "working");
+
+    const instructions = getInstructionsMarkdown(fromStatus, "in_progress", taskId);
+    return c.json({ success: true, instructions });
+  });
+
+  // POST /api/agents/complete/:taskId
+  app.post("/api/agents/complete/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json() as { agentId?: string; result?: string };
+    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+
+    // Transition to review (teammate submitting for lead review)
+    const check = store.canTransition(taskId, "review", "teammate");
+    if (!check.ok) return c.json({ success: false, error: check.error }, 403);
+
+    const fromStatus = task.status;
+    store.updateTaskStatus(taskId, "review", body.result);
+    store.releaseTask(taskId);
+    store.updateMemberStatus(body.agentId, "idle");
+
+    const instructions = getInstructionsMarkdown(fromStatus, "review", taskId);
+    return c.json({ success: true, instructions });
+  });
+
+  // GET /api/agents/messages/:taskId
+  app.get("/api/agents/messages/:taskId", (c) => {
+    const taskId = c.req.param("taskId");
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ messages: [] });
+    return c.json({ messages: store.getMessages(taskId) });
+  });
+
+  // POST /api/agents/messages/:taskId
+  app.post("/api/agents/messages/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json() as { agentId?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
+    if (!body.agentId || !body.body) return c.json({ success: false, error: "Fields 'agentId' and 'body' are required" }, 400);
+
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+
+    store.addMessage(taskId, body.agentId, body.body, body.attachments);
+    return c.json({ success: true });
+  });
+
+  // GET /api/agents
+  app.get("/api/agents", (c) => {
+    const members = store.getMembers();
+    return c.json({
+      agents: members.map(m => {
+        const assignment = store.getAssignmentForMember(m.id);
+        return { id: m.id, name: m.name, cwd: m.cwd, status: m.status, currentTask: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat };
+      }),
+    });
+  });
+
+  // DELETE /api/agents/:id
+  app.delete("/api/agents/:id", (c) => {
+    const agentId = c.req.param("id");
+    const member = store.getMember(agentId);
+    if (!member) return c.json({ success: false, error: `Agent "${agentId}" not found` }, 404);
+    store.removeMember(agentId);
+    return c.json({ success: true });
+  });
+
   return app;
 }

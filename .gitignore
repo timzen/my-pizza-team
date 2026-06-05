@@ -1,3 +1,7 @@
 .pi/
 # Deno cache
 .deno/
+*.db
+*.db-shm
+*.db-wal
+.pi-pizza-team/
