@@ -65,7 +65,15 @@ export function BoardPage() {
   const stories = storiesData?.stories || [];
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
   const workflows = statusData?.workflows || {};
-  const states = workflows[defaultWorkflow]?.states || ["todo", "in_progress", "needs_input", "review", "done"];
+  const defaultStates = workflows[defaultWorkflow]?.states || ["todo", "in_progress", "needs_input", "review", "done"];
+
+  /** Resolve workflow states for a given story (falls back to default) */
+  const getStatesForStory = (story: StoryView): string[] => {
+    if (story.workflow && workflows[story.workflow]) {
+      return workflows[story.workflow].states;
+    }
+    return defaultStates;
+  };
 
   // Filter stories by search
   const filtered = useMemo(() => {
@@ -91,7 +99,9 @@ export function BoardPage() {
 
   // Find data for edit dialogs
   const editStory = stories.find(s => s.id === editStoryId) || null;
-  const editTask = stories.flatMap(s => s.tasks).find(t => t.id === editTaskId) || null;
+  const editTaskStory = stories.find(s => s.tasks.some(t => t.id === editTaskId)) || null;
+  const editTask = editTaskStory?.tasks.find(t => t.id === editTaskId) || null;
+  const editTaskStates = editTaskStory ? getStatesForStory(editTaskStory) : defaultStates;
 
   const handleArchive = async (storyId: string) => {
     if (!confirm(`Archive story "${storyId}"?`)) return;
@@ -132,22 +142,13 @@ export function BoardPage() {
         <SpawnDialog />
       </div>
 
-      {/* Column headers */}
-      <div className="grid overflow-x-auto border-b border-border pb-1" style={{ gridTemplateColumns: `repeat(${states.length}, minmax(180px, 1fr))` }}>
-        {states.map(state => (
-          <div key={state} className="text-xs font-medium text-muted-foreground uppercase tracking-wide px-2">
-            {state.replace(/_/g, " ")}
-          </div>
-        ))}
-      </div>
-
       {/* Swimlanes */}
       <div className="space-y-3">
         {sorted.map(story => (
           <StorySwimlane
             key={story.id}
             story={story}
-            states={states}
+            states={getStatesForStory(story)}
             onEditStory={setEditStoryId}
             onEditTask={setEditTaskId}
             onAddTask={setAddTaskStoryId}
@@ -165,7 +166,7 @@ export function BoardPage() {
 
       {/* Dialogs */}
       <EditStoryDialog story={editStory} open={!!editStoryId} onClose={() => setEditStoryId(null)} onUpdated={refetch} />
-      <EditTaskDialog task={editTask} states={states} open={!!editTaskId} onClose={() => setEditTaskId(null)} onUpdated={refetch} />
+      <EditTaskDialog task={editTask} states={editTaskStates} open={!!editTaskId} onClose={() => setEditTaskId(null)} onUpdated={refetch} />
       <AddTaskDialog storyId={addTaskStoryId} open={!!addTaskStoryId} onClose={() => setAddTaskStoryId(null)} onCreated={refetch} />
     </div>
   );
