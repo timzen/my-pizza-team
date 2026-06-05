@@ -472,6 +472,16 @@ export class Store {
       this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
     }
 
+    // Release assignment if task is moved back to initial state
+    const task = this.getTask(taskId);
+    if (task) {
+      const wf = this.getWorkflowForStory(task.storyId);
+      const initialState = getInitialState(wf);
+      if (status === initialState) {
+        this.releaseTask(taskId);
+      }
+    }
+
     // Check if story is complete (all tasks in their workflow's done state)
     const task = this.getTask(taskId);
     if (task) {
