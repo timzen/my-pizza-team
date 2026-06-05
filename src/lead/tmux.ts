@@ -31,8 +31,13 @@ export function spawnTeammate(name: string, cwd: string, options: TmuxOptions): 
   const justCreated = ensureSession(session);
 
   if (justCreated) {
-    // Session was just created — rename its default window instead of making a new one
-    execSync(`tmux rename-window -t "${safeSession}:0" "${safeName}"`, { stdio: "pipe" });
+    // Session was just created — rename its first window instead of making a new one
+    try {
+      execSync(`tmux rename-window -t "${safeSession}" "${safeName}"`, { stdio: "pipe" });
+    } catch {
+      // If rename fails, just create a new window
+      execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
+    }
   } else {
     // Session existed — add a new window
     execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
@@ -68,7 +73,7 @@ export function spawnAssistant(cwd: string, options: TmuxOptions): void {
   const justCreated = ensureSession(session);
 
   if (justCreated) {
-    execSync(`tmux rename-window -t "${safeSession}:0" "${name}"`, { stdio: "pipe" });
+    try { execSync(`tmux rename-window -t "${safeSession}" "${name}"`, { stdio: "pipe" }); } catch { execSync(`tmux new-window -n "${name}" -t "${safeSession}"`, { stdio: "pipe" }); }
   } else {
     // Check if assistant window already exists
     try {
