@@ -85,6 +85,9 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/assistant/notes` | List memory notes |
 | POST | `/api/assistant/notes` | Save a note |
 | DELETE | `/api/assistant/notes/:id` | Delete a note |
+| POST | `/api/spawn-requests` | Create a spawn request |
+| GET | `/api/spawn-requests?hostId=X` | Poll pending spawn requests for a host |
+| POST | `/api/spawn-requests/:id/ack` | Acknowledge a spawn request |
 | GET | `/api/config` | Get current config |
 | POST | `/api/control/pause` | Pause task distribution |
 | POST | `/api/control/resume` | Resume task distribution |
