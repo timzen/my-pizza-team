@@ -485,22 +485,38 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   // POST /api/agents/complete/:taskId
   app.post("/api/agents/complete/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
-    const body = await c.req.json() as { agentId?: string; result?: string };
+    const body = await c.req.json() as { agentId?: string; result?: string; status?: string };
     if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
 
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
 
-    // Transition to review (teammate submitting for lead review)
-    const check = store.canTransition(taskId, "review", "teammate");
+    // Determine target state from the task's workflow.
+    // If caller provides a status, use it; otherwise find the first
+    // teammate-allowed transition from the current state.
+    const wf = store.getWorkflowForTask(taskId);
+    let targetStatus = body.status;
+    if (!targetStatus) {
+      const transitions = wf.transitions[task.status];
+      if (transitions) {
+        // Find first transition a teammate can make (prefer "review"-like states)
+        const candidates = Object.entries(transitions)
+          .filter(([_, perm]) => perm === "teammate" || perm === "any")
+          .map(([state]) => state);
+        targetStatus = candidates.find(s => s === "review") || candidates[0];
+      }
+    }
+    if (!targetStatus) return c.json({ success: false, error: "No valid completion transition found in workflow" }, 400);
+
+    const check = store.canTransition(taskId, targetStatus, "teammate");
     if (!check.ok) return c.json({ success: false, error: check.error }, 403);
 
     const fromStatus = task.status;
-    store.updateTaskStatus(taskId, "review", body.result);
+    store.updateTaskStatus(taskId, targetStatus, body.result);
     store.releaseTask(taskId);
     store.updateMemberStatus(body.agentId, "idle");
 
-    const instructions = getInstructionsMarkdown(fromStatus, "review", taskId);
+    const instructions = getInstructionsMarkdown(fromStatus, targetStatus, taskId);
     return c.json({ success: true, instructions });
   });
 

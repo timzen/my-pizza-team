@@ -160,7 +160,7 @@ export interface AgentClaimRequest { agentId: string }
 export interface AgentClaimResponse { success: boolean; error?: string; instructions?: string }
 
 // POST /api/agents/complete/:taskId
-export interface AgentCompleteRequest { agentId: string; result?: string }
+export interface AgentCompleteRequest { agentId: string; result?: string; status?: string }
 export interface AgentCompleteResponse { success: boolean; error?: string; instructions?: string }
 
 // GET /api/agents/messages/:taskId
