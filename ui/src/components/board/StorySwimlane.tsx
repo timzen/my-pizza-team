@@ -83,6 +83,15 @@ export function StorySwimlane({ story, states, onEditStory, onEditTask, onAddTas
         </div>
       </div>
 
+      {/* Column headers */}
+      <div className="grid overflow-x-auto border-b border-border" style={{ gridTemplateColumns: `repeat(${states.length}, minmax(180px, 1fr))` }}>
+        {states.map(state => (
+          <div key={state} className="px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+            {state.replace(/_/g, " ")}
+          </div>
+        ))}
+      </div>
+
       {/* Task columns */}
       <div className="grid overflow-x-auto" style={{ gridTemplateColumns: `repeat(${states.length}, minmax(180px, 1fr))` }}>
         {states.map(state => (
