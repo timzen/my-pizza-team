@@ -600,6 +600,74 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows() }));
 
   /**
+   * PUT /api/config — Update and persist configuration.
+   * Validates required fields, updates in-memory config, writes workflows
+   * to their directories, and saves config.json to disk.
+   */
+  app.put("/api/config", async (c) => {
+    try {
+      const body = await c.req.json();
+
+      // Validate required fields
+      if (!body.workflows || typeof body.workflows !== "object" || Object.keys(body.workflows).length === 0) {
+        return c.json({ success: false, error: "At least one workflow is required" }, 400);
+      }
+      if (!body.defaultWorkflow || !body.workflows[body.defaultWorkflow]) {
+        return c.json({ success: false, error: "defaultWorkflow must reference an existing workflow" }, 400);
+      }
+
+      // Update in-memory config
+      config.port = body.port || config.port;
+      config.tmuxSession = body.tmuxSession || config.tmuxSession;
+      config.maxTeammates = body.maxTeammates || config.maxTeammates;
+      config.defaultWorkflow = body.defaultWorkflow;
+
+      // Save workflows to their directories
+      for (const [name, wf] of Object.entries(body.workflows)) {
+        store.saveWorkflow(name, wf as WorkflowConfig);
+      }
+      store.reloadWorkflows();
+
+      if (body.autosave) {
+        config.autosave = {
+          flushIntervalMinutes: body.autosave.flushIntervalMinutes || 30,
+          commitIntervalHours: body.autosave.commitIntervalHours || 24,
+          commitMessage: config.autosave.commitMessage,
+          autoCommit: body.autosave.autoCommit !== false,
+        };
+      }
+      if (body.teammates !== undefined) {
+        config.teammates = body.teammates;
+      }
+      if (body.categories !== undefined) {
+        config.categories = body.categories;
+      }
+
+      // Write to disk
+      const configFile = path.join(teamDir, "config.json");
+      const toWrite: Record<string, unknown> = {
+        port: config.port,
+        tmuxSession: config.tmuxSession,
+        defaultWorkflow: config.defaultWorkflow,
+        autosave: config.autosave,
+        leaderUrl: config.leaderUrl,
+        maxTeammates: config.maxTeammates,
+      };
+      if (config.teammates && Object.keys(config.teammates).length > 0) {
+        toWrite.teammates = config.teammates;
+      }
+      if (config.categories && config.categories.length > 0) {
+        toWrite.categories = config.categories;
+      }
+      Deno.writeTextFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
+
+      return c.json({ success: true });
+    } catch (e: unknown) {
+      return c.json({ success: false, error: (e as Error).message }, 400);
+    }
+  });
+
+  /**
    * GET /api/hosts/:hostId — Get configuration for a specific host.
    * Returns the host's favoriteDirectories and tmuxSession, falling back
    * to global defaults if the host has no specific config. Used by host
