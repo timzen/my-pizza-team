@@ -36,9 +36,10 @@ interface StorySwimlaneProps {
   onAddTask?: (storyId: string) => void;
   onArchive?: (storyId: string) => void;
   onBacklog?: (storyId: string) => void;
+  onStatusChange?: () => void;
 }
 
-export function StorySwimlane({ story, states, onEditStory, onEditTask, onAddTask, onArchive, onBacklog }: StorySwimlaneProps) {
+export function StorySwimlane({ story, states, onEditStory, onEditTask, onAddTask, onArchive, onBacklog, onStatusChange }: StorySwimlaneProps) {
   const tasksByStatus = new Map<string, typeof story.tasks>();
   for (const state of states) {
     tasksByStatus.set(state, []);
@@ -88,7 +89,7 @@ export function StorySwimlane({ story, states, onEditStory, onEditTask, onAddTas
           <div key={state} className="p-2 min-h-[80px] border-r border-border last:border-r-0">
             <div className="flex flex-col gap-2">
               {(tasksByStatus.get(state) || []).map(task => (
-                <TaskCard key={task.id} task={task} onEdit={onEditTask} />
+                <TaskCard key={task.id} task={task} storyId={story.id} states={states} onEdit={onEditTask} onStatusChange={onStatusChange} />
               ))}
             </div>
           </div>
