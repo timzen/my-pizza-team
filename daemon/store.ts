@@ -405,7 +405,9 @@ export class Store {
 
     for (const depId of story.dependsOn) {
       const dep = this.getStory(depId);
-      if (!dep || dep.status !== "done") return false;
+      // If dep is missing from active stories, it was archived (= done)
+      if (!dep) continue;
+      if (dep.status !== "done") return false;
     }
     return true;
   }
