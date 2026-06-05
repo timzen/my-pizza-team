@@ -473,6 +473,7 @@ export class Store {
     }
 
     // Release assignment if task is moved back to initial state
+    // and check if story is complete
     const task = this.getTask(taskId);
     if (task) {
       const wf = this.getWorkflowForStory(task.storyId);
@@ -480,12 +481,8 @@ export class Store {
       if (status === initialState) {
         this.releaseTask(taskId);
       }
-    }
 
-    // Check if story is complete (all tasks in their workflow's done state)
-    const task = this.getTask(taskId);
-    if (task) {
-      const wf = this.getWorkflowForStory(task.storyId);
+      // Check if story is complete (all tasks in their workflow's done state)
       const doneState = getDoneState(wf);
       if (status === doneState) {
         const tasks = this.getTasksForStory(task.storyId);
