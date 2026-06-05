@@ -1,5 +1,5 @@
 /**
- * TaskDetailPage — Shows task details, messages, and diff/review viewer.
+ * TaskDetailPage — Shows task details, comments, and diff/review viewer.
  */
 
 import { useState } from "react";
@@ -89,10 +89,10 @@ export function TaskDetailPage() {
         </Card>
       )}
 
-      {/* Messages */}
+      {/* Comments */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Messages ({messages.length})</h2>
+          <h2 className="text-lg font-semibold">Comments ({messages.length})</h2>
           <Button variant="ghost" size="sm" onClick={markRead}>Mark read</Button>
         </div>
 
@@ -115,13 +115,13 @@ export function TaskDetailPage() {
               </CardContent>
             </Card>
           ))}
-          {messages.length === 0 && <p className="text-sm text-muted-foreground">No messages yet.</p>}
+          {messages.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
         </div>
 
-        {/* Send message */}
+        {/* Send comment */}
         <div className="flex gap-2">
           <Textarea
-            placeholder="Send a message as lead..."
+            placeholder="Add a comment..."
             value={newMessage}
             onChange={e => setNewMessage(e.target.value)}
             rows={2}
