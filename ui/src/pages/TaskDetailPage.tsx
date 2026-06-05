@@ -37,18 +37,18 @@ interface StoryView {
 export function TaskDetailPage() {
   const { storyId, taskId } = useParams<{ storyId: string; taskId: string }>();
   const { data: storiesData } = useApi<{ stories: StoryView[] }>("/api/stories");
-  const { data: messagesData, refetch: refetchMessages } = useApi<{ messages: Message[] }>(`/api/tasks/${taskId}/messages`);
-  const [newMessage, setNewMessage] = useState("");
+  const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Message[] }>(`/api/tasks/${taskId}/comments`);
+  const [newComment, setNewComment] = useState("");
 
   const story = storiesData?.stories.find(s => s.id === storyId);
   const task = story?.tasks.find(t => t.id === taskId);
-  const messages = messagesData?.messages || [];
+  const comments = commentsData?.comments || [];
 
-  const sendMessage = async () => {
-    if (!newMessage.trim() || !taskId) return;
-    await apiPost(`/api/tasks/${taskId}/message`, { from: "lead", body: newMessage });
-    setNewMessage("");
-    refetchMessages();
+  const sendComment = async () => {
+    if (!newComment.trim() || !taskId) return;
+    await apiPost(`/api/tasks/${taskId}/comment`, { from: "lead", body: newComment });
+    setNewComment("");
+    refetchComments();
   };
 
   const markRead = async () => {
@@ -92,12 +92,12 @@ export function TaskDetailPage() {
       {/* Comments */}
       <div className="space-y-2">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Comments ({messages.length})</h2>
+          <h2 className="text-lg font-semibold">Comments ({comments.length})</h2>
           <Button variant="ghost" size="sm" onClick={markRead}>Mark read</Button>
         </div>
 
         <div className="space-y-2 max-h-[400px] overflow-y-auto">
-          {messages.map((msg, i) => (
+          {comments.map((msg, i) => (
             <Card key={i} className={msg.from === "lead" ? "border-l-4 border-l-primary" : ""}>
               <CardContent className="p-3">
                 <div className="flex items-center gap-2 mb-1">
@@ -115,20 +115,20 @@ export function TaskDetailPage() {
               </CardContent>
             </Card>
           ))}
-          {messages.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
+          {comments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet.</p>}
         </div>
 
         {/* Send comment */}
         <div className="flex gap-2">
           <Textarea
             placeholder="Add a comment..."
-            value={newMessage}
-            onChange={e => setNewMessage(e.target.value)}
+            value={newComment}
+            onChange={e => setNewComment(e.target.value)}
             rows={2}
             className="flex-1"
-            onKeyDown={e => { if (e.key === "Enter" && e.metaKey) sendMessage(); }}
+            onKeyDown={e => { if (e.key === "Enter" && e.metaKey) sendComment(); }}
           />
-          <Button onClick={sendMessage} disabled={!newMessage.trim()} className="self-end">
+          <Button onClick={sendComment} disabled={!newComment.trim()} className="self-end">
             <Send className="h-4 w-4" />
           </Button>
         </div>
