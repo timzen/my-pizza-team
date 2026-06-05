@@ -25,8 +25,18 @@ export interface TeamConfig {
   categories?: string[];
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
+  /** Per-host configuration (keyed by host ID) */
+  hosts?: Record<string, HostConfig>;
   /** @deprecated Use workflows + defaultWorkflow instead */
   workflow?: WorkflowConfig;
+}
+
+/** Per-host configuration for multi-machine setups */
+export interface HostConfig {
+  /** Favorite working directories for spawning agents on this host */
+  favoriteDirectories?: string[];
+  /** tmux session name for this host (overrides top-level tmuxSession) */
+  tmuxSession?: string;
 }
 
 export interface TeammateConfig {
@@ -115,6 +125,7 @@ export interface Member {
   name: string;
   cwd: string;
   tmuxWindow: string;
+  hostId?: string;
   status: "idle" | "working" | "pairing" | "offline";
   lastHeartbeat: number;
 }

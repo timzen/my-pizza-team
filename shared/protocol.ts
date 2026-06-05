@@ -76,7 +76,7 @@ export interface PostCommentResponse { success: boolean }
 export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/team/join
-export interface JoinRequest { id: string; name: string; cwd: string; tmuxWindow: string }
+export interface JoinRequest { id: string; name: string; cwd: string; tmuxWindow: string; hostId?: string }
 export interface JoinResponse { success: boolean; config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig>; workflow?: WorkflowConfig } }
 
 // POST /api/team/heartbeat

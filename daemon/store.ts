@@ -164,6 +164,7 @@ export class Store {
         name TEXT,
         cwd TEXT,
         tmux_window TEXT,
+        host_id TEXT,
         status TEXT DEFAULT 'idle',
         last_heartbeat INTEGER
       );
@@ -215,6 +216,11 @@ export class Store {
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
     if (!taskColumns.some((col) => col.name === "last_read_at")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN last_read_at INTEGER");
+    }
+
+    const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
+    if (!memberColumns.some((col) => col.name === "host_id")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN host_id TEXT");
     }
   }
 
@@ -800,11 +806,11 @@ export class Store {
 
   // --- Members ---
 
-  registerMember(id: string, name: string, cwd: string, tmuxWindow: string): void {
+  registerMember(id: string, name: string, cwd: string, tmuxWindow: string, hostId?: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO members (id, name, cwd, tmux_window, status, last_heartbeat)
-       VALUES (?, ?, ?, ?, 'idle', ?)`
-    ).run(id, name, cwd, tmuxWindow, Date.now());
+      `INSERT OR REPLACE INTO members (id, name, cwd, tmux_window, host_id, status, last_heartbeat)
+       VALUES (?, ?, ?, ?, ?, 'idle', ?)`
+    ).run(id, name, cwd, tmuxWindow, hostId || null, Date.now());
   }
 
   updateMemberStatus(id: string, status: string): void {
@@ -822,6 +828,7 @@ export class Store {
       name: row.name as string,
       cwd: row.cwd as string,
       tmuxWindow: row.tmux_window as string,
+      hostId: (row.host_id as string) || undefined,
       status: row.status as Member["status"],
       lastHeartbeat: row.last_heartbeat as number,
     }));
@@ -835,6 +842,7 @@ export class Store {
       name: row.name as string,
       cwd: row.cwd as string,
       tmuxWindow: row.tmux_window as string,
+      hostId: (row.host_id as string) || undefined,
       status: row.status as Member["status"],
       lastHeartbeat: row.last_heartbeat as number,
     };

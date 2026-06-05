@@ -396,7 +396,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
    */
   app.post("/api/team/join", async (c) => {
     const body = (await c.req.json()) as JoinRequest;
-    store.registerMember(body.id, body.name, body.cwd, body.tmuxWindow);
+    store.registerMember(body.id, body.name, body.cwd, body.tmuxWindow, body.hostId);
     return c.json({ success: true, config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), workflow: store.getWorkflows()[config.defaultWorkflow] } } satisfies JoinResponse);
   });
 
@@ -599,6 +599,22 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
    */
   app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows() }));
 
+  /**
+   * GET /api/hosts/:hostId — Get configuration for a specific host.
+   * Returns the host's favoriteDirectories and tmuxSession, falling back
+   * to global defaults if the host has no specific config. Used by host
+   * processes to know which directories to offer for agent spawning.
+   */
+  app.get("/api/hosts/:hostId", (c) => {
+    const hostId = c.req.param("hostId");
+    const hostConfig = config.hosts?.[hostId];
+    return c.json({
+      hostId,
+      tmuxSession: hostConfig?.tmuxSession || config.tmuxSession,
+      favoriteDirectories: hostConfig?.favoriteDirectories || config.teammates?.favoriteDirectories || [],
+    });
+  });
+
   // --- Agents API ---
   // A streamlined agent-facing interface designed for autonomous coding agents.
   // Agents own tasks across multiple state transitions. They claim a task,
@@ -609,18 +625,29 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   /**
    * POST /api/agents/register — Register a new agent.
    * Called once when an agent starts. The agent provides its ID, display name,
-   * and working directory. Returns workflow config so the agent understands
-   * available states and transitions.
+   * working directory, and optionally its hostId (for multi-host setups).
+   * Returns workflow config and host-specific settings (favoriteDirectories, tmuxSession).
    */
   app.post("/api/agents/register", async (c) => {
-    const body = await c.req.json() as { id?: string; name?: string; cwd?: string; capabilities?: string[] };
+    const body = await c.req.json() as { id?: string; name?: string; cwd?: string; hostId?: string; capabilities?: string[] };
     if (!body.id || !body.name || !body.cwd) {
       return c.json({ success: false, error: "Fields 'id', 'name', and 'cwd' are required" }, 400);
     }
-    store.registerMember(body.id, body.name, body.cwd, body.id);
+    store.registerMember(body.id, body.name, body.cwd, body.id, body.hostId);
+
+    // Resolve host-specific config
+    const hostConfig = body.hostId ? config.hosts?.[body.hostId] : undefined;
+    const tmuxSession = hostConfig?.tmuxSession || config.tmuxSession;
+    const favoriteDirectories = hostConfig?.favoriteDirectories || config.teammates?.favoriteDirectories || [];
+
     return c.json({
       success: true,
-      config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows() },
+      config: {
+        defaultWorkflow: config.defaultWorkflow,
+        workflows: store.getWorkflows(),
+        tmuxSession,
+        favoriteDirectories,
+      },
     });
   });
 
@@ -841,7 +868,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);
-        return { id: m.id, name: m.name, cwd: m.cwd, status: m.status, currentTask: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat };
+        return { id: m.id, name: m.name, cwd: m.cwd, hostId: m.hostId, status: m.status, currentTask: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat };
       }),
     });
   });
