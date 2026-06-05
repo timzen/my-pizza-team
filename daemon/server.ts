@@ -87,10 +87,18 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
   }
 
-  // Health check
+  /**
+   * GET /health — Health check.
+   * Returns a simple status object to confirm the daemon is running.
+   * Called by: CLI `mpt status`, load balancers, monitoring tools.
+   */
   app.get("/health", (c) => c.json({ status: "ok", service: "my-pizza-team" }));
 
-  // GET /api/status
+  /**
+   * GET /api/status — Dashboard summary.
+   * Returns aggregate counts of stories, tasks (by status), team members,
+   * and inbox items. Used by the UI dashboard and CLI to show a quick overview.
+   */
   app.get("/api/status", (c) => {
     const stories = store.getStories();
     const allTasks: Record<string, number> = {};
@@ -116,7 +124,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json(response);
   });
 
-  // GET /api/stories
+  /**
+   * GET /api/stories — List all active stories with their tasks.
+   * Returns the full board state: each story with its tasks, assignees,
+   * unread message flags, and token usage. Used by the UI board view
+   * and CLI to display current work.
+   */
   app.get("/api/stories", (c) => {
     const stories = store.getStories();
     const response: StoriesResponse = {
@@ -138,7 +151,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json(response);
   });
 
-  // POST /api/stories
+  /**
+   * POST /api/stories — Create a new story (with optional tasks).
+   * The lead uses this to define new work. Creates the story directory on disk,
+   * writes story.json, and optionally creates task subdirectories. Tasks start
+   * in the workflow's initial state.
+   */
   app.post("/api/stories", async (c) => {
     const body = (await c.req.json()) as CreateStoryRequest;
     if (!body.id || typeof body.id !== "string") return c.json({ success: false, error: "Field 'id' is required" } satisfies CreateStoryResponse, 400);
@@ -151,7 +169,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), dir: story.dir, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null, hasMessages: false })) } } satisfies CreateStoryResponse, 201);
   });
 
-  // PUT /api/stories/:id
+  /**
+   * PUT /api/stories/:id — Update story metadata.
+   * Allows the lead to change title, description, status, dependencies,
+   * working directory, workflow, or categories. Writes changes to disk.
+   */
   app.put("/api/stories/:id", async (c) => {
     const storyId = c.req.param("id");
     const body = (await c.req.json()) as UpdateStoryRequest;
@@ -160,7 +182,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true } satisfies UpdateStoryResponse);
   });
 
-  // DELETE /api/stories/:id
+  /**
+   * DELETE /api/stories/:id — Delete a story and all its tasks.
+   * Removes from SQLite and disk. Fails if any tasks are in_progress
+   * (prevents data loss from active work).
+   */
   app.delete("/api/stories/:id", (c) => {
     const storyId = c.req.param("id");
     if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies DeleteStoryResponse, 404);
@@ -168,7 +194,13 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     catch (e) { return c.json({ success: false, error: (e as Error).message } satisfies DeleteStoryResponse, 400); }
   });
 
-  // GET /api/next-task
+  /**
+   * GET /api/next-task?memberId=X — Get the next available task for a teammate.
+   * Finds the first unclaimed task in a ready story (dependencies met) whose
+   * working directory matches the member's cwd. Returns task details plus
+   * context from previously completed tasks in the same story. Used by the
+   * teammate skill to poll for work.
+   */
   app.get("/api/next-task", (c) => {
     const memberId = c.req.query("memberId");
     if (!memberId || paused) return c.json({ task: null } satisfies NextTaskResponse);
@@ -183,7 +215,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description, context: previousResults || undefined, workflow: wf } } satisfies NextTaskResponse);
   });
 
-  // POST /api/tasks/:taskId/claim
+  /**
+   * POST /api/tasks/:taskId/claim — Claim a task (teammate takes ownership).
+   * Assigns the task to the member, transitions it to in_progress, and marks
+   * the member as working. Returns transition instructions if configured.
+   * Used by teammates after receiving a task from next-task.
+   */
   app.post("/api/tasks/:taskId/claim", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as ClaimRequest;
@@ -198,7 +235,13 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: false, error: "Task already claimed" } satisfies ClaimResponse);
   });
 
-  // POST /api/tasks/:taskId/status
+  /**
+   * POST /api/tasks/:taskId/status — Update task status (workflow-enforced).
+   * Validates the transition against the workflow's permission rules (lead vs
+   * teammate). On success, updates status and optionally stores a result summary.
+   * If the task reaches the done state, releases the assignment. Returns
+   * transition instructions for the new state.
+   */
   app.post("/api/tasks/:taskId/status", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as StatusUpdateRequest;
@@ -217,7 +260,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, instructions: getInstructionsMarkdown(fromStatus, body.status, taskId) } satisfies StatusUpdateResponse);
   });
 
-  // POST /api/tasks/:taskId/message
+  /**
+   * POST /api/tasks/:taskId/message — Post a message on a task.
+   * Appends a message to the task's JSONL message log. Used for lead↔teammate
+   * communication: asking questions (NEEDS_INPUT), giving feedback in review,
+   * or providing additional context.
+   */
   app.post("/api/tasks/:taskId/message", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as PostMessageRequest;
@@ -225,13 +273,22 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true } satisfies PostMessageResponse);
   });
 
-  // GET /api/tasks/:taskId/messages
+  /**
+   * GET /api/tasks/:taskId/messages — Get all messages for a task.
+   * Returns the full conversation history from the JSONL file.
+   * Used by UI and teammates to read feedback or instructions.
+   */
   app.get("/api/tasks/:taskId/messages", (c) => {
     const taskId = c.req.param("taskId");
     return c.json({ messages: store.getMessages(taskId) } satisfies MessagesResponse);
   });
 
-  // POST /api/tasks/:taskId/token-usage
+  /**
+   * POST /api/tasks/:taskId/token-usage — Record token usage for a task.
+   * Teammates report LLM token consumption after each API call. The daemon
+   * estimates USD cost from a model pricing table. Used for cost tracking
+   * and budget monitoring.
+   */
   app.post("/api/tasks/:taskId/token-usage", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as TokenUsageRequest;
@@ -244,7 +301,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, costUsd } satisfies TokenUsageResponse);
   });
 
-  // POST /api/tasks/:taskId/mark-read
+  /**
+   * POST /api/tasks/:taskId/mark-read — Mark messages as read.
+   * Updates the read timestamp so hasUnreadMessages() returns false.
+   * Called by the lead UI when viewing a task's messages.
+   */
   app.post("/api/tasks/:taskId/mark-read", (c) => {
     const taskId = c.req.param("taskId");
     if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
@@ -252,7 +313,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true });
   });
 
-  // POST /api/stories/:storyId/tasks
+  /**
+   * POST /api/stories/:storyId/tasks — Add a new task to an existing story.
+   * Creates the task directory, writes task.json, and reloads from disk.
+   * The task gets the next sequential number and starts in the workflow's
+   * initial state. Used by the lead to break down work further.
+   */
   app.post("/api/stories/:storyId/tasks", async (c) => {
     const storyId = c.req.param("storyId");
     const body = (await c.req.json()) as CreateTaskRequest;
@@ -277,7 +343,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, task: { id: taskId, seq: nextSeq, title: body.title, description: body.description, status: initialStatus } } satisfies CreateTaskResponse, 201);
   });
 
-  // PUT /api/tasks/:taskId
+  /**
+   * PUT /api/tasks/:taskId — Update task title or description.
+   * Allows the lead to refine task details before or during work.
+   * Marks the task dirty for the next flush-to-disk cycle.
+   */
   app.put("/api/tasks/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as UpdateTaskRequest;
@@ -287,7 +357,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true } satisfies UpdateTaskResponse);
   });
 
-  // DELETE /api/tasks/:taskId
+  /**
+   * DELETE /api/tasks/:taskId — Delete a task.
+   * Removes the task from SQLite and deletes its directory from disk.
+   * Used by the lead to remove unnecessary or duplicate tasks.
+   */
   app.delete("/api/tasks/:taskId", (c) => {
     const taskId = c.req.param("taskId");
     if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies DeleteTaskResponse, 404);
@@ -295,7 +369,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true } satisfies DeleteTaskResponse);
   });
 
-  // POST /api/tasks/:taskId/move
+  /**
+   * POST /api/tasks/:taskId/move — Lead moves a task to a new status.
+   * Similar to /status but always uses "lead" as the actor. Useful for
+   * the lead to approve reviews (review→done) or send tasks back
+   * (needs_input→in_progress). Returns transition instructions.
+   */
   app.post("/api/tasks/:taskId/move", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as MoveTaskRequest;
@@ -309,28 +388,47 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, instructions: getInstructionsMarkdown(fromStatus, body.status, taskId) } satisfies MoveTaskResponse);
   });
 
-  // POST /api/team/join
+  /**
+   * POST /api/team/join — Register a new teammate.
+   * Called when a teammate agent starts up. Registers it in the members
+   * table and returns the workflow configuration so the teammate knows
+   * what states and transitions are available.
+   */
   app.post("/api/team/join", async (c) => {
     const body = (await c.req.json()) as JoinRequest;
     store.registerMember(body.id, body.name, body.cwd, body.tmuxWindow);
     return c.json({ success: true, config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), workflow: store.getWorkflows()[config.defaultWorkflow] } } satisfies JoinResponse);
   });
 
-  // POST /api/team/heartbeat
+  /**
+   * POST /api/team/heartbeat — Teammate heartbeat.
+   * Called periodically by teammates to confirm they're still alive.
+   * Updates status and last_heartbeat timestamp. Used to detect
+   * crashed teammates (stale heartbeats → offline status).
+   */
   app.post("/api/team/heartbeat", async (c) => {
     const body = (await c.req.json()) as HeartbeatRequest;
     store.heartbeat(body.id, body.status);
     return c.json({ ok: true });
   });
 
-  // GET /api/team
+  /**
+   * GET /api/team — List all registered team members.
+   * Returns each member's status, current task assignment, and heartbeat.
+   * Used by the UI team panel and lead to monitor agent health.
+   */
   app.get("/api/team", (c) => {
     const members = store.getMembers();
     const response: TeamResponse = { members: members.map(m => { const a = store.getAssignmentForMember(m.id); return { id: m.id, name: m.name, status: m.status, currentTask: a?.taskId || null, tmuxWindow: m.tmuxWindow, lastHeartbeat: m.lastHeartbeat }; }) };
     return c.json(response);
   });
 
-  // POST /api/stories/:id/archive
+  /**
+   * POST /api/stories/:id/archive — Archive a completed story.
+   * Moves the story directory from stories/ to archived/, generates a
+   * SYNOPSIS.md summary, and removes from SQLite. Only works when all
+   * tasks are in their done state. Keeps completed work for reference.
+   */
   app.post("/api/stories/:id/archive", (c) => {
     const storyId = c.req.param("id");
     if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies ArchiveStoryResponse, 404);
@@ -339,7 +437,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     catch (e) { return c.json({ success: false, error: (e as Error).message } satisfies ArchiveStoryResponse, 400); }
   });
 
-  // GET /api/archived
+  /**
+   * GET /api/archived — List archived stories.
+   * Returns ID, title, archived date, and synopsis for each archived story.
+   * Used by the UI archive view to browse past work.
+   */
   app.get("/api/archived", (c) => {
     const stories = store.getArchivedStories();
     const response: ArchivedStoriesResponse = { stories: stories.map(s => { const ctx = store.getArchivedStoryContext(s.id); return { id: s.id, title: s.title, archivedAt: (ctx?.story?.archivedAt as string) || "", synopsis: s.synopsis }; }) };
@@ -347,11 +449,22 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   // --- Assistant Queue ---
+  // The assistant queue allows the lead to enqueue prompts for a human or
+  // AI assistant to process asynchronously (research, complex decisions, etc.)
+
+  /**
+   * GET /api/assistant/queue — List all assistant queue items.
+   * Returns the full queue with status (pending/processing/done/failed).
+   */
   app.get("/api/assistant/queue", (c) => {
     const items = store.getAssistantQueue();
     return c.json({ items: items.map(item => ({ id: item.id, prompt: item.prompt, status: item.status, result: item.result || undefined, createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(), startedAt: item.startedAt ? new Date(item.startedAt).toISOString() : undefined, completedAt: item.completedAt ? new Date(item.completedAt).toISOString() : undefined })) });
   });
 
+  /**
+   * POST /api/assistant/queue — Enqueue a new assistant item.
+   * The lead posts a prompt (question/research request) for async processing.
+   */
   app.post("/api/assistant/queue", async (c) => {
     const body = await c.req.json();
     if (!body.prompt || typeof body.prompt !== "string") return c.json({ success: false, error: "Field 'prompt' is required" }, 400);
@@ -359,14 +472,26 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, item }, 201);
   });
 
+  /**
+   * GET /api/assistant/next — Get the next pending item to process.
+   * An assistant worker polls this to find work. Returns null if empty.
+   */
   app.get("/api/assistant/next", (c) => c.json({ item: store.getNextAssistantItem() }));
 
+  /**
+   * POST /api/assistant/queue/:id/claim — Claim an item for processing.
+   * Transitions from pending→processing. Returns 409 if already claimed.
+   */
   app.post("/api/assistant/queue/:id/claim", (c) => {
     const success = store.claimAssistantItem(c.req.param("id"));
     if (!success) return c.json({ success: false, error: "Item not available" }, 409);
     return c.json({ success: true });
   });
 
+  /**
+   * POST /api/assistant/queue/:id/complete — Mark an item as done/failed.
+   * Stores the result and marks completion time. Must be in processing state.
+   */
   app.post("/api/assistant/queue/:id/complete", async (c) => {
     const body = await c.req.json();
     const success = store.completeAssistantItem(c.req.param("id"), body.result, body.status === "failed");
@@ -374,6 +499,10 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true });
   });
 
+  /**
+   * DELETE /api/assistant/queue/:id — Delete a queue item.
+   * Removes it regardless of status. Used to clean up stale items.
+   */
   app.delete("/api/assistant/queue/:id", (c) => {
     const success = store.deleteAssistantItem(c.req.param("id"));
     if (!success) return c.json({ success: false, error: "Item not found" }, 404);
@@ -381,8 +510,21 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   // --- Assistant Notes ---
+  // Knowledge base for the team: categorized markdown notes stored on disk.
+  // Supports BM25 search (via shared/search.ts) for retrieving relevant context.
+
+  /**
+   * GET /api/assistant/notes — List all knowledge base notes.
+   * Returns notes with title, content, categories, and timestamps.
+   * Used by the UI knowledge panel and search.
+   */
   app.get("/api/assistant/notes", (c) => c.json({ notes: store.getAssistantNotes() }));
 
+  /**
+   * POST /api/assistant/notes — Save a new knowledge base note.
+   * Creates a markdown file with YAML frontmatter for categories.
+   * Used to persist research findings, coding patterns, or decisions.
+   */
   app.post("/api/assistant/notes", async (c) => {
     const body = await c.req.json();
     if (!body.title || typeof body.title !== "string") return c.json({ success: false, error: "Field 'title' is required" }, 400);
@@ -391,6 +533,10 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, note }, 201);
   });
 
+  /**
+   * DELETE /api/assistant/notes/:id — Delete a knowledge base note.
+   * Removes the markdown file from disk.
+   */
   app.delete("/api/assistant/notes/:id", (c) => {
     const success = store.deleteAssistantNote(c.req.param("id"));
     if (!success) return c.json({ success: false, error: "Note not found" }, 404);
@@ -398,8 +544,20 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   // --- Backlog ---
+  // Stories can be moved to backlog when they're not ready to work on.
+  // Backlogged stories are moved out of the active stories/ directory.
+
+  /**
+   * GET /api/backlog — List backlogged stories.
+   * Returns stories that were deferred, with their backlog timestamps.
+   */
   app.get("/api/backlog", (c) => c.json({ stories: store.getBacklogStories() }));
 
+  /**
+   * POST /api/stories/:id/backlog — Move a story to the backlog.
+   * Moves the story (and any stories that depend on it) from stories/
+   * to backlog/. Fails if any tasks are in_progress.
+   */
   app.post("/api/stories/:id/backlog", (c) => {
     const storyId = c.req.param("id");
     if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` }, 404);
@@ -407,22 +565,53 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     catch (e) { return c.json({ success: false, error: (e as Error).message }, 400); }
   });
 
+  /**
+   * POST /api/backlog/:id/restore — Restore a story from the backlog.
+   * Moves it back to stories/ and reloads from disk. Used when the
+   * team is ready to work on previously deferred items.
+   */
   app.post("/api/backlog/:id/restore", (c) => {
     try { store.moveFromBacklog(c.req.param("id")); return c.json({ success: true }); }
     catch (e) { return c.json({ success: false, error: (e as Error).message }, 400); }
   });
 
   // --- Control ---
+  // Pause/resume controls task distribution without stopping the daemon.
+
+  /**
+   * POST /api/control/pause — Pause task distribution.
+   * When paused, /api/next-task and /api/agents/next-work return null.
+   * Existing in-progress work continues. Used for maintenance or when
+   * the lead needs to reorganize stories without agents claiming tasks.
+   */
   app.post("/api/control/pause", (c) => { paused = true; return c.json({ paused: true }); });
+
+  /**
+   * POST /api/control/resume — Resume task distribution.
+   * Re-enables task assignment after a pause.
+   */
   app.post("/api/control/resume", (c) => { paused = false; return c.json({ paused: false }); });
 
-  // --- Config ---
+  /**
+   * GET /api/config — Get the current team configuration.
+   * Returns the full config including loaded workflows. Used by UI
+   * settings panels and agents that need workflow details.
+   */
   app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows() }));
 
   // --- Agents API ---
-  // A streamlined agent-facing interface that wraps the team/task operations
+  // A streamlined agent-facing interface designed for autonomous coding agents.
+  // Wraps the team/task operations with simpler semantics: register, poll for
+  // work, claim, complete. This is the universal fallback for agents that don't
+  // have their own HTTP server (file-based agents poll these endpoints).
 
-  // POST /api/agents/register
+  /**
+   * POST /api/agents/register — Register a new agent.
+   * Similar to /api/team/join but with agent-specific semantics.
+   * Called once when an agent starts. The agent provides its ID, display name,
+   * and working directory. Returns workflow config for the agent to understand
+   * what states/transitions are available.
+   */
   app.post("/api/agents/register", async (c) => {
     const body = await c.req.json() as { id?: string; name?: string; cwd?: string; capabilities?: string[] };
     if (!body.id || !body.name || !body.cwd) {
@@ -436,7 +625,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     });
   });
 
-  // POST /api/agents/heartbeat
+  /**
+   * POST /api/agents/heartbeat — Agent heartbeat.
+   * Called periodically (e.g. every 30s) to confirm the agent is alive.
+   * If heartbeats stop, the daemon considers the agent offline and may
+   * release its assigned tasks.
+   */
   app.post("/api/agents/heartbeat", async (c) => {
     const body = await c.req.json() as { id?: string; status?: string; currentTask?: string };
     if (!body.id || !body.status) {
@@ -446,7 +640,13 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true });
   });
 
-  // GET /api/agents/next-work?agentId=X
+  /**
+   * GET /api/agents/next-work?agentId=X — Poll for available work.
+   * The agent polls this endpoint to discover tasks it can work on.
+   * Returns the next available task (matching the agent's cwd) with
+   * context from prior completed tasks in the same story. Returns
+   * {task: null} if no work is available or distribution is paused.
+   */
   app.get("/api/agents/next-work", (c) => {
     const agentId = c.req.query("agentId");
     if (!agentId) return c.json({ task: null });
@@ -462,7 +662,13 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description, context: previousResults || undefined, workflow: wf } });
   });
 
-  // POST /api/agents/claim/:taskId
+  /**
+   * POST /api/agents/claim/:taskId — Agent claims a task.
+   * After discovering a task via next-work, the agent claims it to begin
+   * work. This assigns the task, transitions it to in_progress, and
+   * marks the agent as working. Returns transition instructions (e.g.
+   * "read AGENTS.md before starting").
+   */
   app.post("/api/agents/claim/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const body = await c.req.json() as { agentId?: string };
@@ -482,7 +688,14 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, instructions });
   });
 
-  // POST /api/agents/complete/:taskId
+  /**
+   * POST /api/agents/complete/:taskId — Agent submits work results.
+   * Called when the agent finishes a task. Transitions the task to the
+   * next valid state (prefers "review" if available, otherwise the first
+   * teammate-allowed transition). Stores the result summary, releases
+   * the assignment, and marks the agent idle. The caller can override
+   * the target status if the workflow has multiple completion paths.
+   */
   app.post("/api/agents/complete/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const body = await c.req.json() as { agentId?: string; result?: string; status?: string };
@@ -520,7 +733,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, instructions });
   });
 
-  // GET /api/agents/messages/:taskId
+  /**
+   * GET /api/agents/messages/:taskId — Get messages for a task.
+   * Agents read messages to check for lead feedback, NEEDS_INPUT responses,
+   * or review comments. Returns the full conversation history.
+   */
   app.get("/api/agents/messages/:taskId", (c) => {
     const taskId = c.req.param("taskId");
     const task = store.getTask(taskId);
@@ -528,7 +745,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ messages: store.getMessages(taskId) });
   });
 
-  // POST /api/agents/messages/:taskId
+  /**
+   * POST /api/agents/messages/:taskId — Agent posts a message.
+   * Used for status updates, asking questions (NEEDS_INPUT), or
+   * providing additional context. Supports attachments metadata.
+   */
   app.post("/api/agents/messages/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const body = await c.req.json() as { agentId?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
@@ -541,7 +762,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true });
   });
 
-  // GET /api/agents
+  /**
+   * GET /api/agents — List all registered agents.
+   * Returns each agent's status, current task, and last heartbeat.
+   * Used by the lead to monitor the team of agents.
+   */
   app.get("/api/agents", (c) => {
     const members = store.getMembers();
     return c.json({
@@ -552,7 +777,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     });
   });
 
-  // DELETE /api/agents/:id
+  /**
+   * DELETE /api/agents/:id — Unregister an agent.
+   * Removes the agent and releases any task assignments. Called when
+   * an agent shuts down cleanly or the lead removes a stuck agent.
+   */
   app.delete("/api/agents/:id", (c) => {
     const agentId = c.req.param("id");
     const member = store.getMember(agentId);
@@ -562,8 +791,14 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   // --- Spawn Requests ---
+  // Allows the daemon to request that host machines spawn new agent processes.
+  // The host polls for pending requests and acknowledges them once spawned.
 
-  // POST /api/spawn-requests
+  /**
+   * POST /api/spawn-requests — Create a spawn request.
+   * The lead (or daemon auto-scaler) requests that a host machine start
+   * a new agent process. Specifies target cwd, optional story, and reason.
+   */
   app.post("/api/spawn-requests", async (c) => {
     const body = await c.req.json() as { hostId?: string; cwd?: string; storyId?: string; reason?: string };
     if (!body.hostId || typeof body.hostId !== "string") {
@@ -573,7 +808,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true, request }, 201);
   });
 
-  // GET /api/spawn-requests?hostId=X
+  /**
+   * GET /api/spawn-requests?hostId=X — Poll pending spawn requests.
+   * Host machines poll this to discover new agent spawn requests.
+   * Returns only pending (un-acknowledged) requests for the given host.
+   */
   app.get("/api/spawn-requests", (c) => {
     const hostId = c.req.query("hostId");
     if (!hostId) return c.json({ requests: [] });
@@ -581,7 +820,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ requests });
   });
 
-  // POST /api/spawn-requests/:id/ack
+  /**
+   * POST /api/spawn-requests/:id/ack — Acknowledge a spawn request.
+   * The host calls this after successfully spawning the requested agent.
+   * Marks the request as acknowledged so it won't appear in future polls.
+   */
   app.post("/api/spawn-requests/:id/ack", (c) => {
     const id = c.req.param("id");
     const success = store.ackSpawnRequest(id);
