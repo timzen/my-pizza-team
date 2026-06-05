@@ -21,11 +21,11 @@ export function HomePage() {
   if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
   if (!data) return <div className="container mx-auto p-6 text-muted-foreground">Cannot connect to daemon.</div>;
 
-  const stats = [
+  const stats: Array<{ label: string; value: string; icon: typeof BookOpen; color: string; sub?: string; link?: string }> = [
     { label: "Stories", value: `${data.stories.open} open / ${data.stories.total}`, icon: BookOpen, color: "text-blue-500" },
     { label: "Tasks", value: `${data.tasks.total}`, icon: Activity, color: "text-green-500", sub: Object.entries(data.tasks.byStatus).map(([k, v]) => `${k}: ${v}`).join(", ") },
     { label: "Agents", value: `${data.members.total} members`, icon: Users, color: "text-purple-500", sub: `${data.members.working} working, ${data.members.idle} idle` },
-    { label: "Inbox", value: `${data.inbox}`, icon: Inbox, color: data.inbox > 0 ? "text-orange-500" : "text-muted-foreground" },
+    { label: "Inbox", value: `${data.inbox}`, icon: Inbox, color: data.inbox > 0 ? "text-orange-500" : "text-muted-foreground", link: "/board?filter=inbox" },
   ];
 
   return (
@@ -33,8 +33,8 @@ export function HomePage() {
       <h1 className="text-2xl font-bold">Dashboard</h1>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {stats.map((stat) => (
-          <Card key={stat.label}>
+        {stats.map((stat) => {
+          const content = (
             <CardContent className="p-4">
               <div className="flex items-center gap-3">
                 <stat.icon className={`h-8 w-8 ${stat.color}`} />
@@ -45,8 +45,15 @@ export function HomePage() {
                 </div>
               </div>
             </CardContent>
-          </Card>
-        ))}
+          );
+          return stat.link ? (
+            <Link key={stat.label} to={stat.link}>
+              <Card className="hover:shadow-md transition-shadow">{content}</Card>
+            </Link>
+          ) : (
+            <Card key={stat.label}>{content}</Card>
+          );
+        })}
       </div>
 
       {data.stories.done > 0 && (

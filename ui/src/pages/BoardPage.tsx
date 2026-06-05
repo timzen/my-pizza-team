@@ -12,7 +12,9 @@
  */
 
 import { useState, useMemo } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
@@ -21,7 +23,7 @@ import { EditStoryDialog } from "@/components/board/EditStoryDialog";
 import { AddTaskDialog } from "@/components/board/AddTaskDialog";
 import { EditTaskDialog } from "@/components/board/EditTaskDialog";
 import { SpawnDialog } from "@/components/board/SpawnDialog";
-import { Search } from "lucide-react";
+import { Search, Inbox } from "lucide-react";
 
 interface StoryView {
   id: string;
@@ -52,12 +54,25 @@ interface StatusData {
 
 type SortOption = "title" | "status" | "ready";
 
+type FilterOption = "all" | "inbox";
+
 export function BoardPage() {
   const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories");
   const { data: statusData } = useApi<StatusData>("/api/status");
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
+  const filter = (searchParams.get("filter") as FilterOption) || "all";
+
+  const setFilter = (f: FilterOption) => {
+    if (f === "all") {
+      searchParams.delete("filter");
+    } else {
+      searchParams.set("filter", f);
+    }
+    setSearchParams(searchParams);
+  };
   const [editStoryId, setEditStoryId] = useState<string | null>(null);
   const [editTaskId, setEditTaskId] = useState<string | null>(null);
   const [addTaskStoryId, setAddTaskStoryId] = useState<string | null>(null);
@@ -75,16 +90,40 @@ export function BoardPage() {
     return defaultStates;
   };
 
-  // Filter stories by search
+  /** Check if a task needs lead action based on its workflow transitions */
+  const taskNeedsLead = (task: { status: string }, story: StoryView): boolean => {
+    const wf = story.workflow && workflows[story.workflow]
+      ? workflows[story.workflow]
+      : workflows[defaultWorkflow];
+    if (!wf) return false;
+    const transitions = wf.transitions?.[task.status];
+    if (!transitions) return false;
+    return Object.values(transitions).some(perm => perm === "lead");
+  };
+
+  // Filter stories by search and quick filter
   const filtered = useMemo(() => {
-    if (!search) return stories;
-    const q = search.toLowerCase();
-    return stories.filter(s =>
-      s.title.toLowerCase().includes(q) ||
-      s.id.toLowerCase().includes(q) ||
-      s.tasks.some(t => t.title.toLowerCase().includes(q))
-    );
-  }, [stories, search]);
+    let result = stories;
+
+    // Quick filter: inbox — only stories with tasks needing lead action
+    if (filter === "inbox") {
+      result = result
+        .map(s => ({ ...s, tasks: s.tasks.filter(t => taskNeedsLead(t, s)) }))
+        .filter(s => s.tasks.length > 0);
+    }
+
+    // Text search
+    if (search) {
+      const q = search.toLowerCase();
+      result = result.filter(s =>
+        s.title.toLowerCase().includes(q) ||
+        s.id.toLowerCase().includes(q) ||
+        s.tasks.some(t => t.title.toLowerCase().includes(q))
+      );
+    }
+
+    return result;
+  }, [stories, search, filter, workflows, defaultWorkflow]);
 
   // Sort stories
   const sorted = useMemo(() => {
@@ -138,6 +177,15 @@ export function BoardPage() {
             <SelectItem value="status">Status</SelectItem>
           </SelectContent>
         </Select>
+        <Button
+          variant={filter === "inbox" ? "default" : "outline"}
+          size="sm"
+          onClick={() => setFilter(filter === "inbox" ? "all" : "inbox")}
+          className="gap-1.5"
+        >
+          <Inbox className="h-4 w-4" />
+          Inbox
+        </Button>
         <AddStoryDialog onCreated={refetch} />
         <SpawnDialog />
       </div>
