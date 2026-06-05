@@ -175,3 +175,27 @@ export interface AgentListResponse { agents: Array<{ id: string; name: string; c
 
 // DELETE /api/agents/:id
 export interface AgentDeleteResponse { success: boolean; error?: string }
+
+// --- Spawn Requests ---
+
+/** A spawn request queued by a teammate or the system */
+export interface SpawnRequest {
+  id: string;
+  hostId: string;
+  cwd?: string;
+  storyId?: string;
+  reason?: string;
+  status: "pending" | "acked";
+  createdAt: string;
+  ackedAt?: string;
+}
+
+// POST /api/spawn-requests
+export interface CreateSpawnRequest { hostId: string; cwd?: string; storyId?: string; reason?: string }
+export interface CreateSpawnResponse { success: boolean; request?: SpawnRequest; error?: string }
+
+// GET /api/spawn-requests?hostId=X
+export interface SpawnRequestsResponse { requests: SpawnRequest[] }
+
+// POST /api/spawn-requests/:id/ack
+export interface AckSpawnResponse { success: boolean; error?: string }

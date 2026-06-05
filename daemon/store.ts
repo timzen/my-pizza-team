@@ -186,6 +186,17 @@ export class Store {
         started_at INTEGER,
         completed_at INTEGER
       );
+
+      CREATE TABLE IF NOT EXISTS spawn_requests (
+        id TEXT PRIMARY KEY,
+        host_id TEXT NOT NULL,
+        cwd TEXT,
+        story_id TEXT,
+        reason TEXT,
+        status TEXT DEFAULT 'pending',
+        created_at INTEGER,
+        acked_at INTEGER
+      );
     `);
 
     // Migration: add columns if they don't exist (for existing databases)
@@ -1313,6 +1324,43 @@ export class Store {
     const filePath = path.join(notesDir, `${id}.md`);
     if (!existsSync(filePath)) return false;
     Deno.removeSync(filePath);
+    return true;
+  }
+
+  // --- Spawn Requests ---
+
+  /** Create a spawn request */
+  createSpawnRequest(hostId: string, cwd?: string, storyId?: string, reason?: string): { id: string; hostId: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string } {
+    const id = `spawn-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const now = Date.now();
+    this.db.prepare(
+      "INSERT INTO spawn_requests (id, host_id, cwd, story_id, reason, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)"
+    ).run(id, hostId, cwd || null, storyId || null, reason || null, now);
+    return { id, hostId, cwd, storyId, reason, status: "pending", createdAt: new Date(now).toISOString() };
+  }
+
+  /** Get pending spawn requests for a specific host */
+  getSpawnRequests(hostId: string): Array<{ id: string; hostId: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string; ackedAt?: string }> {
+    const rows = this.db.prepare(
+      "SELECT * FROM spawn_requests WHERE host_id = ? AND status = 'pending' ORDER BY created_at ASC"
+    ).all(hostId) as Array<Record<string, unknown>>;
+    return rows.map((row) => ({
+      id: row.id as string,
+      hostId: row.host_id as string,
+      cwd: (row.cwd as string) || undefined,
+      storyId: (row.story_id as string) || undefined,
+      reason: (row.reason as string) || undefined,
+      status: row.status as string,
+      createdAt: new Date(row.created_at as number).toISOString(),
+      ackedAt: row.acked_at ? new Date(row.acked_at as number).toISOString() : undefined,
+    }));
+  }
+
+  /** Acknowledge a spawn request (mark as acked) */
+  ackSpawnRequest(id: string): boolean {
+    const row = this.db.prepare("SELECT status FROM spawn_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    if (!row || row.status !== "pending") return false;
+    this.db.prepare("UPDATE spawn_requests SET status = 'acked', acked_at = ? WHERE id = ?").run(Date.now(), id);
     return true;
   }
 

@@ -561,5 +561,33 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true });
   });
 
+  // --- Spawn Requests ---
+
+  // POST /api/spawn-requests
+  app.post("/api/spawn-requests", async (c) => {
+    const body = await c.req.json() as { hostId?: string; cwd?: string; storyId?: string; reason?: string };
+    if (!body.hostId || typeof body.hostId !== "string") {
+      return c.json({ success: false, error: "Field 'hostId' is required" }, 400);
+    }
+    const request = store.createSpawnRequest(body.hostId, body.cwd, body.storyId, body.reason);
+    return c.json({ success: true, request }, 201);
+  });
+
+  // GET /api/spawn-requests?hostId=X
+  app.get("/api/spawn-requests", (c) => {
+    const hostId = c.req.query("hostId");
+    if (!hostId) return c.json({ requests: [] });
+    const requests = store.getSpawnRequests(hostId);
+    return c.json({ requests });
+  });
+
+  // POST /api/spawn-requests/:id/ack
+  app.post("/api/spawn-requests/:id/ack", (c) => {
+    const id = c.req.param("id");
+    const success = store.ackSpawnRequest(id);
+    if (!success) return c.json({ success: false, error: "Request not found or already acknowledged" }, 404);
+    return c.json({ success: true });
+  });
+
   return app;
 }
