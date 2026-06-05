@@ -40,11 +40,11 @@ export function EditTaskDialog({ task, states, open, onClose, onUpdated }: EditT
     e.preventDefault();
     if (!task) return;
     // Update details
-    const res = await apiPut<{ success: boolean; error?: string }>(`/api/tasks/${task.id}`, { title, description });
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(task.id)}`, { title, description });
     if (!res.success) { setError(res.error || "Failed"); return; }
     // Move if status changed
     if (status !== task.status) {
-      const moveRes = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${task.id}/move`, { status });
+      const moveRes = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(task.id)}/move`, { status });
       if (!moveRes.success) { setError(moveRes.error || "Failed to move"); return; }
     }
     onClose(); onUpdated();
@@ -52,7 +52,7 @@ export function EditTaskDialog({ task, states, open, onClose, onUpdated }: EditT
 
   const handleDelete = async () => {
     if (!task || !confirm(`Delete task "${task.id}"?`)) return;
-    const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${task.id}`);
+    const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(task.id)}`);
     if (res.success) { onClose(); onUpdated(); }
     else setError(res.error || "Failed to delete");
   };
