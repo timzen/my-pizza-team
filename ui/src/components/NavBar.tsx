@@ -9,7 +9,7 @@ import { Pizza } from "lucide-react";
 const NAV_ITEMS = [
   { path: "/", label: "Home" },
   { path: "/board", label: "Board" },
-  { path: "/team", label: "Team" },
+  { path: "/team", label: "Agents" },
   { path: "/memory", label: "Memory" },
   { path: "/assistant", label: "Assistant" },
   { path: "/backlog", label: "Backlog" },

@@ -1,63 +1,136 @@
 /**
- * TeamPage — Team members, their status, and current assignments.
+ * TeamPage — Agents panel showing connected agents with status,
+ * host, heartbeat, and current task assignment.
  */
 
 import { useApi } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Users } from "lucide-react";
+import { Bot, Wifi, WifiOff, Clock, FolderOpen, Server } from "lucide-react";
+import { useEffect } from "react";
 
-interface TeamMember {
+interface Agent {
   id: string;
   name: string;
+  cwd: string;
+  hostId?: string;
   status: string;
   currentTask: string | null;
-  tmuxWindow: string;
   lastHeartbeat: number;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  idle: "bg-muted text-muted-foreground",
-  working: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  pairing: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  offline: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
+const STATUS_CONFIG: Record<string, { color: string; icon: typeof Wifi }> = {
+  idle: { color: "bg-muted text-muted-foreground", icon: Wifi },
+  working: { color: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200", icon: Wifi },
+  pairing: { color: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200", icon: Wifi },
+  offline: { color: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200", icon: WifiOff },
 };
 
+function formatHeartbeat(ts: number): string {
+  const ago = Math.round((Date.now() - ts) / 1000);
+  if (ago < 60) return `${ago}s ago`;
+  if (ago < 3600) return `${Math.round(ago / 60)}m ago`;
+  return `${Math.round(ago / 3600)}h ago`;
+}
+
 export function TeamPage() {
-  const { data } = useApi<{ members: TeamMember[] }>("/api/team");
-  const members = data?.members || [];
+  const { data, refetch } = useApi<{ agents: Agent[] }>("/api/agents");
+  const agents = data?.agents || [];
+
+  // Auto-refresh every 10 seconds
+  useEffect(() => {
+    const interval = setInterval(refetch, 10_000);
+    return () => clearInterval(interval);
+  }, [refetch]);
+
+  const online = agents.filter(a => a.status !== "offline");
+  const offline = agents.filter(a => a.status === "offline");
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <div className="flex items-center gap-2">
-        <Users className="h-5 w-5" />
-        <h1 className="text-2xl font-bold">Team</h1>
+    <div className="container mx-auto p-6 space-y-6 max-w-4xl">
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Bot className="h-5 w-5" />
+          <h1 className="text-2xl font-bold">Agents</h1>
+        </div>
+        <div className="text-sm text-muted-foreground">
+          {online.length} online · {offline.length} offline
+        </div>
       </div>
 
-      <div className="space-y-2">
-        {members.map(member => (
-          <Card key={member.id}>
-            <CardContent className="p-4 flex items-center gap-4">
-              <div className="flex-1">
-                <div className="flex items-center gap-2">
-                  <p className="font-medium">{member.name}</p>
-                  <Badge variant="secondary" className={`text-xs ${STATUS_COLORS[member.status] || ""}`}>
-                    {member.status}
-                  </Badge>
-                </div>
-                <div className="text-xs text-muted-foreground mt-1 flex gap-3">
-                  <span>tmux: {member.tmuxWindow}</span>
-                  {member.currentTask && <span>task: <strong>{member.currentTask}</strong></span>}
-                  <span>heartbeat: {new Date(member.lastHeartbeat).toLocaleTimeString()}</span>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {members.length === 0 && (
-          <p className="text-center text-muted-foreground py-8">No team members registered. Spawn a teammate from the Board page.</p>
-        )}
-      </div>
+      {/* Online Agents */}
+      {online.length > 0 && (
+        <div className="space-y-2">
+          {online.map(agent => (
+            <AgentCard key={agent.id} agent={agent} />
+          ))}
+        </div>
+      )}
+
+      {/* Offline Agents */}
+      {offline.length > 0 && (
+        <div className="space-y-2">
+          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Offline</h2>
+          {offline.map(agent => (
+            <AgentCard key={agent.id} agent={agent} />
+          ))}
+        </div>
+      )}
+
+      {agents.length === 0 && (
+        <p className="text-center text-muted-foreground py-8">
+          No agents registered. Spawn an agent from the Board page or register via the API.
+        </p>
+      )}
     </div>
+  );
+}
+
+function AgentCard({ agent }: { agent: Agent }) {
+  const statusCfg = STATUS_CONFIG[agent.status] || STATUS_CONFIG.offline;
+  const StatusIcon = statusCfg.icon;
+
+  return (
+    <Card className={agent.status === "offline" ? "opacity-60" : ""}>
+      <CardContent className="p-4">
+        <div className="flex items-center gap-3">
+          {/* Status icon */}
+          <StatusIcon className={`h-4 w-4 ${agent.status === "offline" ? "text-red-500" : "text-green-500"}`} />
+
+          {/* Name & status badge */}
+          <div className="flex-1 min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium truncate">{agent.name}</span>
+              <Badge variant="secondary" className={`text-xs ${statusCfg.color}`}>
+                {agent.status}
+              </Badge>
+              {agent.currentTask && (
+                <Badge variant="outline" className="text-xs">
+                  ⚙️ {agent.currentTask}
+                </Badge>
+              )}
+            </div>
+
+            {/* Details row */}
+            <div className="flex items-center gap-4 mt-1.5 text-xs text-muted-foreground flex-wrap">
+              {agent.hostId && (
+                <span className="flex items-center gap-1">
+                  <Server className="h-3 w-3" />
+                  {agent.hostId}
+                </span>
+              )}
+              <span className="flex items-center gap-1">
+                <FolderOpen className="h-3 w-3" />
+                <span className="truncate max-w-[200px]">{agent.cwd}</span>
+              </span>
+              <span className="flex items-center gap-1">
+                <Clock className="h-3 w-3" />
+                {formatHeartbeat(agent.lastHeartbeat)}
+              </span>
+            </div>
+          </div>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
