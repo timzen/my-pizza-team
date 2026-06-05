@@ -16,7 +16,7 @@ Instructions for AI coding agents working on this project.
 ### Code Documentation
 
 - **Every file** must have a top-level comment explaining its purpose (see existing files for the pattern)
-- **Every public method** must have a clear purpose evident from its name, or a JSDoc/comment if the name isn't sufficient
+- **Every public method** must have a clear purpose evident from its name and a JSDoc/comment explaining what it does and why to use it
 - **Complex logic** must have inline comments explaining *why*, not just *what*
 - **Non-obvious design decisions** should reference the relevant section in DESIGN.md or ARCHITECTURE.md
 
