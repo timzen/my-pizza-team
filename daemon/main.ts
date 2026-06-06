@@ -17,11 +17,13 @@ import {
   registerSignalHandlers,
   type DaemonContext,
 } from "./lifecycle.ts";
+import { resolveToken, validateBindSafety } from "./auth.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 
 const teamDir = Deno.env.get("TEAM_DIR") || path.join(Deno.cwd(), TEAM_DIR);
 const port = Number(Deno.env.get("PORT") ?? 7437);
+const hostname = Deno.env.get("HOST") || "127.0.0.1";
 
 // Ensure team directory exists
 if (!existsSync(teamDir)) {
@@ -38,8 +40,20 @@ if (existing.running) {
 // Create the app and store
 const { app, store } = createApp(teamDir);
 
+// Validate bind safety: refuse 0.0.0.0 without a token
+const configPath = path.join(teamDir, "config.json");
+const configToken = existsSync(configPath)
+  ? (JSON.parse(Deno.readTextFileSync(configPath)).apiToken as string | undefined)
+  : undefined;
+const token = resolveToken(configToken);
+const bindCheck = validateBindSafety(hostname, token);
+if (!bindCheck.safe) {
+  console.error(`❌ ${bindCheck.reason}`);
+  Deno.exit(1);
+}
+
 // Start the HTTP server
-const server = Deno.serve({ port, hostname: "127.0.0.1" }, app.fetch);
+const server = Deno.serve({ port, hostname }, app.fetch);
 
 // Write PID file
 const pidFile = writePidFile(teamDir);
