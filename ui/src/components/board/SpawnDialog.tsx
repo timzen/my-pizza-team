@@ -119,7 +119,7 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
             {/* Story selection */}
             <div className="space-y-1.5">
               <Label>Story (optional)</Label>
-              <Select value={storyId} onValueChange={setStoryId}>
+              <Select value={storyId} onValueChange={(v) => setStoryId(v ?? "")}>
                 <SelectTrigger>
                   <SelectValue placeholder="Any available task" />
                 </SelectTrigger>
@@ -137,7 +137,7 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
             <div className="space-y-1.5">
               <Label>Host</Label>
               {hosts.length > 0 ? (
-                <Select value={hostId} onValueChange={setHostId}>
+                <Select value={hostId} onValueChange={(v) => setHostId(v ?? "")}>
                   <SelectTrigger>
                     <SelectValue placeholder="Select host" />
                   </SelectTrigger>
