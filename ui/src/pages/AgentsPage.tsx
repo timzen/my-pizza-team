@@ -3,10 +3,11 @@
  * host, heartbeat, and current task assignment.
  */
 
-import { useApi } from "@/hooks/useApi";
+import { useApi, apiDelete } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Bot, Wifi, WifiOff, Clock, FolderOpen, Server } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Bot, Wifi, WifiOff, Clock, FolderOpen, Server, Trash2 } from "lucide-react";
 
 interface Agent {
   id: string;
@@ -33,11 +34,21 @@ function formatHeartbeat(ts: number): string {
 }
 
 export function AgentsPage() {
-  const { data } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 10_000 });
+  const { data, refetch } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 10_000 });
   const agents = data?.agents || [];
 
   const online = agents.filter(a => a.status !== "offline");
   const offline = agents.filter(a => a.status === "offline");
+
+  async function dismissAgent(id: string) {
+    await apiDelete(`/api/agents/${encodeURIComponent(id)}`);
+    refetch();
+  }
+
+  async function dismissAllOffline() {
+    await Promise.all(offline.map(a => apiDelete(`/api/agents/${encodeURIComponent(a.id)}`)));
+    refetch();
+  }
 
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-4xl">
@@ -63,9 +74,15 @@ export function AgentsPage() {
       {/* Offline Agents */}
       {offline.length > 0 && (
         <div className="space-y-2">
-          <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Offline</h2>
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-medium text-muted-foreground uppercase tracking-wide">Offline</h2>
+            <Button variant="ghost" size="sm" className="text-xs text-red-600 hover:text-red-700" onClick={dismissAllOffline}>
+              <Trash2 className="h-3 w-3 mr-1" />
+              Dismiss all
+            </Button>
+          </div>
           {offline.map(agent => (
-            <AgentCard key={agent.id} agent={agent} />
+            <AgentCard key={agent.id} agent={agent} onDismiss={dismissAgent} />
           ))}
         </div>
       )}
@@ -79,7 +96,7 @@ export function AgentsPage() {
   );
 }
 
-function AgentCard({ agent }: { agent: Agent }) {
+function AgentCard({ agent, onDismiss }: { agent: Agent; onDismiss?: (id: string) => void }) {
   const statusCfg = STATUS_CONFIG[agent.status] || STATUS_CONFIG.offline;
   const StatusIcon = statusCfg.icon;
 
@@ -122,6 +139,19 @@ function AgentCard({ agent }: { agent: Agent }) {
               </span>
             </div>
           </div>
+
+          {/* Dismiss button for offline agents */}
+          {agent.status === "offline" && onDismiss && (
+            <Button
+              variant="ghost"
+              size="sm"
+              className="text-red-500 hover:text-red-700 hover:bg-red-50 dark:hover:bg-red-950"
+              onClick={() => onDismiss(agent.id)}
+              title="Remove this agent"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
         </div>
       </CardContent>
     </Card>
