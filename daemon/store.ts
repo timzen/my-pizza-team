@@ -926,19 +926,28 @@ export class Store {
   flushToDisk(): void {
     const dirtyTasks = this.db.prepare("SELECT * FROM tasks WHERE dirty = 1").all() as Array<Record<string, unknown>>;
     for (const row of dirtyTasks) {
-      const tokenUsage = this.getTokenUsage(row.id as string);
-      const taskData: Record<string, unknown> = {
-        id: row.id,
-        title: row.title,
-        description: row.description,
-        status: row.status,
-        result: row.result,
-      };
-      if (tokenUsage.length > 0) {
-        taskData.tokenUsage = tokenUsage;
-      }
       const taskFile = path.join(row.dir_path as string, "task.json");
-      Deno.writeTextFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
+      try {
+        // Ensure task directory exists before writing
+        const taskDir = path.dirname(taskFile);
+        if (!existsSync(taskDir)) {
+          Deno.mkdirSync(taskDir, { recursive: true });
+        }
+        const tokenUsage = this.getTokenUsage(row.id as string);
+        const taskData: Record<string, unknown> = {
+          id: row.id,
+          title: row.title,
+          description: row.description,
+          status: row.status,
+          result: row.result,
+        };
+        if (tokenUsage.length > 0) {
+          taskData.tokenUsage = tokenUsage;
+        }
+        Deno.writeTextFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
+      } catch {
+        // Task directory may have been removed externally; skip
+      }
     }
     if (dirtyTasks.length > 0) {
       this.db.prepare("UPDATE tasks SET dirty = 0 WHERE dirty = 1").run();
