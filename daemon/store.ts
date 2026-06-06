@@ -1165,19 +1165,30 @@ export class Store {
 
     const sourcePath = story.dirPath;
     const destPath = path.join(archivedDir, storyId);
-
-    Deno.renameSync(sourcePath, destPath);
-
-    // Update story.json with archivedAt timestamp
-    const storyFile = path.join(destPath, "story.json");
-    const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
     const archivedAt = new Date().toISOString();
-    storyData.archivedAt = archivedAt;
-    Deno.writeTextFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
 
-    // Generate SYNOPSIS.md
-    const tasks = this.getTasksForStory(storyId);
-    this.generateSynopsis(destPath, story, tasks, archivedAt);
+    if (existsSync(sourcePath)) {
+      Deno.renameSync(sourcePath, destPath);
+
+      // Update story.json with archivedAt timestamp
+      const storyFile = path.join(destPath, "story.json");
+      if (existsSync(storyFile)) {
+        const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
+        storyData.archivedAt = archivedAt;
+        Deno.writeTextFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
+      }
+
+      // Generate SYNOPSIS.md
+      const tasks = this.getTasksForStory(storyId);
+      this.generateSynopsis(destPath, story, tasks, archivedAt);
+    } else {
+      // Source directory missing — create a minimal archive entry
+      Deno.mkdirSync(destPath, { recursive: true });
+      const tasks = this.getTasksForStory(storyId);
+      const storyData = { id: storyId, title: story.title, description: story.description, status: "done", archivedAt };
+      Deno.writeTextFileSync(path.join(destPath, "story.json"), JSON.stringify(storyData, null, 2) + "\n");
+      this.generateSynopsis(destPath, story, tasks, archivedAt);
+    }
 
     this.removeStoryFromDb(storyId);
   }
