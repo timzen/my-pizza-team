@@ -21,7 +21,12 @@ const VERSION = "0.1.0";
 const PID_FILENAME = "daemon.pid";
 
 function getTeamDir(): string {
-  return Deno.env.get("TEAM_DIR") || path.join(Deno.cwd(), TEAM_DIR);
+  const raw = Deno.env.get("TEAM_DIR") || path.join(Deno.cwd(), TEAM_DIR);
+  // Accept either the .pi-pizza-team dir itself or its parent
+  if (raw.endsWith(TEAM_DIR)) return raw;
+  const nested = path.join(raw, TEAM_DIR);
+  if (existsSync(nested)) return nested;
+  return raw;
 }
 
 function getPort(): number {
