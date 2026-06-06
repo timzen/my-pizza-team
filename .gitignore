@@ -9,3 +9,6 @@
 # Compiled binaries
 mpt
 dist/
+
+# Swift build
+macos-app/.build/
