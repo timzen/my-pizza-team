@@ -133,26 +133,26 @@ test("registers assistant tools with categories", () => {
 
 test("does NOT import Store for assistant", () => {
   // The assistant setup function itself should not reference Store
-  const startIdx = indexSrc.indexOf("async function setupAssistantRole");
+  const startIdx = indexSrc.indexOf("async function setupAssistant");
   const assistantFn = indexSrc.slice(startIdx);
   assert.ok(!assistantFn.includes("Store"));
   assert.ok(!assistantFn.includes("loadFromDisk"));
 });
 
 test("does NOT read local config.json for assistant", () => {
-  const startIdx = indexSrc.indexOf("async function setupAssistantRole");
+  const startIdx = indexSrc.indexOf("async function setupAssistant");
   const assistantFn = indexSrc.slice(startIdx);
   assert.ok(!assistantFn.includes("config.json"));
   assert.ok(!assistantFn.includes("readFileSync"));
 });
 
 test("listens for agent_end event", () => {
-  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistantRole"));
+  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
   assert.ok(assistantSection.includes('pi.on("agent_end"'));
 });
 
 test("tracks completed items for widget", () => {
-  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistantRole"));
+  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
   assert.ok(assistantSection.includes("completedItems"));
   assert.ok(assistantSection.includes("onItemComplete"));
 });

@@ -1,24 +1,25 @@
 // pi-pizza-team extension entry point
 //
-// Role detection logic (simplified for daemon architecture):
-// 1. If --ppt-lead flag → Team Lead
-//    - Registers with daemon, polls spawn requests, manages tmux
-// 2. If --ppt-worker flag → Teammate (autonomous agent)
-//    - Connects to daemon, starts work loop
-// 3. If --ppt-assistant flag → Assistant (queue processor)
-//    - Connects to daemon, polls assistant queue
-// 4. Otherwise → Inactive
+// Role detection logic:
+// 1. If --ppt-worker flag → Teammate (autonomous agent)
+// 2. If --ppt-assistant flag → Assistant (queue processor)
+// 3. If --ppt-lead flag OR .pi-pizza-team/config.json exists → Leader
+// 4. Otherwise → Inactive (only /ppt-init available)
 //
 // All roles communicate with the my-pizza-team daemon via HTTP.
-// The daemon URL is configured via --ppt-daemon (default: http://localhost:7437).
+// Daemon URL resolution (priority order):
+//   --ppt-daemon flag → --ppt-lead flag (string) → config.json daemonUrl → default
 //
 // See docs/ARCHITECTURE.md for the full module map and data flow.
+
+import * as fs from "node:fs";
+import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { DEFAULT_DAEMON_URL } from "./shared/types.js";
+import { TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
 import { DaemonClient } from "./client.js";
 
 export default function (pi: ExtensionAPI) {
-  // --- Flag Registration ---
+  // ─── Flag Registration ─────────────────────────────────────────────
 
   pi.registerFlag("ppt-worker", {
     description: "Run as a pi-pizza-team teammate",
@@ -27,9 +28,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerFlag("ppt-lead", {
-    description: "Run as the pi-pizza-team leader",
-    type: "boolean",
-    default: false,
+    description: "Run as team leader (or daemon URL for backwards compat)",
+    type: "string",
+    default: "",
   });
 
   pi.registerFlag("ppt-name", {
@@ -47,54 +48,93 @@ export default function (pi: ExtensionAPI) {
   pi.registerFlag("ppt-daemon", {
     description: "Daemon URL (default: http://localhost:7437)",
     type: "string",
-    default: DEFAULT_DAEMON_URL,
+    default: "",
   });
+
+  // ─── Session Start ─────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
     const cwd = ctx.cwd;
 
     const isWorker = pi.getFlag("ppt-worker") as boolean;
-    const isLead = pi.getFlag("ppt-lead") as boolean;
     const isAssistant = pi.getFlag("ppt-assistant") as boolean;
-    const daemonUrl = (pi.getFlag("ppt-daemon") as string) || DEFAULT_DAEMON_URL;
+    const pptLead = (pi.getFlag("ppt-lead") as string) || "";
+    const pptDaemon = (pi.getFlag("ppt-daemon") as string) || "";
     const agentName = (pi.getFlag("ppt-name") as string) || "";
 
-    // No role selected — extension is inactive
-    if (!isWorker && !isLead && !isAssistant) {
-      return;
+    // Detect leader via config file
+    const configFile = path.join(cwd, TEAM_DIR, "config.json");
+    const hasConfig = fs.existsSync(configFile);
+
+    // Resolve daemon URL (priority: --ppt-daemon > --ppt-lead > config > default)
+    let daemonUrl = pptDaemon || "";
+    if (!daemonUrl && pptLead && pptLead.startsWith("http")) {
+      daemonUrl = pptLead; // backwards compat: --ppt-lead=http://...
     }
-
-    // ─── LEADER ROLE ───────────────────────────────────────────────
-
-    if (isLead) {
-      const client = new DaemonClient(daemonUrl, "leader");
-      const { setupLeader } = await import("./leader.js");
-      await setupLeader(pi, ctx, client, cwd);
-      return;
+    if (!daemonUrl && hasConfig) {
+      try {
+        const config = JSON.parse(fs.readFileSync(configFile, "utf-8"));
+        if (config.daemonUrl) daemonUrl = config.daemonUrl;
+      } catch { /* ignore parse errors */ }
     }
-
-    // ─── ASSISTANT ROLE ────────────────────────────────────────────
-
-    if (isAssistant) {
-      const memberId = "assistant";
-      const client = new DaemonClient(daemonUrl, memberId);
-      await setupAssistantRole(pi, ctx, client, cwd);
-      return;
-    }
+    if (!daemonUrl) daemonUrl = DEFAULT_DAEMON_URL;
 
     // ─── TEAMMATE ROLE ─────────────────────────────────────────────
 
     if (isWorker) {
       const memberId = agentName || process.env.TMUX_PANE || `teammate-${Date.now()}`;
       const client = new DaemonClient(daemonUrl, memberId);
-      await setupTeammateRole(pi, ctx, client, memberId, cwd);
+      await setupTeammate(pi, ctx, client, memberId, cwd);
       return;
     }
+
+    // ─── ASSISTANT ROLE ────────────────────────────────────────────
+
+    if (isAssistant) {
+      const client = new DaemonClient(daemonUrl, "assistant");
+      await setupAssistant(pi, ctx, client, cwd);
+      return;
+    }
+
+    // ─── LEADER ROLE ───────────────────────────────────────────────
+
+    if (pptLead || hasConfig) {
+      const client = new DaemonClient(daemonUrl, "leader");
+      const { setupLeader } = await import("./leader.js");
+      await setupLeader(pi, ctx, client, cwd);
+      return;
+    }
+
+    // ─── INACTIVE — register /ppt-init only ────────────────────────
+
+    pi.registerCommand("ppt-init", {
+      description: "Initialize current directory as a pi-pizza-team board",
+      handler: async (_args, cmdCtx) => {
+        const teamDir = path.join(cwd, TEAM_DIR);
+        fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+        fs.mkdirSync(path.join(teamDir, "notes"), { recursive: true });
+        fs.writeFileSync(
+          path.join(teamDir, "config.json"),
+          JSON.stringify({ daemonUrl: DEFAULT_DAEMON_URL }, null, 2) + "\n"
+        );
+        fs.writeFileSync(
+          path.join(teamDir, ".gitignore"),
+          "state.db\nstate.db-wal\nstate.db-shm\n"
+        );
+        cmdCtx.ui.notify(
+          "✓ Initialized .pi-pizza-team/ — restart Pi to activate leader mode. 🍕",
+          "info"
+        );
+      },
+    });
   });
 }
 
-// --- Teammate Setup ---
-async function setupTeammateRole(
+// ═══════════════════════════════════════════════════════════════════════
+// TEAMMATE SETUP
+// ═══════════════════════════════════════════════════════════════════════
+
+async function setupTeammate(
   pi: ExtensionAPI,
   ctx: any,
   client: DaemonClient,
@@ -123,10 +163,10 @@ async function setupTeammateRole(
   // Create work loop
   const loop = new TeammateLoop(pi, client);
 
-  // Register tools (search_memory + upload_attachment for teammates)
+  // Register tools
   registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask);
 
-  // Permission bypass
+  // Permission bypass (auto-pause on interactive input)
   registerPermissionBypass(
     pi,
     () => loop.isAutonomous,
@@ -134,59 +174,57 @@ async function setupTeammateRole(
       loop.pause();
       if (ctx.hasUI) {
         ctx.ui.setWidget("pi-pizza-team", ["🍕 pairing mode — autonomous work paused"]);
-        ctx.ui.notify("🍕 Autonomous work paused — you're now pairing. Use /ppt-worker-resume when done.", "info");
+        ctx.ui.notify("🍕 Autonomous work paused — use /ppt-worker-resume when done.", "info");
       }
     },
     cwd
   );
 
-  // Store permission toggler on the loop
-  const path = await import("node:path");
+  // Wire permission toggler to the loop
   const configPath = path.join(cwd, ".pi/extensions/pi-permission-system/config.json");
   loop.setAutonomousPermissions = (autonomous: boolean) => {
     updatePermissionConfig(configPath, autonomous);
   };
 
-  // Listen for agent completion
+  // ─── agent_end: capture results ──────────────────────────────────
+
   pi.on("agent_end", async (event) => {
     if (!loop.isAutonomous || !loop.currentTask) return;
 
     const messages = event.messages || [];
-    let lastAssistantText = "";
-    let totalInputTokens = 0;
-    let totalOutputTokens = 0;
-    let totalCost = 0;
+    let lastText = "";
+    let inputTokens = 0;
+    let outputTokens = 0;
     let model = "unknown";
 
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role === "assistant") {
         if (msg.usage) {
-          totalInputTokens += msg.usage.input || 0;
-          totalOutputTokens += msg.usage.output || 0;
-          if (msg.usage.cost) totalCost += msg.usage.cost.total || 0;
+          inputTokens += msg.usage.input || 0;
+          outputTokens += msg.usage.output || 0;
         }
         if (msg.model && model === "unknown") model = msg.model;
-        if (!lastAssistantText) {
+        if (!lastText) {
           for (const part of msg.content) {
-            if (part.type === "text") { lastAssistantText = part.text; break; }
+            if (part.type === "text") { lastText = part.text; break; }
           }
         }
       }
     }
 
-    await loop.handleAgentComplete(lastAssistantText, {
-      inputTokens: totalInputTokens,
-      outputTokens: totalOutputTokens,
-      model,
-      costFromProvider: totalCost,
-    });
+    await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model });
   });
 
-  // Command to resume autonomous work after pairing
+  // ─── Commands ────────────────────────────────────────────────────
+
+  // Tracking state for widget and status command
+  let taskStartedAt: number | null = null;
+  let completedTasks = 0;
+
   pi.registerCommand("ppt-worker-resume", {
     description: "Resume autonomous work after pairing session",
-    handler: async (_args) => {
+    handler: async () => {
       loop.resume();
       loop.setAutonomousPermissions?.(true);
       if (ctx.hasUI) {
@@ -196,40 +234,9 @@ async function setupTeammateRole(
     },
   });
 
-  // Start the work loop
-  loop.resume();
-  await loop.start();
-
-  // Widget update
-  let taskStartedAt: number | null = null;
-  let completedTasks = 0;
-  loop.onTaskComplete = (_taskId, _result) => {
-    completedTasks++;
-    taskStartedAt = null;
-  };
-
-  const updateWidget = () => {
-    if (!ctx.hasUI || !loop.isAutonomous) return;
-    if (loop.currentTask) {
-      if (!taskStartedAt) taskStartedAt = Date.now();
-      const elapsed = Math.round((Date.now() - taskStartedAt) / 60000);
-      const timeStr = elapsed > 0 ? ` (${elapsed}m)` : '';
-      ctx.ui.setWidget("pi-pizza-team", [`🔨 Working: ${loop.currentTask}${timeStr}`]);
-    } else {
-      ctx.ui.setWidget("pi-pizza-team", ["🍕 waiting for work..."]);
-    }
-  };
-  const widgetInterval = setInterval(updateWidget, 5000);
-
-  if (ctx.hasUI) {
-    ctx.ui.setWidget("pi-pizza-team", ["🍕 teammate ready — waiting for work..."]);
-    ctx.ui.setStatus("pi-pizza-team", `🍕 ${memberId}`);
-  }
-
-  // /ppt-worker-status
   pi.registerCommand("ppt-worker-status", {
     description: "Show current teammate status",
-    handler: async (_args) => {
+    handler: async () => {
       let output = `🍕 Teammate: ${memberId}\nMode: ${loop.isAutonomous ? "autonomous" : "pairing"}\n\n`;
       if (loop.currentTask) {
         const elapsed = taskStartedAt ? Math.round((Date.now() - taskStartedAt) / 60000) : 0;
@@ -242,7 +249,33 @@ async function setupTeammateRole(
     },
   });
 
-  // Cleanup
+  // ─── Start + Widget ──────────────────────────────────────────────
+
+  loop.resume();
+  await loop.start();
+
+  loop.onTaskComplete = () => { completedTasks++; taskStartedAt = null; };
+
+  const updateWidget = () => {
+    if (!ctx.hasUI || !loop.isAutonomous) return;
+    if (loop.currentTask) {
+      if (!taskStartedAt) taskStartedAt = Date.now();
+      const elapsed = Math.round((Date.now() - taskStartedAt) / 60000);
+      const timeStr = elapsed > 0 ? ` (${elapsed}m)` : "";
+      ctx.ui.setWidget("pi-pizza-team", [`🔨 Working: ${loop.currentTask}${timeStr}`]);
+    } else {
+      ctx.ui.setWidget("pi-pizza-team", ["🍕 waiting for work..."]);
+    }
+  };
+  const widgetInterval = setInterval(updateWidget, 5000);
+
+  if (ctx.hasUI) {
+    ctx.ui.setWidget("pi-pizza-team", ["🍕 teammate ready — waiting for work..."]);
+    ctx.ui.setStatus("pi-pizza-team", `🍕 ${memberId}`);
+  }
+
+  // ─── Cleanup ─────────────────────────────────────────────────────
+
   pi.on("session_shutdown", async () => {
     clearInterval(widgetInterval);
     loop.stop();
@@ -250,8 +283,11 @@ async function setupTeammateRole(
   });
 }
 
-// --- Assistant Setup ---
-async function setupAssistantRole(
+// ═══════════════════════════════════════════════════════════════════════
+// ASSISTANT SETUP
+// ═══════════════════════════════════════════════════════════════════════
+
+async function setupAssistant(
   pi: ExtensionAPI,
   ctx: any,
   client: DaemonClient,
@@ -275,48 +311,50 @@ async function setupAssistantRole(
     }
   }
 
-  // Fetch categories from daemon config
+  // Fetch categories from daemon
   let categories: string[] = ["coding", "research", "doc-writing"];
   try {
     const config = await client.getConfig();
     if (config.categories?.length) categories = config.categories;
   } catch { /* use defaults */ }
 
-  // Register tools (create_story, edit_story, add_task, save_memory, search_memory, queue_request)
+  // Register tools
   registerAssistantTools(pi, client, categories);
 
-  // Create the work loop
+  // ─── Work loop ───────────────────────────────────────────────────
+
   const loop = new AssistantLoop(pi, client);
   let completedItems = 0;
 
-  // Track completions for widget
-  loop.onItemComplete = (_itemId, _summary) => {
+  loop.onItemComplete = () => {
     completedItems++;
     if (ctx.hasUI) {
       ctx.ui.setWidget("pi-pizza-team", [`🤖 assistant idle — ${completedItems} processed`]);
     }
   };
 
-  // Listen for agent completion
+  // ─── agent_end: capture results ──────────────────────────────────
+
   pi.on("agent_end", async (event) => {
     if (!loop.isWorking) return;
 
     const messages = event.messages || [];
-    let lastAssistantText = "";
+    let lastText = "";
     for (let i = messages.length - 1; i >= 0; i--) {
       const msg = messages[i];
       if (msg.role === "assistant") {
         for (const part of msg.content) {
-          if (part.type === "text") { lastAssistantText = part.text; break; }
+          if (part.type === "text") { lastText = part.text; break; }
         }
-        if (lastAssistantText) break;
+        if (lastText) break;
       }
     }
 
-    await loop.handleAgentComplete(lastAssistantText);
+    await loop.handleAgentComplete(lastText);
   });
 
-  // Start the loop
+  // ─── Start + Widget ──────────────────────────────────────────────
+
   await loop.start();
 
   if (ctx.hasUI) {
@@ -325,7 +363,8 @@ async function setupAssistantRole(
     ctx.ui.notify("🤖 pi-pizza-team assistant active", "info");
   }
 
-  // Cleanup
+  // ─── Cleanup ─────────────────────────────────────────────────────
+
   pi.on("session_shutdown", async () => {
     loop.stop();
     await client.deregister().catch(() => {});
