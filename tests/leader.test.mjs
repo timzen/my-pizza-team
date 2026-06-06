@@ -39,8 +39,8 @@ test("imports DaemonClient", () => {
   assert.ok(src.includes('import type { DaemonClient }'));
 });
 
-test("imports registerTools", () => {
-  assert.ok(src.includes('import { registerTools }'));
+test("imports registerLeaderTools", () => {
+  assert.ok(src.includes('import { registerLeaderTools }'));
 });
 
 // ─── Daemon registration ─────────────────────────────────────────

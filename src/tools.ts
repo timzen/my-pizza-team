@@ -1,48 +1,93 @@
 // LLM-callable tools for the pi-pizza-team extension
 //
-// Registers tools that the LLM can invoke conversationally. All operations
-// go through the daemon HTTP API — no local store or filesystem access.
+// All tools communicate with the daemon HTTP API via DaemonClient.
+// No local store or filesystem access (except reading files for upload).
 //
-// Tools:
-//   - team_add_story: Create a new story on the kanban board
-//   - team_edit_story: Edit an existing story
-//   - team_add_task: Add a task to an existing story
-//   - team_queue_request: Queue a request for the assistant
-//   - search_memory: Search the team's memory by keyword
-//   - save_memory: Save a memory to the team's knowledge base
-//   - upload_attachment: Upload a file to a task
+// Three registration functions for role-specific tool sets:
+//   - registerLeaderTools: create_story, edit_story, add_task, queue_request,
+//                          save_memory, search_memory, team_status
+//   - registerTeammateTools: search_memory, upload_attachment
+//   - registerAssistantTools: create_story, edit_story, add_task,
+//                             save_memory, search_memory, queue_request
 
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import type { DaemonClient } from "./client.js";
 
-export function registerTools(
+// ═══════════════════════════════════════════════════════════════════════
+// LEADER TOOLS
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Register tools for the leader role.
+ * Includes story/task management, assistant queue, memory, and status.
+ */
+export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): void {
+  registerCreateStory(pi, client);
+  registerEditStory(pi, client);
+  registerAddTask(pi, client);
+  registerQueueRequest(pi, client);
+  registerSaveMemory(pi, client);
+  registerSearchMemory(pi, client);
+  registerTeamStatus(pi, client);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TEAMMATE TOOLS
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Register tools for the teammate role.
+ * Includes memory search and file upload.
+ */
+export function registerTeammateTools(
   pi: ExtensionAPI,
   client: DaemonClient,
-  options: {
-    /** If true, register save_memory (assistant role) */
-    canSaveMemory?: boolean;
-    /** If true, register upload_attachment (teammate role) */
-    canUpload?: boolean;
-    /** Function to get current task ID (for upload_attachment) */
-    getCurrentTaskId?: () => string | null;
-    /** Category list for save_memory descriptions */
-    categories?: string[];
-  } = {}
+  getCurrentTaskId: () => string | null
 ): void {
-  // ─── team_add_story ────────────────────────────────────────────────
+  registerSearchMemory(pi, client);
+  registerUploadAttachment(pi, client, getCurrentTaskId);
+}
 
+// ═══════════════════════════════════════════════════════════════════════
+// ASSISTANT TOOLS
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Register tools for the assistant role.
+ * Includes story/task management, memory save/search, and queue.
+ */
+export function registerAssistantTools(
+  pi: ExtensionAPI,
+  client: DaemonClient,
+  categories?: string[]
+): void {
+  registerCreateStory(pi, client);
+  registerEditStory(pi, client);
+  registerAddTask(pi, client);
+  registerQueueRequest(pi, client);
+  registerSaveMemory(pi, client, categories);
+  registerSearchMemory(pi, client);
+}
+
+// ═══════════════════════════════════════════════════════════════════════
+// TOOL IMPLEMENTATIONS
+// ═══════════════════════════════════════════════════════════════════════
+
+// ─── create_story ────────────────────────────────────────────────────
+
+function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "team_add_story",
-    label: "Add Team Story",
+    name: "create_story",
+    label: "Create Story",
     description:
       "Create a new story on the pi-pizza-team kanban board. Stories are high-level work items that contain " +
       "sequential tasks. Use this when planning work, breaking down a project, or when the user asks to create a story.",
     promptSnippet: "Create a new story on the pi-pizza-team board",
     promptGuidelines: [
-      "Use team_add_story to create stories when the user discusses new features, epics, or work items for the team.",
-      "After creating a story with team_add_story, use team_add_task to add tasks to it.",
+      "Use create_story to create stories when the user discusses new features, epics, or work items for the team.",
+      "After creating a story with create_story, use add_task to add tasks to it.",
       "Story IDs should be short slugs (lowercase, hyphens, e.g., 'auth-refactor').",
     ],
     parameters: Type.Object({
@@ -66,23 +111,25 @@ export function registerTools(
       if (!result.success) throw new Error(result.error || "Failed to create story");
 
       return {
-        content: [{ type: "text", text: `Created story "${params.title}" (${params.id}). Add tasks with team_add_task.` }],
+        content: [{ type: "text", text: `Created story "${params.title}" (${params.id}). Add tasks with add_task.` }],
         details: { storyId: params.id },
       };
     },
   });
+}
 
-  // ─── team_edit_story ───────────────────────────────────────────────
+// ─── edit_story ──────────────────────────────────────────────────────
 
+function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "team_edit_story",
-    label: "Edit Team Story",
+    name: "edit_story",
+    label: "Edit Story",
     description:
       "Edit an existing story on the pi-pizza-team kanban board. Can update title, description, status, " +
       "dependencies, working directory, and workflow.",
     promptSnippet: "Edit an existing story on the pi-pizza-team board",
     promptGuidelines: [
-      "Use team_edit_story to modify existing stories.",
+      "Use edit_story to modify existing stories.",
       "Only the fields you provide will be changed.",
       "Set dir or workflow to empty string to clear them.",
     ],
@@ -97,7 +144,6 @@ export function registerTools(
     }),
     async execute(_toolCallId, params) {
       const { storyId, ...updates } = params;
-      // Convert empty strings to null for clearing
       if (updates.dir === "") (updates as any).dir = null;
       if (updates.workflow === "") (updates as any).workflow = null;
 
@@ -111,18 +157,20 @@ export function registerTools(
       };
     },
   });
+}
 
-  // ─── team_add_task ─────────────────────────────────────────────────
+// ─── add_task ────────────────────────────────────────────────────────
 
+function registerAddTask(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "team_add_task",
-    label: "Add Team Task",
+    name: "add_task",
+    label: "Add Task",
     description:
       "Add a task to an existing story on the pi-pizza-team board. Tasks are executed sequentially within a story.",
     promptSnippet: "Add a task to a pi-pizza-team story",
     promptGuidelines: [
-      "Use team_add_task when breaking a story into tasks or planning work.",
-      "Call team_add_task multiple times to add multiple sequential tasks.",
+      "Use add_task when breaking a story into tasks or planning work.",
+      "Call add_task multiple times to add multiple sequential tasks.",
       "The task description should be a complete prompt for autonomous execution.",
     ],
     parameters: Type.Object({
@@ -140,18 +188,20 @@ export function registerTools(
       };
     },
   });
+}
 
-  // ─── team_queue_request ────────────────────────────────────────────
+// ─── queue_request ───────────────────────────────────────────────────
 
+function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "team_queue_request",
+    name: "queue_request",
     label: "Queue Assistant Request",
     description:
       "Queue a request for the pi-pizza-team assistant to process. The assistant can create stories, " +
       "add tasks, spawn teammates, save memories, or handle any operational request.",
     promptSnippet: "Queue a request for the team assistant",
     promptGuidelines: [
-      "Use team_queue_request when you want to delegate operational work to the assistant.",
+      "Use queue_request when you want to delegate operational work to the assistant.",
       "The assistant processes requests asynchronously — it will handle them in order.",
     ],
     parameters: Type.Object({
@@ -162,14 +212,47 @@ export function registerTools(
       if (!result.success) throw new Error(result.error || "Failed to queue request");
 
       return {
-        content: [{ type: "text", text: `Queued request for assistant (id: ${result.item?.id}). It will be processed when the assistant picks it up.` }],
+        content: [{ type: "text", text: `Queued request for assistant (id: ${result.item?.id}).` }],
         details: { itemId: result.item?.id },
       };
     },
   });
+}
 
-  // ─── search_memory ─────────────────────────────────────────────────
+// ─── save_memory ─────────────────────────────────────────────────────
 
+function registerSaveMemory(pi: ExtensionAPI, client: DaemonClient, categories?: string[]): void {
+  const categoryList = (categories || ["coding", "research", "doc-writing"]).join(", ");
+
+  pi.registerTool({
+    name: "save_memory",
+    label: "Save Memory",
+    description: `Save a memory to the team's knowledge base. You MUST specify at least one category from: [${categoryList}].`,
+    promptSnippet: "Save a memory for the team",
+    promptGuidelines: [
+      "Use save_memory to persist information, research, decisions, or context for the team.",
+      `You MUST always include the 'categories' parameter. Available categories: ${categoryList}`,
+    ],
+    parameters: Type.Object({
+      title: Type.String({ description: "Title for the note" }),
+      content: Type.String({ description: "Markdown content of the note" }),
+      categories: Type.Array(Type.String(), { description: `Categories for the note. REQUIRED. Choose from: ${categoryList}` }),
+    }),
+    async execute(_toolCallId, params) {
+      const cats = params.categories?.length > 0 ? params.categories : [(categories || ["coding"])[0]];
+      const result = await client.saveNote(params.title, params.content, cats);
+      if (!result.success) throw new Error(result.error || "Failed to save memory");
+      return {
+        content: [{ type: "text", text: `Saved memory: "${params.title}" [${cats.join(", ")}]` }],
+        details: { noteId: result.note?.id },
+      };
+    },
+  });
+}
+
+// ─── search_memory ───────────────────────────────────────────────────
+
+function registerSearchMemory(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
     name: "search_memory",
     label: "Search Memory",
@@ -201,85 +284,93 @@ export function registerTools(
       }
     },
   });
+}
 
-  // ─── save_memory (assistant role only) ─────────────────────────────
+// ─── team_status ─────────────────────────────────────────────────────
 
-  if (options.canSaveMemory) {
-    const categoryList = (options.categories || ["coding", "research", "doc-writing"]).join(", ");
+function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "team_status",
+    label: "Team Status",
+    description: "Get current team status: stories, tasks, team members, and inbox count.",
+    promptSnippet: "Check the current team status",
+    promptGuidelines: [
+      "Use team_status to get a quick overview of the team's progress.",
+      "Shows story counts, task breakdown by status, team member count, and inbox items.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params) {
+      try {
+        const status = await client.getStatus();
+        const byStatus = Object.entries(status.tasks.byStatus)
+          .map(([s, n]) => `${n} ${s}`)
+          .join(", ");
 
-    pi.registerTool({
-      name: "save_memory",
-      label: "Save Memory",
-      description: `Save a memory to the team's knowledge base. You MUST specify at least one category from: [${categoryList}].`,
-      promptSnippet: "Save a memory for the team",
-      promptGuidelines: [
-        "Use save_memory to persist information, research, decisions, or context for the team.",
-        `You MUST always include the 'categories' parameter. Available categories: ${categoryList}`,
-      ],
-      parameters: Type.Object({
-        title: Type.String({ description: "Title for the note" }),
-        content: Type.String({ description: "Markdown content of the note" }),
-        categories: Type.Array(Type.String(), { description: `Categories for the note. REQUIRED. Choose from: ${categoryList}` }),
-      }),
-      async execute(_toolCallId, params) {
-        const cats = params.categories?.length > 0 ? params.categories : [options.categories?.[0] || "coding"];
-        const result = await client.saveNote(params.title, params.content, cats);
-        if (!result.success) throw new Error(result.error || "Failed to save memory");
+        let text = `🍕 Team Status\n\n`;
+        text += `Stories: ${status.stories.open} open, ${status.stories.done} done (${status.stories.open + status.stories.done} total)\n`;
+        text += `Tasks: ${status.tasks.total} total (${byStatus})\n`;
+        text += `Team: ${status.members.total} members (${status.members.working} working, ${status.members.idle} idle)\n`;
+        if (status.inbox > 0) text += `Inbox: ${status.inbox} items needing attention\n`;
+
         return {
-          content: [{ type: "text", text: `Saved memory: "${params.title}" [${cats.join(", ")}]` }],
-          details: { noteId: result.note?.id },
+          content: [{ type: "text", text }],
+          details: { status },
         };
-      },
-    });
-  }
+      } catch {
+        return { content: [{ type: "text", text: "Failed to fetch team status (daemon unreachable)." }] };
+      }
+    },
+  });
+}
 
-  // ─── upload_attachment (teammate role only) ────────────────────────
+// ─── upload_attachment ───────────────────────────────────────────────
 
-  if (options.canUpload && options.getCurrentTaskId) {
-    const getTaskId = options.getCurrentTaskId;
+function registerUploadAttachment(
+  pi: ExtensionAPI,
+  client: DaemonClient,
+  getCurrentTaskId: () => string | null
+): void {
+  pi.registerTool({
+    name: "upload_attachment",
+    label: "Upload Attachment",
+    description: "Upload a file as an attachment to a task. For large files (>10KB), write to disk first and pass filePath instead of content.",
+    promptSnippet: "Upload a file to the current task",
+    promptGuidelines: [
+      "Use upload_attachment when transition instructions ask you to provide a diff or other file for review.",
+      "For LARGE files (>10KB like diffs): write the file to disk first, then use the filePath parameter.",
+      "For SMALL files: you can pass content directly as a string.",
+      "You MUST provide either 'content' OR 'filePath' (not both).",
+    ],
+    parameters: Type.Object({
+      filename: Type.String({ description: "Filename with extension (e.g. 'changes.diff')" }),
+      content: Type.Optional(Type.String({ description: "File content as text (for small files <10KB)" })),
+      filePath: Type.Optional(Type.String({ description: "Absolute path to a file on disk to upload" })),
+      message: Type.Optional(Type.String({ description: "Optional message to post alongside the attachment" })),
+      taskId: Type.Optional(Type.String({ description: "Task ID to attach to (defaults to current task)" })),
+    }),
+    async execute(_toolCallId, params) {
+      const taskId = params.taskId || getCurrentTaskId();
+      if (!taskId) return { content: [{ type: "text", text: "No task to attach file to. Specify a taskId parameter." }] };
 
-    pi.registerTool({
-      name: "upload_attachment",
-      label: "Upload Attachment",
-      description: "Upload a file as an attachment to a task. For large files (>10KB), write to disk first and pass filePath instead of content.",
-      promptSnippet: "Upload a file to the current task",
-      promptGuidelines: [
-        "Use upload_attachment when transition instructions ask you to provide a diff or other file for review.",
-        "For LARGE files (>10KB like diffs): write the file to disk first, then use the filePath parameter.",
-        "For SMALL files: you can pass content directly as a string.",
-        "You MUST provide either 'content' OR 'filePath' (not both).",
-      ],
-      parameters: Type.Object({
-        filename: Type.String({ description: "Filename with extension (e.g. 'changes.diff')" }),
-        content: Type.Optional(Type.String({ description: "File content as text (for small files <10KB)" })),
-        filePath: Type.Optional(Type.String({ description: "Absolute path to a file on disk to upload" })),
-        message: Type.Optional(Type.String({ description: "Optional message to post alongside the attachment" })),
-        taskId: Type.Optional(Type.String({ description: "Task ID to attach to (defaults to current task)" })),
-      }),
-      async execute(_toolCallId, params) {
-        const taskId = params.taskId || getTaskId();
-        if (!taskId) return { content: [{ type: "text", text: "No task to attach file to. Specify a taskId parameter." }] };
-
-        let fileContent: string;
-        if (params.filePath) {
-          if (!fs.existsSync(params.filePath)) {
-            return { content: [{ type: "text", text: `File not found: ${params.filePath}` }] };
-          }
-          fileContent = fs.readFileSync(params.filePath, "utf-8");
-        } else if (params.content) {
-          fileContent = params.content;
-        } else {
-          return { content: [{ type: "text", text: "Provide either 'content' or 'filePath'." }] };
+      let fileContent: string;
+      if (params.filePath) {
+        if (!fs.existsSync(params.filePath)) {
+          return { content: [{ type: "text", text: `File not found: ${params.filePath}` }] };
         }
+        fileContent = fs.readFileSync(params.filePath, "utf-8");
+      } else if (params.content) {
+        fileContent = params.content;
+      } else {
+        return { content: [{ type: "text", text: "Provide either 'content' or 'filePath'." }] };
+      }
 
-        const uploadRes = await client.uploadAttachment(taskId, params.filename, fileContent);
-        if (!uploadRes.success) throw new Error(uploadRes.error || "Upload failed");
+      const uploadRes = await client.uploadAttachment(taskId, params.filename, fileContent);
+      if (!uploadRes.success) throw new Error(uploadRes.error || "Upload failed");
 
-        const msgBody = params.message || `Attached ${params.filename} for review.`;
-        await client.postComment(taskId, msgBody, [{ name: params.filename, size: fileContent.length, type: uploadRes.type || "other" }]);
+      const msgBody = params.message || `Attached ${params.filename} for review.`;
+      await client.postComment(taskId, msgBody, [{ name: params.filename, size: fileContent.length, type: uploadRes.type || "other" }]);
 
-        return { content: [{ type: "text", text: `Uploaded ${params.filename} (${fileContent.length} bytes) and posted message.` }] };
-      },
-    });
-  }
+      return { content: [{ type: "text", text: `Uploaded ${params.filename} (${fileContent.length} bytes) and posted message.` }] };
+    },
+  });
 }

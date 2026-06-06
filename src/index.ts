@@ -103,7 +103,7 @@ async function setupTeammateRole(
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
   const { registerPermissionBypass, updatePermissionConfig } = await import("./permissions.js");
-  const { registerTools } = await import("./tools.js");
+  const { registerTeammateTools } = await import("./tools.js");
 
   // Check daemon reachability
   const serverUp = await client.checkHealth();
@@ -123,11 +123,8 @@ async function setupTeammateRole(
   // Create work loop
   const loop = new TeammateLoop(pi, client);
 
-  // Register tools (with upload_attachment for teammates)
-  registerTools(pi, client, {
-    canUpload: true,
-    getCurrentTaskId: () => loop.currentTask || loop.lastTask,
-  });
+  // Register tools (search_memory + upload_attachment for teammates)
+  registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask);
 
   // Permission bypass
   registerPermissionBypass(
@@ -261,7 +258,7 @@ async function setupAssistantRole(
   cwd: string
 ): Promise<void> {
   const { AssistantLoop } = await import("./assistant.js");
-  const { registerTools } = await import("./tools.js");
+  const { registerAssistantTools } = await import("./tools.js");
 
   // Check daemon reachability
   const serverUp = await client.checkHealth();
@@ -285,11 +282,8 @@ async function setupAssistantRole(
     if (config.categories?.length) categories = config.categories;
   } catch { /* use defaults */ }
 
-  // Register tools (with save_memory for assistant)
-  registerTools(pi, client, {
-    canSaveMemory: true,
-    categories,
-  });
+  // Register tools (create_story, edit_story, add_task, save_memory, search_memory, queue_request)
+  registerAssistantTools(pi, client, categories);
 
   // Create the work loop
   const loop = new AssistantLoop(pi, client);

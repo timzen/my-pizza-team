@@ -127,8 +127,8 @@ test("fetches categories from daemon config", () => {
   assert.ok(indexSrc.includes("config.categories"));
 });
 
-test("registers tools with canSaveMemory: true", () => {
-  assert.ok(indexSrc.includes("canSaveMemory: true"));
+test("registers assistant tools with categories", () => {
+  assert.ok(indexSrc.includes("registerAssistantTools(pi, client, categories)"));
 });
 
 test("does NOT import Store for assistant", () => {

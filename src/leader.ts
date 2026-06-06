@@ -19,7 +19,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
-import { registerTools } from "./tools.js";
+import { registerLeaderTools } from "./tools.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
@@ -127,7 +127,7 @@ export async function setupLeader(
   }
 
   // Register LLM tools (stories, tasks, queue, search)
-  registerTools(pi, client);
+  registerLeaderTools(pi, client);
 
   // ─── Spawn Request Polling ─────────────────────────────────────────
 
