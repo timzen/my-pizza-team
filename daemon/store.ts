@@ -1117,11 +1117,16 @@ export class Store {
 
   /** Remove a story and all its tasks from SQLite (does not touch disk) */
   private removeStoryFromDb(storyId: string): void {
-    const tasks = this.getTasksForStory(storyId);
-    for (const task of tasks) {
-      this.removeTaskData(task.id);
+    this.db.exec("PRAGMA foreign_keys = OFF");
+    try {
+      const tasks = this.getTasksForStory(storyId);
+      for (const task of tasks) {
+        this.removeTaskData(task.id);
+      }
+      this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
+    } finally {
+      this.db.exec("PRAGMA foreign_keys = ON");
     }
-    this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
   }
 
   /** Delete a story and all its tasks, removing from SQLite and disk */
