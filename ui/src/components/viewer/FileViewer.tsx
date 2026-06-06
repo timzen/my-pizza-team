@@ -58,12 +58,12 @@ export function FileViewer({ open, onClose, taskId, storedName, displayName, onR
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="max-w-4xl max-h-[90vh] flex flex-col p-0 gap-0">
+      <DialogContent className="w-[95vw] max-w-[1200px] max-h-[90vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-4 py-3 border-b shrink-0">
           <DialogTitle className="text-sm font-mono">{displayName}</DialogTitle>
         </DialogHeader>
 
-        <div className="flex-1 overflow-hidden">
+        <div className="flex-1 overflow-hidden min-h-0">
           {loading && <div className="p-8 text-center text-muted-foreground">Loading...</div>}
 
           {!loading && fileType === "diff" && content && (
@@ -77,18 +77,18 @@ export function FileViewer({ open, onClose, taskId, storedName, displayName, onR
           )}
 
           {!loading && fileType === "markdown" && content && (
-            <div className="p-6 prose prose-sm dark:prose-invert max-w-none overflow-auto">
+            <div className="p-6 prose prose-sm dark:prose-invert max-w-none overflow-auto h-full">
               <pre className="whitespace-pre-wrap">{content}</pre>
             </div>
           )}
 
           {!loading && (fileType === "json" || fileType === "review") && content && (
-            <pre className="p-4 text-xs font-mono overflow-auto max-h-[70vh]">{content}</pre>
+            <pre className="p-4 text-xs font-mono overflow-auto h-full">{content}</pre>
           )}
 
-          {!loading && fileType === "image" && (
-            <div className="p-6 text-center">
-              <img src={fileUrl} alt={displayName} className="max-w-full rounded-lg inline-block" />
+          {fileType === "image" && (
+            <div className="p-6 text-center overflow-auto h-full">
+              <img src={fileUrl} alt={displayName} className="max-w-full max-h-[75vh] rounded-lg inline-block" />
             </div>
           )}
 
