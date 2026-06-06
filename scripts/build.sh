@@ -23,16 +23,20 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$PROJECT_ROOT/dist"
 
-# Map friendly names to deno compile --target values
-declare -A TARGETS=(
-  ["darwin-arm64"]="aarch64-apple-darwin"
-  ["darwin-x64"]="x86_64-apple-darwin"
-  ["linux-x64"]="x86_64-unknown-linux-gnu"
-  ["linux-arm64"]="aarch64-unknown-linux-gnu"
-)
-
+ALL_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64"
 DENO_PERMISSIONS="--allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-run"
 ENTRY_POINT="daemon/main.ts"
+
+# Map friendly name to deno compile --target value
+get_deno_target() {
+  case "$1" in
+    darwin-arm64) echo "aarch64-apple-darwin" ;;
+    darwin-x64)   echo "x86_64-apple-darwin" ;;
+    linux-x64)    echo "x86_64-unknown-linux-gnu" ;;
+    linux-arm64)  echo "aarch64-unknown-linux-gnu" ;;
+    *) echo ""; return 1 ;;
+  esac
+}
 
 # --- Functions ---
 
@@ -47,7 +51,13 @@ build_ui() {
 
 compile_target() {
   local name="$1"
-  local target="${TARGETS[$name]}"
+  local target
+  target=$(get_deno_target "$name")
+  if [ -z "$target" ]; then
+    echo "❌ Unknown target: $name"
+    echo "   Available: $ALL_TARGETS"
+    exit 1
+  fi
   local output="$DIST_DIR/mpt-${name}"
 
   echo "🔨 Compiling mpt-${name} (target: ${target})..."
@@ -81,16 +91,11 @@ fi
 if [ $# -gt 0 ]; then
   # Build specific targets
   for target in "$@"; do
-    if [[ ! -v "TARGETS[$target]" ]]; then
-      echo "❌ Unknown target: $target"
-      echo "   Available: ${!TARGETS[*]}"
-      exit 1
-    fi
     compile_target "$target"
   done
 else
   # Build all targets
-  for target in "${!TARGETS[@]}"; do
+  for target in $ALL_TARGETS; do
     compile_target "$target"
   done
 fi
