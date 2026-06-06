@@ -129,6 +129,16 @@ export async function setupLeader(
   // Register LLM tools (stories, tasks, queue, search)
   registerLeaderTools(pi, client);
 
+  // ─── Leader Heartbeat ──────────────────────────────────────────────
+  // Send periodic heartbeats so the daemon knows the leader is alive.
+  // Without this, the daemon's reaper marks the leader as offline.
+  const HEARTBEAT_INTERVAL_MS = 30_000;
+  const heartbeatTimer = setInterval(() => {
+    client.heartbeat("idle").catch(() => {});
+  }, HEARTBEAT_INTERVAL_MS);
+  // Send an initial heartbeat immediately
+  client.heartbeat("idle").catch(() => {});
+
   // ─── Spawn Request Polling ─────────────────────────────────────────
 
   const spawnPollTimer = setInterval(async () => {
@@ -281,6 +291,7 @@ export async function setupLeader(
   // ─── Cleanup ───────────────────────────────────────────────────────
 
   pi.on("session_shutdown", async () => {
+    clearInterval(heartbeatTimer);
     clearInterval(spawnPollTimer);
     clearInterval(widgetInterval);
     await client.deregister().catch(() => {});
