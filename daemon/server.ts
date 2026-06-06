@@ -395,6 +395,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
       diff: "text/x-diff", patch: "text/x-diff", md: "text/markdown",
       txt: "text/plain", json: "application/json",
       png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+      gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
     };
     return new Response(content, {
       headers: { "Content-Type": mimeTypes[ext] || "application/octet-stream" },
