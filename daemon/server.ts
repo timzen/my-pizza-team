@@ -343,6 +343,65 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   /**
+   * POST /api/tasks/:taskId/attachments — Upload a file attachment to a task.
+   * Saves the file to the task's attachments/ directory. Used by teammates
+   * to share diffs, screenshots, or other artifacts for lead review.
+   */
+  app.post("/api/tasks/:taskId/attachments", async (c) => {
+    const taskId = c.req.param("taskId");
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+
+    const body = await c.req.json() as { name: string; content: string; encoding?: string };
+    if (!body.name || !body.content) {
+      return c.json({ success: false, error: "Fields 'name' and 'content' are required" }, 400);
+    }
+
+    const storedName = store.saveAttachment(taskId, body.name, body.content);
+    if (!storedName) {
+      return c.json({ success: false, error: "Failed to save attachment" }, 500);
+    }
+
+    // Determine file type from extension
+    const ext = body.name.split(".").pop()?.toLowerCase() || "";
+    const typeMap: Record<string, string> = { diff: "diff", patch: "diff", md: "markdown", txt: "text", json: "json", png: "image", jpg: "image", jpeg: "image" };
+    const type = typeMap[ext] || "other";
+
+    return c.json({ success: true, storedName, type, size: body.content.length });
+  });
+
+  /**
+   * GET /api/tasks/:taskId/attachments — List attachments for a task.
+   */
+  app.get("/api/tasks/:taskId/attachments", (c) => {
+    const taskId = c.req.param("taskId");
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+    return c.json({ attachments: store.getAttachments(taskId) });
+  });
+
+  /**
+   * GET /api/tasks/:taskId/attachments/:filename — Download an attachment.
+   */
+  app.get("/api/tasks/:taskId/attachments/:filename", (c) => {
+    const taskId = c.req.param("taskId");
+    const filename = c.req.param("filename");
+    const filePath = store.getAttachmentPath(taskId, filename);
+    if (!filePath) return c.json({ error: "Attachment not found" }, 404);
+
+    const content = Deno.readFileSync(filePath);
+    const ext = filename.split(".").pop()?.toLowerCase() || "";
+    const mimeTypes: Record<string, string> = {
+      diff: "text/x-diff", patch: "text/x-diff", md: "text/markdown",
+      txt: "text/plain", json: "application/json",
+      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    };
+    return new Response(content, {
+      headers: { "Content-Type": mimeTypes[ext] || "application/octet-stream" },
+    });
+  });
+
+  /**
    * POST /api/tasks/:taskId/token-usage — Record token usage for a task.
    * Teammates report LLM token consumption after each API call. The daemon
    * estimates USD cost from a model pricing table. Used for cost tracking

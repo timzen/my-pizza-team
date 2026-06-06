@@ -1,14 +1,16 @@
 /**
  * useApi — Simple fetch wrapper for the daemon API.
  * Returns JSON data with loading/error state.
+ * Supports optional polling interval for auto-refresh.
  */
 
 import { useState, useEffect, useCallback } from "react";
 
-export function useApi<T>(url: string, deps: unknown[] = []) {
+export function useApi<T>(url: string, deps: unknown[] = [], options?: { pollInterval?: number }) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const pollInterval = options?.pollInterval;
 
   const refetch = useCallback(async () => {
     setLoading(true);
@@ -27,6 +29,13 @@ export function useApi<T>(url: string, deps: unknown[] = []) {
   }, [url, ...deps]);
 
   useEffect(() => { refetch(); }, [refetch]);
+
+  // Auto-refresh polling
+  useEffect(() => {
+    if (!pollInterval) return;
+    const interval = setInterval(refetch, pollInterval);
+    return () => clearInterval(interval);
+  }, [refetch, pollInterval]);
 
   return { data, loading, error, refetch };
 }

@@ -57,8 +57,8 @@ type SortOption = "title" | "status" | "ready";
 type FilterOption = "all" | "inbox";
 
 export function BoardPage() {
-  const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories");
-  const { data: statusData } = useApi<StatusData>("/api/status");
+  const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories", [], { pollInterval: 5000 });
+  const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [searchParams, setSearchParams] = useSearchParams();
 
   const [search, setSearch] = useState("");
