@@ -47,7 +47,7 @@ export class Store {
     this.teamDir = teamDir;
     this.config = config;
     const dbPath = path.join(teamDir, "state.db");
-    this.db = new Database(dbPath);
+    this.db = new Database(dbPath, { int64: true });
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.initSchema();

@@ -17,16 +17,23 @@ interface SpawnDialogProps {
 export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
   const [open, setOpen] = useState(false);
   const [cwd, setCwd] = useState("");
+  const [hostId, setHostId] = useState("default");
+  const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
   const handleSpawn = async (e: React.FormEvent) => {
     e.preventDefault();
     setError(""); setSuccess("");
-    const res = await apiPost<{ success: boolean; name?: string; error?: string }>("/api/team/spawn", { cwd });
+    const res = await apiPost<{ success: boolean; request?: { id: string }; error?: string }>("/api/spawn-requests", {
+      hostId,
+      cwd: cwd || undefined,
+      reason: reason || undefined,
+    });
     if (res.success) {
-      setSuccess(`Spawned teammate: ${res.name}`);
+      setSuccess(`Spawn request created: ${res.request?.id ?? "OK"}`);
       setCwd("");
+      setReason("");
       onSpawned?.();
     } else {
       setError(res.error || "Failed to spawn");
@@ -40,7 +47,9 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
       <DialogContent>
         <DialogHeader><DialogTitle>Spawn Teammate</DialogTitle></DialogHeader>
         <form onSubmit={handleSpawn} className="space-y-4">
-          <div><Label>Working Directory</Label><Input value={cwd} onChange={e => setCwd(e.target.value)} placeholder="~/projects/my-app" required /></div>
+          <div><Label>Host ID</Label><Input value={hostId} onChange={e => setHostId(e.target.value)} placeholder="default" required /></div>
+          <div><Label>Working Directory (optional)</Label><Input value={cwd} onChange={e => setCwd(e.target.value)} placeholder="~/projects/my-app" /></div>
+          <div><Label>Reason (optional)</Label><Input value={reason} onChange={e => setReason(e.target.value)} placeholder="Need help with frontend" /></div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           {success && <p className="text-sm text-green-600 dark:text-green-400">{success}</p>}
           <Button type="submit" className="w-full">Spawn</Button>
