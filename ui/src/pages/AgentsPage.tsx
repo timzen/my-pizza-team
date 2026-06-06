@@ -7,7 +7,6 @@ import { useApi } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Bot, Wifi, WifiOff, Clock, FolderOpen, Server } from "lucide-react";
-import { useEffect } from "react";
 
 interface Agent {
   id: string;
@@ -34,14 +33,8 @@ function formatHeartbeat(ts: number): string {
 }
 
 export function AgentsPage() {
-  const { data, refetch } = useApi<{ agents: Agent[] }>("/api/agents");
+  const { data } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 10_000 });
   const agents = data?.agents || [];
-
-  // Auto-refresh every 10 seconds
-  useEffect(() => {
-    const interval = setInterval(refetch, 10_000);
-    return () => clearInterval(interval);
-  }, [refetch]);
 
   const online = agents.filter(a => a.status !== "offline");
   const offline = agents.filter(a => a.status === "offline");
