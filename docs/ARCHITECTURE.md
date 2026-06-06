@@ -121,3 +121,30 @@ Agents own tasks across multiple state transitions. The flow:
 
 Comments are task-level, not real-time chat. Agents load them when
 starting work to see lead feedback or rework instructions.
+
+## Pi Extension (Thin Adapter)
+
+The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension (v0.2.0+)
+is a **pure HTTP client** with zero server-side code. It owns no state — all data
+lives in this daemon.
+
+Extension structure (kept files only):
+```
+src/
+├── index.ts       — Role detection, flag registration, wiring
+├── client.ts      — DaemonClient: unified HTTP client for all API calls
+├── leader.ts      — Tmux management, spawn polling, slash commands
+├── teammate.ts    — TeammateLoop: poll → claim → execute → transition
+├── assistant.ts   — AssistantLoop: queue processing
+├── tools.ts       — LLM tool registration (role-specific)
+├── permissions.ts — Dynamic yoloMode toggling
+└── shared/types.ts — Minimal types (WorkflowConfig, constants)
+```
+
+Removed in v0.2.0 (moved to this daemon):
+- HTTP server (hono, @hono/node-server)
+- SQLite store (better-sqlite3)
+- Web UI (React assets)
+- BM25 search engine
+- Git sync / autosave
+- Protocol types (now daemon-internal)
