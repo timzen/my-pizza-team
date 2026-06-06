@@ -19,6 +19,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 
 ### cli/
 - `main.ts` — CLI entry point (stub).
+- `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login.
 
 ### shared/
 - `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName).
