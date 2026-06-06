@@ -6,4 +6,6 @@
 *.db-wal
 .pi-pizza-team/
 
+# Compiled binaries
 mpt
+dist/
