@@ -114,10 +114,28 @@ export function TaskDetailPage() {
     if (!file || !taskId) return;
     setUploading(true);
     try {
-      const content = await file.text();
+      // Use base64 for binary files (images, etc.), text for everything else
+      const isBinary = file.type.startsWith("image/") || file.type === "application/octet-stream";
+      let content: string;
+      let encoding: string | undefined;
+
+      if (isBinary) {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) {
+          binary += String.fromCharCode(bytes[i]!);
+        }
+        content = btoa(binary);
+        encoding = "base64";
+      } else {
+        content = await file.text();
+      }
+
       await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/attachments`, {
         name: file.name,
         content,
+        encoding,
       });
       refetchAttachments();
     } catch {

@@ -357,7 +357,18 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
       return c.json({ success: false, error: "Fields 'name' and 'content' are required" }, 400);
     }
 
-    const storedName = store.saveAttachment(taskId, body.name, body.content);
+    // Support base64 encoding for binary files (images, etc.)
+    let data: string | Uint8Array = body.content;
+    if (body.encoding === "base64") {
+      const binaryString = atob(body.content);
+      const bytes = new Uint8Array(binaryString.length);
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      data = bytes;
+    }
+
+    const storedName = store.saveAttachment(taskId, body.name, data);
     if (!storedName) {
       return c.json({ success: false, error: "Failed to save attachment" }, 500);
     }
