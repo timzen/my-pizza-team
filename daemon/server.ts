@@ -514,9 +514,9 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
 
   /**
    * POST /api/tasks/:taskId/move — Lead moves a task to a new status.
-   * Similar to /status but always uses "lead" as the actor. Useful for
-   * the lead to approve reviews (review→done) or send tasks back
-   * (needs_input→in_progress). Returns transition instructions.
+   * The lead can force any valid transition regardless of permission level.
+   * Used to approve reviews (review→done), send tasks back, or
+   * unstick tasks that are blocked. Returns transition instructions.
    */
   app.post("/api/tasks/:taskId/move", async (c) => {
     const taskId = c.req.param("taskId");
@@ -524,8 +524,12 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     if (!body.status) return c.json({ success: false, error: "Field 'status' is required" } satisfies MoveTaskResponse, 400);
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies MoveTaskResponse, 404);
-    const check = store.canTransition(taskId, body.status, "lead");
-    if (!check.ok) return c.json({ success: false, error: check.error } satisfies MoveTaskResponse, 403);
+    // Lead can force any defined transition regardless of permission
+    const workflow = store.getWorkflowForTask(taskId);
+    const transitions = workflow.transitions[task.status];
+    if (!transitions || !transitions[body.status]) {
+      return c.json({ success: false, error: `No transition from "${task.status}" to "${body.status}" in workflow` } satisfies MoveTaskResponse, 403);
+    }
     const fromStatus = task.status;
     store.updateTaskStatus(taskId, body.status);
     return c.json({ success: true, instructions: getInstructionsMarkdown(fromStatus, body.status, taskId) } satisfies MoveTaskResponse);
