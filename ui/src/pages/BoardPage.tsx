@@ -143,8 +143,8 @@ export function BoardPage() {
   const editTaskStates = editTaskStory ? getStatesForStory(editTaskStory) : defaultStates;
 
   const handleArchive = async (storyId: string) => {
-    if (!confirm(`Archive story "${storyId}"?`)) return;
-    await apiPost(`/api/stories/${storyId}/archive`);
+    if (!confirm(`Archive story "${storyId}"? Tasks not in 'done' will be force-completed.`)) return;
+    await apiPost(`/api/stories/${storyId}/archive`, { force: true });
     refetch();
   };
 
