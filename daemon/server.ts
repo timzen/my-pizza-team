@@ -63,6 +63,7 @@ function isSafeId(id: string): boolean {
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
   const app = new Hono();
   let paused = false;
+  const startedAt = Date.now();
 
   // Serve static UI files if dist directory exists
   const distDir = resolveDistDir();
@@ -88,11 +89,61 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   }
 
   /**
-   * GET /health — Health check.
-   * Returns a simple status object to confirm the daemon is running.
-   * Called by: CLI `mpt status`, load balancers, monitoring tools.
+   * GET /health — Enhanced health check.
+   * Returns daemon status with operational metrics:
+   * - uptime: seconds since daemon started
+   * - agents: count of connected (online) agents
+   * - queueDepth: number of pending tasks in the assistant queue
+   * - memory: heap/rss usage from Deno.memoryUsage()
+   * - lastCommitTime: ISO timestamp of last git commit in teamDir (or null)
+   * Called by: CLI `mpt status`, monitoring tools, desktop tray icon.
    */
-  app.get("/health", (c) => c.json({ status: "ok", service: "my-pizza-team" }));
+  app.get("/health", async (c) => {
+    const uptimeSeconds = Math.floor((Date.now() - startedAt) / 1000);
+
+    // Count online agents
+    const members = store.getMembers();
+    const onlineAgents = members.filter(m => m.status === "working" || m.status === "idle").length;
+
+    // Queue depth: pending items in assistant queue
+    const queue = store.getAssistantQueue();
+    const queueDepth = queue.filter(item => item.status === "pending").length;
+
+    // Memory usage
+    const mem = Deno.memoryUsage();
+
+    // Last git commit time in teamDir
+    let lastCommitTime: string | null = null;
+    try {
+      const cmd = new Deno.Command("git", {
+        args: ["log", "-1", "--format=%aI"],
+        cwd: teamDir,
+        stdout: "piped",
+        stderr: "null",
+      });
+      const result = await cmd.output();
+      if (result.code === 0) {
+        const output = new TextDecoder().decode(result.stdout).trim();
+        if (output) lastCommitTime = output;
+      }
+    } catch {
+      // git not available or not a repo — leave null
+    }
+
+    return c.json({
+      status: "ok",
+      service: "my-pizza-team",
+      uptime: uptimeSeconds,
+      agents: onlineAgents,
+      queueDepth,
+      memory: {
+        rss: mem.rss,
+        heapUsed: mem.heapUsed,
+        heapTotal: mem.heapTotal,
+      },
+      lastCommitTime,
+    });
+  });
 
   /**
    * GET /api/status — Dashboard summary.

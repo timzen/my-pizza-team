@@ -52,7 +52,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Health check |
+| GET | `/health` | Health check (uptime, agents, queueDepth, memory, lastCommitTime) |
 | GET | `/api/status` | Dashboard summary (stories, tasks, members, inbox) |
 | GET | `/api/stories` | List all stories with tasks |
 | POST | `/api/stories` | Create a new story (with optional tasks) |

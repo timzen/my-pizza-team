@@ -39,6 +39,6 @@ export function createApp(teamDir?: string): AppContext {
   return { app, store: null };
 }
 
-// Export a default minimal app for simple test imports
+// Export a default minimal app for simple test imports (no store, basic health only)
 export const app = new Hono();
 app.get("/health", (c) => c.json({ status: "ok", service: "my-pizza-team" }));

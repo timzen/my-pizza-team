@@ -104,4 +104,4 @@ This produces a `./mpt` binary (~70MB on macOS arm64) that:
 
 | Method | Path      | Description          |
 |--------|-----------|----------------------|
-| GET    | `/health` | Health check (returns `{ status: "ok" }`) |
+| GET    | `/health` | Health check (uptime, agents, queue depth, memory, last commit) |
