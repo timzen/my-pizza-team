@@ -25,6 +25,8 @@ export interface TeamConfig {
   categories?: string[];
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
+  /** API token for authentication (optional; required when binding non-localhost) */
+  apiToken?: string;
   /** Per-host configuration (keyed by host ID) */
   hosts?: Record<string, HostConfig>;
   /** @deprecated Use workflows + defaultWorkflow instead */

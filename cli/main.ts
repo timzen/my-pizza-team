@@ -15,6 +15,7 @@ import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 import { install, uninstall } from "./service.ts";
 import { migrate, printMigrationResult } from "./migrate.ts";
+import { generateToken } from "../daemon/auth.ts";
 
 const VERSION = "0.1.0";
 const PID_FILENAME = "daemon.pid";
@@ -175,6 +176,36 @@ function cmdUpgrade(): void {
   printMigrationResult(result);
 }
 
+function cmdRotateToken(): void {
+  const teamDir = getTeamDir();
+  const configPath = `${teamDir}/config.json`;
+
+  // Load or create config
+  let config: Record<string, unknown> = {};
+  if (existsSync(configPath)) {
+    try {
+      config = JSON.parse(Deno.readTextFileSync(configPath));
+    } catch {
+      console.error("❌ Failed to parse config.json");
+      Deno.exit(1);
+    }
+  } else if (!existsSync(teamDir)) {
+    Deno.mkdirSync(teamDir, { recursive: true });
+  }
+
+  const token = generateToken();
+  config.apiToken = token;
+  Deno.writeTextFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+
+  console.log(`✅ New API token generated and saved to config.json`);
+  console.log(`\n   Token: ${token}`);
+  console.log(`\n   Use in requests:`);
+  console.log(`     Authorization: Bearer ${token}`);
+  console.log(`\n   Or set environment:`);
+  console.log(`     export MPT_API_TOKEN=${token}`);
+  console.log(`\n   ⚠️  Restart the daemon for the new token to take effect.`);
+}
+
 async function cmdInstall(): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
@@ -196,6 +227,7 @@ Commands:
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if daemon is running and show summary
   upgrade               Migrate team dir from extension-only era to daemon format
+  rotate-token          Generate a new API token (saved to config.json)
   install               Install as system service (auto-start on login)
   uninstall             Remove system service and disable auto-start
 
@@ -209,6 +241,7 @@ Examples:
   mpt status            # Check if running
   mpt stop              # Graceful shutdown
   mpt upgrade           # Migrate old .pi-pizza-team/ to current format
+  mpt rotate-token      # Generate new API token
   mpt install           # Install as launchd/systemd service
   mpt uninstall         # Remove service
 `);
@@ -232,6 +265,9 @@ if (import.meta.main) {
       break;
     case "upgrade":
       cmdUpgrade();
+      break;
+    case "rotate-token":
+      cmdRotateToken();
       break;
     case "install":
       await cmdInstall();

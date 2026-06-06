@@ -14,6 +14,7 @@
 import { Hono } from "hono";
 import { Store } from "./store.ts";
 import { getDoneState, getInitialState, slugify, type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
+import { createAuthMiddleware, resolveToken } from "./auth.ts";
 import type {
   StatusResponse, StoriesResponse, NextTaskResponse, ClaimRequest, ClaimResponse,
   StatusUpdateRequest, StatusUpdateResponse, PostCommentRequest, PostCommentResponse,
@@ -64,6 +65,13 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   const app = new Hono();
   let paused = false;
   const startedAt = Date.now();
+
+  // Apply auth middleware if a token is configured
+  const token = resolveToken(config.apiToken);
+  const authMiddleware = createAuthMiddleware(token);
+  if (authMiddleware) {
+    app.use("*", authMiddleware);
+  }
 
   // Serve static UI files if dist directory exists
   const distDir = resolveDistDir();
