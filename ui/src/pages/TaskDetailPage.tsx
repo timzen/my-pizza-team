@@ -9,14 +9,15 @@
  * - Auto-refresh for comments
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image } from "lucide-react";
+import { Input } from "@/components/ui/input";
+import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload } from "lucide-react";
 import { FileViewer } from "@/components/viewer/FileViewer";
 
 interface Comment {
@@ -75,6 +76,8 @@ export function TaskDetailPage() {
   const [activeTab, setActiveTab] = useState<"comments" | "files">("comments");
   const [newComment, setNewComment] = useState("");
   const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const story = storiesData?.stories.find(s => s.id === storyId);
   const task = story?.tasks.find(t => t.id === taskId);
@@ -105,6 +108,25 @@ export function TaskDetailPage() {
   const handleReviewSubmitted = () => {
     refetchComments();
     refetchAttachments();
+  };
+
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file || !taskId) return;
+    setUploading(true);
+    try {
+      const content = await file.text();
+      await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/attachments`, {
+        name: file.name,
+        content,
+      });
+      refetchAttachments();
+    } catch {
+      // silently fail
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
   };
 
   if (!task) {
@@ -213,7 +235,26 @@ export function TaskDetailPage() {
 
       {/* Files Tab */}
       {activeTab === "files" && (
-        <div className="space-y-2">
+        <div className="space-y-3">
+          {/* Upload button */}
+          <div className="flex justify-end">
+            <input
+              ref={fileInputRef}
+              type="file"
+              className="hidden"
+              onChange={handleFileUpload}
+            />
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={uploading}
+            >
+              <Upload className="h-4 w-4 mr-1" />
+              {uploading ? "Uploading..." : "Upload File"}
+            </Button>
+          </div>
+
           {attachments.length === 0 && (
             <p className="text-sm text-muted-foreground text-center py-8">No files attached yet.</p>
           )}
