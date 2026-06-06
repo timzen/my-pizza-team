@@ -58,7 +58,7 @@ export function FileViewer({ open, onClose, taskId, storedName, displayName, onR
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent className="w-[95vw] max-w-[1200px] max-h-[90vh] flex flex-col p-0 gap-0">
+      <DialogContent className="w-[95vw] max-w-[1200px] h-[85vh] flex flex-col p-0 gap-0">
         <DialogHeader className="px-4 py-3 border-b shrink-0">
           <DialogTitle className="text-sm font-mono">{displayName}</DialogTitle>
         </DialogHeader>
