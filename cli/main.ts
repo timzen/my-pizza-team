@@ -13,6 +13,7 @@
 import { TEAM_DIR } from "../shared/types.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
+import { install, uninstall } from "./service.ts";
 
 const VERSION = "0.1.0";
 const PID_FILENAME = "daemon.pid";
@@ -167,6 +168,16 @@ async function cmdStatus(): Promise<void> {
   }
 }
 
+async function cmdInstall(): Promise<void> {
+  const teamDir = getTeamDir();
+  const port = getPort();
+  await install(teamDir, port);
+}
+
+async function cmdUninstall(): Promise<void> {
+  await uninstall();
+}
+
 function printHelp(): void {
   console.log(`mpt v${VERSION} — my-pizza-team CLI
 
@@ -177,6 +188,8 @@ Commands:
   start [--daemon|-d]   Start the daemon (foreground, or background with --daemon)
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if daemon is running and show summary
+  install               Install as system service (auto-start on login)
+  uninstall             Remove system service and disable auto-start
 
 Environment:
   TEAM_DIR              Team directory (default: ./${TEAM_DIR})
@@ -187,6 +200,8 @@ Examples:
   mpt start --daemon    # Start in background
   mpt status            # Check if running
   mpt stop              # Graceful shutdown
+  mpt install           # Install as launchd/systemd service
+  mpt uninstall         # Remove service
 `);
 }
 
@@ -205,6 +220,12 @@ if (import.meta.main) {
       break;
     case "status":
       await cmdStatus();
+      break;
+    case "install":
+      await cmdInstall();
+      break;
+    case "uninstall":
+      await cmdUninstall();
       break;
     case "--help":
     case "-h":

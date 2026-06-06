@@ -60,6 +60,32 @@ deno task test
 deno task check
 ```
 
+## Service Installation (Auto-Start)
+
+`mpt install` registers the daemon as a system service that starts automatically on login:
+
+```bash
+# Install as auto-start service
+mpt install
+
+# Remove the service
+mpt uninstall
+```
+
+**macOS (launchd):**
+- Generates a user-level plist at `~/Library/LaunchAgents/com.my-pizza-team.daemon.plist`
+- Logs to `~/.local/share/my-pizza-team/logs/`
+- Restarts on crash (KeepAlive on non-zero exit)
+- Manage with `launchctl start/stop com.my-pizza-team.daemon`
+
+**Linux (systemd):**
+- Generates a user unit at `~/.config/systemd/user/my-pizza-team.service`
+- Restarts on failure with 5s delay
+- Enables lingering for start without active login session
+- Manage with `systemctl --user start/stop/status my-pizza-team.service`
+
+Both respect `TEAM_DIR` and `PORT` environment variables at install time.
+
 ## Building
 
 The project can be compiled into a single self-contained binary:
