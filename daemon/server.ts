@@ -576,12 +576,25 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
    * SYNOPSIS.md summary, and removes from SQLite. Only works when all
    * tasks are in their done state. Keeps completed work for reference.
    */
-  app.post("/api/stories/:id/archive", (c) => {
+  app.post("/api/stories/:id/archive", async (c) => {
     const storyId = c.req.param("id");
     if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies ArchiveStoryResponse, 404);
-    if (!store.isStoryArchivable(storyId)) return c.json({ success: false, error: "Not all tasks are done" } satisfies ArchiveStoryResponse, 400);
-    try { store.archiveStory(storyId); const archived = store.getArchivedStories().find(s => s.id === storyId); return c.json({ success: true, synopsis: archived?.synopsis || "" } satisfies ArchiveStoryResponse); }
-    catch (e) { return c.json({ success: false, error: (e as Error).message } satisfies ArchiveStoryResponse, 400); }
+    const body = await c.req.json().catch(() => ({})) as { force?: boolean };
+    if (!body.force && !store.isStoryArchivable(storyId)) return c.json({ success: false, error: "Not all tasks are done. Use force:true to archive anyway." } satisfies ArchiveStoryResponse, 400);
+    try {
+      // If forcing, move all tasks to done first
+      if (body.force && !store.isStoryArchivable(storyId)) {
+        const tasks = store.getTasksForStory(storyId);
+        const wf = store.getWorkflowForStory(storyId);
+        const doneState = getDoneState(wf);
+        for (const task of tasks) {
+          if (task.status !== doneState) store.updateTaskStatus(task.id, doneState);
+        }
+      }
+      store.archiveStory(storyId);
+      const archived = store.getArchivedStories().find(s => s.id === storyId);
+      return c.json({ success: true, synopsis: archived?.synopsis || "" } satisfies ArchiveStoryResponse);
+    } catch (e) { return c.json({ success: false, error: (e as Error).message } satisfies ArchiveStoryResponse, 400); }
   });
 
   /**
