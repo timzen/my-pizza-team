@@ -2,7 +2,7 @@
  * SpawnDialog — Modal to spawn a new teammate in a selected directory.
  */
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -17,10 +17,20 @@ interface SpawnDialogProps {
 export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
   const [open, setOpen] = useState(false);
   const [cwd, setCwd] = useState("");
-  const [hostId, setHostId] = useState("default");
+  const [hostId, setHostId] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+
+  // Auto-detect hostId from the leader agent on first open
+  useEffect(() => {
+    if (open && !hostId) {
+      fetch("/api/agents").then(r => r.json()).then((data: { agents: { id: string; hostId?: string }[] }) => {
+        const leader = data.agents.find(a => a.id === "leader");
+        if (leader?.hostId) setHostId(leader.hostId);
+      }).catch(() => {});
+    }
+  }, [open]);
 
   const handleSpawn = async (e: React.FormEvent) => {
     e.preventDefault();
