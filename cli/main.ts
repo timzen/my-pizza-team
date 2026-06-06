@@ -14,6 +14,7 @@ import { TEAM_DIR } from "../shared/types.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 import { install, uninstall } from "./service.ts";
+import { migrate, printMigrationResult } from "./migrate.ts";
 
 const VERSION = "0.1.0";
 const PID_FILENAME = "daemon.pid";
@@ -168,6 +169,12 @@ async function cmdStatus(): Promise<void> {
   }
 }
 
+function cmdUpgrade(): void {
+  const teamDir = getTeamDir();
+  const result = migrate(teamDir);
+  printMigrationResult(result);
+}
+
 async function cmdInstall(): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
@@ -188,6 +195,7 @@ Commands:
   start [--daemon|-d]   Start the daemon (foreground, or background with --daemon)
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if daemon is running and show summary
+  upgrade               Migrate team dir from extension-only era to daemon format
   install               Install as system service (auto-start on login)
   uninstall             Remove system service and disable auto-start
 
@@ -200,6 +208,7 @@ Examples:
   mpt start --daemon    # Start in background
   mpt status            # Check if running
   mpt stop              # Graceful shutdown
+  mpt upgrade           # Migrate old .pi-pizza-team/ to current format
   mpt install           # Install as launchd/systemd service
   mpt uninstall         # Remove service
 `);
@@ -220,6 +229,9 @@ if (import.meta.main) {
       break;
     case "status":
       await cmdStatus();
+      break;
+    case "upgrade":
+      cmdUpgrade();
       break;
     case "install":
       await cmdInstall();

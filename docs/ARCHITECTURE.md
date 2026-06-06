@@ -18,8 +18,9 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping.
 
 ### cli/
-- `main.ts` — CLI entry point (stub).
+- `main.ts` — CLI entry point (start/stop/status/upgrade/install/uninstall).
 - `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login.
+- `migrate.ts` — Migration logic for `mpt upgrade`. Converts legacy team directories (inline workflows, old instruction locations) to the daemon's expected structure.
 
 ### shared/
 - `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName).
