@@ -890,6 +890,11 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     if (!body.id || !body.status) {
       return c.json({ success: false, error: "Fields 'id' and 'status' are required" }, 400);
     }
+    const member = store.getMember(body.id);
+    if (!member) {
+      // Agent was dismissed — tell it to shut down
+      return c.json({ success: false, dismissed: true });
+    }
     store.heartbeat(body.id, body.status);
     return c.json({ success: true });
   });
