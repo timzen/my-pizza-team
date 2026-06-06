@@ -66,7 +66,7 @@ export function AgentsPage() {
       {online.length > 0 && (
         <div className="space-y-2">
           {online.map(agent => (
-            <AgentCard key={agent.id} agent={agent} />
+            <AgentCard key={agent.id} agent={agent} onDismiss={dismissAgent} />
           ))}
         </div>
       )}
@@ -140,8 +140,8 @@ function AgentCard({ agent, onDismiss }: { agent: Agent; onDismiss?: (id: string
             </div>
           </div>
 
-          {/* Dismiss button for offline agents */}
-          {agent.status === "offline" && onDismiss && (
+          {/* Dismiss button */}
+          {onDismiss && (
             <Button
               variant="ghost"
               size="sm"
