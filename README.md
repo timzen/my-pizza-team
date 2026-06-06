@@ -16,7 +16,8 @@ my-pizza-team/
 │   ├── app.ts         # Hono app and route registration
 │   └── store.ts       # SQLite data layer (jsr:@db/sqlite)
 ├── cli/               # Command-line interface
-│   └── main.ts        # CLI entry point
+│   ├── main.ts        # CLI entry point
+│   └── service.ts     # Platform service installer (launchd/systemd)
 ├── ui/                # Frontend (React + Vite + shadcn/ui)
 │   ├── src/           # React source (App, pages, components)
 │   ├── vite.config.ts # Vite config with API proxy
@@ -24,6 +25,11 @@ my-pizza-team/
 ├── shared/            # Types and utilities shared across modules
 │   ├── types.ts       # Common type definitions, workflow helpers
 │   └── frontmatter.ts # Frontmatter parsing for memory notes
+├── scripts/           # Build and automation scripts
+│   └── build.sh       # Cross-compilation build script
+├── .github/workflows/ # CI/CD pipelines
+│   ├── ci.yml         # Type check + tests on PR/push
+│   └── release.yml    # Cross-compile + GitHub Release on tags
 ├── tests/             # Test files
 │   ├── health.test.ts # Health endpoint test
 │   └── store.test.ts  # Store CRUD and workflow tests
@@ -99,6 +105,42 @@ This produces a `./mpt` binary (~70MB on macOS arm64) that:
 - Runs the Hono HTTP API
 - Manages SQLite via native FFI
 - Requires no runtime dependencies (no Deno, no Node.js)
+
+### Cross-Compilation
+
+Build binaries for all supported platforms:
+
+```bash
+# Build all targets → dist/
+./scripts/build.sh
+
+# Or use deno tasks:
+deno task compile:all          # All platforms
+deno task compile:darwin-arm64  # macOS Apple Silicon
+deno task compile:darwin-x64    # macOS Intel
+deno task compile:linux-x64     # Linux x86_64
+deno task compile:linux-arm64   # Linux ARM64
+```
+
+Output binaries in `dist/`:
+- `mpt-darwin-arm64`
+- `mpt-darwin-x64`
+- `mpt-linux-x64`
+- `mpt-linux-arm64`
+
+### GitHub Releases
+
+Push a version tag to trigger automatic builds:
+
+```bash
+git tag v0.2.0
+git push origin v0.2.0
+```
+
+The release workflow (`.github/workflows/release.yml`) will:
+1. Build the UI
+2. Cross-compile binaries for all 4 targets
+3. Create a GitHub Release with binaries + SHA256 checksums
 
 ## API Endpoints
 
