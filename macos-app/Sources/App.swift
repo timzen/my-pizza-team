@@ -32,9 +32,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         daemon = DaemonManager()
 
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let button = statusItem.button {
-            button.title = "🍕"
+            button.image = createPizzaIcon()
+            button.image?.isTemplate = true
         }
 
         updateMenu()
@@ -170,5 +171,36 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             return "~" + path.dropFirst(home.count)
         }
         return path
+    }
+
+    /// Create a 18x18 pizza slice icon as a template image for the menu bar.
+    func createPizzaIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { rect in
+            let ctx = NSGraphicsContext.current!.cgContext
+            let color = NSColor.black
+            ctx.setFillColor(color.cgColor)
+            ctx.setStrokeColor(color.cgColor)
+            ctx.setLineWidth(1.2)
+
+            // Pizza slice triangle (pointing up)
+            let path = CGMutablePath()
+            path.move(to: CGPoint(x: 9, y: 16))     // top center (tip)
+            path.addLine(to: CGPoint(x: 2, y: 3))   // bottom left
+            // Curved crust at the bottom
+            path.addQuadCurve(to: CGPoint(x: 16, y: 3), control: CGPoint(x: 9, y: 1))
+            path.closeSubpath()
+            ctx.addPath(path)
+            ctx.strokePath()
+
+            // Pepperoni dots
+            ctx.fillEllipse(in: CGRect(x: 7, y: 9, width: 3, height: 3))
+            ctx.fillEllipse(in: CGRect(x: 5, y: 5, width: 2.5, height: 2.5))
+            ctx.fillEllipse(in: CGRect(x: 10, y: 5.5, width: 2.5, height: 2.5))
+
+            return true
+        }
+        image.isTemplate = true
+        return image
     }
 }
