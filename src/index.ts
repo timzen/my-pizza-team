@@ -256,6 +256,15 @@ async function setupTeammate(
 
   loop.onTaskComplete = () => { completedTasks++; taskStartedAt = null; };
 
+  loop.onDismissed = () => {
+    if (ctx.hasUI) {
+      ctx.ui.notify("🍕 Agent dismissed by lead. Shutting down.", "warning");
+    }
+    clearInterval(widgetInterval);
+    // Exit the process so the tmux window closes
+    setTimeout(() => process.exit(0), 500);
+  };
+
   const updateWidget = () => {
     if (!ctx.hasUI || !loop.isAutonomous) return;
     if (loop.currentTask) {

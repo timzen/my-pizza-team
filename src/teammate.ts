@@ -45,6 +45,9 @@ export class TeammateLoop {
 
   public onTaskComplete: ((taskId: string, result: string) => void) | null = null;
 
+  /** Called when the agent is dismissed from the UI */
+  public onDismissed: (() => void) | null = null;
+
   /** Expose a way for external code to toggle permissions */
   public setAutonomousPermissions: ((autonomous: boolean) => void) | null = null;
 
@@ -98,11 +101,16 @@ export class TeammateLoop {
   // ═══════════════════════════════════════════════════════════════════
 
   private startHeartbeat(): void {
-    this.heartbeatTimer = setInterval(() => {
+    this.heartbeatTimer = setInterval(async () => {
       const status = this.autonomous
         ? this.currentTaskId ? "working" : "idle"
         : "pairing";
-      this.client.heartbeat(status, this.currentTaskId || undefined).catch(() => {});
+      const res = await this.client.heartbeat(status, this.currentTaskId || undefined);
+      if (res.dismissed) {
+        // Agent was dismissed from the UI — shut down gracefully
+        this.stop();
+        if (this.onDismissed) this.onDismissed();
+      }
     }, HEARTBEAT_INTERVAL_MS);
   }
 
