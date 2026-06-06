@@ -397,8 +397,10 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   app.get("/api/tasks/:taskId/attachments/:filename", (c) => {
     const taskId = c.req.param("taskId");
     const filename = c.req.param("filename");
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ error: "Task not found", taskId }, 404);
     const filePath = store.getAttachmentPath(taskId, filename);
-    if (!filePath) return c.json({ error: "Attachment not found" }, 404);
+    if (!filePath) return c.json({ error: "Attachment not found", taskId, filename, taskDir: task.dirPath }, 404);
 
     const content = Deno.readFileSync(filePath);
     const ext = filename.split(".").pop()?.toLowerCase() || "";
