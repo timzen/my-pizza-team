@@ -11,12 +11,12 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useApi, apiPost } from "@/hooks/useApi";
+import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload } from "lucide-react";
+import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload, Trash2 } from "lucide-react";
 import { FileViewer } from "@/components/viewer/FileViewer";
 
 interface Comment {
@@ -97,6 +97,13 @@ export function TaskDetailPage() {
 
   const openFile = (storedName: string, displayName: string) => {
     setViewerFile({ storedName, displayName });
+  };
+
+  const deleteFile = async (storedName: string, e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (!taskId) return;
+    await apiDelete(`/api/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(storedName)}`);
+    refetchAttachments();
   };
 
   const openFileByName = (displayName: string) => {
@@ -284,6 +291,15 @@ export function TaskDetailPage() {
               {getFileIcon(att.name)}
               <span className="text-sm font-medium flex-1">{att.name}</span>
               <span className="text-xs text-muted-foreground">{formatSize(att.size)}</span>
+              <Button
+                variant="ghost"
+                size="sm"
+                className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
+                onClick={(e) => deleteFile(att.storedName, e)}
+                title="Delete file"
+              >
+                <Trash2 className="h-4 w-4" />
+              </Button>
             </div>
           ))}
         </div>

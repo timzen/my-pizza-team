@@ -748,6 +748,18 @@ export class Store {
     return results;
   }
 
+  /** Delete an attachment file from a task */
+  deleteAttachment(taskId: string, storedName: string): boolean {
+    const filePath = this.getAttachmentPath(taskId, storedName);
+    if (!filePath) return false;
+    try {
+      Deno.removeSync(filePath);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   hasUnreadComments(taskId: string): boolean {
     this.ensureCommentsLoaded(taskId);
     const lastLead = this.db.prepare(

@@ -416,6 +416,17 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   });
 
   /**
+   * DELETE /api/tasks/:taskId/attachments/:filename — Delete an attachment.
+   */
+  app.delete("/api/tasks/:taskId/attachments/:filename", (c) => {
+    const taskId = c.req.param("taskId");
+    const filename = c.req.param("filename");
+    const deleted = store.deleteAttachment(taskId, filename);
+    if (!deleted) return c.json({ success: false, error: "Attachment not found" }, 404);
+    return c.json({ success: true });
+  });
+
+  /**
    * POST /api/tasks/:taskId/token-usage — Record token usage for a task.
    * Teammates report LLM token consumption after each API call. The daemon
    * estimates USD cost from a model pricing table. Used for cost tracking
