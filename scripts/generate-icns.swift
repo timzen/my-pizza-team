@@ -6,7 +6,7 @@
  * macOS icon sizes, creates an iconset, and converts to .icns.
  *
  * Usage: swift scripts/generate-icns.swift
- * Output: macos-app/Resources/AppIcon.icns
+ * Output: desktop/macos/Resources/AppIcon.icns
  */
 
 import AppKit
@@ -74,8 +74,8 @@ let sizes: [(Int, String)] = [
 // Create iconset directory
 let scriptDir = URL(fileURLWithPath: CommandLine.arguments[0]).deletingLastPathComponent()
 let projectRoot = scriptDir.deletingLastPathComponent()
-let iconsetDir = projectRoot.appendingPathComponent("macos-app/Resources/AppIcon.iconset")
-let icnsPath = projectRoot.appendingPathComponent("macos-app/Resources/AppIcon.icns")
+let iconsetDir = projectRoot.appendingPathComponent("desktop/macos/Resources/AppIcon.iconset")
+let icnsPath = projectRoot.appendingPathComponent("desktop/macos/Resources/AppIcon.icns")
 
 try? FileManager.default.removeItem(at: iconsetDir)
 try FileManager.default.createDirectory(at: iconsetDir, withIntermediateDirectories: true)

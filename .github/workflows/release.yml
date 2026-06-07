@@ -111,7 +111,7 @@ jobs:
 
       - name: Build SwiftUI menu bar app
         run: |
-          cd macos-app
+          cd desktop/macos
           swift build -c release
 
       - name: Generate app icon
@@ -124,13 +124,13 @@ jobs:
           mkdir -p "$APP_DIR/Contents/Resources"
 
           # Copy binaries
-          cp macos-app/.build/release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+          cp desktop/macos/.build/release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
           cp dist/${{ matrix.binary-artifact }} "$APP_DIR/Contents/MacOS/mpt"
           chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
           chmod +x "$APP_DIR/Contents/MacOS/mpt"
 
           # Copy icon
-          cp macos-app/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
+          cp desktop/macos/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
 
           # Create Info.plist
           cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
@@ -196,9 +196,9 @@ jobs:
           $outDir = "dist/My-Pizza-Team-windows"
           New-Item -ItemType Directory -Force -Path $outDir
           Copy-Item "dist/mpt-windows-x64.exe" "$outDir/mpt.exe"
-          Copy-Item "windows-app/tray.ps1" "$outDir/tray.ps1"
-          Copy-Item "windows-app/My Pizza Team.bat" "$outDir/My Pizza Team.bat"
-          Copy-Item "windows-app/README.md" "$outDir/README.md"
+          Copy-Item "desktop/windows/tray.ps1" "$outDir/tray.ps1"
+          Copy-Item "desktop/windows/My Pizza Team.bat" "$outDir/My Pizza Team.bat"
+          Copy-Item "desktop/windows/README.md" "$outDir/README.md"
           Compress-Archive -Path "$outDir/*" -DestinationPath "dist/My-Pizza-Team-windows-x64.zip"
 
       - name: Upload artifact

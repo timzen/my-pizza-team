@@ -157,7 +157,9 @@ my-pizza-team/
 ├── cli/               # CLI (start/stop/status/install/upgrade/rotate-token)
 ├── ui/                # Frontend (React + Vite + shadcn/ui)
 ├── shared/            # Shared types, utilities, protocol contracts
-├── macos-app/         # Native macOS menu bar app (SwiftUI)
+├── desktop/           # Native platform tray/menu bar apps
+│   ├── macos/         # SwiftUI menu bar app
+│   └── windows/       # PowerShell system tray app
 ├── scripts/           # Build, cross-compile, and packaging scripts
 ├── .github/workflows/ # CI + release automation
 ├── tests/             # Integration and unit tests

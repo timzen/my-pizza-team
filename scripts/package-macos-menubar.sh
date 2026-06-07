@@ -23,7 +23,7 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 DIST_DIR="$PROJECT_ROOT/dist"
-MACOS_APP_DIR="$PROJECT_ROOT/macos-app"
+MACOS_APP_DIR="$PROJECT_ROOT/desktop/macos"
 APP_NAME="My Pizza Team"
 BINARY="$DIST_DIR/mpt-darwin-arm64"
 
