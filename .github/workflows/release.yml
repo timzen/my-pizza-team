@@ -64,12 +64,14 @@ jobs:
           cache-dependency-path: ui/package-lock.json
 
       - name: Build UI
+        shell: bash
         run: |
           cd ui
           npm ci
           npm run build
 
       - name: Compile binary
+        shell: bash
         run: |
           deno compile \
             --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-run \
@@ -113,9 +115,6 @@ jobs:
         run: |
           cd desktop/macos
           swift build -c release
-
-      - name: Generate app icon
-        run: swift scripts/generate-icns.swift
 
       - name: Package .app bundle
         run: |
