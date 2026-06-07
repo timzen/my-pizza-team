@@ -13,7 +13,8 @@
     "compile:darwin-arm64": "./scripts/build.sh darwin-arm64",
     "compile:darwin-x64": "./scripts/build.sh darwin-x64",
     "compile:linux-x64": "./scripts/build.sh linux-x64",
-    "compile:linux-arm64": "./scripts/build.sh linux-arm64"
+    "compile:linux-arm64": "./scripts/build.sh linux-arm64",
+    "compile:windows-x64": "./scripts/build.sh windows-x64"
   },
   "imports": {
     "hono": "jsr:@hono/hono@^4",

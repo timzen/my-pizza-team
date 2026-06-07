@@ -3,6 +3,8 @@
 # scripts/package-macos-menubar.sh — Build the macOS menu bar app.
 #
 # Compiles the SwiftUI menu bar app and bundles the mpt binary alongside it.
+# No-ops gracefully on non-macOS platforms.
+#
 # Output: dist/My Pizza Team.app
 #
 # Usage:
@@ -13,6 +15,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+# Skip on non-macOS
+if [ "$(uname -s)" != "Darwin" ]; then
+  echo "⚠️  Skipping macOS menu bar app (not running on macOS)"
+  exit 0
+fi
+
 DIST_DIR="$PROJECT_ROOT/dist"
 MACOS_APP_DIR="$PROJECT_ROOT/macos-app"
 APP_NAME="My Pizza Team"
