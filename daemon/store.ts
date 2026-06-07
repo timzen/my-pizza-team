@@ -970,9 +970,16 @@ export class Store {
 
   startTimers(): void {
     const flushMs = this.config.autosave.flushIntervalMinutes * 60 * 1000;
-    this.flushTimer = setInterval(() => this.flushToDisk(), flushMs);
+    this.flushTimer = setInterval(() => {
+      this.flushToDisk();
+      // Commit after each flush if autoCommit is enabled
+      if (this.config.autosave.autoCommit) {
+        this.commitToGit();
+      }
+    }, flushMs);
 
     if (this.config.autosave.autoCommit) {
+      // Also run a commit on a longer interval as a safety net
       const commitMs = this.config.autosave.commitIntervalHours * 60 * 60 * 1000;
       this.commitTimer = setInterval(() => this.commitToGit(), commitMs);
     }
@@ -1001,9 +1008,28 @@ export class Store {
         const commitMsg = message || this.config.autosave.commitMessage.replace("{timestamp}", new Date().toISOString());
         const commitCmd = new Deno.Command("git", { args: ["commit", "-m", commitMsg], cwd, stdout: "piped", stderr: "piped" });
         commitCmd.outputSync();
+
+        // Auto-push if a remote is configured
+        this.pushToRemote(cwd);
       }
     } catch {
-      // Ignore git errors (nothing to commit, etc.)
+      // Ignore git errors (nothing to commit, not a repo, etc.)
+    }
+  }
+
+  /** Push to remote origin if it exists. Non-fatal on failure. */
+  private pushToRemote(cwd: string): void {
+    try {
+      // Check if remote exists
+      const remoteCmd = new Deno.Command("git", { args: ["remote"], cwd, stdout: "piped", stderr: "piped" });
+      const remoteOutput = remoteCmd.outputSync();
+      const remotes = new TextDecoder().decode(remoteOutput.stdout).trim();
+      if (!remotes) return;
+
+      const pushCmd = new Deno.Command("git", { args: ["push"], cwd, stdout: "piped", stderr: "piped" });
+      pushCmd.outputSync();
+    } catch {
+      // Push failures are non-fatal (offline, auth issues, etc.)
     }
   }
 
@@ -1544,6 +1570,9 @@ export class Store {
   close(): void {
     this.stopTimers();
     this.flushToDisk();
+    if (this.config.autosave.autoCommit) {
+      this.commitToGit("pi-pizza-team: shutdown checkpoint");
+    }
     this.db.close();
   }
 }

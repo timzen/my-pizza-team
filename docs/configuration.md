@@ -39,9 +39,9 @@ Everything else has sensible defaults.
   // ─── Autosave ─────────────────────────────────────────────────
   "autosave": {
     "flushIntervalMinutes": 30,           // How often to write dirty tasks to disk
-    "commitIntervalHours": 24,            // How often to git commit
+    "commitIntervalHours": 24,            // Safety-net commit interval (also commits on each flush)
     "commitMessage": "pi-pizza-team: checkpoint {timestamp}",
-    "autoCommit": true                    // Enable/disable git auto-commit
+    "autoCommit": true                    // Enable/disable git auto-commit + push
   },
 
   // ─── Knowledge Base ────────────────────────────────────────────
