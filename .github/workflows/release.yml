@@ -43,6 +43,9 @@ jobs:
           - target: linux-arm64
             deno-target: aarch64-unknown-linux-gnu
             os: ubuntu-latest
+          - target: windows-x64
+            deno-target: x86_64-pc-windows-msvc
+            os: windows-latest
 
     steps:
       - name: Checkout
@@ -79,7 +82,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: mpt-${{ matrix.target }}
-          path: dist/mpt-${{ matrix.target }}
+          path: dist/mpt-${{ matrix.target }}*
 
   macos-app:
     name: Build macOS Menu Bar App (${{ matrix.arch }})
@@ -172,9 +175,41 @@ jobs:
           name: macos-app-${{ matrix.arch }}
           path: dist/My-Pizza-Team-macos-${{ matrix.arch }}.zip
 
+  windows-app:
+    name: Package Windows Tray App
+    runs-on: windows-latest
+    needs: build
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download mpt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mpt-windows-x64
+          path: dist/
+
+      - name: Package Windows app
+        shell: pwsh
+        run: |
+          $outDir = "dist/My-Pizza-Team-windows"
+          New-Item -ItemType Directory -Force -Path $outDir
+          Copy-Item "dist/mpt-windows-x64.exe" "$outDir/mpt.exe"
+          Copy-Item "windows-app/tray.ps1" "$outDir/tray.ps1"
+          Copy-Item "windows-app/My Pizza Team.bat" "$outDir/My Pizza Team.bat"
+          Copy-Item "windows-app/README.md" "$outDir/README.md"
+          Compress-Archive -Path "$outDir/*" -DestinationPath "dist/My-Pizza-Team-windows-x64.zip"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-app
+          path: dist/My-Pizza-Team-windows-x64.zip
+
   release:
     name: Create Release
-    needs: [build, macos-app]
+    needs: [build, macos-app, windows-app]
     runs-on: ubuntu-latest
 
     steps:
@@ -197,6 +232,10 @@ jobs:
           for dir in artifacts/macos-app-*/; do
             cp "$dir"* release/
           done
+          # Copy Windows app zip
+          if [ -d artifacts/windows-app ]; then
+            cp artifacts/windows-app/* release/
+          fi
           # Make binaries executable
           chmod +x release/mpt-* 2>/dev/null || true
           # Generate checksums

@@ -23,7 +23,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 DIST_DIR="$PROJECT_ROOT/dist"
 
-ALL_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64"
+ALL_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64"
 DENO_PERMISSIONS="--allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-run"
 ENTRY_POINT="daemon/main.ts"
 
@@ -34,6 +34,7 @@ get_deno_target() {
     darwin-x64)   echo "x86_64-apple-darwin" ;;
     linux-x64)    echo "x86_64-unknown-linux-gnu" ;;
     linux-arm64)  echo "aarch64-unknown-linux-gnu" ;;
+    windows-x64)  echo "x86_64-pc-windows-msvc" ;;
     *) echo ""; return 1 ;;
   esac
 }
@@ -103,3 +104,6 @@ fi
 echo ""
 echo "🎉 Build complete! Binaries in: $DIST_DIR/"
 ls -lh "$DIST_DIR"/mpt-* 2>/dev/null || true
+
+# Package macOS menu bar app (no-ops on non-macOS)
+"$SCRIPT_DIR/package-macos-menubar.sh" || true
