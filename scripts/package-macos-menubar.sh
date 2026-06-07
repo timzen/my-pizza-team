@@ -50,6 +50,14 @@ cp "$BINARY" "$APP_DIR/Contents/MacOS/mpt"
 chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
 chmod +x "$APP_DIR/Contents/MacOS/mpt"
 
+# Copy icon
+ICON_FILE="$MACOS_APP_DIR/Resources/AppIcon.icns"
+if [ ! -f "$ICON_FILE" ]; then
+  echo "Generating app icon..."
+  swift "$PROJECT_ROOT/scripts/generate-icns.swift"
+fi
+cp "$ICON_FILE" "$APP_DIR/Contents/Resources/AppIcon.icns"
+
 # Create Info.plist
 cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 <?xml version="1.0" encoding="UTF-8"?>
@@ -82,6 +90,9 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
 
   <key>LSUIElement</key>
   <true/>
+
+  <key>CFBundleIconFile</key>
+  <string>AppIcon</string>
 
   <key>NSHighResolutionCapable</key>
   <true/>
