@@ -107,3 +107,6 @@ ls -lh "$DIST_DIR"/mpt-* 2>/dev/null || true
 
 # Package macOS menu bar app (no-ops on non-macOS)
 "$SCRIPT_DIR/package-macos-menubar.sh" || true
+
+# Package Windows tray app zip (no-ops if binary not found)
+"$SCRIPT_DIR/package-windows.sh" || true
