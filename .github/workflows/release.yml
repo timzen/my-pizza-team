@@ -1,13 +1,14 @@
 # .github/workflows/release.yml — Build and release cross-compiled binaries.
 #
-# Triggered on version tags (v*). Builds mpt binaries for all platforms
-# and creates a GitHub Release with the artifacts attached.
+# Triggered on version tags (v*). Builds mpt binaries for all platforms,
+# the macOS menu bar app, and creates a GitHub Release with artifacts.
 #
 # Targets:
 #   - mpt-darwin-arm64  (macOS Apple Silicon)
 #   - mpt-darwin-x64    (macOS Intel)
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
+#   - My Pizza Team.app (macOS menu bar app, arm64 + x64)
 
 name: Release
 
@@ -80,9 +81,92 @@ jobs:
           name: mpt-${{ matrix.target }}
           path: dist/mpt-${{ matrix.target }}
 
+  macos-app:
+    name: Build macOS Menu Bar App (${{ matrix.arch }})
+    runs-on: macos-latest
+    needs: build
+    strategy:
+      matrix:
+        include:
+          - arch: arm64
+            binary-artifact: mpt-darwin-arm64
+          - arch: x64
+            binary-artifact: mpt-darwin-x64
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download mpt binary
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ matrix.binary-artifact }}
+          path: dist/
+
+      - name: Make binary executable
+        run: chmod +x dist/${{ matrix.binary-artifact }}
+
+      - name: Build SwiftUI menu bar app
+        run: |
+          cd macos-app
+          swift build -c release
+
+      - name: Package .app bundle
+        run: |
+          APP_DIR="dist/My Pizza Team.app"
+          mkdir -p "$APP_DIR/Contents/MacOS"
+          mkdir -p "$APP_DIR/Contents/Resources"
+
+          # Copy binaries
+          cp macos-app/.build/release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+          cp dist/${{ matrix.binary-artifact }} "$APP_DIR/Contents/MacOS/mpt"
+          chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+          chmod +x "$APP_DIR/Contents/MacOS/mpt"
+
+          # Create Info.plist
+          cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key>
+            <string>My Pizza Team</string>
+            <key>CFBundleDisplayName</key>
+            <string>My Pizza Team</string>
+            <key>CFBundleIdentifier</key>
+            <string>com.my-pizza-team.menubar</string>
+            <key>CFBundleVersion</key>
+            <string>${GITHUB_REF_NAME#v}</string>
+            <key>CFBundleShortVersionString</key>
+            <string>${GITHUB_REF_NAME#v}</string>
+            <key>CFBundleExecutable</key>
+            <string>MyPizzaTeamMenu</string>
+            <key>CFBundlePackageType</key>
+            <string>APPL</string>
+            <key>LSMinimumSystemVersion</key>
+            <string>13.0</string>
+            <key>LSUIElement</key>
+            <true/>
+            <key>NSHighResolutionCapable</key>
+            <true/>
+          </dict>
+          </plist>
+          EOF
+
+      - name: Create zip archive
+        run: |
+          cd dist
+          zip -r "My-Pizza-Team-macos-${{ matrix.arch }}.zip" "My Pizza Team.app"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-app-${{ matrix.arch }}
+          path: dist/My-Pizza-Team-macos-${{ matrix.arch }}.zip
+
   release:
     name: Create Release
-    needs: build
+    needs: [build, macos-app]
     runs-on: ubuntu-latest
 
     steps:
@@ -97,14 +181,19 @@ jobs:
       - name: Prepare release assets
         run: |
           mkdir -p release/
+          # Copy binaries
           for dir in artifacts/mpt-*/; do
             cp "$dir"* release/
           done
+          # Copy macOS .app zips
+          for dir in artifacts/macos-app-*/; do
+            cp "$dir"* release/
+          done
           # Make binaries executable
-          chmod +x release/mpt-*
+          chmod +x release/mpt-* 2>/dev/null || true
           # Generate checksums
           cd release
-          sha256sum mpt-* > checksums.sha256 2>/dev/null || shasum -a 256 mpt-* > checksums.sha256
+          sha256sum * > checksums.sha256 2>/dev/null || shasum -a 256 * > checksums.sha256
           cat checksums.sha256
 
       - name: Create GitHub Release
@@ -112,5 +201,4 @@ jobs:
         with:
           generate_release_notes: true
           files: |
-            release/mpt-*
-            release/checksums.sha256
+            release/*
