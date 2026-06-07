@@ -29,7 +29,9 @@ class DaemonManager {
         // Auto-detect team dir if not set
         if self.teamDir.isEmpty {
             let candidates = [
+                FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".my-pizza-team").path,
                 FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi-pizza-team").path,
+                FileManager.default.currentDirectoryPath + "/.my-pizza-team",
                 FileManager.default.currentDirectoryPath + "/.pi-pizza-team",
             ]
             for candidate in candidates {

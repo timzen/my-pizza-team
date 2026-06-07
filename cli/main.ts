@@ -7,10 +7,11 @@
  *   mpt status            — Check if daemon is running + show summary from /api/status
  *
  * Uses Deno's built-in arg parsing (Deno.args). The team directory defaults
- * to .pi-pizza-team in the current working directory (override with TEAM_DIR env).
+ * to .my-pizza-team in the current working directory (override with TEAM_DIR env).
+ * Also supports legacy .pi-pizza-team directories.
  */
 
-import { TEAM_DIR } from "../shared/types.ts";
+import { TEAM_DIR, LEGACY_TEAM_DIR } from "../shared/types.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 import { install, uninstall } from "./service.ts";
@@ -21,12 +22,19 @@ const VERSION = "0.1.0";
 const PID_FILENAME = "daemon.pid";
 
 function getTeamDir(): string {
-  const raw = Deno.env.get("TEAM_DIR") || path.join(Deno.cwd(), TEAM_DIR);
-  // Accept either the .pi-pizza-team dir itself or its parent
-  if (raw.endsWith(TEAM_DIR)) return raw;
-  const nested = path.join(raw, TEAM_DIR);
-  if (existsSync(nested)) return nested;
-  return raw;
+  const envDir = Deno.env.get("TEAM_DIR");
+  if (envDir) {
+    if (envDir.endsWith(TEAM_DIR) || envDir.endsWith(LEGACY_TEAM_DIR)) return envDir;
+    if (existsSync(path.join(envDir, TEAM_DIR))) return path.join(envDir, TEAM_DIR);
+    if (existsSync(path.join(envDir, LEGACY_TEAM_DIR))) return path.join(envDir, LEGACY_TEAM_DIR);
+    return envDir;
+  }
+  // No env: check cwd for .my-pizza-team then .pi-pizza-team
+  const primary = path.join(Deno.cwd(), TEAM_DIR);
+  if (existsSync(primary)) return primary;
+  const legacy = path.join(Deno.cwd(), LEGACY_TEAM_DIR);
+  if (existsSync(legacy)) return legacy;
+  return primary;
 }
 
 function getPort(): number {

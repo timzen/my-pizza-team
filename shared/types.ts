@@ -140,7 +140,7 @@ export interface Assignment {
 
 export const DEFAULT_CONFIG: TeamConfig = {
   port: 7437,
-  tmuxSession: "pi-pizza-team",
+  tmuxSession: "my-pizza-team",
   defaultWorkflow: "default",
   workflows: {
     default: {
@@ -156,7 +156,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
   autosave: {
     flushIntervalMinutes: 30,
     commitIntervalHours: 24,
-    commitMessage: "pi-pizza-team: checkpoint {timestamp}",
+    commitMessage: "my-pizza-team: checkpoint {timestamp}",
     autoCommit: true,
   },
   leaderUrl: "http://localhost:7437",
@@ -173,7 +173,8 @@ export interface TransitionInstructions {
   onExit?: string;
 }
 
-export const TEAM_DIR = ".pi-pizza-team";
+export const TEAM_DIR = ".my-pizza-team";
+export const LEGACY_TEAM_DIR = ".pi-pizza-team";
 export const CONFIG_FILE = "config.json";
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
