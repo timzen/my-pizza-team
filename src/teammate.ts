@@ -15,14 +15,15 @@
 // The teammate never assumes workflow state names — it relies entirely on
 // the daemon's availableTransitions to know what moves are valid and when
 // to release. This makes it compatible with any workflow configuration.
+//
+// Rediscovery after release relies solely on the normal poll cycle
+// (getNextWork every 5s). No comment watching or watch loops.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient, AgentTransitionResponse } from "./client.js";
 
 const POLL_INTERVAL_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
-const COMMENT_CHECK_INTERVAL_MS = 12000;
-const WATCH_INTERVAL_MS = 10000;
 
 export class TeammateLoop {
   private pi: ExtensionAPI;
@@ -33,15 +34,9 @@ export class TeammateLoop {
   private lastCompletedTaskId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-  private commentCheckTimer: ReturnType<typeof setInterval> | null = null;
-  private lastSeenCommentCount: number = 0;
 
   // Available transitions from the task's current state (updated after each transition)
   private availableTransitions: Array<{ state: string; permission: string }> = [];
-
-  // Tasks we've released but are still watching for lead action (comments/rework)
-  private watchedTasks: Map<string, number> = new Map();
-  private watchTimer: ReturnType<typeof setInterval> | null = null;
 
   public onTaskComplete: ((taskId: string, result: string) => void) | null = null;
 
@@ -71,7 +66,6 @@ export class TeammateLoop {
   async start(): Promise<void> {
     this.running = true;
     this.startHeartbeat();
-    this.startWatchLoop();
     this.pollForWork();
   }
 
@@ -80,8 +74,6 @@ export class TeammateLoop {
     this.autonomous = false;
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
-    if (this.watchTimer) { clearInterval(this.watchTimer); this.watchTimer = null; }
-    this.stopCommentChecking();
   }
 
   /** Pause autonomous work (human is pairing) */
@@ -138,7 +130,6 @@ export class TeammateLoop {
 
         // We now own this task
         this.currentTaskId = response.task.id;
-        this.watchedTasks.delete(response.task.id);
         this.availableTransitions = claim.availableTransitions || response.task.availableTransitions || [];
         this.client.heartbeat("working", response.task.id).catch(() => {});
 
@@ -216,9 +207,6 @@ export class TeammateLoop {
     prompt += `\nWhen you're done, provide a brief summary of what you accomplished.`;
     prompt += `\nIf you get stuck and need human guidance, say "NEEDS_INPUT:" followed by your question.`;
 
-    // Start checking for new comments while working
-    this.startCommentChecking(task.id);
-
     // Post status comment
     await this.client.postComment(task.id, `[status] Started working on this task.`).catch(() => {});
 
@@ -234,10 +222,10 @@ export class TeammateLoop {
    * Called by the agent_end handler when the Pi agent finishes.
    *
    * Handles the multi-transition model:
-   * 1. If NEEDS_INPUT → transition to blocked state, release, watch
+   * 1. If NEEDS_INPUT → transition to blocked state, release
    * 2. Otherwise → transition to next state
    *    - If more teammate transitions remain, deliver instructions and continue
-   *    - If no more transitions (or auto-released at done), release and watch
+   *    - If no more transitions (or auto-released at done), release
    */
   async handleAgentComplete(lastMessage: string, tokenUsage?: {
     inputTokens: number;
@@ -248,7 +236,6 @@ export class TeammateLoop {
     if (!this.currentTaskId) return;
 
     const taskId = this.currentTaskId;
-    this.stopCommentChecking();
 
     // Report token usage
     if (tokenUsage && (tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0)) {
@@ -278,7 +265,6 @@ export class TeammateLoop {
       this.lastCompletedTaskId = taskId;
       this.currentTaskId = null;
       this.availableTransitions = [];
-      this.watchTask(taskId);
       this.schedulePoll();
       return;
     }
@@ -309,7 +295,6 @@ export class TeammateLoop {
         // If more teammate transitions are available, the agent can keep going
         if (this.availableTransitions.length > 0 && transRes.instructions) {
           // There are more states AND transition instructions — let the agent continue
-          this.startCommentChecking(taskId);
           this.pi.sendUserMessage(
             `## Transition Instructions\n\nYou've advanced the task to a new state. Here are the instructions for this phase:\n\n${transRes.instructions}\n\n---\nContinue working. When done with this phase, provide a brief summary.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
             { deliverAs: "followUp" }
@@ -323,7 +308,6 @@ export class TeammateLoop {
           this.lastCompletedTaskId = taskId;
           this.currentTaskId = null;
           this.onTaskComplete?.(taskId, summary);
-          this.watchTask(taskId);
           this.schedulePoll();
           return;
         }
@@ -341,7 +325,6 @@ export class TeammateLoop {
     this.currentTaskId = null;
     this.availableTransitions = [];
     this.onTaskComplete?.(taskId, summary);
-    this.watchTask(taskId);
     this.schedulePoll();
   }
 
@@ -370,7 +353,6 @@ export class TeammateLoop {
 
       // If the new state has instructions, let the agent handle it
       if (transRes.instructions && this.availableTransitions.length > 0) {
-        this.startCommentChecking(taskId);
         this.pi.sendUserMessage(
           `## Transition Instructions\n\nYou've advanced the task to a new state. Here are the instructions for this phase:\n\n${transRes.instructions}\n\n---\nContinue working. When done with this phase, provide a brief summary.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
           { deliverAs: "followUp" }
@@ -385,116 +367,6 @@ export class TeammateLoop {
     this.currentTaskId = null;
     this.availableTransitions = [];
     this.onTaskComplete?.(taskId, result);
-    this.watchTask(taskId);
     this.schedulePoll();
-  }
-
-  // ═══════════════════════════════════════════════════════════════════
-  // COMMENT WATCHING (while working + after release)
-  // ═══════════════════════════════════════════════════════════════════
-
-  /**
-   * Start watching a released task for new lead comments.
-   * If the lead posts new comments (feedback, sends it back), the task
-   * will reappear on next-work and we'll pick it up again naturally
-   * through the normal poll cycle.
-   */
-  private async watchTask(taskId: string): Promise<void> {
-    try {
-      const res = await this.client.getComments(taskId);
-      this.watchedTasks.set(taskId, res.comments.length);
-    } catch {
-      this.watchedTasks.set(taskId, 0);
-    }
-  }
-
-  /**
-   * Periodic check on released tasks. If the task reappears on next-work
-   * with new comments, it will be picked up by pollForWork. This loop
-   * provides an additional fast-path: if we see new lead comments on a
-   * watched task, we can proactively try to claim it.
-   */
-  private startWatchLoop(): void {
-    this.watchTimer = setInterval(async () => {
-      if (!this.running || !this.autonomous || this.currentTaskId) return;
-
-      for (const [taskId, baseCount] of this.watchedTasks) {
-        try {
-          const res = await this.client.getComments(taskId);
-          const comments = res.comments;
-
-          if (comments.length > baseCount) {
-            const newComments = comments.slice(baseCount);
-            const leadComments = newComments.filter(c => c.from === "lead");
-
-            if (leadComments.length > 0) {
-              // Lead posted feedback — try to claim and work on it.
-              // The task should appear on next-work if the lead moved it back.
-              // Update the baseline so we don't re-trigger on same comments.
-              this.watchedTasks.set(taskId, comments.length);
-
-              // Trigger an immediate poll to pick it up via normal flow
-              if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
-              this.pollForWork();
-              return;
-            } else {
-              // Non-lead comments (our own status updates) — update baseline
-              this.watchedTasks.set(taskId, comments.length);
-            }
-          }
-        } catch {
-          // Daemon unreachable — try next cycle
-        }
-      }
-    }, WATCH_INTERVAL_MS);
-  }
-
-  /**
-   * Start periodically checking for new lead comments while actively working.
-   * If the lead posts a comment while we're mid-task, deliver it to the agent
-   * as guidance.
-   */
-  private startCommentChecking(taskId: string): void {
-    this.stopCommentChecking();
-
-    // Initialize with current comment count
-    this.client.getComments(taskId).then(res => {
-      this.lastSeenCommentCount = res.comments.length;
-    }).catch(() => { this.lastSeenCommentCount = 0; });
-
-    this.commentCheckTimer = setInterval(async () => {
-      if (!this.currentTaskId || this.currentTaskId !== taskId) {
-        this.stopCommentChecking();
-        return;
-      }
-      try {
-        const res = await this.client.getComments(taskId);
-        const comments = res.comments;
-
-        if (comments.length > this.lastSeenCommentCount) {
-          const newComments = comments.slice(this.lastSeenCommentCount);
-          const leadComments = newComments.filter(c => c.from === "lead");
-          this.lastSeenCommentCount = comments.length;
-
-          if (leadComments.length > 0) {
-            const bodies = leadComments.map(c => c.body).join("\n\n");
-            this.pi.sendUserMessage(
-              `## Message from team lead\n\nThe lead sent you a message while you're working:\n\n"${bodies}"\n\nTake this into account as you continue your work. Acknowledge briefly and continue.`,
-              { deliverAs: "followUp" }
-            );
-          }
-        }
-      } catch {
-        // Daemon unreachable — skip this check
-      }
-    }, COMMENT_CHECK_INTERVAL_MS);
-  }
-
-  /** Stop the comment checking interval */
-  private stopCommentChecking(): void {
-    if (this.commentCheckTimer) {
-      clearInterval(this.commentCheckTimer);
-      this.commentCheckTimer = null;
-    }
   }
 }

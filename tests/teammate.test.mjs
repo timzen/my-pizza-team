@@ -131,21 +131,11 @@ test("releases task after NEEDS_INPUT", () => {
   assert.ok(needsInputSection.includes("releaseTask"));
 });
 
-// ─── Comment checking ────────────────────────────────────────────
-
-test("uses getComments (not getMessages)", () => {
-  assert.ok(src.includes("this.client.getComments("));
-  assert.ok(!src.includes("getMessages"));
-});
+// ─── Comment handling ────────────────────────────────────────────
 
 test("uses postComment (not postMessage)", () => {
   assert.ok(src.includes("this.client.postComment("));
   assert.ok(!src.includes("postMessage"));
-});
-
-test("checks for lead comments while working", () => {
-  assert.ok(src.includes("startCommentChecking"));
-  assert.ok(src.includes("stopCommentChecking"));
 });
 
 test("filters comments by 'lead' author", () => {
@@ -159,14 +149,21 @@ test("includes lead comments in task prompt (rework context)", () => {
   assert.ok(src.includes("task.comments?.filter"));
 });
 
-// ─── Watch loop ──────────────────────────────────────────────────
+// ─── No comment watching or watch loop (removed) ─────────────────
 
-test("has watch loop for released tasks", () => {
-  assert.ok(src.includes("startWatchLoop"));
-  assert.ok(src.includes("watchedTasks"));
+test("does NOT have mid-task comment watching", () => {
+  assert.ok(!src.includes("startCommentChecking"));
+  assert.ok(!src.includes("stopCommentChecking"));
+  assert.ok(!src.includes("COMMENT_CHECK_INTERVAL_MS"));
 });
 
-test("watch loop triggers immediate poll on new lead comments", () => {
+test("does NOT have post-release watch loop", () => {
+  assert.ok(!src.includes("startWatchLoop"));
+  assert.ok(!src.includes("watchedTasks"));
+  assert.ok(!src.includes("WATCH_INTERVAL_MS"));
+});
+
+test("relies on normal poll cycle for rediscovery", () => {
   assert.ok(src.includes("this.pollForWork()"));
 });
 
