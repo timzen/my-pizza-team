@@ -163,6 +163,9 @@ jobs:
           </plist>
           EOF
 
+      - name: Ad-hoc sign the app bundle
+        run: codesign --force --deep --sign - "dist/My Pizza Team.app"
+
       - name: Create zip archive
         run: |
           cd dist
