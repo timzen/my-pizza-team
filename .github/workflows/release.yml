@@ -163,8 +163,55 @@ jobs:
           </plist>
           EOF
 
-      - name: Ad-hoc sign the app bundle
-        run: codesign --force --deep --sign - "dist/My Pizza Team.app"
+      - name: Install Apple signing certificate
+        env:
+          P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+        run: |
+          if [ -z "$P12_BASE64" ]; then
+            echo "No signing certificate configured — using ad-hoc signing"
+            codesign --force --deep --sign - "dist/My Pizza Team.app"
+            exit 0
+          fi
+          echo "$P12_BASE64" | base64 --decode > cert.p12
+          security create-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+
+      - name: Sign the app with Developer ID
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          codesign --force --deep --options runtime \
+            --sign "Developer ID Application: ($APPLE_TEAM_ID)" \
+            "dist/My Pizza Team.app"
+
+      - name: Notarize the app
+        if: env.APPLE_CERTIFICATE_P12 != ''
+        env:
+          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          # Create zip for notarization submission
+          ditto -c -k "dist/My Pizza Team.app" notarize.zip
+
+          # Submit and wait for Apple to process
+          xcrun notarytool submit notarize.zip \
+            --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_PASSWORD" \
+            --team-id "$APPLE_TEAM_ID" \
+            --wait
+
+          # Staple the notarization ticket to the app
+          xcrun stapler staple "dist/My Pizza Team.app"
+
+          rm notarize.zip
 
       - name: Create zip archive
         run: |
