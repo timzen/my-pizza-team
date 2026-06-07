@@ -10,7 +10,7 @@
  */
 
 import { createApp } from "./app.ts";
-import { TEAM_DIR } from "../shared/types.ts";
+import { TEAM_DIR, LEGACY_TEAM_DIR } from "../shared/types.ts";
 import {
   writePidFile,
   isAlreadyRunning,
@@ -21,13 +21,25 @@ import { resolveToken, validateBindSafety } from "./auth.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 
-const rawTeamDir = Deno.env.get("TEAM_DIR") || path.join(Deno.cwd(), TEAM_DIR);
-// Accept either the .pi-pizza-team dir itself or its parent
-const teamDir = rawTeamDir.endsWith(TEAM_DIR)
-  ? rawTeamDir
-  : (existsSync(path.join(rawTeamDir, TEAM_DIR))
-    ? path.join(rawTeamDir, TEAM_DIR)
-    : rawTeamDir);
+/** Resolve team directory: supports TEAM_DIR env, .my-pizza-team, or legacy .pi-pizza-team */
+function resolveTeamDir(): string {
+  const envDir = Deno.env.get("TEAM_DIR");
+  if (envDir) {
+    // Explicit TEAM_DIR: check if it's the dir itself or a parent
+    if (envDir.endsWith(TEAM_DIR) || envDir.endsWith(LEGACY_TEAM_DIR)) return envDir;
+    if (existsSync(path.join(envDir, TEAM_DIR))) return path.join(envDir, TEAM_DIR);
+    if (existsSync(path.join(envDir, LEGACY_TEAM_DIR))) return path.join(envDir, LEGACY_TEAM_DIR);
+    return envDir;
+  }
+  // No env: check cwd for .my-pizza-team then .pi-pizza-team
+  const primary = path.join(Deno.cwd(), TEAM_DIR);
+  if (existsSync(primary)) return primary;
+  const legacy = path.join(Deno.cwd(), LEGACY_TEAM_DIR);
+  if (existsSync(legacy)) return legacy;
+  return primary; // default to .my-pizza-team (will be created)
+}
+
+const teamDir = resolveTeamDir();
 const port = Number(Deno.env.get("PORT") ?? 7437);
 const hostname = Deno.env.get("HOST") || "127.0.0.1";
 
