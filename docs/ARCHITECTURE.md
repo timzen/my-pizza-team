@@ -91,6 +91,10 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/spawn-requests` | Create a spawn request |
 | GET | `/api/spawn-requests?hostId=X` | Poll pending spawn requests for a host |
 | POST | `/api/spawn-requests/:id/ack` | Acknowledge a spawn request |
+| GET | `/api/workflows` | List workflow summaries (name, stateCount, transitionCount, isDefault) |
+| GET | `/api/workflows/:name` | Get full WorkflowConfig for a workflow |
+| GET | `/api/workflows/:name/instructions/:filename` | Read a workflow instruction markdown file |
+| PUT | `/api/workflows/:name/instructions/:filename` | Write/update a workflow instruction markdown file |
 | GET | `/api/config` | Get current config |
 | GET | `/api/hosts/:hostId` | Get host-specific config (directories, tmuxSession) |
 | POST | `/api/control/pause` | Pause task distribution |

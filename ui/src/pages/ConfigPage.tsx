@@ -13,12 +13,6 @@ import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Settings, Plus, X, Save } from "lucide-react";
 
-interface WorkflowData {
-  states: string[];
-  transitions: Record<string, Record<string, string>>;
-  categories?: string[];
-}
-
 interface TeammateConfig {
   nouns?: string[];
   favoriteDirectories?: string[];
@@ -28,14 +22,14 @@ interface ConfigData {
   port: number;
   tmuxSession: string;
   defaultWorkflow: string;
-  workflows: Record<string, WorkflowData>;
+  workflows: Record<string, { states: string[] }>;
   autosave: { flushIntervalMinutes: number; commitIntervalHours: number; autoCommit: boolean };
   maxTeammates?: number;
   categories?: string[];
   teammates?: TeammateConfig;
 }
 
-type Tab = "general" | "teammates" | "categories" | "workflows";
+type Tab = "general" | "teammates" | "categories";
 
 export function ConfigPage() {
   const { data, loading, refetch } = useApi<ConfigData>("/api/config");
@@ -76,7 +70,6 @@ export function ConfigPage() {
     { id: "general", label: "General" },
     { id: "teammates", label: "Teammates" },
     { id: "categories", label: "Categories" },
-    { id: "workflows", label: "Workflows" },
   ];
 
   return (
@@ -107,7 +100,6 @@ export function ConfigPage() {
       {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}
       {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
       {activeTab === "categories" && <CategoriesTab config={config} setConfig={setConfig} />}
-      {activeTab === "workflows" && <WorkflowsTab config={config} setConfig={setConfig} />}
 
       {/* Save bar */}
       <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
@@ -306,258 +298,6 @@ function CategoriesTab({ config, setConfig }: { config: ConfigData; setConfig: (
           <Input placeholder="e.g. architecture" value={newCat} onChange={(e) => setNewCat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCategory()} className="max-w-[200px]" />
           <Button variant="outline" size="sm" onClick={addCategory}><Plus className="h-3.5 w-3.5" /></Button>
         </div>
-      </CardContent>
-    </Card>
-  );
-}
-
-// --- Workflows Tab ---
-
-function WorkflowsTab({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
-  const [newWfName, setNewWfName] = useState("");
-
-  const addWorkflow = () => {
-    const name = newWfName.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "");
-    if (!name || config.workflows[name]) return;
-    setConfig({
-      ...config,
-      workflows: { ...config.workflows, [name]: { states: ["todo", "done"], transitions: { todo: { done: "any" } } } },
-    });
-    setNewWfName("");
-  };
-
-  const deleteWorkflow = (name: string) => {
-    if (name === config.defaultWorkflow) return;
-    if (!confirm(`Delete workflow "${name}"?`)) return;
-    const { [name]: _, ...rest } = config.workflows;
-    setConfig({ ...config, workflows: rest });
-  };
-
-  const updateWorkflow = (name: string, wf: WorkflowData) => {
-    setConfig({ ...config, workflows: { ...config.workflows, [name]: wf } });
-  };
-
-  return (
-    <div className="space-y-4">
-      {Object.entries(config.workflows).map(([name, wf]) => (
-        <WorkflowCard
-          key={name}
-          name={name}
-          workflow={wf}
-          isDefault={name === config.defaultWorkflow}
-          allCategories={config.categories || []}
-          onUpdate={(wf) => updateWorkflow(name, wf)}
-          onDelete={() => deleteWorkflow(name)}
-        />
-      ))}
-      <div className="flex gap-2">
-        <Input
-          placeholder="New workflow name..."
-          value={newWfName}
-          onChange={(e) => setNewWfName(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && addWorkflow()}
-          className="max-w-[200px]"
-        />
-        <Button variant="outline" size="sm" onClick={addWorkflow} className="gap-1">
-          <Plus className="h-3.5 w-3.5" /> New Workflow
-        </Button>
-      </div>
-    </div>
-  );
-}
-
-function WorkflowCard({
-  name,
-  workflow,
-  isDefault,
-  allCategories,
-  onUpdate,
-  onDelete,
-}: {
-  name: string;
-  workflow: WorkflowData;
-  isDefault: boolean;
-  allCategories: string[];
-  onUpdate: (wf: WorkflowData) => void;
-  onDelete: () => void;
-}) {
-  const [newState, setNewState] = useState("");
-  const [transFrom, setTransFrom] = useState(workflow.states[0] || "");
-  const [transTo, setTransTo] = useState(workflow.states[1] || workflow.states[0] || "");
-  const [transPerm, setTransPerm] = useState("any");
-  const [expanded, setExpanded] = useState(true);
-
-  const addState = () => {
-    const val = newState.trim().toLowerCase().replace(/[^a-z0-9_]+/g, "_");
-    if (!val || workflow.states.includes(val)) return;
-    onUpdate({ ...workflow, states: [...workflow.states, val] });
-    setNewState("");
-  };
-
-  const removeState = (state: string) => {
-    const states = workflow.states.filter((s) => s !== state);
-    const transitions = { ...workflow.transitions };
-    delete transitions[state];
-    for (const from of Object.keys(transitions)) {
-      const { [state]: _, ...rest } = transitions[from];
-      if (Object.keys(rest).length > 0) transitions[from] = rest;
-      else delete transitions[from];
-    }
-    onUpdate({ ...workflow, states, transitions });
-  };
-
-  const addTransition = () => {
-    if (!transFrom || !transTo || transFrom === transTo) return;
-    const transitions = { ...workflow.transitions };
-    transitions[transFrom] = { ...(transitions[transFrom] || {}), [transTo]: transPerm };
-    onUpdate({ ...workflow, transitions });
-  };
-
-  const removeTransition = (from: string, to: string) => {
-    const transitions = { ...workflow.transitions };
-    if (transitions[from]) {
-      const { [to]: _, ...rest } = transitions[from];
-      if (Object.keys(rest).length > 0) transitions[from] = rest;
-      else delete transitions[from];
-    }
-    onUpdate({ ...workflow, transitions });
-  };
-
-  const updatePerm = (from: string, to: string, perm: string) => {
-    const transitions = { ...workflow.transitions };
-    transitions[from] = { ...(transitions[from] || {}), [to]: perm };
-    onUpdate({ ...workflow, transitions });
-  };
-
-  const toggleCategory = (cat: string) => {
-    const wfCats = new Set(workflow.categories || []);
-    if (wfCats.has(cat)) wfCats.delete(cat);
-    else wfCats.add(cat);
-    onUpdate({ ...workflow, categories: wfCats.size > 0 ? [...wfCats] : undefined });
-  };
-
-  return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        {/* Header */}
-        <div className="flex items-center justify-between">
-          <button onClick={() => setExpanded(!expanded)} className="flex items-center gap-2 font-semibold text-sm">
-            <span>{expanded ? "▾" : "▸"}</span>
-            {name}
-            {isDefault && <Badge variant="secondary" className="text-xs">default</Badge>}
-          </button>
-          {!isDefault && (
-            <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive" onClick={onDelete}>Delete</Button>
-          )}
-        </div>
-
-        {expanded && (
-          <>
-            {/* States */}
-            <div>
-              <h3 className="text-sm font-medium mb-2">States</h3>
-              <div className="flex gap-1 flex-wrap mb-2">
-                {workflow.states.map((s) => (
-                  <Badge key={s} variant="outline" className="gap-1">
-                    {s}
-                    <button onClick={() => removeState(s)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
-                  </Badge>
-                ))}
-              </div>
-              <div className="flex gap-2">
-                <Input placeholder="New state..." value={newState} onChange={(e) => setNewState(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addState()} className="max-w-[160px]" />
-                <Button variant="outline" size="sm" onClick={addState}><Plus className="h-3.5 w-3.5" /></Button>
-              </div>
-            </div>
-
-            {/* Transitions */}
-            <div>
-              <h3 className="text-sm font-medium mb-2">Transitions</h3>
-              <table className="w-full text-xs mb-3">
-                <thead>
-                  <tr className="text-left text-muted-foreground border-b border-border">
-                    <th className="pb-1 font-medium">From</th>
-                    <th className="pb-1 font-medium">To</th>
-                    <th className="pb-1 font-medium text-right">Permission</th>
-                    <th className="pb-1 w-8"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {Object.entries(workflow.transitions)
-                    .flatMap(([from, targets]) =>
-                      Object.entries(targets).map(([to, perm]) => ({ from, to, perm }))
-                    )
-                    .sort((a, b) => a.from.localeCompare(b.from) || a.to.localeCompare(b.to))
-                    .map(({ from, to, perm }) => (
-                      <tr key={`${from}-${to}`} className="border-b border-border/50">
-                        <td className="py-1.5"><span className="font-mono bg-muted px-1.5 py-0.5 rounded">{from}</span></td>
-                        <td className="py-1.5"><span className="font-mono bg-muted px-1.5 py-0.5 rounded">{to}</span></td>
-                        <td className="py-1.5 text-right">
-                          <Select value={perm} onValueChange={(v) => { if (v) updatePerm(from, to, v); }}>
-                            <SelectTrigger className="h-7 w-[100px] text-xs ml-auto"><SelectValue /></SelectTrigger>
-                            <SelectContent>
-                              <SelectItem value="any">any</SelectItem>
-                              <SelectItem value="teammate">teammate</SelectItem>
-                              <SelectItem value="lead">lead</SelectItem>
-                            </SelectContent>
-                          </Select>
-                        </td>
-                        <td className="py-1.5 text-right">
-                          <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeTransition(from, to)}>
-                            <X className="h-3 w-3" />
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
-                </tbody>
-              </table>
-              <div className="flex items-center gap-2">
-                <Select value={transFrom} onValueChange={(v) => { if (v) setTransFrom(v); }}>
-                  <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue placeholder="From" /></SelectTrigger>
-                  <SelectContent>{workflow.states.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                </Select>
-                <span className="text-muted-foreground text-xs">→</span>
-                <Select value={transTo} onValueChange={(v) => { if (v) setTransTo(v); }}>
-                  <SelectTrigger className="h-8 w-[110px] text-xs"><SelectValue placeholder="To" /></SelectTrigger>
-                  <SelectContent>{workflow.states.map((s) => <SelectItem key={s} value={s}>{s}</SelectItem>)}</SelectContent>
-                </Select>
-                <Select value={transPerm} onValueChange={(v) => { if (v) setTransPerm(v); }}>
-                  <SelectTrigger className="h-8 w-[100px] text-xs"><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="any">any</SelectItem>
-                    <SelectItem value="teammate">teammate</SelectItem>
-                    <SelectItem value="lead">lead</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Button variant="outline" size="sm" onClick={addTransition}>Add</Button>
-              </div>
-            </div>
-
-            {/* Workflow categories */}
-            {allCategories.length > 0 && (
-              <div>
-                <h3 className="text-sm font-medium mb-2">Default Memory Categories</h3>
-                <p className="text-xs text-muted-foreground mb-2">Stories using this workflow inherit these categories unless overridden.</p>
-                <div className="flex gap-1 flex-wrap">
-                  {allCategories.map((c) => {
-                    const selected = (workflow.categories || []).includes(c);
-                    return (
-                      <Button
-                        key={c}
-                        variant={selected ? "default" : "outline"}
-                        size="sm"
-                        className="text-xs h-7"
-                        onClick={() => toggleCategory(c)}
-                      >
-                        {c}
-                      </Button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-          </>
-        )}
       </CardContent>
     </Card>
   );

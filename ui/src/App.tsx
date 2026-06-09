@@ -13,6 +13,8 @@ import { AssistantPage } from "./pages/AssistantPage";
 import { BacklogPage } from "./pages/BacklogPage";
 import { ArchivedPage } from "./pages/ArchivedPage";
 import { ConfigPage } from "./pages/ConfigPage";
+import { WorkflowsPage } from "./pages/WorkflowsPage";
+import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 
 function App() {
   return (
@@ -30,6 +32,8 @@ function App() {
             <Route path="/backlog" element={<BacklogPage />} />
             <Route path="/archived" element={<ArchivedPage />} />
             <Route path="/config" element={<ConfigPage />} />
+            <Route path="/workflows" element={<WorkflowsPage />} />
+            <Route path="/workflows/:name" element={<WorkflowDetailPage />} />
           </Routes>
         </main>
       </div>

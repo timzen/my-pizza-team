@@ -1161,5 +1161,83 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     return c.json({ success: true });
   });
 
+  // --- Workflows API ---
+  // Workflow-specific endpoints for managing workflow definitions and their
+  // instruction files. Used by the UI workflow management pages.
+
+  /**
+   * GET /api/workflows — List all workflow summaries.
+   * Returns name, state count, transition count, and whether it's the default.
+   * Used by the UI to display a workflow overview/list.
+   */
+  app.get("/api/workflows", (c) => {
+    const workflows = store.getWorkflows();
+    const summaries = Object.entries(workflows).map(([name, wf]) => {
+      const transitionCount = Object.values(wf.transitions).reduce(
+        (sum, t) => sum + Object.keys(t).length, 0
+      );
+      return {
+        name,
+        stateCount: wf.states.length,
+        transitionCount,
+        isDefault: name === config.defaultWorkflow,
+      };
+    });
+    return c.json(summaries);
+  });
+
+  /**
+   * GET /api/workflows/:name — Get the full WorkflowConfig for a single workflow.
+   * Returns 404 if the workflow doesn't exist.
+   */
+  app.get("/api/workflows/:name", (c) => {
+    const name = c.req.param("name");
+    const workflows = store.getWorkflows();
+    const wf = workflows[name];
+    if (!wf) return c.json({ error: `Workflow "${name}" not found` }, 404);
+    return c.json(wf);
+  });
+
+  /**
+   * GET /api/workflows/:name/instructions/:filename — Read a markdown instruction file.
+   * Returns { content: string } or 404 if the file doesn't exist.
+   * Files live at .my-pizza-team/workflows/<workflowName>/<filename>.md
+   */
+  app.get("/api/workflows/:name/instructions/:filename", (c) => {
+    const name = c.req.param("name");
+    const filename = c.req.param("filename");
+    const workflows = store.getWorkflows();
+    if (!workflows[name]) return c.json({ error: `Workflow "${name}" not found` }, 404);
+
+    const filePath = path.join(teamDir, "workflows", name, `${filename}.md`);
+    if (!existsSync(filePath)) {
+      return c.json({ error: `Instruction file "${filename}.md" not found` }, 404);
+    }
+    const content = Deno.readTextFileSync(filePath);
+    return c.json({ content });
+  });
+
+  /**
+   * PUT /api/workflows/:name/instructions/:filename — Write/update a markdown instruction file.
+   * Accepts { content: string } body. Creates the file and directories if they don't exist.
+   * Returns { success: true } on success.
+   */
+  app.put("/api/workflows/:name/instructions/:filename", async (c) => {
+    const name = c.req.param("name");
+    const filename = c.req.param("filename");
+    const body = await c.req.json() as { content?: string };
+
+    if (typeof body.content !== "string") {
+      return c.json({ success: false, error: "Field 'content' is required and must be a string" }, 400);
+    }
+
+    const wfDir = path.join(teamDir, "workflows", name);
+    Deno.mkdirSync(wfDir, { recursive: true });
+
+    const filePath = path.join(wfDir, `${filename}.md`);
+    Deno.writeTextFileSync(filePath, body.content);
+    return c.json({ success: true });
+  });
+
   return app;
 }

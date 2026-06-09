@@ -19,6 +19,7 @@ const NAV_ITEMS = [
   { path: "/board", label: "Board" },
   { path: "/team", label: "Agents" },
   { path: "/memory", label: "Memory" },
+  { path: "/workflows", label: "Workflows" },
   { path: "/assistant", label: "Assistant" },
 ];
 
