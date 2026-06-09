@@ -1,18 +1,29 @@
 /**
  * WorkflowDetailPage — Shows the full detail of a single workflow,
- * including an SVG-based directed graph visualization of states and transitions.
+ * including an SVG-based directed graph visualization and editing controls
+ * for states, transitions, and categories.
  */
 
 import { useParams, Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { WorkflowGraph, type WorkflowConfig } from "@/components/workflow/WorkflowGraph";
+import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
 import { GitBranch, ArrowLeft } from "lucide-react";
+
+interface ConfigData {
+  port: number;
+  tmuxSession: string;
+  defaultWorkflow: string;
+  workflows: Record<string, WorkflowConfig>;
+  categories?: string[];
+  [key: string]: unknown;
+}
 
 export function WorkflowDetailPage() {
   const { name } = useParams<{ name: string }>();
-  const { data, loading } = useApi<WorkflowConfig>(`/api/workflows/${name}`);
-  const { data: configData } = useApi<{ defaultWorkflow: string }>("/api/config");
+  const { data, loading, refetch } = useApi<WorkflowConfig>(`/api/workflows/${name}`);
+  const { data: configData, refetch: refetchConfig } = useApi<ConfigData>("/api/config");
 
   if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
   if (!data) return <div className="container mx-auto p-6 text-muted-foreground">Workflow not found.</div>;
@@ -21,6 +32,11 @@ export function WorkflowDetailPage() {
   const transitionCount = Object.values(data.transitions).reduce(
     (sum, t) => sum + Object.keys(t).length, 0
   );
+
+  const handleSaved = () => {
+    refetch();
+    refetchConfig();
+  };
 
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-5xl">
@@ -64,6 +80,22 @@ export function WorkflowDetailPage() {
           <span className="inline-block w-3 h-3 rounded-sm border-2 border-blue-600 bg-blue-100" /> done
         </span>
       </div>
+
+      {/* Editing controls */}
+      {configData && (
+        <section>
+          <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+            Edit Workflow
+          </h2>
+          <WorkflowEditor
+            name={name!}
+            workflow={data}
+            config={configData}
+            isDefault={isDefault ?? false}
+            onSaved={handleSaved}
+          />
+        </section>
+      )}
     </div>
   );
 }
