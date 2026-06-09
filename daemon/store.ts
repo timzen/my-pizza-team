@@ -19,11 +19,13 @@ import {
   getInitialState,
   getDoneState,
   DEFAULT_CONFIG,
+  generateTeammateName,
   type Comment,
   type Story,
   type Task,
   type TaskWithMeta,
   type TeamConfig,
+  type TeammateConfig,
   type WorkflowConfig,
   type Member,
   type Assignment,
@@ -195,6 +197,7 @@ export class Store {
         cwd TEXT,
         story_id TEXT,
         reason TEXT,
+        name TEXT,
         status TEXT DEFAULT 'pending',
         created_at INTEGER,
         acked_at INTEGER
@@ -221,6 +224,11 @@ export class Store {
     const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
     if (!memberColumns.some((col) => col.name === "host_id")) {
       this.db.exec("ALTER TABLE members ADD COLUMN host_id TEXT");
+    }
+
+    const spawnColumns = this.db.prepare("PRAGMA table_info(spawn_requests)").all() as Array<Record<string, unknown>>;
+    if (!spawnColumns.some((col) => col.name === "name")) {
+      this.db.exec("ALTER TABLE spawn_requests ADD COLUMN name TEXT");
     }
   }
 
@@ -1530,24 +1538,41 @@ export class Store {
 
   // --- Spawn Requests ---
 
-  /** Create a spawn request */
-  createSpawnRequest(hostId: string, cwd?: string, storyId?: string, reason?: string): { id: string; hostId: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string } {
+  /** Create a spawn request, generating a unique teammate name */
+  createSpawnRequest(hostId: string, cwd?: string, storyId?: string, reason?: string): { id: string; hostId: string; name: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string } {
     const id = `spawn-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
+
+    // Gather existing names: current members + pending spawn request names
+    const existingNames = new Set<string>();
+    const members = this.getMembers();
+    for (const m of members) {
+      existingNames.add(m.name);
+    }
+    const pendingRows = this.db.prepare(
+      "SELECT name FROM spawn_requests WHERE status = 'pending' AND name IS NOT NULL"
+    ).all() as Array<Record<string, unknown>>;
+    for (const row of pendingRows) {
+      existingNames.add(row.name as string);
+    }
+
+    const name = generateTeammateName(existingNames, this.config.teammates);
+
     this.db.prepare(
-      "INSERT INTO spawn_requests (id, host_id, cwd, story_id, reason, status, created_at) VALUES (?, ?, ?, ?, ?, 'pending', ?)"
-    ).run(id, hostId, cwd || null, storyId || null, reason || null, now);
-    return { id, hostId, cwd, storyId, reason, status: "pending", createdAt: new Date(now).toISOString() };
+      "INSERT INTO spawn_requests (id, host_id, cwd, story_id, reason, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)"
+    ).run(id, hostId, cwd || null, storyId || null, reason || null, name, now);
+    return { id, hostId, name, cwd, storyId, reason, status: "pending", createdAt: new Date(now).toISOString() };
   }
 
   /** Get pending spawn requests for a specific host */
-  getSpawnRequests(hostId: string): Array<{ id: string; hostId: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string; ackedAt?: string }> {
+  getSpawnRequests(hostId: string): Array<{ id: string; hostId: string; name: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string; ackedAt?: string }> {
     const rows = this.db.prepare(
       "SELECT * FROM spawn_requests WHERE host_id = ? AND status = 'pending' ORDER BY created_at ASC"
     ).all(hostId) as Array<Record<string, unknown>>;
     return rows.map((row) => ({
       id: row.id as string,
       hostId: row.host_id as string,
+      name: (row.name as string) || "",
       cwd: (row.cwd as string) || undefined,
       storyId: (row.story_id as string) || undefined,
       reason: (row.reason as string) || undefined,
