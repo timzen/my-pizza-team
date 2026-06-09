@@ -8,6 +8,7 @@ import { useParams, Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { WorkflowGraph, type WorkflowConfig } from "@/components/workflow/WorkflowGraph";
+import { WorkflowPreview } from "@/components/workflow/WorkflowPreview";
 import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
 import { GitBranch, ArrowLeft } from "lucide-react";
 
@@ -80,6 +81,14 @@ export function WorkflowDetailPage() {
           <span className="inline-block w-3 h-3 rounded-sm border-2 border-blue-600 bg-blue-100" /> done
         </span>
       </div>
+
+      {/* Workflow preview mini-board */}
+      <section>
+        <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+          Lifecycle Preview
+        </h2>
+        <WorkflowPreview workflow={data} />
+      </section>
 
       {/* Editing controls */}
       {configData && (
