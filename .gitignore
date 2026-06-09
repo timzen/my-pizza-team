@@ -12,3 +12,4 @@ dist/
 
 # Swift build
 desktop/macos/.build/
+.DS_Store
