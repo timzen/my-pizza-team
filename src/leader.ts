@@ -37,29 +37,7 @@ const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
   codex: "mpt-codex-runner --name={name} --daemon={url} --cwd={cwd}",
 };
 
-// ─── Name generation ─────────────────────────────────────────────────
 
-const ADJECTIVES = [
-  "swift", "bold", "keen", "calm", "bright",
-  "deft", "firm", "sharp", "brave", "quick",
-  "sly", "warm", "cool", "wild", "fair",
-];
-
-const NOUNS = [
-  "ripley", "kirk", "spock", "solo", "neo",
-  "trinity", "deckard", "case", "molly", "picard",
-  "data", "worf", "uhura", "sulu", "riker",
-];
-
-function generateName(existingNames: Set<string>): string {
-  for (let i = 0; i < 100; i++) {
-    const adj = ADJECTIVES[Math.floor(Math.random() * ADJECTIVES.length)];
-    const noun = NOUNS[Math.floor(Math.random() * NOUNS.length)];
-    const name = `${adj}-${noun}`;
-    if (!existingNames.has(name)) return name;
-  }
-  return `agent-${Date.now()}`;
-}
 
 // ─── Shell safety ────────────────────────────────────────────────────
 
@@ -117,14 +95,7 @@ export async function setupLeader(
     // Use defaults
   }
 
-  // Track active windows for name collision detection
-  const activeNames = new Set<string>();
-  try {
-    const windows = listWindows(tmuxSession, execSync);
-    for (const w of windows) activeNames.add(w);
-  } catch {
-    // No session yet
-  }
+
 
   // Register LLM tools (stories, tasks, queue, search)
   registerLeaderTools(pi, client);
@@ -146,9 +117,8 @@ export async function setupLeader(
       const res = await client.getSpawnRequests();
       for (const req of res.requests) {
         try {
-          // Generate a unique name for the agent
-          const name = generateName(activeNames);
-          activeNames.add(name);
+          // Use the daemon-generated name from the spawn request
+          const name = req.name || `agent-${Date.now()}`;
 
           // Determine harness (default to "pi" until daemon supports harness field)
           const harness = (req as any).harness || "pi";
@@ -177,21 +147,27 @@ export async function setupLeader(
     description: "Hire a new teammate: /ppt-spawn [name] [cwd]",
     handler: async (args, cmdCtx) => {
       const parts = args?.trim().split(/\s+/) || [];
-      const name = parts[0] || generateName(activeNames);
+      const userProvidedName = parts[0] || undefined;
       const spawnCwd = parts[1] || (favoriteDirectories.length > 0 ? favoriteDirectories[0] : cwd);
       const resolvedCwd = resolvePath(spawnCwd);
 
       try {
+        // Create a spawn request via daemon to get a centrally-generated name
+        const spawnRes = await client.createSpawnRequest(resolvedCwd);
+        const name = userProvidedName || spawnRes.name;
+
         spawnAgent(name, resolvedCwd, {
           session: tmuxSession,
           daemonUrl: client.url,
           harness: "pi",
           harnessTemplates,
         }, execSync);
-        activeNames.add(name);
+
+        // Acknowledge the spawn request we just created
+        await client.ackSpawnRequest(spawnRes.id);
         cmdCtx.ui.notify(`✓ ${name} has joined the team working in ${spawnCwd} 🍕`, "info");
       } catch (err: any) {
-        cmdCtx.ui.notify(`Failed to spawn ${name}: ${err.message}`, "error");
+        cmdCtx.ui.notify(`Failed to spawn: ${err.message}`, "error");
       }
     },
   });
@@ -204,7 +180,6 @@ export async function setupLeader(
 
       try {
         dismissAgent(name, tmuxSession, execSync);
-        activeNames.delete(name);
         cmdCtx.ui.notify(`✓ ${name} has left the team`, "info");
       } catch {
         cmdCtx.ui.notify(`No tmux window named "${name}" found`, "error");

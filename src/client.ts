@@ -146,12 +146,25 @@ export interface SpawnRequestsResponse {
   requests: Array<{
     id: string;
     hostId: string;
+    name: string;
     cwd?: string;
     storyId?: string;
     reason?: string;
     status: string;
     createdAt: string;
   }>;
+}
+
+/** Response from POST /api/spawn-requests */
+export interface CreateSpawnRequestResponse {
+  id: string;
+  hostId: string;
+  name: string;
+  cwd?: string;
+  storyId?: string;
+  reason?: string;
+  status: string;
+  createdAt: string;
 }
 
 /** Response from GET /api/status */
@@ -512,6 +525,18 @@ export class DaemonClient {
   async getSpawnRequests(): Promise<SpawnRequestsResponse> {
     return this.get<SpawnRequestsResponse>(
       `/api/spawn-requests?hostId=${encodeURIComponent(this.hostId)}`
+    );
+  }
+
+  /**
+   * Create a spawn request. The daemon generates a unique name.
+   *
+   * Used by /ppt-spawn to get a centrally-generated name for the agent.
+   */
+  async createSpawnRequest(cwd?: string, storyId?: string, reason?: string): Promise<CreateSpawnRequestResponse> {
+    return this.post<CreateSpawnRequestResponse>(
+      `/api/spawn-requests`,
+      { hostId: this.hostId, cwd, storyId, reason }
     );
   }
 
