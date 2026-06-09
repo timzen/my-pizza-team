@@ -10,6 +10,7 @@ import { Badge } from "@/components/ui/badge";
 import { WorkflowGraph, type WorkflowConfig } from "@/components/workflow/WorkflowGraph";
 import { WorkflowPreview } from "@/components/workflow/WorkflowPreview";
 import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
+import { InstructionsEditor } from "@/components/workflow/InstructionsEditor";
 import { GitBranch, ArrowLeft } from "lucide-react";
 
 interface ConfigData {
@@ -88,6 +89,14 @@ export function WorkflowDetailPage() {
           Lifecycle Preview
         </h2>
         <WorkflowPreview workflow={data} />
+      </section>
+
+      {/* State instructions editor */}
+      <section>
+        <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+          Instructions
+        </h2>
+        <InstructionsEditor workflowName={name!} states={data.states} />
       </section>
 
       {/* Editing controls */}
