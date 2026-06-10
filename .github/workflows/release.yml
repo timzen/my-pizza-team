@@ -8,7 +8,7 @@
 #   - mpt-darwin-x64    (macOS Intel)
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
-#   - My Pizza Team.app (macOS menu bar app, arm64 + x64)
+#   - My Pizza Team.app (macOS universal menu bar app, arm64 + x64 via lipo)
 
 name: Release
 
@@ -78,7 +78,7 @@ jobs:
             --include ui/dist/ \
             --target ${{ matrix.deno-target }} \
             --output dist/mpt-${{ matrix.target }} \
-            daemon/main.ts
+            main.ts
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -87,34 +87,36 @@ jobs:
           path: dist/mpt-${{ matrix.target }}*
 
   macos-app:
-    name: Build macOS Menu Bar App (${{ matrix.arch }})
+    name: Build macOS Universal Menu Bar App
     runs-on: macos-latest
     needs: build
-    strategy:
-      matrix:
-        include:
-          - arch: arm64
-            binary-artifact: mpt-darwin-arm64
-          - arch: x64
-            binary-artifact: mpt-darwin-x64
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download mpt binary
+      - name: Download arm64 binary
         uses: actions/download-artifact@v4
         with:
-          name: ${{ matrix.binary-artifact }}
+          name: mpt-darwin-arm64
           path: dist/
 
-      - name: Make binary executable
-        run: chmod +x dist/${{ matrix.binary-artifact }}
+      - name: Download x64 binary
+        uses: actions/download-artifact@v4
+        with:
+          name: mpt-darwin-x64
+          path: dist/
 
-      - name: Build SwiftUI menu bar app
+      - name: Create universal mpt binary
+        run: |
+          chmod +x dist/mpt-darwin-arm64 dist/mpt-darwin-x64
+          lipo -create dist/mpt-darwin-arm64 dist/mpt-darwin-x64 -output dist/mpt-universal
+          file dist/mpt-universal
+
+      - name: Build universal SwiftUI menu bar app
         run: |
           cd desktop/macos
-          swift build -c release
+          swift build -c release --arch arm64 --arch x86_64
 
       - name: Package .app bundle
         run: |
@@ -122,9 +124,9 @@ jobs:
           mkdir -p "$APP_DIR/Contents/MacOS"
           mkdir -p "$APP_DIR/Contents/Resources"
 
-          # Copy binaries
-          cp desktop/macos/.build/release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
-          cp dist/${{ matrix.binary-artifact }} "$APP_DIR/Contents/MacOS/mpt"
+          # Copy binaries (both universal)
+          cp desktop/macos/.build/apple/Products/Release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+          cp dist/mpt-universal "$APP_DIR/Contents/MacOS/mpt"
           chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
           chmod +x "$APP_DIR/Contents/MacOS/mpt"
 
@@ -206,7 +208,7 @@ jobs:
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
-            --wait
+            --wait --timeout 60m
 
           # Staple the notarization ticket to the app
           xcrun stapler staple "dist/My Pizza Team.app"
@@ -216,13 +218,13 @@ jobs:
       - name: Create zip archive
         run: |
           cd dist
-          zip -r "My-Pizza-Team-macos-${{ matrix.arch }}.zip" "My Pizza Team.app"
+          zip -r "My-Pizza-Team-macos-universal.zip" "My Pizza Team.app"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app-${{ matrix.arch }}
-          path: dist/My-Pizza-Team-macos-${{ matrix.arch }}.zip
+          name: macos-app-universal
+          path: dist/My-Pizza-Team-macos-universal.zip
 
   windows-app:
     name: Package Windows Tray App
@@ -277,10 +279,10 @@ jobs:
           for dir in artifacts/mpt-*/; do
             cp "$dir"* release/
           done
-          # Copy macOS .app zips
-          for dir in artifacts/macos-app-*/; do
-            cp "$dir"* release/
-          done
+          # Copy macOS universal .app zip
+          if [ -d artifacts/macos-app-universal ]; then
+            cp artifacts/macos-app-universal/* release/
+          fi
           # Copy Windows app zip
           if [ -d artifacts/windows-app ]; then
             cp artifacts/windows-app/* release/
