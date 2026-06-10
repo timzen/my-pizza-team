@@ -9,10 +9,6 @@
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
 #   - My Pizza Team.app (macOS menu bar app, arm64 + x64)
-#
-# Linux binaries are built on ubuntu-20.04 to minimize glibc requirements.
-# The resulting binaries require glibc >= 2.31 (Ubuntu 20.04+, Debian 11+,
-# RHEL/CentOS 8+, Amazon Linux 2023+, Fedora 33+).
 
 name: Release
 
@@ -43,10 +39,10 @@ jobs:
             os: macos-latest
           - target: linux-x64
             deno-target: x86_64-unknown-linux-gnu
-            os: ubuntu-20.04
+            os: ubuntu-latest
           - target: linux-arm64
             deno-target: aarch64-unknown-linux-gnu
-            os: ubuntu-20.04
+            os: ubuntu-latest
           - target: windows-x64
             deno-target: x86_64-pc-windows-msvc
             os: windows-latest
@@ -83,15 +79,6 @@ jobs:
             --target ${{ matrix.deno-target }} \
             --output dist/mpt-${{ matrix.target }} \
             daemon/main.ts
-
-      - name: Verify Linux binary glibc requirements
-        if: startsWith(matrix.target, 'linux') && matrix.target == 'linux-x64'
-        run: |
-          echo "Required GLIBC versions:"
-          objdump -T dist/mpt-${{ matrix.target }} | grep -oP 'GLIBC_[0-9.]+' | sort -V | uniq
-          echo ""
-          echo "Maximum GLIBC version required:"
-          objdump -T dist/mpt-${{ matrix.target }} | grep -oP 'GLIBC_[0-9.]+' | sort -V | tail -1
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
