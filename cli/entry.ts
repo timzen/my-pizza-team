@@ -1,14 +1,9 @@
 /**
- * cli/main.ts — CLI entry point for the mpt command.
+ * cli/entry.ts — Exportable CLI entry point for use by the unified main.ts.
  *
- * Subcommands:
- *   mpt start [--daemon]  — Start the daemon (foreground by default, --daemon to background)
- *   mpt stop              — Send SIGTERM to running daemon
- *   mpt status            — Check if daemon is running + show summary from /api/status
- *
- * Uses Deno's built-in arg parsing (Deno.args). The team directory defaults
- * to .my-pizza-team in the current working directory (override with TEAM_DIR env).
- * Also supports legacy .pi-pizza-team directories.
+ * This module re-exports the CLI logic as a callable `main()` function,
+ * allowing both `deno run cli/main.ts` and the compiled binary (via main.ts)
+ * to share the same CLI argument parsing and subcommand routing.
  */
 
 import { TEAM_DIR, LEGACY_TEAM_DIR } from "../shared/types.ts";
@@ -17,6 +12,7 @@ import { existsSync } from "jsr:@std/fs@^1/exists";
 import { install, uninstall } from "./service.ts";
 import { migrate, printMigrationResult } from "./migrate.ts";
 import { generateToken } from "../daemon/auth.ts";
+import { startDaemonInProcess } from "./start-daemon.ts";
 
 const VERSION = "0.1.0";
 const PID_FILENAME = "daemon.pid";
@@ -29,7 +25,6 @@ function getTeamDir(): string {
     if (existsSync(path.join(envDir, LEGACY_TEAM_DIR))) return path.join(envDir, LEGACY_TEAM_DIR);
     return envDir;
   }
-  // No env: check cwd for .my-pizza-team then .pi-pizza-team
   const primary = path.join(Deno.cwd(), TEAM_DIR);
   if (existsSync(primary)) return primary;
   const legacy = path.join(Deno.cwd(), LEGACY_TEAM_DIR);
@@ -45,7 +40,6 @@ function getPidFile(teamDir: string): string {
   return path.join(teamDir, PID_FILENAME);
 }
 
-/** Read PID from file, return null if missing/invalid */
 function readPid(teamDir: string): number | null {
   const pidFile = getPidFile(teamDir);
   if (!existsSync(pidFile)) return null;
@@ -57,7 +51,6 @@ function readPid(teamDir: string): number | null {
   }
 }
 
-/** Check if a process with given PID is alive */
 function isProcessAlive(pid: number): boolean {
   try {
     Deno.kill(pid, "SIGCONT");
@@ -73,6 +66,7 @@ async function cmdStart(args: string[]): Promise<void> {
   const daemonize = args.includes("--daemon") || args.includes("-d");
   const teamDir = getTeamDir();
   const port = getPort();
+  const hostname = Deno.env.get("HOST") || "127.0.0.1";
 
   // Check if already running
   const pid = readPid(teamDir);
@@ -82,20 +76,21 @@ async function cmdStart(args: string[]): Promise<void> {
   }
 
   if (daemonize) {
-    // Spawn daemon/main.ts as a detached subprocess
+    // Background mode: spawn the binary itself with an internal flag
     console.log(`Starting daemon in background...`);
-    const mainPath = path.join(path.dirname(path.fromFileUrl(import.meta.url)), "..", "daemon", "main.ts");
 
-    const cmd = new Deno.Command("deno", {
-      args: ["run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-run", mainPath],
-      env: { TEAM_DIR: teamDir, PORT: String(port) },
+    // Get the path to the current executable
+    const execPath = Deno.execPath();
+
+    const cmd = new Deno.Command(execPath, {
+      args: ["start", "--foreground-internal"],
+      env: { ...Deno.env.toObject(), TEAM_DIR: teamDir, PORT: String(port) },
       stdin: "null",
       stdout: "piped",
       stderr: "piped",
     });
 
     const child = cmd.spawn();
-    // Detach — don't wait for it
     child.unref();
 
     // Wait briefly for PID file to appear
@@ -107,20 +102,8 @@ async function cmdStart(args: string[]): Promise<void> {
       console.log(`⚠️  Daemon process spawned but PID file not yet written. Check logs.`);
     }
   } else {
-    // Foreground mode — exec the daemon directly
-    console.log(`Starting daemon in foreground on http://localhost:${port}...`);
-    const mainPath = path.join(path.dirname(path.fromFileUrl(import.meta.url)), "..", "daemon", "main.ts");
-
-    const cmd = new Deno.Command("deno", {
-      args: ["run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-ffi", "--allow-run", mainPath],
-      env: { ...Object.fromEntries(Object.entries(Deno.env.toObject())), TEAM_DIR: teamDir, PORT: String(port) },
-      stdin: "inherit",
-      stdout: "inherit",
-      stderr: "inherit",
-    });
-
-    const status = await cmd.spawn().status;
-    Deno.exit(status.code);
+    // Foreground mode: start daemon in-process (works for both compiled and deno run)
+    await startDaemonInProcess(teamDir, port, hostname);
   }
 }
 
@@ -165,7 +148,6 @@ async function cmdStatus(): Promise<void> {
   console.log(`🟢 Daemon is running (PID ${pid})`);
   console.log(`   Team dir: ${teamDir}`);
 
-  // Try to fetch status from API
   try {
     const res = await fetch(`http://localhost:${port}/api/status`);
     if (res.ok) {
@@ -193,7 +175,6 @@ function cmdRotateToken(): void {
   const teamDir = getTeamDir();
   const configPath = `${teamDir}/config.json`;
 
-  // Load or create config
   let config: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
@@ -260,10 +241,56 @@ Examples:
 `);
 }
 
-// --- Main ---
+// --- Exported main ---
 
-if (import.meta.main) {
-  // Delegate to the shared entry point
-  const { main } = await import("./entry.ts");
-  await main();
+export async function main(): Promise<void> {
+  const args = Deno.args;
+  const command = args[0];
+
+  switch (command) {
+    case "start":
+      // Handle internal flag for daemonized background process
+      if (args.includes("--foreground-internal")) {
+        const teamDir = getTeamDir();
+        const port = getPort();
+        const hostname = Deno.env.get("HOST") || "127.0.0.1";
+        await startDaemonInProcess(teamDir, port, hostname);
+      } else {
+        await cmdStart(args.slice(1));
+      }
+      break;
+    case "stop":
+      cmdStop();
+      break;
+    case "status":
+      await cmdStatus();
+      break;
+    case "upgrade":
+      cmdUpgrade();
+      break;
+    case "rotate-token":
+      cmdRotateToken();
+      break;
+    case "install":
+      await cmdInstall();
+      break;
+    case "uninstall":
+      await cmdUninstall();
+      break;
+    case "--help":
+    case "-h":
+    case "help":
+      printHelp();
+      break;
+    case "--version":
+    case "-v":
+      console.log(`mpt v${VERSION}`);
+      break;
+    default:
+      if (command) {
+        console.error(`Unknown command: ${command}`);
+      }
+      printHelp();
+      Deno.exit(command ? 1 : 0);
+  }
 }
