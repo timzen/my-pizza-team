@@ -25,7 +25,7 @@ DIST_DIR="$PROJECT_ROOT/dist"
 
 ALL_TARGETS="darwin-arm64 darwin-x64 linux-x64 linux-arm64 windows-x64"
 DENO_PERMISSIONS="--allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-run"
-ENTRY_POINT="daemon/main.ts"
+ENTRY_POINT="main.ts"
 
 # Map friendly name to deno compile --target value
 get_deno_target() {

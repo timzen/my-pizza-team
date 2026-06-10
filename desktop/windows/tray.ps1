@@ -49,7 +49,7 @@ function Start-Daemon {
     $env:PORT = $script:Port
     if ($script:TeamDir) { $env:TEAM_DIR = $script:TeamDir }
 
-    $script:DaemonProcess = Start-Process -FilePath $binary -PassThru -WindowStyle Hidden
+    $script:DaemonProcess = Start-Process -FilePath $binary -ArgumentList "start" -PassThru -WindowStyle Hidden
     Start-Sleep -Milliseconds 1000
     Update-Status
 }

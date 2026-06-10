@@ -91,7 +91,7 @@ class DaemonManager {
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: binary)
-        proc.arguments = [] // daemon/main.ts is the entry point for the compiled binary
+        proc.arguments = ["start"] // CLI entry point requires the start subcommand
         var env = ProcessInfo.processInfo.environment
         if !teamDir.isEmpty {
             env["TEAM_DIR"] = teamDir
