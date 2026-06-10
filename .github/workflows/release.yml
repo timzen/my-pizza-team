@@ -184,10 +184,10 @@ jobs:
         if: env.APPLE_CERTIFICATE_P12 != ''
         env:
           APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MPT_SIGNATURE: ${{ secrets.MPT_SIGNATURE }}
         run: |
           codesign --force --deep --options runtime \
-            --sign "Developer ID Application: ($APPLE_TEAM_ID)" \
+            --sign "$MPT_SIGNATURE" \
             "dist/My Pizza Team.app"
 
       - name: Notarize the app
