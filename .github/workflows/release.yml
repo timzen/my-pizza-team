@@ -8,7 +8,7 @@
 #   - mpt-darwin-x64    (macOS Intel)
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
-#   - My Pizza Team.app (macOS universal menu bar app, arm64 + x64 via lipo)
+#   - My Pizza Team.dmg (macOS universal menu bar app, arm64 + x64 via lipo)
 
 name: Release
 
@@ -183,48 +183,66 @@ jobs:
           security unlock-keychain -p "" build.keychain
 
       - name: Sign the app with Developer ID
-        if: env.APPLE_CERTIFICATE_P12 != ''
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           MPT_SIGNATURE: ${{ secrets.MPT_SIGNATURE }}
         run: |
-          codesign --force --deep --options runtime \
+          # Sign inner binaries first (inside-out), then the bundle
+          # --deep is unreliable; explicit per-binary signing is required
+          codesign --force --options runtime \
+            --sign "$MPT_SIGNATURE" \
+            "dist/My Pizza Team.app/Contents/MacOS/mpt"
+          codesign --force --options runtime \
+            --sign "$MPT_SIGNATURE" \
+            "dist/My Pizza Team.app/Contents/MacOS/MyPizzaTeamMenu"
+          codesign --force --options runtime \
             --sign "$MPT_SIGNATURE" \
             "dist/My Pizza Team.app"
 
-      - name: Notarize the app
-        if: env.APPLE_CERTIFICATE_P12 != ''
+          # Verify
+          codesign --verify --deep --strict "dist/My Pizza Team.app"
+          echo "✅ Signature verified"
+
+      - name: Create DMG
+        run: |
+          # Create a temporary directory for DMG contents
+          mkdir -p dmg-stage
+          cp -R "dist/My Pizza Team.app" dmg-stage/
+          # Create a symlink to /Applications for drag-and-drop install
+          ln -s /Applications dmg-stage/Applications
+
+          # Create the DMG
+          hdiutil create -volname "My Pizza Team" \
+            -srcfolder dmg-stage \
+            -ov -format UDZO \
+            "dist/My-Pizza-Team-macos-universal.dmg"
+
+          rm -rf dmg-stage
+          echo "✅ DMG created"
+
+      - name: Notarize the DMG
+        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
         env:
-          APPLE_CERTIFICATE_P12: ${{ secrets.APPLE_CERTIFICATE_P12 }}
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Create zip for notarization submission
-          ditto -c -k "dist/My Pizza Team.app" notarize.zip
-
-          # Submit and wait for Apple to process
-          xcrun notarytool submit notarize.zip \
+          # Submit the DMG directly for notarization
+          xcrun notarytool submit "dist/My-Pizza-Team-macos-universal.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 60m
 
-          # Staple the notarization ticket to the app
-          xcrun stapler staple "dist/My Pizza Team.app"
-
-          rm notarize.zip
-
-      - name: Create zip archive
-        run: |
-          cd dist
-          zip -r "My-Pizza-Team-macos-universal.zip" "My Pizza Team.app"
+          # Staple the notarization ticket to the DMG
+          xcrun stapler staple "dist/My-Pizza-Team-macos-universal.dmg"
+          echo "✅ DMG notarized and stapled"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
           name: macos-app-universal
-          path: dist/My-Pizza-Team-macos-universal.zip
+          path: dist/My-Pizza-Team-macos-universal.dmg
 
   windows-app:
     name: Package Windows Tray App
