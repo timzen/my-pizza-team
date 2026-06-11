@@ -90,6 +90,8 @@ jobs:
     name: Build macOS Universal Menu Bar App
     runs-on: macos-latest
     needs: build
+    env:
+      HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
 
     steps:
       - name: Checkout
@@ -183,7 +185,7 @@ jobs:
           security unlock-keychain -p "" build.keychain
 
       - name: Sign the app with Developer ID
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           MPT_SIGNATURE: ${{ secrets.MPT_SIGNATURE }}
         run: |
@@ -221,7 +223,7 @@ jobs:
           echo "✅ DMG created"
 
       - name: Notarize the DMG
-        if: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+        if: env.HAS_SIGNING_CERT == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
