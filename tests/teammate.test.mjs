@@ -1,8 +1,8 @@
-// Smoke test for TeammateLoop multi-transition ownership model
+// Smoke test for TeammateLoop simplified claim/release model
 // Run with: node tests/teammate.test.mjs
 //
-// Verifies the teammate loop source implements the multi-transition
-// ownership model correctly (claim → transition → transition → release).
+// Verifies the teammate loop source implements the simplified
+// claim/release model correctly (poll → claim → work → release → repeat).
 
 import * as assert from "node:assert";
 import * as fs from "node:fs";
@@ -27,7 +27,7 @@ function test(label, fn) {
   }
 }
 
-console.log("TeammateLoop multi-transition model:");
+console.log("TeammateLoop claim/release model:");
 
 // ─── Class structure ─────────────────────────────────────────────
 
@@ -35,58 +35,47 @@ test("exports TeammateLoop class", () => {
   assert.ok(src.includes("export class TeammateLoop"));
 });
 
-test("imports DaemonClient and AgentTransitionResponse", () => {
-  assert.ok(src.includes('import type { DaemonClient, AgentTransitionResponse }'));
+test("imports DaemonClient", () => {
+  assert.ok(src.includes('import type { DaemonClient }'));
+});
+
+test("does NOT import AgentTransitionResponse (removed)", () => {
+  assert.ok(!src.includes("AgentTransitionResponse"));
 });
 
 test("does NOT import WorkflowConfig (no local workflow assumptions)", () => {
   assert.ok(!src.includes("WorkflowConfig"));
 });
 
-// ─── Multi-transition ownership model ────────────────────────────
-
-test("tracks availableTransitions as instance state", () => {
-  assert.ok(src.includes("private availableTransitions: Array<{ state: string; permission: string }>"));
-});
+// ─── Simplified claim/release model ─────────────────────────────
 
 test("polls with getNextWork() (not getNextTask)", () => {
   assert.ok(src.includes("this.client.getNextWork()"));
   assert.ok(!src.includes("getNextTask"));
 });
 
-test("claims with claimTask (ownership only)", () => {
+test("claims with claimTask (daemon transitions to working state)", () => {
   assert.ok(src.includes("this.client.claimTask("));
 });
 
-test("uses availableTransitions from claim response", () => {
-  assert.ok(src.includes("claim.availableTransitions || response.task.availableTransitions"));
+test("does NOT call transitionTask (removed from model)", () => {
+  assert.ok(!src.includes("transitionTask"));
 });
 
-test("immediately transitions to first working state after claim", () => {
-  // After claiming, should find first transition and call transitionTask
-  assert.ok(src.includes("const firstTransition = this.availableTransitions[0]"));
-  assert.ok(src.includes("this.client.transitionTask(response.task.id, firstTransition.state)"));
+test("does NOT track availableTransitions (daemon handles transitions)", () => {
+  assert.ok(!src.includes("availableTransitions"));
 });
 
-test("transitions with transitionTask (not updateStatus)", () => {
-  assert.ok(src.includes("this.client.transitionTask("));
-  assert.ok(!src.includes("updateStatus"));
+test("releases with releaseTask and passes result", () => {
+  assert.ok(src.includes("this.client.releaseTask(taskId, summary)"));
 });
 
-test("releases with releaseTask when no more transitions", () => {
-  assert.ok(src.includes("this.client.releaseTask("));
+test("checks releaseRes.completed for task completion", () => {
+  assert.ok(src.includes("releaseRes?.completed"));
 });
 
-test("handles auto-release (done state) from transition response", () => {
-  assert.ok(src.includes("transRes.released"));
-});
-
-test("has autoAdvance method for pass-through states", () => {
-  assert.ok(src.includes("private async autoAdvance("));
-});
-
-test("autoAdvance loops through transitions until instructions or empty", () => {
-  assert.ok(src.includes("while (this.availableTransitions.length > 0)"));
+test("does NOT have autoAdvance method (removed)", () => {
+  assert.ok(!src.includes("autoAdvance"));
 });
 
 // ─── No workflow state name assumptions ──────────────────────────
@@ -107,26 +96,13 @@ test("does NOT hardcode 'done' state name", () => {
   assert.ok(!src.includes('"done"'));
 });
 
-test("does NOT have resolveTeammateTransition (old method)", () => {
-  assert.ok(!src.includes("resolveTeammateTransition"));
-});
-
-test("does NOT have setWorkflow method (no local workflow)", () => {
-  assert.ok(!src.includes("setWorkflow"));
-});
-
 // ─── NEEDS_INPUT handling ────────────────────────────────────────
 
 test("detects NEEDS_INPUT in agent output", () => {
   assert.ok(src.includes('lastMessage.includes("NEEDS_INPUT:")'));
 });
 
-test("finds blocked transition by name heuristic (needs_input/blocked)", () => {
-  assert.ok(src.includes('t.state.includes("needs_input") || t.state.includes("blocked")'));
-});
-
-test("releases task after NEEDS_INPUT", () => {
-  // After NEEDS_INPUT, should release
+test("releases task after NEEDS_INPUT (no specific transition)", () => {
   const needsInputSection = src.slice(src.indexOf("NEEDS_INPUT:"));
   assert.ok(needsInputSection.includes("releaseTask"));
 });
@@ -154,13 +130,6 @@ test("includes lead comments in task prompt (rework context)", () => {
 test("does NOT have mid-task comment watching", () => {
   assert.ok(!src.includes("startCommentChecking"));
   assert.ok(!src.includes("stopCommentChecking"));
-  assert.ok(!src.includes("COMMENT_CHECK_INTERVAL_MS"));
-});
-
-test("does NOT have post-release watch loop", () => {
-  assert.ok(!src.includes("startWatchLoop"));
-  assert.ok(!src.includes("watchedTasks"));
-  assert.ok(!src.includes("WATCH_INTERVAL_MS"));
 });
 
 test("relies on normal poll cycle for rediscovery", () => {
@@ -188,16 +157,10 @@ test("reports token usage via reportTokenUsage", () => {
   assert.ok(src.includes("this.client.reportTokenUsage("));
 });
 
-// ─── Transition instructions delivery ────────────────────────────
+// ─── Instructions from claim ─────────────────────────────────────
 
-test("delivers transition instructions from initial transition", () => {
-  assert.ok(src.includes("transRes.instructions"));
-  assert.ok(src.includes("await this.executeTask(response.task, transRes.instructions)"));
-});
-
-test("delivers transition instructions for subsequent states", () => {
-  assert.ok(src.includes("Transition Instructions"));
-  assert.ok(src.includes("You've advanced the task to a new state"));
+test("uses instructions from claim response", () => {
+  assert.ok(src.includes("claim.instructions"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

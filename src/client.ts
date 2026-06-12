@@ -50,41 +50,42 @@ export interface AgentNextWorkResponse {
     id: string;
     storyId: string;
     title: string;
-    description: string;
-    status: string;
-    context?: string;
-    comments?: Array<{ from: string; body: string; at: string }>;
-    workflow?: WorkflowConfig;
-    availableTransitions: Array<{ state: string; permission: string }>;
   } | null;
 }
 
 /** Response from POST /api/agents/claim/:taskId */
 export interface AgentClaimResponse {
   success: boolean;
+  story?: {
+    id: string;
+    title: string;
+    description: string;
+  };
   task?: {
     id: string;
     storyId: string;
     title: string;
     description: string;
     status: string;
+    context?: string;
+    comments?: Array<{ from: string; body: string; at: string }>;
   };
-  availableTransitions?: Array<{ state: string; permission: string }>;
-  error?: string;
-}
-
-/** Response from POST /api/agents/transition/:taskId */
-export interface AgentTransitionResponse {
-  success: boolean;
-  released?: boolean;
+  stateContext?: {
+    entered: string;
+    exitsTo?: string;
+    guidance: string;
+    exitInstructions?: string;
+  };
   instructions?: string;
-  availableTransitions?: Array<{ state: string; permission: string }>;
   error?: string;
 }
 
 /** Response from POST /api/agents/release/:taskId */
 export interface AgentReleaseResponse {
   success: boolean;
+  newStatus?: string;
+  completed?: boolean;
+  instructions?: string;
   error?: string;
 }
 
@@ -394,13 +395,11 @@ export class DaemonClient {
   }
 
   /**
-   * Claim ownership of a task (no state change).
+   * Claim ownership of a task and transition to working state.
    *
-   * Assigns the task to this agent. The agent should then call
-   * `transitionTask()` to advance state. This separation allows reading
-   * instructions and comments before deciding which transition to make.
-   *
-   * Returns the task's current state info and available transitions.
+   * The daemon assigns the task to this agent and advances it to the
+   * first valid teammate transition. Returns task details (including
+   * context and comments) and transition instructions for the working state.
    */
   async claimTask(taskId: string): Promise<AgentClaimResponse> {
     return this.post<AgentClaimResponse>(
@@ -410,36 +409,18 @@ export class DaemonClient {
   }
 
   /**
-   * Advance a claimed task to the next state.
+   * Release a task after completing work.
    *
-   * Validates the transition against workflow permissions. On success:
-   * - Updates task status (and optionally stores a result summary)
-   * - If the new state is the done state, auto-releases the assignment
-   * - Returns next available transitions so the agent knows if it can
-   *   keep going or needs to release
-   * - Returns transition instructions for the new state (if any)
+   * The daemon advances the task to the next state in the workflow,
+   * stores the optional result summary, and releases ownership.
+   * Returns the new status and whether the task is fully complete.
    *
-   * The `status` parameter is the target state name.
+   * After release, the agent should go back to polling next-work.
    */
-  async transitionTask(taskId: string, status: string, result?: string): Promise<AgentTransitionResponse> {
-    return this.post<AgentTransitionResponse>(
-      `/api/agents/transition/${encodeURIComponent(taskId)}`,
-      { agentId: this.agentId, status, result }
-    );
-  }
-
-  /**
-   * Release a task when blocked by a lead-only transition.
-   *
-   * Called when the agent hits a state where only the lead can make the
-   * next move (e.g., `review → done`). Releases the assignment so the
-   * lead can act. The agent may later re-discover and re-claim this task
-   * if the lead moves it to a new state with teammate transitions.
-   */
-  async releaseTask(taskId: string): Promise<AgentReleaseResponse> {
+  async releaseTask(taskId: string, result?: string): Promise<AgentReleaseResponse> {
     return this.post<AgentReleaseResponse>(
       `/api/agents/release/${encodeURIComponent(taskId)}`,
-      { agentId: this.agentId }
+      { agentId: this.agentId, result }
     );
   }
 

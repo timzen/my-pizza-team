@@ -113,8 +113,8 @@ test("has claimTask method", () => {
   assert.ok(clientSrc.includes("async claimTask(taskId"));
 });
 
-test("has transitionTask method with status param", () => {
-  assert.ok(clientSrc.includes("async transitionTask(taskId: string, status: string"));
+test("does NOT have transitionTask method (removed)", () => {
+  assert.ok(!clientSrc.includes("transitionTask"));
 });
 
 test("has releaseTask method", () => {
@@ -204,16 +204,22 @@ test("has enqueueAssistantRequest method", () => {
 
 // ─── Response types ──────────────────────────────────────────────
 
-test("AgentNextWorkResponse includes availableTransitions", () => {
-  assert.ok(clientSrc.includes("availableTransitions: Array<{ state: string; permission: string }>"));
+test("AgentNextWorkResponse is slimmed to id, storyId, title", () => {
+  assert.ok(clientSrc.includes("id: string"));
+  assert.ok(clientSrc.includes("storyId: string"));
+  assert.ok(clientSrc.includes("title: string"));
+  // Should NOT include heavy fields
+  assert.ok(!clientSrc.match(/AgentNextWorkResponse[\s\S]*?availableTransitions/));
 });
 
-test("AgentClaimResponse includes availableTransitions", () => {
-  assert.ok(clientSrc.includes("availableTransitions?: Array<{ state: string; permission: string }>"));
+test("AgentClaimResponse includes instructions and task with context", () => {
+  assert.ok(clientSrc.includes("instructions?: string"));
+  assert.ok(clientSrc.includes("context?: string"));
 });
 
-test("AgentTransitionResponse includes released and availableTransitions", () => {
-  assert.ok(clientSrc.includes("released?: boolean"));
+test("AgentReleaseResponse includes newStatus and completed", () => {
+  assert.ok(clientSrc.includes("newStatus?: string"));
+  assert.ok(clientSrc.includes("completed?: boolean"));
 });
 
 test("CommentsResponse has correct shape", () => {

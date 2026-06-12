@@ -1,26 +1,21 @@
-// Teammate work loop: multi-transition ownership model
+// Teammate work loop: simplified claim/release model
 //
 // Autonomous execution engine for a teammate agent. Uses the daemon's
-// agent protocol (/api/agents/*) with multi-transition ownership:
+// agent protocol (/api/agents/*) with a simple claim/release cycle:
 //
 // Lifecycle:
 // 1. Poll GET /api/agents/next-work → finds unclaimed task with teammate transitions
-// 2. Claim POST /api/agents/claim/:taskId → assigns ownership (no state change)
-// 3. Transition POST /api/agents/transition/:taskId → advance to first working state
-// 4. Execute work (send task as user message to Pi agent)
-// 5. On agent_end, transition to next state (repeatable if multiple teammate states)
-// 6. When availableTransitions is empty → POST /api/agents/release/:taskId
-// 7. Lead acts (review, sends comments), task reappears on next poll
+// 2. Claim POST /api/agents/claim/:taskId → assigns ownership + transitions to working state
+// 3. Execute work (send task as user message to Pi agent)
+// 4. On agent_end, POST /api/agents/release/:taskId → advances state, releases ownership
+// 5. Poll again for next task
 //
 // The teammate never assumes workflow state names — it relies entirely on
-// the daemon's availableTransitions to know what moves are valid and when
-// to release. This makes it compatible with any workflow configuration.
-//
-// Rediscovery after release relies solely on the normal poll cycle
-// (getNextWork every 5s). No comment watching or watch loops.
+// the daemon to manage transitions. This makes it compatible with any
+// workflow configuration.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient, AgentTransitionResponse } from "./client.js";
+import type { DaemonClient } from "./client.js";
 
 const POLL_INTERVAL_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -34,9 +29,6 @@ export class TeammateLoop {
   private lastCompletedTaskId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
-
-  // Available transitions from the task's current state (updated after each transition)
-  private availableTransitions: Array<{ state: string; permission: string }> = [];
 
   public onTaskComplete: ((taskId: string, result: string) => void) | null = null;
 
@@ -99,7 +91,6 @@ export class TeammateLoop {
         : "pairing";
       const res = await this.client.heartbeat(status, this.currentTaskId || undefined);
       if (res.dismissed) {
-        // Agent was dismissed from the UI — shut down gracefully
         this.stop();
         if (this.onDismissed) this.onDismissed();
       }
@@ -107,7 +98,7 @@ export class TeammateLoop {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // POLL → CLAIM → TRANSITION → EXECUTE
+  // POLL → CLAIM → EXECUTE
   // ═══════════════════════════════════════════════════════════════════
 
   private async pollForWork(): Promise<void> {
@@ -120,7 +111,7 @@ export class TeammateLoop {
       const response = await this.client.getNextWork();
 
       if (response.task) {
-        // Claim ownership (no state change yet)
+        // Claim the task — daemon transitions to working state
         const claim = await this.client.claimTask(response.task.id);
         if (!claim.success) {
           // Someone else claimed it — try again
@@ -130,26 +121,15 @@ export class TeammateLoop {
 
         // We now own this task
         this.currentTaskId = response.task.id;
-        this.availableTransitions = claim.availableTransitions || response.task.availableTransitions || [];
         this.client.heartbeat("working", response.task.id).catch(() => {});
 
-        // Immediately transition to first working state
-        const firstTransition = this.availableTransitions[0];
-        if (firstTransition) {
-          const transRes = await this.client.transitionTask(response.task.id, firstTransition.state).catch(() => null);
-          if (transRes?.success) {
-            this.availableTransitions = transRes.availableTransitions || [];
-            await this.executeTask(response.task, transRes.instructions);
-          } else {
-            // Transition failed — release and retry
-            await this.client.releaseTask(response.task.id).catch(() => {});
-            this.currentTaskId = null;
-            this.schedulePoll();
-          }
-        } else {
-          // No transitions available (shouldn't happen from next-work, but handle gracefully)
-          await this.executeTask(response.task, undefined);
-        }
+        // Execute the work using the task info from claim response
+        await this.executeTask(
+          claim.task || response.task,
+          claim.instructions,
+          claim.stateContext,
+          claim.story
+        );
       } else {
         this.schedulePoll();
       }
@@ -179,11 +159,27 @@ export class TeammateLoop {
       context?: string;
       comments?: Array<{ from: string; body: string; at: string }>;
     },
-    instructions?: string
+    instructions?: string,
+    stateContext?: { entered: string; exitsTo?: string; guidance: string; exitInstructions?: string },
+    story?: { id: string; title: string; description: string }
   ): Promise<void> {
     let prompt = ``;
 
-    // Transition instructions (from entering the new state)
+    // Story context (the bigger picture)
+    if (story) {
+      prompt += `## Story: ${story.title}\n\n${story.description}\n\n---\n\n`;
+    }
+
+    // State context (what state we're in, what release does)
+    if (stateContext) {
+      prompt += `## State Context\n\n${stateContext.guidance}\n\n`;
+      if (stateContext.exitInstructions) {
+        prompt += `### Exit Criteria (for advancing to '${stateContext.exitsTo}')\n\n${stateContext.exitInstructions}\n\n`;
+      }
+      prompt += `---\n\n`;
+    }
+
+    // Transition instructions (from entering the working state)
     if (instructions) {
       prompt += `## Transition Instructions\n\n${instructions}\n\n---\n\n`;
     }
@@ -215,17 +211,16 @@ export class TeammateLoop {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // AGENT COMPLETION → TRANSITION → RELEASE
+  // AGENT COMPLETION → RELEASE
   // ═══════════════════════════════════════════════════════════════════
 
   /**
    * Called by the agent_end handler when the Pi agent finishes.
    *
-   * Handles the multi-transition model:
-   * 1. If NEEDS_INPUT → transition to blocked state, release
-   * 2. Otherwise → transition to next state
-   *    - If more teammate transitions remain, deliver instructions and continue
-   *    - If no more transitions (or auto-released at done), release
+   * Simplified model:
+   * 1. If NEEDS_INPUT → post comment, release (daemon decides state)
+   * 2. Otherwise → post result comment, release with result
+   * 3. Poll for next task
    */
   async handleAgentComplete(lastMessage: string, tokenUsage?: {
     inputTokens: number;
@@ -251,122 +246,27 @@ export class TeammateLoop {
       const question = lastMessage.split("NEEDS_INPUT:").pop()?.trim() || "Need help with this task";
       await this.client.postComment(taskId, question);
 
-      // Try to transition to a blocked/needs_input state if available
-      const blockedTransition = this.availableTransitions.find(
-        t => t.state.includes("needs_input") || t.state.includes("blocked")
-      ) || this.availableTransitions[0];
-
-      if (blockedTransition) {
-        await this.client.transitionTask(taskId, blockedTransition.state).catch(() => {});
-      }
-
-      // Release the task — lead needs to unblock
+      // Release without result — daemon advances state, lead will see the comment
       await this.client.releaseTask(taskId).catch(() => {});
       this.lastCompletedTaskId = taskId;
       this.currentTaskId = null;
-      this.availableTransitions = [];
       this.schedulePoll();
       return;
     }
 
-    // ─── Normal completion: advance to next state ────────────────────
+    // ─── Normal completion: release with result ──────────────────────
     const summary = lastMessage.slice(0, 500);
     await this.client.postComment(taskId, `[done] Work complete. Summary:\n${summary}`).catch(() => {});
 
-    // Transition to the next available state
-    const nextTransition = this.availableTransitions[0];
-    if (nextTransition) {
-      const transRes = await this.client.transitionTask(taskId, nextTransition.state, summary).catch(() => null);
-
-      if (transRes?.success) {
-        // Was the task auto-released (reached done state)?
-        if (transRes.released) {
-          this.lastCompletedTaskId = taskId;
-          this.currentTaskId = null;
-          this.availableTransitions = [];
-          this.onTaskComplete?.(taskId, summary);
-          this.schedulePoll();
-          return;
-        }
-
-        // Update available transitions from the new state
-        this.availableTransitions = transRes.availableTransitions || [];
-
-        // If more teammate transitions are available, the agent can keep going
-        if (this.availableTransitions.length > 0 && transRes.instructions) {
-          // There are more states AND transition instructions — let the agent continue
-          this.pi.sendUserMessage(
-            `## Transition Instructions\n\nYou've advanced the task to a new state. Here are the instructions for this phase:\n\n${transRes.instructions}\n\n---\nContinue working. When done with this phase, provide a brief summary.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
-            { deliverAs: "followUp" }
-          );
-          return; // Wait for next agent_end
-        }
-
-        // No more teammate transitions from this state — release
-        if (this.availableTransitions.length === 0) {
-          await this.client.releaseTask(taskId).catch(() => {});
-          this.lastCompletedTaskId = taskId;
-          this.currentTaskId = null;
-          this.onTaskComplete?.(taskId, summary);
-          this.schedulePoll();
-          return;
-        }
-
-        // Transitions available but no instructions — auto-advance without agent work
-        // (e.g., a pass-through state). Keep transitioning until blocked or done.
-        await this.autoAdvance(taskId, summary);
-        return;
-      }
-    }
-
-    // No transitions available or transition failed — release
-    await this.client.releaseTask(taskId).catch(() => {});
+    // Release the task — daemon advances to next state
+    const releaseRes = await this.client.releaseTask(taskId, summary).catch(() => null);
     this.lastCompletedTaskId = taskId;
     this.currentTaskId = null;
-    this.availableTransitions = [];
-    this.onTaskComplete?.(taskId, summary);
-    this.schedulePoll();
-  }
 
-  /**
-   * Auto-advance through transitions that don't have instructions.
-   * Keeps transitioning until we hit a state with instructions (needs agent work),
-   * no more transitions (release), or the task is auto-released (done).
-   */
-  private async autoAdvance(taskId: string, result: string): Promise<void> {
-    while (this.availableTransitions.length > 0) {
-      const next = this.availableTransitions[0];
-      const transRes = await this.client.transitionTask(taskId, next.state, result).catch(() => null);
-
-      if (!transRes?.success) break;
-
-      if (transRes.released) {
-        this.lastCompletedTaskId = taskId;
-        this.currentTaskId = null;
-        this.availableTransitions = [];
-        this.onTaskComplete?.(taskId, result);
-        this.schedulePoll();
-        return;
-      }
-
-      this.availableTransitions = transRes.availableTransitions || [];
-
-      // If the new state has instructions, let the agent handle it
-      if (transRes.instructions && this.availableTransitions.length > 0) {
-        this.pi.sendUserMessage(
-          `## Transition Instructions\n\nYou've advanced the task to a new state. Here are the instructions for this phase:\n\n${transRes.instructions}\n\n---\nContinue working. When done with this phase, provide a brief summary.\nIf you get stuck, say "NEEDS_INPUT:" followed by your question.`,
-          { deliverAs: "followUp" }
-        );
-        return;
-      }
+    if (releaseRes?.completed) {
+      this.onTaskComplete?.(taskId, summary);
     }
 
-    // No more transitions — release
-    await this.client.releaseTask(taskId).catch(() => {});
-    this.lastCompletedTaskId = taskId;
-    this.currentTaskId = null;
-    this.availableTransitions = [];
-    this.onTaskComplete?.(taskId, result);
     this.schedulePoll();
   }
 }
