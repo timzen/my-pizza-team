@@ -89,9 +89,12 @@ jobs:
           security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
           security default-keychain -s build.keychain
           security unlock-keychain -p "" build.keychain
-          codesign --force --options runtime --sign "$MPT_SIGNATURE" dist/mpt-${{ matrix.target }}
+          # V8 JIT requires allow-jit and allow-unsigned-executable-memory entitlements
+          codesign --force --options runtime \
+            --entitlements desktop/macos/Resources/mpt.entitlements \
+            --sign "$MPT_SIGNATURE" dist/mpt-${{ matrix.target }}
           codesign --verify --strict dist/mpt-${{ matrix.target }}
-          echo "✅ Binary signed"
+          echo "✅ Binary signed with JIT entitlements"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
@@ -181,7 +184,12 @@ jobs:
         run: |
           if [ -z "$P12_BASE64" ]; then
             echo "No signing certificate configured — using ad-hoc signing"
-            codesign --force --deep --sign - "dist/My Pizza Team.app"
+            # mpt needs JIT entitlements even with ad-hoc signing
+            codesign --force --options runtime \
+              --entitlements desktop/macos/Resources/mpt.entitlements \
+              --sign - "dist/My Pizza Team.app/Contents/MacOS/mpt"
+            codesign --force --sign - "dist/My Pizza Team.app/Contents/MacOS/MyPizzaTeamMenu"
+            codesign --force --sign - "dist/My Pizza Team.app"
             exit 0
           fi
           echo "$P12_BASE64" | base64 --decode > cert.p12
@@ -198,7 +206,9 @@ jobs:
         run: |
           # Sign inner binaries first (inside-out), then the bundle
           # --deep is unreliable; explicit per-binary signing is required
+          # mpt needs JIT entitlements for V8 engine memory mapping
           codesign --force --options runtime \
+            --entitlements desktop/macos/Resources/mpt.entitlements \
             --sign "$MPT_SIGNATURE" \
             "dist/My Pizza Team.app/Contents/MacOS/mpt"
           codesign --force --options runtime \
@@ -210,7 +220,7 @@ jobs:
 
           # Verify
           codesign --verify --deep --strict "dist/My Pizza Team.app"
-          echo "✅ Signature verified"
+          echo "✅ Signature verified with JIT entitlements"
 
       - name: Create DMG
         run: |

@@ -131,6 +131,21 @@ starting work to see lead feedback or rework instructions.
 
 ## Pi Extension (Thin Adapter)
 
+### desktop/macos/
+- `Sources/App.swift` — SwiftUI menu bar app (`LSUIElement`). Status bar icon, start/stop controls, team directory picker, port config.
+- `Sources/DaemonManager.swift` — Launches the bundled `mpt` binary as a subprocess, polls `/health` for status, manages preferences via `UserDefaults`.
+- `Resources/mpt.entitlements` — Code-signing entitlements for the compiled Deno binary. Required for V8 JIT (`allow-jit`, `allow-unsigned-executable-memory`) and FFI SQLite loading (`disable-library-validation`).
+- `Package.swift` — Swift package manifest (SwiftUI, macOS 13+).
+
+### Code Signing (macOS)
+
+The compiled `mpt` binary requires three entitlements when signed with hardened runtime:
+1. **`com.apple.security.cs.allow-jit`** — V8 needs MAP_JIT for code generation
+2. **`com.apple.security.cs.allow-unsigned-executable-memory`** — V8 CodeRange allocation
+3. **`com.apple.security.cs.disable-library-validation`** — `@db/sqlite` loads a `.dylib` via FFI with a different Team ID
+
+Without these, the binary crashes immediately with "Failed to reserve virtual memory for CodeRange" or "code signature not valid for use in process".
+
 The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension (v0.2.0+)
 is a **pure HTTP client** with zero server-side code. It owns no state — all data
 lives in this daemon.
