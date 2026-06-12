@@ -5,6 +5,7 @@
 *.db-shm
 *.db-wal
 .pi-pizza-team/
+.my-pizza-team/
 
 # Compiled binaries
 mpt
