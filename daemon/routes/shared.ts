@@ -81,6 +81,18 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   app.post("/api/control/pause", (c) => { setPaused(true); return c.json({ paused: true }); });
   app.post("/api/control/resume", (c) => { setPaused(false); return c.json({ paused: false }); });
 
+  // ─── Guide ─────────────────────────────────────────────────────────
+
+  app.get("/api/guide", (c) => {
+    // Look for GUIDE.md relative to the project root (parent of daemon/)
+    const projectRoot = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "../..");
+    const guidePath = path.join(projectRoot, "GUIDE.md");
+    if (!existsSync(guidePath)) {
+      return c.json({ content: "# Help\n\nNo guide available. Place a GUIDE.md in the project root." });
+    }
+    return c.json({ content: Deno.readTextFileSync(guidePath) });
+  });
+
   // ─── Config ────────────────────────────────────────────────────────
 
   app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows() }));
