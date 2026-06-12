@@ -33,8 +33,7 @@ interface HarnessTemplates {
 
 const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
   pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}",
-  "claude-code": "mpt-claude-runner --name={name} --daemon={url} --cwd={cwd}",
-  codex: "mpt-codex-runner --name={name} --daemon={url} --cwd={cwd}",
+  "pi-assistant": "pi --ppt-assistant --ppt-daemon={url} --ppt-name=assistant",
 };
 
 
@@ -120,8 +119,9 @@ export async function setupLeader(
           // Use the daemon-generated name from the spawn request
           const name = req.name || `agent-${Date.now()}`;
 
-          // Determine harness (default to "pi" until daemon supports harness field)
-          const harness = (req as any).harness || "pi";
+          // Determine harness (check reason for assistant, then harness field, default to "pi")
+          let harness = (req as any).harness || "pi";
+          if ((req as any).reason === "assistant") harness = "pi-assistant";
           const spawnCwd = req.cwd || cwd;
 
           spawnAgent(name, spawnCwd, {
