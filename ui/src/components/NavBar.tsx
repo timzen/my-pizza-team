@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, ChevronDown, Pause, Play, HelpCircle } from "lucide-react";
+import { Pizza, Settings, CircleEllipsis, Pause, Play, HelpCircle } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 import {
   DropdownMenu,
@@ -20,13 +20,13 @@ import {
 const NAV_ITEMS = [
   { path: "/board", label: "Board" },
   { path: "/team", label: "Agents" },
-  { path: "/memory", label: "Memory" },
-  { path: "/workflows", label: "Workflows" },
   { path: "/assistant", label: "Assistant" },
+  { path: "/memory", label: "Memory" },
 ];
 
 /** Items nested under the "More" dropdown beside Board */
 const MORE_ITEMS = [
+  { path: "/workflows", label: "Workflows" },
   { path: "/backlog", label: "Backlog" },
   { path: "/archived", label: "Archive" },
 ];
@@ -55,6 +55,10 @@ export function NavBar() {
               {item.label}
             </Link>
           ))}
+        </nav>
+
+        {/* Pause/play, help, config gear, theme toggle */}
+        <div className="flex items-center gap-1">
 
           {/* Dropdown for Backlog & Archive */}
           <DropdownMenu>
@@ -65,7 +69,7 @@ export function NavBar() {
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
               }`}
             >
-              More <ChevronDown className="h-3.5 w-3.5" />
+              <CircleEllipsis className="h-4 w-4" />
             </DropdownMenuTrigger>
             <DropdownMenuContent align="start">
               {MORE_ITEMS.map((item) => (
@@ -75,10 +79,7 @@ export function NavBar() {
               ))}
             </DropdownMenuContent>
           </DropdownMenu>
-        </nav>
-
-        {/* Pause/play, help, config gear, theme toggle */}
-        <div className="flex items-center gap-1">
+          
           <PauseButton />
           <Link
             to="/help"
