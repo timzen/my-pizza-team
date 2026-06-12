@@ -7,7 +7,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, ChevronDown, Pause, Play } from "lucide-react";
+import { Pizza, Settings, ChevronDown, Pause, Play, HelpCircle } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 import {
   DropdownMenu,
@@ -77,9 +77,20 @@ export function NavBar() {
           </DropdownMenu>
         </nav>
 
-        {/* Pause/play, config gear, theme toggle */}
+        {/* Pause/play, help, config gear, theme toggle */}
         <div className="flex items-center gap-1">
           <PauseButton />
+          <Link
+            to="/help"
+            className={`p-2 rounded-md transition-colors ${
+              location.pathname === "/help"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            }`}
+            title="Help"
+          >
+            <HelpCircle className="h-4 w-4" />
+          </Link>
           <Link
             to="/config"
             className={`p-2 rounded-md transition-colors ${

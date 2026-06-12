@@ -15,6 +15,7 @@ import { ArchivedPage } from "./pages/ArchivedPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
+import { HelpPage } from "./pages/HelpPage";
 
 function App() {
   return (
@@ -34,6 +35,7 @@ function App() {
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/workflows" element={<WorkflowsPage />} />
             <Route path="/workflows/:name" element={<WorkflowDetailPage />} />
+            <Route path="/help" element={<HelpPage />} />
           </Routes>
         </main>
       </div>
