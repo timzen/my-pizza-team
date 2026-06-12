@@ -124,9 +124,9 @@ Workflows are defined in the `workflows/` directory with per-state transition in
 ```
 1. POST /api/agents/register       → { agentId }
 2. GET  /api/agents/next-work      → { task, availableTransitions }
-3. POST /api/agents/claim/:id      → assigns ownership
-4. POST /api/agents/transition/:id → advances state
-5. POST /api/agents/release/:id    → hands back when blocked
+3. POST /api/agents/claim/:id      → assigns + transitions to working state
+4. (agent does the work)
+5. POST /api/agents/release/:id    → advances state, stores result, releases
 6. POST /api/agents/heartbeat      → keep-alive (dismissed:true = shut down)
 ```
 

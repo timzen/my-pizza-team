@@ -7,9 +7,17 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { DirectoryInput } from "@/components/ui/directory-input";
+import { MarkdownField } from "@/components/ui/markdown-field";
 import { Plus, X } from "lucide-react";
-import { apiPost } from "@/hooks/useApi";
+import { useApi, apiPost } from "@/hooks/useApi";
+
+interface WorkflowSummary {
+  name: string;
+  stateCount: number;
+  transitionCount: number;
+  isDefault: boolean;
+}
 
 interface AddStoryDialogProps {
   onCreated: () => void;
@@ -17,14 +25,16 @@ interface AddStoryDialogProps {
 
 export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
   const [open, setOpen] = useState(false);
+  const { data: workflows } = useApi<WorkflowSummary[]>("/api/workflows");
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dir, setDir] = useState("");
+  const [workflow, setWorkflow] = useState("");
   const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
   const [error, setError] = useState("");
 
-  const reset = () => { setId(""); setTitle(""); setDescription(""); setDir(""); setTasks([]); setError(""); };
+  const reset = () => { setId(""); setTitle(""); setDescription(""); setDir(""); setWorkflow(""); setTasks([]); setError(""); };
 
   const addTask = () => setTasks([...tasks, { title: "", description: "" }]);
   const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
@@ -37,7 +47,8 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setError("");
-    const body: Record<string, unknown> = { id, title, description };
+    if (!workflow) { setError("Please select a workflow"); return; }
+    const body: Record<string, unknown> = { id, title, description, workflow };
     if (dir) body.dir = dir;
     if (tasks.length > 0) body.tasks = tasks.filter(t => t.title);
 
@@ -50,15 +61,31 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
     <>
       <Button size="sm" onClick={() => setOpen(true)}><Plus className="h-4 w-4 mr-1" /> Add Story</Button>
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); if (!o) reset(); }}>
-      <DialogContent className="max-w-lg max-h-[85vh] overflow-y-auto">
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>New Story</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div><Label htmlFor="story-id">ID</Label><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
-            <div><Label htmlFor="story-dir">Directory (optional)</Label><Input id="story-dir" value={dir} onChange={e => setDir(e.target.value)} placeholder="~/projects/foo" /></div>
+            <div><Label htmlFor="story-dir">Directory (optional)</Label><DirectoryInput id="story-dir" value={dir} onChange={setDir} /></div>
+          </div>
+          <div>
+            <Label>Workflow</Label>
+            <div className="flex flex-wrap gap-2 mt-1">
+              {(workflows || []).map(wf => (
+                <Button
+                  key={wf.name}
+                  type="button"
+                  size="sm"
+                  variant={workflow === wf.name ? "default" : "outline"}
+                  onClick={() => setWorkflow(wf.name)}
+                >
+                  {wf.name}
+                </Button>
+              ))}
+            </div>
           </div>
           <div><Label htmlFor="story-title">Title</Label><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
-          <div><Label htmlFor="story-desc">Description</Label><Textarea id="story-desc" value={description} onChange={e => setDescription(e.target.value)} rows={3} required /></div>
+          <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
 
           <div>
             <div className="flex items-center justify-between mb-2">

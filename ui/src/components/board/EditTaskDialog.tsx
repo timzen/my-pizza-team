@@ -1,5 +1,6 @@
 /**
  * EditTaskDialog — Modal for editing/moving/deleting a task.
+ * Shows valid status transitions as buttons instead of a dropdown.
  */
 
 import { useState, useEffect } from "react";
@@ -7,8 +8,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Badge } from "@/components/ui/badge";
+import { MarkdownField } from "@/components/ui/markdown-field";
 import { apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 
 interface TaskData {
@@ -21,33 +22,39 @@ interface TaskData {
 interface EditTaskDialogProps {
   task: TaskData | null;
   states: string[];
+  /** Workflow transitions: { fromState: { toState: permission } } */
+  transitions: Record<string, Record<string, string>>;
   open: boolean;
   onClose: () => void;
   onUpdated: () => void;
 }
 
-export function EditTaskDialog({ task, states, open, onClose, onUpdated }: EditTaskDialogProps) {
+export function EditTaskDialog({ task, states, transitions, open, onClose, onUpdated }: EditTaskDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [status, setStatus] = useState("");
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (task) { setTitle(task.title); setDescription(task.description || ""); setStatus(task.status); setError(""); }
+    if (task) { setTitle(task.title); setDescription(task.description || ""); setError(""); }
   }, [task]);
+
+  /** Get valid target states from the current status based on workflow transitions */
+  const validTransitions = task ? Object.keys(transitions[task.status] || {}) : [];
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!task) return;
-    // Update details
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(task.id)}`, { title, description });
     if (!res.success) { setError(res.error || "Failed"); return; }
-    // Move if status changed
-    if (status !== task.status) {
-      const moveRes = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(task.id)}/move`, { status });
-      if (!moveRes.success) { setError(moveRes.error || "Failed to move"); return; }
-    }
     onClose(); onUpdated();
+  };
+
+  const handleMove = async (targetStatus: string) => {
+    if (!task) return;
+    setError("");
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(task.id)}/move`, { status: targetStatus });
+    if (res.success) { onClose(); onUpdated(); }
+    else setError(res.error || "Failed to move");
   };
 
   const handleDelete = async () => {
@@ -57,22 +64,49 @@ export function EditTaskDialog({ task, states, open, onClose, onUpdated }: EditT
     else setError(res.error || "Failed to delete");
   };
 
+  /** Color for a transition target button based on its position in workflow states */
+  const buttonVariant = (targetState: string): "default" | "outline" | "secondary" => {
+    const idx = states.indexOf(targetState);
+    if (idx === states.length - 1) return "default"; // done state gets primary
+    return "outline";
+  };
+
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>Edit Task: {task?.id}</DialogTitle></DialogHeader>
         <form onSubmit={handleSave} className="space-y-4">
           <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
-          <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} /></div>
+          <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} />
+
+          {/* Current status display */}
           <div>
-            <Label>Status</Label>
-            <Select value={status} onValueChange={(v) => { if (v) setStatus(v); }}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {states.map(s => <SelectItem key={s} value={s}>{s.replace(/_/g, " ")}</SelectItem>)}
-              </SelectContent>
-            </Select>
+            <Label>Current Status</Label>
+            <div className="mt-1">
+              <Badge variant="secondary" className="text-sm">{task?.status.replace(/_/g, " ")}</Badge>
+            </div>
           </div>
+
+          {/* Transition buttons */}
+          {validTransitions.length > 0 && (
+            <div>
+              <Label>Move To</Label>
+              <div className="flex flex-wrap gap-2 mt-1">
+                {validTransitions.map(targetState => (
+                  <Button
+                    key={targetState}
+                    type="button"
+                    size="sm"
+                    variant={buttonVariant(targetState)}
+                    onClick={() => handleMove(targetState)}
+                  >
+                    {targetState.replace(/_/g, " ")}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          )}
+
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             <Button type="submit" className="flex-1">Save</Button>

@@ -64,7 +64,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/stories/:id/backlog` | Move story to backlog |
 | POST | `/api/stories/:storyId/tasks` | Add a task to a story |
 | GET | `/api/next-task?memberId=X` | Get next available task for a teammate |
-| POST | `/api/tasks/:id/claim` | Claim a task (transitions to in_progress) |
+| POST | `/api/tasks/:id/claim` | Claim a task (transitions to next teammate state) |
 | POST | `/api/tasks/:id/status` | Update task status (enforces workflow) |
 | POST | `/api/tasks/:id/move` | Lead moves a task to new status |
 | PUT | `/api/tasks/:id` | Update task title/description |
@@ -102,9 +102,8 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/agents/register` | Register a new agent |
 | POST | `/api/agents/heartbeat` | Agent heartbeat |
 | GET | `/api/agents/next-work?agentId=X` | Poll for unclaimed tasks with teammate transitions |
-| POST | `/api/agents/claim/:taskId` | Claim task ownership (no state change) |
-| POST | `/api/agents/transition/:taskId` | Advance task to next state |
-| POST | `/api/agents/release/:taskId` | Release task (when blocked by lead transition) |
+| POST | `/api/agents/claim/:taskId` | Claim task and transition to working state |
+| POST | `/api/agents/release/:taskId` | Finish work, advance state, release ownership |
 | GET | `/api/agents/comments/:taskId` | Get task comments |
 | POST | `/api/agents/comments/:taskId` | Post a comment on a task |
 | GET | `/api/agents` | List all registered agents |
@@ -112,16 +111,20 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 
 ## Agent Lifecycle
 
-Agents own tasks across multiple state transitions. The flow:
+Agents use a simple claim/release loop. The daemon handles all state transitions:
 
 ```
 1. Poll GET /api/agents/next-work → finds unclaimed task with teammate transitions
-2. POST /api/agents/claim/:taskId → assigns ownership (no state change)
-3. POST /api/agents/transition/:taskId → advances state (repeatable)
-4. When availableTransitions is empty → POST /api/agents/release/:taskId
-5. Lead acts (moves task via /api/tasks/:id/move, adds comments)
-6. Agent polls again → re-discovers task, sees comments, claims, continues
+2. POST /api/agents/claim/:taskId → assigns ownership + transitions to working state
+3. Agent does the work
+4. POST /api/agents/release/:taskId → advances to next state, releases ownership
+5. Agent polls again (repeat)
 ```
+
+If the lead needs to act (e.g., review→done is lead-only), the release advances
+to that state anyway and the task leaves the agent's hands. If the lead sends
+the task back (e.g., review→coding with comments), the agent discovers it on
+the next poll, claims it again, and sees the comments.
 
 Comments are task-level, not real-time chat. Agents load them when
 starting work to see lead feedback or rework instructions.

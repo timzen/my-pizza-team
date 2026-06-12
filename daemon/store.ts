@@ -356,7 +356,7 @@ export class Store {
 
     const createdTasks: TaskWithMeta[] = [];
 
-    // Resolve initial task status from the story's workflow
+    // Resolve initial task status from the story's workflow (falls back to defaultWorkflow for direct store calls)
     const wfName = workflow || this.config.defaultWorkflow;
     const wf = this.workflows[wfName] || this.workflows[this.config.defaultWorkflow]!;
     const initialStatus = getInitialState(wf);
@@ -541,9 +541,9 @@ export class Store {
    * Find the next available task for a teammate.
    * Rules:
    * - Story must be ready (all dependencies met)
-   * - Task must be in its workflow's initial state
-   * - Must be the first such task in the story (sequential)
+   * - Task must have a valid teammate/any transition from its current state
    * - Must not already be assigned
+   * - Within a story, tasks are sequential: only the first eligible task is returned
    */
   getNextAvailableTask(memberCwd?: string): TaskWithMeta | null {
     const stories = this.getStories();
@@ -558,17 +558,27 @@ export class Store {
       }
 
       const wf = this.getWorkflowForStory(story.id);
-      const initialState = getInitialState(wf);
       const doneState = getDoneState(wf);
 
       const tasks = this.getTasksForStory(story.id);
       for (const task of tasks) {
-        if (task.status === initialState) {
-          const assignment = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(task.id);
-          if (!assignment) return task;
-          break;
-        }
-        if (task.status !== doneState) break;
+        // Skip completed tasks
+        if (task.status === doneState) continue;
+
+        // Skip already-assigned tasks
+        const assignment = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(task.id);
+        if (assignment) break; // Sequential: if a task is in progress, don't look further
+
+        // Check if there's a valid teammate/any transition from current state
+        const transitions = wf.transitions[task.status] || {};
+        const hasTeammateTransition = Object.values(transitions).some(
+          (perm) => perm === "teammate" || perm === "any"
+        );
+        if (hasTeammateTransition) return task;
+
+        // If the task isn't done and has no teammate transition, it's blocked (e.g., needs lead)
+        // Stop looking in this story (sequential)
+        break;
       }
     }
     return null;
@@ -1169,9 +1179,9 @@ export class Store {
     if (!story) return false;
 
     const tasks = this.getTasksForStory(storyId);
-    const inProgress = tasks.filter((t) => t.status === "in_progress");
-    if (inProgress.length > 0) {
-      throw new Error(`Cannot delete story "${storyId}": ${inProgress.length} task(s) are in progress`);
+    const activeTasks = tasks.filter((t) => !!this.getAssignment(t.id));
+    if (activeTasks.length > 0) {
+      throw new Error(`Cannot delete story "${storyId}": ${activeTasks.length} task(s) are currently assigned`);
     }
 
     this.removeStoryFromDb(storyId);
@@ -1317,9 +1327,9 @@ export class Store {
     if (!story) throw new Error(`Story "${storyId}" not found`);
 
     const tasks = this.getTasksForStory(storyId);
-    const inProgress = tasks.filter((t) => t.status === "in_progress");
-    if (inProgress.length > 0) {
-      throw new Error(`Cannot backlog story "${storyId}": ${inProgress.length} task(s) are in progress`);
+    const activeTasks = tasks.filter((t) => !!this.getAssignment(t.id));
+    if (activeTasks.length > 0) {
+      throw new Error(`Cannot backlog story "${storyId}": ${activeTasks.length} task(s) are currently assigned`);
     }
 
     const toMove = this.getDependentStoriesTransitive(storyId);

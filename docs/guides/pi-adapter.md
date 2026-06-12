@@ -45,10 +45,10 @@ pi --ppt-worker --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
 
 The teammate loop:
 1. Polls `GET /api/agents/next-work` for unclaimed tasks
-2. Claims task with `POST /api/agents/claim/:id`
-3. Transitions through workflow states
-4. Releases when blocked by lead-only transitions
-5. Loads comments for feedback on re-claimed tasks
+2. Claims task with `POST /api/agents/claim/:id` (daemon transitions to working state)
+3. Does the work
+4. Releases with `POST /api/agents/release/:id` (daemon advances to next state)
+5. On re-claim, loads comments for lead feedback
 
 ### Assistant
 

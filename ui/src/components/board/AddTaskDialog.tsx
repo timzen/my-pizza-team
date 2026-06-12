@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownField } from "@/components/ui/markdown-field";
 import { apiPost } from "@/hooks/useApi";
 
 interface AddTaskDialogProps {
@@ -34,11 +34,11 @@ export function AddTaskDialog({ storyId, open, onClose, onCreated }: AddTaskDial
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) { onClose(); reset(); } }}>
-      <DialogContent>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>Add Task to {storyId}</DialogTitle></DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
-          <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} required /></div>
+          <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full">Add Task</Button>
         </form>

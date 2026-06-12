@@ -1,17 +1,18 @@
 /**
  * WorkflowDetailPage — Shows the full detail of a single workflow,
- * including an SVG-based directed graph visualization and editing controls
- * for states, transitions, and categories.
+ * including an SVG-based directed graph visualization, an edit dialog
+ * for states/transitions, and always-visible instructions and categories.
  */
 
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useApi } from "@/hooks/useApi";
-import { Badge } from "@/components/ui/badge";
+import { useApi, apiPut } from "@/hooks/useApi";
 import { WorkflowGraph, type WorkflowConfig } from "@/components/workflow/WorkflowGraph";
 import { WorkflowPreview } from "@/components/workflow/WorkflowPreview";
 import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
 import { InstructionsEditor } from "@/components/workflow/InstructionsEditor";
-import { GitBranch, ArrowLeft } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { GitBranch, ArrowLeft, Pencil } from "lucide-react";
 
 interface ConfigData {
   port: number;
@@ -26,6 +27,7 @@ export function WorkflowDetailPage() {
   const { name } = useParams<{ name: string }>();
   const { data, loading, refetch } = useApi<WorkflowConfig>(`/api/workflows/${name}`);
   const { data: configData, refetch: refetchConfig } = useApi<ConfigData>("/api/config");
+  const [editorOpen, setEditorOpen] = useState(false);
 
   if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
   if (!data) return <div className="container mx-auto p-6 text-muted-foreground">Workflow not found.</div>;
@@ -35,25 +37,42 @@ export function WorkflowDetailPage() {
     (sum, t) => sum + Object.keys(t).length, 0
   );
 
+  const allCategories = configData?.categories || [];
+  const wfCategories = data.categories || [];
+
   const handleSaved = () => {
     refetch();
     refetchConfig();
   };
 
+  const toggleCategory = async (cat: string) => {
+    if (!configData) return;
+    const current = new Set(wfCategories);
+    if (current.has(cat)) current.delete(cat);
+    else current.add(cat);
+    const updatedWf = { ...data, categories: current.size > 0 ? [...current] : undefined };
+    const updatedConfig = { ...configData, workflows: { ...configData.workflows, [name!]: updatedWf } };
+    const res = await apiPut<{ success: boolean }>("/api/config", updatedConfig);
+    if (res.success) handleSaved();
+  };
+
   return (
     <div className="container mx-auto p-6 space-y-6 max-w-5xl">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <Link to="/workflows" className="text-muted-foreground hover:text-foreground transition-colors">
-          <ArrowLeft className="h-4 w-4" />
-        </Link>
-        <GitBranch className="h-5 w-5" />
-        <h1 className="text-2xl font-bold">{name}</h1>
-        {isDefault && <Badge variant="secondary">default</Badge>}
-      </div>
-
-      <div className="text-sm text-muted-foreground">
-        {data.states.length} states · {transitionCount} transitions
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link to="/workflows" className="text-muted-foreground hover:text-foreground transition-colors">
+            <ArrowLeft className="h-4 w-4" />
+          </Link>
+          <GitBranch className="h-5 w-5" />
+          <h1 className="text-2xl font-bold">{name}</h1>
+          <span className="text-sm text-muted-foreground">
+            {data.states.length} states · {transitionCount} transitions
+          </span>
+        </div>
+        <Button variant="outline" size="sm" onClick={() => setEditorOpen(true)} className="gap-1.5">
+          <Pencil className="h-3.5 w-3.5" /> Edit States & Transitions
+        </Button>
       </div>
 
       {/* Graph visualization */}
@@ -91,6 +110,34 @@ export function WorkflowDetailPage() {
         <WorkflowPreview workflow={data} />
       </section>
 
+      {/* Default categories */}
+      {allCategories.length > 0 && (
+        <section>
+          <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
+            Default Memory Categories
+          </h2>
+          <p className="text-xs text-muted-foreground mb-2">
+            Stories using this workflow inherit these categories unless overridden.
+          </p>
+          <div className="flex gap-1.5 flex-wrap">
+            {allCategories.map((c) => {
+              const selected = wfCategories.includes(c);
+              return (
+                <Button
+                  key={c}
+                  variant={selected ? "default" : "outline"}
+                  size="sm"
+                  className="text-xs h-7"
+                  onClick={() => toggleCategory(c)}
+                >
+                  {c}
+                </Button>
+              );
+            })}
+          </div>
+        </section>
+      )}
+
       {/* State instructions editor */}
       <section>
         <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
@@ -99,20 +146,17 @@ export function WorkflowDetailPage() {
         <InstructionsEditor workflowName={name!} states={data.states} />
       </section>
 
-      {/* Editing controls */}
+      {/* Edit dialog for states & transitions */}
       {configData && (
-        <section>
-          <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
-            Edit Workflow
-          </h2>
-          <WorkflowEditor
-            name={name!}
-            workflow={data}
-            config={configData}
-            isDefault={isDefault ?? false}
-            onSaved={handleSaved}
-          />
-        </section>
+        <WorkflowEditor
+          name={name!}
+          workflow={data}
+          config={configData}
+          isDefault={isDefault ?? false}
+          open={editorOpen}
+          onClose={() => setEditorOpen(false)}
+          onSaved={handleSaved}
+        />
       )}
     </div>
   );

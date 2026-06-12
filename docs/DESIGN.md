@@ -29,25 +29,37 @@ The original design used "messages" as a real-time communication channel between
 
 **Rationale**: Comments are task-level annotations, not a real-time chat channel. Agents load them once when starting work (to see lead feedback or rework instructions), not by continuous polling.
 
-### Agent Lifecycle: Multi-Transition Ownership (2026-06-05)
+### Agent Lifecycle: Simplified Claim/Release (2026-06-11)
 
-The original design assumed a one-shot claim→complete flow: agent claims a task, does one thing, and releases. The new model supports **multi-transition ownership**:
+The multi-transition ownership model (2026-06-05) was further simplified. Agents no longer call transition explicitly — the daemon handles all state management.
 
-| Old Pattern | New Pattern |
-|-------------|-------------|
-| `POST /api/agents/claim/:taskId` — assigns + forces `in_progress` | `POST /api/agents/claim/:taskId` — assigns ownership only, no state change |
-| `POST /api/agents/complete/:taskId` — transitions to review/done + releases | `POST /api/agents/transition/:taskId` — advances to any valid state; auto-releases only on done |
-| Agent polls `next-work` for tasks in initial state only | Agent polls `next-work` for any unclaimed task with a teammate-allowed transition |
-| No explicit release | `POST /api/agents/release/:taskId` — agent parks task when blocked by lead-only transition |
+| Previous Pattern | Current Pattern |
+|-----------------|----------------|
+| `POST /api/agents/claim/:taskId` — assigns ownership only, no state change | `POST /api/agents/claim/:taskId` — assigns ownership AND transitions to working state |
+| `POST /api/agents/transition/:taskId` — agent explicitly advances state | Removed — daemon advances state on claim and release |
+| `POST /api/agents/release/:taskId` — agent parks task when blocked | `POST /api/agents/release/:taskId` — advances to next state, stores result, releases |
 
-**Lifecycle**:
+**Agent loop**:
 ```
-1. Agent polls next-work → unclaimed task with teammate transition
-2. Agent claims (ownership only)
-3. Agent transitions through states it's allowed to (repeatable)
-4. When availableTransitions is empty → agent releases
-5. Lead acts (moves state, adds comments)
-6. Agent re-discovers task on next poll, sees comments, claims again
+1. Poll next-work → get unclaimed task with teammate transitions
+2. Claim → daemon transitions to working state, returns task details + instructions
+3. Do the work
+4. Release (with result) → daemon advances to next state, releases ownership
+5. Repeat
 ```
 
-**Rationale**: Workflows can have multiple agent-driven states (e.g., `todo→coding→testing→review`). The agent should own the task across all consecutive teammate transitions, only handing off when the lead needs to act (e.g., `review→done`). This also supports rework: lead sends task back to an earlier state with comments, agent picks it up again.
+**Rationale**: Agents shouldn't need to understand workflow topology. The daemon knows the workflow graph and makes the correct transitions. This simplifies agent implementations to a pure claim/release loop and eliminates an entire class of bugs where agents call invalid transitions.
+
+### Workflow Required on Story Creation (2026-06-11)
+
+Stories no longer get a default workflow. The `workflow` field is required when creating a story via the API. The UI provides a workflow selector (toggle buttons) in the create story dialog.
+
+**Rationale**: Implicit defaults led to confusion when multiple workflows existed. Making it explicit ensures the creator consciously chooses the right workflow for their story.
+
+### Task Distribution: Workflow-Aware (2026-06-11)
+
+`getNextAvailableTask` (used by `/api/next-task`) no longer only returns tasks in the initial state. It now finds any unassigned task that has a valid `teammate` or `any` transition from its current state.
+
+Similarly, `/api/tasks/:taskId/claim` no longer hardcodes `in_progress` — it finds the first valid teammate transition from the task's current state.
+
+**Rationale**: Custom workflows (e.g., doc-writing: idea→outline→write→edit→publish) have teammate transitions at various points, not just from the initial state.

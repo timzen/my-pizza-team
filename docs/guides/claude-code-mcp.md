@@ -113,15 +113,10 @@ server.setRequestHandler("tools/call", async (request) => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agentId: AGENT_NAME })
     }),
-    mpt_transition_task: () => fetch(`${DAEMON_URL}/api/agents/transition/${args.taskId}`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: AGENT_NAME })
-    }),
     mpt_release_task: () => fetch(`${DAEMON_URL}/api/agents/release/${args.taskId}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId: AGENT_NAME })
+      body: JSON.stringify({ agentId: AGENT_NAME, result: args.result })
     }),
     mpt_post_comment: () => fetch(`${DAEMON_URL}/api/agents/comments/${args.taskId}`, {
       method: "POST",
