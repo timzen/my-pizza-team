@@ -22,7 +22,6 @@ import { AddStoryDialog } from "@/components/board/AddStoryDialog";
 import { EditStoryDialog } from "@/components/board/EditStoryDialog";
 import { AddTaskDialog } from "@/components/board/AddTaskDialog";
 import { EditTaskDialog } from "@/components/board/EditTaskDialog";
-import { SpawnDialog } from "@/components/board/SpawnDialog";
 import { Search, Inbox } from "lucide-react";
 
 interface StoryView {
@@ -190,7 +189,6 @@ export function BoardPage() {
           Inbox
         </Button>
         <AddStoryDialog onCreated={refetch} />
-        <SpawnDialog />
       </div>
 
       {/* Swimlanes */}

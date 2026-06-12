@@ -8,7 +8,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2 } from "lucide-react";
+import { Plus, Trash2, UserPlus } from "lucide-react";
 
 interface QueueItem {
   id: string;
@@ -29,9 +29,12 @@ const STATUS_COLORS: Record<string, string> = {
 
 export function AssistantPage() {
   const { data, refetch } = useApi<{ items: QueueItem[] }>("/api/assistant/queue");
+  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents", [], { pollInterval: 10_000 });
   const [prompt, setPrompt] = useState("");
 
   const items = data?.items || [];
+  const agents = agentsData?.agents || [];
+  const assistantOnline = agents.some(a => a.name.includes("assistant") && a.status !== "offline");
 
   const handleEnqueue = async () => {
     if (!prompt.trim()) return;
@@ -47,7 +50,10 @@ export function AssistantPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <h1 className="text-2xl font-bold">Assistant Queue</h1>
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Assistant Queue</h1>
+        <SpawnAssistantButton disabled={assistantOnline} />
+      </div>
 
       {/* Enqueue */}
       <div className="flex gap-2">
@@ -91,5 +97,41 @@ export function AssistantPage() {
         {items.length === 0 && <p className="text-center text-muted-foreground py-8">Queue is empty.</p>}
       </div>
     </div>
+  );
+}
+
+/** Button to spawn an assistant agent. Disabled if one is already running. */
+function SpawnAssistantButton({ disabled }: { disabled: boolean }) {
+  const [spawning, setSpawning] = useState(false);
+
+  const handleSpawn = async () => {
+    setSpawning(true);
+    try {
+      // Get hosts to find a target
+      const agentsRes = await fetch("/api/agents").then(r => r.json());
+      const hosts = new Set<string>();
+      for (const a of agentsRes.agents || []) {
+        if (a.hostId && a.status !== "offline") hosts.add(a.hostId);
+      }
+      const hostId = [...hosts][0];
+      if (!hostId) { setSpawning(false); return; }
+
+      await apiPost("/api/spawn-requests", { hostId, reason: "assistant" });
+    } finally {
+      setSpawning(false);
+    }
+  };
+
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={handleSpawn}
+      disabled={disabled || spawning}
+      title={disabled ? "Assistant already running" : "Spawn an assistant agent"}
+    >
+      <UserPlus className="h-4 w-4 mr-1" />
+      {disabled ? "Assistant Running" : "Spawn Assistant"}
+    </Button>
   );
 }
