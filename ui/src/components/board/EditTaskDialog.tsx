@@ -79,33 +79,34 @@ export function EditTaskDialog({ task, states, transitions, open, onClose, onUpd
           <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
           <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} />
 
-          {/* Current status display */}
-          <div>
-            <Label>Current Status</Label>
-            <div className="mt-1">
-              <Badge variant="secondary" className="text-sm">{task?.status.replace(/_/g, " ")}</Badge>
-            </div>
-          </div>
-
-          {/* Transition buttons */}
-          {validTransitions.length > 0 && (
+          {/* Status row: current on left, move-to on right */}
+          <div className="flex items-start gap-4">
             <div>
-              <Label>Move To</Label>
-              <div className="flex flex-wrap gap-2 mt-1">
-                {validTransitions.map(targetState => (
-                  <Button
-                    key={targetState}
-                    type="button"
-                    size="sm"
-                    variant={buttonVariant(targetState)}
-                    onClick={() => handleMove(targetState)}
-                  >
-                    {targetState.replace(/_/g, " ")}
-                  </Button>
-                ))}
+              <Label>Current Status</Label>
+              <div className="mt-1">
+                <Badge variant="secondary" className="text-sm">{task?.status.replace(/_/g, " ")}</Badge>
               </div>
             </div>
-          )}
+
+            {validTransitions.length > 0 && (
+              <div className="flex-1">
+                <Label>Move To</Label>
+                <div className="flex flex-wrap gap-2 mt-1">
+                  {validTransitions.map(targetState => (
+                    <Button
+                      key={targetState}
+                      type="button"
+                      size="sm"
+                      variant={buttonVariant(targetState)}
+                      onClick={() => handleMove(targetState)}
+                    >
+                      {targetState.replace(/_/g, " ")}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
 
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">

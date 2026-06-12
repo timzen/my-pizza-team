@@ -31,6 +31,7 @@ Instructions for AI coding agents working on this project.
 
 1. **Update the docs.** Every change that affects the project's behavior, structure, or API must be reflected in:
    - `README.md` — if it changes user-facing behavior, commands, UI, directory structure, or setup
+   - `QUICKSTART.md` — if it changes the getting-started flow
    - `docs/ARCHITECTURE.md` — if it changes modules, API routes, data flow, schema, or internal design decisions
    - `docs/DESIGN.md` — if it introduces new design principles or changes existing rationale
 
@@ -41,13 +42,19 @@ Instructions for AI coding agents working on this project.
 ## Project Structure Reference
 
 ```
-mpt-mcp-server/
+my-pizza-team/
 ├── README.md                 # User-facing docs (keep updated!)
+├── QUICKSTART.md             # Getting started guide (keep updated!)
 ├── docs/
 │   ├── ARCHITECTURE.md       # Internal technical docs (keep updated!)
 │   └── DESIGN.md             # Design philosophy (keep updated!)
-├── src/
-└── tests/                    # Tests (node tests/*.test.mjs)
+├── daemon/
+│   ├── server.ts             # Route orchestrator
+│   ├── store.ts              # SQLite data layer
+│   └── routes/               # Route modules
+├── ui/                       # React frontend
+├── shared/                   # Types, protocol, utilities
+└── tests/                    # Tests (deno test --allow-all tests/)
 ```
 
 ## Reference

@@ -1,44 +1,8 @@
 # my-pizza-team 🍕
 
-> Because the industry has "two pizza teams" and "one pizza teams", but we're a **π pizza team** (3.14 pizzas, the perfect size).
+> A **π pizza team** (3.14 pizzas, the perfect size) — a daemon for multi-agent team coordination.
 
-A daemon for multi-agent team coordination. Manages stories, tasks, workflows, and agent lifecycle. Connects to coding agent harnesses (Pi, Claude Code, Codex) to orchestrate autonomous teammates.
-
-## Quick Start
-
-```bash
-# 1. Install Deno (if you don't have it)
-curl -fsSL https://deno.land/install.sh | sh
-
-# 2. Clone and start
-git clone https://github.com/timzen/my-pizza-team.git
-cd my-pizza-team
-deno task start
-
-# 3. Open the UI
-open http://localhost:7437
-```
-
-Or use the prebuilt binary (no Deno required):
-
-```bash
-# Download for your platform (from GitHub Releases)
-curl -L -o mpt https://github.com/timzen/my-pizza-team/releases/latest/download/mpt-darwin-arm64
-chmod +x mpt
-./mpt
-```
-
-### macOS Menu Bar App
-
-A native menu bar app with start/stop controls and team directory picker:
-
-```bash
-./scripts/build.sh darwin-arm64
-./scripts/package-macos-menubar.sh
-open "dist/My Pizza Team.app"
-```
-
-## What It Does
+Manages stories, tasks, workflows, and agent lifecycle. Connects to coding agent harnesses (Pi, Claude Code, Codex) to orchestrate autonomous teammates.
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -59,8 +23,12 @@ open "dist/My Pizza Team.app"
 ```
 
 - **You** create stories and tasks via the web UI or API
-- **Agent harnesses** poll for work, claim tasks, transition through workflow states
+- **Agent harnesses** poll for work, claim tasks, do the work, and release
 - **The daemon** enforces workflow rules, manages assignments, tracks progress
+
+📖 **New here?** See [QUICKSTART.md](QUICKSTART.md) to get running in 5 minutes.
+
+---
 
 ## CLI Reference
 
@@ -77,14 +45,16 @@ Commands:
   uninstall             Remove system service
 
 Environment:
-  TEAM_DIR    Team directory or its parent (default: ./.pi-pizza-team)
+  TEAM_DIR    Team directory or its parent (default: ./.my-pizza-team)
   PORT        Daemon port (default: 7437)
   HOST        Bind address (default: 127.0.0.1)
 ```
 
+---
+
 ## Configuration
 
-The daemon reads `.pi-pizza-team/config.json`. Minimal:
+The daemon reads `.my-pizza-team/config.json`. Minimal:
 
 ```json
 {
@@ -93,78 +63,281 @@ The daemon reads `.pi-pizza-team/config.json`. Minimal:
 }
 ```
 
-Workflows are defined in the `workflows/` directory with per-state transition instructions:
+### Full Reference
+
+```jsonc
+{
+  // ─── Server ────────────────────────────────────────────────────
+  "port": 7437,
+  "leaderUrl": "http://localhost:7437",
+
+  // ─── Authentication ────────────────────────────────────────────
+  "apiToken": "your-secret-token",       // Required if binding 0.0.0.0
+
+  // ─── Workflow ──────────────────────────────────────────────────
+  "defaultWorkflow": "default",
+
+  // ─── Team ──────────────────────────────────────────────────────
+  "tmuxSession": "my-pizza-team",
+  "maxTeammates": 4,
+  "agentTimeoutSeconds": 90,
+
+  // ─── Autosave ─────────────────────────────────────────────────
+  "autosave": {
+    "flushIntervalMinutes": 30,
+    "commitIntervalHours": 24,
+    "commitMessage": "my-pizza-team: checkpoint {timestamp}",
+    "autoCommit": true
+  },
+
+  // ─── Knowledge Base ────────────────────────────────────────────
+  "categories": ["coding", "research", "doc-writing"],
+
+  // ─── Teammates ─────────────────────────────────────────────────
+  "teammates": {
+    "nouns": ["ripley", "deckard", "neo"],
+    "favoriteDirectories": ["/path/to/project"]
+  },
+
+  // ─── Multi-Machine Hosts ──────────────────────────────────────
+  "hosts": {
+    "macbook": {
+      "favoriteDirectories": ["/Users/you/work"],
+      "tmuxSession": "pizza-mac"
+    }
+  }
+}
+```
+
+### Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `TEAM_DIR` | `./.my-pizza-team` | Path to team dir (or parent) |
+| `PORT` | `7437` | Daemon HTTP port |
+| `HOST` | `127.0.0.1` | Bind address (`0.0.0.0` requires apiToken) |
+| `MPT_API_TOKEN` | — | Overrides config.apiToken |
+
+### Team Directory Layout
 
 ```
-.pi-pizza-team/
+.my-pizza-team/
 ├── config.json
-└── workflows/
-    └── default/
-        ├── workflow.json       # States + transitions
-        ├── in_progress.md     # Instructions for agents entering this state
-        └── leader_review.md   # Instructions for entering review
+├── store.db             # SQLite runtime index
+├── workflows/
+│   └── default/
+│       ├── workflow.json
+│       └── *.md         # Transition instructions per state
+├── stories/
+│   └── my-story/
+│       ├── story.json
+│       └── tasks/
+│           └── 01-task-slug/
+│               ├── task.json
+│               ├── comments.jsonl
+│               └── attachments/
+├── archived/
+├── backlog/
+└── notes/               # Knowledge base markdown files
 ```
 
-📖 **Full details:** [docs/configuration.md](docs/configuration.md) | [docs/workflows.md](docs/workflows.md)
+---
+
+## Workflows
+
+Workflows define the states tasks move through and who can trigger each transition.
+
+### workflow.json
+
+```json
+{
+  "states": ["todo", "in_progress", "leader_review", "done"],
+  "transitions": {
+    "todo": { "in_progress": "any" },
+    "in_progress": { "leader_review": "teammate" },
+    "leader_review": { "done": "lead", "in_progress": "lead" }
+  }
+}
+```
+
+**States**: Ordered list. First = initial state for new tasks, last = terminal "done" state (override with `initialState`/`doneState`).
+
+**Transitions**: Map of `fromState → { toState: permission }`:
+
+| Permission | Who can trigger | Use case |
+|-----------|----------------|----------|
+| `"any"` | Lead or teammate | Starting work |
+| `"teammate"` | Only agents | Autonomous work (coding, testing) |
+| `"lead"` | Only the human | Review gates, approvals |
+
+### Transition Instructions
+
+Markdown files in the workflow directory guide agents when entering a state. Filename matches state name:
+
+```
+workflows/default/
+├── workflow.json
+├── in_progress.md       # Shown when entering in_progress
+└── leader_review.md     # Shown when entering leader_review
+```
+
+Example `leader_review.md`:
+
+```markdown
+## On Enter
+- Create a diff: `git diff HEAD~1 --output=/tmp/<TASKID>.diff`
+- Upload the diff using upload_attachment
+- Post a summary of what you accomplished
+
+## Exit Criteria
+- All review comments addressed
+- Lead approves or has no comments
+```
+
+### Multiple Workflows
+
+Define different workflows for different types of work:
+
+```
+workflows/
+├── default/         # Standard dev: todo → in_progress → review → done
+├── bugfix/          # Simplified: todo → fixing → done
+└── doc-writing/     # idea → outline → write → edit → publish
+```
+
+Assign a workflow when creating a story (required).
+
+---
+
+## Agent Protocol
+
+Agents use a simple claim/release loop. The daemon handles all state transitions:
+
+```
+1. POST /api/agents/register       → register with daemon
+2. GET  /api/agents/next-work      → { task: { id, storyId, title } | null }
+3. POST /api/agents/claim/:id      → assigns + transitions to working state
+   (agent does the work)
+4. POST /api/agents/release/:id    → advances state, stores result, releases
+5. POST /api/agents/heartbeat      → keep-alive
+```
+
+### What the agent gets on claim
+
+| Field | Description |
+|-------|-------------|
+| `story` | Story title and description (the big picture) |
+| `task` | Task details, previous task results, lead comments |
+| `stateContext` | What state you entered, where release goes, exit criteria |
+| `instructions` | Workflow instruction file content for the entered state |
+
+---
+
+## Harness Guides
+
+### Pi (Native Extension)
+
+The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension provides native leader + teammate integration:
+
+```bash
+pi install git:github.com/timzen/pi-pizza-team
+```
+
+The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → release → repeat.
+
+### Claude Code (MCP Server)
+
+Use the [mpt-mcp-server](https://github.com/timzen/mpt-mcp-server) as an MCP bridge:
+
+```json
+{
+  "mcpServers": {
+    "mpt": {
+      "command": "node",
+      "args": ["/path/to/mpt-mcp-server/src/index.mjs"],
+      "env": {
+        "MPT_DAEMON_URL": "http://localhost:7437",
+        "MPT_AGENT_ID": "claude-1",
+        "MPT_ROLE": "teammate"
+      }
+    }
+  }
+}
+```
+
+The MCP server exposes tools: `get_next_work`, `claim_task`, `release_task`, `post_comment`, `upload_attachment`, `search_memory`.
+
+### Codex (Shell Wrapper)
+
+A shell-based runner that polls for work and executes via Codex CLI:
+
+```bash
+#!/bin/bash
+DAEMON_URL="http://localhost:7437"
+AGENT_NAME="codex-1"
+
+# Register
+curl -s -X POST "$DAEMON_URL/api/agents/register" \
+  -H "Content-Type: application/json" \
+  -d "{\"id\": \"$AGENT_NAME\", \"name\": \"$AGENT_NAME\", \"cwd\": \"$(pwd)\"}"
+
+# Poll → claim → execute → release loop
+while true; do
+  TASK=$(curl -s "$DAEMON_URL/api/agents/next-work?agentId=$AGENT_NAME" | jq -r '.task.id // empty')
+  [ -z "$TASK" ] && sleep 5 && continue
+
+  # Claim (daemon transitions to working state)
+  CLAIM=$(curl -s -X POST "$DAEMON_URL/api/agents/claim/$TASK" \
+    -H "Content-Type: application/json" \
+    -d "{\"agentId\": \"$AGENT_NAME\"}")
+
+  # Execute with codex...
+  RESULT="Work completed"
+
+  # Release (daemon advances to next state)
+  curl -s -X POST "$DAEMON_URL/api/agents/release/$TASK" \
+    -H "Content-Type: application/json" \
+    -d "{\"agentId\": \"$AGENT_NAME\", \"result\": \"$RESULT\"}"
+done
+```
+
+---
 
 ## API Overview
 
-| Group | Endpoints | Purpose |
+| Group | Key Endpoints | Purpose |
 |-------|-----------|---------|
-| Health | `GET /health` | Uptime, agents, queue depth, memory |
-| Stories | `/api/stories/*` | CRUD for stories |
-| Tasks | `/api/tasks/*` | CRUD + status transitions + attachments |
-| Agents | `/api/agents/*` | Register, heartbeat, claim, transition, release |
-| Team | `/api/team/*` | Join, heartbeat, list members |
+| Health | `GET /health` | Uptime, agents, memory |
+| Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
+| Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
+| Agents | `/api/agents/*` | Register, heartbeat, claim, release |
+| Team | `/api/team/*` | Legacy teammate protocol |
 | Assistant | `/api/assistant/*` | Queue + knowledge base |
-| Control | `/api/control/*` | Pause/resume task distribution |
+| Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
+| Workflows | `GET /api/workflows/*` | List, view, manage workflows |
 
-### Agent Protocol
+Full API route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 
-```
-1. POST /api/agents/register       → { agentId }
-2. GET  /api/agents/next-work      → { task, availableTransitions }
-3. POST /api/agents/claim/:id      → assigns + transitions to working state
-4. (agent does the work)
-5. POST /api/agents/release/:id    → advances state, stores result, releases
-6. POST /api/agents/heartbeat      → keep-alive (dismissed:true = shut down)
-```
-
-📖 **Full API:** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
-
-## Documentation
-
-| Doc | Description |
-|-----|-------------|
-| [Configuration](docs/configuration.md) | Full config.json reference, env vars, directory layout |
-| [Workflows](docs/workflows.md) | Workflow definitions, transitions, instructions |
-| [Architecture](docs/ARCHITECTURE.md) | Module map, API routes, data flow, design decisions |
-| [Design](docs/DESIGN.md) | Philosophy, principles, change log |
-
-### Harness Setup Guides
-
-| Guide | Description |
-|-------|-------------|
-| [Pi Adapter](docs/guides/pi-adapter.md) | Native Pi extension (leader + teammates) |
-| [Claude Code + MCP](docs/guides/claude-code-mcp.md) | MCP server bridge for Claude Code |
-| [Codex Wrapper](docs/guides/codex-wrapper.md) | Shell-based Codex CLI runner |
+---
 
 ## Project Structure
 
 ```
 my-pizza-team/
 ├── daemon/            # HTTP server (Hono on Deno.serve)
-├── cli/               # CLI (start/stop/status/install/upgrade/rotate-token)
+│   ├── server.ts      # Route orchestrator
+│   ├── store.ts       # SQLite data layer
+│   └── routes/        # Route modules (shared, stories, tasks, agents, etc.)
+├── cli/               # CLI (start/stop/status/install/upgrade)
 ├── ui/                # Frontend (React + Vite + shadcn/ui)
 ├── shared/            # Shared types, utilities, protocol contracts
-├── desktop/           # Native platform tray/menu bar apps
-│   ├── macos/         # SwiftUI menu bar app
-│   └── windows/       # PowerShell system tray app
-├── scripts/           # Build, cross-compile, and packaging scripts
-├── .github/workflows/ # CI + release automation
+├── desktop/           # Native tray/menu bar apps (macOS, Windows)
+├── scripts/           # Build and packaging scripts
 ├── tests/             # Integration and unit tests
-└── docs/              # Documentation
+└── docs/              # Architecture and design docs
 ```
+
+---
 
 ## Development
 
@@ -175,19 +348,14 @@ deno task test         # Run tests
 deno task check        # Type-check
 ```
 
-## Building & Releases
+## Building
 
 ```bash
 deno task compile              # Single binary (current platform)
 deno task compile:all          # All platforms → dist/
-./scripts/package-macos-menubar.sh  # macOS .app with menu bar
 ```
 
-Tag a version to trigger a GitHub Release:
-
-```bash
-git tag v0.2.0 && git push origin v0.2.0
-```
+---
 
 ## License
 

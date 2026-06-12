@@ -115,6 +115,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       guidance += ` When your work is complete, release the task.`;
     }
 
+    // Hint about available memory if the story has categories
+    const storyCategories = story?.categories || [];
+    const wfCategories = wf.categories || [];
+    const allCategories = [...new Set([...storyCategories, ...wfCategories])];
+    if (allCategories.length > 0) {
+      guidance += ` There are knowledge base notes available in categories: ${allCategories.join(", ")}. Use search_memory if you need additional context.`;
+    }
+
     return c.json({
       success: true,
       story: story ? { id: story.id, title: story.title, description: story.description } : undefined,

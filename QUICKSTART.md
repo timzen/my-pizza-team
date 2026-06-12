@@ -1,4 +1,4 @@
-# Quick Start Guide 🍕
+# Quick Start 🍕
 
 Get a π pizza team running in under 5 minutes.
 
@@ -16,7 +16,15 @@ Download the prebuilt binary for your platform from [GitHub Releases](https://gi
 # Example: macOS Apple Silicon
 curl -L -o mpt https://github.com/timzen/my-pizza-team/releases/latest/download/mpt-darwin-arm64
 chmod +x mpt
-sudo mv mpt /usr/local/bin/   # or anywhere on your PATH
+sudo mv mpt /usr/local/bin/
+```
+
+Or run from source with Deno:
+
+```bash
+git clone https://github.com/timzen/my-pizza-team.git
+cd my-pizza-team
+deno task start
 ```
 
 ## 2. Get Pi
@@ -35,14 +43,14 @@ pi install git:github.com/timzen/pi-pizza-team
 
 This adds the leader/teammate integration that connects Pi to the daemon.
 
-## 4. Create a git repository for your team
+## 4. Create a team directory
 
 ```bash
-git clone ssh://git.service.com/username/my-team
-cd my-team
+mkdir my-team && cd my-team
+git init
 ```
 
-This is where the daemon will store stories, tasks, workflows, and knowledge. The `.my-pizza-team/` directory is auto-created on first run and committed alongside your project.
+The daemon stores stories, tasks, workflows, and knowledge in a `.pi-pizza-team/` directory, auto-created on first run.
 
 ## 5. Start the daemon
 
@@ -51,7 +59,7 @@ mpt start --daemon
 ```
 
 This starts the daemon in the background. It will:
-- Create `.my-pizza-team/` with default config, workflows, and database
+- Create `.pi-pizza-team/` with default config and workflows
 - Serve the API and web UI on `http://localhost:7437`
 
 ## 6. Run Pi
@@ -60,17 +68,17 @@ This starts the daemon in the background. It will:
 pi
 ```
 
-Pi auto-detects the `.my-pizza-team/` directory and activates leader mode. You can now create stories, spawn teammates, and manage your board from the Pi session.
+Pi auto-detects the `.pi-pizza-team/` directory and activates leader mode. Create stories, spawn teammates, and manage your board.
 
 ## 7. Open the UI
 
-Visit **[http://localhost:7437/](http://localhost:7437/)** in your browser to see the board, manage stories, configure workflows, and monitor your team.
+Visit **http://localhost:7437/** to see the board, manage stories, configure workflows, and monitor your team.
 
 ---
 
-## What's next?
+## Next steps
 
-- **Create a story** — via the UI or from Pi: `/ppt-spawn` to hire teammates
+- **Create a story** — via the UI board page (requires selecting a workflow)
+- **Spawn teammates** — use the Spawn button in the UI or `/ppt-spawn` in Pi
 - **Configure workflows** — visit the Workflows page to customize states and transitions
-- **Add teammates** — `/ppt-spawn` in Pi or use the Agents page in the UI
-- **Read the docs** — [Configuration](configuration.md) | [Workflows](workflows.md) | [Architecture](ARCHITECTURE.md)
+- **Read the full docs** — see [README.md](README.md) for configuration, workflows, and harness guides
