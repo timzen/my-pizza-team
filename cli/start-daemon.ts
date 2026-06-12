@@ -42,7 +42,17 @@ export async function startDaemonInProcess(
   }
 
   // Create the app and store
-  const { app, store } = createApp(teamDir);
+  let app, store;
+  try {
+    const ctx = createApp(teamDir);
+    app = ctx.app;
+    store = ctx.store;
+  } catch (e) {
+    console.error(`❌ Failed to initialize daemon: ${(e as Error).message}`);
+    console.error(`   Team dir: ${teamDir}`);
+    console.error(`   This often means SQLite failed to load. Ensure libsqlite3 is available.`);
+    Deno.exit(1);
+  }
 
   // Validate bind safety: refuse 0.0.0.0 without a token
   const configPath = path.join(teamDir, "config.json");

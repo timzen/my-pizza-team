@@ -89,22 +89,44 @@ class DaemonManager {
             return
         }
 
+        // Validate team dir exists or can be created
+        if !teamDir.isEmpty && !FileManager.default.fileExists(atPath: teamDir) {
+            do {
+                try FileManager.default.createDirectory(atPath: teamDir, withIntermediateDirectories: true)
+            } catch {
+                NSLog("Failed to create team dir: \(error)")
+                return
+            }
+        }
+
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: binary)
-        proc.arguments = ["start"] // CLI entry point requires the start subcommand
+        proc.arguments = ["start"]
         var env = ProcessInfo.processInfo.environment
         if !teamDir.isEmpty {
             env["TEAM_DIR"] = teamDir
         }
         env["PORT"] = String(port)
         proc.environment = env
-        proc.standardOutput = FileHandle.nullDevice
-        proc.standardError = FileHandle.nullDevice
+
+        // Log stdout/stderr to a file for debugging
+        let logDir = teamDir.isEmpty
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".my-pizza-team").path
+            : teamDir
+        if !FileManager.default.fileExists(atPath: logDir) {
+            try? FileManager.default.createDirectory(atPath: logDir, withIntermediateDirectories: true)
+        }
+        let logFile = (logDir as NSString).appendingPathComponent("daemon.log")
+        FileManager.default.createFile(atPath: logFile, contents: nil)
+        let logHandle = FileHandle(forWritingAtPath: logFile)
+        logHandle?.seekToEndOfFile()
+        proc.standardOutput = logHandle ?? FileHandle.nullDevice
+        proc.standardError = logHandle ?? FileHandle.nullDevice
 
         do {
             try proc.run()
             self.process = proc
-            NSLog("mpt daemon started (PID: \(proc.processIdentifier))")
+            NSLog("mpt daemon started (PID: \(proc.processIdentifier)), log: \(logFile)")
         } catch {
             NSLog("Failed to start mpt: \(error)")
         }
