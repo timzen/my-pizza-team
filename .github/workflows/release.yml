@@ -4,11 +4,10 @@
 # the macOS menu bar app, and creates a GitHub Release with artifacts.
 #
 # Targets:
-#   - mpt-darwin-arm64  (macOS Apple Silicon)
-#   - mpt-darwin-x64    (macOS Intel)
+#   - mpt-darwin-arm64  (macOS Apple Silicon, signed)
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
-#   - My Pizza Team.dmg (macOS universal menu bar app, arm64 + x64 via lipo)
+#   - My Pizza Team.dmg (macOS menu bar app, arm64 only — lipo/universal breaks Deno V8)
 
 name: Release
 
@@ -33,9 +32,6 @@ jobs:
         include:
           - target: darwin-arm64
             deno-target: aarch64-apple-darwin
-            os: macos-latest
-          - target: darwin-x64
-            deno-target: x86_64-apple-darwin
             os: macos-latest
           - target: linux-x64
             deno-target: x86_64-unknown-linux-gnu
@@ -80,6 +76,23 @@ jobs:
             --output dist/mpt-${{ matrix.target }} \
             main.ts
 
+      - name: Sign macOS binary
+        if: runner.os == 'macOS' && secrets.APPLE_CERTIFICATE_P12 != ''
+        env:
+          P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
+          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          MPT_SIGNATURE: ${{ secrets.MPT_SIGNATURE }}
+        run: |
+          echo "$P12_BASE64" | base64 --decode > cert.p12
+          security create-keychain -p "" build.keychain
+          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "" build.keychain
+          codesign --force --options runtime --sign "$MPT_SIGNATURE" dist/mpt-${{ matrix.target }}
+          codesign --verify --strict dist/mpt-${{ matrix.target }}
+          echo "✅ Binary signed"
+
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
@@ -87,7 +100,7 @@ jobs:
           path: dist/mpt-${{ matrix.target }}*
 
   macos-app:
-    name: Build macOS Universal Menu Bar App
+    name: Build macOS Menu Bar App
     runs-on: macos-latest
     needs: build
     env:
@@ -103,22 +116,16 @@ jobs:
           name: mpt-darwin-arm64
           path: dist/
 
-      - name: Download x64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: mpt-darwin-x64
-          path: dist/
-
-      - name: Create universal mpt binary
+      - name: Use arm64 mpt binary (universal/lipo breaks Deno V8 memory mapping)
         run: |
-          chmod +x dist/mpt-darwin-arm64 dist/mpt-darwin-x64
-          lipo -create dist/mpt-darwin-arm64 dist/mpt-darwin-x64 -output dist/mpt-universal
-          file dist/mpt-universal
+          chmod +x dist/mpt-darwin-arm64
+          cp dist/mpt-darwin-arm64 dist/mpt
+          file dist/mpt
 
-      - name: Build universal SwiftUI menu bar app
+      - name: Build SwiftUI menu bar app
         run: |
           cd desktop/macos
-          swift build -c release --arch arm64 --arch x86_64
+          swift build -c release --arch arm64
 
       - name: Package .app bundle
         run: |
@@ -126,9 +133,9 @@ jobs:
           mkdir -p "$APP_DIR/Contents/MacOS"
           mkdir -p "$APP_DIR/Contents/Resources"
 
-          # Copy binaries (both universal)
-          cp desktop/macos/.build/apple/Products/Release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
-          cp dist/mpt-universal "$APP_DIR/Contents/MacOS/mpt"
+          # Copy binaries
+          cp desktop/macos/.build/release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+          cp dist/mpt "$APP_DIR/Contents/MacOS/mpt"
           chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
           chmod +x "$APP_DIR/Contents/MacOS/mpt"
 
