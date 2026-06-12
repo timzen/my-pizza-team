@@ -4,9 +4,11 @@
  * are in a dropdown beside the Board link to reduce clutter.
  */
 
+import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, ChevronDown } from "lucide-react";
+import { Pizza, Settings, ChevronDown, Pause, Play } from "lucide-react";
+import { apiPost } from "@/hooks/useApi";
 import {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -75,8 +77,9 @@ export function NavBar() {
           </DropdownMenu>
         </nav>
 
-        {/* Config gear icon + theme toggle */}
+        {/* Pause/play, config gear, theme toggle */}
         <div className="flex items-center gap-1">
+          <PauseButton />
           <Link
             to="/config"
             className={`p-2 rounded-md transition-colors ${
@@ -92,5 +95,30 @@ export function NavBar() {
         </div>
       </div>
     </header>
+  );
+}
+
+/** Toggle button for pausing/resuming task distribution */
+function PauseButton() {
+  const [paused, setPaused] = useState(false);
+
+  const toggle = async () => {
+    const endpoint = paused ? "/api/control/resume" : "/api/control/pause";
+    await apiPost(endpoint, {});
+    setPaused(!paused);
+  };
+
+  return (
+    <button
+      onClick={toggle}
+      className={`p-2 rounded-md transition-colors ${
+        paused
+          ? "text-amber-500 hover:text-amber-600 hover:bg-accent/50"
+          : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+      }`}
+      title={paused ? "Resume task distribution" : "Pause task distribution"}
+    >
+      {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
+    </button>
   );
 }
