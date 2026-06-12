@@ -57,7 +57,7 @@ export function NavBar() {
           ))}
         </nav>
 
-        {/* Pause/play, help, config gear, theme toggle */}
+        {/* More, pause/play, help, config gear, theme toggle */}
         <div className="flex items-center gap-1">
 
           {/* Dropdown for Backlog & Archive */}
@@ -68,6 +68,8 @@ export function NavBar() {
                   ? "bg-accent text-accent-foreground font-medium"
                   : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
               }`}
+
+              title="Menu"
             >
               <CircleEllipsis className="h-4 w-4" />
             </DropdownMenuTrigger>
