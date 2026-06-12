@@ -12,7 +12,6 @@ General ideas I have and want to implement
 
 ## Workflow
 
-- Remove the default and make it explicitly chosen per story
 - One shot templates! Kind of like reusable stories for a single task, that task when done gets archived to the common story. I think an iconic one would be a "research workflow" that has instructions on the tools to use for gathering data, a step to compile all the notes, and another to produce a report. I just want to say "go research this" and let the task go without having to make a whole new story with a single task. Alternative example is a one shot to draft an email or message.
 
 ## Home UI
@@ -24,10 +23,6 @@ General ideas I have and want to implement
     - There is a step forward/backwards button
     - It uses the actual APIs and renders the request/responses 
     - Let's the user see how an agent consumes work and what data it gets when it does
-
-## Workflow UI
-
-- Move edit to a dialog? Just the states/transitions; instructions and default categories remain always visible
 
 ## Board UI
 

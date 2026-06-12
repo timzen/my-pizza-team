@@ -157,15 +157,11 @@ export interface AgentNextWorkResponse { task: { id: string; storyId: string; ti
 
 // POST /api/agents/claim/:taskId
 export interface AgentClaimRequest { agentId: string }
-export interface AgentClaimResponse { success: boolean; error?: string; task?: { id: string; storyId: string; title: string; description: string; status: string }; availableTransitions?: Array<{ state: string; permission: string }> }
-
-// POST /api/agents/transition/:taskId
-export interface AgentTransitionRequest { agentId: string; status: string; result?: string }
-export interface AgentTransitionResponse { success: boolean; error?: string; released?: boolean; instructions?: string; availableTransitions?: Array<{ state: string; permission: string }> }
+export interface AgentClaimResponse { success: boolean; error?: string; task?: { id: string; storyId: string; title: string; description: string; status: string; context?: string; comments?: Array<{ from: string; body: string; at: string }> }; instructions?: string }
 
 // POST /api/agents/release/:taskId
-export interface AgentReleaseRequest { agentId: string }
-export interface AgentReleaseResponse { success: boolean; error?: string }
+export interface AgentReleaseRequest { agentId: string; result?: string }
+export interface AgentReleaseResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean; instructions?: string }
 
 // GET /api/agents/comments/:taskId
 export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }

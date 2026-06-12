@@ -7,7 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
+import { DirectoryInput } from "@/components/ui/directory-input";
+import { MarkdownField } from "@/components/ui/markdown-field";
 import { apiPut, apiDelete } from "@/hooks/useApi";
 
 interface StoryData {
@@ -52,12 +53,12 @@ export function EditStoryDialog({ story, open, onClose, onUpdated }: EditStoryDi
 
   return (
     <Dialog open={open} onOpenChange={(o) => { if (!o) onClose(); }}>
-      <DialogContent>
+      <DialogContent className="max-w-2xl max-h-[85vh] overflow-y-auto">
         <DialogHeader><DialogTitle>Edit Story: {story?.id}</DialogTitle></DialogHeader>
         <form onSubmit={handleSave} className="space-y-4">
           <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
-          <div><Label>Description</Label><Textarea value={description} onChange={e => setDescription(e.target.value)} rows={3} required /></div>
-          <div><Label>Directory</Label><Input value={dir} onChange={e => setDir(e.target.value)} placeholder="~/projects/foo" /></div>
+          <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required />
+          <div><Label>Directory</Label><DirectoryInput value={dir} onChange={setDir} /></div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             <Button type="submit" className="flex-1">Save</Button>

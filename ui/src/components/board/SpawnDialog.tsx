@@ -2,9 +2,8 @@
  * SpawnDialog — Modal to spawn a new teammate.
  *
  * Provides:
- * - Story selection (from open stories) so the agent knows what to work on
  * - Host selection (from connected leaders/agents)
- * - Optional working directory override
+ * - Working directory input with favorites and story directories combined
  */
 
 import { useState, useEffect } from "react";
@@ -13,6 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { DirectoryInput } from "@/components/ui/directory-input";
 import { UserPlus } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
@@ -35,12 +35,11 @@ interface AgentOption {
 
 export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
   const [open, setOpen] = useState(false);
-  const [storyId, setStoryId] = useState("");
   const [hostId, setHostId] = useState("");
   const [cwd, setCwd] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
-  const [stories, setStories] = useState<StoryOption[]>([]);
+  const [storyDirs, setStoryDirs] = useState<string[]>([]);
   const [hosts, setHosts] = useState<string[]>([]);
 
   // Load stories and agents when dialog opens
@@ -50,14 +49,16 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
     fetch("/api/stories")
       .then(r => r.json())
       .then((data: { stories: StoryOption[] }) => {
-        setStories(data.stories.filter(s => (s as any).status === "open"));
+        const dirs = data.stories
+          .filter(s => (s as any).status === "open" && s.dir)
+          .map(s => s.dir!);
+        setStoryDirs([...new Set(dirs)]);
       })
       .catch(() => {});
 
     fetch("/api/agents")
       .then(r => r.json())
       .then((data: { agents: AgentOption[] }) => {
-        // Collect unique hostIds from online agents
         const hostIds = new Set<string>();
         for (const agent of data.agents) {
           if (agent.hostId && agent.status !== "offline") {
@@ -66,21 +67,12 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
         }
         const hostList = Array.from(hostIds);
         setHosts(hostList);
-        // Auto-select first available host
         if (hostList.length > 0 && !hostId) {
           setHostId(hostList[0]!);
         }
       })
       .catch(() => {});
   }, [open]);
-
-  // When story changes, auto-fill cwd from story dir
-  useEffect(() => {
-    if (storyId) {
-      const story = stories.find(s => s.id === storyId);
-      if (story?.dir) setCwd(story.dir);
-    }
-  }, [storyId, stories]);
 
   const handleSpawn = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -94,11 +86,9 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
     const res = await apiPost<{ success: boolean; request?: { id: string }; error?: string }>("/api/spawn-requests", {
       hostId,
       cwd: cwd || undefined,
-      storyId: storyId || undefined,
     });
     if (res.success) {
       setSuccess("Spawn request sent! The leader will create the agent.");
-      setStoryId("");
       setCwd("");
       onSpawned?.();
       setTimeout(() => setOpen(false), 1500);
@@ -116,23 +106,6 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
         <DialogContent>
           <DialogHeader><DialogTitle>Spawn Teammate</DialogTitle></DialogHeader>
           <form onSubmit={handleSpawn} className="space-y-4">
-            {/* Story selection */}
-            <div className="space-y-1.5">
-              <Label>Story (optional)</Label>
-              <Select value={storyId} onValueChange={(v) => setStoryId(v ?? "")}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Any available task" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="">Any available task</SelectItem>
-                  {stories.map(s => (
-                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              <p className="text-xs text-muted-foreground">Focus the agent on a specific story, or leave blank for any open task.</p>
-            </div>
-
             {/* Host selection */}
             <div className="space-y-1.5">
               <Label>Host</Label>
@@ -158,8 +131,8 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
             {/* Working directory */}
             <div className="space-y-1.5">
               <Label>Working Directory (optional)</Label>
-              <Input value={cwd} onChange={e => setCwd(e.target.value)} placeholder="~/projects/my-app" />
-              <p className="text-xs text-muted-foreground">Override where the agent works. Auto-filled from story directory if set.</p>
+              <DirectoryInput value={cwd} onChange={setCwd} extraDirectories={storyDirs} />
+              <p className="text-xs text-muted-foreground">Select from favorites or story directories, or type a custom path.</p>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}

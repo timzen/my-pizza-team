@@ -91,13 +91,8 @@ while true; do
 
   echo "📋 Claiming task: $TASK_TITLE ($TASK_ID)"
 
-  # Claim the task
+  # Claim the task (daemon transitions to working state)
   curl -s -X POST "$DAEMON_URL/api/agents/claim/$TASK_ID" \
-    -H "Content-Type: application/json" \
-    -d "{\"agentId\": \"$AGENT_NAME\"}" > /dev/null
-
-  # Transition to working state
-  curl -s -X POST "$DAEMON_URL/api/agents/transition/$TASK_ID" \
     -H "Content-Type: application/json" \
     -d "{\"agentId\": \"$AGENT_NAME\"}" > /dev/null
 
@@ -121,11 +116,6 @@ while true; do
     curl -s -X POST "$DAEMON_URL/api/agents/comments/$TASK_ID" \
       -H "Content-Type: application/json" \
       -d "{\"agentId\": \"$AGENT_NAME\", \"body\": \"Task completed by Codex runner.\"}" > /dev/null
-
-    # Transition to next state (e.g., review)
-    curl -s -X POST "$DAEMON_URL/api/agents/transition/$TASK_ID" \
-      -H "Content-Type: application/json" \
-      -d "{\"agentId\": \"$AGENT_NAME\"}" > /dev/null
   else
     echo "❌ Codex failed for task: $TASK_TITLE"
 
@@ -135,10 +125,10 @@ while true; do
       -d "{\"agentId\": \"$AGENT_NAME\", \"body\": \"Codex execution failed. Manual intervention needed.\"}" > /dev/null
   fi
 
-  # Release the task (let lead review)
+  # Release the task (daemon advances to next state)
   curl -s -X POST "$DAEMON_URL/api/agents/release/$TASK_ID" \
     -H "Content-Type: application/json" \
-    -d "{\"agentId\": \"$AGENT_NAME\"}" > /dev/null
+    -d "{\"agentId\": \"$AGENT_NAME\", \"result\": \"Codex run complete\"}" > /dev/null
 
   echo "---"
 done
@@ -200,9 +190,9 @@ The typical flow:
 
 ```
 1. Lead creates story + tasks via UI
-2. mpt-codex-runner polls, claims task
+2. mpt-codex-runner polls, claims task (daemon transitions to working state)
 3. Codex executes in full-auto mode
-4. Runner transitions to review state
+4. Runner releases task (daemon advances to next state)
 5. Lead reviews via UI, approves or sends back with comments
 6. If sent back: runner picks up again, sees comments, re-executes
 ```

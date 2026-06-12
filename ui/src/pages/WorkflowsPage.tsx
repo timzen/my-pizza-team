@@ -8,7 +8,6 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { GitBranch, Plus, ArrowRight } from "lucide-react";
@@ -98,7 +97,6 @@ export function WorkflowsPage() {
             <CardContent className="p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <span className="font-semibold">{wf.name}</span>
-                {wf.isDefault && <Badge variant="secondary">default</Badge>}
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{wf.stateCount} states</span>

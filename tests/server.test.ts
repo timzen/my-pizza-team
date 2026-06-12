@@ -49,7 +49,7 @@ Deno.test("POST /api/stories creates a story", async () => {
     const res = await app.request("/api/stories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: "s1", title: "Story 1", description: "Test", tasks: [{ title: "T1", description: "D1" }] }),
+      body: JSON.stringify({ id: "s1", title: "Story 1", description: "Test", workflow: "default", tasks: [{ title: "T1", description: "D1" }] }),
     });
     assertEquals(res.status, 201);
     const body = await res.json();
@@ -66,7 +66,7 @@ Deno.test("POST /api/stories rejects duplicate", async () => {
     const res = await app.request("/api/stories", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id: "s1", title: "Dup", description: "D" }),
+      body: JSON.stringify({ id: "s1", title: "Dup", description: "D", workflow: "default" }),
     });
     assertEquals(res.status, 409);
   } finally { cleanup(teamDir, store); }

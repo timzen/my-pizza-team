@@ -141,6 +141,9 @@ export function BoardPage() {
   const editTaskStory = stories.find(s => s.tasks.some(t => t.id === editTaskId)) || null;
   const editTask = editTaskStory?.tasks.find(t => t.id === editTaskId) || null;
   const editTaskStates = editTaskStory ? getStatesForStory(editTaskStory) : defaultStates;
+  const editTaskTransitions = editTaskStory
+    ? (workflows[editTaskStory.workflow || defaultWorkflow]?.transitions || {})
+    : (workflows[defaultWorkflow]?.transitions || {});
 
   const handleArchive = async (storyId: string) => {
     if (!confirm(`Archive story "${storyId}"? Tasks not in 'done' will be force-completed.`)) return;
@@ -214,7 +217,7 @@ export function BoardPage() {
 
       {/* Dialogs */}
       <EditStoryDialog story={editStory} open={!!editStoryId} onClose={() => setEditStoryId(null)} onUpdated={refetch} />
-      <EditTaskDialog task={editTask} states={editTaskStates} open={!!editTaskId} onClose={() => setEditTaskId(null)} onUpdated={refetch} />
+      <EditTaskDialog task={editTask} states={editTaskStates} transitions={editTaskTransitions} open={!!editTaskId} onClose={() => setEditTaskId(null)} onUpdated={refetch} />
       <AddTaskDialog storyId={addTaskStoryId} open={!!addTaskStoryId} onClose={() => setAddTaskStoryId(null)} onCreated={refetch} />
     </div>
   );
