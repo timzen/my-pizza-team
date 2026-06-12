@@ -79,10 +79,10 @@ Deno.test("GET /api/agents/next-work returns unclaimed task with teammate transi
     const body = await res.json();
     assertEquals(body.task?.id, "s1-1");
     assertEquals(body.task?.storyId, "s1");
-    assertEquals(body.task?.status, "todo");
-    // Should include available transitions
-    assertEquals(Array.isArray(body.task?.availableTransitions), true);
-    assertEquals(body.task.availableTransitions.length > 0, true);
+    assertEquals(body.task?.title, "T1");
+    // Slimmed down: no status, description, transitions, etc.
+    assertEquals(body.task?.status, undefined);
+    assertEquals(body.task?.availableTransitions, undefined);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -113,14 +113,15 @@ Deno.test("GET /api/agents/next-work returns null when task is claimed", async (
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/agents/next-work includes comments from lead", async () => {
+Deno.test("POST /api/agents/claim includes comments from lead", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp", "a1");
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     // Lead adds a comment
     store.addComment("s1-1", "lead", "Please check the edge cases");
-    const res = await app.request("/api/agents/next-work?agentId=a1");
+    // Claim gives us the full task data including comments
+    const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     const body = await res.json();
     assertEquals(body.task?.comments?.length, 1);
     assertEquals(body.task.comments[0].from, "lead");
@@ -241,7 +242,6 @@ Deno.test("Full lifecycle: claim → release → lead moves → claim again", as
     let res = await app.request("/api/agents/next-work?agentId=a1");
     let body = await res.json();
     assertEquals(body.task?.id, "s1-1");
-    assertEquals(body.task?.status, "todo");
 
     // 2. Agent claims — transitions todo→coding
     res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
@@ -262,7 +262,6 @@ Deno.test("Full lifecycle: claim → release → lead moves → claim again", as
     res = await app.request("/api/agents/next-work?agentId=a1");
     body = await res.json();
     assertEquals(body.task?.id, "s1-1");
-    assertEquals(body.task?.status, "testing");
 
     // 5. Agent claims — transitions testing→review
     res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
@@ -306,16 +305,16 @@ Deno.test("Rework flow: lead sends task back, agent re-claims with comments", as
     await post(app, "/api/tasks/s1-1/move", { status: "coding" });
     assertEquals(store.getTask("s1-1")?.status, "coding");
 
-    // Agent polls — finds task in coding with comments
+    // Agent polls — finds task in coding
     const res = await app.request("/api/agents/next-work?agentId=a1");
     const body = await res.json();
     assertEquals(body.task?.id, "s1-1");
-    assertEquals(body.task?.status, "coding");
-    assertEquals(body.task?.comments?.length, 1);
-    assertEquals(body.task?.comments[0].body, "Please fix the edge case in parser.ts");
 
-    // Agent claims again (coding→review)
-    await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    // Agent claims again (coding→review) — claim response includes comments
+    const claimRes = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    const claimBody = await claimRes.json();
+    assertEquals(claimBody.task?.comments?.length, 1);
+    assertEquals(claimBody.task?.comments[0].body, "Please fix the edge case in parser.ts");
     assertEquals(store.getTask("s1-1")?.status, "review");
   } finally { cleanup(teamDir, store); }
 });

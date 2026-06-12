@@ -27,8 +27,6 @@ General ideas I have and want to implement
 ## Board UI
 
 - Click to just view the unread comments
-- Increase the width of the Story/Task modals
-- Pause button on the story
 - Change story workflow (wizard like help to change status of existing stories, reloads ui)
 - The state left/right buttons should only be clickable if there is a valid transition
 - The state left/right buttons should handle multiple options (modal? dropdown?)

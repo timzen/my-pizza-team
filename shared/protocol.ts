@@ -153,11 +153,11 @@ export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" 
 export interface AgentHeartbeatResponse { success: boolean }
 
 // GET /api/agents/next-work?agentId=X
-export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string; description: string; status: string; context?: string; comments?: Array<{ from: string; body: string; at: string }>; workflow?: WorkflowConfig; availableTransitions: Array<{ state: string; permission: string }> } | null }
+export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string } | null }
 
 // POST /api/agents/claim/:taskId
 export interface AgentClaimRequest { agentId: string }
-export interface AgentClaimResponse { success: boolean; error?: string; task?: { id: string; storyId: string; title: string; description: string; status: string; context?: string; comments?: Array<{ from: string; body: string; at: string }> }; instructions?: string }
+export interface AgentClaimResponse { success: boolean; error?: string; story?: { id: string; title: string; description: string }; task?: { id: string; storyId: string; title: string; description: string; status: string; context?: string; comments?: Array<{ from: string; body: string; at: string }> }; stateContext?: { entered: string; exitsTo?: string; guidance: string; exitInstructions?: string }; instructions?: string }
 
 // POST /api/agents/release/:taskId
 export interface AgentReleaseRequest { agentId: string; result?: string }

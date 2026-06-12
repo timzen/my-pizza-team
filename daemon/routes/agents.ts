@@ -54,22 +54,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const result = store.getNextWorkableTask(member?.cwd);
     if (!result) return c.json({ task: null });
 
-    const { availableTransitions, ...task } = result;
-    const storyTasks = store.getTasksForStory(task.storyId);
-    const previousResults = storyTasks
-      .filter(t => t.seq < task.seq && t.result)
-      .map(t => `[${t.title}]: ${t.result}`)
-      .join("\n\n");
-    const wf = store.getWorkflowForStory(task.storyId);
-    const comments = store.getComments(task.id);
-
     return c.json({
       task: {
-        id: task.id, storyId: task.storyId, title: task.title,
-        description: task.description, status: task.status,
-        context: previousResults || undefined,
-        comments: comments.length > 0 ? comments : undefined,
-        workflow: wf, availableTransitions,
+        id: result.id,
+        title: result.title,
+        storyId: result.storyId,
       },
     });
   });
@@ -101,6 +90,16 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     store.updateTaskStatus(taskId, targetStatus);
     store.updateMemberStatus(body.agentId, "working");
 
+    // Determine what state the task will exit to on release
+    const exitTransitions = wf.transitions[targetStatus] || {};
+    const exitStates = Object.entries(exitTransitions);
+    let exitsTo: string | null = null;
+    for (const [toState, perm] of exitStates) {
+      if (perm === "teammate" || perm === "any") { exitsTo = toState; break; }
+    }
+    if (!exitsTo && exitStates.length > 0) exitsTo = exitStates[0]![0];
+
+    const story = store.getStory(task.storyId);
     const storyTasks = store.getTasksForStory(task.storyId);
     const previousResults = storyTasks
       .filter(t => t.seq < task.seq && t.result)
@@ -108,13 +107,28 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       .join("\n\n");
     const comments = store.getComments(taskId);
 
+    // Build state context to help the agent understand its role
+    let guidance = `You are entering the '${targetStatus}' state.`;
+    if (exitsTo) {
+      guidance += ` When your work is complete, release the task and it will advance to '${exitsTo}'.`;
+    } else {
+      guidance += ` When your work is complete, release the task.`;
+    }
+
     return c.json({
       success: true,
+      story: story ? { id: story.id, title: story.title, description: story.description } : undefined,
       task: {
         id: task.id, storyId: task.storyId, title: task.title,
         description: task.description, status: targetStatus,
         context: previousResults || undefined,
         comments: comments.length > 0 ? comments : undefined,
+      },
+      stateContext: {
+        entered: targetStatus,
+        exitsTo: exitsTo || undefined,
+        guidance,
+        exitInstructions: exitsTo ? getInstructionsMarkdown(targetStatus, exitsTo, taskId) : undefined,
       },
       instructions: getInstructionsMarkdown(fromStatus, targetStatus, taskId),
     });
