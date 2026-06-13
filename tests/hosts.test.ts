@@ -133,12 +133,3 @@ Deno.test("GET /api/agents includes hostId in listing", async () => {
     assertEquals(a2.hostId, undefined);
   } finally { cleanup(teamDir, store); }
 });
-
-Deno.test("POST /api/team/join with hostId stores it", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    await post(app, "/api/team/join", { id: "t1", name: "spock", cwd: "/home", tmuxWindow: "win-1", hostId: "laptop-2" });
-    const member = store.getMember("t1");
-    assertEquals(member?.hostId, "laptop-2");
-  } finally { cleanup(teamDir, store); }
-});

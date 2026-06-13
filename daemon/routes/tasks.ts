@@ -6,7 +6,8 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { getDoneState, getInitialState, slugify } from "../../shared/types.ts";
+import { getInitialState, slugify } from "../../shared/types.ts";
+import { canTransition } from "../workflow-engine.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse, UpdateTaskRequest, UpdateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse, PostCommentRequest,
@@ -92,9 +93,9 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies MoveTaskResponse, 404);
     const workflow = store.getWorkflowForTask(taskId);
-    const transitions = workflow.transitions[task.status];
-    if (!transitions || !transitions[body.status]) {
-      return c.json({ success: false, error: `No transition from "${task.status}" to "${body.status}" in workflow` } satisfies MoveTaskResponse, 403);
+    const check = canTransition(workflow, task.status, body.status, "lead");
+    if (!check.ok) {
+      return c.json({ success: false, error: check.error } satisfies MoveTaskResponse, 403);
     }
     const fromStatus = task.status;
     store.updateTaskStatus(taskId, body.status);

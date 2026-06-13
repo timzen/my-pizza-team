@@ -144,11 +144,10 @@ export const DEFAULT_CONFIG: TeamConfig = {
   defaultWorkflow: "default",
   workflows: {
     default: {
-      states: ["todo", "in_progress", "needs_input", "review", "done"],
+      states: ["todo", "in_progress", "review", "done"],
       transitions: {
         todo: { in_progress: "any" },
-        in_progress: { needs_input: "teammate", review: "teammate" },
-        needs_input: { in_progress: "lead" },
+        in_progress: { review: "teammate" },
         review: { done: "lead", in_progress: "lead" },
       },
     },

@@ -34,7 +34,7 @@ Deno.test("GET /api/workflows returns workflow summaries", async () => {
 
   const defaultWf = body.find((w: { name: string }) => w.name === "default");
   assertEquals(defaultWf.name, "default");
-  assertEquals(defaultWf.stateCount, 5);
+  assertEquals(defaultWf.stateCount, 4);
   assertEquals(typeof defaultWf.transitionCount, "number");
   assertEquals(defaultWf.transitionCount > 0, true);
   assertEquals(defaultWf.isDefault, true);
@@ -46,7 +46,7 @@ Deno.test("GET /api/workflows/:name returns full workflow config", async () => {
 
   const body = await res.json();
   assertEquals(Array.isArray(body.states), true);
-  assertEquals(body.states.length, 5);
+  assertEquals(body.states.length, 4);
   assertEquals(typeof body.transitions, "object");
 });
 
