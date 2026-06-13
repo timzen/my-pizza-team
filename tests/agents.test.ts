@@ -170,7 +170,7 @@ Deno.test("POST /api/agents/release/:taskId advances state and releases", async 
     store.registerMember("a1", "neo", "/tmp", "a1");
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    // Task is now in_progress. Release should advance to next state (needs_input or review)
+    // Task is now in_progress. Release should advance to next state (review)
     const res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "Done working" });
     assertEquals(res.status, 200);
     const body = await res.json();
@@ -263,17 +263,18 @@ Deno.test("Full lifecycle: claim → release → lead moves → claim again", as
     body = await res.json();
     assertEquals(body.task?.id, "s1-1");
 
-    // 5. Agent claims — transitions testing→review
+    // 5. Agent claims — testing is NOT initial state, so stays in testing
     res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     body = await res.json();
     assertEquals(body.success, true);
-    assertEquals(body.task.status, "review");
+    assertEquals(body.task.status, "testing");
 
-    // 6. Agent releases — only lead transitions from review, moves to first available
+    // 6. Agent releases — transitions testing→review
     res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "Tests passing" });
     body = await res.json();
     assertEquals(body.success, true);
-    assertEquals(body.newStatus, "done"); // first transition from review
+    assertEquals(body.newStatus, "review");
+    assertEquals(body.completed, false);
     assertEquals(store.getMember("a1")?.status, "idle");
 
   } finally { cleanup(teamDir, store); }
@@ -310,12 +311,12 @@ Deno.test("Rework flow: lead sends task back, agent re-claims with comments", as
     const body = await res.json();
     assertEquals(body.task?.id, "s1-1");
 
-    // Agent claims again (coding→review) — claim response includes comments
+    // Agent claims again — coding is NOT initial state, stays in coding
     const claimRes = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     const claimBody = await claimRes.json();
     assertEquals(claimBody.task?.comments?.length, 1);
     assertEquals(claimBody.task?.comments[0].body, "Please fix the edge case in parser.ts");
-    assertEquals(store.getTask("s1-1")?.status, "review");
+    assertEquals(store.getTask("s1-1")?.status, "coding");
   } finally { cleanup(teamDir, store); }
 });
 

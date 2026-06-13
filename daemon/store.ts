@@ -30,6 +30,7 @@ import {
   type Member,
   type Assignment,
 } from "../shared/types.ts";
+import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-engine.ts";
 import { parseFrontmatter, serializeFrontmatter } from "../shared/frontmatter.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
@@ -546,42 +547,7 @@ export class Store {
    * - Within a story, tasks are sequential: only the first eligible task is returned
    */
   getNextAvailableTask(memberCwd?: string): TaskWithMeta | null {
-    const stories = this.getStories();
-    for (const story of stories) {
-      if (!this.isStoryReady(story.id)) continue;
-
-      // If the member has a cwd, only match stories with the same dir
-      if (memberCwd && story.dir) {
-        const normalizedStoryDir = story.dir.replace(/\/$/, "").replace(/^~/, Deno.env.get("HOME") || "~");
-        const normalizedMemberCwd = memberCwd.replace(/\/$/, "");
-        if (normalizedStoryDir !== normalizedMemberCwd) continue;
-      }
-
-      const wf = this.getWorkflowForStory(story.id);
-      const doneState = getDoneState(wf);
-
-      const tasks = this.getTasksForStory(story.id);
-      for (const task of tasks) {
-        // Skip completed tasks
-        if (task.status === doneState) continue;
-
-        // Skip already-assigned tasks
-        const assignment = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(task.id);
-        if (assignment) break; // Sequential: if a task is in progress, don't look further
-
-        // Check if there's a valid teammate/any transition from current state
-        const transitions = wf.transitions[task.status] || {};
-        const hasTeammateTransition = Object.values(transitions).some(
-          (perm) => perm === "teammate" || perm === "any"
-        );
-        if (hasTeammateTransition) return task;
-
-        // If the task isn't done and has no teammate transition, it's blocked (e.g., needs lead)
-        // Stop looking in this story (sequential)
-        break;
-      }
-    }
-    return null;
+    return this.getNextWorkableTask(memberCwd);
   }
 
   /**
@@ -622,20 +588,15 @@ export class Store {
         const assignment = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(task.id);
         if (assignment) break; // Sequential: if this task is claimed, don't look further in this story
 
-        // Must have at least one teammate-allowed transition from current state
-        const transitions = wf.transitions[task.status];
-        if (!transitions) break;
+        // Check if task is workable using the workflow engine
+        if (!isWorkableByAgent(wf, task.status)) break;
 
+        const transitions = wf.transitions[task.status] || {};
         const available = Object.entries(transitions)
           .filter(([_, perm]) => perm === "teammate" || perm === "any")
           .map(([state, perm]) => ({ state, permission: perm as string }));
 
-        if (available.length > 0) {
-          return { ...task, availableTransitions: available };
-        }
-
-        // No teammate transitions available from this state — stop looking in this story
-        break;
+        return { ...task, availableTransitions: available };
       }
     }
     return null;
@@ -1110,18 +1071,8 @@ export class Store {
   canTransition(taskId: string, newStatus: string, actor: "lead" | "teammate"): { ok: boolean; error?: string } {
     const task = this.getTask(taskId);
     if (!task) return { ok: false, error: "Task not found" };
-
     const workflow = this.getWorkflowForTask(taskId);
-    const currentStatus = task.status;
-    const transitions = workflow.transitions[currentStatus];
-    if (!transitions) return { ok: false, error: `No transitions from state "${currentStatus}"` };
-
-    const permission = transitions[newStatus];
-    if (!permission) return { ok: false, error: `Cannot transition from "${currentStatus}" to "${newStatus}"` };
-
-    if (permission === "any") return { ok: true };
-    if (permission === actor) return { ok: true };
-    return { ok: false, error: `Transition "${currentStatus}" → "${newStatus}" requires "${permission}", got "${actor}"` };
+    return wfCanTransition(workflow, task.status, newStatus, actor);
   }
 
   // --- Archive ---

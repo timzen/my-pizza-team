@@ -10,7 +10,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { getDoneState } from "../../shared/types.ts";
+import { getClaimTarget, getReleaseTarget, getExitState } from "../workflow-engine.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused, getInstructionsMarkdown } = ctx;
@@ -74,30 +74,23 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
 
     const wf = store.getWorkflowForTask(taskId);
-    const transitions = wf.transitions[task.status] || {};
-    let targetStatus: string | null = null;
-    for (const [toState, perm] of Object.entries(transitions)) {
-      if (perm === "teammate" || perm === "any") { targetStatus = toState; break; }
-    }
-    if (!targetStatus) {
+    const claim = getClaimTarget(wf, task.status);
+    if (!claim) {
       return c.json({ success: false, error: `No valid teammate transition from "${task.status}"` }, 400);
     }
 
     const success = store.claimTask(taskId, body.agentId);
     if (!success) return c.json({ success: false, error: "Task already claimed" }, 409);
 
+    const { targetStatus } = claim;
     const fromStatus = task.status;
-    store.updateTaskStatus(taskId, targetStatus);
+    if (claim.transitions) {
+      store.updateTaskStatus(taskId, targetStatus);
+    }
     store.updateMemberStatus(body.agentId, "working");
 
     // Determine what state the task will exit to on release
-    const exitTransitions = wf.transitions[targetStatus] || {};
-    const exitStates = Object.entries(exitTransitions);
-    let exitsTo: string | null = null;
-    for (const [toState, perm] of exitStates) {
-      if (perm === "teammate" || perm === "any") { exitsTo = toState; break; }
-    }
-    if (!exitsTo && exitStates.length > 0) exitsTo = exitStates[0]![0];
+    const exitsTo = getExitState(wf, targetStatus);
 
     const story = store.getStory(task.storyId);
     const storyTasks = store.getTasksForStory(task.storyId);
@@ -159,17 +152,10 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     const wf = store.getWorkflowForTask(taskId);
     const fromStatus = task.status;
+    const release = getReleaseTarget(wf, task.status);
 
-    const transitions = wf.transitions[task.status] || {};
-    const nextStates = Object.entries(transitions);
-    let targetStatus: string | null = null;
-    for (const [toState, perm] of nextStates) {
-      if (perm === "teammate" || perm === "any") { targetStatus = toState; break; }
-    }
-    if (!targetStatus && nextStates.length > 0) targetStatus = nextStates[0]![0];
-
-    if (targetStatus) {
-      store.updateTaskStatus(taskId, targetStatus, body.result);
+    if (release) {
+      store.updateTaskStatus(taskId, release.targetStatus, body.result);
     } else if (body.result) {
       store.updateTaskStatus(taskId, task.status, body.result);
     }
@@ -177,12 +163,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     store.releaseTask(taskId);
     store.updateMemberStatus(body.agentId, "idle");
 
-    const doneState = getDoneState(wf);
+    const newStatus = release?.targetStatus || task.status;
     return c.json({
       success: true,
-      newStatus: targetStatus || task.status,
-      completed: (targetStatus || task.status) === doneState,
-      instructions: targetStatus ? getInstructionsMarkdown(fromStatus, targetStatus, taskId) : undefined,
+      newStatus,
+      completed: release?.completed || false,
+      instructions: release ? getInstructionsMarkdown(fromStatus, release.targetStatus, taskId) : undefined,
     });
   });
 

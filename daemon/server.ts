@@ -20,7 +20,6 @@ import type { RouteContext } from "./routes/types.ts";
 import { registerSharedRoutes } from "./routes/shared.ts";
 import { registerStoryRoutes } from "./routes/stories.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
-import { registerTeammateRoutes } from "./routes/teammate.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
 
@@ -76,7 +75,6 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerSharedRoutes(ctx);
   registerStoryRoutes(ctx);
   registerTaskRoutes(ctx);
-  registerTeammateRoutes(ctx);
   registerAgentRoutes(ctx);
   registerAssistantRoutes(ctx);
 
