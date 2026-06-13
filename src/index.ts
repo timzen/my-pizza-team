@@ -15,7 +15,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
+import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
 import { DaemonClient } from "./client.js";
 
 export default function (pi: ExtensionAPI) {
@@ -62,9 +62,15 @@ export default function (pi: ExtensionAPI) {
     const pptDaemon = (pi.getFlag("ppt-daemon") as string) || "";
     const agentName = (pi.getFlag("ppt-name") as string) || "";
 
-    // Detect leader via config file
-    const configFile = path.join(cwd, TEAM_DIR, "config.json");
-    const hasConfig = fs.existsSync(configFile);
+    // Detect leader via config file (check current name, then legacy)
+    let teamDirName = TEAM_DIR;
+    let configFile = path.join(cwd, TEAM_DIR, "config.json");
+    let hasConfig = fs.existsSync(configFile);
+    if (!hasConfig) {
+      configFile = path.join(cwd, LEGACY_TEAM_DIR, "config.json");
+      hasConfig = fs.existsSync(configFile);
+      if (hasConfig) teamDirName = LEGACY_TEAM_DIR;
+    }
 
     // Resolve daemon URL (priority: --ppt-daemon > --ppt-lead > config > default)
     let daemonUrl = pptDaemon || "";
