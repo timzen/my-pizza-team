@@ -166,8 +166,18 @@ async function setupTeammate(
     }
   }
 
+  // ─── Debug logging ───────────────────────────────────────────
+
+  const debugLogPath = path.join(cwd, "ppt-debug.log");
+  const debug = (msg: string) => {
+    const ts = new Date().toISOString();
+    fs.appendFileSync(debugLogPath, `${ts} ${msg}\n`);
+  };
+  debug(`teammate setup complete. memberId=${memberId} cwd=${cwd}`);
+
   // Create work loop
   const loop = new TeammateLoop(pi, client);
+  loop.debugLog = debug;
 
   // Register tools
   registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask);
@@ -192,10 +202,22 @@ async function setupTeammate(
     updatePermissionConfig(configPath, autonomous);
   };
 
+  // ─── agent_start: track loop activity ──────────────────────────
+
+  pi.on("agent_start" as any, async () => {
+    debug(`[ppt-debug agent_start] fired. isAutonomous=${loop.isAutonomous} currentTask=${loop.currentTask}`);
+  });
+
   // ─── agent_end: capture results ──────────────────────────────────
 
   pi.on("agent_end", async (event) => {
-    if (!loop.isAutonomous || !loop.currentTask) return;
+    const debugPrefix = `[ppt-debug agent_end]`;
+    debug(`${debugPrefix} fired. isAutonomous=${loop.isAutonomous} currentTask=${loop.currentTask}`);
+
+    if (!loop.isAutonomous || !loop.currentTask) {
+      debug(`${debugPrefix} skipping — guard failed`);
+      return;
+    }
 
     const messages = event.messages || [];
     let lastText = "";
@@ -218,6 +240,8 @@ async function setupTeammate(
         }
       }
     }
+
+    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${inputTokens} out=${outputTokens}, model=${model}`);
 
     await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model });
   });

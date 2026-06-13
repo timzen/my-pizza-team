@@ -16,6 +16,8 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 const POLL_INTERVAL_MS = 5000;
 const HEARTBEAT_INTERVAL_MS = 30000;
@@ -37,6 +39,9 @@ export class TeammateLoop {
 
   /** Expose a way for external code to toggle permissions */
   public setAutonomousPermissions: ((autonomous: boolean) => void) | null = null;
+
+  /** Debug logger — writes to ppt-debug.log in the agent's cwd */
+  public debugLog: ((msg: string) => void) = () => {};
 
   constructor(pi: ExtensionAPI, client: DaemonClient) {
     this.pi = pi;
@@ -206,6 +211,7 @@ export class TeammateLoop {
     await this.client.postComment(task.id, `[status] Started working on this task.`).catch(() => {});
 
     // Send to Pi agent — this triggers the agent loop
+    this.debugLog(`[ppt-debug] Sending task prompt to agent (task=${task.id}, prompt length=${prompt.length})`);
     this.pi.sendUserMessage(prompt, { deliverAs: "followUp" });
   }
 
@@ -227,7 +233,11 @@ export class TeammateLoop {
     model: string;
     costFromProvider?: number;
   }): Promise<void> {
-    if (!this.currentTaskId) return;
+    this.debugLog(`[ppt-debug] handleAgentComplete called. currentTaskId=${this.currentTaskId}, msgLen=${lastMessage.length}`);
+    if (!this.currentTaskId) {
+      this.debugLog(`[ppt-debug] handleAgentComplete: no currentTaskId, returning early`);
+      return;
+    }
 
     const taskId = this.currentTaskId;
 
@@ -242,10 +252,15 @@ export class TeammateLoop {
 
     // ─── Release with result ─────────────────────────────────────────
     const summary = lastMessage.slice(0, 500);
+    this.debugLog(`[ppt-debug] Releasing task ${taskId} with summary: ${summary.slice(0, 100)}...`);
     await this.client.postComment(taskId, `[done] Work complete. Summary:\n${summary}`).catch(() => {});
 
     // Release the task — daemon advances to next state
-    const releaseRes = await this.client.releaseTask(taskId, summary).catch(() => null);
+    const releaseRes = await this.client.releaseTask(taskId, summary).catch((e) => {
+      this.debugLog(`[ppt-debug] releaseTask FAILED: ${e}`);
+      return null;
+    });
+    this.debugLog(`[ppt-debug] releaseTask response: ${JSON.stringify(releaseRes)}`);
     this.lastCompletedTaskId = taskId;
     this.currentTaskId = null;
 
