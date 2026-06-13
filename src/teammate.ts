@@ -201,7 +201,6 @@ export class TeammateLoop {
 
     prompt += `\n\n---\n**Remember: you are working on task ${task.id}. Ignore any task IDs from earlier in this conversation.**`;
     prompt += `\nWhen you're done, provide a brief summary of what you accomplished.`;
-    prompt += `\nIf you get stuck and need human guidance, say "NEEDS_INPUT:" followed by your question.`;
 
     // Post status comment
     await this.client.postComment(task.id, `[status] Started working on this task.`).catch(() => {});
@@ -217,10 +216,10 @@ export class TeammateLoop {
   /**
    * Called by the agent_end handler when the Pi agent finishes.
    *
-   * Simplified model:
-   * 1. If NEEDS_INPUT → post comment, release (daemon decides state)
-   * 2. Otherwise → post result comment, release with result
-   * 3. Poll for next task
+   * Posts a summary comment and releases the task. The daemon advances
+   * the task to the next workflow state. If the lead wants changes,
+   * they add comments and move it back — the agent picks it up again
+   * with the additional context.
    */
   async handleAgentComplete(lastMessage: string, tokenUsage?: {
     inputTokens: number;
@@ -241,20 +240,7 @@ export class TeammateLoop {
       }).catch(() => {});
     }
 
-    // ─── NEEDS_INPUT: agent is stuck ─────────────────────────────────
-    if (lastMessage.includes("NEEDS_INPUT:")) {
-      const question = lastMessage.split("NEEDS_INPUT:").pop()?.trim() || "Need help with this task";
-      await this.client.postComment(taskId, question);
-
-      // Release without result — daemon advances state, lead will see the comment
-      await this.client.releaseTask(taskId).catch(() => {});
-      this.lastCompletedTaskId = taskId;
-      this.currentTaskId = null;
-      this.schedulePoll();
-      return;
-    }
-
-    // ─── Normal completion: release with result ──────────────────────
+    // ─── Release with result ─────────────────────────────────────────
     const summary = lastMessage.slice(0, 500);
     await this.client.postComment(taskId, `[done] Work complete. Summary:\n${summary}`).catch(() => {});
 
