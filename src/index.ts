@@ -166,13 +166,16 @@ async function setupTeammate(
     }
   }
 
-  // ─── Debug logging ───────────────────────────────────────────
+  // ─── Debug logging (enable with PPT_DEBUG=1) ────────────────────────
 
+  const debugEnabled = process.env.PPT_DEBUG === "1";
   const debugLogPath = path.join(cwd, "ppt-debug.log");
-  const debug = (msg: string) => {
-    const ts = new Date().toISOString();
-    fs.appendFileSync(debugLogPath, `${ts} ${msg}\n`);
-  };
+  const debug = debugEnabled
+    ? (msg: string) => {
+        const ts = new Date().toISOString();
+        fs.appendFileSync(debugLogPath, `${ts} ${msg}\n`);
+      }
+    : () => {};
   debug(`teammate setup complete. memberId=${memberId} cwd=${cwd}`);
 
   // Create work loop
