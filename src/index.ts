@@ -4,7 +4,7 @@
 // 1. If --ppt-worker flag → Teammate (autonomous agent)
 // 2. If --ppt-assistant flag → Assistant (queue processor)
 // 3. If --ppt-lead flag OR .pi-pizza-team/config.json exists → Leader
-// 4. Otherwise → Inactive (only /ppt-init available)
+// 4. Otherwise → Inactive (only /ppt-help available)
 //
 // All roles communicate with the my-pizza-team daemon via HTTP.
 // Daemon URL resolution (priority order):
@@ -111,24 +111,23 @@ export default function (pi: ExtensionAPI) {
       return;
     }
 
-    // ─── INACTIVE — register /ppt-init only ────────────────────────
+    // ─── INACTIVE — register /ppt-help only ────────────────────────
 
-    pi.registerCommand("ppt-init", {
-      description: "Initialize current directory as a pi-pizza-team board",
+    pi.registerCommand("ppt-help", {
+      description: "How to set up my-pizza-team in this directory",
       handler: async (_args, cmdCtx) => {
-        const teamDir = path.join(cwd, TEAM_DIR);
-        fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-        fs.mkdirSync(path.join(teamDir, "notes"), { recursive: true });
-        fs.writeFileSync(
-          path.join(teamDir, "config.json"),
-          JSON.stringify({ daemonUrl: DEFAULT_DAEMON_URL }, null, 2) + "\n"
-        );
-        fs.writeFileSync(
-          path.join(teamDir, ".gitignore"),
-          "state.db\nstate.db-wal\nstate.db-shm\n"
-        );
         cmdCtx.ui.notify(
-          "✓ Initialized .pi-pizza-team/ — restart Pi to activate leader mode. 🍕",
+          [
+            "🍕 my-pizza-team is not set up in this directory.",
+            "",
+            "To get started:",
+            "  1. Install mpt: https://github.com/timzen/my-pizza-team/releases",
+            "  2. Run `mpt start` in this directory (creates .my-pizza-team/)",
+            "  3. Restart Pi — leader mode will activate automatically.",
+            "",
+            "Or point Pi at an existing team:",
+            "  cd /path/to/project-with-.my-pizza-team && pi",
+          ].join("\n"),
           "info"
         );
       },
