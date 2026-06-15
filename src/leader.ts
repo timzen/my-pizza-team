@@ -370,14 +370,15 @@ function spawnAgent(
 function dismissAgent(name: string, session: string, execSync: any): void {
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
+  // Send Ctrl+C to interrupt Pi, then kill the tmux window after a brief delay
   execSync(`tmux send-keys -t "${safeSession}:${safeName}" C-c`, { stdio: "pipe" });
   setTimeout(() => {
     try {
-      execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'exit' Enter`, { stdio: "pipe" });
+      execSync(`tmux kill-window -t "${safeSession}:${safeName}"`, { stdio: "pipe" });
     } catch {
       // Window may already be gone
     }
-  }, 1000);
+  }, 2000);
 }
 
 /**
