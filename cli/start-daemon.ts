@@ -48,9 +48,15 @@ export async function startDaemonInProcess(
     app = ctx.app;
     store = ctx.store;
   } catch (e) {
-    console.error(`❌ Failed to initialize daemon: ${(e as Error).message}`);
+    const msg = (e as Error).message;
+    console.error(`❌ Failed to initialize daemon: ${msg}`);
     console.error(`   Team dir: ${teamDir}`);
-    console.error(`   This often means SQLite failed to load. Ensure libsqlite3 is available.`);
+    if (msg.includes("Cannot read properties") || msg.includes("undefined")) {
+      console.error(`   This likely means config.json is missing required fields. Try running: mpt upgrade`);
+    } else {
+      console.error(`   This often means SQLite failed to load. Ensure libsqlite3 is available.`);
+    }
+    console.error(`   Check daemon.log in the team directory for details.`);
     Deno.exit(1);
   }
 

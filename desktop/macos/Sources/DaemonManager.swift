@@ -16,6 +16,7 @@ class DaemonManager {
     var agentCount: Int?
     var teamDir: String
     var port: Int
+    var lastError: String?
     private var process: Process?
 
     private let prefsKey = "com.my-pizza-team.menubar"
@@ -179,9 +180,29 @@ class DaemonManager {
                 self.isRunning = (json["status"] as? String) == "ok"
                 self.uptime = json["uptime"] as? Int
                 self.agentCount = json["agents"] as? Int
+                if self.isRunning { self.lastError = nil }
             }
         }.resume()
 
         _ = semaphore.wait(timeout: .now() + 3.0)
+    }
+
+    /// Check daemon.log for error messages (called when daemon fails to start)
+    func checkLogForErrors() {
+        let logDir = teamDir.isEmpty
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".my-pizza-team").path
+            : teamDir
+        let logFile = (logDir as NSString).appendingPathComponent("daemon.log")
+        guard let content = try? String(contentsOfFile: logFile, encoding: .utf8) else { return }
+
+        // Look for error lines in the last few lines
+        let lines = content.components(separatedBy: "\n").suffix(10)
+        for line in lines {
+            if line.contains("❌") || line.contains("Failed") || line.contains("Error") {
+                lastError = line.trimmingCharacters(in: .whitespaces)
+                return
+            }
+        }
+        lastError = "Daemon failed to start. Check: \(logFile)"
     }
 }

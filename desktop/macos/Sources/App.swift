@@ -54,10 +54,23 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Status line
         let statusText = daemon.isRunning
             ? "✅ Running (port \(daemon.port))"
-            : "⏹ Stopped"
+            : daemon.lastError != nil ? "❌ Failed to start" : "⏹ Stopped"
         let statusItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         menu.addItem(statusItem)
+
+        // Show error if daemon failed
+        if !daemon.isRunning, let error = daemon.lastError {
+            let errorItem = NSMenuItem(title: "   \(error)", action: nil, keyEquivalent: "")
+            errorItem.isEnabled = false
+            menu.addItem(errorItem)
+
+            let logDir = daemon.teamDir.isEmpty
+                ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".my-pizza-team").path
+                : daemon.teamDir
+            let logPath = (logDir as NSString).appendingPathComponent("daemon.log")
+            menu.addItem(NSMenuItem(title: "   Open daemon.log", action: #selector(openLog), keyEquivalent: "l"))
+        }
 
         if daemon.isRunning, let uptime = daemon.uptime {
             let uptimeItem = NSMenuItem(title: "   Uptime: \(formatUptime(uptime))", action: nil, keyEquivalent: "")
@@ -114,8 +127,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func startDaemon() {
         daemon.start()
-        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.daemon.checkStatus()
+            if !(self?.daemon.isRunning ?? false) {
+                self?.daemon.checkLogForErrors()
+            }
             self?.updateMenu()
         }
     }
@@ -131,6 +147,14 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     @objc func openUI() {
         let url = URL(string: "http://localhost:\(daemon.port)")!
         NSWorkspace.shared.open(url)
+    }
+
+    @objc func openLog() {
+        let logDir = daemon.teamDir.isEmpty
+            ? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".my-pizza-team").path
+            : daemon.teamDir
+        let logPath = (logDir as NSString).appendingPathComponent("daemon.log")
+        NSWorkspace.shared.open(URL(fileURLWithPath: logPath))
     }
 
     @objc func chooseTeamDir() {
