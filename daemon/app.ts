@@ -22,9 +22,17 @@ export interface AppContext {
 export function createApp(teamDir?: string): AppContext {
   if (teamDir && existsSync(teamDir)) {
     const configFile = path.join(teamDir, "config.json");
-    const config: TeamConfig = existsSync(configFile)
+    const userConfig = existsSync(configFile)
       ? JSON.parse(Deno.readTextFileSync(configFile))
-      : DEFAULT_CONFIG;
+      : {};
+
+    // Merge with defaults so missing fields don't crash
+    const config: TeamConfig = {
+      ...DEFAULT_CONFIG,
+      ...userConfig,
+      autosave: { ...DEFAULT_CONFIG.autosave, ...(userConfig.autosave || {}) },
+      teammates: { ...DEFAULT_CONFIG.teammates, ...(userConfig.teammates || {}) },
+    };
 
     const store = new Store(teamDir, config);
     store.loadFromDisk();
