@@ -292,11 +292,9 @@ function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
     name: "team_status",
     label: "Team Status",
-    description: "Get current team status: stories, tasks, team members, and inbox count.",
     promptSnippet: "Check the current team status",
     promptGuidelines: [
       "Use team_status to get a quick overview of the team's progress.",
-      "Shows story counts, task breakdown by status, team member count, and inbox items.",
     ],
     parameters: Type.Object({}),
     async execute(_toolCallId, _params) {
@@ -310,7 +308,6 @@ function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
         text += `Stories: ${status.stories.open} open, ${status.stories.done} done (${status.stories.open + status.stories.done} total)\n`;
         text += `Tasks: ${status.tasks.total} total (${byStatus})\n`;
         text += `Team: ${status.members.total} members (${status.members.working} working, ${status.members.idle} idle)\n`;
-        if (status.inbox > 0) text += `Inbox: ${status.inbox} items needing attention\n`;
 
         return {
           content: [{ type: "text", text }],

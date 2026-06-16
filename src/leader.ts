@@ -213,7 +213,6 @@ export async function setupLeader(
         const byStatus = Object.entries(status.tasks.byStatus).map(([s, n]) => `${n} ${s}`).join(", ");
         if (byStatus) output += ` (${byStatus})`;
         output += `\n  Team: ${status.members.total} members (${status.members.working} working, ${status.members.idle} idle)\n`;
-        if (status.inbox > 0) output += `  📬 Inbox: ${status.inbox} items needing attention\n`;
 
         // List active tmux windows
         const windows = listWindows(tmuxSession, execSync);
@@ -253,7 +252,6 @@ export async function setupLeader(
       const done = status.tasks.byStatus.done || 0;
       const parts = [`🍕 ${done}/${status.tasks.total} tasks done`];
       if (status.members.working > 0) parts.push(`${status.members.working} working`);
-      if (status.inbox > 0) parts.push(`📬 ${status.inbox} inbox`);
       ctx.ui.setWidget("pi-pizza-team", [parts.join(" • ")]);
     } catch {
       ctx.ui.setWidget("pi-pizza-team", ["🍕 daemon unreachable"]);

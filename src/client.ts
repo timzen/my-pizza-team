@@ -173,7 +173,6 @@ export interface StatusResponse {
   stories: { total: number; open: number; done: number };
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
-  inbox: number;
   defaultWorkflow: string;
   workflows: Record<string, { states: string[]; transitions: Record<string, Record<string, string>> }>;
 }
@@ -312,7 +311,6 @@ export class DaemonClient {
   }
 
   /**
-   * Get the daemon's status summary (stories, tasks, members, inbox).
    */
   async getStatus(): Promise<StatusResponse> {
     return this.get<StatusResponse>("/api/status");
