@@ -13,7 +13,6 @@ export interface StatusResponse {
   stories: { total: number; open: number; done: number };
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
-  inbox: number;
   defaultWorkflow: string;
   workflows: Record<string, WorkflowConfig>;
   workflow?: WorkflowConfig;
@@ -44,7 +43,6 @@ export interface TaskView {
   status: string;
   description?: string;
   assignee: string | null;
-  hasComments: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
@@ -108,8 +106,6 @@ export interface MoveTaskResponse { success: boolean; error?: string; instructio
 export interface TokenUsageRequest { inputTokens: number; outputTokens: number; model: string }
 export interface TokenUsageResponse { success: boolean; costUsd?: number; error?: string }
 
-// POST /api/tasks/:id/mark-read
-export interface MarkReadResponse { success: boolean; error?: string }
 
 // PUT /api/stories/:id
 export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; dir?: string | null; workflow?: string | null; categories?: string[] | null }

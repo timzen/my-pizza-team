@@ -63,13 +63,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
     }
     const members = store.getMembers();
-    const inbox = store.getInboxTasks();
     return c.json({
       running: true,
       stories: { total: stories.length, open: stories.filter(s => s.status === "open").length, done: stories.filter(s => s.status === "done").length },
       tasks: { total: totalTasks, byStatus: allTasks },
       members: { total: members.length, working: members.filter(m => m.status === "working").length, idle: members.filter(m => m.status === "idle").length },
-      inbox: inbox.length,
       defaultWorkflow: config.defaultWorkflow,
       workflows: store.getWorkflows(),
       workflow: store.getWorkflows()[config.defaultWorkflow],

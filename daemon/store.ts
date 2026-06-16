@@ -739,50 +739,6 @@ export class Store {
     }
   }
 
-  hasUnreadComments(taskId: string): boolean {
-    this.ensureCommentsLoaded(taskId);
-    const lastLead = this.db.prepare(
-      "SELECT MAX(created_at) as t FROM comments WHERE task_id = ? AND from_id = 'lead'"
-    ).get(taskId) as Record<string, unknown> | undefined;
-    const lastTeammate = this.db.prepare(
-      "SELECT MAX(created_at) as t FROM comments WHERE task_id = ? AND from_id != 'lead'"
-    ).get(taskId) as Record<string, unknown> | undefined;
-
-    if (!lastTeammate?.t) return false;
-
-    const taskRow = this.db.prepare("SELECT last_read_at FROM tasks WHERE id = ?").get(taskId) as Record<string, unknown> | undefined;
-    const readTimestamp = Math.max((lastLead?.t as number) || 0, (taskRow?.last_read_at as number) || 0);
-
-    if (readTimestamp === 0) return true;
-    return (lastTeammate.t as number) > readTimestamp;
-  }
-
-  markCommentsRead(taskId: string): void {
-    this.db.prepare("UPDATE tasks SET last_read_at = ? WHERE id = ?").run(Date.now(), taskId);
-  }
-
-  /**
-   * Returns tasks whose current state has at least one transition requiring
-   * the "lead" actor. These are tasks waiting for lead action (e.g. review,
-   * approval, or unblocking).
-   */
-  getInboxTasks(): TaskWithMeta[] {
-    const allTasks = this.db.prepare(
-      "SELECT * FROM tasks ORDER BY story_id, seq"
-    ).all() as Array<Record<string, unknown>>;
-
-    const results: TaskWithMeta[] = [];
-    for (const row of allTasks) {
-      const task = this.rowToTask(row);
-      const workflow = this.getWorkflowForTask(task.id);
-      const transitions = workflow.transitions[task.status];
-      if (!transitions) continue;
-      // Include task if any outgoing transition requires "lead"
-      const needsLead = Object.values(transitions).some(perm => perm === "lead");
-      if (needsLead) results.push(task);
-    }
-    return results;
-  }
 
   // --- Token Usage ---
 
