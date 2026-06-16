@@ -50,7 +50,7 @@ mkdir my-team && cd my-team
 git init
 ```
 
-The daemon stores stories, tasks, workflows, and knowledge in a `.pi-pizza-team/` directory, auto-created on first run.
+The daemon stores stories, tasks, workflows, and knowledge in a `.my-pizza-team/` directory, auto-created on first run.
 
 ## 5. Start the daemon
 
@@ -59,7 +59,7 @@ mpt start --daemon
 ```
 
 This starts the daemon in the background. It will:
-- Create `.pi-pizza-team/` with default config and workflows
+- Create `.my-pizza-team/` with default config and workflows
 - Serve the API and web UI on `http://localhost:7437`
 
 ## 6. Run Pi
@@ -68,7 +68,7 @@ This starts the daemon in the background. It will:
 pi
 ```
 
-Pi auto-detects the `.pi-pizza-team/` directory and activates leader mode. Create stories, spawn teammates, and manage your board.
+Pi auto-detects the `.my-pizza-team/` directory and activates leader mode. Create stories, spawn teammates, and manage your board.
 
 ## 7. Open the UI
 

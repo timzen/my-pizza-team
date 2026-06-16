@@ -311,7 +311,6 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, claim, release |
-| Team | `/api/team/*` | Legacy teammate protocol |
 | Assistant | `/api/assistant/*` | Queue + knowledge base |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |
