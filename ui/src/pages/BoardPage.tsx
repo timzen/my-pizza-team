@@ -12,9 +12,7 @@
  */
 
 import { useState, useMemo } from "react";
-import { useSearchParams } from "react-router-dom";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
@@ -52,25 +50,12 @@ interface StatusData {
 
 type SortOption = "title" | "status" | "ready";
 
-type FilterOption = "all";
 
 export function BoardPage() {
   const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories", [], { pollInterval: 5000 });
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
-  const [searchParams, setSearchParams] = useSearchParams();
-
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
-  const filter = (searchParams.get("filter") as FilterOption) || "all";
-
-  const setFilter = (f: FilterOption) => {
-    if (f === "all") {
-      searchParams.delete("filter");
-    } else {
-      searchParams.set("filter", f);
-    }
-    setSearchParams(searchParams);
-  };
   const [editStoryId, setEditStoryId] = useState<string | null>(null);
   const [editTaskId, setEditTaskId] = useState<string | null>(null);
   const [addTaskStoryId, setAddTaskStoryId] = useState<string | null>(null);
