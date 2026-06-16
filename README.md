@@ -35,7 +35,7 @@ cd /path/to/my-pizza-team && deno task start
 pi
 
 # Or explicit leader mode with custom daemon URL:
-pi --ppt-lead=http://localhost:7437
+pi --ppt-lead --ppt-daemon=http://localhost:7438
 
 # Spawn a teammate (usually done by the leader via /ppt-spawn):
 pi --ppt-worker --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
@@ -57,17 +57,16 @@ The extension detects which role to activate:
 
 | Flag | Type | Default | Description |
 |------|------|---------|-------------|
-| `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
-| `--ppt-lead` | string | (empty) | Activate leader role (value = daemon URL for backwards compat) |
+| `--ppt-lead` | boolean | false | Activate leader role |
 | `--ppt-worker` | boolean | false | Run as teammate |
 | `--ppt-assistant` | boolean | false | Run as assistant |
+| `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
 
 **Daemon URL resolution (priority order):**
 1. `--ppt-daemon` flag
-2. `--ppt-lead` flag (if it's a URL)
-3. `.my-pizza-team/config.json` → `daemonUrl` field
-4. Default: `http://localhost:7437`
+2. `.my-pizza-team/config.json` → `port` or `daemonUrl` field
+3. Default: `http://localhost:7437`
 
 ## Commands
 
