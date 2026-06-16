@@ -6,6 +6,7 @@
 *.db-wal
 .pi-pizza-team/
 .my-pizza-team/
+.env
 
 # Compiled binaries
 mpt
