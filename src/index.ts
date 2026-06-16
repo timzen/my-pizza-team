@@ -3,7 +3,7 @@
 // Role detection logic:
 // 1. If --ppt-worker flag → Teammate (autonomous agent)
 // 2. If --ppt-assistant flag → Assistant (queue processor)
-// 3. If --ppt-lead flag OR .pi-pizza-team/config.json exists → Leader
+// 3. If --ppt-lead flag OR .my-pizza-team/config.json exists → Leader
 // 4. Otherwise → Inactive (only /ppt-help available)
 //
 // All roles communicate with the my-pizza-team daemon via HTTP.
@@ -28,9 +28,9 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerFlag("ppt-lead", {
-    description: "Run as team leader (or daemon URL for backwards compat)",
-    type: "string",
-    default: "",
+    description: "Run as team leader (connect to daemon via --ppt-daemon or auto-detect)",
+    type: "boolean",
+    default: false,
   });
 
   pi.registerFlag("ppt-name", {
@@ -58,9 +58,10 @@ export default function (pi: ExtensionAPI) {
 
     const isWorker = pi.getFlag("ppt-worker") as boolean;
     const isAssistant = pi.getFlag("ppt-assistant") as boolean;
-    const pptLead = (pi.getFlag("ppt-lead") as string) || "";
+    const pptLead = pi.getFlag("ppt-lead") as boolean | string;
     const pptDaemon = (pi.getFlag("ppt-daemon") as string) || "";
     const agentName = (pi.getFlag("ppt-name") as string) || "";
+    const isLead = pptLead === true || (typeof pptLead === "string" && pptLead.length > 0);
 
     // Detect leader via config file (check current name, then legacy)
     let teamDirName = TEAM_DIR;
@@ -72,9 +73,9 @@ export default function (pi: ExtensionAPI) {
       if (hasConfig) teamDirName = LEGACY_TEAM_DIR;
     }
 
-    // Resolve daemon URL (priority: --ppt-daemon > --ppt-lead > config > default)
+    // Resolve daemon URL (priority: --ppt-daemon > --ppt-lead=URL > config > default)
     let daemonUrl = pptDaemon || "";
-    if (!daemonUrl && pptLead && pptLead.startsWith("http")) {
+    if (!daemonUrl && typeof pptLead === "string" && pptLead.startsWith("http")) {
       daemonUrl = pptLead; // backwards compat: --ppt-lead=http://...
     }
     if (!daemonUrl && hasConfig) {
@@ -105,7 +106,7 @@ export default function (pi: ExtensionAPI) {
 
     // ─── LEADER ROLE ───────────────────────────────────────────────
 
-    if (pptLead || hasConfig) {
+    if (isLead || hasConfig) {
       const client = new DaemonClient(daemonUrl, "leader");
       const { setupLeader } = await import("./leader.js");
       await setupLeader(pi, ctx, client, cwd);
