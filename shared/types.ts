@@ -18,7 +18,6 @@ export interface TeamConfig {
   workflows?: Record<string, WorkflowConfig>;
   defaultWorkflow: string;
   autosave: AutosaveConfig;
-  leaderUrl: string;
   maxTeammates?: number;
   teammates?: TeammateConfig;
   /** Configurable memory categories for the knowledge base */
@@ -158,7 +157,6 @@ export const DEFAULT_CONFIG: TeamConfig = {
     commitMessage: "my-pizza-team: checkpoint {timestamp}",
     autoCommit: true,
   },
-  leaderUrl: "http://localhost:7437",
   maxTeammates: 4,
   agentTimeoutSeconds: 90,
   categories: DEFAULT_CATEGORIES,

@@ -69,7 +69,6 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 {
   // ─── Server ────────────────────────────────────────────────────
   "port": 7437,
-  "leaderUrl": "http://localhost:7437",
 
   // ─── Authentication ────────────────────────────────────────────
   "apiToken": "your-secret-token",       // Required if binding 0.0.0.0
