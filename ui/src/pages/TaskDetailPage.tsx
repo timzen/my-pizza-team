@@ -39,7 +39,6 @@ interface TaskData {
   status: string;
   description?: string;
   assignee: string | null;
-  hasComments: boolean;
 }
 
 interface StoryView {
@@ -90,10 +89,6 @@ export function TaskDetailPage() {
     refetchComments();
   };
 
-  const markRead = async () => {
-    if (!taskId) return;
-    await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/mark-read`);
-  };
 
   const openFile = (storedName: string, displayName: string) => {
     setViewerFile({ storedName, displayName });
@@ -208,7 +203,6 @@ export function TaskDetailPage() {
       {activeTab === "comments" && (
         <div className="space-y-3">
           <div className="flex justify-end">
-            <Button variant="ghost" size="sm" onClick={markRead}>Mark read</Button>
           </div>
 
           <div className="space-y-2 max-h-[500px] overflow-y-auto">

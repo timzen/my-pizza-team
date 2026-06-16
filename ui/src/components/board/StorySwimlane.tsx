@@ -23,7 +23,6 @@ interface StoryData {
     status: string;
     description?: string;
     assignee: string | null;
-    hasComments: boolean;
     tokenUsage?: { totalCostUsd: number };
   }>;
 }

@@ -1,6 +1,6 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows title, assignee, unread indicator, quick status-change buttons
+ * Shows title, assignee, quick status-change buttons
  * with a colored badge, and a link to the task detail/comments page.
  */
 
@@ -8,7 +8,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { MessageCircle, User, ChevronLeft, ChevronRight } from "lucide-react";
+import { User, ChevronLeft, ChevronRight } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 /**
@@ -38,7 +38,6 @@ interface TaskCardProps {
     status: string;
     description?: string;
     assignee: string | null;
-    hasComments: boolean;
     tokenUsage?: { totalCostUsd: number };
   };
   storyId?: string;
@@ -72,29 +71,12 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
           <p className="text-xs text-muted-foreground mt-0.5">{task.id}</p>
         </div>
 
-        {/* Assignee, unread, cost */}
+        {/* Assignee, cost */}
         <div className="flex items-center gap-2 mt-2 text-xs text-muted-foreground">
           {task.assignee && (
             <span className="flex items-center gap-1">
               <User className="h-3 w-3" />
               {task.assignee}
-            </span>
-          )}
-          {task.hasComments && storyId && (
-            <Link
-              to={`/task/${storyId}/${task.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="flex items-center gap-1 text-orange-500 hover:underline"
-              title="View comments"
-            >
-              <MessageCircle className="h-3 w-3" />
-              unread
-            </Link>
-          )}
-          {task.hasComments && !storyId && (
-            <span className="flex items-center gap-1 text-orange-500">
-              <MessageCircle className="h-3 w-3" />
-              unread
             </span>
           )}
           {task.tokenUsage && (

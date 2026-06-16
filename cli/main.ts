@@ -174,7 +174,6 @@ async function cmdStatus(): Promise<void> {
       console.log(`   Stories: ${data.stories.open} open, ${data.stories.done} done (${data.stories.total} total)`);
       console.log(`   Tasks: ${data.tasks.total} total`);
       console.log(`   Members: ${data.members.total} (${data.members.working} working, ${data.members.idle} idle)`);
-      console.log(`   Inbox: ${data.inbox} items needing attention`);
     } else {
       console.log(`   ⚠️  API responded with HTTP ${res.status}`);
     }

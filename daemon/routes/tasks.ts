@@ -116,13 +116,6 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     return c.json({ comments: store.getComments(taskId) } satisfies CommentsResponse);
   });
 
-  app.post("/api/tasks/:taskId/mark-read", (c) => {
-    const taskId = c.req.param("taskId");
-    if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
-    store.markCommentsRead(taskId);
-    return c.json({ success: true });
-  });
-
   // ─── Attachments ───────────────────────────────────────────────────
 
   app.post("/api/tasks/:taskId/attachments", async (c) => {

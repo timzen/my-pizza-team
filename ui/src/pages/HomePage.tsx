@@ -4,7 +4,7 @@
 
 import { useApi } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
-import { Activity, BookOpen, CheckCircle, Inbox, Users } from "lucide-react";
+import { Activity, BookOpen, CheckCircle, Users } from "lucide-react";
 import { Link } from "react-router-dom";
 
 interface StatusData {
@@ -12,7 +12,6 @@ interface StatusData {
   stories: { total: number; open: number; done: number };
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
-  inbox: number;
 }
 
 export function HomePage() {
@@ -25,7 +24,7 @@ export function HomePage() {
     { label: "Stories", value: `${data.stories.open} open / ${data.stories.total}`, icon: BookOpen, color: "text-blue-500" },
     { label: "Tasks", value: `${data.tasks.total}`, icon: Activity, color: "text-green-500", sub: Object.entries(data.tasks.byStatus).map(([k, v]) => `${k}: ${v}`).join(", ") },
     { label: "Agents", value: `${data.members.total} members`, icon: Users, color: "text-purple-500", sub: `${data.members.working} working, ${data.members.idle} idle` },
-    { label: "Inbox", value: `${data.inbox}`, icon: Inbox, color: data.inbox > 0 ? "text-orange-500" : "text-muted-foreground", link: "/board?filter=inbox" },
+    { label: "Agents", value: `${data.members?.working || 0} working`, icon: Users, color: "text-muted-foreground", link: "/board" },
   ];
 
   return (

@@ -22,7 +22,7 @@ import { AddStoryDialog } from "@/components/board/AddStoryDialog";
 import { EditStoryDialog } from "@/components/board/EditStoryDialog";
 import { AddTaskDialog } from "@/components/board/AddTaskDialog";
 import { EditTaskDialog } from "@/components/board/EditTaskDialog";
-import { Search, Inbox } from "lucide-react";
+import { Search } from "lucide-react";
 
 interface StoryView {
   id: string;
@@ -41,7 +41,6 @@ interface StoryView {
     status: string;
     description?: string;
     assignee: string | null;
-    hasComments: boolean;
     tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
   }>;
 }
@@ -53,7 +52,7 @@ interface StatusData {
 
 type SortOption = "title" | "status" | "ready";
 
-type FilterOption = "all" | "inbox";
+type FilterOption = "all";
 
 export function BoardPage() {
   const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories", [], { pollInterval: 5000 });
@@ -90,26 +89,9 @@ export function BoardPage() {
   };
 
   /** Check if a task needs lead action based on its workflow transitions */
-  const taskNeedsLead = (task: { status: string }, story: StoryView): boolean => {
-    const wf = story.workflow && workflows[story.workflow]
-      ? workflows[story.workflow]
-      : workflows[defaultWorkflow];
-    if (!wf) return false;
-    const transitions = wf.transitions?.[task.status];
-    if (!transitions) return false;
-    return Object.values(transitions).some(perm => perm === "lead");
-  };
-
-  // Filter stories by search and quick filter
+  // Filter stories by search
   const filtered = useMemo(() => {
     let result = stories;
-
-    // Quick filter: inbox — only stories with tasks needing lead action
-    if (filter === "inbox") {
-      result = result
-        .map(s => ({ ...s, tasks: s.tasks.filter(t => taskNeedsLead(t, s)) }))
-        .filter(s => s.tasks.length > 0);
-    }
 
     // Text search
     if (search) {
@@ -122,7 +104,7 @@ export function BoardPage() {
     }
 
     return result;
-  }, [stories, search, filter, workflows, defaultWorkflow]);
+  }, [stories, search]);
 
   // Sort stories
   const sorted = useMemo(() => {
@@ -179,15 +161,6 @@ export function BoardPage() {
             <SelectItem value="status">Status</SelectItem>
           </SelectContent>
         </Select>
-        <Button
-          variant={filter === "inbox" ? "default" : "outline"}
-          size="sm"
-          onClick={() => setFilter(filter === "inbox" ? "all" : "inbox")}
-          className="gap-1.5"
-        >
-          <Inbox className="h-4 w-4" />
-          Inbox
-        </Button>
         <AddStoryDialog onCreated={refetch} />
       </div>
 

@@ -36,7 +36,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
           tasks: tasks.map(task => {
             const assignment = store.getAssignment(task.id);
             const tokenSummary = store.getTokenUsageSummary(task.id);
-            return { id: task.id, seq: task.seq, title: task.title, status: task.status, description: task.description, assignee: assignment?.memberId || null, hasComments: store.hasUnreadComments(task.id), tokenUsage: tokenSummary || undefined };
+            return { id: task.id, seq: task.seq, title: task.title, status: task.status, description: task.description, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
           }),
         };
       }),
@@ -54,7 +54,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
     if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
 
     const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], body.tasks, body.dir, body.workflow, body.categories);
-    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), dir: story.dir, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null, hasComments: false })) } } satisfies CreateStoryResponse, 201);
+    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), dir: story.dir, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null })) } } satisfies CreateStoryResponse, 201);
   });
 
   app.put("/api/stories/:id", async (c) => {
