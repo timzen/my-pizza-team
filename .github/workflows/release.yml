@@ -7,7 +7,7 @@
 #   - mpt-darwin-arm64  (macOS Apple Silicon, signed)
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
-#   - My Pizza Team.dmg (macOS menu bar app, arm64 only — lipo/universal breaks Deno V8)
+#   - My Pizza Team.dmg (macOS menu bar app, arm64 only — lipo breaks Deno V8)
 
 name: Release
 
@@ -119,7 +119,7 @@ jobs:
           name: mpt-darwin-arm64
           path: dist/
 
-      - name: Use arm64 mpt binary (universal/lipo breaks Deno V8 memory mapping)
+      - name: Use arm64 mpt binary (lipo breaks Deno V8 memory mapping)
         run: |
           chmod +x dist/mpt-darwin-arm64
           cp dist/mpt-darwin-arm64 dist/mpt
@@ -234,7 +234,7 @@ jobs:
           hdiutil create -volname "My Pizza Team" \
             -srcfolder dmg-stage \
             -ov -format UDZO \
-            "dist/My-Pizza-Team-macos-universal.dmg"
+            "dist/My-Pizza-Team-macos-arm64.dmg"
 
           rm -rf dmg-stage
           echo "✅ DMG created"
@@ -247,21 +247,21 @@ jobs:
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           # Submit the DMG directly for notarization
-          xcrun notarytool submit "dist/My-Pizza-Team-macos-universal.dmg" \
+          xcrun notarytool submit "dist/My-Pizza-Team-macos-arm64.dmg" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 60m
 
           # Staple the notarization ticket to the DMG
-          xcrun stapler staple "dist/My-Pizza-Team-macos-universal.dmg"
+          xcrun stapler staple "dist/My-Pizza-Team-macos-arm64.dmg"
           echo "✅ DMG notarized and stapled"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app-universal
-          path: dist/My-Pizza-Team-macos-universal.dmg
+          name: macos-app-arm64
+          path: dist/My-Pizza-Team-macos-arm64.dmg
 
   windows-app:
     name: Package Windows Tray App
@@ -316,9 +316,9 @@ jobs:
           for dir in artifacts/mpt-*/; do
             cp "$dir"* release/
           done
-          # Copy macOS universal .app zip
-          if [ -d artifacts/macos-app-universal ]; then
-            cp artifacts/macos-app-universal/* release/
+          # Copy macOS arm64 .app dmg
+          if [ -d artifacts/macos-app-arm64 ]; then
+            cp artifacts/macos-app-arm64/* release/
           fi
           # Copy Windows app zip
           if [ -d artifacts/windows-app ]; then
