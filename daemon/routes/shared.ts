@@ -121,7 +121,6 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         tmuxSession: config.tmuxSession,
         defaultWorkflow: config.defaultWorkflow,
         autosave: config.autosave,
-        leaderUrl: config.leaderUrl,
         maxTeammates: config.maxTeammates,
       };
       if (config.teammates && Object.keys(config.teammates).length > 0) toWrite.teammates = config.teammates;

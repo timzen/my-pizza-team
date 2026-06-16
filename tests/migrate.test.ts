@@ -45,7 +45,6 @@ Deno.test("migrate: migrates inline workflows to directory", () => {
         },
       },
     },
-    leaderUrl: "http://localhost:7437",
     tmuxSession: "test",
     autosave: {
       flushIntervalMinutes: 30,
@@ -93,7 +92,6 @@ Deno.test("migrate: handles deprecated singular workflow field", () => {
         doing: { done: "teammate" },
       },
     },
-    leaderUrl: "http://localhost:7437",
     tmuxSession: "test",
     autosave: {
       flushIntervalMinutes: 30,
@@ -133,7 +131,6 @@ Deno.test("migrate: adds missing config fields", () => {
   assertEquals(config.defaultWorkflow, "default");
   assertEquals(typeof config.autosave, "object");
   assertEquals(config.autosave.flushIntervalMinutes, 30);
-  assertEquals(typeof config.leaderUrl, "string");
   assertEquals(typeof config.tmuxSession, "string");
 
   const actions = result.actions.join(" ");
@@ -150,7 +147,6 @@ Deno.test("migrate: migrates legacy instruction files", () => {
   Deno.writeTextFileSync(path.join(dir, "config.json"), JSON.stringify({
     port: 7437,
     defaultWorkflow: "default",
-    leaderUrl: "http://localhost:7437",
     tmuxSession: "test",
     autosave: { flushIntervalMinutes: 30, commitIntervalHours: 24, commitMessage: "t", autoCommit: true },
   }));
@@ -184,7 +180,6 @@ Deno.test("migrate: already current directory reports no changes", () => {
   Deno.writeTextFileSync(path.join(dir, "config.json"), JSON.stringify({
     port: 7437,
     defaultWorkflow: "default",
-    leaderUrl: "http://localhost:7437",
     tmuxSession: "test",
     autosave: { flushIntervalMinutes: 30, commitIntervalHours: 24, commitMessage: "t", autoCommit: true },
   }));

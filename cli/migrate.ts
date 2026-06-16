@@ -257,11 +257,6 @@ function validateAndFillConfig(config: Record<string, unknown>): string[] {
     }
   }
 
-  if (!config.leaderUrl) {
-    config.leaderUrl = DEFAULT_CONFIG.leaderUrl;
-    updates.push(`Added missing "leaderUrl" field (default: "${DEFAULT_CONFIG.leaderUrl}")`);
-  }
-
   if (!config.tmuxSession) {
     config.tmuxSession = DEFAULT_CONFIG.tmuxSession;
     updates.push(`Added missing "tmuxSession" field`);
