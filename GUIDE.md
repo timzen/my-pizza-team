@@ -154,7 +154,7 @@ Comments are the communication channel between you and agents:
 - **You → Agent**: Add comments on a task to provide feedback, request changes, or answer questions
 - **Agent → You**: Agents post status updates, summaries, and questions
 
-When an agent releases a task that moves to a lead-only state (like `leader_review`), you'll see it in your inbox. Review the work, add comments, then either:
+When an agent releases a task that moves to a lead-only state (like `review`), it will appear on the board in that column. Review the work, check any attached diffs or comments, then either:
 - **Approve** — Move the task forward (e.g., `review → done`)
 - **Send back** — Move it back (e.g., `review → in_progress`) with comments explaining what to fix
 

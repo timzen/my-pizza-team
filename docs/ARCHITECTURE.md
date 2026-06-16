@@ -13,10 +13,15 @@ my-pizza-team is a Deno-based application organized into four main modules:
 
 ### daemon/
 - `main.ts` — Entry point. Reads PORT/HOST/TEAM_DIR from env, validates bind safety, starts `Deno.serve()`.
-- `app.ts` — Creates the Hono application, wires Store to routes.
-- `server.ts` — All API route handlers (buildApp function). Implements the full REST protocol. Applies auth middleware when token is configured.
+- `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
+- `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
+- `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
 - `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
+- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, spawn requests.
+- `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
+- `routes/stories.ts` — Story CRUD, archive, backlog.
+- `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
 
 ### cli/
 - `main.ts` — CLI entry point (start/stop/status/upgrade/install/uninstall).
@@ -55,7 +60,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check (uptime, agents, queueDepth, memory, lastCommitTime) |
-| GET | `/api/status` | Dashboard summary (stories, tasks, members, inbox) |
+| GET | `/api/status` | Dashboard summary (stories, tasks, members) |
 | GET | `/api/stories` | List all stories with tasks |
 | POST | `/api/stories` | Create a new story (with optional tasks) |
 | PUT | `/api/stories/:id` | Update story details |
@@ -63,19 +68,12 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/stories/:id/archive` | Archive a completed story |
 | POST | `/api/stories/:id/backlog` | Move story to backlog |
 | POST | `/api/stories/:storyId/tasks` | Add a task to a story |
-| GET | `/api/next-task?memberId=X` | Get next available task for a teammate |
-| POST | `/api/tasks/:id/claim` | Claim a task (transitions to next teammate state) |
-| POST | `/api/tasks/:id/status` | Update task status (enforces workflow) |
 | POST | `/api/tasks/:id/move` | Lead moves a task to new status |
 | PUT | `/api/tasks/:id` | Update task title/description |
 | DELETE | `/api/tasks/:id` | Delete a task |
 | POST | `/api/tasks/:id/comment` | Post a comment on a task |
 | GET | `/api/tasks/:id/comments` | Get task comments |
 | POST | `/api/tasks/:id/token-usage` | Record token usage |
-| POST | `/api/tasks/:id/mark-read` | Mark comments as read |
-| POST | `/api/team/join` | Register a teammate |
-| POST | `/api/team/heartbeat` | Teammate heartbeat |
-| GET | `/api/team` | List team members |
 | GET | `/api/archived` | List archived stories |
 | GET | `/api/backlog` | List backlogged stories |
 | POST | `/api/backlog/:id/restore` | Restore from backlog |
