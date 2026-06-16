@@ -31,7 +31,7 @@ cd /path/to/my-pizza-team && deno task start
 ## Quick Start
 
 ```bash
-# Leader mode (auto-detects if .pi-pizza-team/ exists in cwd):
+# Leader mode (auto-detects if .my-pizza-team/ exists in cwd):
 pi
 
 # Or explicit leader mode with custom daemon URL:
@@ -50,8 +50,8 @@ The extension detects which role to activate:
 
 1. `--ppt-worker` flag → **Teammate** (autonomous agent)
 2. `--ppt-assistant` flag → **Assistant** (queue processor)
-3. `--ppt-lead` flag OR `.pi-pizza-team/config.json` in cwd → **Leader**
-4. Otherwise → **Inactive** (only `/ppt-init` available)
+3. `--ppt-lead` flag OR `.my-pizza-team/config.json` in cwd → **Leader**
+4. Otherwise → **Inactive** (only `/ppt-help` available)
 
 ## CLI Flags
 
@@ -66,7 +66,7 @@ The extension detects which role to activate:
 **Daemon URL resolution (priority order):**
 1. `--ppt-daemon` flag
 2. `--ppt-lead` flag (if it's a URL)
-3. `.pi-pizza-team/config.json` → `daemonUrl` field
+3. `.my-pizza-team/config.json` → `daemonUrl` field
 4. Default: `http://localhost:7437`
 
 ## Commands
@@ -75,7 +75,7 @@ The extension detects which role to activate:
 
 | Command | Description |
 |---------|-------------|
-| `/ppt-init` | Initialize `.pi-pizza-team/` in current directory |
+| `/ppt-help` | Shows setup instructions (install mpt, run `mpt start`) |
 | `/ppt-spawn [name] [cwd]` | Spawn a teammate in a tmux window |
 | `/ppt-dismiss <name>` | Stop a teammate |
 | `/ppt-hop <name>` | Jump to teammate's tmux window |
