@@ -6,9 +6,8 @@
 // 3. If --ppt-lead flag OR .my-pizza-team/config.json exists → Leader
 // 4. Otherwise → Inactive (only /ppt-help available)
 //
-// All roles communicate with the my-pizza-team daemon via HTTP.
 // Daemon URL resolution (priority order):
-//   --ppt-daemon flag → --ppt-lead flag (string) → config.json daemonUrl → default
+//   --ppt-daemon flag → config.json port/daemonUrl → default (localhost:7437)
 //
 // See docs/ARCHITECTURE.md for the full module map and data flow.
 
@@ -58,10 +57,9 @@ export default function (pi: ExtensionAPI) {
 
     const isWorker = pi.getFlag("ppt-worker") as boolean;
     const isAssistant = pi.getFlag("ppt-assistant") as boolean;
-    const pptLead = pi.getFlag("ppt-lead") as boolean | string;
+    const isLead = pi.getFlag("ppt-lead") as boolean;
     const pptDaemon = (pi.getFlag("ppt-daemon") as string) || "";
     const agentName = (pi.getFlag("ppt-name") as string) || "";
-    const isLead = pptLead === true || (typeof pptLead === "string" && pptLead.length > 0);
 
     // Detect leader via config file (check current name, then legacy)
     let teamDirName = TEAM_DIR;
@@ -73,11 +71,8 @@ export default function (pi: ExtensionAPI) {
       if (hasConfig) teamDirName = LEGACY_TEAM_DIR;
     }
 
-    // Resolve daemon URL (priority: --ppt-daemon > --ppt-lead=URL > config > default)
+    // Resolve daemon URL (priority: --ppt-daemon > config > default)
     let daemonUrl = pptDaemon || "";
-    if (!daemonUrl && typeof pptLead === "string" && pptLead.startsWith("http")) {
-      daemonUrl = pptLead; // backwards compat: --ppt-lead=http://...
-    }
     if (!daemonUrl && hasConfig) {
       try {
         const config = JSON.parse(fs.readFileSync(configFile, "utf-8"));
