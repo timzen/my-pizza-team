@@ -81,6 +81,7 @@ export default function (pi: ExtensionAPI) {
       try {
         const config = JSON.parse(fs.readFileSync(configFile, "utf-8"));
         if (config.daemonUrl) daemonUrl = config.daemonUrl;
+        else if (config.port) daemonUrl = `http://localhost:${config.port}`;
       } catch { /* ignore parse errors */ }
     }
     if (!daemonUrl) daemonUrl = DEFAULT_DAEMON_URL;
