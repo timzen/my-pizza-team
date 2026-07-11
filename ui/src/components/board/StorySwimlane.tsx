@@ -14,7 +14,8 @@ interface StoryData {
   description: string;
   status: "open" | "done";
   ready: boolean;
-  dir?: string;
+  requirements?: Record<string, string | null>;
+  paused?: boolean;
   workflow?: string;
   tasks: Array<{
     id: string;
@@ -64,9 +65,15 @@ export function StorySwimlane({ story, states, onEditStory, onEditTask, onAddTas
         {!story.ready && (
           <Badge variant="outline" className="text-xs">blocked</Badge>
         )}
-        {story.dir && (
-          <Badge variant="secondary" className="text-xs font-mono">{story.dir}</Badge>
+        {story.paused && (
+          <Badge variant="outline" className="text-xs">paused</Badge>
         )}
+        {story.requirements && typeof story.requirements.directory === "string" && (
+          <Badge variant="secondary" className="text-xs font-mono">{story.requirements.directory}</Badge>
+        )}
+        {story.requirements && Object.keys(story.requirements).filter(k => k !== "directory").map(skill => (
+          <Badge key={skill} variant="outline" className="text-xs">{skill}</Badge>
+        ))}
         <div className="ml-auto flex items-center gap-1">
           <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAddTask?.(story.id)} title="Add task">
             <Plus className="h-3.5 w-3.5" />

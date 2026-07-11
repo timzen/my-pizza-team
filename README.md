@@ -221,6 +221,41 @@ Agents use a simple claim/release loop. The daemon handles all state transitions
 5. POST /api/agents/heartbeat      → keep-alive
 ```
 
+### Registration: capabilities & work mode
+
+```jsonc
+POST /api/agents/register
+{
+  "id": "neo",
+  "name": "neo",
+  // Capabilities this agent has. The well-known `directory` key is the
+  // agent's working directory; other keys are skills/tools it possesses.
+  "capabilities": { "directory": "/path/to/project", "python": "3.11", "docker": null },
+  // How this agent picks work (default: eager-helper).
+  "workMode": "eager-helper",           // or "assigned-story"
+  "assignedStoryId": "my-story"          // required when workMode = assigned-story
+}
+```
+
+**Work modes:**
+
+| Mode | Behavior |
+|------|----------|
+| `eager-helper` *(default)* | Picks up any story whose requirements the agent satisfies |
+| `assigned-story` | Works only its `assignedStoryId`; when that story's tasks are exhausted, the daemon archives it and `next-work` returns `{ dismiss: true }` so the agent shuts down |
+
+### How work is matched
+
+A task is offered to an agent only if its story is **ready**, **not paused**, and
+the agent's capabilities **satisfy the story's requirements**. Directory affinity
+is not special — it's just the `directory` requirement:
+
+- `requirements.directory` must equal the agent's `capabilities.directory` (exact, normalized).
+- Any other `requirements` key must be present in the agent's capabilities; a
+  `null` value means "just needs to have it", a non-null value must match exactly.
+
+See [docs/DESIGN.md](docs/DESIGN.md) → *Capability-Based Work Matching*.
+
 ### What the agent gets on claim
 
 | Field | Description |

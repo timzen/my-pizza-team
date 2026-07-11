@@ -31,8 +31,8 @@ export function registerStoryRoutes(ctx: RouteContext): void {
         return {
           id: story.id, title: story.title, description: story.description,
           status: story.status, dependsOn: story.dependsOn,
-          ready: store.isStoryReady(story.id), dir: story.dir,
-          workflow: story.workflow, categories: story.categories,
+          ready: store.isStoryReady(story.id), requirements: story.requirements,
+          paused: story.paused, workflow: story.workflow, categories: story.categories,
           tasks: tasks.map(task => {
             const assignment = store.getAssignment(task.id);
             const tokenSummary = store.getTokenUsageSummary(task.id);
@@ -53,15 +53,17 @@ export function registerStoryRoutes(ctx: RouteContext): void {
     if (!store.getWorkflows()[body.workflow]) return c.json({ success: false, error: `Workflow '${body.workflow}' not found` } satisfies CreateStoryResponse, 400);
     if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
 
-    const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], body.tasks, body.dir, body.workflow, body.categories);
-    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), dir: story.dir, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null })) } } satisfies CreateStoryResponse, 201);
+    const requirements = body.requirements;
+
+    const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], body.tasks, requirements, body.workflow, body.categories, body.paused);
+    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), requirements: story.requirements, paused: story.paused, workflow: story.workflow, categories: story.categories, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, assignee: null })) } } satisfies CreateStoryResponse, 201);
   });
 
   app.put("/api/stories/:id", async (c) => {
     const storyId = c.req.param("id");
     const body = (await c.req.json()) as UpdateStoryRequest;
     if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies UpdateStoryResponse, 404);
-    store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, dir: body.dir, workflow: body.workflow, categories: body.categories });
+    store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, requirements: body.requirements, paused: body.paused, workflow: body.workflow, categories: body.categories });
     return c.json({ success: true } satisfies UpdateStoryResponse);
   });
 

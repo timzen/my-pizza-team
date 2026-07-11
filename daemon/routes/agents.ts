@@ -11,6 +11,7 @@
 
 import type { RouteContext } from "./types.ts";
 import { getClaimTarget, getReleaseTarget, getExitState } from "../workflow-engine.ts";
+import { DEFAULT_WORK_MODE, type Capabilities, type WorkMode } from "../../shared/types.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused, getInstructionsMarkdown } = ctx;
@@ -18,11 +19,22 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // ─── Register / Heartbeat ──────────────────────────────────────────
 
   app.post("/api/agents/register", async (c) => {
-    const body = await c.req.json() as { id?: string; name?: string; cwd?: string; hostId?: string; capabilities?: string[] };
-    if (!body.id || !body.name || !body.cwd) {
-      return c.json({ success: false, error: "Fields 'id', 'name', and 'cwd' are required" }, 400);
+    const body = await c.req.json() as {
+      id?: string; name?: string; hostId?: string;
+      capabilities?: Record<string, string | null>;
+      workMode?: WorkMode; assignedStoryId?: string;
+    };
+    if (!body.id || !body.name) {
+      return c.json({ success: false, error: "Fields 'id' and 'name' are required" }, 400);
     }
-    store.registerMember(body.id, body.name, body.cwd, body.id, body.hostId);
+    const capabilities: Capabilities = { ...(body.capabilities || {}) };
+
+    const workMode: WorkMode = body.workMode || DEFAULT_WORK_MODE;
+    if (workMode === "assigned-story" && !body.assignedStoryId) {
+      return c.json({ success: false, error: "workMode 'assigned-story' requires 'assignedStoryId'" }, 400);
+    }
+
+    store.registerMember(body.id, body.name, capabilities, body.id, body.hostId, workMode, body.assignedStoryId);
 
     const hostConfig = body.hostId ? config.hosts?.[body.hostId] : undefined;
     const tmuxSession = hostConfig?.tmuxSession || config.tmuxSession;
@@ -51,8 +63,26 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (isPaused()) return c.json({ task: null });
 
     const member = store.getMember(agentId);
-    const result = store.getNextWorkableTask(member?.cwd);
-    if (!result) return c.json({ task: null });
+    if (!member) return c.json({ task: null });
+
+    const result = store.getNextWorkableTask({
+      capabilities: member.capabilities,
+      workMode: member.workMode,
+      assignedStoryId: member.assignedStoryId,
+    });
+
+    if (!result) {
+      // An assigned-story agent with no more work: if its story is finished,
+      // archive it and tell the agent to dismiss itself.
+      if (member.workMode === "assigned-story" && member.assignedStoryId) {
+        const story = store.getStory(member.assignedStoryId);
+        if (story && store.isStoryArchivable(member.assignedStoryId)) {
+          store.archiveStory(member.assignedStoryId);
+          return c.json({ task: null, dismiss: true });
+        }
+      }
+      return c.json({ task: null });
+    }
 
     return c.json({
       task: {
@@ -198,7 +228,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);
-        return { id: m.id, name: m.name, cwd: m.cwd, hostId: m.hostId, status: m.status, currentTask: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat };
+        return { id: m.id, name: m.name, capabilities: m.capabilities, workMode: m.workMode, assignedStoryId: m.assignedStoryId, hostId: m.hostId, status: m.status, currentTask: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat };
       }),
     });
   });

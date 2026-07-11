@@ -15,7 +15,8 @@ interface StoryData {
   id: string;
   title: string;
   description: string;
-  dir?: string;
+  requirements?: Record<string, string | null>;
+  paused?: boolean;
   workflow?: string;
 }
 
@@ -26,20 +27,41 @@ interface EditStoryDialogProps {
   onUpdated: () => void;
 }
 
+/** Split a requirements map into the directory value and the presence-only skill keys. */
+function splitRequirements(reqs?: Record<string, string | null>): { dir: string; skills: string } {
+  if (!reqs) return { dir: "", skills: "" };
+  const dir = typeof reqs.directory === "string" ? reqs.directory : "";
+  const skills = Object.keys(reqs).filter(k => k !== "directory").join(", ");
+  return { dir, skills };
+}
+
 export function EditStoryDialog({ story, open, onClose, onUpdated }: EditStoryDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dir, setDir] = useState("");
+  const [skills, setSkills] = useState("");
+  const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
 
   useEffect(() => {
-    if (story) { setTitle(story.title); setDescription(story.description); setDir(story.dir || ""); setError(""); }
+    if (story) {
+      setTitle(story.title); setDescription(story.description);
+      const { dir: d, skills: s } = splitRequirements(story.requirements);
+      setDir(d); setSkills(s); setPaused(!!story.paused); setError("");
+    }
   }, [story]);
 
   const handleSave = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!story) return;
-    const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, { title, description, dir: dir || null });
+    const requirements: Record<string, string | null> = {};
+    if (dir) requirements.directory = dir;
+    for (const skill of skills.split(",").map(s => s.trim()).filter(Boolean)) requirements[skill] = null;
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, {
+      title, description,
+      requirements: Object.keys(requirements).length > 0 ? requirements : null,
+      paused,
+    });
     if (res.success) { onClose(); onUpdated(); }
     else setError(res.error || "Failed to update");
   };
@@ -59,6 +81,8 @@ export function EditStoryDialog({ story, open, onClose, onUpdated }: EditStoryDi
           <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
           <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required />
           <div><Label>Directory</Label><DirectoryInput value={dir} onChange={setDir} /></div>
+          <div><Label>Required skills (comma-separated)</Label><Input value={skills} onChange={e => setSkills(e.target.value)} placeholder="python, docker" /></div>
+          <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paused} onChange={e => setPaused(e.target.checked)} /> Paused (don't hand out tasks yet)</label>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <div className="flex gap-2">
             <Button type="submit" className="flex-1">Save</Button>

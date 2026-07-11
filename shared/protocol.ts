@@ -30,7 +30,8 @@ export interface StoryView {
   status: "open" | "done";
   dependsOn: string[];
   ready: boolean;
-  dir?: string;
+  requirements?: Record<string, string | null>;
+  paused?: boolean;
   workflow?: string;
   categories?: string[];
   tasks: TaskView[];
@@ -81,7 +82,7 @@ export interface JoinResponse { success: boolean; config: { defaultWorkflow: str
 export interface HeartbeatRequest { id: string; status: "idle" | "working" | "pairing"; currentTask?: string }
 
 // POST /api/stories
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; dir?: string; workflow?: string; categories?: string[]; tasks?: Array<{ title: string; description: string }> }
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null>; paused?: boolean; workflow?: string; categories?: string[]; tasks?: Array<{ title: string; description: string }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // GET /api/team
@@ -108,7 +109,7 @@ export interface TokenUsageResponse { success: boolean; costUsd?: number; error?
 
 
 // PUT /api/stories/:id
-export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; dir?: string | null; workflow?: string | null; categories?: string[] | null }
+export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null> | null; paused?: boolean; workflow?: string | null; categories?: string[] | null }
 export interface UpdateStoryResponse { success: boolean; error?: string }
 
 // DELETE /api/stories/:id
@@ -141,7 +142,17 @@ export interface AssistantDeleteNoteResponse { success: boolean; error?: string 
 // --- Agents API ---
 
 // POST /api/agents/register
-export interface AgentRegisterRequest { id: string; name: string; cwd: string; capabilities?: string[] }
+export interface AgentRegisterRequest {
+  id: string;
+  name: string;
+  /** Capabilities this agent has (well-known `directory` key = working dir). */
+  capabilities?: Record<string, string | null>;
+  /** How this agent selects work (default: eager-helper). */
+  workMode?: "eager-helper" | "assigned-story";
+  /** For workMode `assigned-story`: the story to bind to. */
+  assignedStoryId?: string;
+  hostId?: string;
+}
 export interface AgentRegisterResponse { success: boolean; config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig> }; error?: string }
 
 // POST /api/agents/heartbeat
@@ -149,7 +160,8 @@ export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" 
 export interface AgentHeartbeatResponse { success: boolean }
 
 // GET /api/agents/next-work?agentId=X
-export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string } | null }
+/** `dismiss: true` tells an assigned-story agent its story is exhausted (archived) and it should stop. */
+export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string } | null; dismiss?: boolean }
 
 // POST /api/agents/claim/:taskId
 export interface AgentClaimRequest { agentId: string }
@@ -167,7 +179,7 @@ export interface AgentPostCommentRequest { agentId: string; body: string; attach
 export interface AgentPostCommentResponse { success: boolean }
 
 // GET /api/agents
-export interface AgentListResponse { agents: Array<{ id: string; name: string; cwd: string; status: string; currentTask: string | null; lastHeartbeat: number; capabilities?: string[] }> }
+export interface AgentListResponse { agents: Array<{ id: string; name: string; capabilities: Record<string, string | null>; workMode: string; assignedStoryId?: string; status: string; currentTask: string | null; lastHeartbeat: number }> }
 
 // DELETE /api/agents/:id
 export interface AgentDeleteResponse { success: boolean; error?: string }

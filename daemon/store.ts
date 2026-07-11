@@ -20,6 +20,11 @@ import {
   getDoneState,
   DEFAULT_CONFIG,
   generateTeammateName,
+  meetsRequirements,
+  normalizeDirectory,
+  DIRECTORY_CAP,
+  DEFAULT_WORK_MODE,
+  type Capabilities,
   type Comment,
   type Story,
   type Task,
@@ -27,6 +32,7 @@ import {
   type TeamConfig,
   type TeammateConfig,
   type WorkflowConfig,
+  type WorkMode,
   type Member,
   type Assignment,
 } from "../shared/types.ts";
@@ -34,6 +40,23 @@ import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-
 import { parseFrontmatter, serializeFrontmatter } from "../shared/frontmatter.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
+
+/** Serialize a Story to the on-disk story.json shape (omitting empty fields). */
+function serializeStory(story: Story): Story {
+  const data: Story = {
+    id: story.id,
+    title: story.title,
+    description: story.description,
+    status: story.status,
+    dependsOn: story.dependsOn,
+  };
+  if (story.requirements && Object.keys(story.requirements).length > 0) data.requirements = story.requirements;
+  if (story.paused) data.paused = true;
+  if (story.workflow) data.workflow = story.workflow;
+  if (story.categories && story.categories.length > 0) data.categories = story.categories;
+  if (story.archivedAt) data.archivedAt = story.archivedAt;
+  return data;
+}
 
 export class Store {
   private db: Database;
@@ -124,7 +147,8 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'open',
         depends_on TEXT DEFAULT '[]',
-        dir TEXT,
+        requirements TEXT DEFAULT '{}',
+        paused INTEGER DEFAULT 0,
         workflow TEXT,
         categories TEXT DEFAULT '[]',
         dir_path TEXT
@@ -165,7 +189,9 @@ export class Store {
       CREATE TABLE IF NOT EXISTS members (
         id TEXT PRIMARY KEY,
         name TEXT,
-        cwd TEXT,
+        capabilities TEXT DEFAULT '{}',
+        work_mode TEXT DEFAULT 'eager-helper',
+        assigned_story_id TEXT,
         tmux_window TEXT,
         host_id TEXT,
         status TEXT DEFAULT 'idle',
@@ -207,14 +233,17 @@ export class Store {
 
     // Migration: add columns if they don't exist (for existing databases)
     const storyColumns = this.db.prepare("PRAGMA table_info(stories)").all() as Array<Record<string, unknown>>;
-    if (!storyColumns.some((col) => col.name === "dir")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN dir TEXT");
-    }
     if (!storyColumns.some((col) => col.name === "workflow")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
     }
     if (!storyColumns.some((col) => col.name === "categories")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN categories TEXT DEFAULT '[]'");
+    }
+    if (!storyColumns.some((col) => col.name === "requirements")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN requirements TEXT DEFAULT '{}'");
+    }
+    if (!storyColumns.some((col) => col.name === "paused")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN paused INTEGER DEFAULT 0");
     }
 
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
@@ -225,6 +254,15 @@ export class Store {
     const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
     if (!memberColumns.some((col) => col.name === "host_id")) {
       this.db.exec("ALTER TABLE members ADD COLUMN host_id TEXT");
+    }
+    if (!memberColumns.some((col) => col.name === "capabilities")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN capabilities TEXT DEFAULT '{}'");
+    }
+    if (!memberColumns.some((col) => col.name === "work_mode")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN work_mode TEXT DEFAULT 'eager-helper'");
+    }
+    if (!memberColumns.some((col) => col.name === "assigned_story_id")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN assigned_story_id TEXT");
     }
 
     const spawnColumns = this.db.prepare("PRAGMA table_info(spawn_requests)").all() as Array<Record<string, unknown>>;
@@ -272,11 +310,12 @@ export class Store {
 
   private upsertStory(story: Story, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, dir, workflow, categories, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, categories, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
-      JSON.stringify(story.dependsOn), story.dir || null,
+      JSON.stringify(story.dependsOn), JSON.stringify(story.requirements || {}),
+      story.paused ? 1 : 0,
       story.workflow || null, JSON.stringify(story.categories || []), dirPath
     );
   }
@@ -298,7 +337,8 @@ export class Store {
       description: row.description as string,
       status: row.status as "open" | "done",
       dependsOn: JSON.parse(row.depends_on as string),
-      dir: (row.dir as string) || undefined,
+      requirements: row.requirements && (row.requirements as string) !== "{}" ? JSON.parse(row.requirements as string) : undefined,
+      paused: row.paused ? true : undefined,
       workflow: (row.workflow as string) || undefined,
       categories: row.categories ? JSON.parse(row.categories as string) : undefined,
       dirPath: row.dir_path as string,
@@ -337,9 +377,10 @@ export class Store {
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
     tasks?: Array<{ title: string; description: string }>,
-    dir?: string,
+    requirements?: Capabilities,
     workflow?: string,
-    categories?: string[]
+    categories?: string[],
+    paused?: boolean
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storiesDir = path.join(this.teamDir, "stories");
     const storyDirPath = path.join(storiesDir, id);
@@ -347,11 +388,17 @@ export class Store {
     Deno.mkdirSync(storyDirPath, { recursive: true });
 
     const storyData: Story = { id, title, description, status, dependsOn };
-    if (dir) storyData.dir = dir;
+    if (requirements && Object.keys(requirements).length > 0) {
+      // Normalize the well-known directory requirement for exact matching.
+      const reqs: Capabilities = { ...requirements };
+      if (typeof reqs[DIRECTORY_CAP] === "string") reqs[DIRECTORY_CAP] = normalizeDirectory(reqs[DIRECTORY_CAP] as string);
+      storyData.requirements = reqs;
+    }
+    if (paused) storyData.paused = true;
     if (workflow) storyData.workflow = workflow;
     if (categories && categories.length > 0) storyData.categories = categories;
     const storyFile = path.join(storyDirPath, "story.json");
-    Deno.writeTextFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
+    Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
 
     this.upsertStory(storyData, storyDirPath);
 
@@ -426,7 +473,8 @@ export class Store {
     description?: string;
     status?: "open" | "done";
     dependsOn?: string[];
-    dir?: string | null;
+    requirements?: Capabilities | null;
+    paused?: boolean;
     workflow?: string | null;
     categories?: string[] | null;
   }): boolean {
@@ -437,26 +485,31 @@ export class Store {
     const newDescription = updates.description ?? story.description;
     const newStatus = updates.status ?? story.status;
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
-    const newDir = updates.dir !== undefined ? (updates.dir || null) : (story.dir || null);
+    let newRequirements = updates.requirements !== undefined ? (updates.requirements || undefined) : story.requirements;
+    if (newRequirements && typeof newRequirements[DIRECTORY_CAP] === "string") {
+      newRequirements = { ...newRequirements, [DIRECTORY_CAP]: normalizeDirectory(newRequirements[DIRECTORY_CAP] as string) };
+    }
+    const newPaused = updates.paused !== undefined ? updates.paused : (story.paused || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
     const newCategories = updates.categories !== undefined ? (updates.categories || []) : (story.categories || []);
 
     this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, dir = ?, workflow = ?, categories = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newDir, newWorkflow, JSON.stringify(newCategories), storyId);
+      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, categories = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newCategories), storyId);
 
     // Write back to disk
     const storyFile = path.join(story.dirPath, "story.json");
-    const data: Story = {
+    const data = serializeStory({
       id: storyId,
       title: newTitle,
       description: newDescription,
       status: newStatus,
       dependsOn: newDependsOn,
-    };
-    if (newDir) data.dir = newDir;
-    if (newWorkflow) data.workflow = newWorkflow;
-    if (newCategories.length > 0) data.categories = newCategories;
+      requirements: newRequirements,
+      paused: newPaused,
+      workflow: newWorkflow || undefined,
+      categories: newCategories,
+    });
     Deno.writeTextFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
 
     return true;
@@ -467,16 +520,7 @@ export class Store {
     const story = this.getStory(storyId);
     if (story) {
       const storyFile = path.join(story.dirPath, "story.json");
-      const data: Story = {
-        id: story.id,
-        title: story.title,
-        description: story.description,
-        status: status,
-        dependsOn: story.dependsOn,
-      };
-      if (story.dir) data.dir = story.dir;
-      if (story.workflow) data.workflow = story.workflow;
-      Deno.writeTextFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
+      Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory({ ...story, status }), null, 2) + "\n");
     }
   }
 
@@ -546,17 +590,19 @@ export class Store {
    * - Must not already be assigned
    * - Within a story, tasks are sequential: only the first eligible task is returned
    */
-  getNextAvailableTask(memberCwd?: string): TaskWithMeta | null {
-    return this.getNextWorkableTask(memberCwd);
+  getNextAvailableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): TaskWithMeta | null {
+    return this.getNextWorkableTask(agent);
   }
 
   /**
    * Find the next workable task for an agent.
    * A task is "workable" if:
-   * - Its story is ready (dependencies met)
+   * - Its story is ready (dependencies met) and not paused
+   * - The agent's capabilities satisfy the story's requirements (the
+   *   working directory is just the well-known `directory` requirement)
+   * - For workMode `assigned-story`, the story is the agent's assigned story
    * - It is NOT claimed by anyone
    * - It has at least one "teammate" or "any" transition from its current state
-   * - Its story dir matches the agent's cwd (if both are set)
    * - It is the first non-done task in the story (sequential ordering)
    *
    * This supports multi-transition ownership: an agent picks up a task,
@@ -564,17 +610,22 @@ export class Store {
    * blocked by a lead-only transition, and re-picks-up when the lead
    * moves it to a state with teammate transitions available again.
    */
-  getNextWorkableTask(memberCwd?: string): (TaskWithMeta & { availableTransitions: Array<{ state: string; permission: string }> }) | null {
+  getNextWorkableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): (TaskWithMeta & { availableTransitions: Array<{ state: string; permission: string }> }) | null {
+    const capabilities = agent?.capabilities || {};
+    const workMode = agent?.workMode || DEFAULT_WORK_MODE;
     const stories = this.getStories();
     for (const story of stories) {
       if (!this.isStoryReady(story.id)) continue;
 
-      // If the member has a cwd, only match stories with the same dir
-      if (memberCwd && story.dir) {
-        const normalizedStoryDir = story.dir.replace(/\/$/, "").replace(/^~/, Deno.env.get("HOME") || "~");
-        const normalizedMemberCwd = memberCwd.replace(/\/$/, "");
-        if (normalizedStoryDir !== normalizedMemberCwd) continue;
-      }
+      // Paused stories are a temporal gate: never hand out their tasks.
+      if (story.paused) continue;
+
+      // assigned-story agents only work their bound story.
+      if (workMode === "assigned-story" && story.id !== agent?.assignedStoryId) continue;
+
+      // The agent's capabilities must satisfy the story's requirements.
+      // Directory affinity is expressed as the well-known `directory` requirement.
+      if (!meetsRequirements(capabilities, story.requirements)) continue;
 
       const wf = this.getWorkflowForStory(story.id);
       const doneState = getDoneState(wf);
@@ -771,11 +822,22 @@ export class Store {
 
   // --- Members ---
 
-  registerMember(id: string, name: string, cwd: string, tmuxWindow: string, hostId?: string): void {
+  registerMember(
+    id: string,
+    name: string,
+    capabilities: Capabilities,
+    tmuxWindow: string,
+    hostId?: string,
+    workMode: WorkMode = DEFAULT_WORK_MODE,
+    assignedStoryId?: string,
+  ): void {
+    // Normalize the well-known directory capability for exact matching.
+    const caps: Capabilities = { ...capabilities };
+    if (typeof caps[DIRECTORY_CAP] === "string") caps[DIRECTORY_CAP] = normalizeDirectory(caps[DIRECTORY_CAP] as string);
     this.db.prepare(
-      `INSERT OR REPLACE INTO members (id, name, cwd, tmux_window, host_id, status, last_heartbeat)
-       VALUES (?, ?, ?, ?, ?, 'idle', ?)`
-    ).run(id, name, cwd, tmuxWindow, hostId || null, Date.now());
+      `INSERT OR REPLACE INTO members (id, name, capabilities, work_mode, assigned_story_id, tmux_window, host_id, status, last_heartbeat)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
+    ).run(id, name, JSON.stringify(caps), workMode, assignedStoryId || null, tmuxWindow, hostId || null, Date.now());
   }
 
   updateMemberStatus(id: string, status: string): void {
@@ -786,31 +848,32 @@ export class Store {
     this.db.prepare("UPDATE members SET status = ?, last_heartbeat = ? WHERE id = ?").run(status, Date.now(), id);
   }
 
-  getMembers(): Member[] {
-    const rows = this.db.prepare("SELECT * FROM members ORDER BY name").all() as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
-      id: row.id as string,
-      name: row.name as string,
-      cwd: row.cwd as string,
-      tmuxWindow: row.tmux_window as string,
-      hostId: (row.host_id as string) || undefined,
-      status: row.status as Member["status"],
-      lastHeartbeat: row.last_heartbeat as number,
-    }));
-  }
-
-  getMember(id: string): Member | null {
-    const row = this.db.prepare("SELECT * FROM members WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-    if (!row) return null;
+  private rowToMember(row: Record<string, unknown>): Member {
+    const capabilities: Capabilities = row.capabilities && (row.capabilities as string) !== "{}"
+      ? JSON.parse(row.capabilities as string)
+      : {};
     return {
       id: row.id as string,
       name: row.name as string,
-      cwd: row.cwd as string,
+      capabilities,
+      workMode: (row.work_mode as WorkMode) || DEFAULT_WORK_MODE,
+      assignedStoryId: (row.assigned_story_id as string) || undefined,
       tmuxWindow: row.tmux_window as string,
       hostId: (row.host_id as string) || undefined,
       status: row.status as Member["status"],
       lastHeartbeat: row.last_heartbeat as number,
     };
+  }
+
+  getMembers(): Member[] {
+    const rows = this.db.prepare("SELECT * FROM members ORDER BY name").all() as Array<Record<string, unknown>>;
+    return rows.map((row) => this.rowToMember(row));
+  }
+
+  getMember(id: string): Member | null {
+    const row = this.db.prepare("SELECT * FROM members WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    if (!row) return null;
+    return this.rowToMember(row);
   }
 
   removeMember(id: string): void {

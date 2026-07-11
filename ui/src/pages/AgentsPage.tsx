@@ -13,7 +13,9 @@ import { SpawnDialog } from "@/components/board/SpawnDialog";
 interface Agent {
   id: string;
   name: string;
-  cwd: string;
+  capabilities: Record<string, string | null>;
+  workMode: string;
+  assignedStoryId?: string;
   hostId?: string;
   status: string;
   currentTask: string | null;
@@ -135,8 +137,19 @@ function AgentCard({ agent, onDismiss }: { agent: Agent; onDismiss?: (id: string
               )}
               <span className="flex items-center gap-1">
                 <FolderOpen className="h-3 w-3" />
-                <span className="truncate max-w-[200px]">{agent.cwd}</span>
+                <span className="truncate max-w-[200px]">{agent.capabilities?.directory ?? "—"}</span>
               </span>
+              {agent.workMode === "assigned-story" && (
+                <span className="flex items-center gap-1">
+                  <Bot className="h-3 w-3" />
+                  {agent.assignedStoryId}
+                </span>
+              )}
+              {agent.capabilities && Object.keys(agent.capabilities).filter(k => k !== "directory").length > 0 && (
+                <span className="truncate max-w-[200px]">
+                  {Object.keys(agent.capabilities).filter(k => k !== "directory").join(", ")}
+                </span>
+              )}
               <span className="flex items-center gap-1">
                 <Clock className="h-3 w-3" />
                 {formatHeartbeat(agent.lastHeartbeat)}

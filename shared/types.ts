@@ -65,6 +65,60 @@ export interface WorkflowConfig {
 
 export type TransitionPermission = "any" | "teammate" | "lead";
 
+/**
+ * A capability/requirement map.
+ *
+ * Used two ways:
+ * - On an agent (Member.capabilities): the capabilities the agent *has*.
+ *   Keys are capability names, values are optional detail (e.g. a version,
+ *   or the agent's working directory for the well-known `directory` key).
+ * - On a story (Story.requirements): the capabilities a story *needs*.
+ *   A `null` value means "agent must have this capability, any value";
+ *   a non-null value means "agent's value for this capability must match exactly".
+ *
+ * There is no special case for working directory: it is simply the well-known
+ * `directory` capability (see DIRECTORY_CAP) whose required value is matched
+ * exactly. See docs/DESIGN.md "Capability-Based Work Matching".
+ */
+export type Capabilities = Record<string, string | null>;
+
+/** Well-known capability key for an agent's working directory / a story's directory affinity. */
+export const DIRECTORY_CAP = "directory";
+
+/**
+ * How an agent selects which work to pick up.
+ * - `eager-helper` (default): any story whose requirements the agent satisfies.
+ * - `assigned-story`: only the agent's assigned story; when its tasks are
+ *   exhausted the daemon archives the story and dismisses the agent.
+ */
+export type WorkMode = "eager-helper" | "assigned-story";
+
+/** Default work mode when an agent does not specify one. */
+export const DEFAULT_WORK_MODE: WorkMode = "eager-helper";
+
+/**
+ * Normalize a directory value for exact-match comparison: expand a leading
+ * `~` to $HOME and strip a trailing slash. Applied at write time so the
+ * matcher itself can stay a dumb exact-string comparison.
+ */
+export function normalizeDirectory(dir: string): string {
+  return dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~").replace(/\/+$/, "");
+}
+
+/**
+ * Does an agent with the given capabilities satisfy all of a story's requirements?
+ * For each required (name, value): the agent must have `name`, and if `value`
+ * is non-null the agent's value must equal it exactly.
+ */
+export function meetsRequirements(capabilities: Capabilities, requirements?: Capabilities): boolean {
+  if (!requirements) return true;
+  for (const [name, requiredValue] of Object.entries(requirements)) {
+    if (!(name in capabilities)) return false;
+    if (requiredValue !== null && capabilities[name] !== requiredValue) return false;
+  }
+  return true;
+}
+
 export interface AutosaveConfig {
   flushIntervalMinutes: number;
   commitIntervalHours: number;
@@ -78,7 +132,10 @@ export interface Story {
   description: string;
   status: "open" | "done";
   dependsOn: string[];
-  dir?: string;
+  /** Capabilities an agent must have to work this story (see Capabilities). */
+  requirements?: Capabilities;
+  /** When true, the story's tasks are not handed out to agents (temporal gate). */
+  paused?: boolean;
   workflow?: string;
   categories?: string[];
   archivedAt?: string;
@@ -124,7 +181,12 @@ export interface Comment {
 export interface Member {
   id: string;
   name: string;
-  cwd: string;
+  /** Capabilities this agent has, including the well-known `directory` key. */
+  capabilities: Capabilities;
+  /** How this agent selects work. */
+  workMode: WorkMode;
+  /** For workMode `assigned-story`: the story this agent is bound to. */
+  assignedStoryId?: string;
   tmuxWindow: string;
   hostId?: string;
   status: "idle" | "working" | "pairing" | "offline";
