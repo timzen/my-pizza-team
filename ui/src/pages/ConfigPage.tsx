@@ -26,6 +26,7 @@ interface ConfigData {
   maxTeammates?: number;
   categories?: string[];
   teammates?: TeammateConfig;
+  defaultNouns?: string[];
 }
 
 type Tab = "general" | "teammates" | "categories" | "capabilities";
@@ -218,8 +219,11 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
                 <button onClick={() => removeNoun(n)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
               </Badge>
             ))}
-            {nouns.length === 0 && <span className="text-xs text-muted-foreground italic">Using defaults</span>}
+            {nouns.length === 0 && (config.defaultNouns || []).map((n) => (
+              <Badge key={n} variant="outline" className="text-muted-foreground">{n}</Badge>
+            ))}
           </div>
+          {nouns.length === 0 && <p className="text-xs text-muted-foreground italic">Showing built-in defaults. Add a noun to use a custom list instead.</p>}
           <div className="flex gap-2">
             <Input placeholder="Add a noun..." value={newNoun} onChange={(e) => setNewNoun(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addNoun()} className="max-w-[200px]" />
             <Button variant="outline" size="sm" onClick={addNoun}><Plus className="h-3.5 w-3.5" /></Button>
