@@ -4,7 +4,7 @@
  */
 
 import { useState, useEffect } from "react";
-import { useApi, apiPut } from "@/hooks/useApi";
+import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,6 @@ import { Settings, Plus, X, Save } from "lucide-react";
 
 interface TeammateConfig {
   nouns?: string[];
-  favoriteDirectories?: string[];
 }
 
 interface ConfigData {
@@ -29,7 +28,7 @@ interface ConfigData {
   teammates?: TeammateConfig;
 }
 
-type Tab = "general" | "teammates" | "categories";
+type Tab = "general" | "teammates" | "categories" | "capabilities";
 
 export function ConfigPage() {
   const { data, loading, refetch } = useApi<ConfigData>("/api/config");
@@ -70,6 +69,7 @@ export function ConfigPage() {
     { id: "general", label: "General" },
     { id: "teammates", label: "Teammates" },
     { id: "categories", label: "Categories" },
+    { id: "capabilities", label: "Capabilities" },
   ];
 
   return (
@@ -100,6 +100,7 @@ export function ConfigPage() {
       {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}
       {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
       {activeTab === "categories" && <CategoriesTab config={config} setConfig={setConfig} />}
+      {activeTab === "capabilities" && <CapabilitiesTab />}
 
       {/* Save bar */}
       <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
@@ -189,10 +190,8 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
 
 function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
   const [newNoun, setNewNoun] = useState("");
-  const [newDir, setNewDir] = useState("");
   const teammates = config.teammates || {};
   const nouns = teammates.nouns || [];
-  const favDirs = teammates.favoriteDirectories || [];
 
   const addNoun = () => {
     const val = newNoun.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "");
@@ -204,18 +203,6 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
   const removeNoun = (noun: string) => {
     const updated = nouns.filter((n) => n !== noun);
     setConfig({ ...config, teammates: { ...teammates, nouns: updated.length > 0 ? updated : undefined } });
-  };
-
-  const addDir = () => {
-    const val = newDir.trim();
-    if (!val || favDirs.includes(val)) return;
-    setConfig({ ...config, teammates: { ...teammates, favoriteDirectories: [...favDirs, val] } });
-    setNewDir("");
-  };
-
-  const removeDir = (index: number) => {
-    const updated = favDirs.filter((_, i) => i !== index);
-    setConfig({ ...config, teammates: { ...teammates, favoriteDirectories: updated.length > 0 ? updated : undefined } });
   };
 
   return (
@@ -239,27 +226,77 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
           </div>
         </CardContent>
       </Card>
-
-      <Card>
-        <CardContent className="p-4 space-y-3">
-          <h2 className="font-semibold">Favorite Directories</h2>
-          <p className="text-xs text-muted-foreground">Quick-pick directories when spawning teammates.</p>
-          <div className="space-y-2">
-            {favDirs.map((d, i) => (
-              <div key={i} className="flex items-center gap-2">
-                <code className="text-xs bg-muted px-2 py-1 rounded flex-1 truncate">{d}</code>
-                <Button variant="ghost" size="icon" className="h-6 w-6" onClick={() => removeDir(i)}><X className="h-3.5 w-3.5" /></Button>
-              </div>
-            ))}
-            {favDirs.length === 0 && <span className="text-xs text-muted-foreground italic">No favorites configured</span>}
-          </div>
-          <div className="flex gap-2">
-            <Input placeholder="~/Workspace/my-project" value={newDir} onChange={(e) => setNewDir(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addDir()} className="flex-1" />
-            <Button variant="outline" size="sm" onClick={addDir}><Plus className="h-3.5 w-3.5" /></Button>
-          </div>
-        </CardContent>
-      </Card>
     </div>
+  );
+}
+
+// --- Capabilities Tab ---
+//
+// Recently used capabilities (name -> known values) are auto-populated from
+// story requirements and agent registrations, and edited here via the live
+// /api/capabilities endpoints (applied immediately, not via the Save button).
+// The well-known `directory` key holds recently used working directories.
+
+function CapabilitiesTab() {
+  const { data, refetch } = useApi<{ capabilities: Record<string, string[]> }>("/api/capabilities");
+  const [newName, setNewName] = useState("");
+  const [newValue, setNewValue] = useState("");
+  const caps = data?.capabilities || {};
+  const names = Object.keys(caps).sort();
+
+  const add = async () => {
+    const name = newName.trim();
+    if (!name) return;
+    await apiPost("/api/capabilities", { name, value: newValue.trim() || undefined });
+    setNewName(""); setNewValue("");
+    refetch();
+  };
+
+  const removeKey = async (name: string) => {
+    await apiDelete(`/api/capabilities/${encodeURIComponent(name)}`);
+    refetch();
+  };
+
+  const removeValue = async (name: string, value: string) => {
+    await apiDelete(`/api/capabilities/${encodeURIComponent(name)}?value=${encodeURIComponent(value)}`);
+    refetch();
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Recent Capabilities</h2>
+        <p className="text-xs text-muted-foreground">
+          Capability names and their known values, used to suggest story requirements and agent capabilities.
+          Auto-updated from stories and agent registrations. The <code>directory</code> key holds recent working directories.
+        </p>
+        <div className="space-y-2">
+          {names.map((name) => (
+            <div key={name} className="flex items-start gap-2">
+              <Badge variant="secondary" className="gap-1 shrink-0">
+                {name}
+                <button onClick={() => removeKey(name)} className="hover:text-destructive" title="Remove capability"><X className="h-3 w-3" /></button>
+              </Badge>
+              <div className="flex flex-wrap gap-1 flex-1">
+                {caps[name]!.length === 0 && <span className="text-xs text-muted-foreground italic">presence-only</span>}
+                {caps[name]!.map((v) => (
+                  <Badge key={v} variant="outline" className="gap-1 font-mono text-xs">
+                    {v}
+                    <button onClick={() => removeValue(name, v)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                  </Badge>
+                ))}
+              </div>
+            </div>
+          ))}
+          {names.length === 0 && <span className="text-xs text-muted-foreground italic">No capabilities recorded yet</span>}
+        </div>
+        <div className="flex gap-2 pt-1">
+          <Input placeholder="name (e.g. python)" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} className="max-w-[180px]" />
+          <Input placeholder="value (optional)" value={newValue} onChange={(e) => setNewValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} className="flex-1" />
+          <Button variant="outline" size="sm" onClick={add}><Plus className="h-3.5 w-3.5" /></Button>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

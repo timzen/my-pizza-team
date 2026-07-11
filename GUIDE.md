@@ -69,7 +69,7 @@ The board (`/board`) is the main view showing all active stories as horizontal s
 Click **Add Story** to open the creation dialog:
 
 1. **ID** — A URL-safe identifier (auto-suggested from title)
-2. **Directory** — Where agents should work (select from favorites or type custom)
+2. **Directory** — Where agents should work (select from recent directories or type custom)
 3. **Workflow** — Select which workflow governs this story's tasks (required)
 4. **Title** — What the story is about
 5. **Description** — Detailed requirements (markdown supported)
@@ -130,7 +130,7 @@ The agents page (`/team`) shows all connected agents with their status, current 
 
 Click **Spawn** in the board header to request a new agent:
 - **Host** — Which machine should start the agent
-- **Working Directory** — Where the agent operates (favorites + story dirs shown)
+- **Working Directory** — Where the agent operates (recent + story dirs shown)
 
 ### Agent Lifecycle
 

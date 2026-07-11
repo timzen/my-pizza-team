@@ -92,16 +92,24 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
   // ─── Knowledge Base ────────────────────────────────────────────
   "categories": ["coding", "research", "doc-writing"],
 
+  // ─── Recently Used Capabilities (auto-maintained) ───────────────
+  // Map of capability name → known values (most-recent-first). Auto-updated
+  // when stories declare `requirements` and when agents register. Presence-only
+  // capabilities map to []. Editable via the /api/capabilities endpoints.
+  "recentCapabilities": {
+    "directory": ["/path/to/project"],
+    "python": ["3.11"],
+    "design": []
+  },
+
   // ─── Teammates ─────────────────────────────────────────────────
   "teammates": {
-    "nouns": ["ripley", "deckard", "neo"],
-    "favoriteDirectories": ["/path/to/project"]
+    "nouns": ["ripley", "deckard", "neo"]
   },
 
   // ─── Multi-Machine Hosts ──────────────────────────────────────
   "hosts": {
     "macbook": {
-      "favoriteDirectories": ["/Users/you/work"],
       "tmuxSession": "pizza-mac"
     }
   }
@@ -347,6 +355,7 @@ done
 | Agents | `/api/agents/*` | Register, heartbeat, claim, release |
 | Assistant | `/api/assistant/*` | Queue + knowledge base |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
+| Capabilities | `GET/POST/DELETE /api/capabilities` | Recently used capability names + values |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |
 
 Full API route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)

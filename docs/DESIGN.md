@@ -72,6 +72,32 @@ requirements; lifecycle (work everything vs. one story then leave) belongs to
 the agent's mode; and availability (pause) is a separate temporal switch.
 Keeping the three concerns independent avoids overloading any one field.
 
+### Recently Used Capabilities (2026-07-11)
+
+The daemon remembers capabilities it has seen in `config.recentCapabilities`, a
+map of **capability name → known values** (most-recent-first, deduped, capped at
+50 values per key). Presence-only capabilities (e.g. `design`) map to an empty
+array so the key itself is still remembered.
+
+It is populated automatically:
+- When a story is created/updated, its `requirements` are recorded.
+- When an agent registers, its `capabilities` are recorded.
+
+And editable explicitly via `GET/POST/DELETE /api/capabilities`. The `directory`
+value is normalized on the way in so it matches agent registrations.
+
+This **replaces the former `teammates.favoriteDirectories` / per-host
+`favoriteDirectories`** config: recently used working directories are now just
+the `directory` capability's values. Register and `/api/hosts/:hostId` return
+them as `directories`, and the UI's directory picker reads them from
+`/api/capabilities`.
+
+**Rationale**: This drives autocomplete for both the capability *key* and its
+*values* when authoring story requirements or spawning agents — the map shape
+(name → values) mirrors the capability model itself. It lives in `config.json`
+(not the SQLite index) because it is durable, human-editable team configuration,
+and `Store.persistConfig()` writes the whole config losslessly.
+
 ### Messages → Comments (2026-06-05)
 
 The original design used "messages" as a real-time communication channel between lead and teammates (`/api/tasks/:id/message`, `messages.jsonl`). This has been renamed to **comments** throughout:

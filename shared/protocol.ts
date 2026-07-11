@@ -118,6 +118,14 @@ export interface DeleteStoryResponse { success: boolean; error?: string }
 // POST /api/stories/:id/archive
 export interface ArchiveStoryResponse { success: boolean; synopsis?: string; error?: string }
 
+// --- Capabilities (recently used) ---
+// GET /api/capabilities
+export interface CapabilitiesResponse { capabilities: Record<string, string[]> }
+// POST /api/capabilities
+export interface AddCapabilityRequest { name: string; value?: string }
+// POST/DELETE responses
+export interface CapabilityMutationResponse { success: boolean; capabilities?: Record<string, string[]>; error?: string }
+
 // GET /api/archived
 export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: string; archivedAt: string; synopsis: string }> }
 

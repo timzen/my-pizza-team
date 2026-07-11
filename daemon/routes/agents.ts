@@ -38,11 +38,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     const hostConfig = body.hostId ? config.hosts?.[body.hostId] : undefined;
     const tmuxSession = hostConfig?.tmuxSession || config.tmuxSession;
-    const favoriteDirectories = hostConfig?.favoriteDirectories || config.teammates?.favoriteDirectories || [];
+    // Directory suggestions come from recently used `directory` capabilities.
+    const directories = store.getRecentCapabilities()["directory"] || [];
 
     return c.json({
       success: true,
-      config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession, favoriteDirectories },
+      config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession, directories },
     });
   });
 

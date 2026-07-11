@@ -22,6 +22,14 @@ export interface TeamConfig {
   teammates?: TeammateConfig;
   /** Configurable memory categories for the knowledge base */
   categories?: string[];
+  /**
+   * Recently used capabilities, as a map of capability name -> known values
+   * (most-recent-first, deduped, capped). Presence-only capabilities map to an
+   * empty array. Auto-populated when stories declare `requirements` and when
+   * agents register `capabilities`; also editable via the /api/capabilities API.
+   * Used to drive autocomplete for requirement/capability keys and their values.
+   */
+  recentCapabilities?: Record<string, string[]>;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
@@ -34,8 +42,6 @@ export interface TeamConfig {
 
 /** Per-host configuration for multi-machine setups */
 export interface HostConfig {
-  /** Favorite working directories for spawning agents on this host */
-  favoriteDirectories?: string[];
   /** tmux session name for this host (overrides top-level tmuxSession) */
   tmuxSession?: string;
 }
@@ -43,8 +49,6 @@ export interface HostConfig {
 export interface TeammateConfig {
   /** Nouns for name generation (defaults to sci-fi characters) */
   nouns?: string[];
-  /** Favorite working directories for quick spawn */
-  favoriteDirectories?: string[];
 }
 
 /** Default memory categories for the knowledge base */
@@ -222,9 +226,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
   maxTeammates: 4,
   agentTimeoutSeconds: 90,
   categories: DEFAULT_CATEGORIES,
-  teammates: {
-    favoriteDirectories: [],
-  },
+  teammates: {},
 };
 
 export interface TransitionInstructions {
