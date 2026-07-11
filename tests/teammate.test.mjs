@@ -163,5 +163,10 @@ test("uses instructions from claim response", () => {
   assert.ok(src.includes("claim.instructions"));
 });
 
+test("dismisses itself when next-work returns dismiss (assigned-story exhausted)", () => {
+  assert.ok(src.includes("response.dismiss"));
+  assert.ok(src.match(/response\.dismiss[\s\S]*?onDismissed/));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

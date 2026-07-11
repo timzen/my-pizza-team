@@ -115,6 +115,15 @@ export class TeammateLoop {
     try {
       const response = await this.client.getNextWork();
 
+      // assigned-story agent whose story is exhausted: the daemon archived
+      // the story and is telling us to shut down.
+      if (response.dismiss) {
+        this.debugLog(`[ppt-debug] Received dismiss from next-work — assigned story complete. Stopping.`);
+        this.stop();
+        if (this.onDismissed) this.onDismissed();
+        return;
+      }
+
       if (response.task) {
         // Claim the task — daemon transitions to working state
         const claim = await this.client.claimTask(response.task.id);

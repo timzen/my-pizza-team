@@ -62,6 +62,28 @@ The extension detects which role to activate:
 | `--ppt-assistant` | boolean | false | Run as assistant |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
+| `--ppt-work-mode` | string | `eager-helper` | Teammate work selection: `eager-helper` or `assigned-story` |
+| `--ppt-story` | string | (none) | Story ID to bind to (required for `--ppt-work-mode assigned-story`) |
+| `--ppt-skills` | string | (none) | Comma-separated capabilities this teammate has (e.g. `python,docker`) |
+
+### Work modes & capabilities
+
+A teammate registers a **capability map** with the daemon: the well-known
+`directory` key (its working directory) plus any `--ppt-skills` it declares.
+The daemon only hands a teammate a story whose **requirements** it satisfies
+(see my-pizza-team `docs/DESIGN.md` → *Capability-Based Work Matching*).
+
+- `eager-helper` (default): picks up any story it's capable of.
+- `assigned-story` (with `--ppt-story <id>`): works only that story; when its
+  tasks are exhausted the daemon archives it and the teammate dismisses itself.
+
+```bash
+# Eager helper that can do design + python work
+pi --ppt-worker --ppt-skills=design,python
+
+# Dedicated agent for one story, exits when the story is finished
+pi --ppt-worker --ppt-work-mode=assigned-story --ppt-story=add-user-auth
+```
 
 **Daemon URL resolution (priority order):**
 1. `--ppt-daemon` flag

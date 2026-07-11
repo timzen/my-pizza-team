@@ -32,7 +32,7 @@ interface HarnessTemplates {
 }
 
 const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
-  pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}",
+  pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs}",
   "pi-assistant": "pi --ppt-assistant --ppt-daemon={url} --ppt-name=assistant",
 };
 
@@ -64,7 +64,7 @@ export async function setupLeader(
 
   // Register with daemon
   try {
-    const regRes = await client.register({ name: "leader", cwd });
+    const regRes = await client.register({ name: "leader", capabilities: { directory: cwd } });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
     if (regRes.config?.favoriteDirectories) favoriteDirectories = regRes.config.favoriteDirectories;
   } catch {
@@ -129,6 +129,7 @@ export async function setupLeader(
             daemonUrl: client.url,
             harness,
             harnessTemplates,
+            storyId: req.storyId,
           }, execSync);
 
           await client.ackSpawnRequest(req.id);
@@ -326,10 +327,12 @@ function spawnAgent(
     daemonUrl: string;
     harness: string;
     harnessTemplates: HarnessTemplates;
+    /** When set, spawn the teammate in assigned-story mode bound to this story. */
+    storyId?: string;
   },
   execSync: any
 ): void {
-  const { session, daemonUrl, harness, harnessTemplates } = options;
+  const { session, daemonUrl, harness, harnessTemplates, storyId } = options;
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
   const safeCwd = shellSafe(agentCwd);
@@ -352,11 +355,17 @@ function spawnAgent(
   }
 
   // Resolve the command template
+  // A spawn request bound to a story becomes an assigned-story teammate that
+  // dismisses itself once that story is complete.
+  const workArgs = storyId
+    ? ` --ppt-work-mode=assigned-story --ppt-story=${shellSafe(storyId)}`
+    : "";
   const template = harnessTemplates[harness] || harnessTemplates.pi;
   const cmd = template
     .replace(/\{name\}/g, shellSafe(name))
     .replace(/\{url\}/g, shellSafe(daemonUrl))
-    .replace(/\{cwd\}/g, safeCwd);
+    .replace(/\{cwd\}/g, safeCwd)
+    .replace(/\{workArgs\}/g, workArgs);
 
   // Send the command to the tmux window
   execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'cd ${safeCwd} && ${cmd}' Enter`, { stdio: "pipe" });

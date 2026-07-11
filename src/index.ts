@@ -50,6 +50,24 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
+  pi.registerFlag("ppt-work-mode", {
+    description: "Teammate work selection mode: eager-helper (default) or assigned-story",
+    type: "string",
+    default: "",
+  });
+
+  pi.registerFlag("ppt-story", {
+    description: "Story ID to bind to (required for --ppt-work-mode assigned-story)",
+    type: "string",
+    default: "",
+  });
+
+  pi.registerFlag("ppt-skills", {
+    description: "Comma-separated capabilities this teammate has (e.g. python,docker)",
+    type: "string",
+    default: "",
+  });
+
   // ─── Session Start ─────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
@@ -87,7 +105,13 @@ export default function (pi: ExtensionAPI) {
     if (isWorker) {
       const memberId = agentName || process.env.TMUX_PANE || `teammate-${Date.now()}`;
       const client = new DaemonClient(daemonUrl, memberId);
-      await setupTeammate(pi, ctx, client, memberId, cwd);
+      // Work-selection options (see my-pizza-team DESIGN.md: Capability-Based Work Matching)
+      const rawMode = (pi.getFlag("ppt-work-mode") as string) || "";
+      const workMode = rawMode === "assigned-story" ? "assigned-story" : "eager-helper";
+      const assignedStoryId = (pi.getFlag("ppt-story") as string) || "";
+      const skills = ((pi.getFlag("ppt-skills") as string) || "")
+        .split(",").map((s) => s.trim()).filter(Boolean);
+      await setupTeammate(pi, ctx, client, memberId, cwd, { workMode, assignedStoryId, skills });
       return;
     }
 
@@ -141,7 +165,8 @@ async function setupTeammate(
   ctx: any,
   client: DaemonClient,
   memberId: string,
-  cwd: string
+  cwd: string,
+  workOpts?: { workMode: "eager-helper" | "assigned-story"; assignedStoryId: string; skills: string[] }
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
   const { registerPermissionBypass, updatePermissionConfig } = await import("./permissions.js");
@@ -153,9 +178,19 @@ async function setupTeammate(
     ctx.ui.notify(`🍕 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
+  // Build the capability map. The working directory is the well-known
+  // `directory` capability; extra skills are presence-only (null value).
+  const capabilities: Record<string, string | null> = { directory: cwd };
+  for (const skill of workOpts?.skills || []) capabilities[skill] = null;
+
   // Register with daemon
   try {
-    await client.register({ name: memberId, cwd });
+    await client.register({
+      name: memberId,
+      capabilities,
+      workMode: workOpts?.workMode,
+      assignedStoryId: workOpts?.assignedStoryId || undefined,
+    });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register — will keep trying via polling`, "warning");
@@ -342,7 +377,7 @@ async function setupAssistant(
 
   // Register with daemon
   try {
-    await client.register({ name: "assistant", cwd });
+    await client.register({ name: "assistant", capabilities: { directory: cwd } });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🤖 Failed to register — will keep trying via polling`, "warning");

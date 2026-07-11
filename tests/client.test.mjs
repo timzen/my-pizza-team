@@ -81,12 +81,13 @@ test("has register method with opts object", () => {
   assert.ok(clientSrc.includes("async register(opts:"));
 });
 
-test("register sends id, name, cwd, hostId, capabilities", () => {
+test("register sends id, name, capabilities, workMode, assignedStoryId, hostId", () => {
   assert.ok(clientSrc.includes("id: this.agentId"));
   assert.ok(clientSrc.includes("name: opts.name"));
-  assert.ok(clientSrc.includes("cwd: opts.cwd"));
   assert.ok(clientSrc.includes("hostId: this.hostId"));
   assert.ok(clientSrc.includes("capabilities: opts.capabilities"));
+  assert.ok(clientSrc.includes("workMode: opts.workMode"));
+  assert.ok(clientSrc.includes("assignedStoryId: opts.assignedStoryId"));
 });
 
 test("has deregister method (DELETE /api/agents/:id)", () => {

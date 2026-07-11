@@ -46,7 +46,7 @@ test("imports registerLeaderTools", () => {
 // ─── Daemon registration ─────────────────────────────────────────
 
 test("registers with daemon on startup", () => {
-  assert.ok(src.includes('client.register({ name: "leader", cwd })'));
+  assert.ok(src.includes('client.register({ name: "leader", capabilities: { directory: cwd } })'));
 });
 
 test("deregisters on session_shutdown", () => {
@@ -100,6 +100,12 @@ test("spawnAgent resolves template placeholders", () => {
   assert.ok(src.includes(".replace(/\\{name\\}/g,"));
   assert.ok(src.includes(".replace(/\\{url\\}/g,"));
   assert.ok(src.includes(".replace(/\\{cwd\\}/g,"));
+  assert.ok(src.includes(".replace(/\\{workArgs\\}/g,"));
+});
+
+test("spawn request with storyId spawns an assigned-story teammate", () => {
+  assert.ok(src.includes("--ppt-work-mode=assigned-story --ppt-story="));
+  assert.ok(src.includes("storyId: req.storyId"));
 });
 
 test("loads custom harness templates from daemon config", () => {

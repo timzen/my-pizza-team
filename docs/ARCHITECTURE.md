@@ -156,6 +156,25 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `--ppt-assistant` | boolean | false | Run as assistant |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto) | Agent name |
+| `--ppt-work-mode` | string | `eager-helper` | Teammate work selection (`eager-helper` \| `assigned-story`) |
+| `--ppt-story` | string | (none) | Story to bind to for `assigned-story` mode |
+| `--ppt-skills` | string | (none) | Comma-separated capabilities the teammate advertises |
+
+### Teammate work selection
+
+At registration `setupTeammate()` builds a capability map — `{ directory: cwd }`
+plus each `--ppt-skills` entry (presence-only) — and sends it with the chosen
+`workMode`/`assignedStoryId` via `DaemonClient.register()`. The daemon performs
+all matching; the teammate never reasons about it.
+
+For `assigned-story` mode, when the daemon archives the exhausted story it
+returns `{ task: null, dismiss: true }` from `next-work`; `TeammateLoop.pollForWork`
+detects `dismiss`, stops the loop, and fires `onDismissed` so the agent exits.
+
+Spawn requests carrying a `storyId` are launched as assigned-story teammates:
+`spawnAgent()` fills the `{workArgs}` placeholder in the pi harness template with
+`--ppt-work-mode=assigned-story --ppt-story=<id>`, so a story-scoped spawn runs
+its story and then dismisses itself automatically.
 
 ## Permission System Integration
 

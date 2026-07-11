@@ -51,6 +51,8 @@ export interface AgentNextWorkResponse {
     storyId: string;
     title: string;
   } | null;
+  /** For assigned-story agents: story is exhausted (archived); the agent should dismiss itself. */
+  dismiss?: boolean;
 }
 
 /** Response from POST /api/agents/claim/:taskId */
@@ -330,15 +332,20 @@ export class DaemonClient {
    */
   async register(opts: {
     name: string;
-    cwd: string;
-    capabilities?: string[];
+    /** Capability map; well-known `directory` key = working directory. */
+    capabilities?: Record<string, string | null>;
+    /** Work selection mode (default: eager-helper). */
+    workMode?: "eager-helper" | "assigned-story";
+    /** Story to bind to when workMode is assigned-story. */
+    assignedStoryId?: string;
   }): Promise<AgentRegisterResponse> {
     return this.post<AgentRegisterResponse>("/api/agents/register", {
       id: this.agentId,
       name: opts.name,
-      cwd: opts.cwd,
       hostId: this.hostId,
-      capabilities: opts.capabilities || ["http", "tools", "messages"],
+      capabilities: opts.capabilities,
+      workMode: opts.workMode,
+      assignedStoryId: opts.assignedStoryId,
     });
   }
 
