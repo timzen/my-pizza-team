@@ -39,7 +39,7 @@ export interface AgentRegisterResponse {
     defaultWorkflow: string;
     workflows: Record<string, WorkflowConfig>;
     tmuxSession: string;
-    favoriteDirectories: string[];
+    directories: string[];
   };
   error?: string;
 }

@@ -101,7 +101,7 @@ pi --ppt-worker --ppt-work-mode=assigned-story --ppt-story=add-user-auth
 | `/ppt-dismiss <name>` | Stop a teammate |
 | `/ppt-hop <name>` | Jump to teammate's tmux window |
 | `/ppt-status` | Quick status summary from daemon |
-| `/ppt-browse` | Show favorite directories for spawning |
+| `/ppt-browse` | Show recently used directories for spawning |
 
 ### Teammate
 

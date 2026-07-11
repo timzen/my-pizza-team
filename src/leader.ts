@@ -59,14 +59,14 @@ export async function setupLeader(
 
   // Configuration from daemon
   let tmuxSession = "pi-pizza-team";
-  let favoriteDirectories: string[] = [];
+  let directories: string[] = [];
   let harnessTemplates: HarnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES };
 
   // Register with daemon
   try {
     const regRes = await client.register({ name: "leader", capabilities: { directory: cwd } });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
-    if (regRes.config?.favoriteDirectories) favoriteDirectories = regRes.config.favoriteDirectories;
+    if (regRes.config?.directories) directories = regRes.config.directories;
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register with daemon — will retry via heartbeat`, "warning");
@@ -78,7 +78,7 @@ export async function setupLeader(
     try {
       const hostConfig = await client.getHostConfig();
       if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
-      if (hostConfig.favoriteDirectories?.length) favoriteDirectories = hostConfig.favoriteDirectories;
+      if (hostConfig.directories?.length) directories = hostConfig.directories;
     } catch {
       // Use defaults
     }
@@ -149,7 +149,7 @@ export async function setupLeader(
     handler: async (args, cmdCtx) => {
       const parts = args?.trim().split(/\s+/) || [];
       const userProvidedName = parts[0] || undefined;
-      const spawnCwd = parts[1] || (favoriteDirectories.length > 0 ? favoriteDirectories[0] : cwd);
+      const spawnCwd = parts[1] || (directories.length > 0 ? directories[0] : cwd);
       const resolvedCwd = resolvePath(spawnCwd);
 
       try {
@@ -229,14 +229,14 @@ export async function setupLeader(
   });
 
   pi.registerCommand("ppt-browse", {
-    description: "Show favorite working directories for spawning",
+    description: "Show recently used working directories for spawning",
     handler: async (_args, cmdCtx) => {
-      if (favoriteDirectories.length === 0) {
-        cmdCtx.ui.notify("No favorite directories configured.\nAdd them via the daemon's host config.", "info");
+      if (directories.length === 0) {
+        cmdCtx.ui.notify("No recent directories yet.\nThey're recorded as stories and agents use them.", "info");
         return;
       }
-      let output = "📂 Favorite directories:\n";
-      for (const dir of favoriteDirectories) {
+      let output = "📂 Recent directories:\n";
+      for (const dir of directories) {
         output += `  • ${dir}\n`;
       }
       output += `\nUse /ppt-spawn <name> <dir> to spawn in a specific directory.`;
