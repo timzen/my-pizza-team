@@ -23,7 +23,7 @@ interface SpawnDialogProps {
 interface StoryOption {
   id: string;
   title: string;
-  dir?: string;
+  requirements?: Record<string, string | null>;
 }
 
 interface AgentOption {
@@ -50,8 +50,8 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
       .then(r => r.json())
       .then((data: { stories: StoryOption[] }) => {
         const dirs = data.stories
-          .filter(s => (s as any).status === "open" && s.dir)
-          .map(s => s.dir!);
+          .filter(s => (s as any).status === "open" && typeof s.requirements?.directory === "string")
+          .map(s => s.requirements!.directory as string);
         setStoryDirs([...new Set(dirs)]);
       })
       .catch(() => {});

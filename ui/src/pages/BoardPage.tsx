@@ -29,7 +29,8 @@ interface StoryView {
   status: "open" | "done";
   dependsOn: string[];
   ready: boolean;
-  dir?: string;
+  requirements?: Record<string, string | null>;
+  paused?: boolean;
   workflow?: string;
   categories?: string[];
   tasks: Array<{

@@ -16,7 +16,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
 - `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
 - `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping.
+- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many).
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
 - `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, spawn requests.
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
@@ -29,7 +29,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `migrate.ts` — Migration logic for `mpt upgrade`. Converts legacy team directories (inline workflows, old instruction locations) to the daemon's expected structure.
 
 ### shared/
-- `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName).
+- `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName). Also defines the capability model: `Capabilities` (`Record<string, string | null>`), `WorkMode`, the `DIRECTORY_CAP` well-known key, `normalizeDirectory()`, and `meetsRequirements()`.
 - `protocol.ts` — API request/response type contracts for all HTTP endpoints.
 - `frontmatter.ts` — Parsing/serialization of YAML-like frontmatter for memory notes.
 - `search.ts` — BM25 search engine for memory notes, with per-category indexes.
@@ -97,9 +97,9 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/hosts/:hostId` | Get host-specific config (directories, tmuxSession) |
 | POST | `/api/control/pause` | Pause task distribution |
 | POST | `/api/control/resume` | Resume task distribution |
-| POST | `/api/agents/register` | Register a new agent |
+| POST | `/api/agents/register` | Register an agent (`capabilities` map, `workMode`, `assignedStoryId`) |
 | POST | `/api/agents/heartbeat` | Agent heartbeat |
-| GET | `/api/agents/next-work?agentId=X` | Poll for unclaimed tasks with teammate transitions |
+| GET | `/api/agents/next-work?agentId=X` | Poll for workable tasks; returns `{ task: null, dismiss: true }` when an `assigned-story` agent's story is exhausted (daemon archives it) |
 | POST | `/api/agents/claim/:taskId` | Claim task and transition to working state |
 | POST | `/api/agents/release/:taskId` | Finish work, advance state, release ownership |
 | GET | `/api/agents/comments/:taskId` | Get task comments |

@@ -30,11 +30,13 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [dir, setDir] = useState("");
+  const [skills, setSkills] = useState("");
+  const [paused, setPaused] = useState(false);
   const [workflow, setWorkflow] = useState("");
   const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
   const [error, setError] = useState("");
 
-  const reset = () => { setId(""); setTitle(""); setDescription(""); setDir(""); setWorkflow(""); setTasks([]); setError(""); };
+  const reset = () => { setId(""); setTitle(""); setDescription(""); setDir(""); setSkills(""); setPaused(false); setWorkflow(""); setTasks([]); setError(""); };
 
   const addTask = () => setTasks([...tasks, { title: "", description: "" }]);
   const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
@@ -49,7 +51,13 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
     setError("");
     if (!workflow) { setError("Please select a workflow"); return; }
     const body: Record<string, unknown> = { id, title, description, workflow };
-    if (dir) body.dir = dir;
+    // Build the story's capability requirements: directory (exact-match) plus
+    // presence-only skills. See daemon DESIGN.md: Capability-Based Work Matching.
+    const requirements: Record<string, string | null> = {};
+    if (dir) requirements.directory = dir;
+    for (const skill of skills.split(",").map(s => s.trim()).filter(Boolean)) requirements[skill] = null;
+    if (Object.keys(requirements).length > 0) body.requirements = requirements;
+    if (paused) body.paused = true;
     if (tasks.length > 0) body.tasks = tasks.filter(t => t.title);
 
     const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
@@ -67,6 +75,10 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
           <div className="grid grid-cols-2 gap-3">
             <div><Label htmlFor="story-id">ID</Label><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
             <div><Label htmlFor="story-dir">Directory (optional)</Label><DirectoryInput id="story-dir" value={dir} onChange={setDir} /></div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div><Label htmlFor="story-skills">Required skills (optional, comma-separated)</Label><Input id="story-skills" value={skills} onChange={e => setSkills(e.target.value)} placeholder="python, docker" /></div>
+            <div className="flex items-end pb-1"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paused} onChange={e => setPaused(e.target.checked)} /> Paused (don't hand out tasks yet)</label></div>
           </div>
           <div>
             <Label>Workflow</Label>

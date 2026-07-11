@@ -39,7 +39,7 @@ Deno.test("Agent register with hostId stores it", async () => {
     },
   });
   try {
-    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", cwd: "/tmp", hostId: "laptop-1" });
+    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", capabilities: { directory: "/tmp" }, hostId: "laptop-1" });
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
@@ -61,7 +61,7 @@ Deno.test("Agent register without hostId falls back to global config", async () 
     },
   });
   try {
-    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", cwd: "/tmp" });
+    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", capabilities: { directory: "/tmp" } });
     const body = await res.json();
     assertEquals(body.config.tmuxSession, "global-session");
     assertEquals(body.config.favoriteDirectories, ["/global/dir"]);
@@ -80,7 +80,7 @@ Deno.test("Agent register with unknown hostId falls back to global config", asyn
     },
   });
   try {
-    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", cwd: "/tmp", hostId: "unknown-host" });
+    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", capabilities: { directory: "/tmp" }, hostId: "unknown-host" });
     const body = await res.json();
     assertEquals(body.config.tmuxSession, "global-session");
     assertEquals(body.config.favoriteDirectories, ["/global/dir"]);
@@ -123,8 +123,8 @@ Deno.test("GET /api/agents includes hostId in listing", async () => {
     hosts: { "h1": { favoriteDirectories: [] } },
   });
   try {
-    store.registerMember("a1", "neo", "/tmp", "a1", "h1");
-    store.registerMember("a2", "trinity", "/home", "a2");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1", "h1");
+    store.registerMember("a2", "trinity", { directory: "/home" }, "a2");
     const res = await app.request("/api/agents");
     const body = await res.json();
     const a1 = body.agents.find((a: { id: string }) => a.id === "a1");

@@ -146,7 +146,7 @@ Deno.test("Store: members CRUD", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
-    store.registerMember("m1", "swift-ripley", "/tmp", "window-1");
+    store.registerMember("m1", "swift-ripley", { directory: "/tmp" }, "window-1");
 
     const members = store.getMembers();
     assertEquals(members.length, 1);
