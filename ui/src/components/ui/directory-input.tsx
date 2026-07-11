@@ -1,7 +1,7 @@
 /**
- * DirectoryInput — A text input with a dropdown of favorite directories.
- * Allows typing a custom path or selecting from saved favorites.
- * Fetches favorite directories from /api/config.
+ * DirectoryInput — A text input with a dropdown of recently used directories.
+ * Allows typing a custom path or selecting from the recent `directory` capability values.
+ * Fetches directory suggestions from /api/capabilities.
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { ChevronDown } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 
-interface ConfigData {
-  teammates?: { favoriteDirectories?: string[] };
+interface CapabilitiesData {
+  capabilities?: Record<string, string[]>;
 }
 
 interface DirectoryInputProps {
@@ -18,15 +18,15 @@ interface DirectoryInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   id?: string;
-  /** Additional directories to include in the dropdown (merged with favorites) */
+  /** Additional directories to include in the dropdown (merged with recent) */
   extraDirectories?: string[];
 }
 
 export function DirectoryInput({ value, onChange, placeholder, id, extraDirectories }: DirectoryInputProps) {
-  const { data: config } = useApi<ConfigData>("/api/config");
-  const favorites = config?.teammates?.favoriteDirectories || [];
-  // Merge favorites and extras, deduplicate
-  const allDirs = [...new Set([...favorites, ...(extraDirectories || [])])];
+  const { data } = useApi<CapabilitiesData>("/api/capabilities");
+  const recent = data?.capabilities?.directory || [];
+  // Merge recent directories and extras, deduplicate
+  const allDirs = [...new Set([...recent, ...(extraDirectories || [])])];
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 

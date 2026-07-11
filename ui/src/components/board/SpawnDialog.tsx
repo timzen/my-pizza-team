@@ -3,7 +3,7 @@
  *
  * Provides:
  * - Host selection (from connected leaders/agents)
- * - Working directory input with favorites and story directories combined
+ * - Working directory input with recent and story directories combined
  */
 
 import { useState, useEffect } from "react";
@@ -133,7 +133,7 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
             <div className="space-y-1.5">
               <Label>Working Directory (optional)</Label>
               <DirectoryInput value={cwd} onChange={setCwd} extraDirectories={storyDirs} />
-              <p className="text-xs text-muted-foreground">Select from favorites or story directories, or type a custom path.</p>
+              <p className="text-xs text-muted-foreground">Select from recent or story directories, or type a custom path.</p>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}

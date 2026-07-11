@@ -16,7 +16,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
 - `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
 - `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many).
+- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
 - `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, spawn requests.
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
@@ -97,6 +97,9 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/hosts/:hostId` | Get host-specific config (directories, tmuxSession) |
 | POST | `/api/control/pause` | Pause task distribution |
 | POST | `/api/control/resume` | Resume task distribution |
+| GET | `/api/capabilities` | Get recently used capabilities (name -> known values) |
+| POST | `/api/capabilities` | Add a capability key (and optional value) |
+| DELETE | `/api/capabilities/:name` | Remove a key, or one value with `?value=X` |
 | POST | `/api/agents/register` | Register an agent (`capabilities` map, `workMode`, `assignedStoryId`) |
 | POST | `/api/agents/heartbeat` | Agent heartbeat |
 | GET | `/api/agents/next-work?agentId=X` | Poll for workable tasks; returns `{ task: null, dismiss: true }` when an `assigned-story` agent's story is exhausted (daemon archives it) |

@@ -125,12 +125,38 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       };
       if (config.teammates && Object.keys(config.teammates).length > 0) toWrite.teammates = config.teammates;
       if (config.categories && config.categories.length > 0) toWrite.categories = config.categories;
+      if (config.recentCapabilities && Object.keys(config.recentCapabilities).length > 0) toWrite.recentCapabilities = config.recentCapabilities;
       Deno.writeTextFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
 
       return c.json({ success: true });
     } catch (e: unknown) {
       return c.json({ success: false, error: (e as Error).message }, 400);
     }
+  });
+
+  // ─── Capabilities (recently used) ──────────────────────────────────
+
+  // The map of capability name -> known values, auto-populated from story
+  // requirements and agent registrations. See docs/DESIGN.md.
+  app.get("/api/capabilities", (c) => c.json({ capabilities: store.getRecentCapabilities() }));
+
+  app.post("/api/capabilities", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { name?: string; value?: string };
+    if (!body.name || typeof body.name !== "string") {
+      return c.json({ success: false, error: "Field 'name' is required" }, 400);
+    }
+    store.addCapability(body.name, body.value);
+    return c.json({ success: true, capabilities: store.getRecentCapabilities() });
+  });
+
+  // Remove a whole key, or just one value with ?value=<v> (query param avoids
+  // path-encoding issues for directory paths).
+  app.delete("/api/capabilities/:name", (c) => {
+    const name = c.req.param("name");
+    const value = c.req.query("value");
+    const removed = store.removeCapability(name, value ?? undefined);
+    if (!removed) return c.json({ success: false, error: "Capability or value not found" }, 404);
+    return c.json({ success: true, capabilities: store.getRecentCapabilities() });
   });
 
   // ─── Hosts ─────────────────────────────────────────────────────────
@@ -141,7 +167,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     return c.json({
       hostId,
       tmuxSession: hostConfig?.tmuxSession || config.tmuxSession,
-      favoriteDirectories: hostConfig?.favoriteDirectories || config.teammates?.favoriteDirectories || [],
+      directories: store.getRecentCapabilities()["directory"] || [],
     });
   });
 

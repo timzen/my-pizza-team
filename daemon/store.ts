@@ -58,6 +58,33 @@ function serializeStory(story: Story): Story {
   return data;
 }
 
+/** Max number of remembered values per capability key in config.recentCapabilities. */
+const MAX_CAPABILITY_VALUES = 50;
+
+/**
+ * Serialize a TeamConfig to the on-disk config.json shape. Preserves all
+ * persistable fields (workflows live in the workflows/ dir, so they are
+ * intentionally omitted here).
+ */
+function serializeConfig(config: TeamConfig): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    port: config.port,
+    tmuxSession: config.tmuxSession,
+    defaultWorkflow: config.defaultWorkflow,
+    autosave: config.autosave,
+    maxTeammates: config.maxTeammates,
+  };
+  if (config.agentTimeoutSeconds !== undefined) out.agentTimeoutSeconds = config.agentTimeoutSeconds;
+  if (config.apiToken) out.apiToken = config.apiToken;
+  if (config.categories && config.categories.length > 0) out.categories = config.categories;
+  if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
+  if (config.hosts && Object.keys(config.hosts).length > 0) out.hosts = config.hosts;
+  if (config.recentCapabilities && Object.keys(config.recentCapabilities).length > 0) {
+    out.recentCapabilities = config.recentCapabilities;
+  }
+  return out;
+}
+
 export class Store {
   private db: Database;
   private teamDir: string;
@@ -401,6 +428,7 @@ export class Store {
     Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
 
     this.upsertStory(storyData, storyDirPath);
+    this.recordCapabilities(storyData.requirements);
 
     const createdTasks: TaskWithMeta[] = [];
 
@@ -496,6 +524,7 @@ export class Store {
     this.db.prepare(
       `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, categories = ? WHERE id = ?`
     ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newCategories), storyId);
+    this.recordCapabilities(newRequirements || undefined);
 
     // Write back to disk
     const storyFile = path.join(story.dirPath, "story.json");
@@ -838,6 +867,7 @@ export class Store {
       `INSERT OR REPLACE INTO members (id, name, capabilities, work_mode, assigned_story_id, tmux_window, host_id, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
     ).run(id, name, JSON.stringify(caps), workMode, assignedStoryId || null, tmuxWindow, hostId || null, Date.now());
+    this.recordCapabilities(caps);
   }
 
   updateMemberStatus(id: string, status: string): void {
@@ -879,6 +909,75 @@ export class Store {
   removeMember(id: string): void {
     this.db.prepare("DELETE FROM assignments WHERE member_id = ?").run(id);
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
+  }
+
+  // --- Recently used capabilities (config.recentCapabilities) ---
+
+  /** Persist the current in-memory config to config.json (lossless). */
+  private persistConfig(): void {
+    const configFile = path.join(this.teamDir, "config.json");
+    Deno.writeTextFileSync(configFile, JSON.stringify(serializeConfig(this.config), null, 2) + "\n");
+  }
+
+  /** Get the recently used capabilities map (name -> known values). */
+  getRecentCapabilities(): Record<string, string[]> {
+    return this.config.recentCapabilities || {};
+  }
+
+  /**
+   * Merge a set of used capabilities into config.recentCapabilities and persist
+   * if anything changed. Each key is remembered even when presence-only (null
+   * value); non-null values are recorded most-recent-first, deduped, and capped.
+   * The well-known `directory` value is normalized so it matches agent registrations.
+   */
+  recordCapabilities(capabilities?: Capabilities): void {
+    if (!capabilities) return;
+    let changed = false;
+    const map = { ...(this.config.recentCapabilities || {}) };
+    for (const [name, rawValue] of Object.entries(capabilities)) {
+      if (!name) continue;
+      const existing = map[name] ? [...map[name]] : [];
+      if (!(name in map)) changed = true;
+      if (rawValue !== null && rawValue !== "") {
+        const value = name === DIRECTORY_CAP ? normalizeDirectory(rawValue) : rawValue;
+        const without = existing.filter((v) => v !== value);
+        const next = [value, ...without].slice(0, MAX_CAPABILITY_VALUES);
+        if (next.length !== existing.length || next[0] !== existing[0]) changed = true;
+        map[name] = next;
+      } else {
+        map[name] = existing;
+      }
+    }
+    if (changed) {
+      this.config.recentCapabilities = map;
+      this.persistConfig();
+    }
+  }
+
+  /** Explicitly add a capability key (and optionally a value) to the recent list. */
+  addCapability(name: string, value?: string): void {
+    if (!name) return;
+    this.recordCapabilities({ [name]: value ?? null });
+  }
+
+  /**
+   * Remove a capability from the recent list. With a value, removes just that
+   * value; without, removes the whole key. Returns true if something changed.
+   */
+  removeCapability(name: string, value?: string): boolean {
+    const map = { ...(this.config.recentCapabilities || {}) };
+    if (!(name in map)) return false;
+    if (value !== undefined) {
+      const normalized = name === DIRECTORY_CAP ? normalizeDirectory(value) : value;
+      const next = map[name]!.filter((v) => v !== normalized);
+      if (next.length === map[name]!.length) return false;
+      map[name] = next;
+    } else {
+      delete map[name];
+    }
+    this.config.recentCapabilities = map;
+    this.persistConfig();
+    return true;
   }
 
   /**
