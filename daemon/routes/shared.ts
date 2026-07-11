@@ -8,6 +8,7 @@
 
 import type { RouteContext } from "./types.ts";
 import type { WorkflowConfig } from "../../shared/types.ts";
+import { DEFAULT_NOUNS } from "../../shared/types.ts";
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 
@@ -82,7 +83,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
 
   // ─── Config ────────────────────────────────────────────────────────
 
-  app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows() }));
+  app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS }));
 
   app.put("/api/config", async (c) => {
     try {
