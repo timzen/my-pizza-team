@@ -23,17 +23,6 @@ function getPlatform(): "darwin" | "linux" {
   throw new Error(`Unsupported platform: ${os}. Only macOS and Linux are supported.`);
 }
 
-/** Resolve the path to the mpt executable (compiled binary or deno task) */
-function getMptExecutablePath(): string {
-  // If running as compiled binary, use the binary path
-  if (Deno.execPath().endsWith("mpt")) {
-    return Deno.execPath();
-  }
-  // Otherwise, find the project root (parent of cli/)
-  const projectRoot = path.dirname(path.dirname(path.fromFileUrl(import.meta.url)));
-  return projectRoot;
-}
-
 /** Get the deno executable path */
 function getDenoPath(): string {
   // When running via deno, Deno.execPath() gives us the deno binary

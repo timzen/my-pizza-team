@@ -6,7 +6,7 @@
  * This ensures the compiled binary supports all CLI commands including -h.
  */
 
-import { main as cliMain } from "./cli/entry.ts";
+import { main as cliMain } from "./cli/main.ts";
 
 if (import.meta.main) {
   await cliMain();

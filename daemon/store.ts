@@ -30,7 +30,6 @@ import {
   type Task,
   type TaskWithMeta,
   type TeamConfig,
-  type TeammateConfig,
   type WorkflowConfig,
   type WorkMode,
   type Member,
@@ -233,16 +232,6 @@ export class Store {
         model TEXT,
         cost_usd REAL,
         recorded_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS assistant_queue (
-        id TEXT PRIMARY KEY,
-        prompt TEXT,
-        status TEXT DEFAULT 'pending',
-        result TEXT,
-        created_at INTEGER,
-        started_at INTEGER,
-        completed_at INTEGER
       );
 
       CREATE TABLE IF NOT EXISTS assistant_messages (

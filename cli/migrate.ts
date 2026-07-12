@@ -15,7 +15,7 @@
 
 import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
-import { DEFAULT_CONFIG, type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
+import { DEFAULT_CONFIG, type WorkflowConfig } from "../shared/types.ts";
 
 /** Result of a migration run */
 export interface MigrationResult {
