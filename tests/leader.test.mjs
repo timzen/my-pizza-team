@@ -63,13 +63,14 @@ test("gets daemon config for harness templates", () => {
 
 // ─── Spawn request polling ───────────────────────────────────────
 
-test("polls spawn requests every 5s", () => {
+test("polls the single leader-directive queue every 5s", () => {
   assert.ok(src.includes("SPAWN_POLL_INTERVAL_MS = 5000"));
-  assert.ok(src.includes("client.getSpawnRequests()"));
+  assert.ok(src.includes("client.getLeaderDirectives()"));
 });
 
-test("acknowledges spawn requests", () => {
-  assert.ok(src.includes("client.ackSpawnRequest(req.id)"));
+test("completes directives after realizing them", () => {
+  assert.ok(src.includes("client.completeLeaderDirective(directive.id)"));
+  assert.ok(src.includes("dispatchDirective("));
 });
 
 test("generates unique names for spawned agents", () => {
@@ -103,9 +104,9 @@ test("spawnAgent resolves template placeholders", () => {
   assert.ok(src.includes(".replace(/\\{workArgs\\}/g,"));
 });
 
-test("spawn request with storyId spawns an assigned-story teammate", () => {
+test("spawn directive with storyId spawns an assigned-story teammate", () => {
   assert.ok(src.includes("--ppt-work-mode=assigned-story --ppt-story="));
-  assert.ok(src.includes("storyId: req.storyId"));
+  assert.ok(src.includes("storyId: params.storyId"));
 });
 
 test("loads custom harness templates from daemon config", () => {
@@ -208,6 +209,18 @@ test("does not import better-sqlite3 or hono", () => {
 
 test("does not import Store", () => {
   assert.ok(!src.includes("Store"));
+});
+
+test("delivers reset-session intent as Pi's /new keystrokes", () => {
+  assert.ok(src.includes("deliverAgentCommand"));
+  assert.ok(src.includes('"reset-session": "/new"'));
+  assert.ok(src.includes("client.getLeaderDirectives()"));
+  assert.ok(src.includes("client.completeLeaderDirective("));
+});
+
+test("passes tmux session/window to spawned agents", () => {
+  assert.ok(src.includes("--ppt-tmux-session={session} --ppt-tmux-window={window}"));
+  assert.ok(src.includes(".replace(/\\{window\\}/g,"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

@@ -135,18 +135,22 @@ test("has postComment method with agentId", () => {
 
 test("uses /api/agents/comments/ routes (not /api/tasks/.../messages)", () => {
   assert.ok(clientSrc.includes("/api/agents/comments/"));
-  assert.ok(!clientSrc.includes("/messages"));
+  // Task comments must not use a legacy "messages" route (assistant chat
+  // legitimately uses /api/assistant/messages, so only forbid the task variant).
+  assert.ok(!clientSrc.includes("/api/tasks/") || !/\/api\/tasks\/[^"`]*messages/.test(clientSrc));
 });
 
 // ─── Spawn Requests ──────────────────────────────────────────────
 
-test("has getSpawnRequests (uses this.hostId)", () => {
-  assert.ok(clientSrc.includes("async getSpawnRequests()"));
+test("has getLeaderDirectives (uses this.hostId)", () => {
+  assert.ok(clientSrc.includes("async getLeaderDirectives()"));
   assert.ok(clientSrc.includes("this.hostId"));
+  assert.ok(clientSrc.includes("/leader/directives"));
 });
 
-test("has ackSpawnRequest method", () => {
-  assert.ok(clientSrc.includes("async ackSpawnRequest(requestId"));
+test("has createLeaderDirective + completeLeaderDirective", () => {
+  assert.ok(clientSrc.includes("async createLeaderDirective(action"));
+  assert.ok(clientSrc.includes("async completeLeaderDirective(id"));
 });
 
 // ─── Assistant Queue ─────────────────────────────────────────────
@@ -201,6 +205,15 @@ test("has uploadAttachment method", () => {
 
 test("has enqueueAssistantRequest method", () => {
   assert.ok(clientSrc.includes("async enqueueAssistantRequest(prompt"));
+});
+
+test("register forwards opaque metadata", () => {
+  assert.ok(clientSrc.includes("metadata: opts.metadata"));
+});
+
+test("has directive poll + complete (single leader channel)", () => {
+  assert.ok(clientSrc.includes("async getLeaderDirectives()"));
+  assert.ok(clientSrc.includes("async completeLeaderDirective("));
 });
 
 // ─── Response types ──────────────────────────────────────────────

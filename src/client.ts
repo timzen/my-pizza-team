@@ -144,30 +144,27 @@ export interface NotesSearchResponse {
   results: Array<{ title: string; score: number; snippet: string }>;
 }
 
-/** Response from GET /api/spawn-requests */
-export interface SpawnRequestsResponse {
-  requests: Array<{
-    id: string;
-    hostId: string;
-    name: string;
-    cwd?: string;
-    storyId?: string;
-    reason?: string;
-    status: string;
-    createdAt: string;
-  }>;
-}
-
-/** Response from POST /api/spawn-requests */
-export interface CreateSpawnRequestResponse {
+/** A leader directive: an ask to the leader to act on an agent. */
+export interface LeaderDirective {
   id: string;
-  hostId: string;
-  name: string;
-  cwd?: string;
-  storyId?: string;
-  reason?: string;
+  action: string;
+  memberId?: string;
+  params: Record<string, unknown>;
+  metadata: Record<string, unknown>;
   status: string;
   createdAt: string;
+}
+
+/** Response from GET /api/hosts/:hostId/leader/directives */
+export interface LeaderDirectivesResponse {
+  directives: LeaderDirective[];
+}
+
+/** Response from POST /api/hosts/:hostId/leader/directives */
+export interface CreateLeaderDirectiveResponse {
+  success: boolean;
+  directive?: LeaderDirective;
+  error?: string;
 }
 
 /** Response from GET /api/status */
@@ -288,6 +285,15 @@ export class DaemonClient {
     return res.json() as Promise<T>;
   }
 
+  /** PUT with JSON body, returns parsed JSON */
+  private async put<T>(path: string, body: Record<string, any>): Promise<T> {
+    const res = await this.request(path, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    });
+    return res.json() as Promise<T>;
+  }
+
   /** DELETE, returns parsed JSON */
   private async delete<T>(path: string): Promise<T> {
     const res = await this.request(path, { method: "DELETE" });
@@ -338,6 +344,8 @@ export class DaemonClient {
     workMode?: "eager-helper" | "assigned-story";
     /** Story to bind to when workMode is assigned-story. */
     assignedStoryId?: string;
+    /** Opaque harness metadata (e.g. tmux window) the daemon stores + relays back. */
+    metadata?: Record<string, unknown>;
   }): Promise<AgentRegisterResponse> {
     return this.post<AgentRegisterResponse>("/api/agents/register", {
       id: this.agentId,
@@ -346,6 +354,7 @@ export class DaemonClient {
       capabilities: opts.capabilities,
       workMode: opts.workMode,
       assignedStoryId: opts.assignedStoryId,
+      metadata: opts.metadata,
     });
   }
 
@@ -502,39 +511,32 @@ export class DaemonClient {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Poll for pending spawn requests targeted at this host.
-   *
-   * The daemon queues spawn requests (from the web UI or API) and this
-   * method returns any that match the given hostId. The leader executes
-   * the spawns via tmux and acknowledges each one.
+   * Poll this host's leader directives — the single queue of asks (spawn,
+   * reset-session, ...). Each directive carries its action, params, and the
+   * target member's opaque metadata (e.g. tmux window) so the leader can act.
    */
-  async getSpawnRequests(): Promise<SpawnRequestsResponse> {
-    return this.get<SpawnRequestsResponse>(
-      `/api/spawn-requests?hostId=${encodeURIComponent(this.hostId)}`
+  async getLeaderDirectives(): Promise<LeaderDirectivesResponse> {
+    return this.get<LeaderDirectivesResponse>(
+      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives`
     );
   }
 
   /**
-   * Create a spawn request. The daemon generates a unique name.
-   *
-   * Used by /ppt-spawn to get a centrally-generated name for the agent.
+   * Create a leader directive for this host (e.g. a `spawn`). For `spawn` the
+   * daemon generates a unique agent name into the returned directive's params.
    */
-  async createSpawnRequest(cwd?: string, storyId?: string, reason?: string): Promise<CreateSpawnRequestResponse> {
-    return this.post<CreateSpawnRequestResponse>(
-      `/api/spawn-requests`,
-      { hostId: this.hostId, cwd, storyId, reason }
+  async createLeaderDirective(action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): Promise<CreateLeaderDirectiveResponse> {
+    return this.post<CreateLeaderDirectiveResponse>(
+      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives`,
+      { action, memberId: opts?.memberId, params: opts?.params }
     );
   }
 
-  /**
-   * Acknowledge that a spawn request has been executed.
-   *
-   * Removes the request from the daemon's pending queue.
-   */
-  async ackSpawnRequest(requestId: string): Promise<{ success: boolean }> {
-    return this.post<{ success: boolean }>(
-      `/api/spawn-requests/${encodeURIComponent(requestId)}/ack`,
-      {}
+  /** Mark a directive complete once the leader has realized it. */
+  async completeLeaderDirective(id: string): Promise<{ success: boolean }> {
+    return this.put<{ success: boolean }>(
+      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives/${encodeURIComponent(id)}`,
+      { status: "done" }
     );
   }
 
@@ -558,7 +560,7 @@ export class DaemonClient {
    */
   async claimQueueItem(id: string): Promise<AssistantClaimResponse> {
     return this.post<AssistantClaimResponse>(
-      `/api/assistant/queue/${encodeURIComponent(id)}/claim`,
+      `/api/assistant/messages/${encodeURIComponent(id)}/claim`,
       {}
     );
   }
@@ -570,7 +572,7 @@ export class DaemonClient {
    */
   async completeQueueItem(id: string, result?: string, failed = false): Promise<AssistantCompleteResponse> {
     return this.post<AssistantCompleteResponse>(
-      `/api/assistant/queue/${encodeURIComponent(id)}/complete`,
+      `/api/assistant/messages/${encodeURIComponent(id)}/complete`,
       { result, status: failed ? "failed" : "done" }
     );
   }
@@ -654,14 +656,15 @@ export class DaemonClient {
   }
 
   /**
-   * Enqueue a free-form request for the assistant to process.
+   * Send a free-form message to the assistant conversation.
    *
-   * The assistant polls the queue and processes items in order.
+   * Appends a user message and creates the pending assistant turn that the
+   * assistant agent will answer.
    */
-  async enqueueAssistantRequest(prompt: string): Promise<{ success: boolean; item?: { id: string }; error?: string }> {
-    return this.post<{ success: boolean; item?: { id: string }; error?: string }>(
-      "/api/assistant/queue",
-      { prompt }
+  async enqueueAssistantRequest(prompt: string): Promise<{ success: boolean; error?: string }> {
+    return this.post<{ success: boolean; error?: string }>(
+      "/api/assistant/messages",
+      { content: prompt }
     );
   }
 

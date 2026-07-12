@@ -15,13 +15,13 @@ The extension operates in one of three roles:
 │  Which --ppt-* flag is set?                                 │
 │  ├── --ppt-lead → setupLeader()                             │
 │  │         • Register with daemon as "leader" agent          │
-│  │         • Poll daemon for spawn requests → tmux           │
+│  │         • Poll leader directives → tmux                    │
 │  │         • Register LLM tools + slash commands             │
 │  │         • Show status widget                              │
 │  │                                                          │
 │  ├── --ppt-assistant → setupAssistantRole()                 │
 │  │         • Register with daemon as "assistant" agent       │
-│  │         • Poll assistant queue → claim → execute          │
+│  │         • Poll assistant turns → claim → execute          │
 │  │         • Register save_memory + search_memory tools      │
 │  │                                                          │
 │  ├── --ppt-worker → setupTeammateRole()                     │
@@ -42,7 +42,7 @@ src/
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands
 ├── teammate.ts           # TeammateLoop: poll → claim → execute → transition work loop
-├── assistant.ts          # AssistantLoop: poll queue → claim → execute → complete
+├── assistant.ts          # AssistantLoop: poll next → claim → execute → complete
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling for permission system
 └── shared/
@@ -78,22 +78,22 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │  Leader                                                  │
 │                                                          │
 │  1. POST /api/agents/register (role=leader)             │
-│  2. Poll GET /api/spawn-requests?hostId=X (every 5s)   │
+│  2. Poll GET /api/hosts/:hostId/leader/directives (5s) │
 │     └── For each request: spawn tmux window + ack       │
 │  3. User tools → POST /api/stories, /api/stories/:id/tasks │
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Assistant (queue processing)
+### Assistant (conversation turns)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  AssistantLoop                                           │
 │                                                          │
 │  1. GET  /api/assistant/next                            │
-│  2. POST /api/assistant/queue/:id/claim                 │
+│  2. POST /api/assistant/messages/:id/claim                 │
 │  3. pi.sendUserMessage(item.prompt)                     │
-│  4. agent_end → POST /api/assistant/queue/:id/complete  │
+│  4. agent_end → POST /api/assistant/messages/:id/complete  │
 │  5. Back to step 1                                      │
 └─────────────────────────────────────────────────────────┘
 ```
@@ -126,22 +126,22 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/stories` | POST | Create story |
 | `/api/stories/:id` | PUT | Update story |
 | `/api/stories/:storyId/tasks` | POST | Add task to story |
-| `/api/assistant/queue` | POST | Enqueue assistant request |
+| `/api/assistant/messages` | POST | Send a message to the assistant |
 
-### Assistant Queue
+### Assistant Conversation
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/assistant/next` | GET | Next pending item |
-| `/api/assistant/queue/:id/claim` | POST | Claim item |
-| `/api/assistant/queue/:id/complete` | POST | Complete item |
+| `/api/assistant/next` | GET | Next pending assistant turn |
+| `/api/assistant/messages/:id/claim` | POST | Claim a turn |
+| `/api/assistant/messages/:id/complete` | POST | Complete a turn |
 | `/api/assistant/notes` | POST | Save memory note |
 | `/api/assistant/notes/search` | GET | Search notes |
 
 ### Spawn / Config
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/spawn-requests?hostId=X` | GET | Poll pending spawns |
-| `/api/spawn-requests/:id/ack` | POST | Acknowledge spawn |
+| `/api/hosts/:hostId/leader/directives` | GET | Poll the leader's directive queue |
+| `/api/hosts/:hostId/leader/directives/:id` | PUT | Mark a directive done |
 | `/api/config` | GET | Get daemon config |
 | `/api/hosts/:hostId` | GET | Host-specific config |
 | `/health` | GET | Health check |
@@ -176,6 +176,17 @@ Spawn requests carrying a `storyId` are launched as assigned-story teammates:
 `--ppt-work-mode=assigned-story --ppt-story=<id>`, so a story-scoped spawn runs
 its story and then dismisses itself automatically.
 
+### Agent control intents (daemon → leader → tmux)
+
+The daemon expresses out-of-band intents (e.g. `reset-session`) without knowing
+how they're realized. At spawn time the leader passes each agent its tmux
+session/window (`--ppt-tmux-session/--ppt-tmux-window`); the agent reports those
+as opaque `metadata` on registration. The leader polls its single directive
+queue and `dispatchDirective()` realizes each one; `deliverAgentCommand()` maps a
+control intent to Pi keystrokes — `reset-session`
+becomes `/new` sent to the agent's window — then acks. This is where all
+harness/tmux mechanism lives; the daemon stays agnostic.
+
 ## Permission System Integration
 
 Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, read fresh on every tool call.
@@ -189,7 +200,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 ## tmux Integration (leader only)
 
-- Polls daemon for spawn requests via `/api/spawn-requests`
+- Polls its directive queue via `/api/hosts/:hostId/leader/directives`
 - Creates tmux windows with `pi --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
 - Writes permissive permission config to teammate's cwd before launching
 

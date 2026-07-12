@@ -68,6 +68,12 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
+  // Set by the leader when spawning an agent, so the agent can report its own
+  // tmux window/session back to the daemon as opaque metadata (used to deliver
+  // control intents like session reset).
+  pi.registerFlag("ppt-tmux-window", { description: "tmux window name (set by leader on spawn)", type: "string", default: "" });
+  pi.registerFlag("ppt-tmux-session", { description: "tmux session name (set by leader on spawn)", type: "string", default: "" });
+
   // ─── Session Start ─────────────────────────────────────────────────
 
   pi.on("session_start", async (_event, ctx) => {
@@ -160,6 +166,20 @@ export default function (pi: ExtensionAPI) {
 // TEAMMATE SETUP
 // ═══════════════════════════════════════════════════════════════════════
 
+/**
+ * Read the tmux window/session the leader passed at spawn time and package it
+ * as opaque registration metadata. The daemon stores it verbatim and hands it
+ * back so the leader can deliver control intents (e.g. session reset).
+ */
+function readTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+  const tmuxWindow = (pi.getFlag("ppt-tmux-window") as string) || "";
+  const tmuxSession = (pi.getFlag("ppt-tmux-session") as string) || "";
+  if (tmuxWindow) metadata.tmuxWindow = tmuxWindow;
+  if (tmuxSession) metadata.tmuxSession = tmuxSession;
+  return metadata;
+}
+
 async function setupTeammate(
   pi: ExtensionAPI,
   ctx: any,
@@ -190,6 +210,7 @@ async function setupTeammate(
       capabilities,
       workMode: workOpts?.workMode,
       assignedStoryId: workOpts?.assignedStoryId || undefined,
+      metadata: readTmuxMetadata(pi),
     });
   } catch {
     if (ctx.hasUI) {
@@ -377,7 +398,7 @@ async function setupAssistant(
 
   // Register with daemon
   try {
-    await client.register({ name: "assistant", capabilities: { directory: cwd } });
+    await client.register({ name: "assistant", capabilities: { directory: cwd }, metadata: readTmuxMetadata(pi) });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🤖 Failed to register — will keep trying via polling`, "warning");

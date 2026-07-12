@@ -1,23 +1,20 @@
-// Assistant work loop: poll queue → claim → execute → report
+// Assistant work loop: answer pending conversation turns
 //
-// The assistant is a dedicated Pi instance that processes free-form
-// requests from the daemon's assistant queue. It operates as a pure
-// daemon client — no local store, no filesystem state.
+// The assistant is a dedicated Pi instance that answers messages in the
+// daemon's assistant conversation. It operates as a pure daemon client — no
+// local store, no filesystem state.
 //
 // Lifecycle:
 // 1. Register with daemon as { role: "assistant" } via POST /api/agents/register
-// 2. Poll GET /api/assistant/next for pending queue items
-// 3. Claim with POST /api/assistant/queue/:id/claim
+// 2. Poll GET /api/assistant/next for the next pending assistant turn
+// 3. Claim with POST /api/assistant/messages/:id/claim
 // 4. Execute the request via pi.sendUserMessage() (triggers Pi agent loop)
-// 5. On agent_end, complete with POST /api/assistant/queue/:id/complete
+// 5. On agent_end, complete with POST /api/assistant/messages/:id/complete
 // 6. Send heartbeats via POST /api/agents/heartbeat (every 30s)
 // 7. On shutdown, deregister via DELETE /api/agents/:id
 //
-// Unlike the teammate work loop, the assistant:
-// - Processes free-form prompts (not structured task descriptions)
-// - Has access to story/task management tools (via shared tools.ts)
-// - Can save/search memories via the daemon API
-// - Doesn't follow workflow state transitions
+// The persistent Pi session retains conversation context across turns, so each
+// turn only needs the latest user message as its prompt.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";

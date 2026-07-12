@@ -1,11 +1,11 @@
-// Leader role: tmux management, spawn request polling, LLM tools
+// Leader role: tmux management, directive polling, LLM tools
 //
 // The leader is the Pi-specific host coordinator. It doesn't own state —
 // the daemon does. The leader's responsibilities are:
 //   1. Register with daemon as { role: "leader", harness: "pi", hostId }
-//   2. Poll GET /api/spawn-requests?hostId=X every 5s for pending spawns
-//   3. Execute spawns locally via tmux (multi-harness: pi, claude-code, codex)
-//   4. Acknowledge spawns: POST /api/spawn-requests/:id/ack
+//   2. Poll GET /api/hosts/:hostId/leader/directives every 5s (one queue)
+//   3. Realize each directive locally (spawn via tmux, reset via /new, ...)
+//   4. Mark done: PUT /api/hosts/:hostId/leader/directives/:id { status }
 //   5. Register LLM tools for the lead user
 //   6. Provide tmux commands: /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status
 //   7. Show status widget with team progress
@@ -32,8 +32,8 @@ interface HarnessTemplates {
 }
 
 const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
-  pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs}",
-  "pi-assistant": "pi --ppt-assistant --ppt-daemon={url} --ppt-name=assistant",
+  pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+  "pi-assistant": "pi --ppt-assistant --ppt-daemon={url} --ppt-name=assistant --ppt-tmux-session={session} --ppt-tmux-window={window}",
 };
 
 
@@ -113,28 +113,13 @@ export async function setupLeader(
 
   const spawnPollTimer = setInterval(async () => {
     try {
-      const res = await client.getSpawnRequests();
-      for (const req of res.requests) {
+      const { directives } = await client.getLeaderDirectives();
+      for (const directive of directives) {
         try {
-          // Use the daemon-generated name from the spawn request
-          const name = req.name || `agent-${Date.now()}`;
-
-          // Determine harness (check reason for assistant, then harness field, default to "pi")
-          let harness = (req as any).harness || "pi";
-          if ((req as any).reason === "assistant") harness = "pi-assistant";
-          const spawnCwd = req.cwd || cwd;
-
-          spawnAgent(name, spawnCwd, {
-            session: tmuxSession,
-            daemonUrl: client.url,
-            harness,
-            harnessTemplates,
-            storyId: req.storyId,
-          }, execSync);
-
-          await client.ackSpawnRequest(req.id);
+          dispatchDirective(directive, { session: tmuxSession, daemonUrl: client.url, harnessTemplates, fallbackCwd: cwd }, execSync);
+          await client.completeLeaderDirective(directive.id);
         } catch {
-          // Failed to spawn — will retry next poll cycle
+          // Failed to realize — will retry next poll cycle
         }
       }
     } catch {
@@ -153,9 +138,11 @@ export async function setupLeader(
       const resolvedCwd = resolvePath(spawnCwd);
 
       try {
-        // Create a spawn request via daemon to get a centrally-generated name
-        const spawnRes = await client.createSpawnRequest(resolvedCwd);
-        const name = userProvidedName || spawnRes.name;
+        // Create a spawn directive so the daemon generates a unique name, then
+        // realize it immediately and mark it done (so our own poll won't re-run it).
+        const res = await client.createLeaderDirective("spawn", { params: { cwd: resolvedCwd } });
+        const generated = (res.directive?.params?.name as string) || `agent-${Date.now()}`;
+        const name = userProvidedName || generated;
 
         spawnAgent(name, resolvedCwd, {
           session: tmuxSession,
@@ -164,8 +151,7 @@ export async function setupLeader(
           harnessTemplates,
         }, execSync);
 
-        // Acknowledge the spawn request we just created
-        await client.ackSpawnRequest(spawnRes.id);
+        if (res.directive) await client.completeLeaderDirective(res.directive.id);
         cmdCtx.ui.notify(`✓ ${name} has joined the team working in ${spawnCwd} 🍕`, "info");
       } catch (err: any) {
         cmdCtx.ui.notify(`Failed to spawn: ${err.message}`, "error");
@@ -365,10 +351,68 @@ function spawnAgent(
     .replace(/\{name\}/g, shellSafe(name))
     .replace(/\{url\}/g, shellSafe(daemonUrl))
     .replace(/\{cwd\}/g, safeCwd)
-    .replace(/\{workArgs\}/g, workArgs);
+    .replace(/\{workArgs\}/g, workArgs)
+    .replace(/\{session\}/g, safeSession)
+    .replace(/\{window\}/g, safeName);
 
   // Send the command to the tmux window
   execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'cd ${safeCwd} && ${cmd}' Enter`, { stdio: "pipe" });
+}
+
+/**
+ * Realize a leader directive: dispatch by action to the right mechanism.
+ * This is where all harness/tmux specifics live — the daemon only said what.
+ */
+function dispatchDirective(
+  directive: { action: string; params: Record<string, unknown>; metadata: Record<string, unknown> },
+  ctx: { session: string; daemonUrl: string; harnessTemplates: HarnessTemplates; fallbackCwd: string },
+  execSync: any
+): void {
+  if (directive.action === "spawn") {
+    const params = directive.params || {};
+    const name = (params.name as string) || `agent-${Date.now()}`;
+    let harness = (params.harness as string) || "pi";
+    if (params.reason === "assistant") harness = "pi-assistant";
+    spawnAgent(name, (params.cwd as string) || ctx.fallbackCwd, {
+      session: ctx.session,
+      daemonUrl: ctx.daemonUrl,
+      harness,
+      harnessTemplates: ctx.harnessTemplates,
+      storyId: params.storyId as string | undefined,
+    }, execSync);
+    return;
+  }
+  // Actions on an existing agent are delivered via its tmux window.
+  deliverAgentCommand(directive, ctx.session, execSync);
+}
+
+/**
+ * Realize a daemon control intent by translating it into tmux keystrokes.
+ *
+ * This is where harness-specific mechanism lives — the daemon only expressed
+ * intent (e.g. "reset-session"); the leader decides that means sending Pi's
+ * `/new` command to the agent's tmux window. The target window comes from the
+ * opaque metadata the agent reported at registration (which the leader itself
+ * supplied at spawn time).
+ */
+function deliverAgentCommand(
+  command: { action: string; metadata: Record<string, unknown> },
+  leaderSession: string,
+  execSync: any
+): void {
+  const window = typeof command.metadata?.tmuxWindow === "string" ? command.metadata.tmuxWindow : "";
+  if (!window) return; // Can't target without a window
+  const session = typeof command.metadata?.tmuxSession === "string" ? command.metadata.tmuxSession : leaderSession;
+  const target = `${shellSafe(session)}:${shellSafe(window)}`;
+
+  // Map abstract intent -> Pi keystrokes.
+  const keysByAction: Record<string, string> = {
+    "reset-session": "/new",
+  };
+  const keys = keysByAction[command.action];
+  if (!keys) return; // Unknown intent — ignore
+
+  execSync(`tmux send-keys -t "${target}" '${keys}' Enter`, { stdio: "pipe" });
 }
 
 /**

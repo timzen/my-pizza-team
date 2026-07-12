@@ -6,9 +6,9 @@ A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration
 
 ## What It Does
 
-- **Team Lead Pi** — connects to the daemon, polls for spawn requests, manages tmux windows
+- **Team Lead Pi** — connects to the daemon, polls its leader directives, manages tmux windows
 - **Teammate Pis** — poll the daemon for tasks, execute autonomously, report back
-- **Assistant Pi** — processes free-form requests from the assistant queue
+- **Assistant Pi** — answers messages in the assistant conversation
 - **You (the Mentor)** — review work via the daemon's web UI, or hop into any teammate's window to pair
 
 ## Install
@@ -49,7 +49,7 @@ pi --ppt-assistant --ppt-daemon=http://localhost:7437
 The extension detects which role to activate:
 
 1. `--ppt-worker` flag → **Teammate** (autonomous agent)
-2. `--ppt-assistant` flag → **Assistant** (queue processor)
+2. `--ppt-assistant` flag → **Assistant** (conversation responder)
 3. `--ppt-lead` flag OR `.my-pizza-team/config.json` in cwd → **Leader**
 4. Otherwise → **Inactive** (only `/ppt-help` available)
 
@@ -65,6 +65,8 @@ The extension detects which role to activate:
 | `--ppt-work-mode` | string | `eager-helper` | Teammate work selection: `eager-helper` or `assigned-story` |
 | `--ppt-story` | string | (none) | Story ID to bind to (required for `--ppt-work-mode assigned-story`) |
 | `--ppt-skills` | string | (none) | Comma-separated capabilities this teammate has (e.g. `python,docker`) |
+| `--ppt-tmux-session` | string | (set by leader) | tmux session the agent runs in (reported as metadata) |
+| `--ppt-tmux-window` | string | (set by leader) | tmux window the agent runs in (reported as metadata) |
 
 ### Work modes & capabilities
 
@@ -170,7 +172,7 @@ src/
 ├── client.ts         DaemonClient: unified HTTP client for daemon API
 ├── leader.ts         Leader: tmux management, spawn polling, slash commands
 ├── teammate.ts       TeammateLoop: multi-transition autonomous work loop
-├── assistant.ts      AssistantLoop: queue processing loop
+├── assistant.ts      AssistantLoop: answers pending conversation turns
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling
 └── shared/
