@@ -207,13 +207,13 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ## Key Design Decisions
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
-2. **Daemon owns all state** — stories, tasks, workflows, notes, queue
-3. **Agent protocol for teammates** — `/api/agents/*` routes with claim/transition semantics
+2. **Daemon owns all state** — stories, tasks, workflows, notes, assistant conversation
+3. **Agent protocol for teammates** — `/api/agents/*` routes with claim/release semantics
 4. **Workflow-agnostic teammate** — never hardcodes state names, uses daemon transitions
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
 6. **Permission toggle is file-based** — leverages permission system's runtime config reload
-7. **Spawn via daemon requests** — leader polls for spawns, executes locally via tmux
-8. **Comments replace messages** — daemon uses `/api/tasks/:id/comment[s]`
+7. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
+8. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
 
 ## Extending
 

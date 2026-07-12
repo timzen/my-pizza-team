@@ -1,145 +1,103 @@
 # Design
 
-This document captures the design philosophy and rationale behind pi-pizza-team.
+The design philosophy and rationale behind pi-pizza-team. This document describes
+the current design, not a history of changes.
 
 ## Concept
 
-pi-pizza-team models AI agents as a **team** with a **kanban board**. The metaphor:
+pi-pizza-team models AI agents as a **team** working a **kanban board**:
 
-- **Team Lead Pi** — orchestrates work, manages the board
-- **Teammate Pis** — autonomous workers in tmux windows
-- **You (the Mentor)** — review, guide, and pair when needed
+- **Team Lead Pi** — orchestrates work and manages tmux windows on a host.
+- **Teammate Pis** — autonomous workers, each in its own tmux window.
+- **Assistant Pi** — a conversational helper (chat, memory, board edits).
+- **You (the Mentor)** — review, guide, and pair when needed.
 
-The name comes from Amazon's "two pizza teams" concept and the more recent "one pizza team" — we're a **π (3.14) pizza team**. 🍕
+The name comes from Amazon's "two pizza teams" and the newer "one pizza team" — we
+are a **π (3.14) pizza team**. 🍕
 
 ## Core Principles
 
-### 1. Git as the source of truth
-Task definitions, stories, and decision history live as files in a git repo. This gives you:
-- Diffable progress (see what changed and when)
-- Committable decision logs (why choices were made)
-- Branchable work (experiment with different task breakdowns)
+### 1. Pure client; the daemon owns state
+The extension holds **no** state. All stories, tasks, comments, config, and
+knowledge base live in the [my-pizza-team](https://github.com/timzen/my-pizza-team)
+daemon and are reached over HTTP via a single `DaemonClient`. There is no local
+SQLite, no filesystem records, no server. This keeps the extension a thin, easily
+reasoned-about adapter between Pi and the daemon.
 
-### 2. Two modes of mentoring
-When a teammate needs help, you have two channels:
-- **Async ("reply to email")** — teammate asks a question, you reply from the lead, they continue
-- **Sync ("pair programming")** — hop into their tmux window and work together directly
+### 2. Role detection at session start
+A single extension entry point (`index.ts`) picks a role from flags / config and
+wires only that role's behavior:
+- `--ppt-worker` → **teammate** loop.
+- `--ppt-assistant` → **assistant** loop.
+- `--ppt-lead` (or a `.my-pizza-team/` config in cwd) → **leader**.
 
-There's no "human task" concept. Every task belongs to a teammate. The variable is how much mentoring they need.
+### 3. Autonomous work is a claim/release loop
+A teammate polls the daemon for the next workable task, claims it, sends the task
+as a message to its own Pi agent, and on completion releases it with a result
+summary. The daemon owns all workflow-state transitions — the teammate never
+reasons about workflow topology. If the lead sends a task back with comments, the
+teammate rediscovers it on the next poll and picks it up again.
 
-### 3. Workflow as configuration
-The state machine is entirely configuration-driven. Each workflow lives in its own directory under `.pi-pizza-team/workflows/` with a `workflow.json` defining states, transitions, and permissions. You can define multiple named workflows and control who can perform each transition. Individual stories can override the default workflow. No code changes needed for:
-- Adding a QA step
-- Requiring lead approval before "done"
-- Creating a "needs_input" state only the lead can resolve
-- Using a simpler workflow for small stories
-- Defining a stricter workflow for critical work
+### 4. Two modes of mentoring
+Every task belongs to a teammate; the variable is how much mentoring it needs:
+- **Async** — the lead leaves task comments; the teammate reads them on (re)claim.
+- **Sync (pairing)** — you hop into the teammate's tmux window and work directly.
 
-### 4. Sequential within stories, parallel across stories
-- Tasks within a story execute in order (1 → 2 → 3)
-- Different stories can be worked on simultaneously
-- Dependencies between stories gate when a story becomes "ready"
+### 5. The assistant is a conversation
+The assistant answers a chat one turn at a time: it polls for the pending turn,
+runs it in its persistent Pi session (which retains context across turns), and
+posts the reply. It also exposes board and memory tools.
 
-### 5. Messages as decision records
-The `messages.jsonl` files capture the back-and-forth between teammates and the lead. These get committed to git, forming a lightweight ADR (Architecture Decision Record) system — "why did we use RS256?" is right there in the task history.
+### 6. Work selection is capability-based
+A teammate registers a **capability map** (its working `directory` plus any
+`--ppt-skills`). The daemon only offers it stories whose **requirements** it
+satisfies. A teammate can run as an `eager-helper` (any story it can do) or an
+`assigned-story` agent (one story, then it dismisses itself). The extension never
+implements matching — it just advertises capabilities and honors the daemon.
 
-### 6. Working directory per story
-Stories can specify an optional `dir` field (e.g., `"dir": "~/Workspace/my-project"`). When using `/ppt-spawn <story-id>`, the teammate is launched in that directory automatically. This supports multi-repo teams where different stories live in different codebases.
+### 7. The leader realizes daemon intent over tmux
+The daemon never knows about tmux or keystrokes; it enqueues **directives** ("an
+ask to the leader to do something about an agent"). The leader polls one per-host
+directive queue and realizes each: `spawn` → launch a tmux window; `reset-session`
+→ send Pi's `/new`. It supplies each spawned agent its tmux window/session, which
+the agent reports back as opaque `metadata` so later directives can target it.
 
-**Task routing by directory:** When a teammate polls for work, the server only returns tasks from stories whose `dir` matches the teammate's working directory. Stories with no `dir` are available to any teammate. This ensures a teammate spawned in project A won't accidentally pick up tasks for project B.
-
-### 7. Transition instructions
-Each workflow directory can contain markdown files named after states (e.g., `review.md`, `in_progress.md`). These provide contextual instructions when tasks transition — the full file is injected with a preamble indicating direction ("entering" or "leaving"). The file uses headings to organize on-enter, exit criteria, and on-exit instructions. This enables:
-- Pre-work checklists ("read the design doc first")
-- Exit criteria ("tests must pass, diff uploaded")
-- Review guidelines ("generate a diff and upload it")
-- Exit procedures ("clean up temporary files")
-
-### 8. Archiving as a first-class concept
-Completed stories can be archived to keep the active board focused on current work. Archived stories retain all their files (story.json, tasks, messages) for historical reference — they're just moved to a separate `archived/` directory and excluded from the active SQLite database. A `SYNOPSIS.md` is auto-generated on archive as a structured summary, and can optionally be enriched by the LLM for stories that warrant a richer narrative.
-
-### 9. Backlog as deferred work
-Stories can be moved to a backlog when they're not ready to be worked on. Moving a story to the backlog cascades to any stories that depend on it — preventing broken dependency chains on the active board. Restoring from backlog brings stories back to active.
-
-### 10. Team memory
-The assistant and teammates share a categorized knowledge base (`.pi-pizza-team/notes/`). Memories are markdown files with YAML frontmatter for categories, indexed by a BM25 search engine. Stories declare which categories are relevant; the system auto-injects matching memories as context when teammates start tasks.
-
-### 11. File attachments and code review
-Messages support file attachments (diffs, images, documents). A dedicated task page with a diff viewer enables batched inline code review — the leader accumulates comments and submits them as a single review message, preventing the agent from churning on partial feedback.
+### 8. Permission toggling by mode
+The permission system (`@gotgenes/pi-permission-system`) follows the teammate's
+mode: autonomous work runs with `yoloMode` on (no prompts); when you type into the
+window it switches to pairing (`yoloMode` off, normal rules). `/ppt-worker-resume`
+returns to autonomous.
 
 ## Interaction Model
 
-### Task Lifecycle
-
+### Teammate work loop
 ```
-todo ──(any)──► in_progress ──(teammate)──► review ──(lead)──► done
-                     │                         │
-                     │                         └──(lead)──► in_progress
-                     │                                       (with feedback)
-                     └──(teammate)──► needs_input
-                                         │
-                                         └──(lead)──► in_progress
-                                                      (with guidance)
+1. Poll   GET /api/agents/next-work        → next workable task (or { dismiss })
+2. Claim  POST /api/agents/claim/:id        → daemon transitions to the working state
+3. Execute (send the task to the Pi agent)
+4. Release POST /api/agents/release/:id      → daemon advances state, stores result
+5. Repeat (or shut down if dismissed)
 ```
 
-### Teammate Work Loop
-
-1. Poll leader for available task
-2. Claim it (atomic, prevents double-assignment)
-3. Execute (send task description as a user message to itself)
-4. On completion → move to `review` with result summary
-5. If stuck → move to `needs_input` with question
-6. Wait for leader to unblock, then continue
-7. Repeat
-
-### Permission Toggling
-
-The permission system (`@gotgenes/pi-permission-system`) is toggled based on the teammate's mode:
-
+### Permission toggling
 | Mode | yoloMode | Behavior |
 |------|----------|----------|
-| Autonomous (working on task) | `true` | No prompts, full freedom |
+| Autonomous (working) | `true` | No prompts, full freedom |
 | Pairing (human hopped in) | `false` | Normal permission rules |
 
-Detection is automatic: interactive input → pairing mode. `/ppt-worker-resume` → autonomous mode.
+Detection is automatic: interactive input → pairing; `/ppt-worker-resume` →
+autonomous.
 
-## Data Architecture
+## Boundaries
 
-### Why SQLite + JSON files?
-
-| Concern | SQLite | JSON files |
-|---------|--------|-----------|
-| Concurrent access | ✓ (WAL mode) | ✗ (race conditions) |
-| Fast reads | ✓ | ✓ (but no indexing) |
-| Human readable | ✗ | ✓ |
-| Git-friendly | ✗ (binary) | ✓ (diffable) |
-| Atomic updates | ✓ | ✗ |
-
-Solution: use both. SQLite is the runtime engine, JSON files are the persistent record. Sync between them via periodic flush.
-
-### Why JSONL for messages?
-
-- Append-only (no read-modify-write)
-- Each line is independent (no array brackets to manage)
-- Git diffs show exactly which messages were added
-- No merge conflicts from concurrent appends
-- Easy to `tail -f` for debugging
-- Can grow indefinitely without making task.json unwieldy
-
-### Why lazy-load messages?
-
-A project with 200 completed stories could have thousands of messages. Loading them all at startup would be slow and wasteful. Instead:
-- Startup only reads lightweight `story.json` and `task.json` files
-- Messages are loaded into SQLite on first access
-- The `messages_loaded` table prevents re-reading from disk
+Anything about *persistence* — stories/tasks/comments storage, workflows,
+archiving, backlog, knowledge-base indexing, git checkpointing — is the **daemon's**
+design, documented in the my-pizza-team repo. This extension only consumes the
+daemon's HTTP API and turns intent into local action (tmux, Pi messages,
+permissions).
 
 ## Future Directions
 
-- **TUI kanban board** — interactive `ctx.ui.custom()` component with keyboard navigation
-- **SSE for real-time updates** — browser board updates without polling
-- **Story templates** — reusable task patterns for common workflows
-- **Teammate specialization** — match tasks to teammates based on skills/tools
-- **Result summarization** — use LLM to compress task results for context passing
-- **Multi-repo support** — teammates working across different repositories
-- **Metrics/burndown** — track velocity, time-per-task, completion rates
-- **Drag-and-drop board** — reorder tasks and move between statuses visually
+- TUI kanban board via `ctx.ui.custom()` with keyboard navigation.
+- Richer capability matching hints surfaced in spawn/edit tools.
+- Result summarization to compress task results for context passing.
