@@ -9,7 +9,7 @@ import { assertEquals } from "@std/assert";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_CONFIG } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: string } {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-directives-test-" });

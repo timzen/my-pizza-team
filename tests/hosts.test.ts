@@ -12,7 +12,7 @@ import { assertEquals } from "@std/assert";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-hosts-test-" });

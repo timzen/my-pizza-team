@@ -9,7 +9,7 @@
  * - Bind safety rejects 0.0.0.0 without a token
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { Hono } from "hono";
 import {
   createAuthMiddleware,

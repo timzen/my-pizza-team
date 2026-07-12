@@ -6,8 +6,8 @@
  */
 
 import { TEAM_DIR, LEGACY_TEAM_DIR } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 import { install, uninstall } from "./service.ts";
 import { migrate, printMigrationResult } from "./migrate.ts";
 import { generateToken } from "../daemon/auth.ts";

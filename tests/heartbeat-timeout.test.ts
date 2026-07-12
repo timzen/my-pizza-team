@@ -10,7 +10,7 @@
 import { assertEquals } from "@std/assert";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 function createTempTeamDir(): string {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-heartbeat-test-" });

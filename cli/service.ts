@@ -9,8 +9,8 @@
  * Enables auto-start on login. `mpt uninstall` removes the service and disables auto-start.
  */
 
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 
 const SERVICE_LABEL = "com.my-pizza-team.daemon";
 const SYSTEMD_UNIT_NAME = "my-pizza-team.service";

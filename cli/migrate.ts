@@ -13,8 +13,8 @@
  * All operations are non-destructive: originals are backed up, not deleted.
  */
 
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 import { DEFAULT_CONFIG, type WorkflowConfig } from "../shared/types.ts";
 
 /** Result of a migration run */

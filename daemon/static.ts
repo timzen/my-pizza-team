@@ -9,8 +9,8 @@
  * overridden with the UI_DIST environment variable.
  */
 
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 import type { Context, Next } from "hono";
 
 const MIME_TYPES: Record<string, string> = {

@@ -10,8 +10,8 @@ import { Hono } from "hono";
 import { buildApp } from "./server.ts";
 import { Store } from "./store.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 
 export interface AppContext {
   app: Hono;

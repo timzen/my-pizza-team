@@ -9,7 +9,7 @@
 import { assertEquals } from "@std/assert";
 import { createApp } from "../daemon/app.ts";
 import { DEFAULT_CONFIG } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 const testDir = Deno.makeTempDirSync({ prefix: "mpt-workflows-test-" });
 Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(DEFAULT_CONFIG));
