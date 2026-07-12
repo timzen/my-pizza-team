@@ -5,26 +5,140 @@
 - **Simplicity first** — Minimal dependencies, clear module boundaries, no unnecessary abstraction.
 - **Type safety** — Strict TypeScript with no `any` types. Shared interfaces ensure consistency across modules.
 - **Testability** — Hono's `app.request()` enables fast integration tests without network I/O.
-- **Documentation as code** — Every module, file, and public API is documented. Docs stay in sync with implementation.
+- **Documentation as code** — Every module, file, and public API is documented. Docs describe the current state, not a history of changes.
 
 ## Principles
 
 1. **One responsibility per file** — Each file has a single, clearly stated purpose in its header comment.
 2. **Explicit over implicit** — Deno permissions are declared explicitly in task definitions. Dependencies are pinned in the import map.
-3. **Layered architecture** — daemon handles HTTP, shared provides types, CLI consumes the API. No circular dependencies.
+3. **Layered architecture** — the daemon handles HTTP, `shared/` provides types, the CLI consumes the API. No circular dependencies.
 4. **Web Standards** — Use native `Request`/`Response`, `fetch`, and other Web APIs rather than Node.js-specific abstractions.
+5. **The daemon coordinates; harnesses execute** — The daemon owns all state and expresses *intent*. It never reaches into *how* agents run (tmux, keystrokes, processes). Harnesses (Pi, etc.) realize intent.
 
-## Change Log
+---
 
-Design deviations from the original pi-pizza-team implementation. Agents or docs referencing the older patterns should follow the updated approach below.
+## Work Matching: Capabilities & Requirements
 
-### Leader Directives: one queue of asks to the leader (2026-07-11)
+Which agent works which task is decided by a single, uniform capability model.
 
-The daemon needs to ask the leader to act on agents out-of-band. This started as
-two separate channels — `spawn_requests` ("create an agent") and `agent_commands`
-("reset an agent") — which the leader had to poll separately. They're the same
-thing: **an ask to the leader to do something about an agent.** They were
-consolidated into a single per-host resource:
+- An **agent** advertises a `capabilities` map: `Record<string, string | null>`.
+- A **story** declares a `requirements` map of the same shape.
+- **Match rule**: for each `(name, requiredValue)` in the story's requirements, the
+  agent must have `name` in its capabilities; if `requiredValue` is non-null the
+  agent's value must equal it exactly. `null` means "must have it, any value"
+  (presence-only, e.g. a skill like `python`).
+
+The working directory is **not** special-cased: it is the well-known `directory`
+capability (constant `DIRECTORY_CAP`). Directory values are normalized (trailing
+slash stripped, leading `~` expanded) at write time, so the matcher itself stays a
+dumb exact-string comparison.
+
+There are no directory/skill aliases: stories use `requirements`, agents register
+`capabilities`, and `directory` is the only place a working directory appears.
+
+*Why:* one matcher, one mental model. "Run in this directory" and "needs Python"
+are the same kind of constraint, so they use the same mechanism.
+
+## Work Modes & Pause
+
+Three independent knobs sit on top of capability matching:
+
+- **`Member.workMode`** — how an agent selects work:
+  - `eager-helper` (default): any ready story whose requirements it satisfies.
+  - `assigned-story` (+ `assignedStoryId`): only its bound story. When that story's
+    tasks are exhausted, `/api/agents/next-work` archives the story and returns
+    `{ task: null, dismiss: true }`, and the agent shuts itself down.
+- **`Story.paused`** — a *temporal* gate: when true, the story's tasks are never
+  handed out, regardless of capabilities ("not now" vs. "can you").
+
+There is deliberately no `working-directory` work mode — that behavior is just
+`eager-helper` plus a `directory` requirement on the story.
+
+*Why:* placement (directory / skills) belongs to the story's requirements;
+lifecycle (work everything vs. one story then leave) belongs to the agent's mode;
+availability (pause) is a separate temporal switch. Keeping the three concerns
+independent avoids overloading any one field.
+
+## Recently Used Capabilities
+
+`config.recentCapabilities` is a map of **capability name → known values**
+(most-recent-first, deduped, capped at 50 values per key). Presence-only
+capabilities map to an empty array so the key itself is remembered.
+
+It is populated automatically when a story is created/updated (from its
+`requirements`) and when an agent registers (from its `capabilities`), and edited
+explicitly via `GET/POST/DELETE /api/capabilities`. The `directory` value is
+normalized on the way in.
+
+Recently used working directories are simply the `directory` capability's values —
+there is no separate "favorite directories" config. Registration and
+`/api/hosts/:hostId` expose them as `directories`, and the UI's directory picker
+reads them from `/api/capabilities`.
+
+*Why:* it drives autocomplete for both the capability *key* and its *values* when
+authoring requirements or spawning agents — the `name → values` shape mirrors the
+capability model. It lives in `config.json` (durable, human-editable), written
+losslessly by `Store.persistConfig()`.
+
+---
+
+## Agent Lifecycle: Claim / Release
+
+Agents run a pure claim/release loop; the daemon owns all workflow state.
+
+```
+1. Poll  GET  /api/agents/next-work   → an unclaimed task with a teammate/any transition
+2. Claim POST /api/agents/claim/:id   → assigns ownership AND transitions to the working state
+3. Do the work
+4. Release POST /api/agents/release/:id (with result) → advances to the next state, releases
+5. Repeat
+```
+
+Agents never call an explicit "transition" endpoint and never need to understand
+workflow topology — the daemon knows the graph and makes the correct transitions.
+This keeps agent implementations trivial and eliminates invalid-transition bugs.
+
+Task distribution is workflow-aware: `next-work` and claim return/act on the first
+unassigned task that has a valid `teammate`/`any` transition from its *current*
+state (not only the initial state), so custom workflows work at any point in the
+chain.
+
+## Workflows
+
+Workflows live as directories under `workflows/` (`workflow.json` + per-state
+instruction markdown). A story must name its `workflow` at creation time — there is
+no implicit default selection — and the UI offers a workflow picker. When no
+workflows exist on disk, the built-in `DEFAULT_CONFIG.workflows` is used.
+
+*Why:* implicit defaults caused confusion once multiple workflows existed; making
+the choice explicit ensures the creator picks the right one.
+
+## Comments
+
+Lead ↔ teammate communication is **task-level comments**, not a real-time channel:
+`/api/tasks/:id/comment(s)` and `/api/agents/comments/:taskId`, stored append-only
+in `comments.jsonl` per task. Agents load comments when they start work (to see
+feedback or rework instructions), rather than polling a chat stream.
+
+## Assistant: a Chat Conversation
+
+The assistant is a conversation, not a queue. `assistant_messages` is an ordered
+list of `user`/`assistant` messages. Sending a user message
+(`POST /api/assistant/messages`) also creates a `pending` assistant message — the
+*turn* to answer. The assistant agent polls that turn (`GET /api/assistant/next`,
+shape `{ id, prompt }` where `prompt` is the latest user message), claims it
+(→ `processing`), runs it, and completes it (→ `done`/`failed`, filling content).
+The UI renders iMessage-style bubbles with a typing indicator for in-flight turns.
+
+*Why:* the persistent assistant Pi process already retains conversation context
+across turns, so modeling the data as a conversation (rather than independent
+prompt/result items) is what makes the UI natural; the agent's claim/complete loop
+is unchanged.
+
+## Leader Directives
+
+The daemon asks a leader to act on agents out-of-band through one per-host queue —
+"an ask to the leader to do something about an agent":
 
 ```
 GET  /api/hosts/:hostId/leader/directives      # the leader's to-do queue (one poll)
@@ -32,173 +146,23 @@ POST /api/hosts/:hostId/leader/directives      # { action, memberId?, params? }
 PUT  /api/hosts/:hostId/leader/directives/:id  # { status }  (mark done)
 ```
 
-A directive has an `action` (`spawn`, `reset-session`, ...), optional `memberId`
+A directive has an `action` (`spawn`, `reset-session`, …), an optional `memberId`
 (for actions on an existing agent), `params` (e.g. spawn `name`/`cwd`/`storyId`),
-and `status`. Two principles hold:
+and `status`. Two rules hold:
 
-1. **The daemon communicates intent, not mechanism.** It knows nothing about
-   tmux, keystrokes, or `/new`. The **leader** polls its host's directives and
-   realizes each one (`spawn` → tmux window; `reset-session` → send `/new`).
+1. **The daemon communicates intent, not mechanism.** It knows nothing about tmux,
+   keystrokes, or `/new`. The leader polls its host's directives and realizes each
+   (`spawn` → tmux window; `reset-session` → send `/new`).
 2. **The daemon stores opaque harness metadata.** `Member.metadata` is a bag
-   supplied at registration that the daemon relays verbatim and never
-   interprets. The leader puts its tmux window/session there at spawn time (via
-   `--ppt-tmux-window/--ppt-tmux-session`); directives targeting a member carry
-   that metadata back so the leader knows where to deliver. This replaced the
-   tmux-specific `Member.tmuxWindow`, keeping the daemon harness-agnostic.
+   supplied at registration that the daemon relays verbatim and never interprets.
+   The leader records its tmux window/session there at spawn time; directives
+   targeting a member carry that metadata back so the leader knows where to
+   deliver.
 
-When the assistant conversation is cleared (`DELETE /api/assistant/messages`),
-the daemon enqueues a `reset-session` directive for the assistant so its in-agent
-context is dropped, not just the stored messages.
+Clearing the assistant conversation (`DELETE /api/assistant/messages`) enqueues a
+`reset-session` directive for the assistant, so its in-agent context is dropped —
+not just the stored messages.
 
-**Rationale**: One concept ("a directive"), one queue, one poll — new asks are
-just new actions, not new endpoints. Keeping mechanism in the harness means the
-same channel scales to any agent and any harness; the daemon stays a coordinator
-that never reaches into how agents are run.
-
-### Assistant: Queue → Chat Conversation (2026-07-11)
-
-The assistant was a **queue**: each enqueued prompt produced a single result,
-rendered as independent prompt/result cards. That doesn't match how people
-actually work with an assistant — it's a conversation.
-
-It is now a **chat**: an ordered list of `user`/`assistant` messages
-(`assistant_messages` table). Sending a user message (`POST /api/assistant/messages`)
-also creates a `pending` assistant message — the *turn* to be answered. The
-assistant agent polls that turn (`GET /api/assistant/next`, unchanged `{id, prompt}`
-shape where `prompt` is the most recent user message), claims it (-> `processing`),
-runs it, and completes it (-> `done`/`failed`, filling the message content).
-
-The UI (`AssistantPage`) renders iMessage-style bubbles — you on the right,
-assistant on the left — with a typing indicator for pending/processing turns.
-
-**Rationale**: The persistent assistant Pi process already retains conversation
-context across turns, so the queue framing was only a UI/data-model limitation.
-Modeling the data as a conversation makes the UI natural and keeps the agent's
-claim/complete loop essentially unchanged (only endpoint paths moved from
-`/api/assistant/queue/*` to `/api/assistant/messages/*`).
-
-### Capability-Based Work Matching (2026-07-11)
-
-Work matching used to be a special case: an agent had a `cwd`, a story had a
-`dir`, and a task was only handed out if the two matched exactly. Skills/tools
-were not modeled at all.
-
-This has been generalized into a single, uniform capability model:
-
-- An **agent** advertises a `capabilities` map (`Record<string, string | null>`).
-- A **story** declares a `requirements` map of the same shape.
-- Matching rule: for each `(name, requiredValue)` in the story's requirements,
-  the agent must have `name` in its capabilities, and if `requiredValue` is
-  non-null the agent's value must equal it exactly.
-
-The working directory is **not** a special case — it is simply the well-known
-`directory` capability (constant `DIRECTORY_CAP`) whose required value is matched
-exactly. Directory values are normalized (trailing slash stripped, leading `~`
-expanded) at write time so the matcher stays a dumb exact-string comparison.
-
-| Concept | Old | New |
-|---------|-----|-----|
-| Agent working dir | `Member.cwd: string` | `capabilities.directory` (well-known key) |
-| Story dir affinity | `Story.dir?: string` | `requirements.directory` |
-| Skills / tools | (not modeled) | `requirements[name] = null` (presence-only) |
-| Match logic | special-cased dir equality | uniform `meetsRequirements()` |
-
-**Clean break**: there are no `dir`/`cwd` compatibility aliases. Stories use
-`requirements` and agents register `capabilities` directly; the `directory` key
-is the only place a working directory appears.
-
-**Rationale**: One matcher, one mental model. "Run in this directory" and
-"needs Python" are the same kind of constraint, so they use the same mechanism.
-
-### Story Pause + Agent Work Modes (2026-07-11)
-
-Two orthogonal knobs were added on top of capability matching:
-
-- **`Story.paused`** — a *temporal* gate. When true, the story's tasks are never
-  handed out, regardless of capabilities. It answers "not now", separate from
-  the capability question of "can you".
-- **`Member.workMode`** — how an agent selects work:
-  - `eager-helper` (default): any story whose requirements it satisfies.
-  - `assigned-story` (+ `assignedStoryId`): only its bound story; when that
-    story's tasks are exhausted, `/api/agents/next-work` archives the story and
-    returns `{ task: null, dismiss: true }`, and the agent shuts itself down.
-
-There is deliberately no `working-directory` work mode: today's directory-scoped
-behavior is just `eager-helper` plus a `directory` requirement on the story.
-
-**Rationale**: Placement (which directory / what skills) belongs to the story's
-requirements; lifecycle (work everything vs. one story then leave) belongs to
-the agent's mode; and availability (pause) is a separate temporal switch.
-Keeping the three concerns independent avoids overloading any one field.
-
-### Recently Used Capabilities (2026-07-11)
-
-The daemon remembers capabilities it has seen in `config.recentCapabilities`, a
-map of **capability name → known values** (most-recent-first, deduped, capped at
-50 values per key). Presence-only capabilities (e.g. `design`) map to an empty
-array so the key itself is still remembered.
-
-It is populated automatically:
-- When a story is created/updated, its `requirements` are recorded.
-- When an agent registers, its `capabilities` are recorded.
-
-And editable explicitly via `GET/POST/DELETE /api/capabilities`. The `directory`
-value is normalized on the way in so it matches agent registrations.
-
-This **replaces the former `teammates.favoriteDirectories` / per-host
-`favoriteDirectories`** config: recently used working directories are now just
-the `directory` capability's values. Register and `/api/hosts/:hostId` return
-them as `directories`, and the UI's directory picker reads them from
-`/api/capabilities`.
-
-**Rationale**: This drives autocomplete for both the capability *key* and its
-*values* when authoring story requirements or spawning agents — the map shape
-(name → values) mirrors the capability model itself. It lives in `config.json`
-(not the SQLite index) because it is durable, human-editable team configuration,
-and `Store.persistConfig()` writes the whole config losslessly.
-
-### Messages → Comments (2026-06-05)
-
-The original design used "messages" as a real-time communication channel between lead and teammates (`/api/tasks/:id/message`, `messages.jsonl`). This has been renamed to **comments** throughout:
-
-- API routes: `/api/tasks/:id/comment`, `/api/tasks/:id/comments`, `/api/agents/comments/:taskId`
-- On-disk storage: `comments.jsonl` (was `messages.jsonl`)
-- SQLite tables: `comments`, `comments_loaded` (were `messages`, `messages_loaded`)
-- Types: `Comment`, `CommentAttachment` (were `Message`, `MessageAttachment`)
-
-**Rationale**: Comments are task-level annotations, not a real-time chat channel. Agents load them once when starting work (to see lead feedback or rework instructions), not by continuous polling.
-
-### Agent Lifecycle: Simplified Claim/Release (2026-06-11)
-
-The multi-transition ownership model (2026-06-05) was further simplified. Agents no longer call transition explicitly — the daemon handles all state management.
-
-| Previous Pattern | Current Pattern |
-|-----------------|----------------|
-| `POST /api/agents/claim/:taskId` — assigns ownership only, no state change | `POST /api/agents/claim/:taskId` — assigns ownership AND transitions to working state |
-| `POST /api/agents/transition/:taskId` — agent explicitly advances state | Removed — daemon advances state on claim and release |
-| `POST /api/agents/release/:taskId` — agent parks task when blocked | `POST /api/agents/release/:taskId` — advances to next state, stores result, releases |
-
-**Agent loop**:
-```
-1. Poll next-work → get unclaimed task with teammate transitions
-2. Claim → daemon transitions to working state, returns task details + instructions
-3. Do the work
-4. Release (with result) → daemon advances to next state, releases ownership
-5. Repeat
-```
-
-**Rationale**: Agents shouldn't need to understand workflow topology. The daemon knows the workflow graph and makes the correct transitions. This simplifies agent implementations to a pure claim/release loop and eliminates an entire class of bugs where agents call invalid transitions.
-
-### Workflow Required on Story Creation (2026-06-11)
-
-Stories no longer get a default workflow. The `workflow` field is required when creating a story via the API. The UI provides a workflow selector (toggle buttons) in the create story dialog.
-
-**Rationale**: Implicit defaults led to confusion when multiple workflows existed. Making it explicit ensures the creator consciously chooses the right workflow for their story.
-
-### Task Distribution: Workflow-Aware (2026-06-11)
-
-`getNextAvailableTask` (used by `/api/next-task`) no longer only returns tasks in the initial state. It now finds any unassigned task that has a valid `teammate` or `any` transition from its current state.
-
-Similarly, `/api/tasks/:taskId/claim` no longer hardcodes `in_progress` — it finds the first valid teammate transition from the task's current state.
-
-**Rationale**: Custom workflows (e.g., doc-writing: idea→outline→write→edit→publish) have teammate transitions at various points, not just from the initial state.
+*Why:* one concept, one queue, one poll — new asks are new *actions*, not new
+endpoints. Keeping mechanism in the harness lets the same channel scale to any
+agent and any harness while the daemon stays a coordinator.
