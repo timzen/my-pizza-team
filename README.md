@@ -39,7 +39,6 @@ Commands:
   start [--daemon|-d]   Start the daemon (foreground, or background with -d)
   stop                  Stop the running daemon
   status                Check if daemon is running + show summary
-  upgrade               Migrate legacy team dir to current format
   rotate-token          Generate a new API token
   install               Install as system service (auto-start on login)
   uninstall             Remove system service
@@ -370,7 +369,7 @@ my-pizza-team/
 │   ├── server.ts      # Route orchestrator
 │   ├── store.ts       # SQLite data layer
 │   └── routes/        # Route modules (shared, stories, tasks, agents, etc.)
-├── cli/               # CLI (start/stop/status/install/upgrade)
+├── cli/               # CLI (start/stop/status/install)
 ├── ui/                # Frontend (React + Vite + shadcn/ui)
 ├── shared/            # Shared types, utilities, protocol contracts
 ├── desktop/           # Native tray/menu bar apps (macOS, Windows)

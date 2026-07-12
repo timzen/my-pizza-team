@@ -5,11 +5,10 @@
  * (root main.ts) and runs directly under `deno run cli/main.ts`.
  */
 
-import { TEAM_DIR, LEGACY_TEAM_DIR } from "../shared/types.ts";
+import { TEAM_DIR } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 import { install, uninstall } from "./service.ts";
-import { migrate, printMigrationResult } from "./migrate.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { startDaemonInProcess } from "./start-daemon.ts";
 
@@ -19,16 +18,11 @@ const PID_FILENAME = "daemon.pid";
 function getTeamDir(): string {
   const envDir = Deno.env.get("TEAM_DIR");
   if (envDir) {
-    if (envDir.endsWith(TEAM_DIR) || envDir.endsWith(LEGACY_TEAM_DIR)) return envDir;
+    if (envDir.endsWith(TEAM_DIR)) return envDir;
     if (existsSync(path.join(envDir, TEAM_DIR))) return path.join(envDir, TEAM_DIR);
-    if (existsSync(path.join(envDir, LEGACY_TEAM_DIR))) return path.join(envDir, LEGACY_TEAM_DIR);
     return envDir;
   }
-  const primary = path.join(Deno.cwd(), TEAM_DIR);
-  if (existsSync(primary)) return primary;
-  const legacy = path.join(Deno.cwd(), LEGACY_TEAM_DIR);
-  if (existsSync(legacy)) return legacy;
-  return primary;
+  return path.join(Deno.cwd(), TEAM_DIR);
 }
 
 function getPort(): number {
@@ -163,12 +157,6 @@ async function cmdStatus(): Promise<void> {
   }
 }
 
-function cmdUpgrade(): void {
-  const teamDir = getTeamDir();
-  const result = migrate(teamDir);
-  printMigrationResult(result);
-}
-
 function cmdRotateToken(): void {
   const teamDir = getTeamDir();
   const configPath = `${teamDir}/config.json`;
@@ -218,7 +206,6 @@ Commands:
   start [--daemon|-d]   Start the daemon (foreground, or background with --daemon)
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if daemon is running and show summary
-  upgrade               Migrate team dir from extension-only era to daemon format
   rotate-token          Generate a new API token (saved to config.json)
   install               Install as system service (auto-start on login)
   uninstall             Remove system service and disable auto-start
@@ -232,7 +219,6 @@ Examples:
   mpt start --daemon    # Start in background
   mpt status            # Check if running
   mpt stop              # Graceful shutdown
-  mpt upgrade           # Migrate old .pi-pizza-team/ to current format
   mpt rotate-token      # Generate new API token
   mpt install           # Install as launchd/systemd service
   mpt uninstall         # Remove service
@@ -262,9 +248,6 @@ export async function main(): Promise<void> {
       break;
     case "status":
       await cmdStatus();
-      break;
-    case "upgrade":
-      cmdUpgrade();
       break;
     case "rotate-token":
       cmdRotateToken();

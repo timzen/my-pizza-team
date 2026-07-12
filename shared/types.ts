@@ -14,7 +14,7 @@ export interface ApiResponse<T = unknown> {
 export interface TeamConfig {
   port: number;
   tmuxSession: string;
-  /** @deprecated Use workflows directory instead. Kept for migration. */
+  /** Built-in default workflows (used when no workflows/ directory exists). */
   workflows?: Record<string, WorkflowConfig>;
   defaultWorkflow: string;
   autosave: AutosaveConfig;
@@ -36,8 +36,6 @@ export interface TeamConfig {
   apiToken?: string;
   /** Per-host configuration (keyed by host ID) */
   hosts?: Record<string, HostConfig>;
-  /** @deprecated Use workflows + defaultWorkflow instead */
-  workflow?: WorkflowConfig;
 }
 
 /** Per-host configuration for multi-machine setups */
@@ -240,7 +238,6 @@ export interface TransitionInstructions {
 }
 
 export const TEAM_DIR = ".my-pizza-team";
-export const LEGACY_TEAM_DIR = ".pi-pizza-team";
 export const CONFIG_FILE = "config.json";
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";

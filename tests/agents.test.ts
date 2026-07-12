@@ -20,6 +20,10 @@ function setup(configOverride?: Partial<TeamConfig>) {
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config = { ...DEFAULT_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
+  // Materialize any test-provided workflows onto disk (the real mechanism).
+  if (configOverride?.workflows) {
+    for (const [name, wf] of Object.entries(configOverride.workflows)) store.saveWorkflow(name, wf);
+  }
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir, config };
 }
