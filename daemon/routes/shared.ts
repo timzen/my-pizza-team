@@ -9,8 +9,8 @@
 import type { RouteContext } from "./types.ts";
 import type { WorkflowConfig } from "../../shared/types.ts";
 import { DEFAULT_NOUNS } from "../../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 
 export function registerSharedRoutes(ctx: RouteContext): void {
   const { app, store, config, teamDir, setPaused, startedAt } = ctx;

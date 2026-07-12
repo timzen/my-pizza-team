@@ -5,9 +5,9 @@
  * to the daemon's expected structure.
  */
 
-import { assertEquals, assertStringIncludes } from "jsr:@std/assert";
-import { existsSync } from "jsr:@std/fs@^1/exists";
-import * as path from "jsr:@std/path@^1";
+import { assertEquals, assertStringIncludes } from "@std/assert";
+import { existsSync } from "@std/fs";
+import * as path from "@std/path";
 import { migrate } from "../cli/migrate.ts";
 
 function makeTempDir(): string {

@@ -14,8 +14,8 @@ import {
   type DaemonContext,
 } from "../daemon/lifecycle.ts";
 import { resolveToken, validateBindSafety } from "../daemon/auth.ts";
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 
 /**
  * Start the daemon server in the current process.

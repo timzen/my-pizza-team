@@ -7,7 +7,7 @@ import { assertEquals, assertExists, assertThrows } from "@std/assert";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_CONFIG } from "../shared/types.ts";
 import type { TeamConfig } from "../shared/types.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 /** Create a temporary team directory with required structure */
 function createTempTeamDir(): string {

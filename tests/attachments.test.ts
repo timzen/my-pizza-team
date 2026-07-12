@@ -4,7 +4,7 @@
  * Verifies POST /api/tasks/:id/attachments, GET list, and GET download.
  */
 
-import { assertEquals } from "jsr:@std/assert";
+import { assertEquals } from "@std/assert";
 import { createApp } from "../daemon/app.ts";
 import { DEFAULT_CONFIG } from "../shared/types.ts";
 

@@ -13,7 +13,7 @@ import type {
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse, PostCommentRequest,
   PostCommentResponse, CommentsResponse, TokenUsageRequest, TokenUsageResponse,
 } from "../../shared/protocol.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 // Cost per 1M tokens (input, output) for common models
 const MODEL_COSTS: Record<string, { input: number; output: number }> = {

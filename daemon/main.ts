@@ -18,8 +18,8 @@ import {
   type DaemonContext,
 } from "./lifecycle.ts";
 import { resolveToken, validateBindSafety } from "./auth.ts";
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 
 /** Resolve team directory: supports TEAM_DIR env, .my-pizza-team, or legacy .pi-pizza-team */
 function resolveTeamDir(): string {

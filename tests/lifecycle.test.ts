@@ -4,7 +4,7 @@
 
 import { assertEquals } from "@std/assert";
 import { writePidFile, removePidFile, isAlreadyRunning } from "../daemon/lifecycle.ts";
-import * as path from "jsr:@std/path@^1";
+import * as path from "@std/path";
 
 function createTempDir(): string {
   return Deno.makeTempDirSync({ prefix: "mpt-lifecycle-test-" });

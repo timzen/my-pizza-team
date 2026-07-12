@@ -37,8 +37,8 @@ import {
 } from "../shared/types.ts";
 import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-engine.ts";
 import { parseFrontmatter, serializeFrontmatter } from "../shared/frontmatter.ts";
-import * as path from "jsr:@std/path@^1";
-import { existsSync } from "jsr:@std/fs@^1/exists";
+import * as path from "@std/path";
+import { existsSync } from "@std/fs";
 
 /** Serialize a Story to the on-disk story.json shape (omitting empty fields). */
 function serializeStory(story: Story): Story {
