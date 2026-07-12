@@ -13,7 +13,7 @@ import * as path from "jsr:@std/path@^1";
 import { existsSync } from "jsr:@std/fs@^1/exists";
 
 export function registerSharedRoutes(ctx: RouteContext): void {
-  const { app, store, config, teamDir, isPaused, setPaused, startedAt } = ctx;
+  const { app, store, config, teamDir, setPaused, startedAt } = ctx;
 
   // ─── Health ────────────────────────────────────────────────────────
 

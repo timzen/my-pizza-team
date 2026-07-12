@@ -7,7 +7,6 @@
  */
 
 import { createApp } from "../daemon/app.ts";
-import { TEAM_DIR, LEGACY_TEAM_DIR } from "../shared/types.ts";
 import {
   writePidFile,
   isAlreadyRunning,
