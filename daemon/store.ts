@@ -36,7 +36,8 @@ import {
   type Assignment,
 } from "../shared/types.ts";
 import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-engine.ts";
-import { parseFrontmatter, serializeFrontmatter } from "../shared/frontmatter.ts";
+import { listNotes, saveNote, updateNoteCategories, deleteNote, type Note } from "./store/notes.ts";
+import { commitTeamDir } from "./store/git-sync.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -1082,42 +1083,7 @@ export class Store {
   }
 
   commitToGit(message?: string): void {
-    const cwd = path.dirname(this.teamDir);
-    try {
-      const addCmd = new Deno.Command("git", { args: ["add", this.teamDir], cwd, stdout: "piped", stderr: "piped" });
-      addCmd.outputSync();
-
-      const statusCmd = new Deno.Command("git", { args: ["status", "--porcelain"], cwd, stdout: "piped", stderr: "piped" });
-      const statusOutput = statusCmd.outputSync();
-      const status = new TextDecoder().decode(statusOutput.stdout);
-
-      if (status.trim()) {
-        const commitMsg = message || this.config.autosave.commitMessage.replace("{timestamp}", new Date().toISOString());
-        const commitCmd = new Deno.Command("git", { args: ["commit", "-m", commitMsg], cwd, stdout: "piped", stderr: "piped" });
-        commitCmd.outputSync();
-
-        // Auto-push if a remote is configured
-        this.pushToRemote(cwd);
-      }
-    } catch {
-      // Ignore git errors (nothing to commit, not a repo, etc.)
-    }
-  }
-
-  /** Push to remote origin if it exists. Non-fatal on failure. */
-  private pushToRemote(cwd: string): void {
-    try {
-      // Check if remote exists
-      const remoteCmd = new Deno.Command("git", { args: ["remote"], cwd, stdout: "piped", stderr: "piped" });
-      const remoteOutput = remoteCmd.outputSync();
-      const remotes = new TextDecoder().decode(remoteOutput.stdout).trim();
-      if (!remotes) return;
-
-      const pushCmd = new Deno.Command("git", { args: ["push"], cwd, stdout: "piped", stderr: "piped" });
-      pushCmd.outputSync();
-    } catch {
-      // Push failures are non-fatal (offline, auth issues, etc.)
-    }
+    commitTeamDir(this.teamDir, this.config.autosave, message);
   }
 
   // --- Transition Instructions ---
@@ -1646,78 +1612,22 @@ export class Store {
     return generateTeammateName(existingNames, this.config.teammates);
   }
 
-  // --- Notes ---
+  // --- Notes (knowledge base; see store/notes.ts) ---
 
-  getAssistantNotes(): Array<{ id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string }> {
-    const notesDir = path.join(this.teamDir, "notes");
-    if (!existsSync(notesDir)) return [];
-    const results: Array<{ id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string }> = [];
-
-    const entries = [...Deno.readDirSync(notesDir)]
-      .filter((e) => e.isFile && e.name.endsWith(".md"))
-      .sort((a, b) => a.name.localeCompare(b.name));
-
-    for (const entry of entries) {
-      const filePath = path.join(notesDir, entry.name);
-      const stat = Deno.statSync(filePath);
-      const rawContent = Deno.readTextFileSync(filePath);
-      const id = entry.name.replace(/\.md$/, "");
-
-      const { categories, body } = parseFrontmatter(rawContent);
-
-      const firstLine = body.trim().split("\n")[0] ?? "";
-      const title = firstLine.startsWith("# ") ? firstLine.slice(2).trim() : id;
-      results.push({
-        id,
-        title,
-        content: body,
-        categories,
-        createdAt: (stat.birthtime ?? stat.mtime ?? new Date()).toISOString(),
-        updatedAt: (stat.mtime ?? new Date()).toISOString(),
-      });
-    }
-    return results;
+  getAssistantNotes(): Note[] {
+    return listNotes(this.teamDir);
   }
 
-  saveAssistantNote(title: string, content: string, categories?: string[]): { id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string } {
-    const notesDir = path.join(this.teamDir, "notes");
-    Deno.mkdirSync(notesDir, { recursive: true });
-    const id = title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "").slice(0, 60) || `note-${Date.now()}`;
-    const filePath = path.join(notesDir, `${id}.md`);
-    const body = content.startsWith("# ") ? content : `# ${title}\n\n${content}`;
-    const cats = categories || [];
-
-    const fullContent = serializeFrontmatter(cats, body);
-    Deno.writeTextFileSync(filePath, fullContent);
-    const stat = Deno.statSync(filePath);
-    return {
-      id,
-      title,
-      content: body,
-      categories: cats,
-      createdAt: (stat.birthtime ?? stat.mtime ?? new Date()).toISOString(),
-      updatedAt: (stat.mtime ?? new Date()).toISOString(),
-    };
+  saveAssistantNote(title: string, content: string, categories?: string[]): Note {
+    return saveNote(this.teamDir, title, content, categories);
   }
 
   updateNoteCategories(id: string, categories: string[]): boolean {
-    const notesDir = path.join(this.teamDir, "notes");
-    const filePath = path.join(notesDir, `${id}.md`);
-    if (!existsSync(filePath)) return false;
-
-    const rawContent = Deno.readTextFileSync(filePath);
-    const { body } = parseFrontmatter(rawContent);
-    const newContent = serializeFrontmatter(categories, body);
-    Deno.writeTextFileSync(filePath, newContent);
-    return true;
+    return updateNoteCategories(this.teamDir, id, categories);
   }
 
   deleteAssistantNote(id: string): boolean {
-    const notesDir = path.join(this.teamDir, "notes");
-    const filePath = path.join(notesDir, `${id}.md`);
-    if (!existsSync(filePath)) return false;
-    Deno.removeSync(filePath);
-    return true;
+    return deleteNote(this.teamDir, id);
   }
 
   // --- Cleanup ---

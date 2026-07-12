@@ -54,6 +54,7 @@ export function resolveDistDir(): string | null {
  * Falls back to index.html for unmatched routes (SPA client-side routing).
  */
 export function staticMiddleware(distDir: string) {
+  // deno-lint-ignore require-await -- Hono's middleware handler type expects an async signature
   return async (c: Context, next: Next) => {
     const reqPath = new URL(c.req.url).pathname;
 
