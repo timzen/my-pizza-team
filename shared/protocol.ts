@@ -129,11 +129,12 @@ export interface CapabilityMutationResponse { success: boolean; capabilities?: R
 // GET /api/archived
 export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: string; archivedAt: string; synopsis: string }> }
 
-// --- Assistant Queue ---
-export interface AssistantQueueItem { id: string; prompt: string; status: "pending" | "processing" | "done" | "failed"; result?: string; createdAt: string; startedAt?: string; completedAt?: string }
-export interface AssistantQueueResponse { items: AssistantQueueItem[] }
-export interface AssistantEnqueueRequest { prompt: string }
-export interface AssistantEnqueueResponse { success: boolean; item?: AssistantQueueItem; error?: string }
+// --- Assistant Conversation ---
+export interface AssistantMessage { id: string; role: "user" | "assistant"; content: string; status: "pending" | "processing" | "done" | "failed"; createdAt: string }
+export interface AssistantMessagesResponse { messages: AssistantMessage[] }
+export interface AssistantSendRequest { content: string }
+export interface AssistantSendResponse { success: boolean; userMessage?: AssistantMessage; assistantMessage?: AssistantMessage; error?: string }
+// Agent-facing turn processing
 export interface AssistantNextResponse { item: { id: string; prompt: string } | null }
 export interface AssistantClaimResponse { success: boolean; error?: string }
 export interface AssistantCompleteRequest { result?: string; status?: "done" | "failed" }
@@ -191,27 +192,29 @@ export interface AgentListResponse { agents: Array<{ id: string; name: string; c
 
 // DELETE /api/agents/:id
 export interface AgentDeleteResponse { success: boolean; error?: string }
+// --- Leader Directives (the single daemon->leader work queue, per host) ---
 
-// --- Spawn Requests ---
-
-/** A spawn request queued by a teammate or the system */
-export interface SpawnRequest {
+/** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */
+export interface LeaderDirective {
   id: string;
-  hostId: string;
-  cwd?: string;
-  storyId?: string;
-  reason?: string;
-  status: "pending" | "acked";
+  action: string;
+  /** Target member for actions on an existing agent (absent for spawn). */
+  memberId?: string;
+  /** Action params, e.g. spawn { name, cwd, storyId, reason }. */
+  params: Record<string, unknown>;
+  /** Target member's opaque metadata (e.g. tmux window), resolved for the leader. */
+  metadata: Record<string, unknown>;
+  status: "pending" | "done";
   createdAt: string;
-  ackedAt?: string;
 }
 
-// POST /api/spawn-requests
-export interface CreateSpawnRequest { hostId: string; cwd?: string; storyId?: string; reason?: string }
-export interface CreateSpawnResponse { success: boolean; request?: SpawnRequest; error?: string }
+// GET /api/hosts/:hostId/leader/directives
+export interface LeaderDirectivesResponse { directives: LeaderDirective[] }
 
-// GET /api/spawn-requests?hostId=X
-export interface SpawnRequestsResponse { requests: SpawnRequest[] }
+// POST /api/hosts/:hostId/leader/directives
+export interface CreateLeaderDirectiveRequest { action: string; memberId?: string; params?: Record<string, unknown> }
+export interface CreateLeaderDirectiveResponse { success: boolean; directive?: LeaderDirective; error?: string }
 
-// POST /api/spawn-requests/:id/ack
-export interface AckSpawnResponse { success: boolean; error?: string }
+// PUT /api/hosts/:hostId/leader/directives/:id
+export interface UpdateLeaderDirectiveRequest { status: string }
+export interface UpdateLeaderDirectiveResponse { success: boolean; error?: string }

@@ -21,8 +21,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     const uptimeSeconds = Math.floor((Date.now() - startedAt) / 1000);
     const members = store.getMembers();
     const onlineAgents = members.filter(m => m.status === "working" || m.status === "idle").length;
-    const queue = store.getAssistantQueue();
-    const queueDepth = queue.filter(item => item.status === "pending").length;
+    const queue = store.getAssistantMessages();
+    const queueDepth = queue.filter(m => m.role === "assistant" && (m.status === "pending" || m.status === "processing")).length;
     const mem = Deno.memoryUsage();
 
     let lastCommitTime: string | null = null;

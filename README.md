@@ -353,7 +353,7 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, claim, release |
-| Assistant | `/api/assistant/*` | Queue + knowledge base |
+| Assistant | `/api/assistant/*` | Chat conversation + knowledge base |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | Capabilities | `GET/POST/DELETE /api/capabilities` | Recently used capability names + values |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |

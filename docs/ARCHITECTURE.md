@@ -18,7 +18,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
 - `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
-- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, spawn requests.
+- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives.
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
 - `routes/stories.ts` — Story CRUD, archive, backlog.
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
@@ -77,18 +77,19 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/archived` | List archived stories |
 | GET | `/api/backlog` | List backlogged stories |
 | POST | `/api/backlog/:id/restore` | Restore from backlog |
-| GET | `/api/assistant/queue` | List assistant queue |
-| POST | `/api/assistant/queue` | Enqueue assistant item |
-| GET | `/api/assistant/next` | Get next pending item |
-| POST | `/api/assistant/queue/:id/claim` | Claim an item |
-| POST | `/api/assistant/queue/:id/complete` | Complete an item |
-| DELETE | `/api/assistant/queue/:id` | Delete an item |
+| GET | `/api/assistant/messages` | Get the assistant conversation (chronological) |
+| POST | `/api/assistant/messages` | Send a user message (creates a pending assistant turn) |
+| DELETE | `/api/assistant/messages/:id` | Delete a single message |
+| DELETE | `/api/assistant/messages` | Clear the conversation |
+| GET | `/api/assistant/next` | Agent: get the next pending assistant turn (`{id, prompt}`) |
+| POST | `/api/assistant/messages/:id/claim` | Agent: claim a turn (-> processing) |
+| POST | `/api/assistant/messages/:id/complete` | Agent: complete a turn with a reply |
 | GET | `/api/assistant/notes` | List memory notes |
 | POST | `/api/assistant/notes` | Save a note |
 | DELETE | `/api/assistant/notes/:id` | Delete a note |
-| POST | `/api/spawn-requests` | Create a spawn request |
-| GET | `/api/spawn-requests?hostId=X` | Poll pending spawn requests for a host |
-| POST | `/api/spawn-requests/:id/ack` | Acknowledge a spawn request |
+| POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...) |
+| GET | `/api/hosts/:hostId/leader/directives` | Poll pending directives for a host (single leader queue) |
+| PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |
 | GET | `/api/workflows` | List workflow summaries (name, stateCount, transitionCount, isDefault) |
 | GET | `/api/workflows/:name` | Get full WorkflowConfig for a workflow |
 | GET | `/api/workflows/:name/instructions/:filename` | Read a workflow instruction markdown file |
@@ -100,7 +101,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/capabilities` | Get recently used capabilities (name -> known values) |
 | POST | `/api/capabilities` | Add a capability key (and optional value) |
 | DELETE | `/api/capabilities/:name` | Remove a key, or one value with `?value=X` |
-| POST | `/api/agents/register` | Register an agent (`capabilities` map, `workMode`, `assignedStoryId`) |
+| POST | `/api/agents/register` | Register an agent (`capabilities` map, `workMode`, `assignedStoryId`, opaque `metadata`) |
 | POST | `/api/agents/heartbeat` | Agent heartbeat |
 | GET | `/api/agents/next-work?agentId=X` | Poll for workable tasks; returns `{ task: null, dismiss: true }` when an `assigned-story` agent's story is exhausted (daemon archives it) |
 | POST | `/api/agents/claim/:taskId` | Claim task and transition to working state |
@@ -158,7 +159,7 @@ src/
 ├── client.ts      — DaemonClient: unified HTTP client for all API calls
 ├── leader.ts      — Tmux management, spawn polling, slash commands
 ├── teammate.ts    — TeammateLoop: poll → claim → execute → transition
-├── assistant.ts   — AssistantLoop: queue processing
+├── assistant.ts   — AssistantLoop: answers pending conversation turns
 ├── tools.ts       — LLM tool registration (role-specific)
 ├── permissions.ts — Dynamic yoloMode toggling
 └── shared/types.ts — Minimal types (WorkflowConfig, constants)

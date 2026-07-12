@@ -83,10 +83,9 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
       return;
     }
 
-    const res = await apiPost<{ success: boolean; request?: { id: string }; error?: string }>("/api/spawn-requests", {
-      hostId,
-      cwd: cwd || undefined,
-      reason: "teammate",
+    const res = await apiPost<{ success: boolean; directive?: { id: string }; error?: string }>(`/api/hosts/${encodeURIComponent(hostId)}/leader/directives`, {
+      action: "spawn",
+      params: { cwd: cwd || undefined, reason: "teammate" },
     });
     if (res.success) {
       setSuccess("Spawn request sent! The leader will create the agent.");

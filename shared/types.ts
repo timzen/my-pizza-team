@@ -191,7 +191,12 @@ export interface Member {
   workMode: WorkMode;
   /** For workMode `assigned-story`: the story this agent is bound to. */
   assignedStoryId?: string;
-  tmuxWindow: string;
+  /**
+   * Opaque harness-owned metadata supplied at registration (e.g. the leader's
+   * tmux window). The daemon stores and relays it verbatim and never interprets
+   * it — it exists so the harness can realize control intents (see agent commands).
+   */
+  metadata?: Record<string, unknown>;
   hostId?: string;
   status: "idle" | "working" | "pairing" | "offline";
   lastHeartbeat: number;
