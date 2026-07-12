@@ -24,9 +24,8 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
 
 ### cli/
-- `main.ts` — CLI entry point (start/stop/status/upgrade/install/uninstall).
+- `main.ts` — CLI entry point (start/stop/status/install/uninstall/rotate-token). Exposes `main()` for the compiled binary and runs directly under `deno run`.
 - `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login.
-- `migrate.ts` — Migration logic for `mpt upgrade`. Converts legacy team directories (inline workflows, old instruction locations) to the daemon's expected structure.
 
 ### shared/
 - `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName). Also defines the capability model: `Capabilities` (`Record<string, string | null>`), `WorkMode`, the `DIRECTORY_CAP` well-known key, `normalizeDirectory()`, and `meetsRequirements()`.

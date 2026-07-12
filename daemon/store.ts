@@ -106,7 +106,7 @@ export class Store {
     this.loadWorkflows();
   }
 
-  /** Load workflows from the workflows/ directory (falls back to config.workflows) */
+  /** Load workflows from the workflows/ directory (falls back to the built-in default). */
   private loadWorkflows(): void {
     const workflowsDir = path.join(this.teamDir, "workflows");
     this.workflows = {};
@@ -126,12 +126,7 @@ export class Store {
       }
     }
 
-    // Fall back to config.workflows if directory is empty/missing
-    if (Object.keys(this.workflows).length === 0 && this.config.workflows) {
-      this.workflows = { ...this.config.workflows };
-    }
-
-    // Final fallback: default workflow from DEFAULT_CONFIG
+    // Fall back to the built-in default workflow when none are defined on disk.
     if (Object.keys(this.workflows).length === 0) {
       this.workflows = { ...DEFAULT_CONFIG.workflows };
     }
