@@ -149,27 +149,19 @@ The compiled `mpt` binary requires three entitlements when signed with hardened 
 
 Without these, the binary crashes immediately with "Failed to reserve virtual memory for CodeRange" or "code signature not valid for use in process".
 
-The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension (v0.2.0+)
-is a **pure HTTP client** with zero server-side code. It owns no state — all data
+The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension is a
+**pure HTTP client** with zero server-side code. It owns no state — all data
 lives in this daemon.
 
-Extension structure (kept files only):
+Extension structure:
 ```
 src/
 ├── index.ts       — Role detection, flag registration, wiring
 ├── client.ts      — DaemonClient: unified HTTP client for all API calls
-├── leader.ts      — Tmux management, spawn polling, slash commands
-├── teammate.ts    — TeammateLoop: poll → claim → execute → transition
+├── leader.ts      — Tmux management, directive polling, slash commands
+├── teammate.ts    — TeammateLoop: poll → claim → execute → release
 ├── assistant.ts   — AssistantLoop: answers pending conversation turns
 ├── tools.ts       — LLM tool registration (role-specific)
 ├── permissions.ts — Dynamic yoloMode toggling
 └── shared/types.ts — Minimal types (WorkflowConfig, constants)
 ```
-
-Removed in v0.2.0 (moved to this daemon):
-- HTTP server (hono, @hono/node-server)
-- SQLite store (better-sqlite3)
-- Web UI (React assets)
-- BM25 search engine
-- Git sync / autosave
-- Protocol types (now daemon-internal)
