@@ -166,6 +166,13 @@ test("edit_story calls client.updateStory", () => {
   assert.ok(src.includes("client.updateStory("));
 });
 
+test("story tools use the capability model (directory/skills/paused), not dir", () => {
+  assert.ok(src.includes("buildRequirements("));
+  assert.ok(src.includes("paused:"));
+  assert.ok(src.includes("skills:"));
+  assert.ok(!/dir:/.test(src)); // no legacy dir field
+});
+
 test("add_task calls client.createTask", () => {
   assert.ok(src.includes("client.createTask("));
 });

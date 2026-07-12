@@ -117,7 +117,7 @@ pi --ppt-worker --ppt-work-mode=assigned-story --ppt-story=add-user-auth
 Tools are registered per-role (all proxy to the daemon API):
 
 ### Leader Tools
-- **`create_story`** — Create a new story (id, title, description, dir?, workflow?, dependsOn?)
+- **`create_story`** — Create a new story (id, title, description, directory?, skills?, paused?, workflow?, dependsOn?)
 - **`edit_story`** — Edit an existing story's fields
 - **`add_task`** — Add a task to a story
 - **`queue_request`** — Queue a request for the assistant

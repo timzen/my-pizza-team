@@ -95,16 +95,20 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       title: Type.String({ description: "Human-readable title for the story" }),
       description: Type.String({ description: "Full description of what this story accomplishes" }),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Array of story IDs this story depends on" })),
-      dir: Type.Optional(Type.String({ description: "Working directory hint for teammates (e.g., '~/Workspace/my-project')" })),
+      directory: Type.Optional(Type.String({ description: "Required working directory — only agents in this dir will pick up the story (e.g., '~/Workspace/my-project')" })),
+      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities — only agents advertising all of these will pick up the story (e.g., ['python','docker'])" })),
+      paused: Type.Optional(Type.Boolean({ description: "If true, the story's tasks are not handed out until unpaused" })),
       workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default)" })),
     }),
     async execute(_toolCallId, params) {
+      const requirements = buildRequirements(params.directory, params.skills);
       const result = await client.createStory({
         id: params.id,
         title: params.title,
         description: params.description,
         dependsOn: params.dependsOn,
-        dir: params.dir,
+        requirements: Object.keys(requirements).length > 0 ? requirements : undefined,
+        paused: params.paused,
         workflow: params.workflow,
       });
 
@@ -118,6 +122,14 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
   });
 }
 
+/** Build a story requirements map from a directory and a list of presence-only skills. */
+function buildRequirements(directory?: string, skills?: string[]): Record<string, string | null> {
+  const requirements: Record<string, string | null> = {};
+  if (directory) requirements.directory = directory;
+  for (const skill of skills || []) if (skill.trim()) requirements[skill.trim()] = null;
+  return requirements;
+}
+
 // ─── edit_story ──────────────────────────────────────────────────────
 
 function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
@@ -126,12 +138,12 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Edit Story",
     description:
       "Edit an existing story on the pi-pizza-team kanban board. Can update title, description, status, " +
-      "dependencies, working directory, and workflow.",
+      "dependencies, required directory/skills, paused state, and workflow.",
     promptSnippet: "Edit an existing story on the pi-pizza-team board",
     promptGuidelines: [
       "Use edit_story to modify existing stories.",
       "Only the fields you provide will be changed.",
-      "Set dir or workflow to empty string to clear them.",
+      "Provide directory and/or skills together to set the story's requirements; pass an empty directory and empty skills to clear them.",
     ],
     parameters: Type.Object({
       storyId: Type.String({ description: "ID of the story to edit" }),
@@ -139,13 +151,20 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       description: Type.Optional(Type.String({ description: "New description" })),
       status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("done")], { description: "New status" })),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "New dependency list" })),
-      dir: Type.Optional(Type.String({ description: "New working directory (empty to clear)" })),
+      directory: Type.Optional(Type.String({ description: "Required working directory (empty string to clear)" })),
+      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities (replaces the existing set)" })),
+      paused: Type.Optional(Type.Boolean({ description: "Whether the story's tasks are withheld from agents" })),
       workflow: Type.Optional(Type.String({ description: "New workflow name (empty for default)" })),
     }),
     async execute(_toolCallId, params) {
-      const { storyId, ...updates } = params;
-      if (updates.dir === "") (updates as any).dir = null;
-      if (updates.workflow === "") (updates as any).workflow = null;
+      const { storyId, directory, skills, ...rest } = params;
+      const updates: Record<string, unknown> = { ...rest };
+      if (updates.workflow === "") updates.workflow = null;
+      // If either directory or skills was provided, (re)build the requirements map.
+      if (directory !== undefined || skills !== undefined) {
+        const requirements = buildRequirements(directory, skills);
+        updates.requirements = Object.keys(requirements).length > 0 ? requirements : null;
+      }
 
       const result = await client.updateStory(storyId, updates);
       if (!result.success) throw new Error(result.error || "Failed to update story");

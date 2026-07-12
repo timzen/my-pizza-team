@@ -621,7 +621,8 @@ export class DaemonClient {
     title: string;
     description: string;
     dependsOn?: string[];
-    dir?: string;
+    requirements?: Record<string, string | null>;
+    paused?: boolean;
     workflow?: string;
     categories?: string[];
     tasks?: Array<{ title: string; description: string }>;
