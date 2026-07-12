@@ -29,7 +29,7 @@ Deno.test("reapOfflineAgents marks timed-out agents as offline", () => {
   const store = new Store(teamDir, config);
   try {
     // Register agent with a heartbeat in the past (6 seconds ago > 5s timeout)
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
     // Manually backdate the heartbeat
     (store as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } })
       .db.prepare("UPDATE members SET last_heartbeat = ? WHERE id = ?")
@@ -46,7 +46,7 @@ Deno.test("reapOfflineAgents does not reap agents within timeout", () => {
   const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 60 };
   const store = new Store(teamDir, config);
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
     // Heartbeat is fresh (just registered)
     const reaped = store.reapOfflineAgents();
     assertEquals(reaped, []);
@@ -59,7 +59,7 @@ Deno.test("reapOfflineAgents releases claimed tasks", () => {
   const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
     store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
     store.claimTask("s1-1", "a1");
     assertEquals(store.getAssignment("s1-1")?.memberId, "a1");
@@ -82,7 +82,7 @@ Deno.test("reapOfflineAgents skips already-offline agents", () => {
   const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
     // Mark offline first
     store.updateMemberStatus("a1", "offline");
     // Backdate heartbeat
@@ -100,7 +100,7 @@ Deno.test("agent comes back online after being reaped", () => {
   const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
     // Backdate and reap
     (store as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } })
       .db.prepare("UPDATE members SET last_heartbeat = ? WHERE id = ?")
@@ -125,7 +125,7 @@ Deno.test("reapOfflineAgents uses default timeout when not configured", () => {
   delete config.agentTimeoutSeconds;
   const store = new Store(teamDir, config);
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
     // Backdate by 60s — should NOT be reaped (default is 90s)
     (store as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } })
       .db.prepare("UPDATE members SET last_heartbeat = ? WHERE id = ?")

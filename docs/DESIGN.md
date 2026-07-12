@@ -18,6 +18,65 @@
 
 Design deviations from the original pi-pizza-team implementation. Agents or docs referencing the older patterns should follow the updated approach below.
 
+### Leader Directives: one queue of asks to the leader (2026-07-11)
+
+The daemon needs to ask the leader to act on agents out-of-band. This started as
+two separate channels — `spawn_requests` ("create an agent") and `agent_commands`
+("reset an agent") — which the leader had to poll separately. They're the same
+thing: **an ask to the leader to do something about an agent.** They were
+consolidated into a single per-host resource:
+
+```
+GET  /api/hosts/:hostId/leader/directives      # the leader's to-do queue (one poll)
+POST /api/hosts/:hostId/leader/directives      # { action, memberId?, params? }
+PUT  /api/hosts/:hostId/leader/directives/:id  # { status }  (mark done)
+```
+
+A directive has an `action` (`spawn`, `reset-session`, ...), optional `memberId`
+(for actions on an existing agent), `params` (e.g. spawn `name`/`cwd`/`storyId`),
+and `status`. Two principles hold:
+
+1. **The daemon communicates intent, not mechanism.** It knows nothing about
+   tmux, keystrokes, or `/new`. The **leader** polls its host's directives and
+   realizes each one (`spawn` → tmux window; `reset-session` → send `/new`).
+2. **The daemon stores opaque harness metadata.** `Member.metadata` is a bag
+   supplied at registration that the daemon relays verbatim and never
+   interprets. The leader puts its tmux window/session there at spawn time (via
+   `--ppt-tmux-window/--ppt-tmux-session`); directives targeting a member carry
+   that metadata back so the leader knows where to deliver. This replaced the
+   tmux-specific `Member.tmuxWindow`, keeping the daemon harness-agnostic.
+
+When the assistant conversation is cleared (`DELETE /api/assistant/messages`),
+the daemon enqueues a `reset-session` directive for the assistant so its in-agent
+context is dropped, not just the stored messages.
+
+**Rationale**: One concept ("a directive"), one queue, one poll — new asks are
+just new actions, not new endpoints. Keeping mechanism in the harness means the
+same channel scales to any agent and any harness; the daemon stays a coordinator
+that never reaches into how agents are run.
+
+### Assistant: Queue → Chat Conversation (2026-07-11)
+
+The assistant was a **queue**: each enqueued prompt produced a single result,
+rendered as independent prompt/result cards. That doesn't match how people
+actually work with an assistant — it's a conversation.
+
+It is now a **chat**: an ordered list of `user`/`assistant` messages
+(`assistant_messages` table). Sending a user message (`POST /api/assistant/messages`)
+also creates a `pending` assistant message — the *turn* to be answered. The
+assistant agent polls that turn (`GET /api/assistant/next`, unchanged `{id, prompt}`
+shape where `prompt` is the most recent user message), claims it (-> `processing`),
+runs it, and completes it (-> `done`/`failed`, filling the message content).
+
+The UI (`AssistantPage`) renders iMessage-style bubbles — you on the right,
+assistant on the left — with a typing indicator for pending/processing turns.
+
+**Rationale**: The persistent assistant Pi process already retains conversation
+context across turns, so the queue framing was only a UI/data-model limitation.
+Modeling the data as a conversation makes the UI natural and keeps the agent's
+claim/complete loop essentially unchanged (only endpoint paths moved from
+`/api/assistant/queue/*` to `/api/assistant/messages/*`).
+
 ### Capability-Based Work Matching (2026-07-11)
 
 Work matching used to be a special case: an agent had a `cwd`, a story had a

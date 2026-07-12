@@ -1,9 +1,10 @@
 /**
- * daemon/routes/assistant.ts — Assistant queue and knowledge base routes.
+ * daemon/routes/assistant.ts — Assistant chat and knowledge base routes.
  *
- * The assistant queue allows the lead to enqueue prompts for async
- * processing. The knowledge base stores categorized markdown notes
- * with BM25 search support.
+ * The assistant is a conversation (user/assistant messages). The lead sends
+ * messages; each creates a pending assistant turn that the assistant agent
+ * polls, claims, and completes. The knowledge base stores categorized
+ * markdown notes with BM25 search support.
  */
 
 import type { RouteContext } from "./types.ts";
@@ -11,38 +12,53 @@ import type { RouteContext } from "./types.ts";
 export function registerAssistantRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
 
-  // ─── Queue ─────────────────────────────────────────────────────────
+  // ─── Conversation ──────────────────────────────────────────────────
+  //
+  // The assistant is a chat. GET returns the full conversation; POST appends a
+  // user message and creates the pending assistant turn. The agent-facing
+  // next/claim/complete endpoints drive that turn to completion.
 
-  app.get("/api/assistant/queue", (c) => {
-    const items = store.getAssistantQueue();
-    return c.json({ items: items.map(item => ({ id: item.id, prompt: item.prompt, status: item.status, result: item.result || undefined, createdAt: item.createdAt ? new Date(item.createdAt).toISOString() : new Date().toISOString(), startedAt: item.startedAt ? new Date(item.startedAt).toISOString() : undefined, completedAt: item.completedAt ? new Date(item.completedAt).toISOString() : undefined })) });
-  });
+  app.get("/api/assistant/messages", (c) => c.json({ messages: store.getAssistantMessages() }));
 
-  app.post("/api/assistant/queue", async (c) => {
+  app.post("/api/assistant/messages", async (c) => {
     const body = await c.req.json();
-    if (!body.prompt || typeof body.prompt !== "string") return c.json({ success: false, error: "Field 'prompt' is required" }, 400);
-    const item = store.enqueueAssistantItem(body.prompt);
-    return c.json({ success: true, item }, 201);
+    if (!body.content || typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required" }, 400);
+    const { userMessage, assistantMessage } = store.sendAssistantMessage(body.content);
+    return c.json({ success: true, userMessage, assistantMessage }, 201);
   });
+
+  app.delete("/api/assistant/messages/:id", (c) => {
+    const success = store.deleteAssistantMessage(c.req.param("id"));
+    if (!success) return c.json({ success: false, error: "Message not found" }, 404);
+    return c.json({ success: true });
+  });
+
+  app.delete("/api/assistant/messages", (c) => {
+    store.clearAssistantMessages();
+    // Ask any online assistant to start a fresh session so its in-agent
+    // conversation context is dropped too (intent only — the leader realizes it).
+    for (const m of store.getMembers()) {
+      if (m.id === "assistant" || m.name.includes("assistant")) {
+        store.createLeaderDirectiveForMember(m.id, "reset-session");
+      }
+    }
+    return c.json({ success: true });
+  });
+
+  // ─── Agent-facing (poll the pending turn) ──────────────────────────
 
   app.get("/api/assistant/next", (c) => c.json({ item: store.getNextAssistantItem() }));
 
-  app.post("/api/assistant/queue/:id/claim", (c) => {
+  app.post("/api/assistant/messages/:id/claim", (c) => {
     const success = store.claimAssistantItem(c.req.param("id"));
-    if (!success) return c.json({ success: false, error: "Item not available" }, 409);
+    if (!success) return c.json({ success: false, error: "Turn not available" }, 409);
     return c.json({ success: true });
   });
 
-  app.post("/api/assistant/queue/:id/complete", async (c) => {
+  app.post("/api/assistant/messages/:id/complete", async (c) => {
     const body = await c.req.json();
     const success = store.completeAssistantItem(c.req.param("id"), body.result, body.status === "failed");
-    if (!success) return c.json({ success: false, error: "Item not in processing state" }, 400);
-    return c.json({ success: true });
-  });
-
-  app.delete("/api/assistant/queue/:id", (c) => {
-    const success = store.deleteAssistantItem(c.req.param("id"));
-    if (!success) return c.json({ success: false, error: "Item not found" }, 404);
+    if (!success) return c.json({ success: false, error: "Turn not in processing state" }, 400);
     return c.json({ success: true });
   });
 

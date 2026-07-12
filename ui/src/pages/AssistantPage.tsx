@@ -1,102 +1,166 @@
 /**
- * AssistantPage — Assistant queue management (enqueue, claim, complete, delete).
+ * AssistantPage — Chat window with the team assistant.
+ *
+ * Renders the conversation as message bubbles (you on the right, the assistant
+ * on the left, iMessage-style). Sending a message creates a pending assistant
+ * turn that the assistant agent answers; pending/processing turns show a typing
+ * indicator. Polls /api/assistant/messages for updates.
  */
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
-import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { Plus, Trash2, UserPlus } from "lucide-react";
+import { MarkdownView } from "@/components/ui/markdown-view";
+import { Send, Trash2, UserPlus } from "lucide-react";
 
-interface QueueItem {
+interface Message {
   id: string;
-  prompt: string;
-  status: string;
-  result?: string;
+  role: "user" | "assistant";
+  content: string;
+  status: "pending" | "processing" | "done" | "failed";
   createdAt: string;
-  startedAt?: string;
-  completedAt?: string;
 }
 
-const STATUS_COLORS: Record<string, string> = {
-  pending: "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-  processing: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-  done: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
-  failed: "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200",
-};
-
 export function AssistantPage() {
-  const { data, refetch } = useApi<{ items: QueueItem[] }>("/api/assistant/queue");
+  const { data, refetch } = useApi<{ messages: Message[] }>("/api/assistant/messages", [], { pollInterval: 2000 });
   const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents", [], { pollInterval: 10_000 });
-  const [prompt, setPrompt] = useState("");
+  const [draft, setDraft] = useState("");
+  const [sending, setSending] = useState(false);
+  const scrollRef = useRef<HTMLDivElement>(null);
 
-  const items = data?.items || [];
+  const messages = data?.messages || [];
   const agents = agentsData?.agents || [];
   const assistantOnline = agents.some(a => a.name.includes("assistant") && a.status !== "offline");
 
-  const handleEnqueue = async () => {
-    if (!prompt.trim()) return;
-    await apiPost("/api/assistant/queue", { prompt });
-    setPrompt("");
+  // Auto-scroll to the newest message.
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages.length, messages[messages.length - 1]?.status]);
+
+  const send = async () => {
+    const content = draft.trim();
+    if (!content || sending) return;
+    setSending(true);
+    setDraft("");
+    try {
+      await apiPost("/api/assistant/messages", { content });
+      await refetch();
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const clearConversation = async () => {
+    if (!confirm("Clear the entire conversation?")) return;
+    await apiDelete("/api/assistant/messages");
     refetch();
   };
 
-  const handleDelete = async (id: string) => {
-    await apiDelete(`/api/assistant/queue/${id}`);
-    refetch();
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      send();
+    }
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Assistant Queue</h1>
-        <SpawnAssistantButton disabled={assistantOnline} />
+    <div className="container mx-auto flex flex-col h-[calc(100vh-4rem)] max-w-3xl p-4">
+      {/* Header */}
+      <div className="flex items-center justify-between pb-3 border-b border-border">
+        <div className="flex items-center gap-2">
+          <h1 className="text-xl font-bold">Assistant</h1>
+          <span className={`h-2 w-2 rounded-full ${assistantOnline ? "bg-green-500" : "bg-muted-foreground/40"}`} title={assistantOnline ? "Assistant online" : "Assistant offline"} />
+        </div>
+        <div className="flex items-center gap-2">
+          {messages.length > 0 && (
+            <Button variant="ghost" size="sm" onClick={clearConversation} title="Clear conversation">
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          )}
+          <SpawnAssistantButton disabled={assistantOnline} />
+        </div>
       </div>
 
-      {/* Enqueue */}
-      <div className="flex gap-2">
+      {/* Messages */}
+      <div ref={scrollRef} className="flex-1 overflow-y-auto py-4 space-y-3">
+        {messages.length === 0 && (
+          <p className="text-center text-muted-foreground py-8 text-sm">
+            No messages yet. Say hello to your assistant below.
+          </p>
+        )}
+        {messages.map(msg => (
+          <MessageBubble key={msg.id} message={msg} />
+        ))}
+        {!assistantOnline && messages.some(m => m.role === "assistant" && (m.status === "pending" || m.status === "processing")) && (
+          <p className="text-center text-xs text-muted-foreground">
+            Assistant is offline — spawn one to get a reply.
+          </p>
+        )}
+      </div>
+
+      {/* Composer */}
+      <div className="flex gap-2 pt-3 border-t border-border">
         <Textarea
-          placeholder="Enter a prompt for the assistant..."
-          value={prompt}
-          onChange={e => setPrompt(e.target.value)}
+          placeholder="Message the assistant…  (Enter to send, Shift+Enter for newline)"
+          value={draft}
+          onChange={e => setDraft(e.target.value)}
+          onKeyDown={handleKeyDown}
           rows={2}
-          className="flex-1"
+          className="flex-1 resize-none"
         />
-        <Button onClick={handleEnqueue} disabled={!prompt.trim()} className="self-end">
-          <Plus className="h-4 w-4 mr-1" />Queue
+        <Button onClick={send} disabled={!draft.trim() || sending} className="self-end">
+          <Send className="h-4 w-4" />
         </Button>
       </div>
+    </div>
+  );
+}
 
-      {/* Queue items */}
-      <div className="space-y-2">
-        {items.map(item => (
-          <Card key={item.id}>
-            <CardContent className="p-4">
-              <div className="flex items-start justify-between gap-2">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1">
-                    <Badge variant="secondary" className={`text-xs ${STATUS_COLORS[item.status] || ""}`}>
-                      {item.status}
-                    </Badge>
-                    <span className="text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleString()}</span>
-                  </div>
-                  <p className="text-sm">{item.prompt}</p>
-                  {item.result && (
-                    <pre className="text-xs bg-muted p-2 rounded mt-2 whitespace-pre-wrap max-h-32 overflow-y-auto">{item.result}</pre>
-                  )}
-                </div>
-                <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" onClick={() => handleDelete(item.id)}>
-                  <Trash2 className="h-3.5 w-3.5" />
-                </Button>
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-        {items.length === 0 && <p className="text-center text-muted-foreground py-8">Queue is empty.</p>}
+/** A single chat bubble — right-aligned for the user, left-aligned for the assistant. */
+function MessageBubble({ message }: { message: Message }) {
+  const isUser = message.role === "user";
+  const pending = !isUser && (message.status === "pending" || message.status === "processing");
+  const failed = !isUser && message.status === "failed";
+
+  return (
+    <div className={`flex ${isUser ? "justify-end" : "justify-start"}`}>
+      <div
+        className={[
+          "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
+          isUser
+            ? "bg-primary text-primary-foreground rounded-br-sm"
+            : failed
+              ? "bg-destructive/10 text-destructive rounded-bl-sm"
+              : "bg-muted text-foreground rounded-bl-sm",
+        ].join(" ")}
+      >
+        {pending ? (
+          <TypingIndicator />
+        ) : isUser ? (
+          <span className="whitespace-pre-wrap break-words">{message.content}</span>
+        ) : failed ? (
+          <span className="whitespace-pre-wrap break-words">{message.content || "The assistant hit an error."}</span>
+        ) : (
+          <MarkdownView content={message.content} />
+        )}
       </div>
     </div>
+  );
+}
+
+/** Animated three-dot "typing" indicator for a pending assistant turn. */
+function TypingIndicator() {
+  return (
+    <span className="inline-flex items-center gap-1 py-1">
+      {[0, 1, 2].map(i => (
+        <span
+          key={i}
+          className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce"
+          style={{ animationDelay: `${i * 0.15}s` }}
+        />
+      ))}
+    </span>
   );
 }
 
@@ -107,7 +171,6 @@ function SpawnAssistantButton({ disabled }: { disabled: boolean }) {
   const handleSpawn = async () => {
     setSpawning(true);
     try {
-      // Get hosts to find a target
       const agentsRes = await fetch("/api/agents").then(r => r.json());
       const hosts = new Set<string>();
       for (const a of agentsRes.agents || []) {
@@ -115,8 +178,7 @@ function SpawnAssistantButton({ disabled }: { disabled: boolean }) {
       }
       const hostId = [...hosts][0];
       if (!hostId) { setSpawning(false); return; }
-
-      await apiPost("/api/spawn-requests", { hostId, reason: "assistant" });
+      await apiPost(`/api/hosts/${encodeURIComponent(hostId)}/leader/directives`, { action: "spawn", params: { reason: "assistant" } });
     } finally {
       setSpawning(false);
     }
@@ -131,7 +193,7 @@ function SpawnAssistantButton({ disabled }: { disabled: boolean }) {
       title={disabled ? "Assistant already running" : "Spawn an assistant agent"}
     >
       <UserPlus className="h-4 w-4 mr-1" />
-      {disabled ? "Assistant Running" : "Spawn Assistant"}
+      {disabled ? "Running" : "Spawn"}
     </Button>
   );
 }

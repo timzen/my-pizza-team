@@ -110,8 +110,8 @@ Deno.test("GET /api/agents includes hostId in listing", async () => {
     hosts: { "h1": { tmuxSession: "h1-tmux" } },
   });
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, "a1", "h1");
-    store.registerMember("a2", "trinity", { directory: "/home" }, "a2");
+    store.registerMember("a1", "neo", { directory: "/tmp" }, {}, "h1");
+    store.registerMember("a2", "trinity", { directory: "/home" }, {});
     const res = await app.request("/api/agents");
     const body = await res.json();
     const a1 = body.agents.find((a: { id: string }) => a.id === "a1");

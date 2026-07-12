@@ -23,6 +23,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       id?: string; name?: string; hostId?: string;
       capabilities?: Record<string, string | null>;
       workMode?: WorkMode; assignedStoryId?: string;
+      tmuxWindow?: string;
+      metadata?: Record<string, unknown>;
     };
     if (!body.id || !body.name) {
       return c.json({ success: false, error: "Fields 'id' and 'name' are required" }, 400);
@@ -34,7 +36,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       return c.json({ success: false, error: "workMode 'assigned-story' requires 'assignedStoryId'" }, 400);
     }
 
-    store.registerMember(body.id, body.name, capabilities, body.id, body.hostId, workMode, body.assignedStoryId);
+    // The harness may attach opaque metadata (e.g. its tmux window) that it can
+    // later use to realize control intents. The daemon stores it verbatim.
+    const metadata = body.metadata || {};
+
+    store.registerMember(body.id, body.name, capabilities, metadata, body.hostId, workMode, body.assignedStoryId);
 
     const hostConfig = body.hostId ? config.hosts?.[body.hostId] : undefined;
     const tmuxSession = hostConfig?.tmuxSession || config.tmuxSession;
@@ -242,25 +248,30 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true });
   });
 
-  // ─── Spawn Requests ────────────────────────────────────────────────
+  // ─── Leader Directives (one queue of asks per host) ──────────────────
+  //
+  // A directive is "leader, do X about an agent" — spawn a new one, reset an
+  // existing one, etc. The daemon only expresses the action + params (intent);
+  // the leader polls its host's directives, realizes them, and PUTs status
+  // 'done'. This is the single daemon→leader channel.
 
-  app.post("/api/spawn-requests", async (c) => {
-    const body = await c.req.json() as { hostId?: string; cwd?: string; storyId?: string; reason?: string };
-    if (!body.hostId || typeof body.hostId !== "string") return c.json({ success: false, error: "Field 'hostId' is required" }, 400);
-    const request = store.createSpawnRequest(body.hostId, body.cwd, body.storyId, body.reason);
-    return c.json({ success: true, request }, 201);
+  app.post("/api/hosts/:hostId/leader/directives", async (c) => {
+    const hostId = c.req.param("hostId");
+    const body = await c.req.json().catch(() => ({})) as { action?: string; memberId?: string; params?: Record<string, unknown> };
+    if (!body.action || typeof body.action !== "string") return c.json({ success: false, error: "Field 'action' is required" }, 400);
+    const directive = store.createLeaderDirective(hostId, body.action, { memberId: body.memberId, params: body.params });
+    return c.json({ success: true, directive }, 201);
   });
 
-  app.get("/api/spawn-requests", (c) => {
-    const hostId = c.req.query("hostId");
-    if (!hostId) return c.json({ requests: [] });
-    return c.json({ requests: store.getSpawnRequests(hostId) });
+  app.get("/api/hosts/:hostId/leader/directives", (c) => {
+    return c.json({ directives: store.getLeaderDirectives(c.req.param("hostId")) });
   });
 
-  app.post("/api/spawn-requests/:id/ack", (c) => {
-    const id = c.req.param("id");
-    const success = store.ackSpawnRequest(id);
-    if (!success) return c.json({ success: false, error: "Request not found or already acknowledged" }, 404);
+  app.put("/api/hosts/:hostId/leader/directives/:id", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { status?: string };
+    if (!body.status || typeof body.status !== "string") return c.json({ success: false, error: "Field 'status' is required" }, 400);
+    const ok = store.updateLeaderDirective(c.req.param("id"), body.status);
+    if (!ok) return c.json({ success: false, error: "Directive not found" }, 404);
     return c.json({ success: true });
   });
 }

@@ -219,7 +219,7 @@ export class Store {
         capabilities TEXT DEFAULT '{}',
         work_mode TEXT DEFAULT 'eager-helper',
         assigned_story_id TEXT,
-        tmux_window TEXT,
+        metadata TEXT DEFAULT '{}',   -- opaque harness-owned data (daemon never interprets it)
         host_id TEXT,
         status TEXT DEFAULT 'idle',
         last_heartbeat INTEGER
@@ -245,16 +245,24 @@ export class Store {
         completed_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS spawn_requests (
+      CREATE TABLE IF NOT EXISTS assistant_messages (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT,
+        id TEXT UNIQUE,
+        role TEXT,               -- 'user' | 'assistant'
+        content TEXT,
+        status TEXT DEFAULT 'done', -- assistant turns: 'pending'|'processing'|'done'|'failed'
+        created_at INTEGER
+      );
+
+      CREATE TABLE IF NOT EXISTS leader_directives (
         id TEXT PRIMARY KEY,
         host_id TEXT NOT NULL,
-        cwd TEXT,
-        story_id TEXT,
-        reason TEXT,
-        name TEXT,
-        status TEXT DEFAULT 'pending',
+        action TEXT NOT NULL,      -- 'spawn' | 'reset-session' | ...
+        member_id TEXT,            -- target agent for actions on an existing member
+        params TEXT DEFAULT '{}',  -- action params (e.g. spawn name/cwd/storyId/reason)
+        status TEXT DEFAULT 'pending', -- 'pending' | 'done'
         created_at INTEGER,
-        acked_at INTEGER
+        updated_at INTEGER
       );
     `);
 
@@ -291,10 +299,8 @@ export class Store {
     if (!memberColumns.some((col) => col.name === "assigned_story_id")) {
       this.db.exec("ALTER TABLE members ADD COLUMN assigned_story_id TEXT");
     }
-
-    const spawnColumns = this.db.prepare("PRAGMA table_info(spawn_requests)").all() as Array<Record<string, unknown>>;
-    if (!spawnColumns.some((col) => col.name === "name")) {
-      this.db.exec("ALTER TABLE spawn_requests ADD COLUMN name TEXT");
+    if (!memberColumns.some((col) => col.name === "metadata")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN metadata TEXT DEFAULT '{}'");
     }
   }
 
@@ -855,7 +861,7 @@ export class Store {
     id: string,
     name: string,
     capabilities: Capabilities,
-    tmuxWindow: string,
+    metadata: Record<string, unknown> = {},
     hostId?: string,
     workMode: WorkMode = DEFAULT_WORK_MODE,
     assignedStoryId?: string,
@@ -864,9 +870,9 @@ export class Store {
     const caps: Capabilities = { ...capabilities };
     if (typeof caps[DIRECTORY_CAP] === "string") caps[DIRECTORY_CAP] = normalizeDirectory(caps[DIRECTORY_CAP] as string);
     this.db.prepare(
-      `INSERT OR REPLACE INTO members (id, name, capabilities, work_mode, assigned_story_id, tmux_window, host_id, status, last_heartbeat)
+      `INSERT OR REPLACE INTO members (id, name, capabilities, work_mode, assigned_story_id, metadata, host_id, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
-    ).run(id, name, JSON.stringify(caps), workMode, assignedStoryId || null, tmuxWindow, hostId || null, Date.now());
+    ).run(id, name, JSON.stringify(caps), workMode, assignedStoryId || null, JSON.stringify(metadata || {}), hostId || null, Date.now());
     this.recordCapabilities(caps);
   }
 
@@ -888,7 +894,7 @@ export class Store {
       capabilities,
       workMode: (row.work_mode as WorkMode) || DEFAULT_WORK_MODE,
       assignedStoryId: (row.assigned_story_id as string) || undefined,
-      tmuxWindow: row.tmux_window as string,
+      metadata: row.metadata && (row.metadata as string) !== "{}" ? JSON.parse(row.metadata as string) : {},
       hostId: (row.host_id as string) || undefined,
       status: row.status as Member["status"],
       lastHeartbeat: row.last_heartbeat as number,
@@ -1491,54 +1497,169 @@ export class Store {
     return result;
   }
 
-  // --- Assistant Queue ---
+  // --- Assistant Conversation ---
+  //
+  // The assistant is a chat: a sequence of user/assistant messages. Sending a
+  // user message also creates a `pending` assistant message (the turn to be
+  // answered). The assistant agent polls for the pending turn, claims it
+  // (-> processing), runs it, and completes it (-> done, filling content).
 
-  enqueueAssistantItem(prompt: string): { id: string; prompt: string; status: string; createdAt: string } {
-    const id = `asst-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const now = Date.now();
-    this.db.prepare("INSERT INTO assistant_queue (id, prompt, status, created_at) VALUES (?, ?, 'pending', ?)").run(id, prompt, now);
-    return { id, prompt, status: "pending", createdAt: new Date(now).toISOString() };
-  }
-
-  getAssistantQueue(): Array<{ id: string; prompt: string; status: string; result: string | null; createdAt: number; startedAt: number | null; completedAt: number | null }> {
-    const rows = this.db.prepare("SELECT * FROM assistant_queue ORDER BY created_at DESC").all() as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
+  /** Shape of a stored conversation message. */
+  private rowToAssistantMessage(row: Record<string, unknown>): { id: string; role: string; content: string; status: string; createdAt: string } {
+    return {
       id: row.id as string,
-      prompt: row.prompt as string,
+      role: row.role as string,
+      content: (row.content as string) || "",
       status: row.status as string,
-      result: row.result as string | null,
-      createdAt: row.created_at as number,
-      startedAt: row.started_at as number | null,
-      completedAt: row.completed_at as number | null,
-    }));
+      createdAt: new Date(row.created_at as number).toISOString(),
+    };
   }
 
+  /**
+   * Append a user message and create the pending assistant turn to answer it.
+   * Returns both created messages.
+   */
+  sendAssistantMessage(content: string): { userMessage: ReturnType<Store["rowToAssistantMessage"]>; assistantMessage: ReturnType<Store["rowToAssistantMessage"]> } {
+    const now = Date.now();
+    const userId = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
+    const asstId = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
+    this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, created_at) VALUES (?, 'user', ?, 'done', ?)").run(userId, content, now);
+    this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, created_at) VALUES (?, 'assistant', '', 'pending', ?)").run(asstId, now);
+    return {
+      userMessage: this.getAssistantMessage(userId)!,
+      assistantMessage: this.getAssistantMessage(asstId)!,
+    };
+  }
+
+  getAssistantMessage(id: string): ReturnType<Store["rowToAssistantMessage"]> | null {
+    const row = this.db.prepare("SELECT * FROM assistant_messages WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return row ? this.rowToAssistantMessage(row) : null;
+  }
+
+  /** The full conversation, oldest first. */
+  getAssistantMessages(): Array<ReturnType<Store["rowToAssistantMessage"]>> {
+    const rows = this.db.prepare("SELECT * FROM assistant_messages ORDER BY seq ASC").all() as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToAssistantMessage(r));
+  }
+
+  /**
+   * The next pending assistant turn for the agent to answer, with the prompt
+   * being the most recent preceding user message.
+   */
   getNextAssistantItem(): { id: string; prompt: string } | null {
-    const row = this.db.prepare("SELECT * FROM assistant_queue WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1").get() as Record<string, unknown> | undefined;
+    const row = this.db.prepare("SELECT seq, id FROM assistant_messages WHERE role = 'assistant' AND status = 'pending' ORDER BY seq ASC LIMIT 1").get() as Record<string, unknown> | undefined;
     if (!row) return null;
-    return { id: row.id as string, prompt: row.prompt as string };
+    const userRow = this.db.prepare("SELECT content FROM assistant_messages WHERE role = 'user' AND seq < ? ORDER BY seq DESC LIMIT 1").get(row.seq as number) as Record<string, unknown> | undefined;
+    return { id: row.id as string, prompt: (userRow?.content as string) || "" };
   }
 
+  /** Mark a pending assistant turn as processing. */
   claimAssistantItem(id: string): boolean {
-    const row = this.db.prepare("SELECT status FROM assistant_queue WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    const row = this.db.prepare("SELECT status FROM assistant_messages WHERE id = ? AND role = 'assistant'").get(id) as Record<string, unknown> | undefined;
     if (!row || row.status !== "pending") return false;
-    this.db.prepare("UPDATE assistant_queue SET status = 'processing', started_at = ? WHERE id = ?").run(Date.now(), id);
+    this.db.prepare("UPDATE assistant_messages SET status = 'processing' WHERE id = ?").run(id);
     return true;
   }
 
+  /** Fill in the assistant turn's content and mark it done (or failed). */
   completeAssistantItem(id: string, result?: string, failed = false): boolean {
-    const row = this.db.prepare("SELECT status FROM assistant_queue WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    const row = this.db.prepare("SELECT status FROM assistant_messages WHERE id = ? AND role = 'assistant'").get(id) as Record<string, unknown> | undefined;
     if (!row || row.status !== "processing") return false;
     const status = failed ? "failed" : "done";
-    this.db.prepare("UPDATE assistant_queue SET status = ?, result = ?, completed_at = ? WHERE id = ?").run(status, result || null, Date.now(), id);
+    this.db.prepare("UPDATE assistant_messages SET status = ?, content = ? WHERE id = ?").run(status, result || "", id);
     return true;
   }
 
-  deleteAssistantItem(id: string): boolean {
-    const row = this.db.prepare("SELECT * FROM assistant_queue WHERE id = ?").get(id);
+  deleteAssistantMessage(id: string): boolean {
+    const row = this.db.prepare("SELECT id FROM assistant_messages WHERE id = ?").get(id);
     if (!row) return false;
-    this.db.prepare("DELETE FROM assistant_queue WHERE id = ?").run(id);
+    this.db.prepare("DELETE FROM assistant_messages WHERE id = ?").run(id);
     return true;
+  }
+
+  /** Clear the whole conversation. */
+  clearAssistantMessages(): void {
+    this.db.prepare("DELETE FROM assistant_messages").run();
+  }
+
+  // --- Leader Directives (things asked of the leader; it realizes them) ---
+  //
+  // A single queue of directives per host: "leader, do X about an agent" — e.g.
+  // spawn a new agent, or reset an existing one's session. The daemon expresses
+  // the action + params (intent) and never knows the mechanism (tmux, etc.).
+  // The leader polls its host's directives, acts, and marks them done.
+
+  private rowToDirective(row: Record<string, unknown>): { id: string; action: string; memberId?: string; params: Record<string, unknown>; metadata: Record<string, unknown>; status: string; createdAt: string } {
+    const memberId = (row.member_id as string) || undefined;
+    // For actions on an existing member, include its opaque metadata so the
+    // leader can deliver (e.g. the tmux window it supplied at registration).
+    const member = memberId ? this.getMember(memberId) : null;
+    return {
+      id: row.id as string,
+      action: row.action as string,
+      memberId,
+      params: row.params && (row.params as string) !== "{}" ? JSON.parse(row.params as string) : {},
+      metadata: member?.metadata || {},
+      status: row.status as string,
+      createdAt: new Date(row.created_at as number).toISOString(),
+    };
+  }
+
+  /**
+   * Create a leader directive for a host. For the `spawn` action a unique
+   * teammate name is generated into params (unless one was supplied).
+   */
+  createLeaderDirective(hostId: string, action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): ReturnType<Store["rowToDirective"]> {
+    const id = `dir-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const now = Date.now();
+    const params: Record<string, unknown> = { ...(opts?.params || {}) };
+    if (action === "spawn" && !params.name) {
+      params.name = this.generateSpawnName();
+    }
+    this.db.prepare(
+      "INSERT INTO leader_directives (id, host_id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)"
+    ).run(id, hostId, action, opts?.memberId || null, JSON.stringify(params), now, now);
+    return this.rowToDirective(this.db.prepare("SELECT * FROM leader_directives WHERE id = ?").get(id) as Record<string, unknown>);
+  }
+
+  /** Create a directive targeting an existing member (routes to its host). Null if unknown/host-less. */
+  createLeaderDirectiveForMember(memberId: string, action: string, params?: Record<string, unknown>): ReturnType<Store["rowToDirective"]> | null {
+    const member = this.getMember(memberId);
+    if (!member || !member.hostId) return null;
+    return this.createLeaderDirective(member.hostId, action, { memberId, params });
+  }
+
+  /** Pending directives for a host, oldest first, each resolved with target metadata. */
+  getLeaderDirectives(hostId: string): Array<ReturnType<Store["rowToDirective"]>> {
+    const rows = this.db.prepare("SELECT * FROM leader_directives WHERE host_id = ? AND status = 'pending' ORDER BY created_at ASC").all(hostId) as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToDirective(r));
+  }
+
+  getLeaderDirective(id: string): ReturnType<Store["rowToDirective"]> | null {
+    const row = this.db.prepare("SELECT * FROM leader_directives WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return row ? this.rowToDirective(row) : null;
+  }
+
+  /** Update a directive's status (e.g. 'done'). Returns false if not found. */
+  updateLeaderDirective(id: string, status: string): boolean {
+    const row = this.db.prepare("SELECT id FROM leader_directives WHERE id = ?").get(id);
+    if (!row) return false;
+    this.db.prepare("UPDATE leader_directives SET status = ?, updated_at = ? WHERE id = ?").run(status, Date.now(), id);
+    return true;
+  }
+
+  /** Generate a unique teammate name (avoids current members + pending spawn directives). */
+  private generateSpawnName(): string {
+    const existingNames = new Set<string>();
+    for (const m of this.getMembers()) existingNames.add(m.name);
+    const pending = this.db.prepare("SELECT params FROM leader_directives WHERE action = 'spawn' AND status = 'pending'").all() as Array<Record<string, unknown>>;
+    for (const row of pending) {
+      try {
+        const p = JSON.parse((row.params as string) || "{}");
+        if (p.name) existingNames.add(p.name);
+      } catch { /* ignore */ }
+    }
+    return generateTeammateName(existingNames, this.config.teammates);
   }
 
   // --- Notes ---
@@ -1612,60 +1733,6 @@ export class Store {
     const filePath = path.join(notesDir, `${id}.md`);
     if (!existsSync(filePath)) return false;
     Deno.removeSync(filePath);
-    return true;
-  }
-
-  // --- Spawn Requests ---
-
-  /** Create a spawn request, generating a unique teammate name */
-  createSpawnRequest(hostId: string, cwd?: string, storyId?: string, reason?: string): { id: string; hostId: string; name: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string } {
-    const id = `spawn-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const now = Date.now();
-
-    // Gather existing names: current members + pending spawn request names
-    const existingNames = new Set<string>();
-    const members = this.getMembers();
-    for (const m of members) {
-      existingNames.add(m.name);
-    }
-    const pendingRows = this.db.prepare(
-      "SELECT name FROM spawn_requests WHERE status = 'pending' AND name IS NOT NULL"
-    ).all() as Array<Record<string, unknown>>;
-    for (const row of pendingRows) {
-      existingNames.add(row.name as string);
-    }
-
-    const name = generateTeammateName(existingNames, this.config.teammates);
-
-    this.db.prepare(
-      "INSERT INTO spawn_requests (id, host_id, cwd, story_id, reason, name, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)"
-    ).run(id, hostId, cwd || null, storyId || null, reason || null, name, now);
-    return { id, hostId, name, cwd, storyId, reason, status: "pending", createdAt: new Date(now).toISOString() };
-  }
-
-  /** Get pending spawn requests for a specific host */
-  getSpawnRequests(hostId: string): Array<{ id: string; hostId: string; name: string; cwd?: string; storyId?: string; reason?: string; status: string; createdAt: string; ackedAt?: string }> {
-    const rows = this.db.prepare(
-      "SELECT * FROM spawn_requests WHERE host_id = ? AND status = 'pending' ORDER BY created_at ASC"
-    ).all(hostId) as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
-      id: row.id as string,
-      hostId: row.host_id as string,
-      name: (row.name as string) || "",
-      cwd: (row.cwd as string) || undefined,
-      storyId: (row.story_id as string) || undefined,
-      reason: (row.reason as string) || undefined,
-      status: row.status as string,
-      createdAt: new Date(row.created_at as number).toISOString(),
-      ackedAt: row.acked_at ? new Date(row.acked_at as number).toISOString() : undefined,
-    }));
-  }
-
-  /** Acknowledge a spawn request (mark as acked) */
-  ackSpawnRequest(id: string): boolean {
-    const row = this.db.prepare("SELECT status FROM spawn_requests WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-    if (!row || row.status !== "pending") return false;
-    this.db.prepare("UPDATE spawn_requests SET status = 'acked', acked_at = ? WHERE id = ?").run(Date.now(), id);
     return true;
   }
 
