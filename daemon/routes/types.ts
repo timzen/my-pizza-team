@@ -20,6 +20,4 @@ export interface RouteContext {
   setPaused: (v: boolean) => void;
   /** Daemon start timestamp (ms) */
   startedAt: number;
-  /** Get transition instructions markdown for a state change */
-  getInstructionsMarkdown: (fromStatus: string, toStatus: string, taskId?: string) => string | undefined;
 }

@@ -11,10 +11,11 @@
 
 import type { RouteContext } from "./types.ts";
 import { getClaimTarget, getReleaseTarget, getExitState } from "../workflow-engine.ts";
+import { buildTaskPrompt } from "../prompt.ts";
 import { DEFAULT_WORK_MODE, type Capabilities, type WorkMode } from "../../shared/types.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
-  const { app, store, config, isPaused, getInstructionsMarkdown } = ctx;
+  const { app, store, config, isPaused } = ctx;
 
   // ─── Register / Heartbeat ──────────────────────────────────────────
 
@@ -149,30 +150,25 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       guidance += ` When your work is complete, release the task.`;
     }
 
-    // Hint about available memory if the story has categories
-    const storyCategories = story?.categories || [];
-    const wfCategories = wf.categories || [];
-    const allCategories = [...new Set([...storyCategories, ...wfCategories])];
-    if (allCategories.length > 0) {
-      guidance += ` There are knowledge base notes available in categories: ${allCategories.join(", ")}. Use search_memory if you need additional context.`;
-    }
+    const workflowName = story?.workflow || config.defaultWorkflow;
+    const { exitInstructions, enterInstructions } = store.getTransitionInstructions(fromStatus, targetStatus, workflowName);
+
+    // The daemon assembles the full, canonical prompt so every harness delivers
+    // it verbatim (no per-harness augmentation). Alongside it we return only the
+    // minimal structured task metadata a harness needs for bookkeeping.
+    const prompt = buildTaskPrompt({
+      story: story ? { id: story.id, title: story.title, description: story.description } : undefined,
+      task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description },
+      guidance,
+      transition: { fromState: fromStatus, toState: targetStatus, exit: exitInstructions, enter: enterInstructions },
+      previousResults: previousResults || undefined,
+      comments: comments.length > 0 ? comments : undefined,
+    });
 
     return c.json({
       success: true,
-      story: story ? { id: story.id, title: story.title, description: story.description } : undefined,
-      task: {
-        id: task.id, storyId: task.storyId, title: task.title,
-        description: task.description, status: targetStatus,
-        context: previousResults || undefined,
-        comments: comments.length > 0 ? comments : undefined,
-      },
-      stateContext: {
-        entered: targetStatus,
-        exitsTo: exitsTo || undefined,
-        guidance,
-        exitInstructions: exitsTo ? getInstructionsMarkdown(targetStatus, exitsTo, taskId) : undefined,
-      },
-      instructions: getInstructionsMarkdown(fromStatus, targetStatus, taskId),
+      task: { id: task.id, storyId: task.storyId, status: targetStatus },
+      prompt,
     });
   });
 
@@ -192,7 +188,6 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     }
 
     const wf = store.getWorkflowForTask(taskId);
-    const fromStatus = task.status;
     const release = getReleaseTarget(wf, task.status);
 
     if (release) {
@@ -209,7 +204,6 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       success: true,
       newStatus,
       completed: release?.completed || false,
-      instructions: release ? getInstructionsMarkdown(fromStatus, release.targetStatus, taskId) : undefined,
     });
   });
 

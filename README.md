@@ -267,10 +267,8 @@ See [docs/DESIGN.md](docs/DESIGN.md) → *Capability-Based Work Matching*.
 
 | Field | Description |
 |-------|-------------|
-| `story` | Story title and description (the big picture) |
-| `task` | Task details, previous task results, lead comments |
-| `stateContext` | What state you entered, where release goes, exit criteria |
-| `instructions` | Workflow instruction file content for the entered state |
+| `task` | Minimal structured metadata for bookkeeping: `id`, `storyId`, `status` |
+| `prompt` | **The full, ready-to-use prompt** assembled by the daemon (story, task, prior-task context, lead comments, state guidance, and the transition instructions for leaving the previous state and entering the working state). Harnesses deliver this verbatim rather than re-assembling their own. |
 
 ---
 

@@ -75,7 +75,7 @@ export interface ReorderTasksResponse { success: boolean; error?: string }
 
 // POST /api/tasks/:id/move
 export interface MoveTaskRequest { status: string }
-export interface MoveTaskResponse { success: boolean; error?: string; instructions?: string }
+export interface MoveTaskResponse { success: boolean; error?: string }
 
 // POST /api/tasks/:id/token-usage
 export interface TokenUsageRequest { inputTokens: number; outputTokens: number; model: string }
@@ -148,11 +148,11 @@ export interface AgentNextWorkResponse { task: { id: string; storyId: string; ti
 
 // POST /api/agents/claim/:taskId
 export interface AgentClaimRequest { agentId: string }
-export interface AgentClaimResponse { success: boolean; error?: string; story?: { id: string; title: string; description: string }; task?: { id: string; storyId: string; title: string; description: string; status: string; context?: string; comments?: Array<{ from: string; body: string; at: string }> }; stateContext?: { entered: string; exitsTo?: string; guidance: string; exitInstructions?: string }; instructions?: string }
+export interface AgentClaimResponse { success: boolean; error?: string; task?: { id: string; storyId: string; status: string }; prompt?: string }
 
 // POST /api/agents/release/:taskId
 export interface AgentReleaseRequest { agentId: string; result?: string }
-export interface AgentReleaseResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean; instructions?: string }
+export interface AgentReleaseResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
 
 // GET /api/agents/comments/:taskId
 export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
