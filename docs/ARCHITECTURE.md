@@ -29,7 +29,8 @@ my-pizza-team is a Deno-based application organized into four main modules:
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
 - `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
-- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (Story → Task → prior-task context → lead comments → state guidance → transition instructions for leaving the previous state and entering the working state). Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt.
+- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (Story → Task → prior-task context → lead comments → state guidance → transition instructions for leaving the previous state and entering the working state). Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored instruction headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
+- `workflow-lint.ts` — `validateInstructionMarkdown()`: lints authored state-instruction markdown. Unbalanced code fences are **errors** (they'd swallow the rest of the prompt) and block the save; shallow headings and stray `---` rules are **warnings** (the prompt builder normalizes headings anyway).
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
 - `routes/stories.ts` — Story CRUD, archive, backlog.
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
@@ -108,7 +109,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/workflows` | List workflow summaries (name, stateCount, transitionCount, isDefault) |
 | GET | `/api/workflows/:name` | Get full WorkflowConfig for a workflow |
 | GET | `/api/workflows/:name/instructions/:filename` | Read a workflow instruction markdown file |
-| PUT | `/api/workflows/:name/instructions/:filename` | Write/update a workflow instruction markdown file |
+| PUT | `/api/workflows/:name/instructions/:filename` | Write/update a workflow instruction markdown file. Lints content: unbalanced code fences are errors (rejected, 400); shallow headings / `---` return `warnings` on success. |
 | GET | `/api/config` | Get current config |
 | GET | `/api/hosts/:hostId` | Get host-specific config (directories, tmuxSession) |
 | POST | `/api/control/pause` | Pause task distribution |

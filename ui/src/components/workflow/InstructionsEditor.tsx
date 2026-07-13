@@ -11,7 +11,7 @@ import { useState, useEffect, useCallback } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { apiPut } from "@/hooks/useApi";
-import { ChevronDown, ChevronRight, Save, Check, FileText } from "lucide-react";
+import { ChevronDown, ChevronRight, Save, Check, FileText, AlertTriangle } from "lucide-react";
 
 interface Props {
   workflowName: string;
@@ -25,6 +25,7 @@ interface StateInstruction {
   saving: boolean;
   saved: boolean;
   error: string | null;
+  warnings: string[];
 }
 
 export function InstructionsEditor({ workflowName, states }: Props) {
@@ -39,18 +40,18 @@ export function InstructionsEditor({ workflowName, states }: Props) {
         const data = await res.json();
         setInstructions((prev) => ({
           ...prev,
-          [state]: { content: data.content, loaded: true, modified: false, saving: false, saved: false, error: null },
+          [state]: { content: data.content, loaded: true, modified: false, saving: false, saved: false, error: null, warnings: [] },
         }));
       } else if (res.status === 404) {
         setInstructions((prev) => ({
           ...prev,
-          [state]: { content: "", loaded: true, modified: false, saving: false, saved: false, error: null },
+          [state]: { content: "", loaded: true, modified: false, saving: false, saved: false, error: null, warnings: [] },
         }));
       }
     } catch {
       setInstructions((prev) => ({
         ...prev,
-        [state]: { content: "", loaded: true, modified: false, saving: false, saved: false, error: "Failed to load" },
+        [state]: { content: "", loaded: true, modified: false, saving: false, saved: false, error: "Failed to load", warnings: [] },
       }));
     }
   }, [workflowName]);
@@ -90,14 +91,14 @@ export function InstructionsEditor({ workflowName, states }: Props) {
     }));
 
     try {
-      const res = await apiPut<{ success: boolean; error?: string }>(
+      const res = await apiPut<{ success: boolean; error?: string; warnings?: string[] }>(
         `/api/workflows/${workflowName}/instructions/${state}`,
         { content: inst.content }
       );
       if (res.success) {
         setInstructions((prev) => ({
           ...prev,
-          [state]: { ...prev[state], saving: false, modified: false, saved: true },
+          [state]: { ...prev[state], saving: false, modified: false, saved: true, error: null, warnings: res.warnings || [] },
         }));
         // Clear saved indicator after 2s
         setTimeout(() => {
@@ -109,7 +110,7 @@ export function InstructionsEditor({ workflowName, states }: Props) {
       } else {
         setInstructions((prev) => ({
           ...prev,
-          [state]: { ...prev[state], saving: false, error: res.error || "Save failed" },
+          [state]: { ...prev[state], saving: false, error: res.error || "Save failed", warnings: res.warnings || [] },
         }));
       }
     } catch (e) {
@@ -190,6 +191,16 @@ export function InstructionsEditor({ workflowName, states }: Props) {
                             {inst.saving ? "Saving..." : "Save"}
                           </Button>
                         </div>
+                        {inst.warnings.length > 0 && (
+                          <ul className="space-y-1 text-xs text-amber-600 dark:text-amber-400">
+                            {inst.warnings.map((w, i) => (
+                              <li key={i} className="flex items-start gap-1">
+                                <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0" />
+                                <span>{w}</span>
+                              </li>
+                            ))}
+                          </ul>
+                        )}
                       </>
                     )}
                   </div>

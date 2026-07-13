@@ -9,6 +9,7 @@
 import type { RouteContext } from "./types.ts";
 import type { WorkflowConfig } from "../../shared/types.ts";
 import { DEFAULT_NOUNS } from "../../shared/types.ts";
+import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -208,9 +209,15 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     if (typeof body.content !== "string") {
       return c.json({ success: false, error: "Field 'content' is required and must be a string" }, 400);
     }
+    // Lint before writing: block on errors (they would mangle the agent prompt),
+    // pass warnings back on success so the editor can surface them.
+    const { errors, warnings } = validateInstructionMarkdown(body.content);
+    if (errors.length > 0) {
+      return c.json({ success: false, error: errors.join(" "), errors, warnings }, 400);
+    }
     const wfDir = path.join(teamDir, "workflows", name);
     Deno.mkdirSync(wfDir, { recursive: true });
     Deno.writeTextFileSync(path.join(wfDir, `${filename}.md`), body.content);
-    return c.json({ success: true });
+    return c.json({ success: true, warnings });
   });
 }
