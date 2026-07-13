@@ -37,6 +37,44 @@ export interface TaskPromptInput {
   comments?: Array<{ from: string; body: string; at: string }>;
 }
 
+/**
+ * Demote instruction-file headings so they nest *below* the prompt's own
+ * section headers (`##`), preventing author markdown from competing with or
+ * mangling the prompt structure. Fence-aware: never rewrites `#` inside fenced
+ * code blocks. Preserves relative hierarchy (shifts every heading by the same
+ * amount so the shallowest becomes `minLevel`). No-op if there are no headings
+ * or they're already deep enough.
+ */
+export function normalizeInstructionMarkdown(md: string, minLevel = 3): string {
+  const lines = md.split("\n");
+  const isFence = (line: string) => /^\s*(```+|~~~+)/.test(line);
+
+  // Pass 1: find the shallowest heading level outside code fences.
+  let inFence = false;
+  let shallowest = 7;
+  for (const line of lines) {
+    if (isFence(line)) { inFence = !inFence; continue; }
+    if (inFence) continue;
+    const h = line.match(/^(#{1,6})\s/);
+    if (h) shallowest = Math.min(shallowest, h[1]!.length);
+  }
+  if (shallowest === 7 || shallowest >= minLevel) return md;
+
+  // Pass 2: shift every heading down by the same delta (capped at 6).
+  const shift = minLevel - shallowest;
+  inFence = false;
+  return lines
+    .map((line) => {
+      if (isFence(line)) { inFence = !inFence; return line; }
+      if (inFence) return line;
+      const h = line.match(/^(#{1,6})(\s.*)$/);
+      if (!h) return line;
+      const newLevel = Math.min(6, h[1]!.length + shift);
+      return "#".repeat(newLevel) + h[2]!;
+    })
+    .join("\n");
+}
+
 /** Build the complete prompt an agent gets on claim. */
 export function buildTaskPrompt(input: TaskPromptInput): string {
   const { story, task, guidance, transition, previousResults, comments } = input;
@@ -72,8 +110,8 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     const showExit = exit && fromState !== toState;
     if (showExit || enter) {
       out += `## Instructions\n\n`;
-      if (showExit) out += `**On leaving "${fromState}":**\n\n${exit}\n\n`;
-      if (enter) out += `**On entering "${toState}":**\n\n${enter}\n\n`;
+      if (showExit) out += `**On leaving "${fromState}":**\n\n${normalizeInstructionMarkdown(exit!)}\n\n`;
+      if (enter) out += `**On entering "${toState}":**\n\n${normalizeInstructionMarkdown(enter)}\n\n`;
     }
   }
   out += `---\n\nWhen you're done, provide a brief summary of what you accomplished.`;

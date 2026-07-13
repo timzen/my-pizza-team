@@ -158,6 +158,15 @@ framing (how to send it, reminders that only make sense for a persistent
 conversation) is intentionally *not* baked in — that is the only thing a harness
 may add, and today none is needed.
 
+Because state instruction files are user-authored but embedded verbatim into the
+prompt, we defend the prompt's structure two ways. The prompt builder
+**normalizes** authored headings (fence-aware) so they nest under its own `##`
+sections — the durable guarantee, since it can't be "gotten wrong" by an author.
+And on save the daemon **lints** instruction files (`workflow-lint.ts`):
+unbalanced code fences are hard errors (an unclosed fence would swallow the rest
+of the prompt), while shallow headings and stray `---` rules are warnings. The
+normalizer is the safety net; the linter is the authoring nudge.
+
 ## Comments
 
 Lead ↔ teammate communication is **task-level comments**, not a real-time channel:
