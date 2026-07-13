@@ -137,13 +137,8 @@ export class TeammateLoop {
         this.currentTaskId = response.task.id;
         this.client.heartbeat("working", response.task.id).catch(() => {});
 
-        // Execute the work using the task info from claim response
-        await this.executeTask(
-          claim.task || response.task,
-          claim.instructions,
-          claim.stateContext,
-          claim.story
-        );
+        // Execute the work using the daemon-assembled prompt.
+        await this.executeTask(response.task.id, claim.prompt);
       } else {
         this.schedulePoll();
       }
@@ -158,70 +153,24 @@ export class TeammateLoop {
   }
 
   /**
-   * Execute a task: build the prompt and send it to the Pi agent.
+   * Execute a task: deliver the daemon-assembled prompt to the Pi agent.
    *
-   * Includes transition instructions, task description, lead comments
-   * (for rework context), and previous task results.
+   * The daemon owns the entire prompt (story, task, prior context, lead
+   * comments, state guidance, and instructions) so the teammate never augments
+   * it — it just posts a status comment and sends the prompt verbatim.
    */
-  private async executeTask(
-    task: {
-      id: string;
-      storyId: string;
-      title: string;
-      description: string;
-      status?: string;
-      context?: string;
-      comments?: Array<{ from: string; body: string; at: string }>;
-    },
-    instructions?: string,
-    stateContext?: { entered: string; exitsTo?: string; guidance: string; exitInstructions?: string },
-    story?: { id: string; title: string; description: string }
-  ): Promise<void> {
-    let prompt = ``;
-
-    // Story context (the bigger picture)
-    if (story) {
-      prompt += `## Story: ${story.title}\n\n${story.description}\n\n---\n\n`;
-    }
-
-    // State context (what state we're in, what release does)
-    if (stateContext) {
-      prompt += `## State Context\n\n${stateContext.guidance}\n\n`;
-      if (stateContext.exitInstructions) {
-        prompt += `### Exit Criteria (for advancing to '${stateContext.exitsTo}')\n\n${stateContext.exitInstructions}\n\n`;
-      }
-      prompt += `---\n\n`;
-    }
-
-    // Transition instructions (from entering the working state)
-    if (instructions) {
-      prompt += `## Transition Instructions\n\n${instructions}\n\n---\n\n`;
-    }
-
-    // Lead comments (feedback/rework context)
-    const leadComments = task.comments?.filter(c => c.from === "lead") || [];
-    if (leadComments.length > 0) {
-      const commentBodies = leadComments.map(c => `> ${c.body}`).join("\n\n");
-      prompt += `## Comments from Team Lead\n\n${commentBodies}\n\n---\n\n`;
-    }
-
-    // Task description
-    prompt += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}`;
-
-    // Context from previous tasks in the story
-    if (task.context) {
-      prompt = `## Context from previous tasks:\n\n${task.context}\n\n---\n\n${prompt}`;
-    }
-
-    prompt += `\n\n---\n**Remember: you are working on task ${task.id}. Ignore any task IDs from earlier in this conversation.**`;
-    prompt += `\nWhen you're done, provide a brief summary of what you accomplished.`;
+  private async executeTask(taskId: string, prompt?: string): Promise<void> {
+    // The daemon always supplies the prompt; guard defensively just in case.
+    const message = prompt && prompt.trim().length > 0
+      ? prompt
+      : `You are working on task ${taskId}. Review the task details and proceed.`;
 
     // Post status comment
-    await this.client.postComment(task.id, `[status] Started working on this task.`).catch(() => {});
+    await this.client.postComment(taskId, `[status] Started working on this task.`).catch(() => {});
 
     // Send to Pi agent — this triggers the agent loop
-    this.debugLog(`[ppt-debug] Sending task prompt to agent (task=${task.id}, prompt length=${prompt.length})`);
-    this.pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+    this.debugLog(`[ppt-debug] Sending task prompt to agent (task=${taskId}, prompt length=${message.length})`);
+    this.pi.sendUserMessage(message, { deliverAs: "followUp" });
   }
 
   // ═══════════════════════════════════════════════════════════════════

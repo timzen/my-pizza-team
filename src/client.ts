@@ -58,27 +58,14 @@ export interface AgentNextWorkResponse {
 /** Response from POST /api/agents/claim/:taskId */
 export interface AgentClaimResponse {
   success: boolean;
-  story?: {
-    id: string;
-    title: string;
-    description: string;
-  };
+  /** Minimal structured task metadata for bookkeeping (the prose is in `prompt`). */
   task?: {
     id: string;
     storyId: string;
-    title: string;
-    description: string;
     status: string;
-    context?: string;
-    comments?: Array<{ from: string; body: string; at: string }>;
   };
-  stateContext?: {
-    entered: string;
-    exitsTo?: string;
-    guidance: string;
-    exitInstructions?: string;
-  };
-  instructions?: string;
+  /** Full assembled prompt from the daemon — delivered verbatim to the agent. */
+  prompt?: string;
   error?: string;
 }
 
@@ -87,7 +74,6 @@ export interface AgentReleaseResponse {
   success: boolean;
   newStatus?: string;
   completed?: boolean;
-  instructions?: string;
   error?: string;
 }
 

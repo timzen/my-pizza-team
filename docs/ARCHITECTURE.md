@@ -61,7 +61,8 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │                                                          │
 │  1. GET  /api/agents/next-work?agentId=X                │
 │  2. POST /api/agents/claim/:taskId                      │
-│  3. pi.sendUserMessage(task.description)                │
+│  3. pi.sendUserMessage(claim.prompt)                     │
+│     └── daemon-assembled prompt, delivered verbatim     │
 │     └── Pi agent executes the task autonomously         │
 │  4. agent_end event fires                               │
 │     └── handleAgentComplete(lastAssistantMessage)       │
@@ -211,6 +212,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 3. **Agent protocol for teammates** — `/api/agents/*` routes with claim/release semantics
 4. **Workflow-agnostic teammate** — never hardcodes state names, uses daemon transitions
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
+6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)
 6. **Permission toggle is file-based** — leverages permission system's runtime config reload
 7. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
 8. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
