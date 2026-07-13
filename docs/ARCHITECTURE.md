@@ -6,7 +6,15 @@ my-pizza-team is a Deno-based application organized into four main modules:
 
 - **daemon/** — HTTP API server built with [Hono](https://hono.dev/) on Deno's native `Deno.serve()` adapter
 - **cli/** — Command-line interface for interacting with the daemon
-- **ui/** — Frontend application (TBD)
+- **ui/** — Frontend application (React + Vite + shadcn/ui). Talks to the daemon's HTTP API.
+  - `src/App.tsx` — Router. Pages: `/board`, `/team` (Teammates), `/memory`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows`, `/help`.
+  - `src/pages/TeammatesPage.tsx` — Connected teammates (route stays `/team`). Shows status, host, **capabilities as labeled badges** (`directory` is just one capability among many), heartbeat, current task. Per-teammate **Reset** action posts a `reset-session` leader directive (the harness realizes it as Pi's `/new`, clearing the context window).
+  - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (an "eye" button opens a read-only preview, a `details →` link opens the task page).
+  - `src/components/board/TaskViewDialog.tsx` — Read-only task preview modal (description + link to the task page). Editing does **not** happen here.
+  - `src/components/board/StoryViewDialog.tsx` — Read-only story preview modal (description + link to the story page), opened by the "eye" button on a story header. Editing does **not** happen here.
+  - `src/pages/TaskDetailPage.tsx` — Task page. Home for task editing (title, description, workflow status moves, delete) plus comments, attachments, and diff review.
+  - `src/pages/StoryDetailPage.tsx` — Story page (`/story/:id`). Home for story editing (title, description, requirements, paused, delete) plus a linked task list. Reached by clicking a story title on the board. Requirements are edited with `RequirementsEditor` as key/value capabilities.
+  - `src/components/board/RequirementsEditor.tsx` — Edits a story's requirements as key/value capability badges (add/remove), with name/value suggestions sourced from `/api/capabilities` (recently used capabilities). Mirrors the settings "Recent Capabilities" editor and the teammates capability badges.
 - **shared/** — Types, utilities, and constants shared across modules
 
 ## Module Map
@@ -16,7 +24,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
 - `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
 - `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`. Self-contained concerns are split into `store/`:
+- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. **Task order is owned by the story** (`Story.taskOrder`, an array of task IDs in story.json); `getTasksForStory()` reconciles it against the tasks on disk (listed order first, orphans appended by creation `seq`, danglers ignored) and `reorderTasks()` just rewrites `taskOrder` — task IDs, titles, and directories are untouched. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`. Self-contained concerns are split into `store/`:
   - `store/notes.ts` — knowledge-base notes (markdown files under `notes/`).
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
@@ -54,7 +62,11 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **No build step** — Deno runs TypeScript directly.
 - **jsr:@db/sqlite** — Native FFI SQLite binding for Deno. API mirrors better-sqlite3 (synchronous, prepared statements). WAL mode for concurrent reads.
 - **JSON files as source of truth** — Story/task definitions live on disk as JSON. SQLite is the fast runtime index, synced via the `dirty` flag and periodic flush.
+- **Story-owned task ordering** — A task's `id` (stable key), `title` (name), and position are three separate concerns. The story owns the order via `taskOrder` (an array of task IDs in `story.json`); the creation `seq` in an id is just a stable counter, not a position. Task directories are named by the **task id only** (e.g. `tasks/auth-3/`), so the folder name never encodes order and never drifts when the title changes; `seq` is derived from the id on load and `slug` from the current title. Reordering rewrites one array in one file (great for git), needs no directory renames, and `loadFromDisk` reconciles the array against the tasks actually present so hand-edits are tolerated. See DESIGN.md.
 - **Comments append to JSONL** — Never lost; append-only file per task.
+- **"Teammates", not "Agents", in the UI** — The product is my-pizza-team, so human-facing vocabulary settled on "Teammates". The HTTP API and internal types keep the technical term `agent`/`member` (the route stays `/api/agents`, the page route stays `/team`).
+- **Board previews; pages edit** — The board is for glancing and light triage (status nudges via prev/next). Clicking a card never opens an editor; a read-only modal previews a task, and all editing lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`). This keeps destructive/edit actions off the high-traffic board surface.
+- **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
 
 ## API Routes
 
@@ -69,6 +81,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/stories/:id/archive` | Archive a completed story |
 | POST | `/api/stories/:id/backlog` | Move story to backlog |
 | POST | `/api/stories/:storyId/tasks` | Add a task to a story |
+| POST | `/api/stories/:storyId/tasks/reorder` | Reorder a story's tasks (`{ order: [taskId, ...] }`) |
 | POST | `/api/tasks/:id/move` | Lead moves a task to new status |
 | PUT | `/api/tasks/:id` | Update task title/description |
 | DELETE | `/api/tasks/:id` | Delete a task |

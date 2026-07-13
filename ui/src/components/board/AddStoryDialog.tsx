@@ -7,8 +7,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { DirectoryInput } from "@/components/ui/directory-input";
 import { MarkdownField } from "@/components/ui/markdown-field";
+import { RequirementsEditor } from "@/components/board/RequirementsEditor";
 import { Plus, X } from "lucide-react";
 import { useApi, apiPost } from "@/hooks/useApi";
 
@@ -29,14 +29,13 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [dir, setDir] = useState("");
-  const [skills, setSkills] = useState("");
+  const [requirements, setRequirements] = useState<Record<string, string | null>>({});
   const [paused, setPaused] = useState(false);
   const [workflow, setWorkflow] = useState("");
   const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
   const [error, setError] = useState("");
 
-  const reset = () => { setId(""); setTitle(""); setDescription(""); setDir(""); setSkills(""); setPaused(false); setWorkflow(""); setTasks([]); setError(""); };
+  const reset = () => { setId(""); setTitle(""); setDescription(""); setRequirements({}); setPaused(false); setWorkflow(""); setTasks([]); setError(""); };
 
   const addTask = () => setTasks([...tasks, { title: "", description: "" }]);
   const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
@@ -51,11 +50,8 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
     setError("");
     if (!workflow) { setError("Please select a workflow"); return; }
     const body: Record<string, unknown> = { id, title, description, workflow };
-    // Build the story's capability requirements: directory (exact-match) plus
-    // presence-only skills. See daemon DESIGN.md: Capability-Based Work Matching.
-    const requirements: Record<string, string | null> = {};
-    if (dir) requirements.directory = dir;
-    for (const skill of skills.split(",").map(s => s.trim()).filter(Boolean)) requirements[skill] = null;
+    // The story's capability requirements: value-bound keys (e.g. directory)
+    // and presence-only skills. See daemon DESIGN.md: Capability-Based Work Matching.
     if (Object.keys(requirements).length > 0) body.requirements = requirements;
     if (paused) body.paused = true;
     if (tasks.length > 0) body.tasks = tasks.filter(t => t.title);
@@ -74,10 +70,6 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div><Label htmlFor="story-id">ID</Label><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
-            <div><Label htmlFor="story-dir">Directory (optional)</Label><DirectoryInput id="story-dir" value={dir} onChange={setDir} /></div>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div><Label htmlFor="story-skills">Required skills (optional, comma-separated)</Label><Input id="story-skills" value={skills} onChange={e => setSkills(e.target.value)} placeholder="python, docker" /></div>
             <div className="flex items-end pb-1"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paused} onChange={e => setPaused(e.target.checked)} /> Paused (don't hand out tasks yet)</label></div>
           </div>
           <div>
@@ -98,6 +90,8 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
           </div>
           <div><Label htmlFor="story-title">Title</Label><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
           <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
+
+          <div><Label>Requirements</Label><div className="mt-1"><RequirementsEditor value={requirements} onChange={setRequirements} /></div></div>
 
           <div>
             <div className="flex items-center justify-between mb-2">

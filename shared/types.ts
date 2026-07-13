@@ -140,6 +140,13 @@ export interface Story {
   paused?: boolean;
   workflow?: string;
   categories?: string[];
+  /**
+   * The story owns its task ordering: an ordered list of task IDs. This keeps
+   * order separate from a task's stable `id` and its `title`. `loadFromDisk`
+   * reconciles it against the tasks actually on disk (appends orphans, ignores
+   * danglers), so it tolerates hand-edits. Absent = fall back to creation order.
+   */
+  taskOrder?: string[];
   archivedAt?: string;
 }
 

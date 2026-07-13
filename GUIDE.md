@@ -2,7 +2,9 @@
 
 ## Overview
 
-My Pizza Team (MPT) is a task coordination daemon for multi-agent teams. You create **stories** (units of work), break them into **tasks**, and assign them to AI **agents** that execute autonomously through a defined **workflow**.
+My Pizza Team (MPT) is a task coordination daemon for a team of AI **teammates**. You create **stories** (units of work), break them into **tasks**, and your teammates execute them autonomously through a defined **workflow**.
+
+Teammates *are* AI agents — autonomous coding assistants (Pi, Claude Code, Codex, …) that connect to the daemon and poll for work. We call them "teammates" throughout the UI because that's how you work with them; "agent" is just the underlying technical term (and the one the HTTP API uses, e.g. `/api/agents`).
 
 The web UI at `http://localhost:7437` is your control center for managing all of this.
 
@@ -18,18 +20,18 @@ A story is a high-level unit of work — like a feature, bug fix, or research ta
 - **Title** — Human-readable name
 - **Description** — What needs to be accomplished (supports markdown)
 - **Workflow** — Which workflow governs its tasks
-- **Directory** — Optional working directory for agents
+- **Directory** — Optional working directory for teammates
 - **Dependencies** — Other stories that must complete first
 
 ### Tasks
 
-Tasks are the individual steps within a story. They're worked on sequentially — the first unblocked task gets picked up by an agent. Each task has:
+Tasks are the individual steps within a story. They're worked on sequentially — the first unblocked task gets picked up by a teammate. Each task has:
 
 - **Title & Description** — What to do (supports markdown)
 - **Status** — Current state in the workflow (e.g., `todo`, `in_progress`, `review`)
-- **Assignee** — Which agent is currently working on it
-- **Comments** — Communication between you and agents
-- **Attachments** — Files agents upload (diffs, screenshots, etc.)
+- **Assignee** — Which teammate is currently working on it
+- **Comments** — Communication between you and your teammates
+- **Attachments** — Files teammates upload (diffs, screenshots, etc.)
 
 ### Workflows
 
@@ -40,15 +42,15 @@ todo → in_progress → leader_review → done
 ```
 
 Each transition has a permission:
-- **any** — Anyone (lead or agent) can trigger it
-- **teammate** — Only agents can trigger it (autonomous work)
+- **any** — Anyone (lead or teammate) can trigger it
+- **teammate** — Only teammates can trigger it (autonomous work)
 - **lead** — Only you can trigger it (review gates, approvals)
 
-Workflows also have **instruction files** — markdown documents that tell agents what to do when entering each state and what criteria must be met to exit.
+Workflows also have **instruction files** — markdown documents that tell teammates what to do when entering each state and what criteria must be met to exit.
 
-### Agents
+### Teammates
 
-Agents are autonomous AI coding assistants that connect to the daemon. They follow a simple loop:
+Teammates are autonomous AI agents that connect to the daemon. They follow a simple loop:
 
 1. Poll for available work
 2. Claim a task (daemon transitions it to the working state)
@@ -56,7 +58,9 @@ Agents are autonomous AI coding assistants that connect to the daemon. They foll
 4. Release the task (daemon advances to the next state)
 5. Repeat
 
-You don't need to manage agent state — the daemon handles assignments, transitions, and handoffs.
+You don't need to manage a teammate's state — the daemon handles assignments, transitions, and handoffs.
+
+Each teammate advertises **capabilities** — a set of things it can do. The working **directory** is one such capability (it's just a well-known one); teammates can also advertise skills like `python` or `docker`. The daemon only hands a task to a teammate whose capabilities meet the story's requirements.
 
 ---
 
@@ -69,7 +73,7 @@ The board (`/board`) is the main view showing all active stories as horizontal s
 Click **Add Story** to open the creation dialog:
 
 1. **ID** — A URL-safe identifier (auto-suggested from title)
-2. **Directory** — Where agents should work (select from recent directories or type custom)
+2. **Directory** — Where teammates should work (select from recent directories or type custom)
 3. **Workflow** — Select which workflow governs this story's tasks (required)
 4. **Title** — What the story is about
 5. **Description** — Detailed requirements (markdown supported)
@@ -77,19 +81,25 @@ Click **Add Story** to open the creation dialog:
 
 ### Managing Tasks
 
+The board is for glancing and light triage — editing happens on the dedicated pages, not on the board.
+
 - **Add tasks** — Click the `+` button on a story swimlane
-- **Edit tasks** — Click any task card to open the edit dialog
-- **Move tasks** — Use the arrow buttons on cards, or the "Move To" buttons in the edit dialog
-- **View details** — Click "details & comments →" on a card to see the full history
+- **Preview a story** — Click the 👁 (eye) button on a story header for a read-only popup showing the story description and a link to the story page
+- **Preview a task** — Click the 👁 (eye) button on a card for a read-only popup showing the description and a link to the task page
+- **Nudge status** — Use the arrow buttons (◀ ▶) on a card to move it a step along the workflow
+- **Edit a task** — Click `details →` on a card to open the task page, where you can edit the title, description, move status, delete, and read comments/files
+- **Edit a story** — Click the story title to open its story page (`/story/:id`), where you edit its title, description, requirements, and paused state
+
+> Clicking the body of a task card does nothing — opening a task is always an explicit action, and editing is reserved for the task/story pages.
 
 ### Task Cards
 
 Each card shows:
 - Title and ID
 - Current assignee (if claimed)
-- Unread comment indicator (orange)
 - Token cost (if tracked)
-- Status navigation arrows (◀ ▶)
+- Status badge with navigation arrows (◀ ▶)
+- A 👁 preview button and a `details →` link to the task page
 
 ---
 
@@ -114,61 +124,66 @@ Click **Edit States & Transitions** to open the editor dialog where you can:
 
 ### Instruction Files
 
-Each state can have a markdown instruction file that agents receive when entering that state. These guide the agent on:
+Each state can have a markdown instruction file that teammates receive when entering that state. These guide the teammate on:
 - **What to do** in this phase
 - **Exit criteria** — what must be true before releasing the task
 
-Write clear, actionable instructions. Agents receive these verbatim.
+Write clear, actionable instructions. Teammates receive these verbatim.
 
 ---
 
-## Agents
+## Teammates
 
-The agents page (`/team`) shows all connected agents with their status, current task, and last heartbeat.
+The teammates page (`/team`) shows all connected teammates with their status, host, capabilities, current task, and last heartbeat.
 
-### Spawning Agents
+### Spawning Teammates
 
-Click **Spawn** in the board header to request a new agent:
-- **Host** — Which machine should start the agent
-- **Working Directory** — Where the agent operates (recent + story dirs shown)
+Click **Spawn** in the board or teammates header to request a new teammate:
+- **Host** — Which machine should start the teammate
+- **Working Directory** — Where the teammate operates (recent + story dirs shown)
 
-### Agent Lifecycle
+### Teammate Lifecycle
 
-Agents are autonomous — once spawned, they:
+Teammates are autonomous — once spawned, they:
 1. Register with the daemon
 2. Poll for work every few seconds
 3. Claim and work on tasks
 4. Release when done
 5. Repeat until dismissed
 
+### Managing a Teammate
+
+- **Reset** (↺) — Resets a teammate's session, clearing its context window (the harness realizes this as Pi's `/new`). Useful when a teammate's context is full or has drifted.
+- **Dismiss** (🗑) — Removes the teammate. Offline teammates can be cleared in bulk with **Dismiss all**.
+
 ### Pausing Distribution
 
-The **pause button** (⏸) in the navbar stops the daemon from handing out new tasks. Existing in-progress work continues. Use this when you need to reorganize stories without agents claiming things.
+The **pause button** (⏸) in the navbar stops the daemon from handing out new tasks. Existing in-progress work continues. Use this when you need to reorganize stories without teammates claiming things.
 
 ---
 
 ## Comments & Review
 
-Comments are the communication channel between you and agents:
+Comments are the communication channel between you and your teammates:
 
-- **You → Agent**: Add comments on a task to provide feedback, request changes, or answer questions
-- **Agent → You**: Agents post status updates, summaries, and questions
+- **You → Teammate**: Add comments on a task to provide feedback, request changes, or answer questions
+- **Teammate → You**: Teammates post status updates, summaries, and questions
 
-When an agent releases a task that moves to a lead-only state (like `review`), it will appear on the board in that column. Review the work, check any attached diffs or comments, then either:
+When a teammate releases a task that moves to a lead-only state (like `review`), it will appear on the board in that column. Review the work, check any attached diffs or comments, then either:
 - **Approve** — Move the task forward (e.g., `review → done`)
 - **Send back** — Move it back (e.g., `review → in_progress`) with comments explaining what to fix
 
-The agent will pick it up again, see your comments, and address them.
+The teammate will pick it up again, see your comments, and address them.
 
 ---
 
 ## Knowledge Base
 
-The knowledge base (`/memory`) stores reusable notes that agents can search during work.
+The knowledge base (`/memory`) stores reusable notes that teammates can search during work.
 
 - **Categories** — Organize notes by topic (e.g., "coding", "architecture", "style-guide")
-- **Search** — Agents use `search_memory` to find relevant notes
-- **Auto-hints** — When a story has categories, agents are told relevant knowledge exists
+- **Search** — Teammates use `search_memory` to find relevant notes
+- **Auto-hints** — When a story has categories, teammates are told relevant knowledge exists
 
 Good things to put in the knowledge base:
 - Coding conventions and style guides
@@ -192,8 +207,8 @@ Visit `/config` to manage settings:
 
 ## Tips
 
-- **Write good task descriptions** — Agents work from what you give them. Be specific about requirements, constraints, and expected outcomes.
-- **Use workflow instructions** — They're your chance to give agents phase-specific guidance (what tools to use, what to check, what to produce).
-- **Review early** — Don't let review queues build up. Quick feedback loops keep agents productive.
-- **Use the knowledge base** — Store patterns, conventions, and decisions so every agent works consistently.
+- **Write good task descriptions** — Teammates work from what you give them. Be specific about requirements, constraints, and expected outcomes.
+- **Use workflow instructions** — They're your chance to give teammates phase-specific guidance (what tools to use, what to check, what to produce).
+- **Review early** — Don't let review queues build up. Quick feedback loops keep teammates productive.
+- **Use the knowledge base** — Store patterns, conventions, and decisions so every teammate works consistently.
 - **One story per concern** — Keep stories focused. Multiple small stories with clear tasks work better than one giant story.

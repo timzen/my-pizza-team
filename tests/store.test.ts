@@ -94,8 +94,77 @@ Deno.test("Store: creates tasks with correct initial status", () => {
   }
 });
 
-Deno.test("Store: updates task status and marks dirty", () => {
+Deno.test("Store: names task dirs by id and derives seq from id on reload", () => {
   const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    store.createStory("iddir", "Id Dirs", "Naming", "open", [], [
+      { title: "First Task", description: "A" },
+      { title: "Second Task", description: "B" },
+    ]);
+
+    // Directories are named by the stable task id only (not NN-slug).
+    const taskDirs = [...Deno.readDirSync(path.join(teamDir, "stories", "iddir", "tasks"))]
+      .filter(e => e.isDirectory).map(e => e.name).sort();
+    assertEquals(taskDirs, ["iddir-1", "iddir-2"]);
+
+    // Renaming a task's title must NOT drift the directory name.
+    store.updateTaskDetails("iddir-1", { title: "Totally Different Title" });
+    const dirsAfter = [...Deno.readDirSync(path.join(teamDir, "stories", "iddir", "tasks"))]
+      .filter(e => e.isDirectory).map(e => e.name).sort();
+    assertEquals(dirsAfter, ["iddir-1", "iddir-2"]);
+
+    // On reload, seq is derived from the id (not the folder name).
+    store.loadFromDisk();
+    const tasks = store.getTasksForStory("iddir");
+    assertEquals(tasks.map(t => t.id), ["iddir-1", "iddir-2"]);
+    assertEquals(tasks.map(t => t.seq), [1, 2]);
+
+    store.close();
+  } finally {
+    cleanupDir(teamDir);
+  }
+});
+
+Deno.test("Store: reorders tasks and persists new sequence", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    store.createStory("reorder-story", "Reorder", "Testing reorder", "open", [], [
+      { title: "Alpha", description: "A" },
+      { title: "Beta", description: "B" },
+      { title: "Gamma", description: "C" },
+    ]);
+    const ids = store.getTasksForStory("reorder-story").map(t => t.id);
+    assertEquals(ids, ["reorder-story-1", "reorder-story-2", "reorder-story-3"]);
+
+    // Move Gamma to the front.
+    const ok = store.reorderTasks("reorder-story", ["reorder-story-3", "reorder-story-1", "reorder-story-2"]);
+    assertEquals(ok, true);
+
+    const after = store.getTasksForStory("reorder-story");
+    assertEquals(after.map(t => t.title), ["Gamma", "Alpha", "Beta"]);
+    // IDs and creation seq are stable; only the story-owned order changed.
+    assertEquals(after.map(t => t.id), ["reorder-story-3", "reorder-story-1", "reorder-story-2"]);
+    assertEquals(after.map(t => t.seq), [3, 1, 2]);
+
+    // The story now owns the order via taskOrder.
+    assertEquals(store.getStory("reorder-story")!.taskOrder, ["reorder-story-3", "reorder-story-1", "reorder-story-2"]);
+
+    // Order survives a reload from disk.
+    store.loadFromDisk();
+    assertEquals(store.getTasksForStory("reorder-story").map(t => t.title), ["Gamma", "Alpha", "Beta"]);
+
+    // A non-permutation is rejected.
+    assertEquals(store.reorderTasks("reorder-story", ["reorder-story-1"]), false);
+
+    store.close();
+  } finally {
+    cleanupDir(teamDir);
+  }
+});
+
+Deno.test("Store: updates task status and marks dirty", () => {  const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
     store.createStory("s1", "S1", "Desc", "open", [], [

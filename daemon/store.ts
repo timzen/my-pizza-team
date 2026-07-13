@@ -54,12 +54,27 @@ function serializeStory(story: Story): Story {
   if (story.paused) data.paused = true;
   if (story.workflow) data.workflow = story.workflow;
   if (story.categories && story.categories.length > 0) data.categories = story.categories;
+  if (story.taskOrder && story.taskOrder.length > 0) data.taskOrder = story.taskOrder;
   if (story.archivedAt) data.archivedAt = story.archivedAt;
   return data;
 }
 
 /** Max number of remembered values per capability key in config.recentCapabilities. */
 const MAX_CAPABILITY_VALUES = 50;
+
+/**
+ * Derive a task's creation counter (`seq`) from its stable id. Task IDs are
+ * `${storyId}-${seq}`, so we strip the known story-id prefix and parse the
+ * numeric suffix. Returns null for hand-authored non-numeric ids (the caller
+ * falls back to directory iteration order).
+ */
+function taskSeqFromId(storyId: string, taskId: string): number | null {
+  const prefix = `${storyId}-`;
+  if (!taskId.startsWith(prefix)) return null;
+  const suffix = taskId.slice(prefix.length);
+  const n = parseInt(suffix, 10);
+  return String(n) === suffix ? n : null;
+}
 
 /**
  * Serialize a TeamConfig to the on-disk config.json shape. Preserves all
@@ -173,6 +188,7 @@ export class Store {
         paused INTEGER DEFAULT 0,
         workflow TEXT,
         categories TEXT DEFAULT '[]',
+        task_order TEXT DEFAULT '[]',
         dir_path TEXT
       );
 
@@ -265,6 +281,9 @@ export class Store {
     if (!storyColumns.some((col) => col.name === "paused")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN paused INTEGER DEFAULT 0");
     }
+    if (!storyColumns.some((col) => col.name === "task_order")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN task_order TEXT DEFAULT '[]'");
+    }
 
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
     if (!taskColumns.some((col) => col.name === "last_read_at")) {
@@ -311,15 +330,19 @@ export class Store {
         .filter((e) => e.isDirectory)
         .sort((a, b) => a.name.localeCompare(b.name));
 
+      let fallbackSeq = 0;
       for (const taskEntry of taskDirs) {
         const taskDirPath = path.join(tasksDir, taskEntry.name);
         const taskFile = path.join(taskDirPath, "task.json");
         if (!existsSync(taskFile)) continue;
 
         const task: Task = JSON.parse(Deno.readTextFileSync(taskFile));
-        const match = taskEntry.name.match(/^(\d+)-(.+)$/);
-        const seq = match ? parseInt(match[1]!, 10) : 0;
-        const slug = match ? match[2]! : taskEntry.name;
+        // Directory names are just the stable task id (identity only). `seq` is
+        // the creation counter derived from the id; `slug` is derived from the
+        // current title, so neither drifts with the folder name or ordering.
+        fallbackSeq += 1;
+        const seq = taskSeqFromId(story.id, task.id) ?? fallbackSeq;
+        const slug = slugify(task.title);
 
         this.upsertTask(task, story.id, seq, slug, taskDirPath);
       }
@@ -328,13 +351,14 @@ export class Store {
 
   private upsertStory(story: Story, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, categories, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, categories, task_order, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
       JSON.stringify(story.dependsOn), JSON.stringify(story.requirements || {}),
       story.paused ? 1 : 0,
-      story.workflow || null, JSON.stringify(story.categories || []), dirPath
+      story.workflow || null, JSON.stringify(story.categories || []),
+      JSON.stringify(story.taskOrder || []), dirPath
     );
   }
 
@@ -359,6 +383,7 @@ export class Store {
       paused: row.paused ? true : undefined,
       workflow: (row.workflow as string) || undefined,
       categories: row.categories ? JSON.parse(row.categories as string) : undefined,
+      taskOrder: row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : undefined,
       dirPath: row.dir_path as string,
     };
   }
@@ -437,8 +462,8 @@ export class Store {
         const seq = i + 1;
         const slug = slugify(taskDef.title);
         const taskId = `${id}-${seq}`;
-        const taskDirName = `${String(seq).padStart(2, "0")}-${slug}`;
-        const taskDirPath = path.join(tasksDir, taskDirName);
+        // Directory is named by the stable task id only — not order, not title.
+        const taskDirPath = path.join(tasksDir, taskId);
 
         Deno.mkdirSync(taskDirPath, { recursive: true });
 
@@ -462,6 +487,13 @@ export class Store {
           dirPath: taskDirPath,
         });
       }
+    }
+
+    // The story owns task ordering: record the created tasks' order.
+    if (createdTasks.length > 0) {
+      storyData.taskOrder = createdTasks.map(t => t.id);
+      Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
+      this.upsertStory(storyData, storyDirPath);
     }
 
     return { story: storyData, tasks: createdTasks };
@@ -529,6 +561,7 @@ export class Store {
       paused: newPaused,
       workflow: newWorkflow || undefined,
       categories: newCategories,
+      taskOrder: story.taskOrder,
     });
     Deno.writeTextFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
 
@@ -546,9 +579,42 @@ export class Store {
 
   // --- Tasks ---
 
+  /**
+   * Reconcile a task list against a story-owned order (array of task IDs):
+   * listed tasks first (in order, skipping danglers), then any orphan tasks not
+   * in the list, appended by their stable creation `seq`. This tolerates
+   * hand-edits to story.json and task dirs.
+   */
+  private orderTasks(taskOrder: string[] | undefined, tasks: TaskWithMeta[]): TaskWithMeta[] {
+    const bySeq = (a: TaskWithMeta, b: TaskWithMeta) => a.seq - b.seq;
+    if (!taskOrder || taskOrder.length === 0) return [...tasks].sort(bySeq);
+    const byId = new Map(tasks.map(t => [t.id, t]));
+    const ordered: TaskWithMeta[] = [];
+    const used = new Set<string>();
+    for (const id of taskOrder) {
+      const t = byId.get(id);
+      if (t && !used.has(id)) { ordered.push(t); used.add(id); }
+    }
+    const orphans = tasks.filter(t => !used.has(t.id)).sort(bySeq);
+    return [...ordered, ...orphans];
+  }
+
+  /** Persist a story's task order to both its DB row and story.json. */
+  private persistTaskOrder(storyId: string, ids: string[]): void {
+    const story = this.getStory(storyId);
+    if (!story) return;
+    this.db.prepare("UPDATE stories SET task_order = ? WHERE id = ?").run(JSON.stringify(ids), storyId);
+    const storyFile = path.join(story.dirPath, "story.json");
+    if (existsSync(storyFile)) {
+      Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory({ ...story, taskOrder: ids }), null, 2) + "\n");
+    }
+  }
+
   getTasksForStory(storyId: string): TaskWithMeta[] {
     const rows = this.db.prepare("SELECT * FROM tasks WHERE story_id = ? ORDER BY seq").all(storyId) as Array<Record<string, unknown>>;
-    return rows.map((row) => this.rowToTask(row));
+    const tasks = rows.map((row) => this.rowToTask(row));
+    const story = this.getStory(storyId);
+    return this.orderTasks(story?.taskOrder, tasks);
   }
 
   getTask(taskId: string): TaskWithMeta | null {
@@ -592,6 +658,7 @@ export class Store {
     const task = this.getTask(taskId);
     if (!task) return false;
 
+    const storyId = task.storyId;
     this.removeTaskData(taskId);
 
     // Remove task directory from disk
@@ -599,6 +666,30 @@ export class Store {
       Deno.removeSync(task.dirPath, { recursive: true });
     }
 
+    // Drop the task from the story's owned order (keeps story.json clean).
+    const story = this.getStory(storyId);
+    if (story?.taskOrder?.includes(taskId)) {
+      this.persistTaskOrder(storyId, story.taskOrder.filter(id => id !== taskId));
+    }
+
+    return true;
+  }
+
+  /**
+   * Reorder a story's tasks. `orderedIds` must be a permutation of the story's
+   * current task IDs. Order is owned by the story (persisted as `taskOrder` in
+   * story.json + the DB) — task IDs, titles, and on-disk directories are left
+   * untouched, so comments/attachments and stable IDs are unaffected.
+   */
+  reorderTasks(storyId: string, orderedIds: string[]): boolean {
+    const tasks = this.getTasksForStory(storyId);
+    if (tasks.length === 0) return false;
+
+    // Require a strict permutation of the existing task IDs.
+    const existing = new Set(tasks.map(t => t.id));
+    if (orderedIds.length !== tasks.length || !orderedIds.every(id => existing.has(id))) return false;
+
+    this.persistTaskOrder(storyId, orderedIds);
     return true;
   }
 

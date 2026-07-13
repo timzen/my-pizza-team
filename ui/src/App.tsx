@@ -6,9 +6,10 @@ import { BrowserRouter, Routes, Route } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
 import { HomePage } from "./pages/HomePage";
 import { BoardPage } from "./pages/BoardPage";
-import { AgentsPage } from "./pages/AgentsPage";
+import { TeammatesPage } from "./pages/TeammatesPage";
 import { MemoryPage } from "./pages/MemoryPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
+import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { AssistantPage } from "./pages/AssistantPage";
 import { BacklogPage } from "./pages/BacklogPage";
 import { ArchivedPage } from "./pages/ArchivedPage";
@@ -26,9 +27,10 @@ function App() {
           <Routes>
             <Route path="/" element={<HomePage />} />
             <Route path="/board" element={<BoardPage />} />
-            <Route path="/team" element={<AgentsPage />} />
+            <Route path="/team" element={<TeammatesPage />} />
             <Route path="/memory" element={<MemoryPage />} />
             <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
+            <Route path="/story/:id" element={<StoryDetailPage />} />
             <Route path="/assistant" element={<AssistantPage />} />
             <Route path="/backlog" element={<BacklogPage />} />
             <Route path="/archived" element={<ArchivedPage />} />

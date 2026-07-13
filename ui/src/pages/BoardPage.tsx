@@ -5,8 +5,9 @@
  * - Story swimlanes with task columns per workflow state
  * - Search/filter by story title or task title
  * - Sort by title, status, or readiness
- * - Add/edit story modals
- * - Add/edit task modals
+ * - Add story modal (editing a story lives on its /story page)
+ * - Add task modal
+ * - Read-only task preview modal (editing lives on the task page)
  * - Archive and backlog buttons per story
  * - Spawn teammate dialog
  */
@@ -17,9 +18,9 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
 import { AddStoryDialog } from "@/components/board/AddStoryDialog";
-import { EditStoryDialog } from "@/components/board/EditStoryDialog";
 import { AddTaskDialog } from "@/components/board/AddTaskDialog";
-import { EditTaskDialog } from "@/components/board/EditTaskDialog";
+import { TaskViewDialog } from "@/components/board/TaskViewDialog";
+import { StoryViewDialog } from "@/components/board/StoryViewDialog";
 import { Search } from "lucide-react";
 
 interface StoryView {
@@ -57,8 +58,8 @@ export function BoardPage() {
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
-  const [editStoryId, setEditStoryId] = useState<string | null>(null);
-  const [editTaskId, setEditTaskId] = useState<string | null>(null);
+  const [viewTaskId, setViewTaskId] = useState<string | null>(null);
+  const [viewStoryId, setViewStoryId] = useState<string | null>(null);
   const [addTaskStoryId, setAddTaskStoryId] = useState<string | null>(null);
 
   const stories = storiesData?.stories || [];
@@ -103,14 +104,10 @@ export function BoardPage() {
     }
   }, [filtered, sort]);
 
-  // Find data for edit dialogs
-  const editStory = stories.find(s => s.id === editStoryId) || null;
-  const editTaskStory = stories.find(s => s.tasks.some(t => t.id === editTaskId)) || null;
-  const editTask = editTaskStory?.tasks.find(t => t.id === editTaskId) || null;
-  const editTaskStates = editTaskStory ? getStatesForStory(editTaskStory) : defaultStates;
-  const editTaskTransitions = editTaskStory
-    ? (workflows[editTaskStory.workflow || defaultWorkflow]?.transitions || {})
-    : (workflows[defaultWorkflow]?.transitions || {});
+  // Find data for the read-only task preview modal
+  const viewTaskStory = stories.find(s => s.tasks.some(t => t.id === viewTaskId)) || null;
+  const viewTask = viewTaskStory?.tasks.find(t => t.id === viewTaskId) || null;
+  const viewStory = stories.find(s => s.id === viewStoryId) || null;
 
   const handleArchive = async (storyId: string) => {
     if (!confirm(`Archive story "${storyId}"? Tasks not in 'done' will be force-completed.`)) return;
@@ -157,8 +154,8 @@ export function BoardPage() {
             key={story.id}
             story={story}
             states={getStatesForStory(story)}
-            onEditStory={setEditStoryId}
-            onEditTask={setEditTaskId}
+            onViewStory={setViewStoryId}
+            onViewTask={setViewTaskId}
             onAddTask={setAddTaskStoryId}
             onArchive={handleArchive}
             onBacklog={handleBacklog}
@@ -173,8 +170,8 @@ export function BoardPage() {
       </div>
 
       {/* Dialogs */}
-      <EditStoryDialog story={editStory} open={!!editStoryId} onClose={() => setEditStoryId(null)} onUpdated={refetch} />
-      <EditTaskDialog task={editTask} states={editTaskStates} transitions={editTaskTransitions} open={!!editTaskId} onClose={() => setEditTaskId(null)} onUpdated={refetch} />
+      <TaskViewDialog task={viewTask} storyId={viewTaskStory?.id ?? null} open={!!viewTaskId} onClose={() => setViewTaskId(null)} />
+      <StoryViewDialog story={viewStory} open={!!viewStoryId} onClose={() => setViewStoryId(null)} />
       <AddTaskDialog storyId={addTaskStoryId} open={!!addTaskStoryId} onClose={() => setAddTaskStoryId(null)} onCreated={refetch} />
     </div>
   );

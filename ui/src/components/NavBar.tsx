@@ -19,7 +19,7 @@ import {
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
   { path: "/board", label: "Board" },
-  { path: "/team", label: "Agents" },
+  { path: "/team", label: "Teammates" },
   { path: "/assistant", label: "Assistant" },
   { path: "/memory", label: "Memory" },
 ];
@@ -42,7 +42,7 @@ export function NavBar() {
     }`;
 
   return (
-    <header className="border-b border-border bg-card">
+    <header className="border-b border-border bg-muted">
       <div className="container mx-auto flex h-14 items-center px-4">
         <Link to="/" className="flex items-center gap-2 font-semibold mr-6">
           <Pizza className="h-5 w-5" />

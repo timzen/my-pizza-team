@@ -1,14 +1,16 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows title, assignee, quick status-change buttons
- * with a colored badge, and a link to the task detail/comments page.
+ * Shows title, assignee, quick status-change buttons with a colored badge,
+ * an explicit "view" button (opens a read-only preview modal), and a link to
+ * the task detail/comments page. Clicking the card body does nothing — opening
+ * a task is always an explicit action.
  */
 
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { User, ChevronLeft, ChevronRight } from "lucide-react";
+import { User, ChevronLeft, ChevronRight, Eye } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 /**
@@ -42,11 +44,12 @@ interface TaskCardProps {
   };
   storyId?: string;
   states?: string[];
-  onEdit?: (taskId: string) => void;
+  /** Open the read-only preview modal for this task. */
+  onView?: (taskId: string) => void;
   onStatusChange?: () => void;
 }
 
-export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: TaskCardProps) {
+export function TaskCard({ task, storyId, states, onView, onStatusChange }: TaskCardProps) {
   const currentIndex = states?.indexOf(task.status) ?? -1;
 
   /** Move task to the previous or next state */
@@ -60,10 +63,7 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
   };
 
   return (
-    <Card
-      className="cursor-pointer hover:shadow-md transition-shadow"
-      onClick={() => onEdit?.(task.id)}
-    >
+    <Card className="hover:shadow-md transition-shadow">
       <CardContent className="p-3">
         {/* Title & ID */}
         <div className="flex-1 min-w-0">
@@ -113,13 +113,22 @@ export function TaskCard({ task, storyId, states, onEdit, onStatusChange }: Task
               </Button>
             </>
           )}
+          {/* Explicit view button — opens the read-only preview modal */}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-6 w-6 ml-auto"
+            onClick={() => onView?.(task.id)}
+            title="View task"
+          >
+            <Eye className="h-3.5 w-3.5" />
+          </Button>
           {storyId && (
             <Link
               to={`/task/${storyId}/${task.id}`}
-              onClick={(e) => e.stopPropagation()}
-              className="ml-auto text-xs text-muted-foreground hover:text-foreground hover:underline"
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline ml-2"
             >
-              details & comments →
+              details →
             </Link>
           )}
         </div>
