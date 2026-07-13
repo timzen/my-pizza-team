@@ -222,21 +222,35 @@ jobs:
           codesign --verify --deep --strict "dist/My Pizza Team.app"
           echo "✅ Signature verified with JIT entitlements"
 
+      - name: Free disk space before DMG
+        run: |
+          echo "Disk before cleanup:"
+          df -h /
+          # These are no longer needed at this point — the .app bundle already
+          # contains its own copies. Reclaim the space so hdiutil has room.
+          rm -rf desktop/macos/.build
+          rm -f dist/mpt dist/mpt-darwin-arm64
+          echo "Disk after cleanup:"
+          df -h /
+
       - name: Create DMG
         run: |
-          # Create a temporary directory for DMG contents
-          mkdir -p dmg-stage
-          cp -R "dist/My Pizza Team.app" dmg-stage/
+          # Stage the DMG contents under RUNNER_TEMP (separate headroom from the
+          # repo checkout) to avoid "No space left on device" on tight runners.
+          STAGE="$RUNNER_TEMP/dmg-stage"
+          rm -rf "$STAGE"
+          mkdir -p "$STAGE"
+          cp -R "dist/My Pizza Team.app" "$STAGE/"
           # Create a symlink to /Applications for drag-and-drop install
-          ln -s /Applications dmg-stage/Applications
+          ln -s /Applications "$STAGE/Applications"
 
           # Create the DMG
           hdiutil create -volname "My Pizza Team" \
-            -srcfolder dmg-stage \
+            -srcfolder "$STAGE" \
             -ov -format UDZO \
             "dist/My-Pizza-Team-macos-arm64.dmg"
 
-          rm -rf dmg-stage
+          rm -rf "$STAGE"
           echo "✅ DMG created"
 
       - name: Notarize the DMG
