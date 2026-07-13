@@ -28,7 +28,8 @@ my-pizza-team is a Deno-based application organized into four main modules:
   - `store/notes.ts` — knowledge-base notes (markdown files under `notes/`).
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
-- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives.
+- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
+- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (Story → Task → prior-task context → lead comments → state guidance → transition instructions for leaving the previous state and entering the working state). Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt.
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
 - `routes/stories.ts` — Story CRUD, archive, backlog.
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.

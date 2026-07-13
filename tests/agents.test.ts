@@ -9,7 +9,7 @@
  * - Comments are task-level, loaded at work start
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_CONFIG, type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
@@ -124,12 +124,11 @@ Deno.test("POST /api/agents/claim includes comments from lead", async () => {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     // Lead adds a comment
     store.addComment("s1-1", "lead", "Please check the edge cases");
-    // Claim gives us the full task data including comments
+    // Claim surfaces lead comments in the assembled prompt
     const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     const body = await res.json();
-    assertEquals(body.task?.comments?.length, 1);
-    assertEquals(body.task.comments[0].from, "lead");
-    assertEquals(body.task.comments[0].body, "Please check the edge cases");
+    assertStringIncludes(body.prompt, "Comments from Team Lead");
+    assertStringIncludes(body.prompt, "Please check the edge cases");
   } finally { cleanup(teamDir, store); }
 });
 
@@ -318,8 +317,7 @@ Deno.test("Rework flow: lead sends task back, agent re-claims with comments", as
     // Agent claims again — coding is NOT initial state, stays in coding
     const claimRes = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     const claimBody = await claimRes.json();
-    assertEquals(claimBody.task?.comments?.length, 1);
-    assertEquals(claimBody.task?.comments[0].body, "Please fix the edge case in parser.ts");
+    assertStringIncludes(claimBody.prompt, "Please fix the edge case in parser.ts");
     assertEquals(store.getTask("s1-1")?.status, "coding");
   } finally { cleanup(teamDir, store); }
 });

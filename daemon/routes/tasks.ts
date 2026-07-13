@@ -41,7 +41,7 @@ function estimateTokenCost(model: string, inputTokens: number, outputTokens: num
 }
 
 export function registerTaskRoutes(ctx: RouteContext): void {
-  const { app, store, getInstructionsMarkdown } = ctx;
+  const { app, store } = ctx;
 
   // ─── Task CRUD ─────────────────────────────────────────────────────
 
@@ -110,9 +110,8 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     if (!check.ok) {
       return c.json({ success: false, error: check.error } satisfies MoveTaskResponse, 403);
     }
-    const fromStatus = task.status;
     store.updateTaskStatus(taskId, body.status);
-    return c.json({ success: true, instructions: getInstructionsMarkdown(fromStatus, body.status, taskId) } satisfies MoveTaskResponse);
+    return c.json({ success: true } satisfies MoveTaskResponse);
   });
 
   // ─── Comments ──────────────────────────────────────────────────────

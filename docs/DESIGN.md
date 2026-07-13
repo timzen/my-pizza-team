@@ -136,6 +136,28 @@ friendly to git merges — and it never forces task IDs, titles, or directories
 (where comments/attachments live) to change. Reconcile-on-load makes the system
 tolerant of manual edits to `story.json` or the tasks directory.
 
+## The Daemon Owns the Prompt
+
+When an agent claims a task, the claim response returns a `prompt`: the
+complete, ready-to-use message (Story → Task → prior-task context → lead
+comments → state guidance → transition instructions for leaving the previous
+state and entering the working state), assembled by
+`buildTaskPrompt` in the daemon. The response otherwise carries only minimal
+structured `task` metadata (`id`/`storyId`/`status`) for harness bookkeeping.
+Harnesses (pi-pizza-team, mpt-mcp-server, …) deliver the prompt verbatim rather
+than re-assembling their own.
+
+*Why:* the prompt is mostly workflow knowledge, which the daemon already owns
+(stories, tasks, states, instruction files, exit criteria). Assembling it in
+each harness caused drift and duplication (e.g. an entered state's instructions
+rendered twice). Centralizing it gives one canonical, testable prompt that is
+identical across harnesses; a wording/order change is a single edit. We also
+don't return the raw ingredients (story/stateContext/instructions) separately —
+they'd just duplicate what's already in the prompt. Session- or delivery-specific
+framing (how to send it, reminders that only make sense for a persistent
+conversation) is intentionally *not* baked in — that is the only thing a harness
+may add, and today none is needed.
+
 ## Comments
 
 Lead ↔ teammate communication is **task-level comments**, not a real-time channel:

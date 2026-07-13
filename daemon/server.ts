@@ -42,23 +42,6 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     app.use("*", staticMiddleware(distDir));
   }
 
-  /** Assemble transition instructions into markdown */
-  function getInstructionsMarkdown(fromStatus: string, toStatus: string, taskId?: string): string | undefined {
-    let workflowName: string | undefined;
-    if (taskId) {
-      const task = store.getTask(taskId);
-      if (task) {
-        const story = store.getStory(task.storyId);
-        workflowName = story?.workflow || config.defaultWorkflow;
-      }
-    }
-    const { exitInstructions, enterInstructions } = store.getTransitionInstructions(fromStatus, toStatus, workflowName);
-    const parts: string[] = [];
-    if (exitInstructions) parts.push(`## Transition: leaving "${fromStatus}"\n\n${exitInstructions}`);
-    if (enterInstructions) parts.push(`## Transition: entering "${toStatus}"\n\n${enterInstructions}`);
-    return parts.length > 0 ? parts.join("\n\n---\n\n") : undefined;
-  }
-
   // Build shared context for route modules
   const ctx: RouteContext = {
     app,
@@ -68,7 +51,6 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     isPaused: () => paused,
     setPaused: (v) => { paused = v; },
     startedAt,
-    getInstructionsMarkdown,
   };
 
   // Register all route modules
