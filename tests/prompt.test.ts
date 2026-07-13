@@ -24,7 +24,7 @@ Deno.test("buildTaskPrompt: assembles sections in order", () => {
   const iPrev = out.indexOf("## Context from previous tasks");
   const iLead = out.indexOf("## Comments from Team Lead");
   const iState = out.indexOf("## State Context");
-  const iInstr = out.indexOf("## Instructions");
+  const iInstr = out.indexOf("### Instructions:");
   assertEquals(iStory >= 0 && iStory < iTask, true);
   assertEquals(iTask < iPrev && iPrev < iLead && iLead < iState && iState < iInstr, true);
 
@@ -32,11 +32,14 @@ Deno.test("buildTaskPrompt: assembles sections in order", () => {
   assertStringIncludes(out, "> Please add tests.");
   assertEquals(out.includes("ignored"), false);
 
-  // Both leaving (exit) and entering (enter) instructions are surfaced.
-  assertStringIncludes(out, '**On leaving "review":**');
+  // Both leaving (exit) and entering (enter) instructions are surfaced, nested
+  // under State Context as `###`.
+  assertStringIncludes(out, "### Instructions: review");
   assertStringIncludes(out, "REVIEW EXIT NOTES");
-  assertStringIncludes(out, '**On entering "in_progress":**');
+  assertStringIncludes(out, "### Instructions: in_progress");
   assertStringIncludes(out, "do the thing");
+  // The enter file's `## On Enter` is demoted to `#### On Enter` (nested under ###).
+  assertStringIncludes(out, "#### On Enter");
 
   // No session-specific framing in the canonical prompt.
   assertEquals(out.includes("Ignore any task IDs"), false);
@@ -48,9 +51,9 @@ Deno.test("buildTaskPrompt: skips exit instructions on a same-state re-claim", (
     guidance: "You are entering the 'coding' state.",
     transition: { fromState: "coding", toState: "coding", exit: "CODING FILE", enter: "CODING FILE" },
   });
-  // Leaving/entering are the same state — show the instructions once, no "leaving".
-  assertEquals(out.includes('**On leaving "coding":**'), false);
-  assertStringIncludes(out, '**On entering "coding":**');
+  // Leaving/entering are the same state — show the instructions once.
+  assertStringIncludes(out, "### Instructions: coding");
+  assertEquals(out.split("### Instructions: coding").length - 1, 1);
   assertEquals(out.split("CODING FILE").length - 1, 1);
 });
 
@@ -62,7 +65,7 @@ Deno.test("buildTaskPrompt: omits optional sections cleanly", () => {
   assertEquals(out.includes("## Story:"), false);
   assertEquals(out.includes("## Context from previous tasks"), false);
   assertEquals(out.includes("## Comments from Team Lead"), false);
-  assertEquals(out.includes("## Instructions"), false);
+  assertEquals(out.includes("### Instructions:"), false);
   assertStringIncludes(out, "## Task: T");
   assertStringIncludes(out, "## State Context");
 });

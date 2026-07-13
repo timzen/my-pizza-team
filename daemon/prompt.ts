@@ -80,41 +80,43 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
   const { story, task, guidance, transition, previousResults, comments } = input;
   let out = "";
 
+  // Sections are delimited by their `##`/`###` headings alone — no `---` rules
+  // (which would just add noise, and which we warn authors against in their
+  // instruction files).
+
   // 1. Story — the bigger picture
   if (story) {
-    out += `## Story: ${story.title}\n\n${story.description}\n\n---\n\n`;
+    out += `## Story: ${story.title}\n\n${story.description}\n\n`;
   }
 
   // 2. Task — what to do (kept right next to the story)
-  out += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}\n\n---\n\n`;
+  out += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}\n\n`;
 
   // 3. Context from previous tasks in the story
   if (previousResults) {
-    out += `## Context from previous tasks\n\n${previousResults}\n\n---\n\n`;
+    out += `## Context from previous tasks\n\n${previousResults}\n\n`;
   }
 
   // 4. Lead comments (feedback / rework context)
   const leadComments = (comments || []).filter((c) => c.from === "lead");
   if (leadComments.length > 0) {
     const bodies = leadComments.map((c) => `> ${c.body}`).join("\n\n");
-    out += `## Comments from Team Lead\n\n${bodies}\n\n---\n\n`;
+    out += `## Comments from Team Lead\n\n${bodies}\n\n`;
   }
 
-  // 5. What to do now: state guidance + transition instructions (leaving the
-  //    previous state, then entering the working state).
+  // 5. What to do now: state guidance, with the transition instructions nested
+  //    beneath it as `###` — they're the detail of the state being entered.
   out += `## State Context\n\n${guidance}\n\n`;
   if (transition) {
     const { fromState, toState, exit, enter } = transition;
     // Skip `exit` when it would just duplicate `enter` (re-claim into the same
-    // state, where the file being left and entered are identical).
+    // state). Each block is a `###` section named by state (the guidance above
+    // frames which is being left vs entered); file headings normalize to `####`+
+    // so they nest cleanly beneath.
     const showExit = exit && fromState !== toState;
-    if (showExit || enter) {
-      out += `## Instructions\n\n`;
-      if (showExit) out += `**On leaving "${fromState}":**\n\n${normalizeInstructionMarkdown(exit!)}\n\n`;
-      if (enter) out += `**On entering "${toState}":**\n\n${normalizeInstructionMarkdown(enter)}\n\n`;
-    }
+    if (showExit) out += `### Instructions: ${fromState}\n\n${normalizeInstructionMarkdown(exit!, 4)}\n\n`;
+    if (enter) out += `### Instructions: ${toState}\n\n${normalizeInstructionMarkdown(enter, 4)}\n\n`;
   }
-  out += `---\n\nWhen you're done, provide a brief summary of what you accomplished.`;
 
-  return out;
+  return out.trimEnd() + "\n";
 }

@@ -145,9 +145,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     // Build state context to help the agent understand its role
     let guidance = `You are entering the '${targetStatus}' state.`;
     if (exitsTo) {
-      guidance += ` When your work is complete, release the task and it will advance to '${exitsTo}'.`;
+      guidance += ` When your work is complete, provide a brief summary of what you accomplished and release the task — it will advance to '${exitsTo}'.`;
     } else {
-      guidance += ` When your work is complete, release the task.`;
+      guidance += ` When your work is complete, provide a brief summary of what you accomplished and release the task.`;
     }
 
     const workflowName = story?.workflow || config.defaultWorkflow;

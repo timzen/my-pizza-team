@@ -129,6 +129,8 @@ Deno.test("POST /api/agents/claim includes comments from lead", async () => {
     const body = await res.json();
     assertStringIncludes(body.prompt, "Comments from Team Lead");
     assertStringIncludes(body.prompt, "Please check the edge cases");
+    // Guidance carries the "summarize + release" close (no separate trailing line).
+    assertStringIncludes(body.prompt, "provide a brief summary of what you accomplished and release the task");
   } finally { cleanup(teamDir, store); }
 });
 
