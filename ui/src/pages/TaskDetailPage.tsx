@@ -1,22 +1,30 @@
 /**
- * TaskDetailPage — Full task view with comments, file attachments, and diff review.
+ * TaskDetailPage — Full task view with editing, comments, file attachments,
+ * and diff review.
+ *
+ * This page is the home for task *editing* (title, description, status moves,
+ * delete). The board only previews tasks read-only; all edits happen here.
  *
  * Features:
- * - Task header with status and assignment info
+ * - Editable task header (title, description) with Save
+ * - Status move buttons based on the story's workflow transitions + Delete
  * - Tabs: Comments (chat-style) and Files (attachment list)
  * - Clickable attachments in comments open the file viewer
  * - Interactive diff viewer with line commenting + batched review
  * - Auto-refresh for comments
  */
 
-import { useState, useRef } from "react";
-import { useParams, Link } from "react-router-dom";
-import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
+import { useState, useRef, useEffect } from "react";
+import { useParams, Link, useNavigate } from "react-router-dom";
+import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload, Trash2 } from "lucide-react";
+import { MarkdownField } from "@/components/ui/markdown-field";
+import { TitleField } from "@/components/ui/title-field";
+import { MarkdownView } from "@/components/ui/markdown-view";
+import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload, Trash2, Save } from "lucide-react";
 import { FileViewer } from "@/components/viewer/FileViewer";
 
 interface Comment {
@@ -44,7 +52,13 @@ interface TaskData {
 interface StoryView {
   id: string;
   title: string;
+  workflow?: string;
   tasks: TaskData[];
+}
+
+interface StatusData {
+  defaultWorkflow: string;
+  workflows: Record<string, { states: string[]; transitions?: Record<string, Record<string, string>> }>;
 }
 
 function formatSize(bytes: number): string {
@@ -63,7 +77,9 @@ function getFileIcon(name: string) {
 
 export function TaskDetailPage() {
   const { storyId, taskId } = useParams<{ storyId: string; taskId: string }>();
-  const { data: storiesData } = useApi<{ stories: StoryView[] }>("/api/stories");
+  const navigate = useNavigate();
+  const { data: storiesData, refetch: refetchStories } = useApi<{ stories: StoryView[] }>("/api/stories");
+  const { data: statusData } = useApi<StatusData>("/api/status");
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(
     `/api/tasks/${encodeURIComponent(taskId || "")}/comments`, [], { pollInterval: 5000 }
   );
@@ -81,6 +97,47 @@ export function TaskDetailPage() {
   const task = story?.tasks.find(t => t.id === taskId);
   const comments = commentsData?.comments || [];
   const attachments = attachData?.attachments || [];
+
+  // --- Task editing (title/description/status/delete) lives on this page ---
+  const [title, setTitle] = useState("");
+  const [description, setDescription] = useState("");
+  const [editError, setEditError] = useState("");
+
+  // Seed the edit fields whenever the task loads/changes.
+  useEffect(() => {
+    if (task) { setTitle(task.title); setDescription(task.description || ""); setEditError(""); }
+  }, [task?.id]);
+
+  // Resolve workflow states/transitions for this task's story.
+  const workflows = statusData?.workflows || {};
+  const defaultWorkflow = statusData?.defaultWorkflow || "default";
+  const wfName = story?.workflow && workflows[story.workflow] ? story.workflow : defaultWorkflow;
+  const states = workflows[wfName]?.states || [];
+  const transitions = workflows[wfName]?.transitions || {};
+  const validTransitions = task ? Object.keys(transitions[task.status] || {}) : [];
+
+  const saveTask = async () => {
+    if (!taskId) return;
+    setEditError("");
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`, { title, description });
+    if (!res.success) { setEditError(res.error || "Failed to save"); return; }
+    refetchStories();
+  };
+
+  const moveTask = async (targetStatus: string) => {
+    if (!taskId) return;
+    setEditError("");
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}/move`, { status: targetStatus });
+    if (!res.success) { setEditError(res.error || "Failed to move"); return; }
+    refetchStories();
+  };
+
+  const deleteTask = async () => {
+    if (!taskId || !confirm(`Delete task "${taskId}"?`)) return;
+    const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
+    if (res.success) navigate("/board");
+    else setEditError(res.error || "Failed to delete");
+  };
 
   const sendComment = async () => {
     if (!newComment.trim() || !taskId) return;
@@ -158,28 +215,61 @@ export function TaskDetailPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-4xl">
-      <Link to="/board" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-        <ArrowLeft className="h-4 w-4" /> Back to board
-      </Link>
-
-      {/* Task header */}
-      <div>
-        <div className="flex items-center gap-2 mb-1">
-          <h1 className="text-xl font-bold">{task.title}</h1>
-          <Badge variant="secondary">{task.status.replace(/_/g, " ")}</Badge>
+      {/* Top bar: back to board + save/delete actions */}
+      <div className="flex items-center justify-between">
+        <Link to="/board" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
+          <ArrowLeft className="h-4 w-4" /> Back to board
+        </Link>
+        <div className="flex items-center gap-1">
+          <Button variant="ghost" size="icon" onClick={saveTask} title="Save changes">
+            <Save className="h-4 w-4" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
+            onClick={deleteTask}
+            title="Delete task"
+          >
+            <Trash2 className="h-4 w-4" />
+          </Button>
         </div>
-        <p className="text-sm text-muted-foreground">{taskId} • Story: {storyId}</p>
-        {task.assignee && <p className="text-sm mt-1">Assigned to: <strong>{task.assignee}</strong></p>}
       </div>
 
-      {/* Description */}
-      {task.description && (
-        <Card>
-          <CardContent className="p-4">
-            <pre className="whitespace-pre-wrap text-sm font-mono">{task.description}</pre>
-          </CardContent>
-        </Card>
+      {/* Editable task header: title, then path on the left + status on the right */}
+      <div className="space-y-2">
+        <TitleField label="Title" value={title} onChange={setTitle} required />
+        <div className="flex items-center justify-between gap-2">
+          <Badge variant="secondary" className="font-mono">
+            /<Link to={`/story/${storyId}`} className="text-primary hover:underline">{storyId}</Link>/{taskId}
+          </Badge>
+          <Badge variant="secondary">{task.status.replace(/_/g, " ")}</Badge>
+        </div>
+        {task.assignee && <p className="text-sm">Assigned to: <strong>{task.assignee}</strong></p>}
+      </div>
+
+      {/* Editable description */}
+      <MarkdownField label="Description" value={description} onChange={setDescription} rows={4} />
+
+      {/* Workflow moves (below the description) */}
+      {validTransitions.length > 0 && (
+        <div className="flex items-center justify-end gap-2 flex-wrap">
+          <span className="text-xs text-muted-foreground">Move to:</span>
+          {validTransitions.map(target => (
+            <Button
+              key={target}
+              type="button"
+              size="sm"
+              variant={states.indexOf(target) === states.length - 1 ? "default" : "outline"}
+              onClick={() => moveTask(target)}
+            >
+              {target.replace(/_/g, " ")}
+            </Button>
+          ))}
+        </div>
       )}
+
+      {editError && <p className="text-sm text-destructive">{editError}</p>}
 
       {/* Tabs */}
       <div className="flex border-b">
@@ -213,7 +303,7 @@ export function TaskDetailPage() {
                     <span className="text-xs font-medium">{msg.from}</span>
                     <span className="text-xs text-muted-foreground">{new Date(msg.at).toLocaleString()}</span>
                   </div>
-                  <div className="text-sm whitespace-pre-wrap">{msg.body}</div>
+                  <MarkdownView content={msg.body} />
                   {msg.attachments && msg.attachments.length > 0 && (
                     <div className="mt-2 flex gap-2 flex-wrap">
                       {msg.attachments.map((att, j) => (

@@ -8,7 +8,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
+import { MarkdownView } from "@/components/ui/markdown-view";
+import { MarkdownField } from "@/components/ui/markdown-field";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Plus, Search, Trash2 } from "lucide-react";
@@ -130,9 +131,9 @@ export function MemoryPage() {
             <Card key={note.id}>
               <CardContent className="p-4">
                 <div className="flex items-start justify-between">
-                  <div className="flex-1">
+                  <div className="flex-1 min-w-0">
                     <p className="font-medium">{note.title}</p>
-                    <p className="text-sm text-muted-foreground mt-1 line-clamp-2">{note.content.slice(0, 200)}</p>
+                    <div className="mt-1"><MarkdownView content={note.content} /></div>
                     <div className="flex gap-1 mt-2">
                       {note.categories.map(c => <Badge key={c} variant="secondary" className="text-xs">{c}</Badge>)}
                     </div>
@@ -154,7 +155,7 @@ export function MemoryPage() {
           <DialogHeader><DialogTitle>Add Note</DialogTitle></DialogHeader>
           <form onSubmit={handleAdd} className="space-y-4">
             <div><Label>Title</Label><Input value={newTitle} onChange={e => setNewTitle(e.target.value)} required /></div>
-            <div><Label>Content</Label><Textarea value={newContent} onChange={e => setNewContent(e.target.value)} rows={5} required /></div>
+            <MarkdownField label="Content" value={newContent} onChange={setNewContent} rows={5} required defaultEditing />
             <div><Label>Categories (comma-separated)</Label><Input value={newCategories} onChange={e => setNewCategories(e.target.value)} placeholder="coding, research" /></div>
             <Button type="submit" className="w-full">Save Note</Button>
           </form>

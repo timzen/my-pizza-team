@@ -113,6 +113,29 @@ workflows exist on disk, the built-in `DEFAULT_CONFIG.workflows` is used.
 *Why:* implicit defaults caused confusion once multiple workflows existed; making
 the choice explicit ensures the creator picks the right one.
 
+## Task Ordering: the Story Owns It
+
+A task has three independent concerns: its **id** (a stable, opaque key like
+`auth-3` — the number is a creation counter, not a position), its **name**
+(`title`), and its **order** within the story. Order is owned by the story as
+`taskOrder`, an array of task IDs in `story.json`. `getTasksForStory` reconciles
+that array against the tasks actually on disk: listed tasks first, then any
+orphan (not-yet-listed) tasks appended by creation `seq`, with dangling ids
+ignored. Reordering rewrites just that one array.
+
+Task directories are named by the **task id only** (`tasks/auth-3/`). The folder
+name is pure identity: it never encodes order, and it never drifts when the
+title changes. On load, `seq` is derived from the id and `slug` from the current
+title — so directory browsing shows *creation* identity, while execution order
+lives entirely in `taskOrder`.
+
+*Why:* ordering is a property of the collection, not of each task. Keeping it in
+one array (rather than a per-task field, a directory-name prefix, or a linked
+list) means a reorder is a single-file write — atomic, easy to hand-edit, and
+friendly to git merges — and it never forces task IDs, titles, or directories
+(where comments/attachments live) to change. Reconcile-on-load makes the system
+tolerant of manual edits to `story.json` or the tasks directory.
+
 ## Comments
 
 Lead ↔ teammate communication is **task-level comments**, not a real-time channel:

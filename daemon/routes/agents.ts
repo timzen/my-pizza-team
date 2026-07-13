@@ -131,8 +131,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     const story = store.getStory(task.storyId);
     const storyTasks = store.getTasksForStory(task.storyId);
+    // "Previous tasks" = those ahead of this one in the story's (execution)
+    // order, not creation order — storyTasks is already in taskOrder order.
+    const currentIdx = storyTasks.findIndex(t => t.id === task.id);
     const previousResults = storyTasks
-      .filter(t => t.seq < task.seq && t.result)
+      .slice(0, currentIdx < 0 ? 0 : currentIdx)
+      .filter(t => t.result)
       .map(t => `[${t.title}]: ${t.result}`)
       .join("\n\n");
     const comments = store.getComments(taskId);

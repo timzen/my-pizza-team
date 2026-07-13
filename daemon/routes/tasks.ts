@@ -6,12 +6,13 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { getInitialState, slugify } from "../../shared/types.ts";
+import { getInitialState } from "../../shared/types.ts";
 import { canTransition } from "../workflow-engine.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse, UpdateTaskRequest, UpdateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse, PostCommentRequest,
   PostCommentResponse, CommentsResponse, TokenUsageRequest, TokenUsageResponse,
+  ReorderTasksRequest, ReorderTasksResponse,
 } from "../../shared/protocol.ts";
 import * as path from "@std/path";
 
@@ -54,11 +55,11 @@ export function registerTaskRoutes(ctx: RouteContext): void {
 
     const existingTasks = store.getTasksForStory(storyId);
     const nextSeq = existingTasks.length > 0 ? Math.max(...existingTasks.map(t => t.seq)) + 1 : 1;
-    const slug = slugify(body.title);
-    const taskDirPath = path.join(story.dirPath, "tasks", `${String(nextSeq).padStart(2, "0")}-${slug}`);
+    const taskId = `${storyId}-${nextSeq}`;
+    // Directory is named by the stable task id only (identity, not order/title).
+    const taskDirPath = path.join(story.dirPath, "tasks", taskId);
     Deno.mkdirSync(taskDirPath, { recursive: true });
 
-    const taskId = `${storyId}-${nextSeq}`;
     const wf = store.getWorkflowForStory(storyId);
     const initialStatus = getInitialState(wf);
     const taskData = { id: taskId, title: body.title, description: body.description, status: initialStatus, result: null };
@@ -82,6 +83,18 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies DeleteTaskResponse, 404);
     store.deleteTask(taskId);
     return c.json({ success: true } satisfies DeleteTaskResponse);
+  });
+
+  // Reorder a story's tasks (lead). Body: { order: [taskId, ...] } — a
+  // permutation of the story's current task IDs. Persists the new sequence.
+  app.post("/api/stories/:storyId/tasks/reorder", async (c) => {
+    const storyId = c.req.param("storyId");
+    const body = (await c.req.json()) as ReorderTasksRequest;
+    if (!Array.isArray(body.order)) return c.json({ success: false, error: "Field 'order' (array of task IDs) is required" } satisfies ReorderTasksResponse, 400);
+    if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies ReorderTasksResponse, 404);
+    const ok = store.reorderTasks(storyId, body.order);
+    if (!ok) return c.json({ success: false, error: "Invalid order: must be a permutation of the story's task IDs" } satisfies ReorderTasksResponse, 400);
+    return c.json({ success: true } satisfies ReorderTasksResponse);
   });
 
   // ─── Task Move (lead) ──────────────────────────────────────────────

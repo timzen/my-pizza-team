@@ -69,6 +69,10 @@ export interface UpdateTaskResponse { success: boolean; error?: string }
 // DELETE /api/tasks/:id
 export interface DeleteTaskResponse { success: boolean; error?: string }
 
+// POST /api/stories/:storyId/tasks/reorder
+export interface ReorderTasksRequest { order: string[] }
+export interface ReorderTasksResponse { success: boolean; error?: string }
+
 // POST /api/tasks/:id/move
 export interface MoveTaskRequest { status: string }
 export interface MoveTaskResponse { success: boolean; error?: string; instructions?: string }
