@@ -1,7 +1,7 @@
 /**
  * WorkflowEditor — Dialog for editing a workflow's states and transitions.
  * Opened via an "Edit States & Transitions" button on the workflow detail page.
- * Categories remain on the main page, not in this dialog.
+ * States can be reordered here; their order drives board column order.
  */
 
 import { useState, useEffect } from "react";
@@ -13,7 +13,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, X, Save, Trash2 } from "lucide-react";
+import { Plus, X, Save, Trash2, ChevronLeft, ChevronRight } from "lucide-react";
 import type { WorkflowConfig } from "./WorkflowGraph";
 
 interface ConfigData {
@@ -73,6 +73,16 @@ export function WorkflowEditor({ name, workflow, config, isDefault, open, onClos
       else delete transitions[from];
     }
     setWf({ ...wf, states, transitions });
+  };
+
+  // Reorder a state within the list. State order is persisted to the workflow's
+  // states array and drives column order on the board, so surface it here.
+  const moveState = (index: number, dir: -1 | 1) => {
+    const target = index + dir;
+    if (target < 0 || target >= wf.states.length) return;
+    const states = [...wf.states];
+    [states[index], states[target]] = [states[target]!, states[index]!];
+    setWf({ ...wf, states });
   };
 
   // --- Transitions ---
@@ -155,9 +165,26 @@ export function WorkflowEditor({ name, workflow, config, isDefault, open, onClos
           <Card>
             <CardContent className="p-4 space-y-3">
               <h3 className="text-sm font-semibold">States</h3>
+              <p className="text-xs text-muted-foreground">Order determines the column order on the board.</p>
               <div className="flex gap-1 flex-wrap">
-                {wf.states.map((s) => (
-                  <Badge key={s} variant="outline" className="gap-1">
+                {wf.states.map((s, i) => (
+                  <Badge key={s} variant="outline" className="gap-1 pl-1">
+                    <button
+                      onClick={() => moveState(i, -1)}
+                      disabled={i === 0}
+                      className="hover:text-foreground text-muted-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                      title="Move left"
+                    >
+                      <ChevronLeft className="h-3 w-3" />
+                    </button>
+                    <button
+                      onClick={() => moveState(i, 1)}
+                      disabled={i === wf.states.length - 1}
+                      className="hover:text-foreground text-muted-foreground disabled:opacity-30 disabled:hover:text-muted-foreground"
+                      title="Move right"
+                    >
+                      <ChevronRight className="h-3 w-3" />
+                    </button>
                     {s}
                     <button onClick={() => removeState(s)} className="hover:text-destructive">
                       <X className="h-3 w-3" />
