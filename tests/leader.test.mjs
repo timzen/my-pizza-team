@@ -131,6 +131,12 @@ test("has listWindows function", () => {
   assert.ok(src.includes("function listWindows("));
 });
 
+test("spawnAgent skips creating a window when one with the name already exists", () => {
+  // Guards against retried spawn directives piling up duplicate tmux windows,
+  // since tmux does not enforce unique window names.
+  assert.ok(src.includes("listWindows(session, execSync).includes(name)"));
+});
+
 test("has ensurePermissiveConfig function", () => {
   assert.ok(src.includes("function ensurePermissiveConfig("));
 });

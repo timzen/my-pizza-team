@@ -185,6 +185,15 @@ Spawn requests carrying a `storyId` are launched as assigned-story teammates:
 `--ppt-work-mode=assigned-story --ppt-story=<id>`, so a story-scoped spawn runs
 its story and then dismisses itself automatically.
 
+`spawnAgent()` is idempotent by tmux window name: because tmux does **not**
+enforce unique window names, `new-window -n <name>` would create a duplicate
+window every time it runs. Before creating a window, `spawnAgent()` checks
+`listWindows()` and returns early (no window created) if one with that name
+already exists. This prevents retried spawn directives — e.g. when
+`completeLeaderDirective()` fails to reach the daemon and the poll loop re-runs
+the same directive — from filling the session with identically-named, empty
+windows.
+
 ### Agent control intents (daemon → leader → tmux)
 
 The daemon expresses out-of-band intents (e.g. `reset-session`) without knowing

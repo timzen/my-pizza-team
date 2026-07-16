@@ -304,6 +304,10 @@ function listWindows(session: string, execSync: any): string[] {
  * Supports multiple harness types via command templates. The template
  * uses {name}, {url}, {cwd} placeholders that are replaced with the
  * actual values.
+ *
+ * Idempotent: returns false (without creating anything) if a window with the
+ * given name already exists, so retried spawn directives can't pile up
+ * duplicate windows. Returns true when a window was actually created.
  */
 function spawnAgent(
   name: string,
@@ -317,12 +321,21 @@ function spawnAgent(
     storyId?: string;
   },
   execSync: any
-): void {
+): boolean {
   const { session, daemonUrl, harness, harnessTemplates, storyId } = options;
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
   const safeCwd = shellSafe(agentCwd);
   const justCreated = ensureSession(session, execSync);
+
+  // Idempotency guard: tmux does NOT enforce unique window names, so
+  // `new-window -n <name>` would happily create a duplicate every time it
+  // runs. If a spawn directive is retried (e.g. completion failed to reach the
+  // daemon), that produces a pile of identically-named windows with no agent.
+  // Bail out if a window with this name already exists in the session.
+  if (!justCreated && listWindows(session, execSync).includes(name)) {
+    return false;
+  }
 
   // Create or reuse tmux window
   if (justCreated) {
@@ -357,6 +370,7 @@ function spawnAgent(
 
   // Send the command to the tmux window
   execSync(`tmux send-keys -t "${safeSession}:${safeName}" 'cd ${safeCwd} && ${cmd}' Enter`, { stdio: "pipe" });
+  return true;
 }
 
 /**
