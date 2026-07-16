@@ -230,8 +230,9 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ## tmux Integration (leader only)
 
 - Polls its directive queue via `/api/hosts/:hostId/leader/directives`
-- Creates tmux windows with `pi --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
-- Writes permissive permission config to teammate's cwd before launching
+- Creates tmux windows with `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
+- `-a` (`--approve`) trusts the teammate's project cwd non-interactively, so a spawn into a folder outside a trusted parent (`~/.pi/agent/trust.json`) doesn't block on pi's "Trust project folder?" prompt
+- Writes permissive permission config to teammate's cwd before launching (only applied once the project is trusted, hence `-a`)
 
 ## Key Design Decisions
 

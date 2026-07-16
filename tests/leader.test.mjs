@@ -87,12 +87,19 @@ test("has default harness templates for pi and pi-assistant", () => {
   assert.ok(src.includes("pi:"));
 });
 
-test("pi template uses --ppt-worker --ppt-daemon --ppt-name", () => {
-  assert.ok(src.includes("pi --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
+test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name", () => {
+  assert.ok(src.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
 });
 
-test("pi-assistant template uses --ppt-assistant", () => {
-  assert.ok(src.includes("pi --ppt-assistant --ppt-daemon={url} --ppt-name=assistant"));
+test("pi-assistant template uses -a --ppt-assistant", () => {
+  assert.ok(src.includes("pi -a --ppt-assistant --ppt-daemon={url} --ppt-name=assistant"));
+});
+
+test("pi harness templates auto-approve project trust", () => {
+  // -a (--approve) lets a spawned teammate trust its cwd non-interactively so
+  // it doesn't block on pi's "Trust project folder?" prompt.
+  assert.ok(src.includes('pi: "pi -a '));
+  assert.ok(src.includes('"pi-assistant": "pi -a '));
 });
 
 test("spawnAgent resolves template placeholders", () => {

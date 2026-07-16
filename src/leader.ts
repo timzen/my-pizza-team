@@ -31,9 +31,14 @@ interface HarnessTemplates {
   [harness: string]: string;
 }
 
+// The pi templates pass `-a` (--approve) so a spawned teammate trusts its
+// project cwd non-interactively. Without it, spawning into a folder outside a
+// trusted parent (see ~/.pi/agent/trust.json) blocks on pi's "Trust project
+// folder?" prompt — and the permissive config we write into the cwd's .pi is
+// only applied once the project is trusted anyway.
 const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
-  pi: "pi --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-  "pi-assistant": "pi --ppt-assistant --ppt-daemon={url} --ppt-name=assistant --ppt-tmux-session={session} --ppt-tmux-window={window}",
+  pi: "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+  "pi-assistant": "pi -a --ppt-assistant --ppt-daemon={url} --ppt-name=assistant --ppt-tmux-session={session} --ppt-tmux-window={window}",
 };
 
 
