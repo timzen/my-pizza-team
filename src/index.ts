@@ -396,29 +396,34 @@ async function setupAssistant(
     ctx.ui.notify(`🤖 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Register with daemon
+  // Register with daemon. The `persona` capability advertises that this build
+  // knows how to load a context-library persona as its system prompt; the web
+  // UI only shows persona chips when an assistant with this capability is online.
   try {
-    await client.register({ name: "assistant", capabilities: { directory: cwd }, metadata: readTmuxMetadata(pi) });
+    await client.register({ name: "assistant", capabilities: { directory: cwd, persona: "true" }, metadata: readTmuxMetadata(pi) });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🤖 Failed to register — will keep trying via polling`, "warning");
     }
   }
 
-  // Fetch categories from daemon
-  let categories: string[] = ["coding", "research", "doc-writing"];
-  try {
-    const config = await client.getConfig();
-    if (config.categories?.length) categories = config.categories;
-  } catch { /* use defaults */ }
-
   // Register tools
-  registerAssistantTools(pi, client, categories);
+  registerAssistantTools(pi, client);
 
   // ─── Work loop ───────────────────────────────────────────────────
 
   const loop = new AssistantLoop(pi, client);
   let completedItems = 0;
+
+  // Inject the assistant's persona as the system prompt each turn. The persona
+  // text comes from the daemon (a selected context entry, or the daemon's
+  // default assistant persona when none is chosen) and is cached by the loop.
+  // Swapping it in the web UI resets the session so the new persona takes over.
+  pi.on("before_agent_start", async (event) => {
+    const persona = loop.persona;
+    if (!persona) return;
+    return { systemPrompt: `${event.systemPrompt}\n\n${persona}` };
+  });
 
   loop.onItemComplete = () => {
     completedItems++;

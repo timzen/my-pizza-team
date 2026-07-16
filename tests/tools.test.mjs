@@ -69,14 +69,6 @@ test("has queue_request tool (not team_queue_request)", () => {
   assert.ok(!src.includes('name: "team_queue_request"'));
 });
 
-test("has save_memory tool", () => {
-  assert.ok(src.includes('name: "save_memory"'));
-});
-
-test("has search_memory tool", () => {
-  assert.ok(src.includes('name: "search_memory"'));
-});
-
 test("has team_status tool", () => {
   assert.ok(src.includes('name: "team_status"'));
 });
@@ -107,22 +99,12 @@ test("registerLeaderTools includes team_status", () => {
   assert.ok(leaderFn.includes("registerTeamStatus"));
 });
 
-test("registerLeaderTools includes save_memory", () => {
+test("registerLeaderTools does NOT include context tools", () => {
   const leaderFn = src.slice(src.indexOf("function registerLeaderTools"), src.indexOf("function registerTeammateTools"));
-  assert.ok(leaderFn.includes("registerSaveMemory"));
-});
-
-test("registerLeaderTools includes search_memory", () => {
-  const leaderFn = src.slice(src.indexOf("function registerLeaderTools"), src.indexOf("function registerTeammateTools"));
-  assert.ok(leaderFn.includes("registerSearchMemory"));
+  assert.ok(!leaderFn.includes("Context"));
 });
 
 // ─── Teammate tools composition ──────────────────────────────────
-
-test("registerTeammateTools includes search_memory", () => {
-  const teammateFn = src.slice(src.indexOf("function registerTeammateTools"), src.indexOf("function registerAssistantTools"));
-  assert.ok(teammateFn.includes("registerSearchMemory"));
-});
 
 test("registerTeammateTools includes upload_attachment", () => {
   const teammateFn = src.slice(src.indexOf("function registerTeammateTools"), src.indexOf("function registerAssistantTools"));
@@ -141,9 +123,9 @@ test("registerAssistantTools includes create_story", () => {
   assert.ok(assistantFn.includes("registerCreateStory"));
 });
 
-test("registerAssistantTools includes save_memory with categories", () => {
+test("registerAssistantTools does NOT include context tools", () => {
   const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
-  assert.ok(assistantFn.includes("registerSaveMemory(pi, client, categories)"));
+  assert.ok(!assistantFn.includes("Context"));
 });
 
 test("registerAssistantTools does NOT include team_status", () => {
@@ -181,12 +163,11 @@ test("queue_request calls client.enqueueAssistantRequest", () => {
   assert.ok(src.includes("client.enqueueAssistantRequest("));
 });
 
-test("save_memory calls client.saveNote", () => {
-  assert.ok(src.includes("client.saveNote("));
-});
-
-test("search_memory calls client.searchNotes", () => {
-  assert.ok(src.includes("client.searchNotes("));
+test("context tools are gone (daemon vends context, agents don't CRUD it)", () => {
+  assert.ok(!src.includes("registerSaveContext"));
+  assert.ok(!src.includes("registerSearchContext"));
+  assert.ok(!src.includes("client.saveNote("));
+  assert.ok(!src.includes("client.searchNotes("));
 });
 
 test("team_status calls client.getStatus", () => {

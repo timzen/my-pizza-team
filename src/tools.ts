@@ -5,10 +5,12 @@
 //
 // Three registration functions for role-specific tool sets:
 //   - registerLeaderTools: create_story, edit_story, add_task, queue_request,
-//                          save_memory, search_memory, team_status
-//   - registerTeammateTools: search_memory, upload_attachment
-//   - registerAssistantTools: create_story, edit_story, add_task,
-//                             save_memory, search_memory, queue_request
+//                          team_status
+//   - registerTeammateTools: upload_attachment
+//   - registerAssistantTools: create_story, edit_story, add_task, queue_request
+//
+// Note: the context library is *vended by the daemon* (e.g. the assistant's
+// persona system prompt), not accessed by agents through tools.
 
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -21,15 +23,13 @@ import type { DaemonClient } from "./client.js";
 
 /**
  * Register tools for the leader role.
- * Includes story/task management, assistant queue, memory, and status.
+ * Includes story/task management, assistant queue, and status.
  */
 export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): void {
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
   registerQueueRequest(pi, client);
-  registerSaveMemory(pi, client);
-  registerSearchMemory(pi, client);
   registerTeamStatus(pi, client);
 }
 
@@ -39,14 +39,13 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
 
 /**
  * Register tools for the teammate role.
- * Includes memory search and file upload.
+ * Includes file upload for task attachments.
  */
 export function registerTeammateTools(
   pi: ExtensionAPI,
   client: DaemonClient,
   getCurrentTaskId: () => string | null
 ): void {
-  registerSearchMemory(pi, client);
   registerUploadAttachment(pi, client, getCurrentTaskId);
 }
 
@@ -56,19 +55,16 @@ export function registerTeammateTools(
 
 /**
  * Register tools for the assistant role.
- * Includes story/task management, memory save/search, and queue.
+ * Includes story/task management and the assistant queue.
  */
 export function registerAssistantTools(
   pi: ExtensionAPI,
-  client: DaemonClient,
-  categories?: string[]
+  client: DaemonClient
 ): void {
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
   registerQueueRequest(pi, client);
-  registerSaveMemory(pi, client, categories);
-  registerSearchMemory(pi, client);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -217,7 +213,7 @@ function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Queue Assistant Request",
     description:
       "Queue a request for the pi-pizza-team assistant to process. The assistant can create stories, " +
-      "add tasks, spawn teammates, save memories, or handle any operational request.",
+      "add tasks, spawn teammates, curate the context library, or handle any operational request.",
     promptSnippet: "Queue a request for the team assistant",
     promptGuidelines: [
       "Use queue_request when you want to delegate operational work to the assistant.",
@@ -234,73 +230,6 @@ function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
         content: [{ type: "text", text: `Queued request for assistant (id: ${result.item?.id}).` }],
         details: { itemId: result.item?.id },
       };
-    },
-  });
-}
-
-// ─── save_memory ─────────────────────────────────────────────────────
-
-function registerSaveMemory(pi: ExtensionAPI, client: DaemonClient, categories?: string[]): void {
-  const categoryList = (categories || ["coding", "research", "doc-writing"]).join(", ");
-
-  pi.registerTool({
-    name: "save_memory",
-    label: "Save Memory",
-    description: `Save a memory to the team's knowledge base. You MUST specify at least one category from: [${categoryList}].`,
-    promptSnippet: "Save a memory for the team",
-    promptGuidelines: [
-      "Use save_memory to persist information, research, decisions, or context for the team.",
-      `You MUST always include the 'categories' parameter. Available categories: ${categoryList}`,
-    ],
-    parameters: Type.Object({
-      title: Type.String({ description: "Title for the note" }),
-      content: Type.String({ description: "Markdown content of the note" }),
-      categories: Type.Array(Type.String(), { description: `Categories for the note. REQUIRED. Choose from: ${categoryList}` }),
-    }),
-    async execute(_toolCallId, params) {
-      const cats = params.categories?.length > 0 ? params.categories : [(categories || ["coding"])[0]];
-      const result = await client.saveNote(params.title, params.content, cats);
-      if (!result.success) throw new Error(result.error || "Failed to save memory");
-      return {
-        content: [{ type: "text", text: `Saved memory: "${params.title}" [${cats.join(", ")}]` }],
-        details: { noteId: result.note?.id },
-      };
-    },
-  });
-}
-
-// ─── search_memory ───────────────────────────────────────────────────
-
-function registerSearchMemory(pi: ExtensionAPI, client: DaemonClient): void {
-  pi.registerTool({
-    name: "search_memory",
-    label: "Search Memory",
-    description: "Search the team's memory by keyword. Can filter by category.",
-    promptSnippet: "Search team memory for relevant information",
-    promptGuidelines: [
-      "Use search_memory to find relevant context, conventions, or research from the team's knowledge base.",
-      "Search within a specific category for more targeted results (e.g. 'coding', 'research', 'doc-writing').",
-    ],
-    parameters: Type.Object({
-      query: Type.String({ description: "Search query (keywords)" }),
-      category: Type.Optional(Type.String({ description: "Category to search within (optional)" })),
-      limit: Type.Optional(Type.Number({ description: "Max results (default: 5)" })),
-    }),
-    async execute(_toolCallId, params) {
-      try {
-        const data = await client.searchNotes(params.query, params.category, params.limit);
-        const results = data.results || [];
-        if (results.length === 0) {
-          return { content: [{ type: "text", text: "No matching memories found." }] };
-        }
-        const formatted = results.map((r) => `- **${r.title}** (score: ${r.score}) — ${r.snippet}`).join("\n");
-        return {
-          content: [{ type: "text", text: `Found ${results.length} memories:\n${formatted}` }],
-          details: { results },
-        };
-      } catch {
-        return { content: [{ type: "text", text: "Failed to search memory (daemon unreachable)." }] };
-      }
     },
   });
 }

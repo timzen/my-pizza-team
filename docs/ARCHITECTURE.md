@@ -21,8 +21,9 @@ The extension operates in one of three roles:
 │  │                                                          │
 │  ├── --ppt-assistant → setupAssistantRole()                 │
 │  │         • Register with daemon as "assistant" agent       │
+│  │         • Advertise the `persona` capability             │
 │  │         • Poll assistant turns → claim → execute          │
-│  │         • Register save_memory + search_memory tools      │
+│  │         • Inject daemon-vended persona as system prompt   │
 │  │                                                          │
 │  ├── --ppt-worker → setupTeammateRole()                     │
 │  │         • Register with daemon as "teammate" agent        │
@@ -93,11 +94,18 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │                                                          │
 │  1. GET  /api/assistant/next                            │
 │  2. POST /api/assistant/messages/:id/claim                 │
-│  3. pi.sendUserMessage(item.prompt)                     │
+│  3. refresh persona → pi.sendUserMessage(item.prompt)    │
 │  4. agent_end → POST /api/assistant/messages/:id/complete  │
 │  5. Back to step 1                                      │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Persona injection.** The assistant registers with a `persona` capability so the
+web UI knows this build can adopt a persona. It caches the daemon's active
+persona (`GET /api/assistant/persona`, refreshed each turn) and a
+`before_agent_start` hook appends the persona entry's body to the system prompt.
+Swapping a persona in the UI resets the session (via the `reset-session`
+directive), so the next turn starts fresh under the new persona.
 
 ## Daemon API (consumed by this extension)
 
@@ -135,8 +143,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/assistant/next` | GET | Next pending assistant turn |
 | `/api/assistant/messages/:id/claim` | POST | Claim a turn |
 | `/api/assistant/messages/:id/complete` | POST | Complete a turn |
-| `/api/assistant/notes` | POST | Save memory note |
-| `/api/assistant/notes/search` | GET | Search notes |
+| `/api/assistant/persona` | GET | Effective persona system prompt (daemon-vended; selected entry or default) |
 
 ### Spawn / Config
 | Route | Method | Purpose |
@@ -208,7 +215,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ## Key Design Decisions
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
-2. **Daemon owns all state** — stories, tasks, workflows, notes, assistant conversation
+2. **Daemon owns all state** — stories, tasks, workflows, context library, assistant conversation
 3. **Agent protocol for teammates** — `/api/agents/*` routes with claim/release semantics
 4. **Workflow-agnostic teammate** — never hardcodes state names, uses daemon transitions
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing

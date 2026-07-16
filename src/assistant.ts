@@ -30,6 +30,9 @@ export class AssistantLoop {
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
+  /** Active persona's system-prompt text (null = default assistant). */
+  private personaContent: string | null = null;
+
   /** Callback invoked when an item is completed (for widget updates) */
   public onItemComplete: ((itemId: string, summary: string) => void) | null = null;
 
@@ -46,6 +49,26 @@ export class AssistantLoop {
   /** The ID of the currently processing queue item (null if idle) */
   get currentItem(): string | null {
     return this.currentItemId;
+  }
+
+  /**
+   * The active persona's system-prompt text, or null for the default assistant.
+   * Read by the `before_agent_start` hook to inject the persona each turn.
+   */
+  get persona(): string | null {
+    return this.personaContent;
+  }
+
+  /** Refresh the cached persona from the daemon (best-effort). */
+  private async refreshPersona(): Promise<void> {
+    try {
+      const res = await this.client.getPersona();
+      // `systemPrompt` is the effective prompt: the selected persona's body, or
+      // the daemon's default assistant persona when none is selected.
+      this.personaContent = res.systemPrompt || null;
+    } catch {
+      // Keep the last known persona if the daemon is briefly unreachable.
+    }
   }
 
   /** Start the poll loop and heartbeat */
@@ -108,23 +131,16 @@ export class AssistantLoop {
   }
 
   /**
-   * Execute a queue item by sending the prompt to the Pi agent.
+   * Execute a queue item by sending the user's message to the Pi agent. The
+   * assistant's role framing comes from its persona (injected as the system
+   * prompt by the before_agent_start hook), so the message is sent verbatim.
    * The agent_end event handler (registered in index.ts) will call
    * handleAgentComplete when the agent finishes.
    */
   private async executeItem(item: { id: string; prompt: string }): Promise<void> {
-    const prompt = [
-      `## Assistant Request`,
-      ``,
-      item.prompt,
-      ``,
-      `---`,
-      `You are the team assistant. Execute this request using your available tools ` +
-      `(create stories, add tasks, edit stories, save memories, search memories, etc.). ` +
-      `When done, provide a brief summary of what you accomplished.`,
-    ].join("\n");
-
-    this.pi.sendUserMessage(prompt, { deliverAs: "followUp" });
+    // Refresh the persona so the before_agent_start hook injects the current one.
+    await this.refreshPersona();
+    this.pi.sendUserMessage(item.prompt, { deliverAs: "followUp" });
   }
 
   // ─── Completion Handlers ───────────────────────────────────────────

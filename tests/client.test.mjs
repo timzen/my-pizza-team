@@ -170,18 +170,20 @@ test("has completeQueueItem (not completeAssistantItem)", () => {
   assert.ok(!clientSrc.includes("async completeAssistantItem"));
 });
 
-// ─── Memory Notes ────────────────────────────────────────────────
+// ─── Context Library ─────────────────────────────────────────────
 
-test("has saveNote method", () => {
-  assert.ok(clientSrc.includes("async saveNote(title"));
+// The daemon vends context (e.g. the assistant persona). The client only reads
+// the effective persona system prompt — no context list/save/search methods.
+test("has getPersona method returning systemPrompt", () => {
+  assert.ok(clientSrc.includes("async getPersona()"));
+  assert.ok(clientSrc.includes("systemPrompt: string"));
 });
 
-test("has searchNotes method", () => {
-  assert.ok(clientSrc.includes("async searchNotes(query"));
-});
-
-test("searchNotes uses POST /api/assistant/notes/search", () => {
-  assert.ok(clientSrc.includes("/api/assistant/notes/search"));
+test("client does NOT expose context CRUD/search methods", () => {
+  assert.ok(!clientSrc.includes("async listContext"));
+  assert.ok(!clientSrc.includes("async saveContext"));
+  assert.ok(!clientSrc.includes("async saveNote"));
+  assert.ok(!clientSrc.includes("async searchNotes"));
 });
 
 // ─── Stories / Tasks ─────────────────────────────────────────────

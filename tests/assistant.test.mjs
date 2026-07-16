@@ -80,8 +80,9 @@ test("uses deliverAs: followUp", () => {
   assert.ok(src.includes('deliverAs: "followUp"'));
 });
 
-test("prompt includes 'team assistant' role context", () => {
-  assert.ok(src.includes("You are the team assistant"));
+test("sends the user message verbatim (role framing comes from the persona)", () => {
+  assert.ok(src.includes("sendUserMessage(item.prompt"));
+  assert.ok(!src.includes("You are the team assistant"));
 });
 
 // ─── Lifecycle methods ───────────────────────────────────────────
@@ -122,13 +123,8 @@ test("deregisters on session_shutdown", () => {
   assert.ok(indexSrc.includes("client.deregister()"));
 });
 
-test("fetches categories from daemon config", () => {
-  assert.ok(indexSrc.includes("client.getConfig()"));
-  assert.ok(indexSrc.includes("config.categories"));
-});
-
-test("registers assistant tools with categories", () => {
-  assert.ok(indexSrc.includes("registerAssistantTools(pi, client, categories)"));
+test("registers assistant tools", () => {
+  assert.ok(indexSrc.includes("registerAssistantTools(pi, client)"));
 });
 
 test("does NOT import Store for assistant", () => {
@@ -155,6 +151,29 @@ test("tracks completed items for widget", () => {
   const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
   assert.ok(assistantSection.includes("completedItems"));
   assert.ok(assistantSection.includes("onItemComplete"));
+});
+
+// --- Persona ---
+
+test("AssistantLoop exposes a persona getter", () => {
+  assert.ok(src.includes("get persona()"));
+});
+
+test("AssistantLoop refreshes the persona from the daemon", () => {
+  assert.ok(src.includes("getPersona()"));
+  assert.ok(src.includes("refreshPersona"));
+});
+
+test("assistant advertises the persona capability on register", () => {
+  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
+  assert.ok(assistantSection.includes('persona: "true"'));
+});
+
+test("assistant injects the persona via before_agent_start", () => {
+  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
+  assert.ok(assistantSection.includes('pi.on("before_agent_start"'));
+  assert.ok(assistantSection.includes("loop.persona"));
+  assert.ok(assistantSection.includes("systemPrompt"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

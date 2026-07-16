@@ -121,21 +121,19 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`edit_story`** — Edit an existing story's fields
 - **`add_task`** — Add a task to a story
 - **`queue_request`** — Queue a request for the assistant
-- **`save_memory`** — Save a note to the knowledge base
-- **`search_memory`** — Search memories by keyword
 - **`team_status`** — Get current team status summary
 
 ### Teammate Tools
-- **`search_memory`** — Search memories for context
 - **`upload_attachment`** — Upload a file to the current task
 
 ### Assistant Tools
 - **`create_story`** — Create stories from prompts
 - **`edit_story`** — Edit stories
 - **`add_task`** — Add tasks to stories
-- **`save_memory`** — Persist research and decisions
-- **`search_memory`** — Find existing knowledge
 - **`queue_request`** — Delegate sub-requests
+
+> The context library is **vended by the daemon** where needed (e.g. the assistant's
+> persona system prompt) — agents don't search or CRUD context through tools.
 
 ## Multi-Harness Spawning
 

@@ -3,7 +3,7 @@
 // Wraps all API calls the pi-pizza-team extension makes to the
 // my-pizza-team daemon. Implements the daemon's agent protocol
 // (/api/agents/*) plus supporting endpoints for stories, tasks,
-// assistant queue, memory notes, and spawn requests.
+// assistant queue, context library, and spawn requests.
 //
 // Replaces the old teammate/client.ts and assistant/client.ts with
 // a single client. All roles (leader, teammate, assistant) use this.
@@ -111,23 +111,15 @@ export interface AssistantCompleteResponse {
   error?: string;
 }
 
-/** Response from POST /api/assistant/notes */
-export interface AssistantSaveNoteResponse {
-  success: boolean;
-  note?: {
-    id: string;
-    title: string;
-    content: string;
-    categories: string[];
-    createdAt: string;
-    updatedAt: string;
-  };
-  error?: string;
-}
-
-/** Response from GET /api/assistant/notes/search */
-export interface NotesSearchResponse {
-  results: Array<{ title: string; score: number; snippet: string }>;
+/** A context-library entry (reusable prompt/context; see daemon /api/context). */
+export interface ContextEntry {
+  id: string;
+  title: string;
+  description: string;
+  tags: string[];
+  content: string;
+  createdAt: string;
+  updatedAt: string;
 }
 
 /** A leader directive: an ask to the leader to act on an agent. */
@@ -540,6 +532,15 @@ export class DaemonClient {
   }
 
   /**
+   * Get the assistant's active persona and the effective system prompt to
+   * inject. When no persona is selected the daemon returns its default
+   * assistant persona in `systemPrompt`, so this is never empty in practice.
+   */
+  async getPersona(): Promise<{ personaId: string | null; entry: ContextEntry | null; systemPrompt: string }> {
+    return this.get("/api/assistant/persona");
+  }
+
+  /**
    * Claim an assistant queue item for processing.
    *
    * Marks the item as "processing" so no other assistant picks it up.
@@ -564,34 +565,12 @@ export class DaemonClient {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // MEMORY NOTES
+  // CONTEXT LIBRARY
   // ═══════════════════════════════════════════════════════════════════
-
-  /**
-   * Save a memory note to the team's knowledge base.
-   *
-   * Notes are markdown documents with categories for organization.
-   * They're indexed by the daemon's BM25 search engine.
-   */
-  async saveNote(title: string, content: string, categories: string[]): Promise<AssistantSaveNoteResponse> {
-    return this.post<AssistantSaveNoteResponse>("/api/assistant/notes", {
-      title,
-      content,
-      categories,
-    });
-  }
-
-  /**
-   * Search memory notes by keyword.
-   *
-   * Uses BM25 full-text search. Optionally filter by category and limit results.
-   */
-  async searchNotes(query: string, category?: string, limit?: number): Promise<NotesSearchResponse> {
-    const params = new URLSearchParams({ q: query });
-    if (category) params.set("category", category);
-    if (limit) params.set("limit", String(limit));
-    return this.get<NotesSearchResponse>(`/api/assistant/notes/search?${params}`);
-  }
+  //
+  // The context library is vended by the daemon where needed (e.g. the
+  // assistant's persona system prompt via getPersona). Agents do not perform
+  // context CRUD/search through tools, so no list/save methods live here.
 
   // ═══════════════════════════════════════════════════════════════════
   // STORIES / TASKS (for leader tools)
@@ -610,7 +589,6 @@ export class DaemonClient {
     requirements?: Record<string, string | null>;
     paused?: boolean;
     workflow?: string;
-    categories?: string[];
     tasks?: Array<{ title: string; description: string }>;
   }): Promise<CreateStoryResponse> {
     return this.post<CreateStoryResponse>("/api/stories", story);
@@ -662,7 +640,7 @@ export class DaemonClient {
   /**
    * Get the daemon's current configuration.
    *
-   * Returns port, tmuxSession, defaultWorkflow, categories, etc.
+   * Returns port, tmuxSession, defaultWorkflow, etc.
    */
   async getConfig(): Promise<any> {
     return this.get<any>("/api/config");
