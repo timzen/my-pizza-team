@@ -233,9 +233,11 @@ test("AgentNextWorkResponse is slimmed to id, storyId, title", () => {
   assert.ok(!clientSrc.match(/AgentNextWorkResponse[\s\S]*?availableTransitions/));
 });
 
-test("AgentClaimResponse includes instructions and task with context", () => {
-  assert.ok(clientSrc.includes("instructions?: string"));
-  assert.ok(clientSrc.includes("context?: string"));
+test("AgentClaimResponse carries the assembled prompt and task metadata", () => {
+  // The daemon now delivers the full prose in `prompt`; structured task
+  // metadata is minimal bookkeeping (id/storyId/status).
+  assert.ok(clientSrc.includes("prompt?: string"));
+  assert.ok(clientSrc.includes("status: string"));
 });
 
 test("AgentReleaseResponse includes newStatus and completed", () => {

@@ -96,15 +96,16 @@ test("does NOT hardcode 'done' state name", () => {
   assert.ok(!src.includes('"done"'));
 });
 
-// ─── NEEDS_INPUT handling ────────────────────────────────────────
+// ─── Completion → release ───────────────────────────────────
 
-test("detects NEEDS_INPUT in agent output", () => {
-  assert.ok(src.includes('lastMessage.includes("NEEDS_INPUT:")'));
-});
-
-test("releases task after NEEDS_INPUT (no specific transition)", () => {
-  const needsInputSection = src.slice(src.indexOf("NEEDS_INPUT:"));
-  assert.ok(needsInputSection.includes("releaseTask"));
+test("releases the task on agent completion (no NEEDS_INPUT protocol)", () => {
+  // The teammate no longer parses agent output for a NEEDS_INPUT sentinel.
+  // It always releases on completion; the daemon advances state and the lead
+  // requests rework by re-adding comments and moving the task back.
+  assert.ok(!src.includes("NEEDS_INPUT"));
+  assert.ok(src.includes("handleAgentComplete"));
+  const completeSection = src.slice(src.indexOf("handleAgentComplete"));
+  assert.ok(completeSection.includes("releaseTask"));
 });
 
 // ─── Comment handling ────────────────────────────────────────────
@@ -114,15 +115,12 @@ test("uses postComment (not postMessage)", () => {
   assert.ok(!src.includes("postMessage"));
 });
 
-test("filters comments by 'lead' author", () => {
-  assert.ok(src.includes('c.from === "lead"'));
-});
-
-// ─── Task prompt includes lead comments ──────────────────────────
-
-test("includes lead comments in task prompt (rework context)", () => {
-  assert.ok(src.includes("Comments from Team Lead"));
-  assert.ok(src.includes("task.comments?.filter"));
+test("does not filter or assemble lead comments itself (daemon owns the prompt)", () => {
+  // Lead comments are now folded into the daemon-assembled prompt; the
+  // teammate never inspects comment authors or builds rework context locally.
+  assert.ok(!src.includes('c.from === "lead"'));
+  assert.ok(!src.includes("Comments from Team Lead"));
+  assert.ok(!src.includes("task.comments?.filter"));
 });
 
 // ─── No comment watching or watch loop (removed) ─────────────────
@@ -157,10 +155,12 @@ test("reports token usage via reportTokenUsage", () => {
   assert.ok(src.includes("this.client.reportTokenUsage("));
 });
 
-// ─── Instructions from claim ─────────────────────────────────────
+// ─── Prompt from claim ───────────────────────────────────────────
 
-test("uses instructions from claim response", () => {
-  assert.ok(src.includes("claim.instructions"));
+test("executes the daemon-assembled prompt from the claim response", () => {
+  // The daemon owns the full prompt; the teammate delivers claim.prompt
+  // verbatim rather than augmenting local instructions.
+  assert.ok(src.includes("claim.prompt"));
 });
 
 test("dismisses itself when next-work returns dismiss (assigned-story exhausted)", () => {
