@@ -37,6 +37,7 @@ import {
 } from "../shared/types.ts";
 import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
+import { readScratchpad, addTodo, updateTodo, deleteTodo, writeNotes, type TodoItem } from "./store/scratchpad.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
@@ -1801,6 +1802,28 @@ export class Store {
       if (entry) resolved.push({ title: entry.title, content: entry.content });
     }
     return resolved;
+  }
+
+  // --- Scratch pad (personal todos + notes; see store/scratchpad.ts) ---
+
+  getScratchpad(): { todos: TodoItem[]; notes: string } {
+    return readScratchpad(this.teamDir);
+  }
+
+  addScratchpadTodo(item: string): TodoItem[] {
+    return addTodo(this.teamDir, item);
+  }
+
+  updateScratchpadTodo(index: number, updates: { status?: "open" | "done"; item?: string }): TodoItem[] | null {
+    return updateTodo(this.teamDir, index, updates);
+  }
+
+  deleteScratchpadTodo(index: number): TodoItem[] | null {
+    return deleteTodo(this.teamDir, index);
+  }
+
+  setScratchpadNotes(content: string): void {
+    writeNotes(this.teamDir, content);
   }
 
   // --- Cleanup ---

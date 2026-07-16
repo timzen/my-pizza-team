@@ -200,6 +200,18 @@ Tag a context entry with **`persona`** to turn it into a swappable assistant per
 
 ---
 
+## Scratch Pad
+
+A personal space for quick capture (`/scratchpad`), rendered as a todo list on the left and free-form notes on the right.
+
+- **Todos** — add, check off (stamps a completion date), and delete items. Stored in `TODO.jsonl`.
+- **Notes** — a free-form markdown doc with edit/preview; saves on blur. Stored in `NOTES.md`.
+- **Assistant access** — the assistant can *read* your scratch pad on request ("take a look at my scratch pad and help me plan my day") via its `read_scratchpad` tool. It's read-only; the assistant summarizes and helps, it doesn't edit.
+
+Both files live at the root of the team directory as plain text — easy to hand-edit or grep.
+
+---
+
 ## Configuration
 
 Visit `/config` to manage settings:

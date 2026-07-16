@@ -22,6 +22,7 @@ const NAV_ITEMS = [
   { path: "/team", label: "Teammates" },
   { path: "/assistant", label: "Assistant" },
   { path: "/context", label: "Context" },
+  { path: "/scratchpad", label: "Scratch Pad" },
 ];
 
 /** Items nested under the "More" dropdown beside Board */

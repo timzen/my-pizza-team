@@ -142,7 +142,9 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 │               └── attachments/
 ├── archived/
 ├── backlog/
-└── context/             # Context library: reusable prompt/context markdown entries
+├── context/             # Context library: reusable prompt/context markdown entries
+├── TODO.jsonl           # Scratch pad todos (one JSON object per line)
+└── NOTES.md             # Scratch pad notes (free-form markdown)
 ```
 
 ---
@@ -350,6 +352,7 @@ done
 | Agents | `/api/agents/*` | Register, heartbeat, claim, release |
 | Assistant | `/api/assistant/*` | Chat conversation |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
+| Scratch Pad | `/api/scratchpad/*` | Personal todos (`TODO.jsonl`) + notes (`NOTES.md`) |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | Capabilities | `GET/POST/DELETE /api/capabilities` | Recently used capability names + values |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |
