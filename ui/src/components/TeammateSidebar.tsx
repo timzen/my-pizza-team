@@ -1,18 +1,22 @@
 /**
  * TeammateSidebar — Persistent right-hand column listing connected teammates.
  *
- * Shown on every page so the team is always visible. Condensed per-teammate
- * rows (status, name, current task, capabilities) with per-teammate reset /
- * dismiss actions, plus a Spawn button at the top. Polls /api/agents.
+ * Shown on every page so the team is always visible. Can be expanded (full
+ * rows: status, name, current task, capabilities, reset/dismiss actions) or
+ * collapsed to a slim icon rail (status avatars + a Spawn "+" at the top). The
+ * collapsed/expanded choice is remembered in localStorage. Polls /api/agents.
  */
 
+import { useState } from "react";
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
-import { Trash2, RotateCcw, FolderOpen } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen } from "lucide-react";
 import { SpawnDialog } from "@/components/board/SpawnDialog";
 
 /** Well-known capability key for a teammate's working directory. */
 const DIRECTORY_CAP = "directory";
+const COLLAPSE_KEY = "mpt.teammateSidebar.collapsed";
 
 interface Teammate {
   id: string;
@@ -35,9 +39,19 @@ const DOT: Record<string, string> = {
 
 export function TeammateSidebar() {
   const { data, refetch } = useApi<{ agents: Teammate[] }>("/api/agents", [], { pollInterval: 10_000 });
+  const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === "1");
+
   const teammates = data?.agents || [];
   const online = teammates.filter((a) => a.status !== "offline");
   const offline = teammates.filter((a) => a.status === "offline");
+
+  const toggle = () => {
+    setCollapsed((c) => {
+      const next = !c;
+      localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      return next;
+    });
+  };
 
   const dismiss = async (id: string) => {
     await apiDelete(`/api/agents/${encodeURIComponent(id)}`);
@@ -51,13 +65,42 @@ export function TeammateSidebar() {
     await apiPost(`/api/hosts/${encodeURIComponent(t.hostId)}/leader/directives`, { action: "reset-session", memberId: t.id });
   };
 
+  // ─── Collapsed: slim icon rail ─────────────────────────────────────
+  if (collapsed) {
+    return (
+      <aside className="hidden lg:flex w-14 shrink-0 flex-col items-center border-l border-border bg-muted/30">
+        <div className="h-14 flex items-center justify-center border-b border-border w-full shrink-0">
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle} title="Expand teammates">
+            <PanelRightOpen className="h-4 w-4" />
+          </Button>
+        </div>
+        <div className="flex-1 overflow-y-auto py-3 flex flex-col items-center gap-2 w-full">
+          <SpawnDialog onSpawned={refetch} compact />
+          <div className="h-px w-6 bg-border my-1" />
+          {online.map((t) => (
+            <TeammateAvatar key={t.id} teammate={t} />
+          ))}
+          {offline.map((t) => (
+            <TeammateAvatar key={t.id} teammate={t} />
+          ))}
+        </div>
+      </aside>
+    );
+  }
+
+  // ─── Expanded: full rows ───────────────────────────────────────────
   return (
     <aside className="hidden lg:flex w-72 shrink-0 flex-col border-l border-border bg-muted/30">
       <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
         <h2 className="text-sm font-semibold">
           Teammates <span className="text-muted-foreground font-normal">({online.length})</span>
         </h2>
-        <SpawnDialog onSpawned={refetch} />
+        <div className="flex items-center gap-1">
+          <SpawnDialog onSpawned={refetch} />
+          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle} title="Collapse teammates">
+            <PanelRightClose className="h-4 w-4" />
+          </Button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -81,6 +124,19 @@ export function TeammateSidebar() {
         )}
       </div>
     </aside>
+  );
+}
+
+/** A status-colored circle with the teammate's initial (collapsed rail). */
+function TeammateAvatar({ teammate }: { teammate: Teammate }) {
+  const title = `${teammate.name} · ${teammate.status}${teammate.currentTask ? ` · ⚙️ ${teammate.currentTask}` : ""}`;
+  return (
+    <div className="relative" title={title}>
+      <div className={`h-8 w-8 rounded-full flex items-center justify-center text-xs font-medium uppercase bg-background border border-border ${teammate.status === "offline" ? "opacity-50" : ""}`}>
+        {teammate.name.charAt(0)}
+      </div>
+      <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-muted/30 ${DOT[teammate.status] || DOT.offline}`} />
+    </div>
   );
 }
 
