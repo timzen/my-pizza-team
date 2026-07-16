@@ -7,7 +7,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - **daemon/** — HTTP API server built with [Hono](https://hono.dev/) on Deno's native `Deno.serve()` adapter
 - **cli/** — Command-line interface for interacting with the daemon
 - **ui/** — Frontend application (React + Vite + shadcn/ui). Talks to the daemon's HTTP API.
-  - `src/App.tsx` — Router. Pages: `/board`, `/team` (Teammates), `/context`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows`, `/help`.
+  - `src/App.tsx` — Router. Pages: `/board`, `/team` (Teammates), `/context`, `/scratchpad`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows`, `/help`.
   - `src/pages/TeammatesPage.tsx` — Connected teammates (route stays `/team`). Shows status, host, **capabilities as labeled badges** (`directory` is just one capability among many), heartbeat, current task. Per-teammate **Reset** action posts a `reset-session` leader directive (the harness realizes it as Pi's `/new`, clearing the context window).
   - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (an "eye" button opens a read-only preview, a `details →` link opens the task page).
   - `src/components/board/TaskViewDialog.tsx` — Read-only task preview modal (description + link to the task page). Editing does **not** happen here.
@@ -26,6 +26,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
 - `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. **Task order is owned by the story** (`Story.taskOrder`, an array of task IDs in story.json); `getTasksForStory()` reconciles it against the tasks on disk (listed order first, orphans appended by creation `seq`, danglers ignored) and `reorderTasks()` just rewrites `taskOrder` — task IDs, titles, and directories are untouched. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`. Self-contained concerns are split into `store/`:
   - `store/context.ts` — context library (reusable prompt/context entries as markdown files under `context/`, with `title`/`description`/`tags` frontmatter). Entries can be **attached to stories/tasks** (`story.context` / `task.context`, arrays of entry ids); `store.resolveTaskContext()` merges + dedupes them for prompt injection.
+  - `store/scratchpad.ts` — personal scratch pad kept as plain files under the team dir (no SQLite): `TODO.jsonl` (one `{status,item,created,completed}` per line, addressed by index) + `NOTES.md` (free-form markdown).
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
 - `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
@@ -36,6 +37,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
 - `routes/assistant.ts` — Assistant chat (conversation + agent-facing turn queue) and the assistant **persona** (a context-library entry whose body is vended as the assistant's system prompt; when none is selected the daemon supplies `DEFAULT_ASSISTANT_PERSONA`). Swapping clears + resets the session.
 - `routes/context.ts` — Context library CRUD (`/api/context`) over `store/context.ts`.
+- `routes/scratchpad.ts` — Personal scratch pad (`/api/scratchpad`): todos (add/toggle/delete by index) + notes, over `store/scratchpad.ts`.
 
 ### cli/
 - `main.ts` — CLI entry point (start/stop/status/install/uninstall/rotate-token). Exposes `main()` for the compiled binary and runs directly under `deno run`.
@@ -108,6 +110,11 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/context` | Create/overwrite a context entry (id derived from title) |
 | PUT | `/api/context/:id` | Update a context entry in place |
 | DELETE | `/api/context/:id` | Delete a context entry |
+| GET | `/api/scratchpad` | Get the scratch pad (`{todos, notes}`) |
+| POST | `/api/scratchpad/todos` | Add a todo (`{item}`) |
+| PUT | `/api/scratchpad/todos/:index` | Update a todo by index (`status`/`item`; done stamps `completed`) |
+| DELETE | `/api/scratchpad/todos/:index` | Delete a todo by index |
+| PUT | `/api/scratchpad/notes` | Overwrite the notes markdown (`{content}`) |
 | POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...) |
 | GET | `/api/hosts/:hostId/leader/directives` | Poll pending directives for a host (single leader queue) |
 | PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |
