@@ -73,6 +73,10 @@ test("has team_status tool", () => {
   assert.ok(src.includes('name: "team_status"'));
 });
 
+test("has read_scratchpad tool", () => {
+  assert.ok(src.includes('name: "read_scratchpad"'));
+});
+
 test("has upload_attachment tool", () => {
   assert.ok(src.includes('name: "upload_attachment"'));
 });
@@ -126,6 +130,11 @@ test("registerAssistantTools includes create_story", () => {
 test("registerAssistantTools does NOT include context tools", () => {
   const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
   assert.ok(!assistantFn.includes("Context"));
+});
+
+test("registerAssistantTools includes read_scratchpad", () => {
+  const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// TOOL IMPLEMENTATIONS"));
+  assert.ok(assistantFn.includes("registerReadScratchpad"));
 });
 
 test("registerAssistantTools does NOT include team_status", () => {

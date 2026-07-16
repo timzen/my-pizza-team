@@ -7,7 +7,8 @@
 //   - registerLeaderTools: create_story, edit_story, add_task, queue_request,
 //                          team_status
 //   - registerTeammateTools: upload_attachment
-//   - registerAssistantTools: create_story, edit_story, add_task, queue_request
+//   - registerAssistantTools: create_story, edit_story, add_task, queue_request,
+//                             read_scratchpad
 //
 // Note: the context library is *vended by the daemon* (e.g. the assistant's
 // persona system prompt), not accessed by agents through tools.
@@ -65,6 +66,7 @@ export function registerAssistantTools(
   registerEditStory(pi, client);
   registerAddTask(pi, client);
   registerQueueRequest(pi, client);
+  registerReadScratchpad(pi, client);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -230,6 +232,40 @@ function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
         content: [{ type: "text", text: `Queued request for assistant (id: ${result.item?.id}).` }],
         details: { itemId: result.item?.id },
       };
+    },
+  });
+}
+
+// ─── read_scratchpad ──────────────────────────────────────────
+
+function registerReadScratchpad(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "read_scratchpad",
+    label: "Read Scratch Pad",
+    description: "Read the user's personal scratch pad: their todo list and free-form notes. Use this when the user asks you to look at their scratch pad, todos, or notes (e.g. to help plan their day).",
+    promptSnippet: "Read the user's scratch pad (todos + notes)",
+    promptGuidelines: [
+      "Use read_scratchpad when the user references their scratch pad, todos, or notes.",
+      "It's read-only — summarize or help act on what you find; you can't modify it.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params) {
+      try {
+        const { todos, notes } = await client.getScratchpad();
+        const open = todos.filter((t) => t.status !== "done");
+        const done = todos.filter((t) => t.status === "done");
+        const fmt = (t: { item: string; created: string; completed: string }) => `- ${t.item}`;
+        let text = "# Scratch Pad\n\n## Todos\n";
+        text += open.length > 0 ? `\n### Open\n${open.map(fmt).join("\n")}\n` : "\n(no open todos)\n";
+        if (done.length > 0) text += `\n### Done\n${done.map(fmt).join("\n")}\n`;
+        text += `\n## Notes\n\n${notes.trim() || "(empty)"}\n`;
+        return {
+          content: [{ type: "text", text }],
+          details: { openCount: open.length, doneCount: done.length },
+        };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to read the scratch pad (daemon unreachable)." }] };
+      }
     },
   });
 }

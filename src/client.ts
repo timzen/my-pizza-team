@@ -541,6 +541,14 @@ export class DaemonClient {
   }
 
   /**
+   * Read the user's scratch pad (todo list + notes doc). Read-only: the
+   * assistant looks at it when the user asks (e.g. "help me plan my day").
+   */
+  async getScratchpad(): Promise<{ todos: Array<{ status: string; item: string; created: string; completed: string }>; notes: string }> {
+    return this.get("/api/scratchpad");
+  }
+
+  /**
    * Claim an assistant queue item for processing.
    *
    * Marks the item as "processing" so no other assistant picks it up.

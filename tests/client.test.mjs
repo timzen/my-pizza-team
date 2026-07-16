@@ -179,6 +179,11 @@ test("has getPersona method returning systemPrompt", () => {
   assert.ok(clientSrc.includes("systemPrompt: string"));
 });
 
+test("has getScratchpad method (read-only)", () => {
+  assert.ok(clientSrc.includes("async getScratchpad()"));
+  assert.ok(clientSrc.includes('this.get("/api/scratchpad")'));
+});
+
 test("client does NOT expose context CRUD/search methods", () => {
   assert.ok(!clientSrc.includes("async listContext"));
   assert.ok(!clientSrc.includes("async saveContext"));

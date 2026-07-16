@@ -144,6 +144,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/assistant/messages/:id/claim` | POST | Claim a turn |
 | `/api/assistant/messages/:id/complete` | POST | Complete a turn |
 | `/api/assistant/persona` | GET | Effective persona system prompt (daemon-vended; selected entry or default) |
+| `/api/scratchpad` | GET | Read the user's scratch pad (todos + notes) for the read_scratchpad tool |
 
 ### Spawn / Config
 | Route | Method | Purpose |
