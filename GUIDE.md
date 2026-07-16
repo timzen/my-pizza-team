@@ -105,7 +105,7 @@ Each card shows:
 
 ## Workflows
 
-The workflows page (`/workflows`) lets you view and manage workflow definitions.
+The **Workflows** tab on the home page (`/`) lets you view and manage workflow definitions.
 
 ### Viewing a Workflow
 
@@ -133,11 +133,11 @@ Write clear, actionable instructions. Teammates receive these verbatim.
 
 ## Teammates
 
-The teammates page (`/team`) shows all connected teammates with their status, host, capabilities, current task, and last heartbeat.
+Teammates are shown in a persistent column on the right of every page — each with its status, current task, and capabilities. The team is always in view, so you never leave what you're doing to check on it.
 
 ### Spawning Teammates
 
-Click **Spawn** in the board or teammates header to request a new teammate:
+Click **Spawn** at the top of the teammates column to request a new teammate:
 - **Host** — Which machine should start the teammate
 - **Working Directory** — Where the teammate operates (recent + story dirs shown)
 
@@ -178,7 +178,7 @@ The teammate will pick it up again, see your comments, and address them.
 
 ## Context Library
 
-The context library (`/context`) stores reusable prompt/context entries that you can inject into teammates or the assistant.
+The context library (the **Context** tab on the home page, `/context`) stores reusable prompt/context entries that you can inject into teammates or the assistant.
 
 - **Metadata** — Each entry has a title, a short description, and tags
 - **Filter** — Tag chips and free-text search narrow the list (client-side; the collection is meant to stay small)

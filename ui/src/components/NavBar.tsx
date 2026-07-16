@@ -19,15 +19,12 @@ import {
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
   { path: "/board", label: "Board" },
-  { path: "/team", label: "Teammates" },
   { path: "/assistant", label: "Assistant" },
-  { path: "/context", label: "Context" },
   { path: "/scratchpad", label: "Scratch Pad" },
 ];
 
 /** Items nested under the "More" dropdown beside Board */
 const MORE_ITEMS = [
-  { path: "/workflows", label: "Workflows" },
   { path: "/backlog", label: "Backlog" },
   { path: "/archived", label: "Archive" },
 ];
