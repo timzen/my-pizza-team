@@ -1,12 +1,12 @@
 /**
  * WorkflowDetailPage — Shows the full detail of a single workflow,
  * including an SVG-based directed graph visualization, an edit dialog
- * for states/transitions, and always-visible instructions and categories.
+ * for states/transitions, and always-visible instructions.
  */
 
 import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
-import { useApi, apiPut } from "@/hooks/useApi";
+import { useApi } from "@/hooks/useApi";
 import { WorkflowGraph, type WorkflowConfig } from "@/components/workflow/WorkflowGraph";
 import { WorkflowPreview } from "@/components/workflow/WorkflowPreview";
 import { WorkflowEditor } from "@/components/workflow/WorkflowEditor";
@@ -19,7 +19,6 @@ interface ConfigData {
   tmuxSession: string;
   defaultWorkflow: string;
   workflows: Record<string, WorkflowConfig>;
-  categories?: string[];
   [key: string]: unknown;
 }
 
@@ -37,23 +36,9 @@ export function WorkflowDetailPage() {
     (sum, t) => sum + Object.keys(t).length, 0
   );
 
-  const allCategories = configData?.categories || [];
-  const wfCategories = data.categories || [];
-
   const handleSaved = () => {
     refetch();
     refetchConfig();
-  };
-
-  const toggleCategory = async (cat: string) => {
-    if (!configData) return;
-    const current = new Set(wfCategories);
-    if (current.has(cat)) current.delete(cat);
-    else current.add(cat);
-    const updatedWf = { ...data, categories: current.size > 0 ? [...current] : undefined };
-    const updatedConfig = { ...configData, workflows: { ...configData.workflows, [name!]: updatedWf } };
-    const res = await apiPut<{ success: boolean }>("/api/config", updatedConfig);
-    if (res.success) handleSaved();
   };
 
   return (
@@ -109,34 +94,6 @@ export function WorkflowDetailPage() {
         </h2>
         <WorkflowPreview workflow={data} />
       </section>
-
-      {/* Default categories */}
-      {allCategories.length > 0 && (
-        <section>
-          <h2 className="text-sm font-semibold mb-3 text-muted-foreground uppercase tracking-wide">
-            Default Memory Categories
-          </h2>
-          <p className="text-xs text-muted-foreground mb-2">
-            Stories using this workflow inherit these categories unless overridden.
-          </p>
-          <div className="flex gap-1.5 flex-wrap">
-            {allCategories.map((c) => {
-              const selected = wfCategories.includes(c);
-              return (
-                <Button
-                  key={c}
-                  variant={selected ? "default" : "outline"}
-                  size="sm"
-                  className="text-xs h-7"
-                  onClick={() => toggleCategory(c)}
-                >
-                  {c}
-                </Button>
-              );
-            })}
-          </div>
-        </section>
-      )}
 
       {/* State instructions editor */}
       <section>

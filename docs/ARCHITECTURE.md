@@ -7,7 +7,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - **daemon/** — HTTP API server built with [Hono](https://hono.dev/) on Deno's native `Deno.serve()` adapter
 - **cli/** — Command-line interface for interacting with the daemon
 - **ui/** — Frontend application (React + Vite + shadcn/ui). Talks to the daemon's HTTP API.
-  - `src/App.tsx` — Router. Pages: `/board`, `/team` (Teammates), `/memory`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows`, `/help`.
+  - `src/App.tsx` — Router. Pages: `/board`, `/team` (Teammates), `/context`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows`, `/help`.
   - `src/pages/TeammatesPage.tsx` — Connected teammates (route stays `/team`). Shows status, host, **capabilities as labeled badges** (`directory` is just one capability among many), heartbeat, current task. Per-teammate **Reset** action posts a `reset-session` leader directive (the harness realizes it as Pi's `/new`, clearing the context window).
   - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (an "eye" button opens a read-only preview, a `details →` link opens the task page).
   - `src/components/board/TaskViewDialog.tsx` — Read-only task preview modal (description + link to the task page). Editing does **not** happen here.
@@ -25,15 +25,17 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
 - `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
 - `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. **Task order is owned by the story** (`Story.taskOrder`, an array of task IDs in story.json); `getTasksForStory()` reconciles it against the tasks on disk (listed order first, orphans appended by creation `seq`, danglers ignored) and `reorderTasks()` just rewrites `taskOrder` — task IDs, titles, and directories are untouched. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`. Self-contained concerns are split into `store/`:
-  - `store/notes.ts` — knowledge-base notes (markdown files under `notes/`).
+  - `store/context.ts` — context library (reusable prompt/context entries as markdown files under `context/`, with `title`/`description`/`tags` frontmatter). Entries can be **attached to stories/tasks** (`story.context` / `task.context`, arrays of entry ids); `store.resolveTaskContext()` merges + dedupes them for prompt injection.
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
 - `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
-- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (Story → Task → prior-task context → lead comments → state guidance → transition instructions for leaving the previous state and entering the working state). Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored instruction headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
+- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (Story → Task → reference context → prior-task context → lead comments → state guidance → transition instructions for leaving the previous state and entering the working state). **Reference context** is the set of context-library entries attached to the story and/or task (resolved + deduped by `store.resolveTaskContext`), inlined verbatim so every harness gets the same material. Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored instruction headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
 - `workflow-lint.ts` — `validateInstructionMarkdown()`: lints authored state-instruction markdown. Unbalanced code fences are **errors** (they'd swallow the rest of the prompt) and block the save; shallow headings and stray `---` rules are **warnings** (the prompt builder normalizes headings anyway).
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
 - `routes/stories.ts` — Story CRUD, archive, backlog.
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
+- `routes/assistant.ts` — Assistant chat (conversation + agent-facing turn queue) and the assistant **persona** (a context-library entry whose body is vended as the assistant's system prompt; when none is selected the daemon supplies `DEFAULT_ASSISTANT_PERSONA`). Swapping clears + resets the session.
+- `routes/context.ts` — Context library CRUD (`/api/context`) over `store/context.ts`.
 
 ### cli/
 - `main.ts` — CLI entry point (start/stop/status/install/uninstall/rotate-token). Exposes `main()` for the compiled binary and runs directly under `deno run`.
@@ -42,8 +44,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 ### shared/
 - `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName). Also defines the capability model: `Capabilities` (`Record<string, string | null>`), `WorkMode`, the `DIRECTORY_CAP` well-known key, `normalizeDirectory()`, and `meetsRequirements()`.
 - `protocol.ts` — API request/response type contracts for all HTTP endpoints.
-- `frontmatter.ts` — Parsing/serialization of YAML-like frontmatter for memory notes.
-- `search.ts` — BM25 search engine for memory notes, with per-category indexes.
+- `frontmatter.ts` — Parsing/serialization of YAML-like frontmatter (`title`, `description`, `tags`) for context entries.
 
 ### tests/
 - `health.test.ts` — Integration test for the `/health` endpoint using Hono's `app.request()` test helper.
@@ -96,13 +97,17 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/assistant/messages` | Get the assistant conversation (chronological) |
 | POST | `/api/assistant/messages` | Send a user message (creates a pending assistant turn) |
 | DELETE | `/api/assistant/messages/:id` | Delete a single message |
-| DELETE | `/api/assistant/messages` | Clear the conversation |
+| DELETE | `/api/assistant/messages` | Clear the conversation (also resets the assistant session) |
+| GET | `/api/assistant/persona` | Get the active persona + effective system prompt (`{personaId, entry, systemPrompt}`; `systemPrompt` falls back to the daemon default) |
+| PUT | `/api/assistant/persona` | Swap the persona (clears + resets the session); `personaId: null` = default |
 | GET | `/api/assistant/next` | Agent: get the next pending assistant turn (`{id, prompt}`) |
 | POST | `/api/assistant/messages/:id/claim` | Agent: claim a turn (-> processing) |
 | POST | `/api/assistant/messages/:id/complete` | Agent: complete a turn with a reply |
-| GET | `/api/assistant/notes` | List memory notes |
-| POST | `/api/assistant/notes` | Save a note |
-| DELETE | `/api/assistant/notes/:id` | Delete a note |
+| GET | `/api/context` | List context-library entries |
+| GET | `/api/context/:id` | Get a single context entry |
+| POST | `/api/context` | Create/overwrite a context entry (id derived from title) |
+| PUT | `/api/context/:id` | Update a context entry in place |
+| DELETE | `/api/context/:id` | Delete a context entry |
 | POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...) |
 | GET | `/api/hosts/:hostId/leader/directives` | Poll pending directives for a host (single leader queue) |
 | PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |

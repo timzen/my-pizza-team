@@ -14,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
 import { RequirementsEditor } from "@/components/board/RequirementsEditor";
+import { ContextSelector } from "@/components/board/ContextSelector";
 import { AddTaskDialog } from "@/components/board/AddTaskDialog";
 import { ArrowLeft, Save, Trash2, Plus, ChevronUp, ChevronDown } from "lucide-react";
 
@@ -31,6 +32,7 @@ interface StoryView {
   requirements?: Record<string, string | null>;
   paused?: boolean;
   workflow?: string;
+  context?: string[];
   tasks: StoryTask[];
 }
 
@@ -45,6 +47,7 @@ export function StoryDetailPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [requirements, setRequirements] = useState<Record<string, string | null>>({});
+  const [context, setContext] = useState<string[]>([]);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
   const [addTaskOpen, setAddTaskOpen] = useState(false);
@@ -55,6 +58,7 @@ export function StoryDetailPage() {
       setTitle(story.title);
       setDescription(story.description);
       setRequirements(story.requirements ? { ...story.requirements } : {});
+      setContext(story.context ? [...story.context] : []);
       setPaused(!!story.paused); setError("");
     }
   }, [story?.id]);
@@ -72,6 +76,7 @@ export function StoryDetailPage() {
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, {
       title, description,
       requirements: Object.keys(requirements).length > 0 ? requirements : null,
+      context,
       paused,
     });
     if (res.success) refetch();
@@ -161,6 +166,8 @@ export function StoryDetailPage() {
         </div>
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Requirements</Label></div><RequirementsEditor value={requirements} onChange={setRequirements} /></div>
+
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-2">Injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

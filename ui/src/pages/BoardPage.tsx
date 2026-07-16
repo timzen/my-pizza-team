@@ -33,7 +33,7 @@ interface StoryView {
   requirements?: Record<string, string | null>;
   paused?: boolean;
   workflow?: string;
-  categories?: string[];
+  context?: string[];
   tasks: Array<{
     id: string;
     seq: number;

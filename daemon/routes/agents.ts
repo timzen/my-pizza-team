@@ -163,6 +163,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       transition: { fromState: fromStatus, toState: targetStatus, exit: exitInstructions, enter: enterInstructions },
       previousResults: previousResults || undefined,
       comments: comments.length > 0 ? comments : undefined,
+      contextEntries: store.resolveTaskContext(story?.context, task.context),
     });
 
     return c.json({

@@ -20,7 +20,6 @@ export interface WorkflowConfig {
   transitions: Record<string, Record<string, string>>;
   initialState?: string;
   doneState?: string;
-  categories?: string[];
   instructions?: Record<string, string>;
 }
 

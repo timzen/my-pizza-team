@@ -20,8 +20,6 @@ export interface TeamConfig {
   autosave: AutosaveConfig;
   maxTeammates?: number;
   teammates?: TeammateConfig;
-  /** Configurable memory categories for the knowledge base */
-  categories?: string[];
   /**
    * Recently used capabilities, as a map of capability name -> known values
    * (most-recent-first, deduped, capped). Presence-only capabilities map to an
@@ -49,9 +47,6 @@ export interface TeammateConfig {
   nouns?: string[];
 }
 
-/** Default memory categories for the knowledge base */
-export const DEFAULT_CATEGORIES = ["coding", "research", "doc-writing"];
-
 export interface WorkflowConfig {
   states: string[];
   transitions: Record<string, Record<string, TransitionPermission>>;
@@ -59,8 +54,6 @@ export interface WorkflowConfig {
   initialState?: string;
   /** The terminal state meaning work is complete (defaults to last state in states array) */
   doneState?: string;
-  /** Default memory categories for stories using this workflow */
-  categories?: string[];
   /** Instruction files per state (relative to workflow directory) */
   instructions?: Record<string, string>;
 }
@@ -139,7 +132,8 @@ export interface Story {
   /** When true, the story's tasks are not handed out to agents (temporal gate). */
   paused?: boolean;
   workflow?: string;
-  categories?: string[];
+  /** Context-library entry ids attached to this story (injected into every task's prompt). */
+  context?: string[];
   /**
    * The story owns its task ordering: an ordered list of task IDs. This keeps
    * order separate from a task's stable `id` and its `title`. `loadFromDisk`
@@ -164,6 +158,8 @@ export interface Task {
   description: string;
   status: string;
   result: string | null;
+  /** Context-library entry ids attached to this task (injected into its prompt). */
+  context?: string[];
   tokenUsage?: TokenUsage[];
 }
 
@@ -235,7 +231,6 @@ export const DEFAULT_CONFIG: TeamConfig = {
   },
   maxTeammates: 4,
   agentTimeoutSeconds: 90,
-  categories: DEFAULT_CATEGORIES,
   teammates: {},
 };
 

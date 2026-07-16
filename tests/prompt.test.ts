@@ -69,3 +69,29 @@ Deno.test("buildTaskPrompt: omits optional sections cleanly", () => {
   assertStringIncludes(out, "## Task: T");
   assertStringIncludes(out, "## State Context");
 });
+
+Deno.test("buildTaskPrompt: injects attached reference context", () => {
+  const out = buildTaskPrompt({
+    task: { id: "x-1", storyId: "x", title: "T", description: "D" },
+    guidance: "g",
+    contextEntries: [
+      { title: "Coding Standards", content: "Always write tests." },
+      { title: "API Conventions", content: "# Heading\n\nUse REST." },
+    ],
+  });
+  assertStringIncludes(out, "## Reference Context");
+  assertStringIncludes(out, "### Coding Standards");
+  assertStringIncludes(out, "Always write tests.");
+  assertStringIncludes(out, "### API Conventions");
+  // Entry headings are demoted so they nest beneath the `###` entry title.
+  assertStringIncludes(out, "#### Heading");
+});
+
+Deno.test("buildTaskPrompt: omits reference context when none attached", () => {
+  const out = buildTaskPrompt({
+    task: { id: "x-1", storyId: "x", title: "T", description: "D" },
+    guidance: "g",
+    contextEntries: [],
+  });
+  assertEquals(out.includes("## Reference Context"), false);
+});

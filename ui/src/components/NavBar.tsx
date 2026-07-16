@@ -21,7 +21,7 @@ const NAV_ITEMS = [
   { path: "/board", label: "Board" },
   { path: "/team", label: "Teammates" },
   { path: "/assistant", label: "Assistant" },
-  { path: "/memory", label: "Memory" },
+  { path: "/context", label: "Context" },
 ];
 
 /** Items nested under the "More" dropdown beside Board */

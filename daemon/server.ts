@@ -22,6 +22,7 @@ import { registerStoryRoutes } from "./routes/stories.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
+import { registerContextRoutes } from "./routes/context.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -59,6 +60,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerTaskRoutes(ctx);
   registerAgentRoutes(ctx);
   registerAssistantRoutes(ctx);
+  registerContextRoutes(ctx);
 
   return app;
 }

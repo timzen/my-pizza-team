@@ -66,7 +66,7 @@ export function HomePage() {
       <div className="flex gap-3 text-sm">
         <Link to="/board" className="text-primary underline">Board →</Link>
         <Link to="/team" className="text-primary underline">Team →</Link>
-        <Link to="/memory" className="text-primary underline">Memory →</Link>
+        <Link to="/context" className="text-primary underline">Context →</Link>
         <Link to="/config" className="text-primary underline">Config →</Link>
       </div>
     </div>

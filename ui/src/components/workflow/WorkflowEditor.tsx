@@ -21,7 +21,6 @@ interface ConfigData {
   tmuxSession: string;
   defaultWorkflow: string;
   workflows: Record<string, WorkflowConfig>;
-  categories?: string[];
   [key: string]: unknown;
 }
 

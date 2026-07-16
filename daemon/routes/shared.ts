@@ -115,7 +115,6 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         };
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
-      if (body.categories !== undefined) config.categories = body.categories;
 
       const configFile = path.join(teamDir, "config.json");
       const toWrite: Record<string, unknown> = {
@@ -126,7 +125,6 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         maxTeammates: config.maxTeammates,
       };
       if (config.teammates && Object.keys(config.teammates).length > 0) toWrite.teammates = config.teammates;
-      if (config.categories && config.categories.length > 0) toWrite.categories = config.categories;
       if (config.recentCapabilities && Object.keys(config.recentCapabilities).length > 0) toWrite.recentCapabilities = config.recentCapabilities;
       Deno.writeTextFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
 

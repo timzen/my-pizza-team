@@ -36,7 +36,7 @@ import {
   type Assignment,
 } from "../shared/types.ts";
 import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-engine.ts";
-import { listNotes, saveNote, updateNoteCategories, deleteNote, type Note } from "./store/notes.ts";
+import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
@@ -53,7 +53,7 @@ function serializeStory(story: Story): Story {
   if (story.requirements && Object.keys(story.requirements).length > 0) data.requirements = story.requirements;
   if (story.paused) data.paused = true;
   if (story.workflow) data.workflow = story.workflow;
-  if (story.categories && story.categories.length > 0) data.categories = story.categories;
+  if (story.context && story.context.length > 0) data.context = story.context;
   if (story.taskOrder && story.taskOrder.length > 0) data.taskOrder = story.taskOrder;
   if (story.archivedAt) data.archivedAt = story.archivedAt;
   return data;
@@ -91,7 +91,6 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   };
   if (config.agentTimeoutSeconds !== undefined) out.agentTimeoutSeconds = config.agentTimeoutSeconds;
   if (config.apiToken) out.apiToken = config.apiToken;
-  if (config.categories && config.categories.length > 0) out.categories = config.categories;
   if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
   if (config.hosts && Object.keys(config.hosts).length > 0) out.hosts = config.hosts;
   if (config.recentCapabilities && Object.keys(config.recentCapabilities).length > 0) {
@@ -187,7 +186,7 @@ export class Store {
         requirements TEXT DEFAULT '{}',
         paused INTEGER DEFAULT 0,
         workflow TEXT,
-        categories TEXT DEFAULT '[]',
+        context TEXT DEFAULT '[]',
         task_order TEXT DEFAULT '[]',
         dir_path TEXT
       );
@@ -201,6 +200,7 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'todo',
         result TEXT,
+        context TEXT DEFAULT '[]',
         dir_path TEXT,
         dirty INTEGER DEFAULT 0
       );
@@ -265,6 +265,11 @@ export class Store {
         created_at INTEGER,
         updated_at INTEGER
       );
+
+      CREATE TABLE IF NOT EXISTS settings (
+        key TEXT PRIMARY KEY,       -- simple daemon-wide key/value settings
+        value TEXT
+      );
     `);
 
     // Migration: add columns if they don't exist (for existing databases)
@@ -274,6 +279,10 @@ export class Store {
     }
     if (!storyColumns.some((col) => col.name === "categories")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN categories TEXT DEFAULT '[]'");
+    }
+    // Context-library attachments (replaces the old decorative `categories`).
+    if (!storyColumns.some((col) => col.name === "context")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN context TEXT DEFAULT '[]'");
     }
     if (!storyColumns.some((col) => col.name === "requirements")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN requirements TEXT DEFAULT '{}'");
@@ -288,6 +297,9 @@ export class Store {
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
     if (!taskColumns.some((col) => col.name === "last_read_at")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN last_read_at INTEGER");
+    }
+    if (!taskColumns.some((col) => col.name === "context")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT '[]'");
     }
 
     const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
@@ -351,22 +363,22 @@ export class Store {
 
   private upsertStory(story: Story, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, categories, task_order, dir_path)
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, context, task_order, dir_path)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
       JSON.stringify(story.dependsOn), JSON.stringify(story.requirements || {}),
       story.paused ? 1 : 0,
-      story.workflow || null, JSON.stringify(story.categories || []),
+      story.workflow || null, JSON.stringify(story.context || []),
       JSON.stringify(story.taskOrder || []), dirPath
     );
   }
 
   private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, result, dir_path, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
-    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.result, dirPath);
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, result, context, dir_path, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.result, JSON.stringify(task.context || []), dirPath);
   }
 
   // --- Stories ---
@@ -382,7 +394,7 @@ export class Store {
       requirements: row.requirements && (row.requirements as string) !== "{}" ? JSON.parse(row.requirements as string) : undefined,
       paused: row.paused ? true : undefined,
       workflow: (row.workflow as string) || undefined,
-      categories: row.categories ? JSON.parse(row.categories as string) : undefined,
+      context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       taskOrder: row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : undefined,
       dirPath: row.dir_path as string,
     };
@@ -399,6 +411,7 @@ export class Store {
       description: row.description as string,
       status: row.status as string,
       result: row.result as string | null,
+      context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       dirPath: row.dir_path as string,
     };
   }
@@ -419,10 +432,10 @@ export class Store {
     description: string,
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
-    tasks?: Array<{ title: string; description: string }>,
+    tasks?: Array<{ title: string; description: string; context?: string[] }>,
     requirements?: Capabilities,
     workflow?: string,
-    categories?: string[],
+    context?: string[],
     paused?: boolean
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storiesDir = path.join(this.teamDir, "stories");
@@ -439,7 +452,7 @@ export class Store {
     }
     if (paused) storyData.paused = true;
     if (workflow) storyData.workflow = workflow;
-    if (categories && categories.length > 0) storyData.categories = categories;
+    if (context && context.length > 0) storyData.context = context;
     const storyFile = path.join(storyDirPath, "story.json");
     Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
 
@@ -474,6 +487,7 @@ export class Store {
           status: initialStatus,
           result: null,
         };
+        if (taskDef.context && taskDef.context.length > 0) taskData.context = taskDef.context;
         const taskFile = path.join(taskDirPath, "task.json");
         Deno.writeTextFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
 
@@ -527,7 +541,7 @@ export class Store {
     requirements?: Capabilities | null;
     paused?: boolean;
     workflow?: string | null;
-    categories?: string[] | null;
+    context?: string[] | null;
   }): boolean {
     const story = this.getStory(storyId);
     if (!story) return false;
@@ -542,11 +556,11 @@ export class Store {
     }
     const newPaused = updates.paused !== undefined ? updates.paused : (story.paused || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
-    const newCategories = updates.categories !== undefined ? (updates.categories || []) : (story.categories || []);
+    const newContext = updates.context !== undefined ? (updates.context || []) : (story.context || []);
 
     this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, categories = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newCategories), storyId);
+      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, context = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), storyId);
     this.recordCapabilities(newRequirements || undefined);
 
     // Write back to disk
@@ -560,7 +574,7 @@ export class Store {
       requirements: newRequirements,
       paused: newPaused,
       workflow: newWorkflow || undefined,
-      categories: newCategories,
+      context: newContext,
       taskOrder: story.taskOrder,
     });
     Deno.writeTextFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
@@ -644,13 +658,14 @@ export class Store {
     }
   }
 
-  updateTaskDetails(taskId: string, updates: { title?: string; description?: string }): boolean {
+  updateTaskDetails(taskId: string, updates: { title?: string; description?: string; context?: string[] | null }): boolean {
     const task = this.getTask(taskId);
     if (!task) return false;
 
     const newTitle = updates.title ?? task.title;
     const newDescription = updates.description ?? task.description;
-    this.db.prepare("UPDATE tasks SET title = ?, description = ?, dirty = 1 WHERE id = ?").run(newTitle, newDescription, taskId);
+    const newContext = updates.context !== undefined ? (updates.context || []) : (task.context || []);
+    this.db.prepare("UPDATE tasks SET title = ?, description = ?, context = ?, dirty = 1 WHERE id = ?").run(newTitle, newDescription, JSON.stringify(newContext), taskId);
     return true;
   }
 
@@ -1132,6 +1147,9 @@ export class Store {
           status: row.status,
           result: row.result,
         };
+        if (row.context && (row.context as string) !== "[]") {
+          taskData.context = JSON.parse(row.context as string);
+        }
         if (tokenUsage.length > 0) {
           taskData.tokenUsage = tokenUsage;
         }
@@ -1623,6 +1641,48 @@ export class Store {
     this.db.prepare("DELETE FROM assistant_messages").run();
   }
 
+  // --- Settings (simple daemon-wide key/value) ---
+
+  getSetting(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+    return row ? row.value : null;
+  }
+
+  setSetting(key: string, value: string | null): void {
+    if (value === null) {
+      this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+      return;
+    }
+    this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
+  }
+
+  // --- Assistant persona ---
+  //
+  // The assistant's active "persona" is a context-library entry id whose body is
+  // injected as the assistant's system prompt (by the extension). Stored as a
+  // single setting; null means the plain/default assistant.
+
+  getAssistantPersonaId(): string | null {
+    return this.getSetting("assistant_persona");
+  }
+
+  setAssistantPersonaId(id: string | null): void {
+    this.setSetting("assistant_persona", id);
+  }
+
+  /**
+   * Fire a `reset-session` directive to any online assistant member so its
+   * in-agent conversation context is dropped (the leader realizes the intent).
+   * Used when clearing the conversation or swapping personas.
+   */
+  resetAssistantSessions(): void {
+    for (const m of this.getMembers()) {
+      if (m.id === "assistant" || m.name.includes("assistant")) {
+        this.createLeaderDirectiveForMember(m.id, "reset-session");
+      }
+    }
+  }
+
   // --- Leader Directives (things asked of the leader; it realizes them) ---
   //
   // A single queue of directives per host: "leader, do X about an agent" — e.g.
@@ -1703,22 +1763,44 @@ export class Store {
     return generateTeammateName(existingNames, this.config.teammates);
   }
 
-  // --- Notes (knowledge base; see store/notes.ts) ---
+  // --- Context entries (reusable prompt/context library; see store/context.ts) ---
 
-  getAssistantNotes(): Note[] {
-    return listNotes(this.teamDir);
+  getContextEntries(): ContextEntry[] {
+    return listContextEntries(this.teamDir);
   }
 
-  saveAssistantNote(title: string, content: string, categories?: string[]): Note {
-    return saveNote(this.teamDir, title, content, categories);
+  getContextEntry(id: string): ContextEntry | null {
+    return getContextEntry(this.teamDir, id);
   }
 
-  updateNoteCategories(id: string, categories: string[]): boolean {
-    return updateNoteCategories(this.teamDir, id, categories);
+  saveContextEntry(input: { title: string; description?: string; tags?: string[]; content: string }): ContextEntry {
+    return saveContextEntry(this.teamDir, input);
   }
 
-  deleteAssistantNote(id: string): boolean {
-    return deleteNote(this.teamDir, id);
+  updateContextEntry(id: string, updates: { title?: string; description?: string; tags?: string[]; content?: string }): ContextEntry | null {
+    return updateContextEntry(this.teamDir, id, updates);
+  }
+
+  deleteContextEntry(id: string): boolean {
+    return deleteContextEntry(this.teamDir, id);
+  }
+
+  /**
+   * Resolve the context-library entries attached to a story and/or task into
+   * `{ title, content }` for prompt injection. Story entries come first, task
+   * entries after; duplicates (and ids pointing at deleted entries) are dropped.
+   */
+  resolveTaskContext(storyContext?: string[], taskContext?: string[]): Array<{ title: string; content: string }> {
+    const ids = [...(storyContext || []), ...(taskContext || [])];
+    const seen = new Set<string>();
+    const resolved: Array<{ title: string; content: string }> = [];
+    for (const id of ids) {
+      if (seen.has(id)) continue;
+      seen.add(id);
+      const entry = this.getContextEntry(id);
+      if (entry) resolved.push({ title: entry.title, content: entry.content });
+    }
+    return resolved;
   }
 
   // --- Cleanup ---
