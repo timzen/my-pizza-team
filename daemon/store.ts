@@ -1737,6 +1737,30 @@ export class Store {
     return rows.map((r) => this.rowToDirective(r));
   }
 
+  /**
+   * All pending `spawn` directives across every host, oldest first.
+   *
+   * Surfaced in the UI so a stuck spawn request (e.g. one whose leader never
+   * acked completion) is visible and can be cancelled, rather than silently
+   * driving the leader to retry forever.
+   */
+  getPendingSpawnRequests(): Array<{ id: string; hostId: string; name: string | null; cwd: string | null; createdAt: string }> {
+    const rows = this.db.prepare(
+      "SELECT id, host_id, params, created_at FROM leader_directives WHERE action = 'spawn' AND status = 'pending' ORDER BY created_at ASC"
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => {
+      let params: Record<string, unknown> = {};
+      try { params = JSON.parse((row.params as string) || "{}"); } catch { /* ignore */ }
+      return {
+        id: row.id as string,
+        hostId: row.host_id as string,
+        name: typeof params.name === "string" ? params.name : null,
+        cwd: typeof params.cwd === "string" ? params.cwd : null,
+        createdAt: new Date(row.created_at as number).toISOString(),
+      };
+    });
+  }
+
   getLeaderDirective(id: string): ReturnType<Store["rowToDirective"]> | null {
     const row = this.db.prepare("SELECT * FROM leader_directives WHERE id = ?").get(id) as Record<string, unknown> | undefined;
     return row ? this.rowToDirective(row) : null;
