@@ -68,12 +68,9 @@ export function ContextPage() {
   }, [entries, query, activeTag]);
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Context</h1>
-          <p className="text-sm text-muted-foreground">Reusable prompts and context to inject into teammates or the assistant.</p>
-        </div>
+        <p className="text-sm text-muted-foreground">Reusable prompts and context to inject into teammates or the assistant.</p>
         <div className="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={() => setCreating(PERSONA_TAG)} disabled={creating !== null}><Sparkles className="h-4 w-4 mr-1" />New Persona</Button>
           <Button size="sm" onClick={() => setCreating("")} disabled={creating !== null}><Plus className="h-4 w-4 mr-1" />New Entry</Button>

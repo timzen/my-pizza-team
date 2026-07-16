@@ -63,6 +63,7 @@ export function BoardPage() {
   const [addTaskStoryId, setAddTaskStoryId] = useState<string | null>(null);
 
   const stories = storiesData?.stories || [];
+  const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
   const workflows = statusData?.workflows || {};
   const defaultStates = workflows[defaultWorkflow]?.states || ["todo", "in_progress", "needs_input", "review", "done"];
@@ -123,6 +124,14 @@ export function BoardPage() {
 
   return (
     <div className="container mx-auto p-4 space-y-4">
+      {/* Header: title + story/task counts */}
+      <div className="flex items-center justify-between">
+        <h1 className="text-2xl font-bold">Board</h1>
+        <div className="text-sm text-muted-foreground">
+          {stories.length} {stories.length === 1 ? "story" : "stories"} · {taskCount} {taskCount === 1 ? "task" : "tasks"}
+        </div>
+      </div>
+
       {/* Toolbar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">

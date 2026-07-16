@@ -7,8 +7,9 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - **daemon/** — HTTP API server built with [Hono](https://hono.dev/) on Deno's native `Deno.serve()` adapter
 - **cli/** — Command-line interface for interacting with the daemon
 - **ui/** — Frontend application (React + Vite + shadcn/ui). Talks to the daemon's HTTP API.
-  - `src/App.tsx` — Router. Pages: `/board`, `/team` (Teammates), `/context`, `/scratchpad`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows`, `/help`.
-  - `src/pages/TeammatesPage.tsx` — Connected teammates (route stays `/team`). Shows status, host, **capabilities as labeled badges** (`directory` is just one capability among many), heartbeat, current task. Per-teammate **Reset** action posts a `reset-session` leader directive (the harness realizes it as Pi's `/new`, clearing the context window).
+  - `src/App.tsx` — Router + shell layout: `NavBar` on top, a scrollable `<main>` for the routed page, and a persistent `TeammateSidebar` on the right (shown on `lg+`). Pages: `/` + `/context` (RootPage — Workflows/Context tabs), `/board`, `/scratchpad`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/backlog`, `/archived`, `/config`, `/workflows/:name`, `/help`.
+  - `src/pages/RootPage.tsx` — Home. Two tabs for the foundational setup: **Workflows** (`/`) and **Context** (`/context`); renders `WorkflowsPage` / `ContextPage` as panels.
+  - `src/components/TeammateSidebar.tsx` — Always-visible right column listing connected teammates (status dot, current task, **capability badges**) with per-teammate reset (`reset-session` directive → Pi's `/new`) and dismiss, plus a Spawn button. Replaces the old standalone teammates page.
   - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (an "eye" button opens a read-only preview, a `details →` link opens the task page).
   - `src/components/board/TaskViewDialog.tsx` — Read-only task preview modal (description + link to the task page). Editing does **not** happen here.
   - `src/components/board/StoryViewDialog.tsx` — Read-only story preview modal (description + link to the story page), opened by the "eye" button on a story header. Editing does **not** happen here.
@@ -69,7 +70,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **JSON files as source of truth** — Story/task definitions live on disk as JSON. SQLite is the fast runtime index, synced via the `dirty` flag and periodic flush.
 - **Story-owned task ordering** — A task's `id` (stable key), `title` (name), and position are three separate concerns. The story owns the order via `taskOrder` (an array of task IDs in `story.json`); the creation `seq` in an id is just a stable counter, not a position. Task directories are named by the **task id only** (e.g. `tasks/auth-3/`), so the folder name never encodes order and never drifts when the title changes; `seq` is derived from the id on load and `slug` from the current title. Reordering rewrites one array in one file (great for git), needs no directory renames, and `loadFromDisk` reconciles the array against the tasks actually present so hand-edits are tolerated. See DESIGN.md.
 - **Comments append to JSONL** — Never lost; append-only file per task.
-- **"Teammates", not "Agents", in the UI** — The product is my-pizza-team, so human-facing vocabulary settled on "Teammates". The HTTP API and internal types keep the technical term `agent`/`member` (the route stays `/api/agents`, the page route stays `/team`).
+- **"Teammates", not "Agents", in the UI** — The product is my-pizza-team, so human-facing vocabulary settled on "Teammates". The HTTP API and internal types keep the technical term `agent`/`member` (the route stays `/api/agents`). Teammates are shown in a persistent right-hand sidebar rather than a dedicated page.
 - **Board previews; pages edit** — The board is for glancing and light triage (status nudges via prev/next). Clicking a card never opens an editor; a read-only modal previews a task, and all editing lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`). This keeps destructive/edit actions off the high-traffic board surface.
 - **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
 
@@ -78,7 +79,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | Health check (uptime, agents, queueDepth, memory, lastCommitTime) |
-| GET | `/api/status` | Dashboard summary (stories, tasks, members) |
+| GET | `/api/status` | Status summary (stories, tasks, members) |
 | GET | `/api/stories` | List all stories with tasks |
 | POST | `/api/stories` | Create a new story (with optional tasks) |
 | PUT | `/api/stories/:id` | Update story details |

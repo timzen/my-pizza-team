@@ -143,7 +143,7 @@ export function WorkflowEditor({ name, workflow, config, isDefault, open, onClos
       const updatedConfig = { ...config, workflows: restWorkflows };
       const res = await apiPut<{ success: boolean; error?: string }>("/api/config", updatedConfig);
       if (res.success) {
-        navigate("/workflows");
+        navigate("/");
       } else {
         showToast(res.error || "Delete failed", true);
       }

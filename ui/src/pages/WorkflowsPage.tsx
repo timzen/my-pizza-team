@@ -10,7 +10,7 @@ import { useApi, apiPut } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { GitBranch, Plus, ArrowRight } from "lucide-react";
+import { Plus, ArrowRight } from "lucide-react";
 
 interface WorkflowSummary {
   name: string;
@@ -36,7 +36,7 @@ export function WorkflowsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
+  if (loading) return <div className="text-muted-foreground">Loading...</div>;
 
   /** Slugify the input: lowercase, hyphens only, no leading/trailing hyphens */
   const slugify = (val: string) =>
@@ -80,12 +80,7 @@ export function WorkflowsPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <div className="flex items-center gap-2">
-        <GitBranch className="h-5 w-5" />
-        <h1 className="text-2xl font-bold">Workflows</h1>
-      </div>
-
+    <div className="space-y-4 max-w-3xl">
       {/* Workflow cards */}
       <div className="grid gap-3">
         {data?.map((wf) => (
