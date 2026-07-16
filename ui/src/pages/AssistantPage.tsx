@@ -100,7 +100,7 @@ export function AssistantPage() {
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-border">
         <div className="flex items-center gap-2">
-          <h1 className="text-xl font-bold">Assistant</h1>
+          <h1 className="text-2xl font-bold">Assistant</h1>
           <span className={`h-2 w-2 rounded-full ${assistantOnline ? "bg-green-500" : "bg-muted-foreground/40"}`} title={assistantOnline ? "Assistant online" : "Assistant offline"} />
           {personaCapable && activePersonaId && (
             <span className="text-xs text-muted-foreground">· {personaData?.entry?.title ?? activePersonaId}</span>
