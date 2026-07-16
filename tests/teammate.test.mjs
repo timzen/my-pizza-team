@@ -67,7 +67,13 @@ test("does NOT track availableTransitions (daemon handles transitions)", () => {
 });
 
 test("releases with releaseTask and passes result", () => {
-  assert.ok(src.includes("this.client.releaseTask(taskId, summary)"));
+  assert.ok(src.includes("this.client.releaseTask(taskId, fullMessage)"));
+});
+
+test("posts the full completion message as a comment (not a truncated slice)", () => {
+  // The [done] comment is for humans; it must not be cut off mid-sentence.
+  assert.ok(!src.includes("lastMessage.slice(0, 500)"));
+  assert.ok(src.includes("const fullMessage = lastMessage.trim()"));
 });
 
 test("checks releaseRes.completed for task completion", () => {

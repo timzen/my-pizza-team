@@ -209,12 +209,15 @@ export class TeammateLoop {
     }
 
     // ─── Release with result ─────────────────────────────────────────
-    const summary = lastMessage.slice(0, 500);
-    this.debugLog(`[ppt-debug] Releasing task ${taskId} with summary: ${summary.slice(0, 100)}...`);
-    await this.client.postComment(taskId, `[done] Work complete. Summary:\n${summary}`).catch(() => {});
+    // The completion comment is for humans reading the task, so post the full
+    // message rather than a truncated slice (which cut summaries mid-sentence).
+    const fullMessage = lastMessage.trim();
+    this.debugLog(`[ppt-debug] Releasing task ${taskId} with summary: ${fullMessage.slice(0, 100)}...`);
+    await this.client.postComment(taskId, `[done] Work complete. Summary:\n${fullMessage}`).catch(() => {});
 
-    // Release the task — daemon advances to next state
-    const releaseRes = await this.client.releaseTask(taskId, summary).catch((e) => {
+    // Release the task — daemon advances to next state. The result is stored on
+    // the task and echoed into future task prompts for context.
+    const releaseRes = await this.client.releaseTask(taskId, fullMessage).catch((e) => {
       this.debugLog(`[ppt-debug] releaseTask FAILED: ${e}`);
       return null;
     });
@@ -223,7 +226,7 @@ export class TeammateLoop {
     this.currentTaskId = null;
 
     if (releaseRes?.completed) {
-      this.onTaskComplete?.(taskId, summary);
+      this.onTaskComplete?.(taskId, fullMessage);
     }
 
     this.schedulePoll();
