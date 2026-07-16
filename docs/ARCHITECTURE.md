@@ -194,6 +194,17 @@ already exists. This prevents retried spawn directives — e.g. when
 the same directive — from filling the session with identically-named, empty
 windows.
 
+**Spawn robustness.** `spawnAgent()` validates the working directory
+(`validateSpawnCwd()`) **before** touching tmux and throws if it's missing or
+not a directory — so an accidental/half-typed cwd can't create an orphan
+window. Writing the permissive Pi config (`ensurePermissiveConfig()`) is treated
+as best-effort: a failure (e.g. a read-only cwd) is caught and logged rather
+than aborting the spawn. When realizing a directive throws, the poll loop marks
+it **failed** via `client.failLeaderDirective()` (PUT status `failed`) instead
+of leaving it pending — otherwise an ask that can never succeed (like a bad cwd)
+would be retried every poll cycle forever. `/ppt-spawn` also validates the cwd
+up front and reports the error without creating a directive at all.
+
 ### Agent control intents (daemon → leader → tmux)
 
 The daemon expresses out-of-band intents (e.g. `reset-session`) without knowing

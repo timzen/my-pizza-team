@@ -153,6 +153,11 @@ test("has createLeaderDirective + completeLeaderDirective", () => {
   assert.ok(clientSrc.includes("async completeLeaderDirective(id"));
 });
 
+test("has failLeaderDirective for unrealizable directives", () => {
+  assert.ok(clientSrc.includes("async failLeaderDirective(id"));
+  assert.ok(clientSrc.includes('status: "failed"'));
+});
+
 // ─── Assistant Queue ─────────────────────────────────────────────
 
 test("has getNextQueueItem (not getNextAssistantItem)", () => {

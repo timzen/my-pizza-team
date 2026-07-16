@@ -518,6 +518,18 @@ export class DaemonClient {
     );
   }
 
+  /**
+   * Mark a directive failed when it can't be realized (e.g. an invalid spawn
+   * cwd). This removes it from the pending queue so the leader stops retrying
+   * an ask that will never succeed — the alternative is an infinite retry loop.
+   */
+  async failLeaderDirective(id: string): Promise<{ success: boolean }> {
+    return this.put<{ success: boolean }>(
+      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives/${encodeURIComponent(id)}`,
+      { status: "failed" }
+    );
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // ASSISTANT QUEUE
   // ═══════════════════════════════════════════════════════════════════

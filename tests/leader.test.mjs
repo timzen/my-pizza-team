@@ -135,6 +135,36 @@ test("spawnAgent skips creating a window when one with the name already exists",
   assert.ok(src.includes("listWindows(session, execSync).includes(name)"));
 });
 
+test("spawnAgent validates the cwd before touching tmux", () => {
+  // A bad/half-typed cwd must fail before any window is created.
+  assert.ok(src.includes("validateSpawnCwd(agentCwd)"));
+  assert.ok(src.includes("if (cwdError) throw new Error(cwdError)"));
+  const spawnStart = src.indexOf("function spawnAgent(");
+  const validateIdx = src.indexOf("validateSpawnCwd(agentCwd)", spawnStart);
+  const firstNewWindow = src.indexOf("new-window", spawnStart);
+  assert.ok(validateIdx > -1 && validateIdx < firstNewWindow);
+});
+
+test("validateSpawnCwd rejects missing paths and non-directories", () => {
+  assert.ok(src.includes("function validateSpawnCwd("));
+  assert.ok(src.includes("Working directory does not exist"));
+  assert.ok(src.includes("Not a directory"));
+});
+
+test("ensurePermissiveConfig failure does not abort the spawn", () => {
+  // The permissive config is a convenience; a write failure (e.g. read-only
+  // cwd) is caught and logged rather than throwing.
+  assert.ok(src.includes("Could not write permissive config"));
+});
+
+test("unrealizable directives are marked failed, not retried forever", () => {
+  assert.ok(src.includes("client.failLeaderDirective(directive.id)"));
+});
+
+test("/ppt-spawn validates the cwd before creating a directive", () => {
+  assert.ok(src.includes('cmdCtx.ui.notify(`Cannot spawn: ${cwdError}`'));
+});
+
 test("has ensurePermissiveConfig function", () => {
   assert.ok(src.includes("function ensurePermissiveConfig("));
 });

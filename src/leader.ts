@@ -118,8 +118,13 @@ export async function setupLeader(
         try {
           dispatchDirective(directive, { session: tmuxSession, daemonUrl: client.url, harnessTemplates, fallbackCwd: cwd }, execSync);
           await client.completeLeaderDirective(directive.id);
-        } catch {
-          // Failed to realize — will retry next poll cycle
+        } catch (err) {
+          // A directive that can't be realized (e.g. an invalid spawn cwd) would
+          // otherwise stay pending and be retried every poll cycle forever,
+          // piling up empty tmux windows. Mark it failed so it leaves the queue.
+          const reason = err instanceof Error ? err.message : String(err);
+          if (ctx.hasUI) ctx.ui?.notify?.(`Spawn directive failed: ${reason}`, "error");
+          await client.failLeaderDirective(directive.id).catch(() => {});
         }
       }
     } catch {
@@ -136,6 +141,11 @@ export async function setupLeader(
       const userProvidedName = parts[0] || undefined;
       const spawnCwd = parts[1] || (directories.length > 0 ? directories[0] : cwd);
       const resolvedCwd = resolvePath(spawnCwd);
+
+      // Validate up front so an accidental/half-typed path gives immediate
+      // feedback and never creates a directive that can't be realized.
+      const cwdError = validateSpawnCwd(resolvedCwd);
+      if (cwdError) { cmdCtx.ui.notify(`Cannot spawn: ${cwdError}`, "error"); return; }
 
       try {
         // Create a spawn directive so the daemon generates a unique name, then
@@ -308,6 +318,10 @@ function listWindows(session: string, execSync: any): string[] {
  * Idempotent: returns false (without creating anything) if a window with the
  * given name already exists, so retried spawn directives can't pile up
  * duplicate windows. Returns true when a window was actually created.
+ *
+ * Throws if the working directory is invalid (missing / not a directory) so no
+ * tmux window is created; the caller marks the directive failed rather than
+ * retrying an ask that can never succeed.
  */
 function spawnAgent(
   name: string,
@@ -326,6 +340,15 @@ function spawnAgent(
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
   const safeCwd = shellSafe(agentCwd);
+
+  // Validate the working directory BEFORE touching tmux. A bad cwd (e.g. a
+  // half-typed path that was submitted by accident) would otherwise create an
+  // empty window and then fail, leaving an orphan window and an un-acked
+  // directive that retries forever. Throwing here keeps tmux untouched and lets
+  // the caller mark the directive failed.
+  const cwdError = validateSpawnCwd(agentCwd);
+  if (cwdError) throw new Error(cwdError);
+
   const justCreated = ensureSession(session, execSync);
 
   // Idempotency guard: tmux does NOT enforce unique window names, so
@@ -337,6 +360,19 @@ function spawnAgent(
     return false;
   }
 
+  // Ensure permissive permission config for Pi-based agents. This is a
+  // convenience (skips permission prompts), not a requirement — so a failure
+  // (e.g. a read-only cwd) must not abort the spawn. Do it before creating the
+  // window so a throw here can't orphan one.
+  if (harness === "pi") {
+    try {
+      ensurePermissiveConfig(agentCwd);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : String(err);
+      console.warn(`[ppt] Could not write permissive config in ${agentCwd}: ${reason}`);
+    }
+  }
+
   // Create or reuse tmux window
   if (justCreated) {
     try {
@@ -346,11 +382,6 @@ function spawnAgent(
     }
   } else {
     execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
-  }
-
-  // Ensure permissive permission config for Pi-based agents
-  if (harness === "pi") {
-    ensurePermissiveConfig(agentCwd);
   }
 
   // Resolve the command template
@@ -444,6 +475,26 @@ function dismissAgent(name: string, session: string, execSync: any): void {
       // Window may already be gone
     }
   }, 2000);
+}
+
+/**
+ * Validate a spawn working directory. Returns an error message if the path is
+ * unusable, or null if it's a real directory.
+ *
+ * Guards against accidental spawns (e.g. a half-typed path submitted early)
+ * that would otherwise create an orphan tmux window and a directive that can
+ * never succeed.
+ */
+function validateSpawnCwd(agentCwd: string): string | null {
+  if (!agentCwd || !agentCwd.trim()) return "No working directory specified";
+  let stat: fs.Stats;
+  try {
+    stat = fs.statSync(agentCwd);
+  } catch {
+    return `Working directory does not exist: ${agentCwd}`;
+  }
+  if (!stat.isDirectory()) return `Not a directory: ${agentCwd}`;
+  return null;
 }
 
 /**
