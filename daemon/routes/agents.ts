@@ -273,4 +273,20 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (!ok) return c.json({ success: false, error: "Directive not found" }, 404);
     return c.json({ success: true });
   });
+
+  // ─── Pending spawn requests (visibility + cancel) ────────────────────
+  //
+  // A spawn directive whose leader never acked completion stays 'pending' and
+  // the leader keeps retrying it. These routes let the UI surface such stuck
+  // requests across all hosts and cancel them.
+
+  app.get("/api/spawn-requests", (c) => {
+    return c.json({ requests: store.getPendingSpawnRequests() });
+  });
+
+  app.delete("/api/spawn-requests/:id", (c) => {
+    const ok = store.updateLeaderDirective(c.req.param("id"), "cancelled");
+    if (!ok) return c.json({ success: false, error: "Spawn request not found" }, 404);
+    return c.json({ success: true });
+  });
 }

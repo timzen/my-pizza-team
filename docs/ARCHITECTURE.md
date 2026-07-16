@@ -119,6 +119,8 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...) |
 | GET | `/api/hosts/:hostId/leader/directives` | Poll pending directives for a host (single leader queue) |
 | PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |
+| GET | `/api/spawn-requests` | List pending `spawn` directives across all hosts (name, cwd, hostId, createdAt) — surfaces stuck spawns in the UI |
+| DELETE | `/api/spawn-requests/:id` | Cancel a pending spawn request (marks it `cancelled` so the leader stops retrying) |
 | GET | `/api/workflows` | List workflow summaries (name, stateCount, transitionCount, isDefault) |
 | GET | `/api/workflows/:name` | Get full WorkflowConfig for a workflow |
 | GET | `/api/workflows/:name/instructions/:filename` | Read a workflow instruction markdown file |

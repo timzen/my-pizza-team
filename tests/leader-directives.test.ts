@@ -103,3 +103,47 @@ Deno.test("PUT status=done removes a directive from the pending list", async () 
     assertEquals(missing.status, 404);
   } finally { cleanup(teamDir, store); }
 });
+
+Deno.test("GET /api/spawn-requests lists pending spawns across hosts with name and cwd", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: { name: "cool-chekov", cwd: "/Volumes" } });
+    await post(app, "/api/hosts/h2/leader/directives", { action: "spawn", params: { name: "bold-riker", cwd: "/tmp/x" } });
+    // A non-spawn directive must not appear.
+    await post(app, "/api/agents/register", { id: "a1", name: "neo", hostId: "h1", metadata: {} });
+    await post(app, "/api/hosts/h1/leader/directives", { action: "reset-session", memberId: "a1" });
+
+    const res = await app.request("/api/spawn-requests");
+    assertEquals(res.status, 200);
+    const body = await res.json();
+    assertEquals(body.requests.length, 2);
+    const names = body.requests.map((r: { name: string }) => r.name).sort();
+    assertEquals(names, ["bold-riker", "cool-chekov"]);
+    const first = body.requests.find((r: { name: string }) => r.name === "cool-chekov");
+    assertEquals(first.cwd, "/Volumes");
+    assertEquals(first.hostId, "h1");
+    assertEquals(typeof first.id, "string");
+    assertEquals(typeof first.createdAt, "string");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const created = await (await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: { name: "spock" } })).json();
+    const id = created.directive.id;
+
+    const del = await app.request(`/api/spawn-requests/${id}`, { method: "DELETE" });
+    assertEquals(del.status, 200);
+
+    // No longer pending: gone from both the host queue and the spawn list.
+    const list = await (await app.request("/api/spawn-requests")).json();
+    assertEquals(list.requests.length, 0);
+    const hostList = await (await app.request("/api/hosts/h1/leader/directives")).json();
+    assertEquals(hostList.directives.length, 0);
+
+    // Cancelling an unknown request → 404.
+    const missing = await app.request("/api/spawn-requests/nope", { method: "DELETE" });
+    assertEquals(missing.status, 404);
+  } finally { cleanup(teamDir, store); }
+});
