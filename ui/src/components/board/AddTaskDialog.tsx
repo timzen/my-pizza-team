@@ -8,6 +8,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/u
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
+import { ContextSelector } from "@/components/board/ContextSelector";
 import { apiPost } from "@/hooks/useApi";
 
 interface AddTaskDialogProps {
@@ -20,14 +21,15 @@ interface AddTaskDialogProps {
 export function AddTaskDialog({ storyId, open, onClose, onCreated }: AddTaskDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [context, setContext] = useState<string[]>([]);
   const [error, setError] = useState("");
 
-  const reset = () => { setTitle(""); setDescription(""); setError(""); };
+  const reset = () => { setTitle(""); setDescription(""); setContext([]); setError(""); };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!storyId) return;
-    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${storyId}/tasks`, { title, description });
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${storyId}/tasks`, { title, description, context: context.length > 0 ? context : undefined });
     if (res.success) { onClose(); reset(); onCreated(); }
     else setError(res.error || "Failed to create task");
   };
@@ -39,6 +41,7 @@ export function AddTaskDialog({ storyId, open, onClose, onCreated }: AddTaskDial
         <form onSubmit={handleSubmit} className="space-y-4">
           <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
           <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
+          <div><Label>Context</Label><div className="mt-1"><ContextSelector value={context} onChange={setContext} /></div></div>
           {error && <p className="text-sm text-destructive">{error}</p>}
           <Button type="submit" className="w-full">Add Task</Button>
         </form>

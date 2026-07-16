@@ -88,8 +88,6 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
     "autoCommit": true
   },
 
-  // ─── Knowledge Base ────────────────────────────────────────────
-  "categories": ["coding", "research", "doc-writing"],
 
   // ─── Recently Used Capabilities (auto-maintained) ───────────────
   // Map of capability name → known values (most-recent-first). Auto-updated
@@ -144,7 +142,7 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 │               └── attachments/
 ├── archived/
 ├── backlog/
-└── notes/               # Knowledge base markdown files
+└── context/             # Context library: reusable prompt/context markdown entries
 ```
 
 ---
@@ -304,7 +302,7 @@ Use the [mpt-mcp-server](https://github.com/timzen/mpt-mcp-server) as an MCP bri
 }
 ```
 
-The MCP server exposes tools: `get_next_work`, `claim_task`, `release_task`, `post_comment`, `upload_attachment`, `search_memory`.
+The MCP server exposes tools: `get_next_work`, `claim_task`, `release_task`, `post_comment`, `upload_attachment`.
 
 ### Codex (Shell Wrapper)
 
@@ -350,7 +348,8 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, claim, release |
-| Assistant | `/api/assistant/*` | Chat conversation + knowledge base |
+| Assistant | `/api/assistant/*` | Chat conversation |
+| Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | Capabilities | `GET/POST/DELETE /api/capabilities` | Recently used capability names + values |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |

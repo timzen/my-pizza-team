@@ -62,7 +62,8 @@ export function registerTaskRoutes(ctx: RouteContext): void {
 
     const wf = store.getWorkflowForStory(storyId);
     const initialStatus = getInitialState(wf);
-    const taskData = { id: taskId, title: body.title, description: body.description, status: initialStatus, result: null };
+    const taskData: Record<string, unknown> = { id: taskId, title: body.title, description: body.description, status: initialStatus, result: null };
+    if (Array.isArray(body.context) && body.context.length > 0) taskData.context = body.context;
     Deno.writeTextFileSync(path.join(taskDirPath, "task.json"), JSON.stringify(taskData, null, 2) + "\n");
     store.loadFromDisk();
 
@@ -72,9 +73,9 @@ export function registerTaskRoutes(ctx: RouteContext): void {
   app.put("/api/tasks/:taskId", async (c) => {
     const taskId = c.req.param("taskId");
     const body = (await c.req.json()) as UpdateTaskRequest;
-    if (!body.title && !body.description) return c.json({ success: false, error: "At least one field required" } satisfies UpdateTaskResponse, 400);
+    if (body.title === undefined && body.description === undefined && body.context === undefined) return c.json({ success: false, error: "At least one field required" } satisfies UpdateTaskResponse, 400);
     if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies UpdateTaskResponse, 404);
-    store.updateTaskDetails(taskId, { title: body.title, description: body.description });
+    store.updateTaskDetails(taskId, { title: body.title, description: body.description, context: body.context });
     return c.json({ success: true } satisfies UpdateTaskResponse);
   });
 

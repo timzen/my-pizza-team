@@ -9,6 +9,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { RequirementsEditor } from "@/components/board/RequirementsEditor";
+import { ContextSelector } from "@/components/board/ContextSelector";
 import { Plus, X } from "lucide-react";
 import { useApi, apiPost } from "@/hooks/useApi";
 
@@ -32,16 +33,22 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
   const [requirements, setRequirements] = useState<Record<string, string | null>>({});
   const [paused, setPaused] = useState(false);
   const [workflow, setWorkflow] = useState("");
-  const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
+  const [context, setContext] = useState<string[]>([]);
+  const [tasks, setTasks] = useState<Array<{ title: string; description: string; context: string[] }>>([]);
   const [error, setError] = useState("");
 
-  const reset = () => { setId(""); setTitle(""); setDescription(""); setRequirements({}); setPaused(false); setWorkflow(""); setTasks([]); setError(""); };
+  const reset = () => { setId(""); setTitle(""); setDescription(""); setRequirements({}); setPaused(false); setWorkflow(""); setContext([]); setTasks([]); setError(""); };
 
-  const addTask = () => setTasks([...tasks, { title: "", description: "" }]);
+  const addTask = () => setTasks([...tasks, { title: "", description: "", context: [] }]);
   const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
   const updateTask = (i: number, field: "title" | "description", value: string) => {
     const updated = [...tasks];
     updated[i] = { ...updated[i]!, [field]: value };
+    setTasks(updated);
+  };
+  const updateTaskContext = (i: number, ids: string[]) => {
+    const updated = [...tasks];
+    updated[i] = { ...updated[i]!, context: ids };
     setTasks(updated);
   };
 
@@ -54,7 +61,8 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
     // and presence-only skills. See daemon DESIGN.md: Capability-Based Work Matching.
     if (Object.keys(requirements).length > 0) body.requirements = requirements;
     if (paused) body.paused = true;
-    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title);
+    if (context.length > 0) body.context = context;
+    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined }));
 
     const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
     if (res.success) { setOpen(false); reset(); onCreated(); }
@@ -93,6 +101,8 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
 
           <div><Label>Requirements</Label><div className="mt-1"><RequirementsEditor value={requirements} onChange={setRequirements} /></div></div>
 
+          <div><Label>Context</Label><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
+
           <div>
             <div className="flex items-center justify-between mb-2">
               <Label>Tasks</Label>
@@ -103,6 +113,7 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
                 <div className="flex-1 space-y-1">
                   <Input placeholder="Task title" value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
                   <Input placeholder="Description" value={task.description} onChange={e => updateTask(i, "description", e.target.value)} />
+                  <ContextSelector value={task.context} onChange={ids => updateTaskContext(i, ids)} />
                 </div>
                 <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeTask(i)}><X className="h-3 w-3" /></Button>
               </div>

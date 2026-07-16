@@ -152,3 +152,78 @@ Deno.test("clearing the conversation asks an online assistant to reset its sessi
     void store;
   } finally { cleanup(teamDir, store); }
 });
+
+Deno.test("persona: defaults to none, can be set and cleared", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    // No persona initially — the daemon supplies its default system prompt.
+    let res = await app.request("/api/assistant/persona");
+    let body = await res.json();
+    assertEquals(body.personaId, null);
+    assertEquals(body.entry, null);
+    assertEquals(typeof body.systemPrompt, "string");
+    assertEquals(body.systemPrompt.length > 0, true);
+    const defaultPrompt = body.systemPrompt;
+
+    // Create a context entry to use as a persona.
+    store.saveContextEntry({ title: "Pirate", description: "Talk like a pirate", tags: ["persona"], content: "Arr, ye be a pirate." });
+
+    // Setting it returns the resolved entry and its body as the system prompt.
+    res = await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "pirate" }) });
+    body = await res.json();
+    assertEquals(body.success, true);
+    assertEquals(body.personaId, "pirate");
+    assertEquals(body.entry.title, "Pirate");
+    assertEquals(body.systemPrompt, "Arr, ye be a pirate.");
+    assertEquals(store.getAssistantPersonaId(), "pirate");
+
+    // GET reflects the active persona.
+    res = await app.request("/api/assistant/persona");
+    body = await res.json();
+    assertEquals(body.personaId, "pirate");
+    assertEquals(body.systemPrompt, "Arr, ye be a pirate.");
+
+    // Clearing (null) removes it and restores the default system prompt.
+    res = await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: null }) });
+    body = await res.json();
+    assertEquals(body.personaId, null);
+    assertEquals(body.systemPrompt, defaultPrompt);
+    assertEquals(store.getAssistantPersonaId(), null);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("persona: unknown entry is rejected", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const res = await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "does-not-exist" }) });
+    assertEquals(res.status, 404);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("persona: a deleted entry reports no active persona", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.saveContextEntry({ title: "Temp Persona", tags: ["persona"], content: "x" });
+    await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "temp-persona" }) });
+    store.deleteContextEntry("temp-persona");
+
+    const res = await app.request("/api/assistant/persona");
+    const body = await res.json();
+    assertEquals(body.personaId, null);
+    assertEquals(body.entry, null);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("persona: swapping resets an online assistant session", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", hostId: "h1", metadata: { tmuxWindow: "asst" } });
+    store.saveContextEntry({ title: "Coach", tags: ["persona"], content: "Be encouraging." });
+
+    await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "coach" }) });
+
+    const res = await app.request("/api/hosts/h1/leader/directives");
+    const { directives } = await res.json();
+    assertEquals(directives.some((d: { action: string }) => d.action === "reset-session"), true);
+  } finally { cleanup(teamDir, store); }
+});

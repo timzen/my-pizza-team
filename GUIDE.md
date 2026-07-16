@@ -112,7 +112,6 @@ The workflows page (`/workflows`) lets you view and manage workflow definitions.
 Click any workflow to see:
 - **State graph** — Visual representation of states and transitions
 - **Lifecycle preview** — How a task flows through the states
-- **Default categories** — Memory categories for stories using this workflow
 - **Instructions** — Markdown instruction files for each state
 
 ### Editing States & Transitions
@@ -177,19 +176,27 @@ The teammate will pick it up again, see your comments, and address them.
 
 ---
 
-## Knowledge Base
+## Context Library
 
-The knowledge base (`/memory`) stores reusable notes that teammates can search during work.
+The context library (`/context`) stores reusable prompt/context entries that you can inject into teammates or the assistant.
 
-- **Categories** — Organize notes by topic (e.g., "coding", "architecture", "style-guide")
-- **Search** — Teammates use `search_memory` to find relevant notes
-- **Auto-hints** — When a story has categories, teammates are told relevant knowledge exists
+- **Metadata** — Each entry has a title, a short description, and tags
+- **Filter** — Tag chips and free-text search narrow the list (client-side; the collection is meant to stay small)
+- **Markdown body** — The entry body is the prompt/context text itself
 
-Good things to put in the knowledge base:
+Good things to keep in the context library:
 - Coding conventions and style guides
 - Architecture decisions
 - Common patterns and gotchas
 - Project-specific context
+
+### Attaching context to work
+
+Attach context entries to a **story** (applies to all its tasks) or an individual **task** from the story/task editor. Attached entries are inlined into the task prompt under a **Reference Context** section when a teammate claims the task — so the daemon vends the right context to every harness, no per-agent tools needed.
+
+### Assistant personas
+
+Tag a context entry with **`persona`** to turn it into a swappable assistant persona. On the Assistant page (when a persona-capable assistant is online), persona entries appear as chips above the chat. Picking one starts a fresh chat in which that entry's body becomes the assistant's system prompt; **Default** returns to the daemon's built-in assistant persona. Swapping resets the assistant's context window, and **New chat** does the same without changing persona.
 
 ---
 
@@ -199,7 +206,6 @@ Visit `/config` to manage settings:
 
 - **Port & Session** — Daemon network settings
 - **Autosave** — How often work is flushed to disk and git-committed
-- **Categories** — Global knowledge base categories
 - **Favorite Directories** — Quick-access paths shown in directory dropdowns
 - **Host Settings** — Per-machine configuration for multi-host setups
 
@@ -210,5 +216,5 @@ Visit `/config` to manage settings:
 - **Write good task descriptions** — Teammates work from what you give them. Be specific about requirements, constraints, and expected outcomes.
 - **Use workflow instructions** — They're your chance to give teammates phase-specific guidance (what tools to use, what to check, what to produce).
 - **Review early** — Don't let review queues build up. Quick feedback loops keep teammates productive.
-- **Use the knowledge base** — Store patterns, conventions, and decisions so every teammate works consistently.
+- **Use the context library** — Store patterns, conventions, and decisions so every teammate works consistently.
 - **One story per concern** — Keep stories focused. Multiple small stories with clear tasks work better than one giant story.

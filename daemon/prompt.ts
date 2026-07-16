@@ -7,9 +7,9 @@
  * verbatim. Keeping it here also means prompt wording/order changes in a single,
  * testable place instead of drifting across harnesses.
  *
- * Section order: Story → Task → prior-task context → lead comments →
- * State Context (guidance) → Instructions (leaving the previous state, then the
- * entered state — whose file already carries its exit criteria).
+ * Section order: Story → Task → reference context → prior-task context →
+ * lead comments → State Context (guidance) → Instructions (leaving the previous
+ * state, then the entered state — whose file already carries its exit criteria).
  *
  * Note: no session-specific framing (e.g. "ignore task IDs from earlier in this
  * conversation") lives here — that belongs to a stateful harness, not the
@@ -21,6 +21,12 @@ export interface TaskPromptInput {
   story?: { id: string; title: string; description: string };
   /** The task being worked. */
   task: { id: string; storyId: string; title: string; description: string };
+  /**
+   * Context-library entries attached to the story/task, resolved to their
+   * bodies and deduped by the caller. Inlined verbatim so every harness gets
+   * the same reference material (no Pi-specific skills/AGENTS.md needed).
+   */
+  contextEntries?: Array<{ title: string; content: string }>;
   /** One-line guidance about the entered state and where release advances to. */
   guidance: string;
   /**
@@ -77,7 +83,7 @@ export function normalizeInstructionMarkdown(md: string, minLevel = 3): string {
 
 /** Build the complete prompt an agent gets on claim. */
 export function buildTaskPrompt(input: TaskPromptInput): string {
-  const { story, task, guidance, transition, previousResults, comments } = input;
+  const { story, task, guidance, transition, previousResults, comments, contextEntries } = input;
   let out = "";
 
   // Sections are delimited by their `##`/`###` headings alone — no `---` rules
@@ -92,19 +98,28 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
   // 2. Task — what to do (kept right next to the story)
   out += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}\n\n`;
 
-  // 3. Context from previous tasks in the story
+  // 3. Reference context — attached context-library entries (story + task).
+  //    Inlined so the teammate has the relevant conventions/context to hand.
+  if (contextEntries && contextEntries.length > 0) {
+    out += `## Reference Context\n\n`;
+    for (const entry of contextEntries) {
+      out += `### ${entry.title}\n\n${normalizeInstructionMarkdown(entry.content, 4)}\n\n`;
+    }
+  }
+
+  // 4. Context from previous tasks in the story
   if (previousResults) {
     out += `## Context from previous tasks\n\n${previousResults}\n\n`;
   }
 
-  // 4. Lead comments (feedback / rework context)
+  // 5. Lead comments (feedback / rework context)
   const leadComments = (comments || []).filter((c) => c.from === "lead");
   if (leadComments.length > 0) {
     const bodies = leadComments.map((c) => `> ${c.body}`).join("\n\n");
     out += `## Comments from Team Lead\n\n${bodies}\n\n`;
   }
 
-  // 5. What to do now: state guidance, with the transition instructions nested
+  // 6. What to do now: state guidance, with the transition instructions nested
   //    beneath it as `###` — they're the detail of the state being entered.
   out += `## State Context\n\n${guidance}\n\n`;
   if (transition) {

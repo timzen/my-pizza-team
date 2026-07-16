@@ -8,11 +8,11 @@
  */
 
 import { useState, useRef, useEffect } from "react";
-import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
+import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { Send, Trash2, UserPlus } from "lucide-react";
+import { Send, SquarePen, UserPlus } from "lucide-react";
 
 interface Message {
   id: string;
@@ -22,16 +22,47 @@ interface Message {
   createdAt: string;
 }
 
+interface ContextEntry {
+  id: string;
+  title: string;
+  description: string;
+  tags: string[];
+  content: string;
+}
+
+/** The tag that marks a context entry as a selectable assistant persona. */
+const PERSONA_TAG = "persona";
+
 export function AssistantPage() {
   const { data, refetch } = useApi<{ messages: Message[] }>("/api/assistant/messages", [], { pollInterval: 2000 });
-  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents", [], { pollInterval: 10_000 });
+  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string; capabilities?: Record<string, string | null> }> }>("/api/agents", [], { pollInterval: 10_000 });
+  const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
+  const { data: contextData } = useApi<{ entries: ContextEntry[] }>("/api/context", [], { pollInterval: 30_000 });
   const [draft, setDraft] = useState("");
   const [sending, setSending] = useState(false);
+  const [swapping, setSwapping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   const messages = data?.messages || [];
   const agents = agentsData?.agents || [];
-  const assistantOnline = agents.some(a => a.name.includes("assistant") && a.status !== "offline");
+  const onlineAssistant = agents.find(a => a.name.includes("assistant") && a.status !== "offline");
+  const assistantOnline = !!onlineAssistant;
+  // Persona chips are only meaningful when the assistant advertises the
+  // `persona` capability (i.e. a build that knows how to load one).
+  const personaCapable = !!onlineAssistant?.capabilities && PERSONA_TAG in onlineAssistant.capabilities;
+  const personas = (contextData?.entries || []).filter(e => e.tags.includes(PERSONA_TAG));
+  const activePersonaId = personaData?.personaId ?? null;
+
+  const swapPersona = async (personaId: string | null) => {
+    if (swapping || personaId === activePersonaId) return;
+    setSwapping(true);
+    try {
+      await apiPut("/api/assistant/persona", { personaId });
+      await Promise.all([refetchPersona(), refetch()]);
+    } finally {
+      setSwapping(false);
+    }
+  };
 
   // Auto-scroll to the newest message.
   useEffect(() => {
@@ -52,7 +83,7 @@ export function AssistantPage() {
   };
 
   const clearConversation = async () => {
-    if (!confirm("Clear the entire conversation?")) return;
+    if (!confirm("Start a new chat? This clears the conversation and resets the assistant's context.")) return;
     await apiDelete("/api/assistant/messages");
     refetch();
   };
@@ -71,16 +102,41 @@ export function AssistantPage() {
         <div className="flex items-center gap-2">
           <h1 className="text-xl font-bold">Assistant</h1>
           <span className={`h-2 w-2 rounded-full ${assistantOnline ? "bg-green-500" : "bg-muted-foreground/40"}`} title={assistantOnline ? "Assistant online" : "Assistant offline"} />
+          {personaCapable && activePersonaId && (
+            <span className="text-xs text-muted-foreground">· {personaData?.entry?.title ?? activePersonaId}</span>
+          )}
         </div>
         <div className="flex items-center gap-2">
           {messages.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={clearConversation} title="Clear conversation">
-              <Trash2 className="h-4 w-4" />
+            <Button variant="ghost" size="sm" onClick={clearConversation} title="New chat (clears + resets context)">
+              <SquarePen className="h-4 w-4 mr-1" />New chat
             </Button>
           )}
           <SpawnAssistantButton disabled={assistantOnline} />
         </div>
       </div>
+
+      {/* Persona chips — only when the assistant can load a persona */}
+      {personaCapable && personas.length > 0 && (
+        <div className="flex items-center gap-2 flex-wrap pt-3">
+          <span className="text-xs text-muted-foreground mr-1">Persona:</span>
+          <Button variant={activePersonaId === null ? "default" : "outline"} size="sm" disabled={swapping} onClick={() => swapPersona(null)}>
+            Default
+          </Button>
+          {personas.map(p => (
+            <Button
+              key={p.id}
+              variant={activePersonaId === p.id ? "default" : "outline"}
+              size="sm"
+              disabled={swapping}
+              title={p.description || p.title}
+              onClick={() => swapPersona(p.id)}
+            >
+              {p.title}
+            </Button>
+          ))}
+        </div>
+      )}
 
       {/* Messages */}
       <div ref={scrollRef} className="flex-1 overflow-y-auto py-4 space-y-3">

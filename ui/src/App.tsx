@@ -7,7 +7,7 @@ import { NavBar } from "./components/NavBar";
 import { HomePage } from "./pages/HomePage";
 import { BoardPage } from "./pages/BoardPage";
 import { TeammatesPage } from "./pages/TeammatesPage";
-import { MemoryPage } from "./pages/MemoryPage";
+import { ContextPage } from "./pages/ContextPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { AssistantPage } from "./pages/AssistantPage";
@@ -28,7 +28,7 @@ function App() {
             <Route path="/" element={<HomePage />} />
             <Route path="/board" element={<BoardPage />} />
             <Route path="/team" element={<TeammatesPage />} />
-            <Route path="/memory" element={<MemoryPage />} />
+            <Route path="/context" element={<ContextPage />} />
             <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
             <Route path="/story/:id" element={<StoryDetailPage />} />
             <Route path="/assistant" element={<AssistantPage />} />

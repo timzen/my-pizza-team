@@ -6,7 +6,7 @@ domain. This plan breaks it into small, single-responsibility modules **behind a
 unchanged `Store` facade**, so no route/CLI/test call sites change.
 
 Two concerns have already been extracted as a proof of the pattern:
-`daemon/store/notes.ts` and `daemon/store/git-sync.ts`.
+`daemon/store/context.ts` and `daemon/store/git-sync.ts`.
 
 ## Goal & constraints
 
@@ -23,7 +23,7 @@ Two concerns have already been extracted as a proof of the pattern:
 Schema/migrations · load-from-disk · stories · tasks · assignments · comments ·
 token usage · members · recently-used capabilities · flush-to-disk · autosave
 timers · transition instructions · workflow validation · archive · backlog ·
-assistant conversation · leader directives · (notes ✅ extracted) ·
+assistant conversation · leader directives · (context library ✅ extracted) ·
 (git-sync ✅ extracted) · cleanup.
 
 ## Target layout
@@ -33,7 +33,7 @@ daemon/
 ├── store.ts                # Store facade: owns db + config + workflows + timers; delegates
 └── store/
     ├── db.ts               # openDatabase(teamDir) + initSchema() + migrations
-    ├── context.ts          # StoreContext type: { db, teamDir, config, workflows }
+    ├── storectx.ts         # StoreContext type: { db, teamDir, config, workflows }
     ├── stories.ts          # stories CRUD, isStoryReady, dependency checks
     ├── tasks.ts            # tasks CRUD, status transitions, next-workable matching
     ├── assignments.ts      # claim/release, per-member assignment lookups
@@ -45,7 +45,7 @@ daemon/
     ├── workflows.ts        # load/save/delete workflows, transition instructions
     ├── archive.ts          # archive + backlog + synopsis generation
     ├── autosave.ts         # flushToDisk + timers (uses git-sync)
-    ├── notes.ts            # ✅ done
+    ├── context.ts          # ✅ done (context library — reusable prompt/context entries)
     └── git-sync.ts         # ✅ done
 ```
 
@@ -55,7 +55,7 @@ Prefer **free functions over a shared `StoreContext`** rather than sub-classes.
 Each module exports functions whose first argument is the context:
 
 ```ts
-// store/context.ts
+// store/storectx.ts
 export interface StoreContext {
   db: Database;
   teamDir: string;

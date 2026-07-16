@@ -24,12 +24,11 @@ interface ConfigData {
   workflows: Record<string, { states: string[] }>;
   autosave: { flushIntervalMinutes: number; commitIntervalHours: number; autoCommit: boolean };
   maxTeammates?: number;
-  categories?: string[];
   teammates?: TeammateConfig;
   defaultNouns?: string[];
 }
 
-type Tab = "general" | "teammates" | "categories" | "capabilities";
+type Tab = "general" | "teammates" | "capabilities";
 
 export function ConfigPage() {
   const { data, loading, refetch } = useApi<ConfigData>("/api/config");
@@ -69,7 +68,6 @@ export function ConfigPage() {
   const tabs: { id: Tab; label: string }[] = [
     { id: "general", label: "General" },
     { id: "teammates", label: "Teammates" },
-    { id: "categories", label: "Categories" },
     { id: "capabilities", label: "Capabilities" },
   ];
 
@@ -100,7 +98,6 @@ export function ConfigPage() {
       {/* Tab content */}
       {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}
       {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
-      {activeTab === "categories" && <CategoriesTab config={config} setConfig={setConfig} />}
       {activeTab === "capabilities" && <CapabilitiesTab />}
 
       {/* Save bar */}
@@ -304,42 +301,3 @@ function CapabilitiesTab() {
   );
 }
 
-// --- Categories Tab ---
-
-function CategoriesTab({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
-  const [newCat, setNewCat] = useState("");
-  const categories = config.categories || [];
-
-  const addCategory = () => {
-    const val = newCat.trim().toLowerCase().replace(/[^a-z0-9-]/g, "-").replace(/^-|-$/g, "");
-    if (!val || categories.includes(val)) return;
-    setConfig({ ...config, categories: [...categories, val] });
-    setNewCat("");
-  };
-
-  const removeCategory = (cat: string) => {
-    setConfig({ ...config, categories: categories.filter((c) => c !== cat) });
-  };
-
-  return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <h2 className="font-semibold">Memory Categories</h2>
-        <p className="text-xs text-muted-foreground">Categories for organizing memories in the knowledge base. Memories can be tagged with one or more categories for targeted search.</p>
-        <div className="flex gap-1 flex-wrap">
-          {categories.map((c) => (
-            <Badge key={c} variant="secondary" className="gap-1">
-              {c}
-              <button onClick={() => removeCategory(c)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
-            </Badge>
-          ))}
-          {categories.length === 0 && <span className="text-xs text-muted-foreground italic">No categories configured</span>}
-        </div>
-        <div className="flex gap-2">
-          <Input placeholder="e.g. architecture" value={newCat} onChange={(e) => setNewCat(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addCategory()} className="max-w-[200px]" />
-          <Button variant="outline" size="sm" onClick={addCategory}><Plus className="h-3.5 w-3.5" /></Button>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}

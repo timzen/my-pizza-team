@@ -22,6 +22,8 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownField } from "@/components/ui/markdown-field";
+import { Label } from "@/components/ui/label";
+import { ContextSelector } from "@/components/board/ContextSelector";
 import { TitleField } from "@/components/ui/title-field";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload, Trash2, Save } from "lucide-react";
@@ -46,6 +48,7 @@ interface TaskData {
   title: string;
   status: string;
   description?: string;
+  context?: string[];
   assignee: string | null;
 }
 
@@ -101,11 +104,12 @@ export function TaskDetailPage() {
   // --- Task editing (title/description/status/delete) lives on this page ---
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
+  const [context, setContext] = useState<string[]>([]);
   const [editError, setEditError] = useState("");
 
   // Seed the edit fields whenever the task loads/changes.
   useEffect(() => {
-    if (task) { setTitle(task.title); setDescription(task.description || ""); setEditError(""); }
+    if (task) { setTitle(task.title); setDescription(task.description || ""); setContext(task.context ? [...task.context] : []); setEditError(""); }
   }, [task?.id]);
 
   // Resolve workflow states/transitions for this task's story.
@@ -119,7 +123,7 @@ export function TaskDetailPage() {
   const saveTask = async () => {
     if (!taskId) return;
     setEditError("");
-    const res = await apiPut<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`, { title, description });
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`, { title, description, context });
     if (!res.success) { setEditError(res.error || "Failed to save"); return; }
     refetchStories();
   };
@@ -250,6 +254,12 @@ export function TaskDetailPage() {
 
       {/* Editable description */}
       <MarkdownField label="Description" value={description} onChange={setDescription} rows={4} />
+
+      {/* Attached context (injected into this task's prompt) */}
+      <div className="mt-4">
+        <div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div>
+        <ContextSelector value={context} onChange={setContext} />
+      </div>
 
       {/* Workflow moves (below the description) */}
       {validTransitions.length > 0 && (

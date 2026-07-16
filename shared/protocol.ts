@@ -33,7 +33,7 @@ export interface StoryView {
   requirements?: Record<string, string | null>;
   paused?: boolean;
   workflow?: string;
-  categories?: string[];
+  context?: string[];
   tasks: TaskView[];
 }
 
@@ -43,6 +43,7 @@ export interface TaskView {
   title: string;
   status: string;
   description?: string;
+  context?: string[];
   assignee: string | null;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
@@ -55,15 +56,15 @@ export interface PostCommentResponse { success: boolean }
 export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/stories
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null>; paused?: boolean; workflow?: string; categories?: string[]; tasks?: Array<{ title: string; description: string }> }
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null>; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[] }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // POST /api/stories/:storyId/tasks
-export interface CreateTaskRequest { title: string; description: string }
+export interface CreateTaskRequest { title: string; description: string; context?: string[] }
 export interface CreateTaskResponse { success: boolean; task?: { id: string; seq: number; title: string; description: string; status: string }; error?: string }
 
 // PUT /api/tasks/:id
-export interface UpdateTaskRequest { title?: string; description?: string }
+export interface UpdateTaskRequest { title?: string; description?: string; context?: string[] | null }
 export interface UpdateTaskResponse { success: boolean; error?: string }
 
 // DELETE /api/tasks/:id
@@ -83,7 +84,7 @@ export interface TokenUsageResponse { success: boolean; costUsd?: number; error?
 
 
 // PUT /api/stories/:id
-export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null> | null; paused?: boolean; workflow?: string | null; categories?: string[] | null }
+export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null> | null; paused?: boolean; workflow?: string | null; context?: string[] | null }
 export interface UpdateStoryResponse { success: boolean; error?: string }
 
 // DELETE /api/stories/:id
@@ -115,12 +116,21 @@ export interface AssistantCompleteRequest { result?: string; status?: "done" | "
 export interface AssistantCompleteResponse { success: boolean; error?: string }
 export interface AssistantDeleteResponse { success: boolean; error?: string }
 
-// --- Assistant Notes ---
-export interface AssistantNote { id: string; title: string; content: string; categories: string[]; createdAt: string; updatedAt: string }
-export interface AssistantNotesResponse { notes: AssistantNote[] }
-export interface AssistantSaveNoteRequest { title: string; content: string; categories?: string[] }
-export interface AssistantSaveNoteResponse { success: boolean; note?: AssistantNote; error?: string }
-export interface AssistantDeleteNoteResponse { success: boolean; error?: string }
+// --- Context Library ---
+export interface ContextEntry { id: string; title: string; description: string; tags: string[]; content: string; createdAt: string; updatedAt: string }
+export interface ContextEntriesResponse { entries: ContextEntry[] }
+export interface ContextEntryResponse { entry?: ContextEntry; success?: boolean; error?: string }
+export interface SaveContextEntryRequest { title: string; description?: string; tags?: string[]; content: string }
+export interface UpdateContextEntryRequest { title?: string; description?: string; tags?: string[]; content?: string }
+export interface SaveContextEntryResponse { success: boolean; entry?: ContextEntry; error?: string }
+export interface DeleteContextEntryResponse { success: boolean; error?: string }
+
+// --- Assistant Persona ---
+// GET /api/assistant/persona
+export interface AssistantPersonaResponse { personaId: string | null; entry: ContextEntry | null; systemPrompt: string }
+// PUT /api/assistant/persona
+export interface SetAssistantPersonaRequest { personaId: string | null }
+export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; entry?: ContextEntry | null; systemPrompt?: string; error?: string }
 
 // --- Agents API ---
 
