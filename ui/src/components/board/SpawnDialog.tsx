@@ -18,6 +18,8 @@ import { apiPost } from "@/hooks/useApi";
 
 interface SpawnDialogProps {
   onSpawned?: () => void;
+  /** Render an icon-only trigger (for the collapsed sidebar). */
+  compact?: boolean;
 }
 
 interface StoryOption {
@@ -33,7 +35,7 @@ interface AgentOption {
   status: string;
 }
 
-export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
+export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
   const [open, setOpen] = useState(false);
   const [hostId, setHostId] = useState("");
   const [cwd, setCwd] = useState("");
@@ -99,9 +101,15 @@ export function SpawnDialog({ onSpawned }: SpawnDialogProps) {
 
   return (
     <>
-      <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
-        <UserPlus className="h-4 w-4 mr-1" /> Spawn
-      </Button>
+      {compact ? (
+        <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setOpen(true)} title="Spawn teammate">
+          <UserPlus className="h-4 w-4" />
+        </Button>
+      ) : (
+        <Button variant="outline" size="sm" onClick={() => setOpen(true)}>
+          <UserPlus className="h-4 w-4 mr-1" /> Spawn
+        </Button>
+      )}
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); setError(""); setSuccess(""); }}>
         <DialogContent>
           <DialogHeader><DialogTitle>Spawn Teammate</DialogTitle></DialogHeader>
