@@ -3,8 +3,8 @@
  *
  * A lightweight, human-first scratch pad kept as plain files under the team
  * directory (no SQLite): a todo list and a free-form notes doc.
- *   - `TODO.jsonl` — one JSON object per line: { status, item, created, completed }
- *   - `NOTES.md`   — a free-form markdown document
+ *   - `todo.jsonl` — one JSON object per line: { status, item, created, completed }
+ *   - `notes.md`   — a free-form markdown document
  *
  * Todos are addressed by their line index (this is a single-user scratch pad,
  * so index addressing is simple and sufficient). Pure functions over a team
@@ -23,8 +23,8 @@ export interface TodoItem {
   completed: string;
 }
 
-const TODO_FILE = "TODO.jsonl";
-const NOTES_FILE = "NOTES.md";
+const TODO_FILE = "todo.jsonl";
+const NOTES_FILE = "notes.md";
 
 /** Today's date as YYYY-MM-DD. */
 function today(): string {

@@ -1,5 +1,5 @@
 /**
- * tests/scratchpad.test.ts — Verifies the scratch pad: TODO.jsonl + NOTES.md
+ * tests/scratchpad.test.ts — Verifies the scratch pad: todo.jsonl + notes.md
  * persistence, todo add/toggle/delete (with completion stamping), and routes.
  */
 
@@ -64,8 +64,8 @@ Deno.test("Scratchpad: notes round-trip on disk", () => {
   try {
     store.setScratchpadNotes("# Plan\n\n- ship it");
     assertEquals(store.getScratchpad().notes, "# Plan\n\n- ship it");
-    // Written to NOTES.md at the team dir root.
-    assertExists(Deno.statSync(path.join(teamDir, "NOTES.md")));
+    // Written to notes.md at the team dir root.
+    assertExists(Deno.statSync(path.join(teamDir, "notes.md")));
   } finally { cleanup(teamDir, store); }
 });
 
@@ -75,7 +75,7 @@ Deno.test("Scratchpad: todos persist as JSONL and reload", () => {
     store.addScratchpadTodo("one");
     store.addScratchpadTodo("two");
     // Raw file is one JSON object per line.
-    const raw = Deno.readTextFileSync(path.join(teamDir, "TODO.jsonl")).trim().split("\n");
+    const raw = Deno.readTextFileSync(path.join(teamDir, "todo.jsonl")).trim().split("\n");
     assertEquals(raw.length, 2);
     assertEquals(JSON.parse(raw[0]!).item, "one");
 

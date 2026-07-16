@@ -1,7 +1,7 @@
 /**
  * daemon/routes/scratchpad.ts — Personal scratch pad routes.
  *
- * A simple todo list (`TODO.jsonl`) + notes doc (`NOTES.md`) kept as plain
+ * A simple todo list (`todo.jsonl`) + notes doc (`notes.md`) kept as plain
  * files under the team directory (see store/scratchpad.ts). Todos are addressed
  * by their line index. Used by the web UI, and readable by the assistant when
  * the user asks it to look at their scratch pad.
