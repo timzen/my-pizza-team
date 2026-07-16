@@ -18,7 +18,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { Badge } from "@/components/ui/badge";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { Label } from "@/components/ui/label";
-import { Plus, Search, Trash2, Pencil, Check, X } from "lucide-react";
+import { Plus, Search, Trash2, Pencil, Check, X, Sparkles } from "lucide-react";
+
+/** The tag that marks a context entry as a selectable assistant persona. */
+const PERSONA_TAG = "persona";
 
 interface ContextEntry {
   id: string;
@@ -34,7 +37,9 @@ export function ContextPage() {
   const { data, refetch } = useApi<{ entries: ContextEntry[] }>("/api/context");
   const [query, setQuery] = useState("");
   const [activeTag, setActiveTag] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
+  // `creating` holds the initial tags string for a new card (null = not creating).
+  // "New Entry" opens it blank; "New Persona" pre-tags it with `persona`.
+  const [creating, setCreating] = useState<string | null>(null);
 
   const entries = data?.entries || [];
 
@@ -69,7 +74,10 @@ export function ContextPage() {
           <h1 className="text-2xl font-bold">Context</h1>
           <p className="text-sm text-muted-foreground">Reusable prompts and context to inject into teammates or the assistant.</p>
         </div>
-        <Button size="sm" onClick={() => setCreating(true)} disabled={creating}><Plus className="h-4 w-4 mr-1" />New Entry</Button>
+        <div className="flex items-center gap-2">
+          <Button size="sm" variant="outline" onClick={() => setCreating(PERSONA_TAG)} disabled={creating !== null}><Sparkles className="h-4 w-4 mr-1" />New Persona</Button>
+          <Button size="sm" onClick={() => setCreating("")} disabled={creating !== null}><Plus className="h-4 w-4 mr-1" />New Entry</Button>
+        </div>
       </div>
 
       {/* Search */}
@@ -99,19 +107,20 @@ export function ContextPage() {
 
       {/* Entry list */}
       <div className="space-y-3">
-        {creating && (
+        {creating !== null && (
           <ContextCard
             entry={null}
             startEditing
-            onSaved={() => { setCreating(false); refetch(); }}
-            onCancel={() => setCreating(false)}
+            initialTags={creating}
+            onSaved={() => { setCreating(null); refetch(); }}
+            onCancel={() => setCreating(null)}
             onDeleted={refetch}
           />
         )}
         {filtered.map((entry) => (
           <ContextCard key={entry.id} entry={entry} onSaved={refetch} onDeleted={refetch} />
         ))}
-        {filtered.length === 0 && !creating && (
+        {filtered.length === 0 && creating === null && (
           <p className="text-center text-muted-foreground py-8">
             {entries.length === 0 ? "No context entries yet." : "No entries match your filter."}
           </p>
@@ -124,6 +133,7 @@ export function ContextPage() {
 interface ContextCardProps {
   entry: ContextEntry | null; // null → an unsaved new entry
   startEditing?: boolean;
+  initialTags?: string; // seed tags for a new entry (e.g. "persona")
   onSaved: () => void;
   onCancel?: () => void;
   onDeleted: () => void;
@@ -133,18 +143,26 @@ interface ContextCardProps {
  * A single context entry card with an inline view/edit toggle. Metadata sits in
  * the left quarter; the markdown body fills the right three-quarters.
  */
-function ContextCard({ entry, startEditing, onSaved, onCancel, onDeleted }: ContextCardProps) {
+function ContextCard({ entry, startEditing, initialTags, onSaved, onCancel, onDeleted }: ContextCardProps) {
   const [editing, setEditing] = useState(!!startEditing);
   const [saving, setSaving] = useState(false);
   const [title, setTitle] = useState(entry?.title ?? "");
   const [description, setDescription] = useState(entry?.description ?? "");
-  const [tags, setTags] = useState(entry?.tags.join(", ") ?? "");
+  const [tags, setTags] = useState(entry?.tags.join(", ") ?? initialTags ?? "");
   const [content, setContent] = useState(entry?.content ?? "");
+
+  // Whether `persona` is among the current tags, and a toggle for it. Lets any
+  // entry be marked (or unmarked) as a swappable assistant persona.
+  const isPersona = tags.split(",").map((t) => t.trim()).includes(PERSONA_TAG);
+  const togglePersona = () => {
+    const list = tags.split(",").map((t) => t.trim()).filter(Boolean);
+    setTags((isPersona ? list.filter((t) => t !== PERSONA_TAG) : [...list, PERSONA_TAG]).join(", "));
+  };
 
   const resetFromEntry = () => {
     setTitle(entry?.title ?? "");
     setDescription(entry?.description ?? "");
-    setTags(entry?.tags.join(", ") ?? "");
+    setTags(entry?.tags.join(", ") ?? initialTags ?? "");
     setContent(entry?.content ?? "");
   };
 
@@ -202,6 +220,17 @@ function ContextCard({ entry, startEditing, onSaved, onCancel, onDeleted }: Cont
                 <div>
                   <Label className="text-xs">Tags (comma-separated)</Label>
                   <Input value={tags} onChange={(e) => setTags(e.target.value)} placeholder="coding, review" />
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant={isPersona ? "default" : "outline"}
+                    className="mt-2 h-7 text-xs"
+                    onClick={togglePersona}
+                    title="Mark this entry as a swappable assistant persona"
+                  >
+                    <Sparkles className="h-3.5 w-3.5 mr-1" />
+                    {isPersona ? "Persona" : "Mark as persona"}
+                  </Button>
                 </div>
                 <div className="flex gap-2 pt-1">
                   <Button size="sm" onClick={save} disabled={!title.trim() || saving}><Check className="h-4 w-4 mr-1" />Save</Button>
