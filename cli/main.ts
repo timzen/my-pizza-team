@@ -11,8 +11,12 @@ import { existsSync } from "@std/fs";
 import { install, uninstall } from "./service.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { startDaemonInProcess } from "./start-daemon.ts";
+// Single source of truth for the version: the package manifest. Bundled into
+// the compiled binary by `deno compile` (JSON imports are part of the module
+// graph), and read directly under `deno run`.
+import denoConfig from "../deno.json" with { type: "json" };
 
-const VERSION = "0.1.0";
+const VERSION = denoConfig.version;
 const PID_FILENAME = "daemon.pid";
 
 function getTeamDir(): string {
