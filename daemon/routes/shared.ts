@@ -49,6 +49,10 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       queueDepth,
       memory: { rss: mem.rss, heapUsed: mem.heapUsed, heapTotal: mem.heapTotal },
       lastCommitTime,
+      // Surfaced for the menu bar app: the configured tmux session name and
+      // whether a leader coordinator (a member named "leader") is connected.
+      tmuxSession: config.tmuxSession,
+      leaderPresent: members.some((m) => m.name === "leader" && m.status !== "offline"),
     });
   });
 

@@ -8,6 +8,7 @@
  * - Port configuration
  * - Open UI in a chosen browser (configurable)
  * - Open the team directory in a chosen terminal (configurable)
+ * - Launch the team leader via a configurable command (shown when absent)
  * - Shows the app version and daemon status (running/stopped + uptime)
  */
 
@@ -92,6 +93,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             menu.addItem(NSMenuItem(title: "Stop Daemon", action: #selector(stopDaemon), keyEquivalent: "s"))
             menu.addItem(NSMenuItem(title: "Restart Daemon", action: #selector(restartDaemon), keyEquivalent: "r"))
             menu.addItem(NSMenuItem(title: "Open UI in Browser", action: #selector(openUI), keyEquivalent: "o"))
+            // Offer to launch the leader only when the daemon is up and none is
+            // connected yet (a member named "leader", per /health).
+            if !daemon.leaderPresent {
+                menu.addItem(NSMenuItem(title: "Launch Leader", action: #selector(launchLeader), keyEquivalent: "l"))
+            }
         } else {
             menu.addItem(NSMenuItem(title: "Start Daemon", action: #selector(startDaemon), keyEquivalent: "s"))
         }
@@ -130,6 +136,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let terminalItem = NSMenuItem(title: "Terminal: \(currentTerminalName())", action: nil, keyEquivalent: "")
         terminalItem.submenu = buildTerminalMenu()
         menu.addItem(terminalItem)
+
+        // Leader launch command (customizable)
+        menu.addItem(NSMenuItem(title: "Configure Leader Command…", action: #selector(configureLeaderCommand), keyEquivalent: ""))
 
         menu.addItem(NSMenuItem.separator())
 
@@ -179,6 +188,52 @@ class AppDelegate: NSObject, NSApplicationDelegate {
                 if !self.daemon.isRunning { self.daemon.checkLogForErrors() }
                 self.updateMenu()
             }
+        }
+    }
+
+    @objc func launchLeader() {
+        let command = daemon.resolvedLeaderCommand()
+        // Run via the user's login shell so PATH resolves tmux/pi like a terminal would.
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: shell)
+        p.arguments = ["-lc", command]
+        p.currentDirectoryURL = URL(fileURLWithPath: daemon.leaderDir())
+        do {
+            try p.run()
+        } catch {
+            NSLog("Failed to launch leader: \(error)")
+        }
+        // Re-check presence shortly after so the menu updates.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3.0) { [weak self] in
+            self?.daemon.checkStatus()
+            self?.updateMenu()
+        }
+    }
+
+    @objc func configureLeaderCommand() {
+        NSApp.activate(ignoringOtherApps: true)
+        let alert = NSAlert()
+        alert.messageText = "Leader Launch Command"
+        alert.informativeText = "Runs via your login shell. Placeholders: {session} {dir} {port} {url}"
+        alert.addButton(withTitle: "Save")
+        alert.addButton(withTitle: "Reset to Default")
+        alert.addButton(withTitle: "Cancel")
+        let field = NSTextField(frame: NSRect(x: 0, y: 0, width: 420, height: 24))
+        field.stringValue = daemon.effectiveLeaderCommand()
+        field.placeholderString = DaemonManager.defaultLeaderCommand
+        alert.accessoryView = field
+        switch alert.runModal() {
+        case .alertFirstButtonReturn: // Save
+            daemon.leaderCommand = field.stringValue.trimmingCharacters(in: .whitespacesAndNewlines)
+            daemon.savePreferences()
+            updateMenu()
+        case .alertSecondButtonReturn: // Reset to Default
+            daemon.leaderCommand = ""
+            daemon.savePreferences()
+            updateMenu()
+        default:
+            break
         }
     }
 
