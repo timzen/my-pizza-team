@@ -7,6 +7,7 @@
  * - Team directory picker + reveal in Finder
  * - Port configuration
  * - Open UI in a chosen browser (configurable)
+ * - Open the team directory in a chosen terminal (configurable)
  * - Shows the app version and daemon status (running/stopped + uptime)
  */
 
@@ -109,6 +110,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Only actionable when a directory is set and exists on disk.
         revealItem.isEnabled = !daemon.teamDir.isEmpty && FileManager.default.fileExists(atPath: daemon.teamDir)
         menu.addItem(revealItem)
+        let termItem = NSMenuItem(title: "Open Team Directory in Terminal", action: #selector(openTeamDirInTerminal), keyEquivalent: "")
+        termItem.isEnabled = !daemon.teamDir.isEmpty && FileManager.default.fileExists(atPath: daemon.teamDir)
+        menu.addItem(termItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -121,6 +125,11 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         let browserItem = NSMenuItem(title: "Browser: \(currentBrowserName())", action: nil, keyEquivalent: "")
         browserItem.submenu = buildBrowserMenu()
         menu.addItem(browserItem)
+
+        // Terminal selection
+        let terminalItem = NSMenuItem(title: "Terminal: \(currentTerminalName())", action: nil, keyEquivalent: "")
+        terminalItem.submenu = buildTerminalMenu()
+        menu.addItem(terminalItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -195,11 +204,55 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         NSWorkspace.shared.open(URL(fileURLWithPath: daemon.teamDir))
     }
 
+    @objc func openTeamDirInTerminal() {
+        guard !daemon.teamDir.isEmpty else { return }
+        let dirURL = URL(fileURLWithPath: daemon.teamDir)
+        // Empty pref = Apple's Terminal.app.
+        let termURL = daemon.terminalAppPath.isEmpty
+            ? URL(fileURLWithPath: "/System/Applications/Utilities/Terminal.app")
+            : URL(fileURLWithPath: daemon.terminalAppPath)
+        let config = NSWorkspace.OpenConfiguration()
+        NSWorkspace.shared.open([dirURL], withApplicationAt: termURL, configuration: config) { _, error in
+            if error != nil {
+                // Fall back to `open -a Terminal <dir>` if the chosen app failed.
+                DispatchQueue.main.async {
+                    let p = Process()
+                    p.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                    p.arguments = ["-a", "Terminal", self.daemon.teamDir]
+                    try? p.run()
+                }
+            }
+        }
+    }
+
     /// Choose which browser opens the UI. An empty represented object means "system default".
     @objc func selectBrowser(_ sender: NSMenuItem) {
         daemon.browserAppPath = (sender.representedObject as? String) ?? ""
         daemon.savePreferences()
         updateMenu()
+    }
+
+    /// Choose which terminal opens the team dir. Empty represented object means Terminal.app.
+    @objc func selectTerminal(_ sender: NSMenuItem) {
+        daemon.terminalAppPath = (sender.representedObject as? String) ?? ""
+        daemon.savePreferences()
+        updateMenu()
+    }
+
+    /// Pick any terminal app from disk (for terminals not in the known list).
+    @objc func chooseTerminal() {
+        let panel = NSOpenPanel()
+        panel.title = "Choose Terminal App"
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.application]
+        panel.directoryURL = URL(fileURLWithPath: "/Applications")
+        if panel.runModal() == .OK, let url = panel.url {
+            daemon.terminalAppPath = url.path
+            daemon.savePreferences()
+            updateMenu()
+        }
     }
 
     @objc func openLog() {
@@ -279,6 +332,68 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             item.target = self
             submenu.addItem(item)
         }
+
+        return submenu
+    }
+
+    /// Display name of the currently selected terminal ("Terminal" when unset).
+    func currentTerminalName() -> String {
+        if daemon.terminalAppPath.isEmpty { return "Terminal" }
+        return URL(fileURLWithPath: daemon.terminalAppPath).deletingPathExtension().lastPathComponent
+    }
+
+    /// Installed terminal apps, discovered by probing well-known bundle ids
+    /// (macOS has no "apps that open a dir in a terminal" query like it does for browsers).
+    func installedTerminals() -> [URL] {
+        let bundleIDs = [
+            "com.apple.Terminal",
+            "com.googlecode.iterm2",
+            "dev.warp.Warp-Stable",
+            "net.kovidgoyal.kitty",
+            "org.alacritty",
+            "com.github.wez.wezterm",
+            "com.mitchellh.ghostty",
+            "co.zeit.hyper",
+        ]
+        var urls: [URL] = []
+        var seen = Set<String>()
+        for id in bundleIDs {
+            if let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: id), seen.insert(url.path).inserted {
+                urls.append(url)
+            }
+        }
+        // Include a custom pick that isn't in the known list so it stays visible/checked.
+        if !daemon.terminalAppPath.isEmpty, seen.insert(daemon.terminalAppPath).inserted {
+            urls.append(URL(fileURLWithPath: daemon.terminalAppPath))
+        }
+        return urls.sorted { $0.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveCompare($1.deletingPathExtension().lastPathComponent) == .orderedAscending }
+    }
+
+    /// Submenu for picking the terminal that opens the team dir: known terminals + a Choose… escape hatch.
+    func buildTerminalMenu() -> NSMenu {
+        let submenu = NSMenu()
+
+        let defaultItem = NSMenuItem(title: "Terminal (default)", action: #selector(selectTerminal(_:)), keyEquivalent: "")
+        defaultItem.representedObject = ""
+        defaultItem.state = daemon.terminalAppPath.isEmpty ? .on : .off
+        defaultItem.target = self
+        submenu.addItem(defaultItem)
+
+        submenu.addItem(NSMenuItem.separator())
+
+        for appURL in installedTerminals() where appURL.lastPathComponent != "Terminal.app" {
+            let name = appURL.deletingPathExtension().lastPathComponent
+            let item = NSMenuItem(title: name, action: #selector(selectTerminal(_:)), keyEquivalent: "")
+            item.representedObject = appURL.path
+            item.state = (appURL.path == daemon.terminalAppPath) ? .on : .off
+            item.target = self
+            submenu.addItem(item)
+        }
+
+        submenu.addItem(NSMenuItem.separator())
+        let chooseItem = NSMenuItem(title: "Choose…", action: #selector(chooseTerminal), keyEquivalent: "")
+        chooseItem.target = self
+        submenu.addItem(chooseItem)
 
         return submenu
     }
