@@ -4,14 +4,16 @@
 // No local store or filesystem access (except reading files for upload).
 //
 // Three registration functions for role-specific tool sets:
-//   - registerLeaderTools: create_story, edit_story, add_task, queue_request,
-//                          team_status
+//   - registerLeaderTools: create_story, edit_story, add_task, list_workflows,
+//                          list_context, queue_request, team_status
 //   - registerTeammateTools: upload_attachment
-//   - registerAssistantTools: create_story, edit_story, add_task, queue_request,
+//   - registerAssistantTools: create_story, edit_story, add_task,
+//                             list_workflows, list_context, queue_request,
 //                             read_scratchpad
 //
-// Note: the context library is *vended by the daemon* (e.g. the assistant's
-// persona system prompt), not accessed by agents through tools.
+// Note: story/task creation can attach context-library entries via the
+// `context` parameter; list_context surfaces the available entry ids. The
+// assistant persona system prompt itself is still vended by the daemon.
 
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -30,6 +32,8 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
+  registerListWorkflows(pi, client);
+  registerListContext(pi, client);
   registerQueueRequest(pi, client);
   registerTeamStatus(pi, client);
 }
@@ -65,6 +69,8 @@ export function registerAssistantTools(
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
+  registerListWorkflows(pi, client);
+  registerListContext(pi, client);
   registerQueueRequest(pi, client);
   registerReadScratchpad(pi, client);
 }
@@ -96,7 +102,8 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       directory: Type.Optional(Type.String({ description: "Required working directory — only agents in this dir will pick up the story (e.g., '~/Workspace/my-project')" })),
       skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities — only agents advertising all of these will pick up the story (e.g., ['python','docker'])" })),
       paused: Type.Optional(Type.Boolean({ description: "If true, the story's tasks are not handed out until unpaused" })),
-      workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default)" })),
+      workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default). Use list_workflows to see valid names." })),
+      context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to the whole story (injected into every task's prompt). Use list_context to find ids." })),
     }),
     async execute(_toolCallId, params) {
       const requirements = buildRequirements(params.directory, params.skills);
@@ -108,6 +115,7 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
         requirements: Object.keys(requirements).length > 0 ? requirements : undefined,
         paused: params.paused,
         workflow: params.workflow,
+        context: params.context,
       });
 
       if (!result.success) throw new Error(result.error || "Failed to create story");
@@ -194,9 +202,10 @@ function registerAddTask(pi: ExtensionAPI, client: DaemonClient): void {
       storyId: Type.String({ description: "ID of the story to add the task to" }),
       title: Type.String({ description: "Short title for the task" }),
       description: Type.String({ description: "Full task description/prompt for the teammate to execute" }),
+      context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to this task (injected into its prompt). Use list_context to find ids." })),
     }),
     async execute(_toolCallId, params) {
-      const result = await client.createTask(params.storyId, params.title, params.description);
+      const result = await client.createTask(params.storyId, params.title, params.description, params.context);
       if (!result.success) throw new Error(result.error || "Failed to add task");
 
       return {
@@ -265,6 +274,78 @@ function registerReadScratchpad(pi: ExtensionAPI, client: DaemonClient): void {
         };
       } catch {
         return { content: [{ type: "text", text: "Failed to read the scratch pad (daemon unreachable)." }] };
+      }
+    },
+  });
+}
+
+// ─── list_workflows ──────────────────────────────────────────────────
+
+function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "list_workflows",
+    label: "List Workflows",
+    description:
+      "List the team's workflows (state machines a story can use). Use this before create_story to pick a valid " +
+      "workflow name — the daemon rejects unknown ones.",
+    promptSnippet: "List the team's workflows",
+    promptGuidelines: [
+      "Use list_workflows when planning a story so you can choose and confirm the right workflow.",
+      "Only pass a workflow name to create_story that appears in this list.",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params) {
+      try {
+        const workflows = await client.listWorkflows();
+        if (workflows.length === 0) {
+          return { content: [{ type: "text", text: "No workflows found." }] };
+        }
+        const lines = workflows.map((w) =>
+          `- ${w.name}${w.isDefault ? " (default)" : ""} — ${w.stateCount} states, ${w.transitionCount} transitions`
+        );
+        return {
+          content: [{ type: "text", text: `Workflows:\n${lines.join("\n")}` }],
+          details: { workflows },
+        };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to list workflows (daemon unreachable)." }] };
+      }
+    },
+  });
+}
+
+// ─── list_context ────────────────────────────────────────────────────
+
+function registerListContext(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "list_context",
+    label: "List Context Library",
+    description:
+      "List the shared context-library entries (reusable prompt/context material). Use this to decide which entries " +
+      "to attach to a story or task via the `context` parameter of create_story/add_task.",
+    promptSnippet: "List the shared context-library entries",
+    promptGuidelines: [
+      "Use list_context when deciding what background material would help a teammate succeed.",
+      "Attach relevant entries by passing their ids to create_story (story-wide) or add_task (task-only).",
+    ],
+    parameters: Type.Object({}),
+    async execute(_toolCallId, _params) {
+      try {
+        const { entries } = await client.listContext();
+        if (entries.length === 0) {
+          return { content: [{ type: "text", text: "The context library is empty." }] };
+        }
+        const lines = entries.map((e) => {
+          const tags = e.tags.length > 0 ? ` [${e.tags.join(", ")}]` : "";
+          const desc = e.description ? ` — ${e.description}` : "";
+          return `- ${e.id}: ${e.title}${tags}${desc}`;
+        });
+        return {
+          content: [{ type: "text", text: `Context library:\n${lines.join("\n")}` }],
+          details: { entries: entries.map((e) => ({ id: e.id, title: e.title, tags: e.tags })) },
+        };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to list context entries (daemon unreachable)." }] };
       }
     },
   });

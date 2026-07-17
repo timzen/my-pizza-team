@@ -122,6 +122,14 @@ export interface ContextEntry {
   updatedAt: string;
 }
 
+/** A workflow summary from GET /api/workflows. */
+export interface WorkflowSummary {
+  name: string;
+  stateCount: number;
+  transitionCount: number;
+  isDefault: boolean;
+}
+
 /** A leader directive: an ask to the leader to act on an agent. */
 export interface LeaderDirective {
   id: string;
@@ -609,6 +617,8 @@ export class DaemonClient {
     requirements?: Record<string, string | null>;
     paused?: boolean;
     workflow?: string;
+    /** Context-library entry ids to attach to the whole story (injected into every task prompt). */
+    context?: string[];
     tasks?: Array<{ title: string; description: string }>;
   }): Promise<CreateStoryResponse> {
     return this.post<CreateStoryResponse>("/api/stories", story);
@@ -631,13 +641,30 @@ export class DaemonClient {
    * Add a task to an existing story.
    *
    * Tasks are sequential within a story — the daemon assigns the next
-   * sequence number automatically.
+   * sequence number automatically. `context` attaches context-library entry
+   * ids to this task (injected into its prompt).
    */
-  async createTask(storyId: string, title: string, description: string): Promise<CreateTaskResponse> {
+  async createTask(storyId: string, title: string, description: string, context?: string[]): Promise<CreateTaskResponse> {
     return this.post<CreateTaskResponse>(
       `/api/stories/${encodeURIComponent(storyId)}/tasks`,
-      { title, description }
+      { title, description, context }
     );
+  }
+
+  /**
+   * List the team's workflows (name, state/transition counts, and which is the
+   * default). Lets a planner pick a valid workflow for a story.
+   */
+  async listWorkflows(): Promise<WorkflowSummary[]> {
+    return this.get<WorkflowSummary[]>("/api/workflows");
+  }
+
+  /**
+   * List the shared context-library entries so a planner can decide which to
+   * attach to a story or task.
+   */
+  async listContext(): Promise<{ entries: ContextEntry[] }> {
+    return this.get<{ entries: ContextEntry[] }>("/api/context");
   }
 
   /**

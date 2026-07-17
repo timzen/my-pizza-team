@@ -103,9 +103,10 @@ test("registerLeaderTools includes team_status", () => {
   assert.ok(leaderFn.includes("registerTeamStatus"));
 });
 
-test("registerLeaderTools does NOT include context tools", () => {
+test("registerLeaderTools includes list_workflows and list_context", () => {
   const leaderFn = src.slice(src.indexOf("function registerLeaderTools"), src.indexOf("function registerTeammateTools"));
-  assert.ok(!leaderFn.includes("Context"));
+  assert.ok(leaderFn.includes("registerListWorkflows"));
+  assert.ok(leaderFn.includes("registerListContext"));
 });
 
 // ─── Teammate tools composition ──────────────────────────────────
@@ -127,9 +128,10 @@ test("registerAssistantTools includes create_story", () => {
   assert.ok(assistantFn.includes("registerCreateStory"));
 });
 
-test("registerAssistantTools does NOT include context tools", () => {
+test("registerAssistantTools includes list_workflows and list_context (read-only planning tools)", () => {
   const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
-  assert.ok(!assistantFn.includes("Context"));
+  assert.ok(assistantFn.includes("registerListWorkflows"));
+  assert.ok(assistantFn.includes("registerListContext"));
 });
 
 test("registerAssistantTools includes read_scratchpad", () => {
@@ -166,6 +168,22 @@ test("story tools use the capability model (directory/skills/paused), not dir", 
 
 test("add_task calls client.createTask", () => {
   assert.ok(src.includes("client.createTask("));
+});
+
+test("list_workflows calls client.listWorkflows", () => {
+  assert.ok(src.includes('name: "list_workflows"'));
+  assert.ok(src.includes("client.listWorkflows()"));
+});
+
+test("list_context calls client.listContext", () => {
+  assert.ok(src.includes('name: "list_context"'));
+  assert.ok(src.includes("client.listContext()"));
+});
+
+test("create_story and add_task accept and forward a context param", () => {
+  // Planners attach context-library entries by id to a story or task.
+  assert.ok(src.includes("context: params.context"));
+  assert.ok(src.includes("params.storyId, params.title, params.description, params.context"));
 });
 
 test("queue_request calls client.enqueueAssistantRequest", () => {

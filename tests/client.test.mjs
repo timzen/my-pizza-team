@@ -177,8 +177,9 @@ test("has completeQueueItem (not completeAssistantItem)", () => {
 
 // ─── Context Library ─────────────────────────────────────────────
 
-// The daemon vends context (e.g. the assistant persona). The client only reads
-// the effective persona system prompt — no context list/save/search methods.
+// The daemon vends the assistant persona; the client reads the effective
+// persona system prompt. It may also *read* the context library (list_context)
+// and workflows (list_workflows) for planning, but never creates/edits context.
 test("has getPersona method returning systemPrompt", () => {
   assert.ok(clientSrc.includes("async getPersona()"));
   assert.ok(clientSrc.includes("systemPrompt: string"));
@@ -189,8 +190,19 @@ test("has getScratchpad method (read-only)", () => {
   assert.ok(clientSrc.includes('this.get("/api/scratchpad")'));
 });
 
-test("client does NOT expose context CRUD/search methods", () => {
-  assert.ok(!clientSrc.includes("async listContext"));
+test("has read-only listWorkflows and listContext methods", () => {
+  assert.ok(clientSrc.includes("async listWorkflows()"));
+  assert.ok(clientSrc.includes('this.get<WorkflowSummary[]>("/api/workflows")'));
+  assert.ok(clientSrc.includes("async listContext()"));
+  assert.ok(clientSrc.includes('"/api/context"'));
+});
+
+test("createStory and createTask accept a context array", () => {
+  assert.ok(clientSrc.includes("context?: string[]"));
+  assert.ok(clientSrc.includes("createTask(storyId: string, title: string, description: string, context?: string[])"));
+});
+
+test("client does NOT expose context write/search methods", () => {
   assert.ok(!clientSrc.includes("async saveContext"));
   assert.ok(!clientSrc.includes("async saveNote"));
   assert.ok(!clientSrc.includes("async searchNotes"));

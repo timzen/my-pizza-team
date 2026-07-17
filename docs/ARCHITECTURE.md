@@ -132,10 +132,19 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 ### Story/Task Management (leader tools)
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/stories` | POST | Create story |
+| `/api/stories` | POST | Create story (accepts `context`: entry ids attached story-wide) |
 | `/api/stories/:id` | PUT | Update story |
-| `/api/stories/:storyId/tasks` | POST | Add task to story |
+| `/api/stories/:storyId/tasks` | POST | Add task to story (accepts `context`: entry ids for that task) |
+| `/api/workflows` | GET | List workflows for the `list_workflows` tool (name, counts, isDefault) |
+| `/api/context` | GET | List context-library entries for the `list_context` tool |
 | `/api/assistant/messages` | POST | Send a message to the assistant |
+
+The leader and assistant tool sets both expose planning tools: `create_story`
+and `add_task` take an optional `context` array (context-library entry ids to
+attach), and `list_workflows` / `list_context` are read-only helpers so a
+planner can pick a valid workflow and choose which context to attach before
+creating anything. Agents still never create or edit context entries — those
+are authored in the UI/daemon.
 
 ### Assistant Conversation
 | Route | Method | Purpose |
