@@ -45,6 +45,24 @@ Deno.test("GET /health returns ok status with metrics", async () => {
   assertEquals(body.lastCommitTime, null);
 });
 
+Deno.test("GET /health reports tmuxSession and leader presence", async () => {
+  // No members yet — no leader connected.
+  let body = await (await app.request("/health")).json();
+  assertEquals(body.tmuxSession, DEFAULT_CONFIG.tmuxSession);
+  assertEquals(body.leaderPresent, false);
+
+  // A member named "leader" makes leaderPresent true.
+  store!.registerMember("leader-1", "leader", { directory: "/tmp" }, {}, "host-1");
+  body = await (await app.request("/health")).json();
+  assertEquals(body.leaderPresent, true);
+
+  // A non-leader member alone does not.
+  store!.removeMember("leader-1");
+  store!.registerMember("tm-1", "swift-ripley", { directory: "/tmp" }, {}, "host-1");
+  body = await (await app.request("/health")).json();
+  assertEquals(body.leaderPresent, false);
+});
+
 Deno.test("GET /health backward compat - still has status and service", async () => {
   const res = await app.request("/health");
   const body = await res.json();

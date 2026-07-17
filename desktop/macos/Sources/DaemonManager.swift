@@ -20,8 +20,21 @@ class DaemonManager {
     var browserAppPath: String
     /// Bundle path of the terminal to open the team dir in. Empty = Terminal.app.
     var terminalAppPath: String
+    /// Custom leader launch command (template). Empty = built-in default.
+    var leaderCommand: String
+    /// Configured tmux session name (from /health); used by the default leader command.
+    var tmuxSession: String = ""
+    /// Whether a leader coordinator is connected (from /health).
+    var leaderPresent: Bool = false
     var lastError: String?
     private var process: Process?
+
+    /// Built-in leader launch command. Runs via the user's login shell.
+    /// Placeholders: {session} {dir} {port} {url}. Kept as a soft, editable
+    /// default so the app has no hard dependency on the pi harness — it just
+    /// ships a sensible starting command the user can change.
+    static let defaultLeaderCommand =
+        "tmux new-session -A -d -s \"{session}\" -n leader -c \"{dir}\" 'pi --ppt-lead --ppt-daemon={url}'"
 
     private let prefsKey = "com.my-pizza-team.menubar"
 
@@ -32,6 +45,7 @@ class DaemonManager {
         if self.port == 0 { self.port = 7437 }
         self.browserAppPath = defaults.string(forKey: "\(prefsKey).browserAppPath") ?? ""
         self.terminalAppPath = defaults.string(forKey: "\(prefsKey).terminalAppPath") ?? ""
+        self.leaderCommand = defaults.string(forKey: "\(prefsKey).leaderCommand") ?? ""
 
         // Auto-detect team dir if not set
         if self.teamDir.isEmpty {
@@ -56,6 +70,34 @@ class DaemonManager {
         defaults.set(port, forKey: "\(prefsKey).port")
         defaults.set(browserAppPath, forKey: "\(prefsKey).browserAppPath")
         defaults.set(terminalAppPath, forKey: "\(prefsKey).terminalAppPath")
+        defaults.set(leaderCommand, forKey: "\(prefsKey).leaderCommand")
+    }
+
+    /// The leader command template in effect (custom if set, else the default).
+    func effectiveLeaderCommand() -> String {
+        return leaderCommand.isEmpty ? DaemonManager.defaultLeaderCommand : leaderCommand
+    }
+
+    /// The directory the leader should run in: the project dir (parent of the
+    /// `.my-pizza-team` state dir), falling back to the team dir or home.
+    func leaderDir() -> String {
+        if teamDir.isEmpty { return FileManager.default.homeDirectoryForCurrentUser.path }
+        let ns = teamDir as NSString
+        let last = ns.lastPathComponent
+        if last == ".my-pizza-team" || last == ".pi-pizza-team" {
+            return ns.deletingLastPathComponent
+        }
+        return teamDir
+    }
+
+    /// The effective leader command with placeholders substituted.
+    func resolvedLeaderCommand() -> String {
+        let session = tmuxSession.isEmpty ? "my-pizza-team" : tmuxSession
+        return effectiveLeaderCommand()
+            .replacingOccurrences(of: "{session}", with: session)
+            .replacingOccurrences(of: "{dir}", with: leaderDir())
+            .replacingOccurrences(of: "{port}", with: String(port))
+            .replacingOccurrences(of: "{url}", with: "http://localhost:\(port)")
     }
 
     /// Find the mpt binary path
@@ -160,6 +202,7 @@ class DaemonManager {
         isRunning = false
         uptime = nil
         agentCount = nil
+        leaderPresent = false
     }
 
     func checkStatus() {
@@ -181,6 +224,7 @@ class DaemonManager {
                 self?.isRunning = false
                 self?.uptime = nil
                 self?.agentCount = nil
+                self?.leaderPresent = false
                 return
             }
 
@@ -188,6 +232,8 @@ class DaemonManager {
                 self.isRunning = (json["status"] as? String) == "ok"
                 self.uptime = json["uptime"] as? Int
                 self.agentCount = json["agents"] as? Int
+                self.leaderPresent = json["leaderPresent"] as? Bool ?? false
+                if let session = json["tmuxSession"] as? String, !session.isEmpty { self.tmuxSession = session }
                 if self.isRunning { self.lastError = nil }
             }
         }.resume()

@@ -78,7 +78,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET | `/health` | Health check (uptime, agents, queueDepth, memory, lastCommitTime) |
+| GET | `/health` | Health check (uptime, agents, queueDepth, memory, lastCommitTime, tmuxSession, leaderPresent) |
 | GET | `/api/status` | Status summary (stories, tasks, members) |
 | GET | `/api/stories` | List all stories with tasks |
 | POST | `/api/stories` | Create a new story (with optional tasks) |
@@ -165,8 +165,8 @@ starting work to see lead feedback or rework instructions.
 ## Pi Extension (Thin Adapter)
 
 ### desktop/macos/
-- `Sources/App.swift` — SwiftUI menu bar app (`LSUIElement`). Status bar icon; start/stop/**restart** controls; **Open UI in a configurable browser**; team directory picker, **reveal in Finder**, and **open in a configurable terminal**; port config; and an app-**version** line (read from the bundle's `CFBundleShortVersionString`).
-- `Sources/DaemonManager.swift` — Launches the bundled `mpt` binary as a subprocess, polls `/health` for status, manages preferences via `UserDefaults` (`teamDir`, `port`, `browserAppPath`, `terminalAppPath`).
+- `Sources/App.swift` — SwiftUI menu bar app (`LSUIElement`). Status bar icon; start/stop/**restart** controls; **Open UI in a configurable browser**; team directory picker, **reveal in Finder**, and **open in a configurable terminal**; **Launch Leader** via a configurable command (shown only when the daemon is up and no leader is connected); port config; and an app-**version** line (read from the bundle's `CFBundleShortVersionString`).
+- `Sources/DaemonManager.swift` — Launches the bundled `mpt` binary as a subprocess, polls `/health` for status (including `tmuxSession` and `leaderPresent`), manages preferences via `UserDefaults` (`teamDir`, `port`, `browserAppPath`, `terminalAppPath`, `leaderCommand`). The leader command is a soft, editable default (`tmux new-session … pi --ppt-lead`) with `{session}`/`{dir}`/`{port}`/`{url}` placeholders — so the app has no hard dependency on the pi harness.
 - `Resources/mpt.entitlements` — Code-signing entitlements for the compiled Deno binary. Required for V8 JIT (`allow-jit`, `allow-unsigned-executable-memory`) and FFI SQLite loading (`disable-library-validation`).
 - `Package.swift` — Swift package manifest (SwiftUI, macOS 13+). The `.app` bundle's `Info.plist` version is injected from `deno.json` by `scripts/package-macos-menubar.sh`, so the menu's version line stays in sync with the daemon.
 
