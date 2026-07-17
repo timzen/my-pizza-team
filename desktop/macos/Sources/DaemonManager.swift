@@ -16,6 +16,8 @@ class DaemonManager {
     var agentCount: Int?
     var teamDir: String
     var port: Int
+    /// Bundle path of the browser to open the UI with. Empty = system default.
+    var browserAppPath: String
     var lastError: String?
     private var process: Process?
 
@@ -26,6 +28,7 @@ class DaemonManager {
         self.teamDir = defaults.string(forKey: "\(prefsKey).teamDir") ?? ""
         self.port = defaults.integer(forKey: "\(prefsKey).port")
         if self.port == 0 { self.port = 7437 }
+        self.browserAppPath = defaults.string(forKey: "\(prefsKey).browserAppPath") ?? ""
 
         // Auto-detect team dir if not set
         if self.teamDir.isEmpty {
@@ -48,6 +51,7 @@ class DaemonManager {
         let defaults = UserDefaults.standard
         defaults.set(teamDir, forKey: "\(prefsKey).teamDir")
         defaults.set(port, forKey: "\(prefsKey).port")
+        defaults.set(browserAppPath, forKey: "\(prefsKey).browserAppPath")
     }
 
     /// Find the mpt binary path

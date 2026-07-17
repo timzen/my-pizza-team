@@ -36,6 +36,12 @@ fi
 
 echo "🔨 Building menu bar app..."
 
+# Version shown in the app (menu + Get Info), sourced from deno.json so it
+# stays in sync with the daemon rather than drifting.
+APP_VERSION="$(grep -m1 '"version"' "$PROJECT_ROOT/deno.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+if [ -z "$APP_VERSION" ]; then APP_VERSION="0.0.0"; fi
+echo "   Version: $APP_VERSION"
+
 # Build the Swift package
 cd "$MACOS_APP_DIR"
 swift build -c release 2>&1
@@ -68,7 +74,7 @@ fi
 cp "$ICON_FILE" "$APP_DIR/Contents/Resources/AppIcon.icns"
 
 # Create Info.plist
-cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
+cat > "$APP_DIR/Contents/Info.plist" << PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -83,10 +89,10 @@ cat > "$APP_DIR/Contents/Info.plist" << 'PLIST'
   <string>com.my-pizza-team.menubar</string>
 
   <key>CFBundleVersion</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
 
   <key>CFBundleShortVersionString</key>
-  <string>0.1.0</string>
+  <string>${APP_VERSION}</string>
 
   <key>CFBundleExecutable</key>
   <string>MyPizzaTeamMenu</string>
