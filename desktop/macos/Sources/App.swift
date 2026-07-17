@@ -3,11 +3,11 @@
  *
  * Features:
  * - Status bar icon (🍕) with dropdown menu
- * - Start/Stop daemon controls
- * - Team directory picker
+ * - Start/Stop/Restart daemon controls
+ * - Team directory picker + reveal in Finder
  * - Port configuration
- * - Open UI in browser
- * - Shows daemon status (running/stopped + uptime)
+ * - Open UI in a chosen browser (configurable)
+ * - Shows the app version and daemon status (running/stopped + uptime)
  */
 
 import SwiftUI
@@ -86,9 +86,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         menu.addItem(NSMenuItem.separator())
 
-        // Start/Stop
+        // Start/Stop/Restart
         if daemon.isRunning {
             menu.addItem(NSMenuItem(title: "Stop Daemon", action: #selector(stopDaemon), keyEquivalent: "s"))
+            menu.addItem(NSMenuItem(title: "Restart Daemon", action: #selector(restartDaemon), keyEquivalent: "r"))
             menu.addItem(NSMenuItem(title: "Open UI in Browser", action: #selector(openUI), keyEquivalent: "o"))
         } else {
             menu.addItem(NSMenuItem(title: "Start Daemon", action: #selector(startDaemon), keyEquivalent: "s"))
@@ -104,6 +105,10 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         teamDirItem.isEnabled = false
         menu.addItem(teamDirItem)
         menu.addItem(NSMenuItem(title: "Choose Team Directory…", action: #selector(chooseTeamDir), keyEquivalent: "d"))
+        let revealItem = NSMenuItem(title: "Open Team Directory in Finder", action: #selector(openTeamDir), keyEquivalent: "")
+        // Only actionable when a directory is set and exists on disk.
+        revealItem.isEnabled = !daemon.teamDir.isEmpty && FileManager.default.fileExists(atPath: daemon.teamDir)
+        menu.addItem(revealItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -112,7 +117,17 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         portItem.isEnabled = false
         menu.addItem(portItem)
 
+        // Browser selection
+        let browserItem = NSMenuItem(title: "Browser: \(currentBrowserName())", action: nil, keyEquivalent: "")
+        browserItem.submenu = buildBrowserMenu()
+        menu.addItem(browserItem)
+
         menu.addItem(NSMenuItem.separator())
+
+        // Version (read from the app bundle; falls back to "dev" for `swift run").
+        let versionItem = NSMenuItem(title: "My Pizza Team v\(appVersion())", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        menu.addItem(versionItem)
 
         // Quit
         menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
@@ -144,9 +159,47 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    @objc func restartDaemon() {
+        daemon.stop()
+        // Give the old process a moment to release the port before starting again.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 1.0) { [weak self] in
+            guard let self = self else { return }
+            self.daemon.start()
+            DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
+                self.daemon.checkStatus()
+                if !self.daemon.isRunning { self.daemon.checkLogForErrors() }
+                self.updateMenu()
+            }
+        }
+    }
+
     @objc func openUI() {
         let url = URL(string: "http://localhost:\(daemon.port)")!
-        NSWorkspace.shared.open(url)
+        if daemon.browserAppPath.isEmpty {
+            NSWorkspace.shared.open(url)
+        } else {
+            // Open the UI with the user's chosen browser; fall back to the system
+            // default if that app can't be launched (e.g. it was uninstalled).
+            let appURL = URL(fileURLWithPath: daemon.browserAppPath)
+            let config = NSWorkspace.OpenConfiguration()
+            NSWorkspace.shared.open([url], withApplicationAt: appURL, configuration: config) { _, error in
+                if error != nil {
+                    DispatchQueue.main.async { NSWorkspace.shared.open(url) }
+                }
+            }
+        }
+    }
+
+    @objc func openTeamDir() {
+        guard !daemon.teamDir.isEmpty else { return }
+        NSWorkspace.shared.open(URL(fileURLWithPath: daemon.teamDir))
+    }
+
+    /// Choose which browser opens the UI. An empty represented object means "system default".
+    @objc func selectBrowser(_ sender: NSMenuItem) {
+        daemon.browserAppPath = (sender.representedObject as? String) ?? ""
+        daemon.savePreferences()
+        updateMenu()
     }
 
     @objc func openLog() {
@@ -181,6 +234,53 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             daemon.stop()
         }
         NSApp.terminate(nil)
+    }
+
+    /// The app's version string from its bundle Info.plist, or "dev" for `swift run`.
+    func appVersion() -> String {
+        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String
+        return (v?.isEmpty == false) ? v! : "dev"
+    }
+
+    /// Display name of the currently selected browser ("System Default" when unset).
+    func currentBrowserName() -> String {
+        if daemon.browserAppPath.isEmpty { return "System Default" }
+        return URL(fileURLWithPath: daemon.browserAppPath).deletingPathExtension().lastPathComponent
+    }
+
+    /// Apps able to open an http(s) URL, i.e. installed browsers.
+    func installedBrowsers() -> [URL] {
+        guard let probe = URL(string: "https://localhost") else { return [] }
+        let urls = NSWorkspace.shared.urlsForApplications(toOpen: probe)
+        // De-dupe and sort by display name for a stable menu.
+        var seen = Set<String>()
+        return urls
+            .filter { seen.insert($0.path).inserted }
+            .sorted { $0.deletingPathExtension().lastPathComponent.localizedCaseInsensitiveCompare($1.deletingPathExtension().lastPathComponent) == .orderedAscending }
+    }
+
+    /// Submenu for picking the browser that opens the UI: System Default + each installed browser.
+    func buildBrowserMenu() -> NSMenu {
+        let submenu = NSMenu()
+
+        let defaultItem = NSMenuItem(title: "System Default", action: #selector(selectBrowser(_:)), keyEquivalent: "")
+        defaultItem.representedObject = ""
+        defaultItem.state = daemon.browserAppPath.isEmpty ? .on : .off
+        defaultItem.target = self
+        submenu.addItem(defaultItem)
+
+        submenu.addItem(NSMenuItem.separator())
+
+        for appURL in installedBrowsers() {
+            let name = appURL.deletingPathExtension().lastPathComponent
+            let item = NSMenuItem(title: name, action: #selector(selectBrowser(_:)), keyEquivalent: "")
+            item.representedObject = appURL.path
+            item.state = (appURL.path == daemon.browserAppPath) ? .on : .off
+            item.target = self
+            submenu.addItem(item)
+        }
+
+        return submenu
     }
 
     func formatUptime(_ seconds: Int) -> String {
