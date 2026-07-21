@@ -1,35 +1,24 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows title, assignee, quick status-change buttons with a colored badge,
- * an explicit "view" button (opens a read-only preview modal), and a link to
- * the task detail/comments page. Clicking the card body does nothing — opening
- * a task is always an explicit action.
+ * Shows title, assignee, substatus, an explicit "view" button (opens a
+ * read-only preview modal), and a link to the task detail/comments page.
+ * Clicking the card body does nothing — opening a task is always an explicit
+ * action. Changing state is done by **dragging** the card to another column
+ * (the column already names the state, so the card carries no state badge —
+ * only the substatus chip for agent states).
  */
 
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { User, ChevronLeft, ChevronRight, Eye } from "lucide-react";
-import { apiPost } from "@/hooks/useApi";
+import { User, Eye } from "lucide-react";
 
-/**
- * Derive a color class based on a task's position within its workflow states.
- * First state = muted, last = green, middle states cycle through colors.
- */
-function statusColor(status: string, states?: string[]): string {
-  if (!states || states.length === 0) return "";
-  const index = states.indexOf(status);
-  if (index < 0) return "";
-  if (index === 0) return "bg-muted text-muted-foreground";
-  if (index === states.length - 1) return "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200";
-  const midColors = [
-    "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
-    "bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200",
-    "bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200",
-    "bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-200",
-  ];
-  return midColors[(index - 1) % midColors.length];
+/** Drag payload MIME type; the story id is baked in so a swimlane can accept
+ *  only its own tasks during dragover (dataTransfer values are unreadable
+ *  until drop, but the *types* are visible). */
+export function taskDragType(storyId: string): string {
+  return `application/x-mpt-task--${storyId.toLowerCase()}`;
 }
 
 interface TaskCardProps {
@@ -45,27 +34,24 @@ interface TaskCardProps {
     tokenUsage?: { totalCostUsd: number };
   };
   storyId?: string;
-  states?: string[];
   /** Open the read-only preview modal for this task. */
   onView?: (taskId: string) => void;
-  onStatusChange?: () => void;
 }
 
-export function TaskCard({ task, storyId, states, onView, onStatusChange }: TaskCardProps) {
-  const currentIndex = states?.indexOf(task.status) ?? -1;
-
-  /** Move task to the previous or next state */
-  const moveStatus = async (direction: "prev" | "next", e: React.MouseEvent) => {
-    e.stopPropagation();
-    if (!states || currentIndex < 0) return;
-    const targetIndex = direction === "prev" ? currentIndex - 1 : currentIndex + 1;
-    if (targetIndex < 0 || targetIndex >= states.length) return;
-    await apiPost(`/api/tasks/${encodeURIComponent(task.id)}/move`, { status: states[targetIndex] });
-    onStatusChange?.();
+export function TaskCard({ task, storyId, onView }: TaskCardProps) {
+  /** Start a drag: the drop target (a swimlane column) performs the move. */
+  const handleDragStart = (e: React.DragEvent) => {
+    if (!storyId) return;
+    e.dataTransfer.setData(taskDragType(storyId), JSON.stringify({ taskId: task.id, fromStatus: task.status }));
+    e.dataTransfer.effectAllowed = "move";
   };
 
   return (
-    <Card className="hover:shadow-md transition-shadow">
+    <Card
+      className="hover:shadow-md transition-shadow cursor-grab active:cursor-grabbing"
+      draggable={!!storyId}
+      onDragStart={handleDragStart}
+    >
       <CardContent className="p-3">
         {/* Title & ID */}
         <div className="flex-1 min-w-0">
@@ -86,43 +72,17 @@ export function TaskCard({ task, storyId, states, onView, onStatusChange }: Task
           )}
         </div>
 
-        {/* Status controls & detail link */}
+        {/* Substatus + view/detail actions. The column names the state, so no
+            state badge here — just the within-state position for agent states. */}
         <div className="flex items-center mt-2 pt-2 border-t border-border">
-          {states && states.length > 0 && (
-            <>
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                disabled={currentIndex <= 0}
-                onClick={(e) => moveStatus("prev", e)}
-                title={currentIndex > 0 ? `Move to ${states[currentIndex - 1].replace(/_/g, " ")}` : undefined}
-              >
-                <ChevronLeft className="h-3.5 w-3.5" />
-              </Button>
-              <Badge variant="secondary" className={`text-xs ${statusColor(task.status, states)}`}>
-                {task.status.replace(/_/g, " ")}
-              </Badge>
-              {task.substatus && (
-                <Badge
-                  variant="outline"
-                  className="ml-1 text-[10px] px-1 py-0"
-                  title={task.substatus === "claimed" ? "A teammate is working on this" : "Waiting for a teammate"}
-                >
-                  {task.substatus}
-                </Badge>
-              )}
-              <Button
-                variant="ghost"
-                size="icon"
-                className="h-6 w-6"
-                disabled={currentIndex >= (states?.length ?? 1) - 1}
-                onClick={(e) => moveStatus("next", e)}
-                title={currentIndex < (states?.length ?? 1) - 1 ? `Move to ${states[currentIndex + 1].replace(/_/g, " ")}` : undefined}
-              >
-                <ChevronRight className="h-3.5 w-3.5" />
-              </Button>
-            </>
+          {task.substatus && (
+            <Badge
+              variant="outline"
+              className="text-[10px] px-1 py-0"
+              title={task.substatus === "claimed" ? "A teammate is working on this" : "Waiting for a teammate"}
+            >
+              {task.substatus}
+            </Badge>
           )}
           {/* Explicit view button — opens the read-only preview modal */}
           <Button

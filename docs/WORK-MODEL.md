@@ -135,8 +135,9 @@ becomes the task result). Giving up is an explicit tool call
 ## Board
 
 Columns = `todo | …active states… | done`. Task cards in agent states show
-their substatus (`ready` / `claimed`). Prev/next nudges and drag-style moves
-are judgment moves via `POST /api/tasks/:id/move` — unrestricted for humans.
+their substatus (`ready` / `claimed`); the column itself names the state, so
+cards carry no state badge. Dragging a card to another column is a judgment
+move via `POST /api/tasks/:id/move` — unrestricted for humans.
 
 ## Schema / API summary
 
