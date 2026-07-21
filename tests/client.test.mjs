@@ -118,8 +118,11 @@ test("does NOT have transitionTask method (removed)", () => {
   assert.ok(!clientSrc.includes("transitionTask"));
 });
 
-test("has releaseTask method", () => {
-  assert.ok(clientSrc.includes("async releaseTask(taskId"));
+test("has completeTask + returnTask methods (done/return protocol)", () => {
+  assert.ok(clientSrc.includes("async completeTask(taskId"));
+  assert.ok(clientSrc.includes("async returnTask(taskId"));
+  assert.ok(clientSrc.includes("/api/agents/done/"));
+  assert.ok(clientSrc.includes("/api/agents/return/"));
 });
 
 // ─── Comments (not messages) ─────────────────────────────────────

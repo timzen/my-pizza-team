@@ -31,12 +31,14 @@ wires only that role's behavior:
 - `--ppt-assistant` → **assistant** loop.
 - `--ppt-lead` (or a `.my-pizza-team/` config in cwd) → **leader**.
 
-### 3. Autonomous work is a claim/release loop
-A teammate polls the daemon for the next workable task, claims it, sends the task
-as a message to its own Pi agent, and on completion releases it with a result
-summary. The daemon owns all workflow-state transitions — the teammate never
-reasons about workflow topology. If the lead sends a task back with comments, the
-teammate rediscovers it on the next poll and picks it up again.
+### 3. Autonomous work is a claim/done loop
+A teammate polls the daemon for a task sitting `ready` in an agent state, claims
+it (a lease), sends the daemon-assembled prompt to its own Pi agent, and on
+completion marks it done — the **daemon** advances the task; workers never move
+tasks (see the daemon's docs/WORK-MODEL.md). If it can't proceed it uses the
+`return_task` tool (back to `ready` + comment) instead of a magic output string.
+Rework needs no special path: a human moves the task back, and the teammate
+rediscovers it on the next poll like any new work — comments included.
 
 ### 4. Two modes of mentoring
 Every task belongs to a teammate; the variable is how much mentoring it needs:
@@ -78,10 +80,11 @@ returns to autonomous.
 
 ### Teammate work loop
 ```
-1. Poll   GET /api/agents/next-work        → next workable task (or { dismiss })
-2. Claim  POST /api/agents/claim/:id        → daemon transitions to the working state
-3. Execute (send the task to the Pi agent)
-4. Release POST /api/agents/release/:id      → daemon advances state, stores result
+1. Poll   GET /api/agents/next-work        → a ready agent-state task (or { dismiss })
+2. Claim  POST /api/agents/claim/:id       → lease + state-persona prompt
+3. Execute (send the prompt to the Pi agent)
+4. Done   POST /api/agents/done/:id        → daemon advances state, stores result
+   or:    POST /api/agents/return/:id      → blocked: back to ready + comment
 5. Repeat (or shut down if dismissed)
 ```
 

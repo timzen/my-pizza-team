@@ -44,14 +44,64 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
 
 /**
  * Register tools for the teammate role.
- * Includes file upload for task attachments.
+ * Includes file upload for task attachments and return_task (the escape hatch
+ * for work the agent cannot complete; see the daemon's WORK-MODEL.md).
  */
 export function registerTeammateTools(
   pi: ExtensionAPI,
   client: DaemonClient,
-  getCurrentTaskId: () => string | null
+  getCurrentTaskId: () => string | null,
+  onTaskReturned?: (taskId: string) => void
 ): void {
   registerUploadAttachment(pi, client, getCurrentTaskId);
+  registerReturnTask(pi, client, getCurrentTaskId, onTaskReturned);
+}
+
+// ─── return_task (teammate escape hatch) ──────────────────────────────
+
+/**
+ * The teammate's "I can't do this" protocol action: puts the claimed task back
+ * to `ready` with an explanatory comment, instead of finishing (which would
+ * advance it) or silently stalling. A human/leader resolves the blocker.
+ */
+function registerReturnTask(
+  pi: ExtensionAPI,
+  client: DaemonClient,
+  getCurrentTaskId: () => string | null,
+  onTaskReturned?: (taskId: string) => void
+): void {
+  pi.registerTool({
+    name: "return_task",
+    label: "Return Task",
+    description:
+      "Return your current task to the queue because you cannot make progress (missing information, blocked on " +
+      "access, prerequisites not met). The task goes back to 'ready' with your comment so a human can resolve the " +
+      "blocker. Do NOT use this for finished work — just end your turn with a summary instead.",
+    promptSnippet: "Return the current task to the queue",
+    promptGuidelines: [
+      "Use return_task only when you genuinely cannot proceed; explain exactly what you need in the comment.",
+      "Never use return_task for completed work — finishing your turn signals completion.",
+    ],
+    parameters: Type.Object({
+      comment: Type.String({ description: "What is blocking you and what you need to proceed (shown to the team)" }),
+    }),
+    async execute(_toolCallId, params) {
+      const taskId = getCurrentTaskId();
+      if (!taskId) {
+        return { content: [{ type: "text", text: "No task is currently claimed — nothing to return." }] };
+      }
+      try {
+        const res = await client.returnTask(taskId, (params as { comment: string }).comment);
+        if (!res.success) {
+          return { content: [{ type: "text", text: `Failed to return task: ${res.error || "unknown error"}` }] };
+        }
+        onTaskReturned?.(taskId);
+        return { content: [{ type: "text", text: `Task ${taskId} returned to the queue with your comment. Stop working on it.` }] };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to return task (daemon unreachable)." }] };
+      }
+    },
+  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -149,20 +199,21 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       title: Type.String({ description: "Human-readable title for the story" }),
       description: Type.String({ description: "Full description of what this story accomplishes" }),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Array of story IDs this story depends on" })),
-      directory: Type.Optional(Type.String({ description: "Required working directory — only agents in this dir will pick up the story (e.g., '~/Workspace/my-project')" })),
+      directory: Type.Optional(Type.String({ description: "Where the work happens (e.g., '~/Workspace/my-project'). Teammates cd here and read its AGENTS.md before starting." })),
       skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities — only agents advertising all of these will pick up the story (e.g., ['python','docker'])" })),
       paused: Type.Optional(Type.Boolean({ description: "If true, the story's tasks are not handed out until unpaused" })),
       workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default). Use list_workflows to see valid names." })),
       context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to the whole story (injected into every task's prompt). Use list_context to find ids." })),
     }),
     async execute(_toolCallId, params) {
-      const requirements = buildRequirements(params.directory, params.skills);
+      const requirements = buildRequirements(params.skills);
       const result = await client.createStory({
         id: params.id,
         title: params.title,
         description: params.description,
         dependsOn: params.dependsOn,
         requirements: Object.keys(requirements).length > 0 ? requirements : undefined,
+        directory: params.directory,
         paused: params.paused,
         workflow: params.workflow,
         context: params.context,
@@ -178,10 +229,9 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
   });
 }
 
-/** Build a story requirements map from a directory and a list of presence-only skills. */
-function buildRequirements(directory?: string, skills?: string[]): Record<string, string | null> {
+/** Build a story requirements map from a list of presence-only skills. */
+function buildRequirements(skills?: string[]): Record<string, string | null> {
   const requirements: Record<string, string | null> = {};
-  if (directory) requirements.directory = directory;
   for (const skill of skills || []) if (skill.trim()) requirements[skill.trim()] = null;
   return requirements;
 }
@@ -199,7 +249,7 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
     promptGuidelines: [
       "Use edit_story to modify existing stories.",
       "Only the fields you provide will be changed.",
-      "Provide directory and/or skills together to set the story's requirements; pass an empty directory and empty skills to clear them.",
+      "Pass directory to set where the work happens (empty string to clear); skills replace the story's capability requirements.",
     ],
     parameters: Type.Object({
       storyId: Type.String({ description: "ID of the story to edit" }),
@@ -207,7 +257,7 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       description: Type.Optional(Type.String({ description: "New description" })),
       status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("done")], { description: "New status" })),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "New dependency list" })),
-      directory: Type.Optional(Type.String({ description: "Required working directory (empty string to clear)" })),
+      directory: Type.Optional(Type.String({ description: "Where the work happens (empty string to clear). Teammates cd here." })),
       skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities (replaces the existing set)" })),
       paused: Type.Optional(Type.Boolean({ description: "Whether the story's tasks are withheld from agents" })),
       workflow: Type.Optional(Type.String({ description: "New workflow name (empty for default)" })),
@@ -216,9 +266,10 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       const { storyId, directory, skills, ...rest } = params;
       const updates: Record<string, unknown> = { ...rest };
       if (updates.workflow === "") updates.workflow = null;
-      // If either directory or skills was provided, (re)build the requirements map.
-      if (directory !== undefined || skills !== undefined) {
-        const requirements = buildRequirements(directory, skills);
+      // Directory is plain story data; empty string clears it.
+      if (directory !== undefined) updates.directory = directory || null;
+      if (skills !== undefined) {
+        const requirements = buildRequirements(skills);
         updates.requirements = Object.keys(requirements).length > 0 ? requirements : null;
       }
 

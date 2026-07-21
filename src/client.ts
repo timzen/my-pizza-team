@@ -330,7 +330,7 @@ export class DaemonClient {
    */
   async register(opts: {
     name: string;
-    /** Capability map; well-known `directory` key = working directory. */
+    /** Capability map (presence-only skills etc.; the working directory is story data, not a capability). */
     capabilities?: Record<string, string | null>;
     /** Work selection mode (default: eager-helper). */
     workMode?: "eager-helper" | "assigned-story";
@@ -387,11 +387,9 @@ export class DaemonClient {
   /**
    * Poll for available work.
    *
-   * Returns the next unclaimed task that has teammate-allowed transitions
-   * from its current state. This covers both fresh tasks (in initial state)
-   * and tasks returned by the lead (e.g., moved back with comments).
-   *
-   * Includes task comments so the agent can see lead feedback before starting.
+   * Returns the next task sitting `ready` in an agent state whose story
+   * matches this agent (workMode + capability requirements). Admission
+   * (CONWIP) has already run daemon-side — tasks in `todo` are never offered.
    * Returns `{ task: null }` if no work is available or distribution is paused.
    */
   async getNextWork(): Promise<AgentNextWorkResponse> {
@@ -401,11 +399,9 @@ export class DaemonClient {
   }
 
   /**
-   * Claim ownership of a task and transition to working state.
-   *
-   * The daemon assigns the task to this agent and advances it to the
-   * first valid teammate transition. Returns task details (including
-   * context and comments) and transition instructions for the working state.
+   * Claim (lease) a ready task. The task stays in its state; its substatus
+   * flips to `claimed`. Returns the daemon-assembled prompt (state persona +
+   * story/task context) to deliver verbatim.
    */
   async claimTask(taskId: string): Promise<AgentClaimResponse> {
     return this.post<AgentClaimResponse>(
@@ -415,18 +411,26 @@ export class DaemonClient {
   }
 
   /**
-   * Release a task after completing work.
-   *
-   * The daemon advances the task to the next state in the workflow,
-   * stores the optional result summary, and releases ownership.
-   * Returns the new status and whether the task is fully complete.
-   *
-   * After release, the agent should go back to polling next-work.
+   * Signal that the task's work is complete. The daemon advances the task to
+   * the next workflow state mechanically (workers never move tasks) and
+   * clears the lease. Returns the landing status and whether the task is done.
    */
-  async releaseTask(taskId: string, result?: string): Promise<AgentReleaseResponse> {
+  async completeTask(taskId: string, result?: string): Promise<AgentReleaseResponse> {
     return this.post<AgentReleaseResponse>(
-      `/api/agents/release/${encodeURIComponent(taskId)}`,
+      `/api/agents/done/${encodeURIComponent(taskId)}`,
       { agentId: this.agentId, result }
+    );
+  }
+
+  /**
+   * Give the task back: it returns to `ready` in its current state (with an
+   * explanatory comment) so another teammate — or this one, later — can pick
+   * it up fresh. Used when the agent cannot make progress.
+   */
+  async returnTask(taskId: string, comment?: string): Promise<{ success: boolean; error?: string }> {
+    return this.post<{ success: boolean; error?: string }>(
+      `/api/agents/return/${encodeURIComponent(taskId)}`,
+      { agentId: this.agentId, comment }
     );
   }
 
@@ -637,6 +641,8 @@ export class DaemonClient {
     description: string;
     dependsOn?: string[];
     requirements?: Record<string, string | null>;
+    /** Where the work happens — plain story data; teammates cd here (WORK-MODEL.md). */
+    directory?: string;
     paused?: boolean;
     workflow?: string;
     /** Context-library entry ids to attach to the whole story (injected into every task prompt). */

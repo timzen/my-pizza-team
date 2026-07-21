@@ -1,17 +1,20 @@
-// Teammate work loop: simplified claim/release model
+// Teammate work loop: poll → claim → work → done
 //
 // Autonomous execution engine for a teammate agent. Uses the daemon's
-// agent protocol (/api/agents/*) with a simple claim/release cycle:
+// agent protocol (/api/agents/*) under the work model (see the daemon's
+// docs/WORK-MODEL.md): workers never move tasks.
 //
 // Lifecycle:
-// 1. Poll GET /api/agents/next-work → finds unclaimed task with teammate transitions
-// 2. Claim POST /api/agents/claim/:taskId → assigns ownership + transitions to working state
-// 3. Execute work (send task as user message to Pi agent)
-// 4. On agent_end, POST /api/agents/release/:taskId → advances state, releases ownership
+// 1. Poll GET /api/agents/next-work → a task sitting `ready` in an agent state
+// 2. Claim POST /api/agents/claim/:taskId → lease (substatus → claimed) + prompt
+// 3. Execute work (deliver the daemon-assembled prompt to the Pi agent)
+// 4. On agent_end, POST /api/agents/done/:taskId → the daemon advances the
+//    task mechanically. If the agent used the return_task tool instead, the
+//    task went back to `ready` and completion is skipped.
 // 5. Poll again for next task
 //
-// The teammate never assumes workflow state names — it relies entirely on
-// the daemon to manage transitions. This makes it compatible with any
+// The teammate never assumes workflow state names — the state persona in the
+// prompt tells it what role it plays. This makes it compatible with any
 // workflow configuration.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -29,6 +32,9 @@ export class TeammateLoop {
   private autonomous = false;
   private currentTaskId: string | null = null;
   private lastCompletedTaskId: string | null = null;
+  /** Set when the agent returned its current task via the return_task tool —
+   *  agent_end must then skip marking completion (the task is back to ready). */
+  private returnedTaskId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -58,6 +64,15 @@ export class TeammateLoop {
 
   get lastTask(): string | null {
     return this.lastCompletedTaskId;
+  }
+
+  /**
+   * Record that the current task was returned to the queue (the return_task
+   * tool ran). The in-flight agent turn may keep going briefly; when it ends,
+   * handleAgentComplete sees the flag and does not mark the task done.
+   */
+  markReturned(taskId: string): void {
+    if (this.currentTaskId === taskId) this.returnedTaskId = taskId;
   }
 
   async start(): Promise<void> {
@@ -180,10 +195,11 @@ export class TeammateLoop {
   /**
    * Called by the agent_end handler when the Pi agent finishes.
    *
-   * Posts a summary comment and releases the task. The daemon advances
-   * the task to the next workflow state. If the lead wants changes,
-   * they add comments and move it back — the agent picks it up again
-   * with the additional context.
+   * Posts a summary comment and signals completion — the daemon advances the
+   * task to its next state (workers never move tasks). If the agent returned
+   * the task mid-turn (return_task tool), completion is skipped: the task is
+   * already back to `ready` for someone else. Rework arrives as ordinary new
+   * work: a human moves the task back with comments; the next poll finds it.
    */
   async handleAgentComplete(lastMessage: string, tokenUsage?: {
     inputTokens: number;
@@ -208,24 +224,33 @@ export class TeammateLoop {
       }).catch(() => {});
     }
 
-    // ─── Release with result ─────────────────────────────────────────
+    // ─── Returned mid-turn? The task is already back to ready. ────────
+    if (this.returnedTaskId === taskId) {
+      this.debugLog(`[ppt-debug] Task ${taskId} was returned via return_task — skipping done.`);
+      this.returnedTaskId = null;
+      this.currentTaskId = null;
+      this.schedulePoll();
+      return;
+    }
+
+    // ─── Done with result ────────────────────────────────────────────
     // The completion comment is for humans reading the task, so post the full
     // message rather than a truncated slice (which cut summaries mid-sentence).
     const fullMessage = lastMessage.trim();
-    this.debugLog(`[ppt-debug] Releasing task ${taskId} with summary: ${fullMessage.slice(0, 100)}...`);
+    this.debugLog(`[ppt-debug] Completing task ${taskId} with summary: ${fullMessage.slice(0, 100)}...`);
     await this.client.postComment(taskId, `[done] Work complete. Summary:\n${fullMessage}`).catch(() => {});
 
-    // Release the task — daemon advances to next state. The result is stored on
-    // the task and echoed into future task prompts for context.
-    const releaseRes = await this.client.releaseTask(taskId, fullMessage).catch((e) => {
-      this.debugLog(`[ppt-debug] releaseTask FAILED: ${e}`);
+    // Signal completion — the daemon advances the task mechanically. The result
+    // is stored on the task and echoed into future task prompts for context.
+    const doneRes = await this.client.completeTask(taskId, fullMessage).catch((e) => {
+      this.debugLog(`[ppt-debug] completeTask FAILED: ${e}`);
       return null;
     });
-    this.debugLog(`[ppt-debug] releaseTask response: ${JSON.stringify(releaseRes)}`);
+    this.debugLog(`[ppt-debug] completeTask response: ${JSON.stringify(doneRes)}`);
     this.lastCompletedTaskId = taskId;
     this.currentTaskId = null;
 
-    if (releaseRes?.completed) {
+    if (doneRes?.completed) {
       this.onTaskComplete?.(taskId, fullMessage);
     }
 

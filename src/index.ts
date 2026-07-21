@@ -198,9 +198,10 @@ async function setupTeammate(
     ctx.ui.notify(`🍕 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Build the capability map. The working directory is the well-known
-  // `directory` capability; extra skills are presence-only (null value).
-  const capabilities: Record<string, string | null> = { directory: cwd };
+  // Build the capability map: presence-only skills. The working directory is
+  // NOT a capability — it's story data; the task prompt tells the agent to cd
+  // to the story's directory (see the daemon's docs/WORK-MODEL.md).
+  const capabilities: Record<string, string | null> = {};
   for (const skill of workOpts?.skills || []) capabilities[skill] = null;
 
   // Register with daemon
@@ -234,8 +235,9 @@ async function setupTeammate(
   const loop = new TeammateLoop(pi, client);
   loop.debugLog = debug;
 
-  // Register tools
-  registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask);
+  // Register tools. return_task lets the agent give a claimed task back to the
+  // queue with a comment when it can't proceed; the loop then skips "done".
+  registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask, (taskId) => loop.markReturned(taskId));
 
   // Permission bypass (auto-pause on interactive input)
   registerPermissionBypass(

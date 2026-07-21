@@ -125,6 +125,7 @@ Tools are registered per-role (all proxy to the daemon API):
 
 ### Teammate Tools
 - **`upload_attachment`** — Upload a file to the current task
+- **`return_task`** — Give the claimed task back to the queue with a comment when the agent can't proceed (back to `ready`; a human resolves the blocker)
 
 ### Assistant Tools
 - **`send_message`** — Send one chat bubble to the user; called once per bubble to deliver a batched, iMessage-style reply (the only thing the user sees)
@@ -151,16 +152,17 @@ Custom templates can be configured via the daemon's `harnessCommands` config fie
 
 ## Workflow
 
-Tasks follow configurable workflows managed by the daemon. The teammate uses the daemon's **multi-transition ownership** model:
+Tasks follow the daemon's work model (its docs/WORK-MODEL.md): an ordered
+pipeline of states where **workers never move tasks**:
 
-1. **Poll** — finds unclaimed task with teammate-allowed transitions
-2. **Claim** — takes ownership (no state change)
-3. **Transition** — advances to first working state
-4. **Execute** — works on the task
-5. **Transition** — advances through consecutive teammate states
-6. **Release** — when only lead-only transitions remain
+1. **Poll** — finds a task sitting `ready` in an agent state
+2. **Claim** — leases it (substatus → `claimed`); gets the state-persona prompt
+3. **Execute** — works the task (cd-ing to the story's directory)
+4. **Done** — signals completion; the daemon advances the task mechanically
+5. **Return** (escape hatch) — if blocked, `return_task` puts it back to `ready` with a comment
 
-The teammate never hardcodes state names — it's purely driven by `availableTransitions` from the daemon.
+The teammate never hardcodes state names — the state persona in the prompt tells
+it what role it plays (implementer, CR-writer, …).
 
 ## Architecture
 

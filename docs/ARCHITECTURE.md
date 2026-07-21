@@ -27,7 +27,7 @@ The extension operates in one of three roles:
 │  │                                                          │
 │  ├── --ppt-worker → setupTeammateRole()                     │
 │  │         • Register with daemon as "teammate" agent        │
-│  │         • Poll for work → claim → execute → transition    │
+│  │         • Poll for work → claim → execute → done       │
 │  │         • Register permission bypass                      │
 │  │         • Listen for agent_end to capture results         │
 │  │                                                          │
@@ -42,7 +42,7 @@ src/
 ├── index.ts              # Entry point: flag registration, role detection, setup
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands
-├── teammate.ts           # TeammateLoop: poll → claim → execute → transition work loop
+├── teammate.ts           # TeammateLoop: poll → claim → work → done (or return) loop
 ├── assistant.ts          # AssistantLoop: poll turn → claim → stream bubbles → complete
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling for permission system
@@ -58,20 +58,26 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│  TeammateLoop                                            │
+│  TeammateLoop  (work model: workers never move tasks)   │
 │                                                          │
-│  1. GET  /api/agents/next-work?agentId=X                │
-│  2. POST /api/agents/claim/:taskId                      │
+│  1. GET  /api/agents/next-work?agentId=X                 │
+│     └── a task sitting `ready` in an agent state         │
+│  2. POST /api/agents/claim/:taskId  (lease → claimed)    │
 │  3. pi.sendUserMessage(claim.prompt)                     │
-│     └── daemon-assembled prompt, delivered verbatim     │
-│     └── Pi agent executes the task autonomously         │
-│  4. agent_end event fires                               │
-│     └── handleAgentComplete(lastAssistantMessage)       │
-│         ├── If "NEEDS_INPUT:" → post comment + transition│
-│         └── Else → transition to review + post summary  │
-│  5. Back to step 1                                      │
+│     └── daemon-assembled prompt (state persona + task), │
+│         delivered verbatim; agent cds to the story dir   │
+│  4. agent_end event fires                                │
+│     └── handleAgentComplete(lastAssistantMessage)        │
+│         ├── task was returned via return_task → skip     │
+│         └── else POST /api/agents/done/:taskId           │
+│             └── daemon advances the task mechanically    │
+│  5. Back to step 1                                       │
 └─────────────────────────────────────────────────────────┘
 ```
+
+Rework needs no special path: a human moves the task back into an agent state
+(substatus resets to `ready`), and the next poll discovers it like new work —
+with the human's comments in the prompt. See the daemon's docs/WORK-MODEL.md.
 
 ### Leader (spawn management)
 
@@ -131,10 +137,10 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 |-------|--------|---------|
 | `/api/agents/register` | POST | Register agent with daemon |
 | `/api/agents/heartbeat` | POST | Agent keepalive |
-| `/api/agents/next-work?agentId=X` | GET | Poll for unclaimed tasks |
-| `/api/agents/claim/:taskId` | POST | Claim task ownership |
-| `/api/agents/transition/:taskId` | POST | Advance task state |
-| `/api/agents/release/:taskId` | POST | Release task |
+| `/api/agents/next-work?agentId=X` | GET | Poll for a ready agent-state task |
+| `/api/agents/claim/:taskId` | POST | Lease the task (substatus → claimed) + get the persona prompt |
+| `/api/agents/done/:taskId` | POST | Work complete → daemon advances the task |
+| `/api/agents/return/:taskId` | POST | Can't proceed → back to ready + comment |
 
 ### Task Routes
 | Route | Method | Purpose |
@@ -263,14 +269,15 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
 2. **Daemon owns all state** — stories, tasks, workflows, context library, assistant conversation
-3. **Agent protocol for teammates** — `/api/agents/*` routes with claim/release semantics
-4. **Workflow-agnostic teammate** — never hardcodes state names, uses daemon transitions
+3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → done/return; workers never move tasks (the daemon advances + admits; see the daemon's WORK-MODEL.md)
+4. **Workflow-agnostic teammate** — never hardcodes state names; the state persona in the claim prompt tells it what role it plays
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
 6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)
-6. **Permission toggle is file-based** — leverages permission system's runtime config reload
-7. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
-8. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
-9. **Assistant replies as chat bubbles** — the assistant answers by calling the `send_message` tool once per bubble (`.../say`), not by returning one blob. Batching guidance lives in the daemon's `ASSISTANT_CHAT_FRAMING` (injected ahead of every persona), so the extension never splits/batches text itself; it just wires `send_message` to the active turn id and lets the daemon own the chat model.
+7. **return_task over sentinel parsing** — giving up is an explicit tool call (comment + back to ready), never a magic string in the agent's output
+8. **Permission toggle is file-based** — leverages permission system's runtime config reload
+9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
+10. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
+11. **Assistant replies as chat bubbles** — the assistant answers by calling the `send_message` tool once per bubble (`.../say`), not by returning one blob. Batching guidance lives in the daemon's `ASSISTANT_CHAT_FRAMING` (injected ahead of every persona), so the extension never splits/batches text itself; it just wires `send_message` to the active turn id and lets the daemon own the chat model.
 
 ## Extending
 

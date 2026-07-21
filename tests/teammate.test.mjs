@@ -66,8 +66,8 @@ test("does NOT track availableTransitions (daemon handles transitions)", () => {
   assert.ok(!src.includes("availableTransitions"));
 });
 
-test("releases with releaseTask and passes result", () => {
-  assert.ok(src.includes("this.client.releaseTask(taskId, fullMessage)"));
+test("completes with completeTask and passes result", () => {
+  assert.ok(src.includes("this.client.completeTask(taskId, fullMessage)"));
 });
 
 test("posts the full completion message as a comment (not a truncated slice)", () => {
@@ -76,8 +76,8 @@ test("posts the full completion message as a comment (not a truncated slice)", (
   assert.ok(src.includes("const fullMessage = lastMessage.trim()"));
 });
 
-test("checks releaseRes.completed for task completion", () => {
-  assert.ok(src.includes("releaseRes?.completed"));
+test("checks doneRes.completed for task completion", () => {
+  assert.ok(src.includes("doneRes?.completed"));
 });
 
 test("does NOT have autoAdvance method (removed)", () => {
@@ -102,16 +102,18 @@ test("does NOT hardcode 'done' state name", () => {
   assert.ok(!src.includes('"done"'));
 });
 
-// ─── Completion → release ───────────────────────────────────
+// ─── Completion → done ───────────────────────────────────────
 
-test("releases the task on agent completion (no NEEDS_INPUT protocol)", () => {
-  // The teammate no longer parses agent output for a NEEDS_INPUT sentinel.
-  // It always releases on completion; the daemon advances state and the lead
-  // requests rework by re-adding comments and moving the task back.
+test("marks the task done on agent completion (no NEEDS_INPUT protocol)", () => {
+  // The teammate never parses agent output for a NEEDS_INPUT sentinel. It
+  // marks completion (daemon advances state); the return_task tool is the
+  // explicit escape hatch, and rework arrives as an ordinary judgment move.
   assert.ok(!src.includes("NEEDS_INPUT"));
   assert.ok(src.includes("handleAgentComplete"));
   const completeSection = src.slice(src.indexOf("handleAgentComplete"));
-  assert.ok(completeSection.includes("releaseTask"));
+  assert.ok(completeSection.includes("completeTask"));
+  // Returned tasks skip the done call.
+  assert.ok(src.includes("markReturned"));
 });
 
 // ─── Comment handling ────────────────────────────────────────────
