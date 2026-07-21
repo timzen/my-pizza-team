@@ -62,41 +62,61 @@ export async function setupLeader(
 ): Promise<void> {
   const { execSync } = await import("node:child_process");
 
-  // Configuration from daemon
+  // Configuration from daemon.
+  //
+  // tmuxSession starts as a hardcoded fallback and MUST be replaced by the
+  // daemon-configured value before any spawn is realized — otherwise agents
+  // land in the wrong tmux session. Because the leader may start while the
+  // daemon is down (or the daemon may restart and forget our registration),
+  // config resolution is a retryable operation, not a one-shot at startup:
+  // syncDaemonConfig() is retried from the heartbeat and before dispatching
+  // directives until it succeeds (configSynced).
   let tmuxSession = "pi-pizza-team";
   let directories: string[] = [];
   let harnessTemplates: HarnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES };
+  let configSynced = false;
 
-  // Register with daemon
-  try {
+  /**
+   * Register with the daemon and adopt its configuration (tmux session,
+   * directory suggestions, harness templates). Safe to call repeatedly;
+   * throws if the daemon is unreachable so callers can retry later.
+   */
+  async function syncDaemonConfig(): Promise<void> {
     const regRes = await client.register({ name: "leader", capabilities: { directory: cwd } });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
     if (regRes.config?.directories) directories = regRes.config.directories;
+
+    // Fall back to host-specific config if register didn't provide tmuxSession
+    if (!regRes.config?.tmuxSession) {
+      try {
+        const hostConfig = await client.getHostConfig();
+        if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
+        if (hostConfig.directories?.length) directories = hostConfig.directories;
+      } catch {
+        // Use defaults
+      }
+    }
+
+    // Try to load harness templates from daemon config
+    try {
+      const daemonConfig = await client.getConfig();
+      if (daemonConfig.harnessCommands) {
+        harnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES, ...daemonConfig.harnessCommands };
+      }
+    } catch {
+      // Use defaults
+    }
+
+    configSynced = true;
+  }
+
+  // Register with daemon
+  try {
+    await syncDaemonConfig();
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🍕 Failed to register with daemon — will retry via heartbeat`, "warning");
     }
-  }
-
-  // Fall back to host-specific config if register didn't provide tmuxSession
-  if (tmuxSession === "pi-pizza-team") {
-    try {
-      const hostConfig = await client.getHostConfig();
-      if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
-      if (hostConfig.directories?.length) directories = hostConfig.directories;
-    } catch {
-      // Use defaults
-    }
-  }
-
-  // Try to load harness templates from daemon config
-  try {
-    const daemonConfig = await client.getConfig();
-    if (daemonConfig.harnessCommands) {
-      harnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES, ...daemonConfig.harnessCommands };
-    }
-  } catch {
-    // Use defaults
   }
 
 
@@ -107,17 +127,35 @@ export async function setupLeader(
   // ─── Leader Heartbeat ──────────────────────────────────────────────
   // Send periodic heartbeats so the daemon knows the leader is alive.
   // Without this, the daemon's reaper marks the leader as offline.
+  // The heartbeat also doubles as the config-sync retry loop: if the initial
+  // registration failed (daemon not up yet) or the daemon restarted and no
+  // longer knows us (heartbeat reports dismissed), re-register so tmuxSession
+  // and friends reflect the daemon's config instead of the hardcoded default.
   const HEARTBEAT_INTERVAL_MS = 30_000;
-  const heartbeatTimer = setInterval(() => {
-    client.heartbeat("idle").catch(() => {});
-  }, HEARTBEAT_INTERVAL_MS);
+  const heartbeatTick = async () => {
+    if (!configSynced) {
+      try { await syncDaemonConfig(); } catch { /* daemon still unreachable */ }
+    }
+    const res = await client.heartbeat("idle");
+    if (res.dismissed) {
+      // The daemon doesn't know us (e.g. it restarted) — re-register.
+      configSynced = false;
+      try { await syncDaemonConfig(); } catch { /* retry next beat */ }
+    }
+  };
+  const heartbeatTimer = setInterval(() => { heartbeatTick().catch(() => {}); }, HEARTBEAT_INTERVAL_MS);
   // Send an initial heartbeat immediately
-  client.heartbeat("idle").catch(() => {});
+  heartbeatTick().catch(() => {});
 
   // ─── Spawn Request Polling ─────────────────────────────────────────
 
   const spawnPollTimer = setInterval(async () => {
     try {
+      // Never realize a directive with the hardcoded fallback session: if the
+      // daemon is reachable enough to hand us directives, it can also tell us
+      // the configured tmuxSession. A throw here leaves directives pending for
+      // the next poll cycle rather than spawning into the wrong session.
+      if (!configSynced) await syncDaemonConfig();
       const { directives } = await client.getLeaderDirectives();
       for (const directive of directives) {
         try {

@@ -86,11 +86,23 @@ with the human's comments in the prompt. See the daemon's docs/WORK-MODEL.md.
 │  Leader                                                  │
 │                                                          │
 │  1. POST /api/agents/register (role=leader)             │
+│     └── adopts daemon config: tmuxSession, directories, │
+│         harness templates (syncDaemonConfig)            │
 │  2. Poll GET /api/hosts/:hostId/leader/directives (5s) │
 │     └── For each request: spawn tmux window + ack       │
 │  3. User tools → POST /api/stories, /api/stories/:id/tasks │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Config sync is retryable, not one-shot.** The leader starts with a
+hardcoded fallback `tmuxSession` ("pi-pizza-team") that must be replaced by
+the daemon-configured value before any spawn is realized. Because the leader
+may start while the daemon is down — or the daemon may restart and forget the
+registration — `syncDaemonConfig()` is retried from the heartbeat loop until
+it succeeds, re-runs whenever a heartbeat reports `dismissed` (daemon
+restart), and the directive poll refuses to dispatch until at least one sync
+has succeeded. This prevents agents from being spawned into the fallback
+session when the daemon was merely unreachable at leader startup.
 
 ### Assistant (chat response turns)
 

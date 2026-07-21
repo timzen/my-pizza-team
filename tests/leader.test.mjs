@@ -61,6 +61,24 @@ test("gets daemon config for harness templates", () => {
   assert.ok(src.includes("client.getConfig()"));
 });
 
+// Regression: the leader once resolved tmuxSession only once at startup. If
+// the daemon was unreachable at that moment, the hardcoded fallback session
+// ("pi-pizza-team") was cached forever and spawns landed in the wrong tmux
+// session even after the daemon came back. Config sync must be retryable.
+test("config sync is a retryable function", () => {
+  assert.ok(src.includes("async function syncDaemonConfig()"));
+  assert.ok(src.includes("configSynced = true"));
+});
+
+test("heartbeat retries config sync and re-registers when dismissed", () => {
+  assert.ok(src.includes("if (res.dismissed)"));
+  assert.ok(/if \(!configSynced\) \{\s*\n\s*try \{ await syncDaemonConfig\(\); \}/.test(src));
+});
+
+test("directive poll refuses to dispatch before config sync", () => {
+  assert.ok(src.includes("if (!configSynced) await syncDaemonConfig();"));
+});
+
 // ─── Spawn request polling ───────────────────────────────────────
 
 test("polls the single leader-directive queue every 5s", () => {
