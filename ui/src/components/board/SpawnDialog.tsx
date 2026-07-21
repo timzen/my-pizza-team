@@ -3,7 +3,14 @@
  *
  * Provides:
  * - Host selection (from connected leaders/agents)
- * - Working directory input with recent and story directories combined
+ * - Optional home directory (just the pi process's cwd — teammates cd to each
+ *   story's directory to work, so this is NOT a matching key; see the daemon's
+ *   docs/WORK-MODEL.md)
+ * - Optional skills (capabilities the teammate advertises, e.g. `design` —
+ *   stories with matching requirements will be offered to it)
+ *
+ * There is deliberately no state picker: teammates are generalists that work
+ * every agent state; the state persona does the specializing.
  */
 
 import { useState, useEffect } from "react";
@@ -25,7 +32,8 @@ interface SpawnDialogProps {
 interface StoryOption {
   id: string;
   title: string;
-  requirements?: Record<string, string | null>;
+  status?: string;
+  directory?: string;
 }
 
 interface AgentOption {
@@ -39,6 +47,7 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
   const [open, setOpen] = useState(false);
   const [hostId, setHostId] = useState("");
   const [cwd, setCwd] = useState("");
+  const [skills, setSkills] = useState("");
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [storyDirs, setStoryDirs] = useState<string[]>([]);
@@ -51,9 +60,10 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
     fetch("/api/stories")
       .then(r => r.json())
       .then((data: { stories: StoryOption[] }) => {
+        // Suggest open stories' working directories as candidate homes.
         const dirs = data.stories
-          .filter(s => (s as any).status === "open" && typeof s.requirements?.directory === "string")
-          .map(s => s.requirements!.directory as string);
+          .filter(s => s.status === "open" && typeof s.directory === "string")
+          .map(s => s.directory as string);
         setStoryDirs([...new Set(dirs)]);
       })
       .catch(() => {});
@@ -85,13 +95,15 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
       return;
     }
 
+    const skillList = skills.split(",").map(s => s.trim()).filter(Boolean);
     const res = await apiPost<{ success: boolean; directive?: { id: string }; error?: string }>(`/api/hosts/${encodeURIComponent(hostId)}/leader/directives`, {
       action: "spawn",
-      params: { cwd: cwd || undefined, reason: "teammate" },
+      params: { cwd: cwd || undefined, skills: skillList.length > 0 ? skillList : undefined, reason: "teammate" },
     });
     if (res.success) {
       setSuccess("Spawn request sent! The leader will create the agent.");
       setCwd("");
+      setSkills("");
       onSpawned?.();
       setTimeout(() => setOpen(false), 1500);
     } else {
@@ -136,11 +148,18 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
               )}
             </div>
 
-            {/* Working directory */}
+            {/* Home directory (process cwd — not a matching key) */}
             <div className="space-y-1.5">
-              <Label>Working Directory (optional)</Label>
+              <Label>Home Directory (optional)</Label>
               <DirectoryInput value={cwd} onChange={setCwd} extraDirectories={storyDirs} />
-              <p className="text-xs text-muted-foreground">Select from recent or story directories, or type a custom path.</p>
+              <p className="text-xs text-muted-foreground">Where the pi process starts. Teammates cd to each story's directory to work, so this doesn't limit what they pick up.</p>
+            </div>
+
+            {/* Skills (advertised capabilities) */}
+            <div className="space-y-1.5">
+              <Label>Skills (optional)</Label>
+              <Input value={skills} onChange={e => setSkills(e.target.value)} placeholder="design, python, dynamodb" />
+              <p className="text-xs text-muted-foreground">Comma-separated capabilities this teammate advertises. Stories with matching requirements will be offered to it.</p>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
