@@ -64,24 +64,27 @@ The extension detects which role to activate:
 | `--ppt-name` | string | (auto-generated) | Agent name |
 | `--ppt-work-mode` | string | `eager-helper` | Teammate work selection: `eager-helper` or `assigned-story` |
 | `--ppt-story` | string | (none) | Story ID to bind to (required for `--ppt-work-mode assigned-story`) |
-| `--ppt-skills` | string | (none) | Comma-separated capabilities this teammate has (e.g. `python,docker`) |
+| `--ppt-skills` | string | (none) | Comma-separated capabilities: `name` presence-only, `name:value` value-bound (e.g. `python,java:8`) |
 | `--ppt-tmux-session` | string | (set by leader) | tmux session the agent runs in (reported as metadata) |
 | `--ppt-tmux-window` | string | (set by leader) | tmux window the agent runs in (reported as metadata) |
 
 ### Work modes & capabilities
 
-A teammate registers a **capability map** with the daemon: the well-known
-`directory` key (its working directory) plus any `--ppt-skills` it declares.
-The daemon only hands a teammate a story whose **requirements** it satisfies
-(see my-pizza-team `docs/DESIGN.md` → *Capability-Based Work Matching*).
+A teammate registers a **capability map** with the daemon from its
+`--ppt-skills` entries: `name` is presence-only, `name:value` binds a value
+(e.g. `java:8` satisfies a story requiring `java: 8` exactly, or `java` at any
+value). The daemon only hands a teammate a story whose **requirements** it
+satisfies (see my-pizza-team `docs/DESIGN.md` → *Capability-Based Work
+Matching*). The working directory is not a capability — teammates cd to each
+story's directory.
 
 - `eager-helper` (default): picks up any story it's capable of.
 - `assigned-story` (with `--ppt-story <id>`): works only that story; when its
   tasks are exhausted the daemon archives it and the teammate dismisses itself.
 
 ```bash
-# Eager helper that can do design + python work
-pi --ppt-worker --ppt-skills=design,python
+# Eager helper that can do design + python work, and advertises java 8
+pi --ppt-worker --ppt-skills=design,python,java:8
 
 # Dedicated agent for one story, exits when the story is finished
 pi --ppt-worker --ppt-work-mode=assigned-story --ppt-story=add-user-auth

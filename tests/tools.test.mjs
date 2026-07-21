@@ -166,6 +166,13 @@ test("story tools use the capability model (directory/skills/paused), not dir", 
   assert.ok(!/dir:/.test(src)); // no legacy dir field
 });
 
+test("skills accept name:value entries (value-bound capabilities)", () => {
+  // buildRequirements must split on the first colon: `java:8` -> { java: "8" },
+  // bare `python` -> { python: null }.
+  assert.ok(src.includes('entry.indexOf(":")'));
+  assert.ok(src.includes("entry.slice(0, i)"));
+});
+
 test("add_task calls client.createTask", () => {
   assert.ok(src.includes("client.createTask("));
 });

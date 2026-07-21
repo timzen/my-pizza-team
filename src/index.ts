@@ -63,7 +63,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.registerFlag("ppt-skills", {
-    description: "Comma-separated capabilities this teammate has (e.g. python,docker)",
+    description: "Comma-separated capabilities this teammate has; `name` is presence-only, `name:value` binds a value (e.g. python,java:8)",
     type: "string",
     default: "",
   });
@@ -198,11 +198,22 @@ async function setupTeammate(
     ctx.ui.notify(`🍕 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Build the capability map: presence-only skills. The working directory is
-  // NOT a capability — it's story data; the task prompt tells the agent to cd
-  // to the story's directory (see the daemon's docs/WORK-MODEL.md).
+  // Build the capability map from --ppt-skills entries. Each entry is either
+  // `name` (presence-only, value null) or `name:value` (value-bound — e.g.
+  // `java:8` matches a story requiring java 8 exactly, or java at any value).
+  // The working directory is NOT a capability — it's story data; the task
+  // prompt tells the agent to cd there (see the daemon's docs/WORK-MODEL.md).
   const capabilities: Record<string, string | null> = {};
-  for (const skill of workOpts?.skills || []) capabilities[skill] = null;
+  for (const entry of workOpts?.skills || []) {
+    const i = entry.indexOf(":");
+    if (i > 0) {
+      const name = entry.slice(0, i).trim();
+      const value = entry.slice(i + 1).trim();
+      if (name) capabilities[name] = value || null;
+    } else if (entry.trim()) {
+      capabilities[entry.trim()] = null;
+    }
+  }
 
   // Register with daemon
   try {

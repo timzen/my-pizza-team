@@ -198,14 +198,16 @@ are authored in the UI/daemon.
 | `--ppt-name` | string | (auto) | Agent name |
 | `--ppt-work-mode` | string | `eager-helper` | Teammate work selection (`eager-helper` \| `assigned-story`) |
 | `--ppt-story` | string | (none) | Story to bind to for `assigned-story` mode |
-| `--ppt-skills` | string | (none) | Comma-separated capabilities the teammate advertises |
+| `--ppt-skills` | string | (none) | Comma-separated capabilities: `name` presence-only, `name:value` value-bound (e.g. `python,java:8`) |
 
 ### Teammate work selection
 
-At registration `setupTeammate()` builds a capability map — `{ directory: cwd }`
-plus each `--ppt-skills` entry (presence-only) — and sends it with the chosen
-`workMode`/`assignedStoryId` via `DaemonClient.register()`. The daemon performs
-all matching; the teammate never reasons about it.
+At registration `setupTeammate()` builds a capability map from the
+`--ppt-skills` entries — `name` → presence-only (null), `name:value` →
+value-bound — and sends it with the chosen `workMode`/`assignedStoryId` via
+`DaemonClient.register()`. The daemon performs all matching; the teammate
+never reasons about it. (No `directory` capability: the story's directory is
+data the agent cds to.)
 
 For `assigned-story` mode, when the daemon archives the exhausted story it
 returns `{ task: null, dismiss: true }` from `next-work`; `TeammateLoop.pollForWork`

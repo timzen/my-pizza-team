@@ -200,7 +200,7 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       description: Type.String({ description: "Full description of what this story accomplishes" }),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Array of story IDs this story depends on" })),
       directory: Type.Optional(Type.String({ description: "Where the work happens (e.g., '~/Workspace/my-project'). Teammates cd here and read its AGENTS.md before starting." })),
-      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities — only agents advertising all of these will pick up the story (e.g., ['python','docker'])" })),
+      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities — `name` for presence-only, `name:value` for an exact value (e.g., ['python','java:8'])" })),
       paused: Type.Optional(Type.Boolean({ description: "If true, the story's tasks are not handed out until unpaused" })),
       workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default). Use list_workflows to see valid names." })),
       context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to the whole story (injected into every task's prompt). Use list_context to find ids." })),
@@ -229,10 +229,19 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
   });
 }
 
-/** Build a story requirements map from a list of presence-only skills. */
+/** Build a story requirements map from skill entries: `name` = presence-only (null), `name:value` = exact-value. */
 function buildRequirements(skills?: string[]): Record<string, string | null> {
   const requirements: Record<string, string | null> = {};
-  for (const skill of skills || []) if (skill.trim()) requirements[skill.trim()] = null;
+  for (const entry of skills || []) {
+    const i = entry.indexOf(":");
+    if (i > 0) {
+      const name = entry.slice(0, i).trim();
+      const value = entry.slice(i + 1).trim();
+      if (name) requirements[name] = value || null;
+    } else if (entry.trim()) {
+      requirements[entry.trim()] = null;
+    }
+  }
   return requirements;
 }
 
@@ -258,7 +267,7 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("done")], { description: "New status" })),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "New dependency list" })),
       directory: Type.Optional(Type.String({ description: "Where the work happens (empty string to clear). Teammates cd here." })),
-      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities (replaces the existing set)" })),
+      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities (replaces the existing set); `name` presence-only or `name:value` exact" })),
       paused: Type.Optional(Type.Boolean({ description: "Whether the story's tasks are withheld from agents" })),
       workflow: Type.Optional(Type.String({ description: "New workflow name (empty for default)" })),
     }),
