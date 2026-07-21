@@ -1,16 +1,16 @@
 /**
  * daemon/routes/agents.ts — Agent protocol routes and spawn requests.
  *
- * The streamlined agent-facing interface for autonomous coding agents.
- * Agents use a simple claim/release loop — the daemon handles all
- * workflow state transitions.
+ * The streamlined agent-facing interface for autonomous coding agents:
+ * poll → claim → work → done (or return). Workers never move tasks — the
+ * daemon advances completed work mechanically and admission pulls from the
+ * todo bucket (see docs/WORK-MODEL.md).
  *
  * Also includes spawn request endpoints for the leader to request
  * new agent processes on host machines.
  */
 
 import type { RouteContext } from "./types.ts";
-import { getClaimTarget, getReleaseTarget, getExitState } from "../workflow-engine.ts";
 import { buildTaskPrompt } from "../prompt.ts";
 import { DEFAULT_WORK_MODE, type Capabilities, type WorkMode } from "../../shared/types.ts";
 
@@ -111,24 +111,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
 
-    const wf = store.getWorkflowForTask(taskId);
-    const claim = getClaimTarget(wf, task.status);
-    if (!claim) {
-      return c.json({ success: false, error: `No valid teammate transition from "${task.status}"` }, 400);
-    }
-
+    // Lease the task (verifies agent state + ready substatus).
     const success = store.claimTask(taskId, body.agentId);
-    if (!success) return c.json({ success: false, error: "Task already claimed" }, 409);
+    if (!success) return c.json({ success: false, error: "Task not claimable (already claimed, or not ready in an agent state)" }, 409);
 
-    const { targetStatus } = claim;
-    const fromStatus = task.status;
-    if (claim.transitions) {
-      store.updateTaskStatus(taskId, targetStatus);
-    }
     store.updateMemberStatus(body.agentId, "working");
-
-    // Determine what state the task will exit to on release
-    const exitsTo = getExitState(wf, targetStatus);
 
     const story = store.getStory(task.storyId);
     const storyTasks = store.getTasksForStory(task.storyId);
@@ -142,25 +129,13 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       .join("\n\n");
     const comments = store.getComments(taskId);
 
-    // Build state context to help the agent understand its role
-    let guidance = `You are entering the '${targetStatus}' state.`;
-    if (exitsTo) {
-      guidance += ` When your work is complete, provide a brief summary of what you accomplished and release the task — it will advance to '${exitsTo}'.`;
-    } else {
-      guidance += ` When your work is complete, provide a brief summary of what you accomplished and release the task.`;
-    }
-
-    const workflowName = story?.workflow || config.defaultWorkflow;
-    const { exitInstructions, enterInstructions } = store.getTransitionInstructions(fromStatus, targetStatus, workflowName);
-
-    // The daemon assembles the full, canonical prompt so every harness delivers
-    // it verbatim (no per-harness augmentation). Alongside it we return only the
-    // minimal structured task metadata a harness needs for bookkeeping.
+    // The daemon assembles the full, canonical prompt — the state's persona
+    // plus story/task context — so every harness delivers it verbatim.
     const prompt = buildTaskPrompt({
-      story: story ? { id: story.id, title: story.title, description: story.description } : undefined,
+      story: story ? { id: story.id, title: story.title, description: story.description, directory: story.directory } : undefined,
       task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description },
-      guidance,
-      transition: { fromState: fromStatus, toState: targetStatus, exit: exitInstructions, enter: enterInstructions },
+      state: task.status,
+      persona: store.getStatePersona(story?.workflow, task.status),
       previousResults: previousResults || undefined,
       comments: comments.length > 0 ? comments : undefined,
       contextEntries: store.resolveTaskContext(story?.context, task.context),
@@ -168,14 +143,18 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     return c.json({
       success: true,
-      task: { id: task.id, storyId: task.storyId, status: targetStatus },
+      task: { id: task.id, storyId: task.storyId, status: task.status },
       prompt,
     });
   });
 
-  // ─── Release ───────────────────────────────────────────────────────
+  // ─── Done (work complete → daemon advances) ────────────────────────
+  //
+  // Workers never move tasks: "done" is the completion signal, and the daemon
+  // advances the task to the next state mechanically (see docs/WORK-MODEL.md).
+  // `release` is kept as a deprecated alias for pre-work-model harnesses.
 
-  app.post("/api/agents/release/:taskId", async (c) => {
+  const handleDone = async (c: { req: { param: (k: string) => string; json: () => Promise<unknown> }; json: (o: unknown, s?: number) => Response }) => {
     const taskId = c.req.param("taskId");
     const body = await c.req.json() as { agentId?: string; result?: string };
     if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
@@ -188,24 +167,36 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       return c.json({ success: false, error: "Task not claimed by this agent" }, 403);
     }
 
-    const wf = store.getWorkflowForTask(taskId);
-    const release = getReleaseTarget(wf, task.status);
+    const advance = store.completeTaskWork(taskId, body.result);
+    store.updateMemberStatus(body.agentId, "idle");
+    if (!advance) return c.json({ success: false, error: "Task is not in an agent state" }, 400);
 
-    if (release) {
-      store.updateTaskStatus(taskId, release.targetStatus, body.result);
-    } else if (body.result) {
-      store.updateTaskStatus(taskId, task.status, body.result);
+    return c.json({ success: true, newStatus: advance.newStatus, completed: advance.completed });
+  };
+
+  app.post("/api/agents/done/:taskId", (c) => handleDone(c));
+  app.post("/api/agents/release/:taskId", (c) => handleDone(c));
+
+  // ─── Return (agent gives up → back to ready + comment) ─────────────
+
+  app.post("/api/agents/return/:taskId", async (c) => {
+    const taskId = c.req.param("taskId");
+    const body = await c.req.json() as { agentId?: string; comment?: string };
+    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+
+    const task = store.getTask(taskId);
+    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
+
+    const assignment = store.getAssignment(taskId);
+    if (!assignment || assignment.memberId !== body.agentId) {
+      return c.json({ success: false, error: "Task not claimed by this agent" }, 403);
     }
 
-    store.releaseTask(taskId);
+    if (body.comment) store.addComment(taskId, body.agentId, `[returned] ${body.comment}`);
+    store.returnTaskToReady(taskId);
     store.updateMemberStatus(body.agentId, "idle");
 
-    const newStatus = release?.targetStatus || task.status;
-    return c.json({
-      success: true,
-      newStatus,
-      completed: release?.completed || false,
-    });
+    return c.json({ success: true });
   });
 
   // ─── Agent Comments ────────────────────────────────────────────────

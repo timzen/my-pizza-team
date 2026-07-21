@@ -7,36 +7,32 @@
  * verbatim. Keeping it here also means prompt wording/order changes in a single,
  * testable place instead of drifting across harnesses.
  *
- * Section order: Story → Task → reference context → prior-task context →
- * lead comments → State Context (guidance) → Instructions (leaving the previous
- * state, then the entered state — whose file already carries its exit criteria).
+ * Section order: state persona (role framing for the state being worked) →
+ * Story → working directory instruction → Task → reference context →
+ * prior-task context → lead comments → completion guidance.
  *
- * Note: no session-specific framing (e.g. "ignore task IDs from earlier in this
- * conversation") lives here — that belongs to a stateful harness, not the
- * canonical prompt. Harnesses deliver this verbatim.
+ * There are no transition instructions: workers never move tasks (see
+ * docs/WORK-MODEL.md) — completing the work advances the task mechanically.
  */
 
 export interface TaskPromptInput {
   /** The parent story (the bigger picture); omitted only if unavailable. */
-  story?: { id: string; title: string; description: string };
+  story?: { id: string; title: string; description: string; directory?: string };
   /** The task being worked. */
   task: { id: string; storyId: string; title: string; description: string };
+  /** The state the task is being worked in. */
+  state: string;
+  /**
+   * The state's persona (`workflows/<wf>/<state>.md`): role framing for
+   * whoever works this state — reviewer, implementer, CR-writer, etc.
+   */
+  persona?: string;
   /**
    * Context-library entries attached to the story/task, resolved to their
    * bodies and deduped by the caller. Inlined verbatim so every harness gets
-   * the same reference material (no Pi-specific skills/AGENTS.md needed).
+   * the same reference material.
    */
   contextEntries?: Array<{ title: string; content: string }>;
-  /** One-line guidance about the entered state and where release advances to. */
-  guidance: string;
-  /**
-   * Raw transition instructions from the workflow ".md" files. `exit` = the
-   * state being left (handoff/continuation details when coming from a previous
-   * state); `enter` = the state being entered (how to do the work + its exit
-   * criteria). Both are surfaced; `exit` is skipped when it would just repeat
-   * `enter` (a re-claim that stays in the same state).
-   */
-  transition?: { fromState: string; toState: string; exit?: string; enter?: string };
   /** Results of earlier tasks in the story (execution order), if any. */
   previousResults?: string;
   /** Task comments; only lead comments are surfaced (rework/feedback). */
@@ -83,23 +79,35 @@ export function normalizeInstructionMarkdown(md: string, minLevel = 3): string {
 
 /** Build the complete prompt an agent gets on claim. */
 export function buildTaskPrompt(input: TaskPromptInput): string {
-  const { story, task, guidance, transition, previousResults, comments, contextEntries } = input;
+  const { story, task, state, persona, previousResults, comments, contextEntries } = input;
   let out = "";
 
-  // Sections are delimited by their `##`/`###` headings alone — no `---` rules
-  // (which would just add noise, and which we warn authors against in their
-  // instruction files).
+  // 1. State persona — who the worker is *in this state*. First, because it
+  //    frames how everything after it should be approached.
+  out += `## Your Role: ${state}\n\n`;
+  if (persona) {
+    out += `${normalizeInstructionMarkdown(persona, 3)}\n\n`;
+  } else {
+    out += `You are working a task in the '${state}' state of its workflow.\n\n`;
+  }
 
-  // 1. Story — the bigger picture
+  // 2. Story — the bigger picture
   if (story) {
     out += `## Story: ${story.title}\n\n${story.description}\n\n`;
   }
 
-  // 2. Task — what to do (kept right next to the story)
+  // 3. Working directory — the story declares where the work happens; the
+  //    agent cds there and picks up that repo's conventions (pi only
+  //    auto-loads project context from its startup cwd; see WORK-MODEL.md).
+  if (story?.directory) {
+    out += `## Working Directory\n\nWork in \`${story.directory}\`. Change to that directory before starting. `;
+    out += `If it contains an AGENTS.md (or CLAUDE.md), read it first and follow its instructions while working there.\n\n`;
+  }
+
+  // 4. Task — what to do
   out += `## Task: ${task.title}\n**Task ID: ${task.id}** (Story: ${task.storyId})\n\n${task.description}\n\n`;
 
-  // 3. Reference context — attached context-library entries (story + task).
-  //    Inlined so the teammate has the relevant conventions/context to hand.
+  // 5. Reference context — attached context-library entries (story + task).
   if (contextEntries && contextEntries.length > 0) {
     out += `## Reference Context\n\n`;
     for (const entry of contextEntries) {
@@ -107,31 +115,23 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
     }
   }
 
-  // 4. Context from previous tasks in the story
+  // 6. Context from previous tasks in the story
   if (previousResults) {
     out += `## Context from previous tasks\n\n${previousResults}\n\n`;
   }
 
-  // 5. Lead comments (feedback / rework context)
+  // 7. Lead comments (feedback / rework context)
   const leadComments = (comments || []).filter((c) => c.from === "lead");
   if (leadComments.length > 0) {
     const bodies = leadComments.map((c) => `> ${c.body}`).join("\n\n");
     out += `## Comments from Team Lead\n\n${bodies}\n\n`;
   }
 
-  // 6. What to do now: state guidance, with the transition instructions nested
-  //    beneath it as `###` — they're the detail of the state being entered.
-  out += `## State Context\n\n${guidance}\n\n`;
-  if (transition) {
-    const { fromState, toState, exit, enter } = transition;
-    // Skip `exit` when it would just duplicate `enter` (re-claim into the same
-    // state). Each block is a `###` section named by state (the guidance above
-    // frames which is being left vs entered); file headings normalize to `####`+
-    // so they nest cleanly beneath.
-    const showExit = exit && fromState !== toState;
-    if (showExit) out += `### Instructions: ${fromState}\n\n${normalizeInstructionMarkdown(exit!, 4)}\n\n`;
-    if (enter) out += `### Instructions: ${toState}\n\n${normalizeInstructionMarkdown(enter, 4)}\n\n`;
-  }
+  // 8. Completion guidance — workers never move tasks; finishing IS the signal.
+  out += `## Completing This Task\n\n`;
+  out += `Do only this task's work. When you finish, end with a concise summary of what you accomplished — `;
+  out += `it becomes the task's recorded result, and the task advances automatically. Do not move the task or `;
+  out += `pick up other work. If you cannot make progress, return the task with a comment explaining what you need.\n`;
 
   return out.trimEnd() + "\n";
 }

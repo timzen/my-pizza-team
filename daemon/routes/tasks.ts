@@ -6,8 +6,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { getInitialState } from "../../shared/types.ts";
-import { canTransition } from "../workflow-engine.ts";
+import { TODO_STATE } from "../../shared/types.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse, UpdateTaskRequest, UpdateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse, PostCommentRequest,
@@ -60,8 +59,9 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     const taskDirPath = path.join(story.dirPath, "tasks", taskId);
     Deno.mkdirSync(taskDirPath, { recursive: true });
 
-    const wf = store.getWorkflowForStory(storyId);
-    const initialStatus = getInitialState(wf);
+    // Every task starts in the implicit `todo` bucket; admission pulls it into
+    // the pipeline when the story's CONWIP token is free (see WORK-MODEL.md).
+    const initialStatus = TODO_STATE;
     const taskData: Record<string, unknown> = { id: taskId, title: body.title, description: body.description, status: initialStatus, result: null };
     if (Array.isArray(body.context) && body.context.length > 0) taskData.context = body.context;
     Deno.writeTextFileSync(path.join(taskDirPath, "task.json"), JSON.stringify(taskData, null, 2) + "\n");
@@ -106,12 +106,11 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     if (!body.status) return c.json({ success: false, error: "Field 'status' is required" } satisfies MoveTaskResponse, 400);
     const task = store.getTask(taskId);
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies MoveTaskResponse, 404);
-    const workflow = store.getWorkflowForTask(taskId);
-    const check = canTransition(workflow, task.status, body.status, "lead");
-    if (!check.ok) {
-      return c.json({ success: false, error: check.error } satisfies MoveTaskResponse, 403);
-    }
-    store.updateTaskStatus(taskId, body.status);
+    // Judgment moves are unrestricted: a human (or the leader agent) may put a
+    // task anywhere in its workflow. Entering an agent state resets substatus
+    // to `ready` and clears the lease (rework path; see docs/WORK-MODEL.md).
+    const moved = store.moveTask(taskId, body.status);
+    if (!moved.ok) return c.json({ success: false, error: moved.error } satisfies MoveTaskResponse, 400);
     return c.json({ success: true } satisfies MoveTaskResponse);
   });
 

@@ -69,11 +69,13 @@ Deno.test("values are most-recent-first, deduped", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("directory values are normalized", () => {
+Deno.test("capability values are stored verbatim", () => {
   const { store, teamDir } = setup();
   try {
-    store.addCapability("directory", "/tmp/project/");
-    assertEquals(store.getRecentCapabilities().directory, ["/tmp/project"]);
+    // No special-casing: the working directory is story data, not a capability
+    // (see docs/WORK-MODEL.md), so nothing is normalized here anymore.
+    store.addCapability("repo", "oms");
+    assertEquals(store.getRecentCapabilities().repo, ["oms"]);
   } finally { cleanup(teamDir, store); }
 });
 

@@ -23,6 +23,7 @@ interface StoryData {
     seq: number;
     title: string;
     status: string;
+    substatus?: "ready" | "claimed" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };

@@ -1,169 +1,79 @@
 /**
- * daemon/workflow-engine.ts — Centralized workflow transition logic.
+ * daemon/workflow-engine.ts — Workflow position logic for the state/substatus
+ * work model (see docs/WORK-MODEL.md).
  *
- * All workflow state machine decisions live here. Route handlers and the store
- * call into this module rather than reimplementing transition rules inline.
- *
- * Key concepts:
- * - **Initial state**: The first state in the workflow (where new tasks start).
- *   Claim transitions OUT of this state into the working state.
- * - **Working state**: Any non-initial state with a "teammate" exit. The agent
- *   works here and releases to advance. If the lead sends a task back here,
- *   claim just assigns without transitioning.
- * - **Gate state**: A state with only "lead" exits (e.g., review). Agents can't
- *   work here; the lead must move the task forward or back.
- * - **Done state**: The terminal state (last in the states array or explicit doneState).
+ * A workflow is an ordered list of active states between the implicit `todo`
+ * and `done` buckets. There is no transition matrix: this module answers
+ * position questions (what's active, what's next, is this an agent state) and
+ * the store applies the two mechanical rules (advance, admission). Humans may
+ * move tasks anywhere, so there is no permission checking here either.
  */
 
-import { type WorkflowConfig, type TransitionPermission, getInitialState, getDoneState } from "../shared/types.ts";
+import { type WorkflowConfig, TODO_STATE, DONE_STATE, type TaskSubstatus } from "../shared/types.ts";
 
-// ─── Types ───────────────────────────────────────────────────────────────────
-
-export type Role = "lead" | "teammate";
-
-export interface ClaimTarget {
-  /** The state the task will be in after claim. Same as current if no transition needed. */
-  targetStatus: string;
-  /** Whether claim actually transitions (true) or just assigns (false). */
-  transitions: boolean;
+/** Names of a workflow's active states, in order. */
+export function activeStateNames(wf: WorkflowConfig): string[] {
+  return wf.states.map((s) => s.name);
 }
 
-export interface ReleaseTarget {
-  /** The state the task advances to on release. */
-  targetStatus: string;
-  /** Whether the task has reached the done state. */
-  completed: boolean;
+/** Is this status one of the workflow's active states (not a bucket)? */
+export function isActiveState(wf: WorkflowConfig, status: string): boolean {
+  return wf.states.some((s) => s.name === status);
 }
 
-export interface TransitionCheck {
-  ok: boolean;
-  error?: string;
+/** Is this status an active state worked by agents (claim protocol applies)? */
+export function isAgentState(wf: WorkflowConfig, status: string): boolean {
+  return wf.states.some((s) => s.name === status && s.type === "agent");
 }
 
-// ─── Core Functions ──────────────────────────────────────────────────────────
-
-/**
- * Determine what happens when an agent claims a task.
- *
- * - From the initial state: transitions to the first teammate/any exit (enters working state).
- * - From any other state with a teammate exit: just assigns, no transition (already working).
- * - Returns null if the task can't be claimed from its current state.
- */
-export function getClaimTarget(wf: WorkflowConfig, currentStatus: string): ClaimTarget | null {
-  const initialState = getInitialState(wf);
-  const transitions = wf.transitions[currentStatus] || {};
-
-  if (currentStatus === initialState) {
-    // From initial state: find first teammate/any exit to transition into
-    const target = findFirstTeammateExit(transitions);
-    if (!target) return null;
-    return { targetStatus: target, transitions: true };
-  } else {
-    // From non-initial state: verify it has a teammate exit (agent can release from here)
-    const hasTeammateExit = Object.values(transitions).some(
-      perm => perm === "teammate" || perm === "any"
-    );
-    if (!hasTeammateExit) return null;
-    return { targetStatus: currentStatus, transitions: false };
-  }
+/** The first active state (where admission places tasks), or null for an empty workflow. */
+export function firstActiveState(wf: WorkflowConfig): string | null {
+  return wf.states[0]?.name ?? null;
 }
 
 /**
- * Determine what state a task advances to when an agent releases it.
- *
- * Picks the first transition with "teammate" or "any" permission.
- * Falls back to the first transition of any kind if none match.
- * Returns null if there are no transitions from the current state.
+ * The state a task advances to when completed in `status`: the next active
+ * state in order, or the `done` bucket after the last one. Buckets and unknown
+ * states advance to `done` (defensive — the store never asks for those).
  */
-export function getReleaseTarget(wf: WorkflowConfig, currentStatus: string): ReleaseTarget | null {
-  const transitions = wf.transitions[currentStatus] || {};
-  const entries = Object.entries(transitions);
-  if (entries.length === 0) return null;
-
-  // Prefer teammate/any exits
-  let targetStatus: string | null = findFirstTeammateExit(transitions);
-  // Fall back to first available transition
-  if (!targetStatus) targetStatus = entries[0]![0];
-
-  const doneState = getDoneState(wf);
-  return { targetStatus, completed: targetStatus === doneState };
+export function nextState(wf: WorkflowConfig, status: string): string {
+  const idx = wf.states.findIndex((s) => s.name === status);
+  if (idx < 0) return DONE_STATE;
+  return wf.states[idx + 1]?.name ?? DONE_STATE;
 }
 
 /**
- * Check whether a specific transition is allowed for a given role.
- *
- * Used by lead moves (task board) and explicit status updates.
+ * The substatus a task carries on entering `status`: `ready` for agent states,
+ * null for manual states and buckets. Applied on every entry — admission,
+ * mechanical advance, and judgment moves alike — so re-entry ≡ first entry.
  */
-export function canTransition(
-  wf: WorkflowConfig,
-  currentStatus: string,
-  targetStatus: string,
-  role: Role,
-): TransitionCheck {
-  const transitions = wf.transitions[currentStatus];
-  if (!transitions) {
-    return { ok: false, error: `No transitions from state "${currentStatus}"` };
-  }
+export function entrySubstatus(wf: WorkflowConfig, status: string): TaskSubstatus | null {
+  return isAgentState(wf, status) ? "ready" : null;
+}
 
-  const permission = transitions[targetStatus];
-  if (!permission) {
-    return { ok: false, error: `Cannot transition from "${currentStatus}" to "${targetStatus}"` };
-  }
+/** Board columns: the implicit buckets around the active states. */
+export function boardColumns(wf: WorkflowConfig): string[] {
+  return [TODO_STATE, ...activeStateNames(wf), DONE_STATE];
+}
 
-  if (permission === "any") return { ok: true };
-  if (permission === role) return { ok: true };
-  return { ok: false, error: `Transition "${currentStatus}" → "${targetStatus}" requires "${permission}", got "${role}"` };
+/** Is this a valid position (bucket or active state) for a task in this workflow? */
+export function isValidPosition(wf: WorkflowConfig, status: string): boolean {
+  return status === TODO_STATE || status === DONE_STATE || isActiveState(wf, status);
 }
 
 /**
- * Determine what state the task will exit to on release (for guidance messages).
- *
- * Given the state the agent will be working in, returns the state they'll
- * advance to when they release. Returns null if no exit is available.
+ * Validate a workflow config: at least the right shape, no reserved names,
+ * no duplicates. Returns an error string, or null when valid.
  */
-export function getExitState(wf: WorkflowConfig, workingStatus: string): string | null {
-  const transitions = wf.transitions[workingStatus] || {};
-  const entries = Object.entries(transitions);
-  if (entries.length === 0) return null;
-
-  // Prefer teammate/any exits (same logic as release)
-  return findFirstTeammateExit(transitions) || entries[0]![0];
-}
-
-/**
- * Check if a task in the given state is workable by an agent.
- *
- * A task is workable if:
- * - It's in the initial state AND the target state (after claim) has a teammate exit, OR
- * - It's NOT in the initial state AND the current state has a teammate exit.
- */
-export function isWorkableByAgent(wf: WorkflowConfig, currentStatus: string): boolean {
-  const claimTarget = getClaimTarget(wf, currentStatus);
-  if (!claimTarget) return false;
-
-  if (claimTarget.transitions) {
-    // Claiming from initial state — verify the target state has a teammate exit for release
-    const targetTransitions = wf.transitions[claimTarget.targetStatus] || {};
-    return Object.values(targetTransitions).some(p => p === "teammate" || p === "any");
-  }
-
-  // Already in a working state — getClaimTarget already verified it has teammate exits
-  return true;
-}
-
-/**
- * Check if the given status is the done/terminal state for this workflow.
- */
-export function isDone(wf: WorkflowConfig, status: string): boolean {
-  return status === getDoneState(wf);
-}
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
-
-/** Find the first transition target with "teammate" or "any" permission. */
-function findFirstTeammateExit(transitions: Record<string, TransitionPermission>): string | null {
-  for (const [toState, perm] of Object.entries(transitions)) {
-    if (perm === "teammate" || perm === "any") return toState;
+export function validateWorkflow(wf: WorkflowConfig): string | null {
+  if (!Array.isArray(wf.states)) return "Workflow must have a 'states' array";
+  const seen = new Set<string>();
+  for (const s of wf.states) {
+    if (!s || typeof s.name !== "string" || !s.name) return "Every state needs a 'name'";
+    if (s.type !== "agent" && s.type !== "manual") return `State "${s.name}" needs type "agent" or "manual"`;
+    if (s.name === TODO_STATE || s.name === DONE_STATE) return `State name "${s.name}" is reserved (implicit bucket)`;
+    if (seen.has(s.name)) return `Duplicate state name "${s.name}"`;
+    seen.add(s.name);
   }
   return null;
 }

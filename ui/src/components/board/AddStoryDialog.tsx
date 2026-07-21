@@ -31,13 +31,14 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [requirements, setRequirements] = useState<Record<string, string | null>>({});
+  const [directory, setDirectory] = useState("");
   const [paused, setPaused] = useState(false);
   const [workflow, setWorkflow] = useState("");
   const [context, setContext] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Array<{ title: string; description: string; context: string[] }>>([]);
   const [error, setError] = useState("");
 
-  const reset = () => { setId(""); setTitle(""); setDescription(""); setRequirements({}); setPaused(false); setWorkflow(""); setContext([]); setTasks([]); setError(""); };
+  const reset = () => { setId(""); setTitle(""); setDescription(""); setRequirements({}); setDirectory(""); setPaused(false); setWorkflow(""); setContext([]); setTasks([]); setError(""); };
 
   const addTask = () => setTasks([...tasks, { title: "", description: "", context: [] }]);
   const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
@@ -57,9 +58,10 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
     setError("");
     if (!workflow) { setError("Please select a workflow"); return; }
     const body: Record<string, unknown> = { id, title, description, workflow };
-    // The story's capability requirements: value-bound keys (e.g. directory)
-    // and presence-only skills. See daemon DESIGN.md: Capability-Based Work Matching.
+    // The story's capability requirements (presence-only skills etc.); the
+    // working directory is plain story data — agents cd to it (WORK-MODEL.md).
     if (Object.keys(requirements).length > 0) body.requirements = requirements;
+    if (directory.trim()) body.directory = directory.trim();
     if (paused) body.paused = true;
     if (context.length > 0) body.context = context;
     if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined }));
@@ -98,6 +100,8 @@ export function AddStoryDialog({ onCreated }: AddStoryDialogProps) {
           </div>
           <div><Label htmlFor="story-title">Title</Label><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
           <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
+
+          <div><Label htmlFor="story-dir">Directory</Label><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md.</p><Input id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
 
           <div><Label>Requirements</Label><div className="mt-1"><RequirementsEditor value={requirements} onChange={setRequirements} /></div></div>
 

@@ -14,6 +14,7 @@
 3. **Layered architecture** — the daemon handles HTTP, `shared/` provides types, the CLI consumes the API. No circular dependencies.
 4. **Web Standards** — Use native `Request`/`Response`, `fetch`, and other Web APIs rather than Node.js-specific abstractions.
 5. **The daemon coordinates; harnesses execute** — The daemon owns all state and expresses *intent*. It never reaches into *how* agents run (tmux, keystrokes, processes). Harnesses (Pi, etc.) realize intent.
+6. **Workers never move tasks** — Teammates execute work; the daemon executes flow (admission + advance); humans/the leader make judgment moves. See [WORK-MODEL.md](WORK-MODEL.md) for the full spec (states, substatus, CONWIP).
 
 ---
 
@@ -28,16 +29,18 @@ Which agent works which task is decided by a single, uniform capability model.
   agent's value must equal it exactly. `null` means "must have it, any value"
   (presence-only, e.g. a skill like `python`).
 
-The working directory is **not** special-cased: it is the well-known `directory`
-capability (constant `DIRECTORY_CAP`). Directory values are normalized (trailing
-slash stripped, leading `~` expanded) at write time, so the matcher itself stays a
-dumb exact-string comparison.
+The working directory is **not** a capability at all: it is the story's
+`directory` field — plain data. Teammates cd to it at work time (the task prompt
+says so), which removes the whole class of path-string-matching bugs (symlinks,
+mounts, `~` variants). See docs/WORK-MODEL.md.
 
-There are no directory/skill aliases: stories use `requirements`, agents register
-`capabilities`, and `directory` is the only place a working directory appears.
+Stories use `requirements`, agents register `capabilities` — both are skills-style
+constraints (presence-only or exact-value).
 
-*Why:* one matcher, one mental model. "Run in this directory" and "needs Python"
-are the same kind of constraint, so they use the same mechanism.
+*Why:* one matcher, one mental model — for genuine capabilities. "Where the work
+happens" turned out not to be a capability: two paths to the same physical
+directory would fail an exact-string match, so it became data the agent acts on
+instead of a key the daemon compares.
 
 ## Work Modes & Pause
 
@@ -51,13 +54,13 @@ Three independent knobs sit on top of capability matching:
 - **`Story.paused`** — a *temporal* gate: when true, the story's tasks are never
   handed out, regardless of capabilities ("not now" vs. "can you").
 
-There is deliberately no `working-directory` work mode — that behavior is just
-`eager-helper` plus a `directory` requirement on the story.
+There is deliberately no `working-directory` work mode — where the work happens
+is the story's `directory` field (data, not a mode or a requirement).
 
-*Why:* placement (directory / skills) belongs to the story's requirements;
-lifecycle (work everything vs. one story then leave) belongs to the agent's mode;
-availability (pause) is a separate temporal switch. Keeping the three concerns
-independent avoids overloading any one field.
+*Why:* placement (skills) belongs to the story's requirements; location is data
+the agent acts on (cd); lifecycle (work everything vs. one story then leave)
+belongs to the agent's mode; availability (pause) is a separate temporal switch.
+Keeping the concerns independent avoids overloading any one field.
 
 ## Recently Used Capabilities
 
@@ -67,13 +70,7 @@ capabilities map to an empty array so the key itself is remembered.
 
 It is populated automatically when a story is created/updated (from its
 `requirements`) and when an agent registers (from its `capabilities`), and edited
-explicitly via `GET/POST/DELETE /api/capabilities`. The `directory` value is
-normalized on the way in.
-
-Recently used working directories are simply the `directory` capability's values —
-there is no separate "favorite directories" config. Registration and
-`/api/hosts/:hostId` expose them as `directories`, and the UI's directory picker
-reads them from `/api/capabilities`.
+explicitly via `GET/POST/DELETE /api/capabilities`. Values are stored verbatim.
 
 *Why:* it drives autocomplete for both the capability *key* and its *values* when
 authoring requirements or spawning agents — the `name → values` shape mirrors the

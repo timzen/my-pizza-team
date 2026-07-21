@@ -81,12 +81,17 @@ Deno.test("Store: creates tasks with correct initial status", () => {
       ]
     );
     assertEquals(tasks.length, 2);
-    assertEquals(tasks[0]!.status, "todo");
+    // Tasks are created in the todo bucket; admission (CONWIP) then pulls the
+    // first into the workflow's first active state.
     assertEquals(tasks[0]!.seq, 1);
     assertEquals(tasks[1]!.seq, 2);
 
     const retrieved = store.getTasksForStory("story-tasks");
     assertEquals(retrieved.length, 2);
+    assertEquals(retrieved[0]!.status, "in_progress");
+    assertEquals(retrieved[0]!.substatus, "ready");
+    assertEquals(retrieved[1]!.status, "todo");
+    assertEquals(retrieved[1]!.substatus, null);
 
     store.close();
   } finally {
@@ -189,7 +194,7 @@ Deno.test("Store: updates task status and marks dirty", () => {  const teamDir =
   }
 });
 
-Deno.test("Store: workflow transition validation", () => {
+Deno.test("Store: judgment move validation", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
@@ -197,13 +202,19 @@ Deno.test("Store: workflow transition validation", () => {
       { title: "T1", description: "D1" },
     ]);
 
-    // todo -> in_progress is allowed for anyone
-    const r1 = store.canTransition("wf-test-1", "in_progress", "teammate");
+    // Humans can move a task to any position in its workflow…
+    const r1 = store.moveTask("wf-test-1", "review");
     assertEquals(r1.ok, true);
+    assertEquals(store.getTask("wf-test-1")!.status, "review");
 
-    // todo -> done is NOT allowed (no direct transition)
-    const r2 = store.canTransition("wf-test-1", "done", "teammate");
+    // …but not to a state the workflow doesn't have.
+    const r2 = store.moveTask("wf-test-1", "nonsense");
     assertEquals(r2.ok, false);
+
+    // Moving back into an agent state resets substatus (re-entry ≡ first entry).
+    const r3 = store.moveTask("wf-test-1", "in_progress");
+    assertEquals(r3.ok, true);
+    assertEquals(store.getTask("wf-test-1")!.substatus, "ready");
 
     store.close();
   } finally {
@@ -215,7 +226,7 @@ Deno.test("Store: members CRUD", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
-    store.registerMember("m1", "swift-ripley", { directory: "/tmp" }, {});
+    store.registerMember("m1", "swift-ripley", { python: "3.11" }, {});
 
     const members = store.getMembers();
     assertEquals(members.length, 1);
@@ -320,6 +331,10 @@ Deno.test("Store: story auto-completes when all tasks done", () => {
     const story = store.getStory("auto-done");
     assertExists(story);
     assertEquals(story.status, "done");
+
+    // Moving a task back out of done reopens the story.
+    store.moveTask("auto-done-1", "in_progress");
+    assertEquals(store.getStory("auto-done")!.status, "open");
 
     store.close();
   } finally {
