@@ -36,7 +36,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
 - `routes/stories.ts` — Story CRUD, archive, backlog.
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
-- `routes/assistant.ts` — Assistant chat (conversation + agent-facing turn queue) and the assistant **persona** (a context-library entry whose body is vended as the assistant's system prompt; when none is selected the daemon supplies `DEFAULT_ASSISTANT_PERSONA`). Swapping clears + resets the session.
+- `routes/assistant.ts` — Assistant **chat** (append-only user/assistant messages) + the agent-facing response **turn** protocol, and the assistant **persona**. The chat is a real conversation: sending a user message just appends it; replies are produced by a coalescing response *turn* the assistant polls/claims/streams-into/completes (see DESIGN.md "Assistant chat model"). The vended `systemPrompt` is always `ASSISTANT_CHAT_FRAMING` (chat/batching rules + the `send_message` tool contract) followed by the persona body — or `DEFAULT_ASSISTANT_PERSONA` when none is selected — so the chat behavior is system-level and no persona needs to restate it. Swapping the persona clears + resets the session.
 - `routes/context.ts` — Context library CRUD (`/api/context`) over `store/context.ts`.
 - `routes/scratchpad.ts` — Personal scratch pad (`/api/scratchpad`): todos (add/toggle/delete by index) + notes, over `store/scratchpad.ts`.
 
@@ -70,6 +70,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **JSON files as source of truth** — Story/task definitions live on disk as JSON. SQLite is the fast runtime index, synced via the `dirty` flag and periodic flush.
 - **Story-owned task ordering** — A task's `id` (stable key), `title` (name), and position are three separate concerns. The story owns the order via `taskOrder` (an array of task IDs in `story.json`); the creation `seq` in an id is just a stable counter, not a position. Task directories are named by the **task id only** (e.g. `tasks/auth-3/`), so the folder name never encodes order and never drifts when the title changes; `seq` is derived from the id on load and `slug` from the current title. Reordering rewrites one array in one file (great for git), needs no directory renames, and `loadFromDisk` reconciles the array against the tasks actually present so hand-edits are tolerated. See DESIGN.md.
 - **Comments append to JSONL** — Never lost; append-only file per task.
+- **Assistant chat model (turns, not pairs)** — The assistant chat is append-only messages decoupled from response *turns*. A user message is just appended (`sent`); it does **not** create a paired assistant placeholder. A response turn is the job of replying to the batch of unanswered user messages: the agent polls one, claims it (which flips those messages to `read` — read receipts), streams any number of bubbles via `send_message` (`.../say`), then completes. Only one turn processes at a time and the composer locks while it runs, so there's no message enqueue/ordering to reason about. Rapid user messages coalesce into one turn's prompt. A **pre-claim debounce** (`assistantTurnDebounceSeconds`, default 5s) holds the turn until the user has been quiet — no new message and no typing ping (`POST /api/assistant/typing`, sent by the composer) — so the assistant never grabs a message while the user is still typing a follow-up. A stuck-turn timeout (`assistantTurnTimeoutSeconds`, default 300s, reaped alongside agent heartbeats) fails an abandoned turn so the composer can't lock forever. See DESIGN.md.
 - **"Teammates", not "Agents", in the UI** — The product is my-pizza-team, so human-facing vocabulary settled on "Teammates". The HTTP API and internal types keep the technical term `agent`/`member` (the route stays `/api/agents`). Teammates are shown in a persistent right-hand sidebar rather than a dedicated page.
 - **Board previews; pages edit** — The board is for glancing and light triage (status nudges via prev/next). Clicking a card never opens an editor; a read-only modal previews a task, and all editing lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`). This keeps destructive/edit actions off the high-traffic board surface.
 - **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
@@ -97,15 +98,17 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/archived` | List archived stories |
 | GET | `/api/backlog` | List backlogged stories |
 | POST | `/api/backlog/:id/restore` | Restore from backlog |
-| GET | `/api/assistant/messages` | Get the assistant conversation (chronological) |
-| POST | `/api/assistant/messages` | Send a user message (creates a pending assistant turn) |
+| GET | `/api/assistant/messages` | Get the conversation + active turn (`{messages, activeTurn}`). User messages carry `sent`/`read` (read receipts); `activeTurn` (processing) drives the UI typing indicator + composer lock |
+| POST | `/api/assistant/messages` | Append a user message (status `sent`; no assistant placeholder — a turn produces replies) |
+| POST | `/api/assistant/typing` | UI typing-presence ping; re-arms the pre-claim debounce so the assistant waits until the user goes quiet |
 | DELETE | `/api/assistant/messages/:id` | Delete a single message |
-| DELETE | `/api/assistant/messages` | Clear the conversation (also resets the assistant session) |
-| GET | `/api/assistant/persona` | Get the active persona + effective system prompt (`{personaId, entry, systemPrompt}`; `systemPrompt` falls back to the daemon default) |
+| DELETE | `/api/assistant/messages` | Clear the conversation + turns (also resets the assistant session) |
+| GET | `/api/assistant/persona` | Get the active persona + effective system prompt (`{personaId, entry, systemPrompt}`; `systemPrompt` = chat framing + persona/default) |
 | PUT | `/api/assistant/persona` | Swap the persona (clears + resets the session); `personaId: null` = default |
-| GET | `/api/assistant/next` | Agent: get the next pending assistant turn (`{id, prompt}`) |
-| POST | `/api/assistant/messages/:id/claim` | Agent: claim a turn (-> processing) |
-| POST | `/api/assistant/messages/:id/complete` | Agent: complete a turn with a reply |
+| GET | `/api/assistant/next` | Agent: get the next response turn (`{id, prompt}`); null while one is processing, nothing is unanswered, or the pre-claim debounce hasn't elapsed. Prompt = all unanswered user messages, coalesced |
+| POST | `/api/assistant/messages/:id/claim` | Agent: claim a turn (-> processing); flips its coalesced user messages to `read` |
+| POST | `/api/assistant/messages/:id/say` | Agent: append one chat bubble to the active turn (the `send_message` tool — call repeatedly to batch) |
+| POST | `/api/assistant/messages/:id/complete` | Agent: close the turn; `result` is a fallback bubble used only if the turn sent none via `say` |
 | GET | `/api/context` | List context-library entries |
 | GET | `/api/context/:id` | Get a single context entry |
 | POST | `/api/context` | Create/overwrite a context entry (id derived from title) |
@@ -190,7 +193,7 @@ src/
 ├── client.ts      — DaemonClient: unified HTTP client for all API calls
 ├── leader.ts      — Tmux management, directive polling, slash commands
 ├── teammate.ts    — TeammateLoop: poll → claim → execute → release
-├── assistant.ts   — AssistantLoop: answers pending conversation turns
+├── assistant.ts   — AssistantLoop: works response turns (poll → claim → stream bubbles → complete)
 ├── tools.ts       — LLM tool registration (role-specific)
 ├── permissions.ts — Dynamic yoloMode toggling
 └── shared/types.ts — Minimal types (WorkflowConfig, constants)
