@@ -1,7 +1,9 @@
 /**
- * InstructionsEditor — Collapsible markdown editor for each workflow state's
- * instruction file. Fetches, displays, and saves instruction markdown via
- * the workflow instructions API endpoints.
+ * PersonaEditor — Collapsible markdown editor for each agent state's persona
+ * (the role framing injected into that state's claim prompt; see the daemon's
+ * docs/WORK-MODEL.md). Fetches, displays, and saves the markdown via the
+ * workflow instructions API endpoints (the on-disk files are unchanged:
+ * workflows/<wf>/<state>.md).
  *
  * Each state gets a collapsible section with a textarea for editing and
  * a save button that PUTs to /api/workflows/:name/instructions/:state.
@@ -18,7 +20,7 @@ interface Props {
   states: string[];
 }
 
-interface StateInstruction {
+interface PersonaFile {
   content: string;
   loaded: boolean;
   modified: boolean;
@@ -28,28 +30,28 @@ interface StateInstruction {
   warnings: string[];
 }
 
-export function InstructionsEditor({ workflowName, states }: Props) {
+export function PersonaEditor({ workflowName, states }: Props) {
   const [expanded, setExpanded] = useState<Set<string>>(new Set());
-  const [instructions, setInstructions] = useState<Record<string, StateInstruction>>({});
+  const [personas, setPersonas] = useState<Record<string, PersonaFile>>({});
 
   /** Fetch instruction content for a state */
-  const fetchInstruction = useCallback(async (state: string) => {
+  const fetchPersona = useCallback(async (state: string) => {
     try {
       const res = await fetch(`/api/workflows/${workflowName}/instructions/${state}`);
       if (res.ok) {
         const data = await res.json();
-        setInstructions((prev) => ({
+        setPersonas((prev) => ({
           ...prev,
           [state]: { content: data.content, loaded: true, modified: false, saving: false, saved: false, error: null, warnings: [] },
         }));
       } else if (res.status === 404) {
-        setInstructions((prev) => ({
+        setPersonas((prev) => ({
           ...prev,
           [state]: { content: "", loaded: true, modified: false, saving: false, saved: false, error: null, warnings: [] },
         }));
       }
     } catch {
-      setInstructions((prev) => ({
+      setPersonas((prev) => ({
         ...prev,
         [state]: { content: "", loaded: true, modified: false, saving: false, saved: false, error: "Failed to load", warnings: [] },
       }));
@@ -59,11 +61,11 @@ export function InstructionsEditor({ workflowName, states }: Props) {
   /** Load instruction when a section is expanded */
   useEffect(() => {
     for (const state of expanded) {
-      if (!instructions[state]?.loaded) {
-        fetchInstruction(state);
+      if (!personas[state]?.loaded) {
+        fetchPersona(state);
       }
     }
-  }, [expanded, instructions, fetchInstruction]);
+  }, [expanded, personas, fetchPersona]);
 
   const toggleExpand = (state: string) => {
     setExpanded((prev) => {
@@ -75,17 +77,17 @@ export function InstructionsEditor({ workflowName, states }: Props) {
   };
 
   const updateContent = (state: string, content: string) => {
-    setInstructions((prev) => ({
+    setPersonas((prev) => ({
       ...prev,
       [state]: { ...prev[state], content, modified: true, saved: false },
     }));
   };
 
-  const saveInstruction = async (state: string) => {
-    const inst = instructions[state];
+  const savePersona = async (state: string) => {
+    const inst = personas[state];
     if (!inst) return;
 
-    setInstructions((prev) => ({
+    setPersonas((prev) => ({
       ...prev,
       [state]: { ...prev[state], saving: true, error: null },
     }));
@@ -96,25 +98,25 @@ export function InstructionsEditor({ workflowName, states }: Props) {
         { content: inst.content }
       );
       if (res.success) {
-        setInstructions((prev) => ({
+        setPersonas((prev) => ({
           ...prev,
           [state]: { ...prev[state], saving: false, modified: false, saved: true, error: null, warnings: res.warnings || [] },
         }));
         // Clear saved indicator after 2s
         setTimeout(() => {
-          setInstructions((prev) => ({
+          setPersonas((prev) => ({
             ...prev,
             [state]: prev[state] ? { ...prev[state], saved: false } : prev[state],
           }));
         }, 2000);
       } else {
-        setInstructions((prev) => ({
+        setPersonas((prev) => ({
           ...prev,
           [state]: { ...prev[state], saving: false, error: res.error || "Save failed", warnings: res.warnings || [] },
         }));
       }
     } catch (e) {
-      setInstructions((prev) => ({
+      setPersonas((prev) => ({
         ...prev,
         [state]: { ...prev[state], saving: false, error: (e as Error).message },
       }));
@@ -124,17 +126,10 @@ export function InstructionsEditor({ workflowName, states }: Props) {
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold">State Instructions</h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            Markdown files that guide agents when tasks enter each state.
-          </p>
-        </div>
-
         <div className="space-y-1">
           {states.map((state) => {
             const isExpanded = expanded.has(state);
-            const inst = instructions[state];
+            const inst = personas[state];
             const hasContent = inst?.loaded && inst.content.length > 0;
 
             return (
@@ -168,7 +163,7 @@ export function InstructionsEditor({ workflowName, states }: Props) {
                         <textarea
                           value={inst.content}
                           onChange={(e) => updateContent(state, e.target.value)}
-                          placeholder={`# ${state}\n\nInstructions for agents entering the "${state}" state...`}
+                          placeholder={`You are the \u2026 (role framing for whoever works the "${state}" state)`}
                           className="w-full min-h-[150px] resize-y rounded-md border border-border bg-background px-3 py-2 text-sm font-mono placeholder:text-muted-foreground/50 focus:outline-none focus:ring-2 focus:ring-ring"
                         />
                         <div className="flex items-center justify-between">
@@ -183,7 +178,7 @@ export function InstructionsEditor({ workflowName, states }: Props) {
                           <Button
                             variant="outline"
                             size="sm"
-                            onClick={() => saveInstruction(state)}
+                            onClick={() => savePersona(state)}
                             disabled={inst.saving || !inst.modified}
                             className="gap-1"
                           >

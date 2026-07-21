@@ -11,7 +11,7 @@
 import { useState, useEffect } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
-import { InstructionsEditor } from "@/components/workflow/InstructionsEditor";
+import { PersonaEditor } from "@/components/workflow/PersonaEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -108,7 +108,7 @@ export function WorkflowDetailPage() {
         <p className="text-xs text-muted-foreground mb-3">
           Each agent state's markdown is injected as the worker's role framing when it claims a task in that state.
         </p>
-        <InstructionsEditor workflowName={name!} states={data.states.filter(s => s.type === "agent").map(s => s.name)} />
+        <PersonaEditor workflowName={name!} states={data.states.filter(s => s.type === "agent").map(s => s.name)} />
       </section>
     </div>
   );
