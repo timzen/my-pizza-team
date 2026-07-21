@@ -236,7 +236,6 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
 // Recently used capabilities (name -> known values) are auto-populated from
 // story requirements and agent registrations, and edited here via the live
 // /api/capabilities endpoints (applied immediately, not via the Save button).
-// The well-known `directory` key holds recently used working directories.
 
 function CapabilitiesTab() {
   const { data, refetch } = useApi<{ capabilities: Record<string, string[]> }>("/api/capabilities");
@@ -269,7 +268,7 @@ function CapabilitiesTab() {
         <h2 className="font-semibold">Recent Capabilities</h2>
         <p className="text-xs text-muted-foreground">
           Capability names and their known values, used to suggest story requirements and agent capabilities.
-          Auto-updated from stories and agent registrations. The <code>directory</code> key holds recent working directories.
+          Auto-updated from stories and agent registrations.
         </p>
         <div className="space-y-2">
           {names.map((name) => (
