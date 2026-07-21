@@ -137,7 +137,7 @@ test("uses /api/agents/comments/ routes (not /api/tasks/.../messages)", () => {
   assert.ok(clientSrc.includes("/api/agents/comments/"));
   // Task comments must not use a legacy "messages" route (assistant chat
   // legitimately uses /api/assistant/messages, so only forbid the task variant).
-  assert.ok(!clientSrc.includes("/api/tasks/") || !/\/api\/tasks\/[^"`]*messages/.test(clientSrc));
+  assert.ok(!clientSrc.includes("/api/tasks/") || !/\/api\/tasks\/[^"`\s]*messages/.test(clientSrc));
 });
 
 // ─── Spawn Requests ──────────────────────────────────────────────

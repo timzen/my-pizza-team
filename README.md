@@ -127,6 +127,7 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`upload_attachment`** — Upload a file to the current task
 
 ### Assistant Tools
+- **`send_message`** — Send one chat bubble to the user; called once per bubble to deliver a batched, iMessage-style reply (the only thing the user sees)
 - **`create_story`** — Create stories from prompts
 - **`edit_story`** — Edit stories
 - **`add_task`** — Add tasks to stories
@@ -171,7 +172,7 @@ src/
 ├── client.ts         DaemonClient: unified HTTP client for daemon API
 ├── leader.ts         Leader: tmux management, spawn polling, slash commands
 ├── teammate.ts       TeammateLoop: multi-transition autonomous work loop
-├── assistant.ts      AssistantLoop: answers pending conversation turns
+├── assistant.ts      AssistantLoop: works chat response turns (streams bubbles via send_message)
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling
 └── shared/

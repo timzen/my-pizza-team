@@ -43,7 +43,7 @@ src/
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands
 ├── teammate.ts           # TeammateLoop: poll → claim → execute → transition work loop
-├── assistant.ts          # AssistantLoop: poll next → claim → execute → complete
+├── assistant.ts          # AssistantLoop: poll turn → claim → stream bubbles → complete
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling for permission system
 └── shared/
@@ -86,19 +86,34 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 └─────────────────────────────────────────────────────────┘
 ```
 
-### Assistant (conversation turns)
+### Assistant (chat response turns)
 
 ```
 ┌─────────────────────────────────────────────────────────┐
 │  AssistantLoop                                           │
 │                                                          │
-│  1. GET  /api/assistant/next                            │
-│  2. POST /api/assistant/messages/:id/claim                 │
+│  1. GET  /api/assistant/next   (a response turn, or null │
+│     while one is processing / nothing unanswered / the   │
+│     pre-claim debounce hasn't elapsed)                   │
+│  2. POST /api/assistant/messages/:id/claim               │
+│     └── coalesced user messages flip to `read`           │
 │  3. refresh persona → pi.sendUserMessage(item.prompt)    │
-│  4. agent_end → POST /api/assistant/messages/:id/complete  │
-│  5. Back to step 1                                      │
+│  4. agent replies by calling the `send_message` tool,    │
+│     once per chat bubble:                                │
+│        POST /api/assistant/messages/:id/say  (× N)       │
+│     └── bubbles appear in the web UI progressively       │
+│  5. agent_end → POST /api/assistant/messages/:id/complete│
+│     └── `result` is only a fallback if no bubbles sent   │
+│  6. Back to step 1                                       │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Chat model.** The daemon owns a real chat (see its DESIGN.md "Assistant chat
+ model"): append-only messages, decoupled from response *turns*. The extension
+never batches or splits text itself — it hands the prompt to Pi, and the agent
+produces the bubbles by calling `send_message` (wired to the active turn id).
+The batching guidance and the `send_message` contract come from the daemon's
+`ASSISTANT_CHAT_FRAMING`, injected ahead of every persona.
 
 **Persona injection.** The assistant registers with a `persona` capability so the
 web UI knows this build can adopt a persona. It caches the daemon's active
@@ -149,10 +164,11 @@ are authored in the UI/daemon.
 ### Assistant Conversation
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/assistant/next` | GET | Next pending assistant turn |
-| `/api/assistant/messages/:id/claim` | POST | Claim a turn |
-| `/api/assistant/messages/:id/complete` | POST | Complete a turn |
-| `/api/assistant/persona` | GET | Effective persona system prompt (daemon-vended; selected entry or default) |
+| `/api/assistant/next` | GET | Next response turn (coalesced unanswered user messages), or null while one is processing |
+| `/api/assistant/messages/:id/claim` | POST | Claim a turn (marks its user messages `read`) |
+| `/api/assistant/messages/:id/say` | POST | Append one chat bubble to the active turn (the `send_message` tool; call repeatedly to batch) |
+| `/api/assistant/messages/:id/complete` | POST | Close the turn (`result` is a fallback bubble used only if none were sent) |
+| `/api/assistant/persona` | GET | Effective system prompt (daemon-vended: chat framing + selected persona or default) |
 | `/api/scratchpad` | GET | Read the user's scratch pad (todos + notes) for the read_scratchpad tool |
 
 ### Spawn / Config
@@ -254,6 +270,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 6. **Permission toggle is file-based** — leverages permission system's runtime config reload
 7. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
 8. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
+9. **Assistant replies as chat bubbles** — the assistant answers by calling the `send_message` tool once per bubble (`.../say`), not by returning one blob. Batching guidance lives in the daemon's `ASSISTANT_CHAT_FRAMING` (injected ahead of every persona), so the extension never splits/batches text itself; it just wires `send_message` to the active turn id and lets the daemon own the chat model.
 
 ## Extending
 

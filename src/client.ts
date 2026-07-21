@@ -105,8 +105,14 @@ export interface AssistantClaimResponse {
   error?: string;
 }
 
-/** Response from POST /api/assistant/queue/:id/complete */
+/** Response from POST /api/assistant/messages/:id/complete */
 export interface AssistantCompleteResponse {
+  success: boolean;
+  error?: string;
+}
+
+/** Response from POST /api/assistant/messages/:id/say */
+export interface AssistantSayResponse {
   success: boolean;
   error?: string;
 }
@@ -569,9 +575,10 @@ export class DaemonClient {
   }
 
   /**
-   * Claim an assistant queue item for processing.
+   * Claim an assistant response turn for processing.
    *
-   * Marks the item as "processing" so no other assistant picks it up.
+   * Marks the turn "processing" (single-flight) and flips its coalesced user
+   * messages to "read" (read receipts).
    */
   async claimQueueItem(id: string): Promise<AssistantClaimResponse> {
     return this.post<AssistantClaimResponse>(
@@ -581,9 +588,24 @@ export class DaemonClient {
   }
 
   /**
-   * Complete an assistant queue item with a result.
+   * Append one chat bubble to a processing turn (the `send_message` tool).
    *
-   * Marks the item as done (or failed) and stores the result text.
+   * A turn can call this many times to stream several bubbles, iMessage-style;
+   * the web UI polls and shows them progressively.
+   */
+  async sayAssistantMessage(turnId: string, content: string): Promise<AssistantSayResponse> {
+    return this.post<AssistantSayResponse>(
+      `/api/assistant/messages/${encodeURIComponent(turnId)}/say`,
+      { content }
+    );
+  }
+
+  /**
+   * Complete an assistant response turn.
+   *
+   * `result` is only a fallback: the daemon appends it as a single bubble if
+   * the turn produced none via sayAssistantMessage. Normally bubbles are sent
+   * with send_message and this just closes the turn.
    */
   async completeQueueItem(id: string, result?: string, failed = false): Promise<AssistantCompleteResponse> {
     return this.post<AssistantCompleteResponse>(

@@ -1,20 +1,22 @@
-// Assistant work loop: answer pending conversation turns
+// Assistant work loop: work response turns in the daemon's chat
 //
-// The assistant is a dedicated Pi instance that answers messages in the
-// daemon's assistant conversation. It operates as a pure daemon client — no
-// local store, no filesystem state.
+// The assistant is a dedicated Pi instance that answers the user in the
+// daemon's assistant chat. It operates as a pure daemon client — no local
+// store, no filesystem state.
 //
 // Lifecycle:
 // 1. Register with daemon as { role: "assistant" } via POST /api/agents/register
-// 2. Poll GET /api/assistant/next for the next pending assistant turn
-// 3. Claim with POST /api/assistant/messages/:id/claim
-// 4. Execute the request via pi.sendUserMessage() (triggers Pi agent loop)
+// 2. Poll GET /api/assistant/next for the next response turn (coalesced
+//    unanswered user messages)
+// 3. Claim with POST /api/assistant/messages/:id/claim (marks them read)
+// 4. Execute the request via pi.sendUserMessage() (triggers Pi agent loop). The
+//    agent replies by calling the `send_message` tool once per chat bubble.
 // 5. On agent_end, complete with POST /api/assistant/messages/:id/complete
 // 6. Send heartbeats via POST /api/agents/heartbeat (every 30s)
 // 7. On shutdown, deregister via DELETE /api/agents/:id
 //
 // The persistent Pi session retains conversation context across turns, so each
-// turn only needs the latest user message as its prompt.
+// turn only needs the latest user message(s) as its prompt.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
@@ -41,12 +43,13 @@ export class AssistantLoop {
     this.client = client;
   }
 
-  /** Whether the assistant is currently processing a queue item */
+  /** Whether the assistant is currently working a response turn */
   get isWorking(): boolean {
     return this.currentItemId !== null;
   }
 
-  /** The ID of the currently processing queue item (null if idle) */
+  /** The ID of the response turn currently being worked (null if idle). The
+   *  `send_message` tool targets this turn to append chat bubbles. */
   get currentItem(): string | null {
     return this.currentItemId;
   }
@@ -153,17 +156,19 @@ export class AssistantLoop {
     if (!this.currentItemId) return;
 
     const itemId = this.currentItemId;
-    const summary = lastMessage.slice(0, 1000);
+    // The reply is normally delivered as bubbles via the send_message tool;
+    // this text is only a fallback the daemon uses if the turn sent none.
+    const fallback = lastMessage;
 
     try {
-      await this.client.completeQueueItem(itemId, summary, false);
+      await this.client.completeQueueItem(itemId, fallback, false);
     } catch {
-      // If reporting fails, still move on — item will time out on daemon side
+      // If reporting fails, still move on — turn will time out on daemon side
     }
 
     this.currentItemId = null;
     this.client.heartbeat("idle").catch(() => {});
-    this.onItemComplete?.(itemId, summary);
+    this.onItemComplete?.(itemId, fallback);
     this.schedulePoll();
   }
 

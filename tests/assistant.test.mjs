@@ -66,7 +66,7 @@ test("sends heartbeat via client.heartbeat()", () => {
 });
 
 test("reports both success and failure states", () => {
-  assert.ok(src.includes("completeQueueItem(itemId, summary, false)"));
+  assert.ok(src.includes("completeQueueItem(itemId, fallback, false)"));
   assert.ok(src.includes("completeQueueItem(itemId, error, true)"));
 });
 
@@ -124,7 +124,14 @@ test("deregisters on session_shutdown", () => {
 });
 
 test("registers assistant tools", () => {
-  assert.ok(indexSrc.includes("registerAssistantTools(pi, client)"));
+  assert.ok(indexSrc.includes("registerAssistantTools(pi, client, () => loop.currentItem)"));
+});
+
+test("registers the send_message tool wired to the active turn", () => {
+  const toolsSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/tools.ts"), "utf-8");
+  assert.ok(toolsSrc.includes('name: "send_message"'));
+  assert.ok(toolsSrc.includes("getActiveTurnId()"));
+  assert.ok(toolsSrc.includes("sayAssistantMessage("));
 });
 
 test("does NOT import Store for assistant", () => {

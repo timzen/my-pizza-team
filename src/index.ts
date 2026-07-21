@@ -407,13 +407,12 @@ async function setupAssistant(
     }
   }
 
-  // Register tools
-  registerAssistantTools(pi, client);
-
-  // ─── Work loop ───────────────────────────────────────────────────
-
   const loop = new AssistantLoop(pi, client);
   let completedItems = 0;
+
+  // Register tools. The `send_message` tool needs the active response turn id so
+  // it can append chat bubbles to the turn currently being worked.
+  registerAssistantTools(pi, client, () => loop.currentItem);
 
   // Inject the assistant's persona as the system prompt each turn. The persona
   // text comes from the daemon (a selected context entry, or the daemon's

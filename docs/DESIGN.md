@@ -43,10 +43,16 @@ Every task belongs to a teammate; the variable is how much mentoring it needs:
 - **Async** — the lead leaves task comments; the teammate reads them on (re)claim.
 - **Sync (pairing)** — you hop into the teammate's tmux window and work directly.
 
-### 5. The assistant is a conversation
-The assistant answers a chat one turn at a time: it polls for the pending turn,
-runs it in its persistent Pi session (which retains context across turns), and
-posts the reply. It also exposes board and memory tools.
+### 5. The assistant is a chat
+The assistant is a real chat, not a request/response form. It works one response
+*turn* at a time: it polls for a turn (the coalesced batch of unanswered user
+messages), claims it (marking them **read**), runs it in its persistent Pi
+session (which retains context across turns), and replies by calling the
+`send_message` tool once per chat bubble — so a reply arrives as several short
+messages, iMessage-style. The daemon owns the chat model (append-only messages,
+turns, read receipts, composer lock) and the batching guidance
+(`ASSISTANT_CHAT_FRAMING`, injected ahead of every persona); the extension just
+wires `send_message` to the active turn. It also exposes board and memory tools.
 
 ### 6. Work selection is capability-based
 A teammate registers a **capability map** (its working `directory` plus any
