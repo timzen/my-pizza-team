@@ -4,12 +4,13 @@
  * badges on the teammates page.
  *
  * A requirement is either:
- *   - value-bound  (e.g. `directory: /repo`) — a teammate must match the value
- *   - presence-only (e.g. `python: null`)     — a teammate must have the key
+ *   - value-bound  (e.g. `java: 8`)   — a teammate must match the value exactly
+ *   - presence-only (e.g. `python: null`) — a teammate must have the key
  *
  * The add form draws name/value suggestions from the daemon's recently used
- * capabilities (/api/capabilities), so common keys like `directory` and their
- * known values are one keystroke away.
+ * capabilities (/api/capabilities), so common keys and their known values are
+ * one keystroke away. (A story's working directory is NOT a capability — it's
+ * the story's `directory` field; see the daemon's docs/WORK-MODEL.md.)
  */
 
 import { useState } from "react";
@@ -85,7 +86,7 @@ export function RequirementsEditor({ value, onChange }: RequirementsEditorProps)
       {/* Add form, with suggestions from recent capabilities */}
       <div className="flex gap-2 pt-1">
         <Input
-          placeholder="name (e.g. directory)"
+          placeholder="name (e.g. java)"
           value={newName}
           onChange={(e) => setNewName(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && (e.preventDefault(), addRequirement())}
