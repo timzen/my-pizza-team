@@ -30,6 +30,10 @@ export interface TeamConfig {
   recentCapabilities?: Record<string, string[]>;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
+  /** Seconds a claimed assistant response turn may run before it's failed and the composer unlocks (default: 300) */
+  assistantTurnTimeoutSeconds?: number;
+  /** Seconds of user quiet (no typing, no new message) required before the assistant may claim a turn (default: 5) */
+  assistantTurnDebounceSeconds?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
   /** Per-host configuration (keyed by host ID) */
@@ -231,6 +235,8 @@ export const DEFAULT_CONFIG: TeamConfig = {
   },
   maxTeammates: 4,
   agentTimeoutSeconds: 90,
+  assistantTurnTimeoutSeconds: 300,
+  assistantTurnDebounceSeconds: 5,
   teammates: {},
 };
 

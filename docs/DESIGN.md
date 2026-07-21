@@ -220,3 +220,19 @@ not just the stored messages.
 *Why:* one concept, one queue, one poll — new asks are new *actions*, not new
 endpoints. Keeping mechanism in the harness lets the same channel scale to any
 agent and any harness while the daemon stays a coordinator.
+
+## Assistant chat model (turns, not message pairs)
+
+The assistant is a **real chat**, not a request/response form. Two rules make it feel like iMessage/WhatsApp:
+
+1. **Messages are append-only; replies come from turns.** Sending a user message just appends it (`sent`). It does **not** create a paired assistant placeholder. Replies are produced by a *response turn* — the job of answering the batch of unanswered user messages. The agent polls a turn (`GET /api/assistant/next`), claims it (`.../claim`, which flips the coalesced user messages to `read` — the read receipt), streams any number of chat bubbles via `send_message` (`.../say`), then closes it (`.../complete`).
+
+   *Why:* the old 1:1 "user message → one assistant placeholder" pairing hard-wired one bubble per message and blocked both batched assistant replies and multi-message user input. Decoupling messages from turns lets the user send N and the assistant send M.
+
+2. **One turn at a time; the composer locks while it runs.** At most one turn is `processing`; `GET /api/assistant/messages` exposes it as `activeTurn`, which drives the typing indicator and disables the composer. Because the user can't send mid-turn, there is no message enqueue or ordering to reason about; whatever is unanswered when a turn is claimed is coalesced into that one turn's prompt. A stuck-turn timeout (`assistantTurnTimeoutSeconds`, default 300s) fails an abandoned turn so the composer can't lock forever.
+
+**Pre-claim debounce: don't answer mid-thought.** Before a turn is claimed the daemon waits for the user to go quiet for `assistantTurnDebounceSeconds` (default 5s) — measured from the newest unanswered message *and* the last typing ping. The composer `POST`s `/api/assistant/typing` on keystroke (throttled ~1.5s) **and** on a 2s heartbeat whenever it holds an unsent draft — the heartbeat matters because keystroke pings go silent when the user pauses with half-written text (thinking, re-reading, about to backspace), and a pause longer than the debounce would otherwise let the assistant claim the turn. An unsent draft therefore means "I'm not done yet" and holds the turn indefinitely. The window keys off actual composing activity, not just send time, which is what makes it feel like "answer once I've clearly stopped." Set the config to `0` to disable (e.g. in tests). *Limitation:* with an **empty** composer, silence longer than the debounce is indistinguishable from "done," so a >debounce pause before starting the next message will let the current batch claim.
+
+**Chat behavior is system-level, not per-persona.** The vended system prompt is always `ASSISTANT_CHAT_FRAMING` (the batching rules + the `send_message` contract) followed by the persona body — or `DEFAULT_ASSISTANT_PERSONA` when none is chosen. So every persona inherits the chat/batching behavior and none has to restate it. `send_message` content is the only thing shown to the user; `complete`'s `result` is just a fallback bubble used if a turn produced none.
+
+*Why:* keeping the "chat is a chat" framing in one daemon-owned constant means personas are about *voice/role*, not delivery mechanics, and the behavior stays consistent across every persona and harness.

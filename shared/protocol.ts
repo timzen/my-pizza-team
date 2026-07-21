@@ -105,13 +105,23 @@ export interface CapabilityMutationResponse { success: boolean; capabilities?: R
 export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: string; archivedAt: string; synopsis: string }> }
 
 // --- Assistant Conversation ---
-export interface AssistantMessage { id: string; role: "user" | "assistant"; content: string; status: "pending" | "processing" | "done" | "failed"; createdAt: string }
-export interface AssistantMessagesResponse { messages: AssistantMessage[] }
+// User messages: 'sent' (delivered) -> 'read' (coalesced into a turn). Assistant
+// bubbles are appended already-'done' (or 'failed'). `turnId` groups a message
+// under the response turn it belongs to.
+export interface AssistantMessage { id: string; role: "user" | "assistant"; content: string; status: "sent" | "read" | "done" | "failed"; turnId: string | null; createdAt: string }
+/** The active (processing) response turn, or null when idle. Drives the typing indicator + composer lock. */
+export interface AssistantTurn { id: string; status: "processing" }
+export interface AssistantMessagesResponse { messages: AssistantMessage[]; activeTurn: AssistantTurn | null }
 export interface AssistantSendRequest { content: string }
-export interface AssistantSendResponse { success: boolean; userMessage?: AssistantMessage; assistantMessage?: AssistantMessage; error?: string }
+export interface AssistantSendResponse { success: boolean; userMessage?: AssistantMessage; error?: string }
+// Typing presence ping (POST /api/assistant/typing, no body) — feeds the pre-claim debounce.
+export interface AssistantTypingResponse { success: boolean }
 // Agent-facing turn processing
 export interface AssistantNextResponse { item: { id: string; prompt: string } | null }
 export interface AssistantClaimResponse { success: boolean; error?: string }
+// Append one chat bubble to the active turn (the `send_message` tool).
+export interface AssistantSayRequest { content: string }
+export interface AssistantSayResponse { success: boolean; message?: AssistantMessage; error?: string }
 export interface AssistantCompleteRequest { result?: string; status?: "done" | "failed" }
 export interface AssistantCompleteResponse { success: boolean; error?: string }
 export interface AssistantDeleteResponse { success: boolean; error?: string }

@@ -350,7 +350,7 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, claim, release |
-| Assistant | `/api/assistant/*` | Chat conversation |
+| Assistant | `/api/assistant/*` | Chat conversation (batched replies, read receipts, response turns) |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
 | Scratch Pad | `/api/scratchpad/*` | Personal todos (`todo.jsonl`) + notes (`notes.md`) |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |

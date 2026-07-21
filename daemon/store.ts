@@ -252,7 +252,20 @@ export class Store {
         id TEXT UNIQUE,
         role TEXT,               -- 'user' | 'assistant'
         content TEXT,
-        status TEXT DEFAULT 'done', -- assistant turns: 'pending'|'processing'|'done'|'failed'
+        status TEXT DEFAULT 'done', -- user: 'sent'|'read'; assistant bubbles: 'done'|'failed'
+        turn_id TEXT,            -- the response turn a message belongs to (NULL until read/answered)
+        created_at INTEGER
+      );
+
+      -- A response "turn" is a job the assistant does in reply to one or more
+      -- unanswered user messages. It is decoupled from individual messages so a
+      -- turn can produce many assistant bubbles (chat-style batching) and so
+      -- several user messages can be coalesced into one turn. See DESIGN.md
+      -- ("Assistant chat model"). At most one turn is 'processing' at a time.
+      CREATE TABLE IF NOT EXISTS assistant_turns (
+        id TEXT PRIMARY KEY,
+        status TEXT,             -- 'pending' | 'processing' | 'done' | 'failed'
+        claimed_at INTEGER,      -- when it went 'processing' (drives the stuck-turn timeout)
         created_at INTEGER
       );
 
@@ -293,6 +306,14 @@ export class Store {
     }
     if (!storyColumns.some((col) => col.name === "task_order")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN task_order TEXT DEFAULT '[]'");
+    }
+
+    // Assistant chat model migration: `turn_id` groups messages under a
+    // response turn (added when the 1:1 placeholder model was replaced by the
+    // append-only chat + coalescing turns; see DESIGN.md).
+    const asstColumns = this.db.prepare("PRAGMA table_info(assistant_messages)").all() as Array<Record<string, unknown>>;
+    if (!asstColumns.some((col) => col.name === "turn_id")) {
+      this.db.exec("ALTER TABLE assistant_messages ADD COLUMN turn_id TEXT");
     }
 
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
@@ -1183,7 +1204,10 @@ export class Store {
     }
 
     // Check for offline agents every 30 seconds
-    this.heartbeatCheckTimer = setInterval(() => this.reapOfflineAgents(), 30_000);
+    this.heartbeatCheckTimer = setInterval(() => {
+      this.reapOfflineAgents();
+      this.reapStuckAssistantTurns();
+    }, 30_000);
   }
 
   stopTimers(): void {
@@ -1559,36 +1583,50 @@ export class Store {
 
   // --- Assistant Conversation ---
   //
-  // The assistant is a chat: a sequence of user/assistant messages. Sending a
-  // user message also creates a `pending` assistant message (the turn to be
-  // answered). The assistant agent polls for the pending turn, claims it
-  // (-> processing), runs it, and completes it (-> done, filling content).
+  // The assistant is a real chat: an append-only sequence of user/assistant
+  // messages, decoupled from response "turns". Sending a user message just
+  // appends it (status 'sent'). A turn is the job of replying to the current
+  // batch of unanswered user messages: the agent polls for one, claims it
+  // (which marks those user messages 'read' — read receipts), streams any number
+  // of assistant bubbles via `appendAssistantMessage`, then completes it. Only
+  // one turn processes at a time; the UI locks the composer while it runs. See
+  // DESIGN.md ("Assistant chat model").
 
   /** Shape of a stored conversation message. */
-  private rowToAssistantMessage(row: Record<string, unknown>): { id: string; role: string; content: string; status: string; createdAt: string } {
+  private rowToAssistantMessage(row: Record<string, unknown>): { id: string; role: string; content: string; status: string; turnId: string | null; createdAt: string } {
     return {
       id: row.id as string,
       role: row.role as string,
       content: (row.content as string) || "",
       status: row.status as string,
+      turnId: (row.turn_id as string) || null,
       createdAt: new Date(row.created_at as number).toISOString(),
     };
   }
 
   /**
-   * Append a user message and create the pending assistant turn to answer it.
-   * Returns both created messages.
+   * Append a user message to the conversation. Messages are append-only and
+   * start as 'sent' (single check); a turn claim flips them to 'read'. Does
+   * NOT create an assistant placeholder — replies are produced by a turn.
    */
-  sendAssistantMessage(content: string): { userMessage: ReturnType<Store["rowToAssistantMessage"]>; assistantMessage: ReturnType<Store["rowToAssistantMessage"]> } {
+  appendUserMessage(content: string): ReturnType<Store["rowToAssistantMessage"]> {
     const now = Date.now();
-    const userId = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
-    const asstId = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
-    this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, created_at) VALUES (?, 'user', ?, 'done', ?)").run(userId, content, now);
-    this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, created_at) VALUES (?, 'assistant', '', 'pending', ?)").run(asstId, now);
-    return {
-      userMessage: this.getAssistantMessage(userId)!,
-      assistantMessage: this.getAssistantMessage(asstId)!,
-    };
+    const id = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
+    this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, created_at) VALUES (?, 'user', ?, 'sent', ?)").run(id, content, now);
+    return this.getAssistantMessage(id)!;
+  }
+
+  /**
+   * Last time the user showed activity in the composer (a typing ping from the
+   * UI). Combined with the newest unanswered message timestamp, this is the
+   * "user is still going" signal the debounce waits on. In-memory only — it's
+   * ephemeral presence, not conversation state worth persisting.
+   */
+  private assistantLastTypingAt = 0;
+
+  /** Record that the user is actively typing (called by POST /api/assistant/typing). */
+  recordAssistantTyping(): void {
+    this.assistantLastTypingAt = Date.now();
   }
 
   getAssistantMessage(id: string): ReturnType<Store["rowToAssistantMessage"]> | null {
@@ -1602,32 +1640,127 @@ export class Store {
     return rows.map((r) => this.rowToAssistantMessage(r));
   }
 
+  /** The active (processing) turn, or null. Drives the UI typing indicator + composer lock. */
+  getActiveTurn(): { id: string; status: string } | null {
+    const row = this.db.prepare("SELECT id, status FROM assistant_turns WHERE status = 'processing' LIMIT 1").get() as Record<string, unknown> | undefined;
+    return row ? { id: row.id as string, status: row.status as string } : null;
+  }
+
   /**
-   * The next pending assistant turn for the agent to answer, with the prompt
-   * being the most recent preceding user message.
+   * The next response turn for the agent to work, or null. Returns null while a
+   * turn is already processing (single-flight), when there are no unanswered
+   * user messages, or while the user is still active (pre-claim debounce: the
+   * assistant waits `assistantTurnDebounceSeconds` after the last message/keystroke
+   * so it never grabs a message mid-thought — see DESIGN.md). Coalesces every
+   * 'sent' user message into one turn; the prompt is those messages joined in
+   * order. A 'pending' turn is created on demand and reused across polls until
+   * it is claimed.
    */
   getNextAssistantItem(): { id: string; prompt: string } | null {
-    const row = this.db.prepare("SELECT seq, id FROM assistant_messages WHERE role = 'assistant' AND status = 'pending' ORDER BY seq ASC LIMIT 1").get() as Record<string, unknown> | undefined;
-    if (!row) return null;
-    const userRow = this.db.prepare("SELECT content FROM assistant_messages WHERE role = 'user' AND seq < ? ORDER BY seq DESC LIMIT 1").get(row.seq as number) as Record<string, unknown> | undefined;
-    return { id: row.id as string, prompt: (userRow?.content as string) || "" };
+    // Single-flight: never hand out a turn while one is processing.
+    if (this.getActiveTurn()) return null;
+
+    const unanswered = this.db.prepare("SELECT content, created_at FROM assistant_messages WHERE role = 'user' AND status = 'sent' ORDER BY seq ASC").all() as Array<Record<string, unknown>>;
+    if (unanswered.length === 0) return null;
+
+    // Pre-claim debounce: hold off until the user has been quiet (no new message
+    // and no typing ping) for the debounce window, so a turn coalesces a whole
+    // burst instead of firing on the first message while the user keeps typing.
+    const debounceMs = (this.config.assistantTurnDebounceSeconds ?? 5) * 1000;
+    if (debounceMs > 0) {
+      const lastMsgTs = Math.max(...unanswered.map((r) => r.created_at as number));
+      const lastActivity = Math.max(lastMsgTs, this.assistantLastTypingAt);
+      if (Date.now() - lastActivity < debounceMs) return null;
+    }
+
+    const prompt = unanswered.map((r) => r.content as string).join("\n\n");
+
+    // Reuse an existing pending turn (repeated polls) or create one.
+    let turn = this.db.prepare("SELECT id FROM assistant_turns WHERE status = 'pending' LIMIT 1").get() as Record<string, unknown> | undefined;
+    if (!turn) {
+      const id = `turn-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+      this.db.prepare("INSERT INTO assistant_turns (id, status, created_at) VALUES (?, 'pending', ?)").run(id, Date.now());
+      turn = { id };
+    }
+    return { id: turn.id as string, prompt };
   }
 
-  /** Mark a pending assistant turn as processing. */
-  claimAssistantItem(id: string): boolean {
-    const row = this.db.prepare("SELECT status FROM assistant_messages WHERE id = ? AND role = 'assistant'").get(id) as Record<string, unknown> | undefined;
+  /**
+   * Claim a pending turn (-> processing) and mark every unanswered user message
+   * 'read' (double check), stamping them with this turn id. This is the read
+   * receipt: the user sees exactly which messages were coalesced into the turn.
+   */
+  claimAssistantItem(turnId: string): boolean {
+    const row = this.db.prepare("SELECT status FROM assistant_turns WHERE id = ?").get(turnId) as Record<string, unknown> | undefined;
     if (!row || row.status !== "pending") return false;
-    this.db.prepare("UPDATE assistant_messages SET status = 'processing' WHERE id = ?").run(id);
+    this.db.prepare("UPDATE assistant_turns SET status = 'processing', claimed_at = ? WHERE id = ?").run(Date.now(), turnId);
+    this.db.prepare("UPDATE assistant_messages SET status = 'read', turn_id = ? WHERE role = 'user' AND status = 'sent'").run(turnId);
     return true;
   }
 
-  /** Fill in the assistant turn's content and mark it done (or failed). */
-  completeAssistantItem(id: string, result?: string, failed = false): boolean {
-    const row = this.db.prepare("SELECT status FROM assistant_messages WHERE id = ? AND role = 'assistant'").get(id) as Record<string, unknown> | undefined;
+  /**
+   * Append one assistant bubble to a processing turn (the `send_message` tool).
+   * Bubbles are stored 'done' so they render immediately; the UI polls and
+   * shows them progressively, iMessage-style. Returns null if the turn isn't
+   * processing.
+   */
+  appendAssistantMessage(turnId: string, content: string): ReturnType<Store["rowToAssistantMessage"]> | null {
+    const row = this.db.prepare("SELECT status FROM assistant_turns WHERE id = ?").get(turnId) as Record<string, unknown> | undefined;
+    if (!row || row.status !== "processing") return null;
+    const now = Date.now();
+    const id = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
+    this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, turn_id, created_at) VALUES (?, 'assistant', ?, 'done', ?, ?)").run(id, content, turnId, now);
+    return this.getAssistantMessage(id)!;
+  }
+
+  /**
+   * Close a processing turn. On success the turn is marked done/failed and the
+   * composer unlocks. `result` is a fallback: if the turn produced no bubbles
+   * via `appendAssistantMessage` (a persona that ignored `send_message`), it is
+   * appended as a single bubble so the user is never left without a reply.
+   */
+  completeAssistantItem(turnId: string, result?: string, failed = false): boolean {
+    const row = this.db.prepare("SELECT status FROM assistant_turns WHERE id = ?").get(turnId) as Record<string, unknown> | undefined;
     if (!row || row.status !== "processing") return false;
-    const status = failed ? "failed" : "done";
-    this.db.prepare("UPDATE assistant_messages SET status = ?, content = ? WHERE id = ?").run(status, result || "", id);
+
+    const bubbleCount = (this.db.prepare("SELECT COUNT(*) AS n FROM assistant_messages WHERE turn_id = ? AND role = 'assistant'").get(turnId) as { n: number }).n;
+    const trimmed = (result || "").trim();
+    // Fallback bubble when the turn said nothing via the tool (or failed with a message).
+    if ((bubbleCount === 0 && trimmed) || (failed && bubbleCount === 0)) {
+      const now = Date.now();
+      const id = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
+      const status = failed ? "failed" : "done";
+      this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, turn_id, created_at) VALUES (?, 'assistant', ?, ?, ?, ?)").run(id, trimmed || "The assistant hit an error.", status, turnId, now);
+    }
+
+    this.db.prepare("UPDATE assistant_turns SET status = ? WHERE id = ?").run(failed ? "failed" : "done", turnId);
     return true;
+  }
+
+  /**
+   * Fail any processing turn whose claim is older than the timeout (default
+   * 300s) — e.g. the assistant crashed mid-turn. Without this the composer
+   * would stay locked forever. Called on the same cadence as agent reaping.
+   * Returns the ids of turns that were failed.
+   */
+  reapStuckAssistantTurns(): string[] {
+    const timeoutMs = (this.config.assistantTurnTimeoutSeconds ?? 300) * 1000;
+    const cutoff = Date.now() - timeoutMs;
+    const rows = this.db.prepare("SELECT id FROM assistant_turns WHERE status = 'processing' AND claimed_at < ?").all(cutoff) as Array<Record<string, unknown>>;
+    const reaped: string[] = [];
+    for (const row of rows) {
+      const turnId = row.id as string;
+      const bubbleCount = (this.db.prepare("SELECT COUNT(*) AS n FROM assistant_messages WHERE turn_id = ? AND role = 'assistant'").get(turnId) as { n: number }).n;
+      if (bubbleCount === 0) {
+        const now = Date.now();
+        const id = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
+        this.db.prepare("INSERT INTO assistant_messages (id, role, content, status, turn_id, created_at) VALUES (?, 'assistant', ?, 'failed', ?, ?)").run(id, "The assistant went away before replying. Try again.", turnId, now);
+      }
+      this.db.prepare("UPDATE assistant_turns SET status = 'failed' WHERE id = ?").run(turnId);
+      console.warn(`⚠️  Assistant turn "${turnId}" timed out and was failed.`);
+      reaped.push(turnId);
+    }
+    return reaped;
   }
 
   deleteAssistantMessage(id: string): boolean {
@@ -1637,9 +1770,10 @@ export class Store {
     return true;
   }
 
-  /** Clear the whole conversation. */
+  /** Clear the whole conversation, including turn state. */
   clearAssistantMessages(): void {
     this.db.prepare("DELETE FROM assistant_messages").run();
+    this.db.prepare("DELETE FROM assistant_turns").run();
   }
 
   // --- Settings (simple daemon-wide key/value) ---
