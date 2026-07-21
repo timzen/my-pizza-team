@@ -31,6 +31,7 @@ interface StoryView {
   dependsOn: string[];
   ready: boolean;
   requirements?: Record<string, string | null>;
+  directory?: string;
   paused?: boolean;
   workflow?: string;
   context?: string[];
