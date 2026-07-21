@@ -6,8 +6,9 @@
  * - Optional home directory (just the pi process's cwd — teammates cd to each
  *   story's directory to work, so this is NOT a matching key; see the daemon's
  *   docs/WORK-MODEL.md)
- * - Optional skills (capabilities the teammate advertises, e.g. `design` —
- *   stories with matching requirements will be offered to it)
+ * - Optional capabilities (advertised skills, same key/value editor as story
+ *   requirements: `python` presence-only, or `java: 8` value-bound — stories
+ *   with matching requirements will be offered to it)
  *
  * There is deliberately no state picker: teammates are generalists that work
  * every agent state; the state persona does the specializing.
@@ -20,6 +21,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { DirectoryInput } from "@/components/ui/directory-input";
+import { RequirementsEditor } from "@/components/board/RequirementsEditor";
 import { UserPlus } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
@@ -47,7 +49,7 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
   const [open, setOpen] = useState(false);
   const [hostId, setHostId] = useState("");
   const [cwd, setCwd] = useState("");
-  const [skills, setSkills] = useState("");
+  const [capabilities, setCapabilities] = useState<Record<string, string | null>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
   const [storyDirs, setStoryDirs] = useState<string[]>([]);
@@ -95,7 +97,8 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
       return;
     }
 
-    const skillList = skills.split(",").map(s => s.trim()).filter(Boolean);
+    // Serialize to the --ppt-skills wire entries: `name` (presence-only) or `name:value`.
+    const skillList = Object.entries(capabilities).map(([k, v]) => (v ? `${k}:${v}` : k));
     const res = await apiPost<{ success: boolean; directive?: { id: string }; error?: string }>(`/api/hosts/${encodeURIComponent(hostId)}/leader/directives`, {
       action: "spawn",
       params: { cwd: cwd || undefined, skills: skillList.length > 0 ? skillList : undefined, reason: "teammate" },
@@ -103,7 +106,7 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
     if (res.success) {
       setSuccess("Spawn request sent! The leader will create the agent.");
       setCwd("");
-      setSkills("");
+      setCapabilities({});
       onSpawned?.();
       setTimeout(() => setOpen(false), 1500);
     } else {
@@ -155,11 +158,11 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
               <p className="text-xs text-muted-foreground">Where the pi process starts. Teammates cd to each story's directory to work, so this doesn't limit what they pick up.</p>
             </div>
 
-            {/* Skills (advertised capabilities) */}
+            {/* Capabilities (advertised skills — same editor as story requirements) */}
             <div className="space-y-1.5">
-              <Label>Skills (optional)</Label>
-              <Input value={skills} onChange={e => setSkills(e.target.value)} placeholder="design, python, dynamodb" />
-              <p className="text-xs text-muted-foreground">Comma-separated capabilities this teammate advertises. Stories with matching requirements will be offered to it.</p>
+              <Label>Capabilities (optional)</Label>
+              <RequirementsEditor value={capabilities} onChange={setCapabilities} />
+              <p className="text-xs text-muted-foreground">What this teammate advertises: a bare name matches presence-only requirements; a name with a value (e.g. java: 8) also matches exact-value requirements. Keep values to simple tokens.</p>
             </div>
 
             {error && <p className="text-sm text-destructive">{error}</p>}
