@@ -39,6 +39,7 @@ interface StoryView {
     seq: number;
     title: string;
     status: string;
+    substatus?: "ready" | "claimed" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
@@ -47,7 +48,7 @@ interface StoryView {
 
 interface StatusData {
   defaultWorkflow: string;
-  workflows: Record<string, { states: string[]; transitions?: Record<string, Record<string, string>> }>;
+  workflows: Record<string, { states: Array<{ name: string; type: "agent" | "manual" }> }>;
 }
 
 type SortOption = "title" | "status" | "ready";
@@ -66,17 +67,16 @@ export function BoardPage() {
   const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
   const workflows = statusData?.workflows || {};
-  const defaultStates = workflows[defaultWorkflow]?.states || ["todo", "in_progress", "needs_input", "review", "done"];
 
-  /** Resolve workflow states for a given story (falls back to default) */
-  const getStatesForStory = (story: StoryView): string[] => {
-    if (story.workflow && workflows[story.workflow]) {
-      return workflows[story.workflow].states;
-    }
-    return defaultStates;
+  /** Board columns for a workflow: the implicit buckets around its active states. */
+  const columnsFor = (wfName: string | undefined): string[] => {
+    const wf = (wfName && workflows[wfName]) || workflows[defaultWorkflow];
+    const active = wf?.states?.map(s => s.name) || ["in_progress", "review"];
+    return ["todo", ...active, "done"];
   };
 
-  /** Check if a task needs lead action based on its workflow transitions */
+  /** Resolve board columns for a given story (falls back to default workflow) */
+  const getStatesForStory = (story: StoryView): string[] => columnsFor(story.workflow);
   // Filter stories by search
   const filtered = useMemo(() => {
     let result = stories;

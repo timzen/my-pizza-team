@@ -1,12 +1,12 @@
 /**
  * tests/agents.test.ts — Verifies /api/agents/* endpoints.
  *
- * Tests the multi-transition agent lifecycle:
- * - Agents poll for unclaimed tasks with teammate-allowed transitions
- * - Claim assigns ownership without changing state
- * - Transition advances state (auto-releases on done)
- * - Release lets agents park tasks when blocked by lead-only transitions
- * - Comments are task-level, loaded at work start
+ * Tests the work-model lifecycle (docs/WORK-MODEL.md):
+ * - Admission (CONWIP) pulls one task per story from todo into the first state
+ * - Agents poll for ready agent-state tasks, claim (lease), and mark done
+ * - The daemon advances completed work mechanically; workers never move tasks
+ * - Return puts a claimed task back to ready (+ comment)
+ * - Judgment moves (humans/leader) can put a task anywhere; rework resets substatus
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
@@ -37,12 +37,15 @@ function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
   return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
+// The default workflow: in_progress (agent) → review (manual), between the
+// implicit todo/done buckets.
+
 // --- Registration ---
 
 Deno.test("POST /api/agents/register creates an agent", async () => {
   const { app, store, teamDir } = setup();
   try {
-    const res = await post(app, "/api/agents/register", { id: "agent-1", name: "swift-neo", capabilities: { directory: "/tmp" } });
+    const res = await post(app, "/api/agents/register", { id: "agent-1", name: "swift-neo", capabilities: {} });
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
@@ -64,7 +67,7 @@ Deno.test("POST /api/agents/register rejects missing fields", async () => {
 Deno.test("POST /api/agents/heartbeat updates status", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     const res = await post(app, "/api/agents/heartbeat", { id: "a1", status: "working" });
     assertEquals(res.status, 200);
     const member = store.getMember("a1");
@@ -72,28 +75,54 @@ Deno.test("POST /api/agents/heartbeat updates status", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
+// --- Admission (CONWIP) ---
+
+Deno.test("createStory admits the first task into the first active state; the rest wait in todo", async () => {
+  const { store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S1", "D", "open", [], [
+      { title: "T1", description: "D1" },
+      { title: "T2", description: "D2" },
+    ], undefined, "default");
+    const t1 = store.getTask("s1-1")!;
+    const t2 = store.getTask("s1-2")!;
+    assertEquals(t1.status, "in_progress");
+    assertEquals(t1.substatus, "ready");
+    assertEquals(t2.status, "todo");
+    assertEquals(t2.substatus, null);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("paused stories admit nothing until unpaused", async () => {
+  const { store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default", undefined, true);
+    assertEquals(store.getTask("s1-1")?.status, "todo");
+    store.updateStoryDetails("s1", { paused: false });
+    assertEquals(store.getTask("s1-1")?.status, "in_progress");
+    assertEquals(store.getTask("s1-1")?.substatus, "ready");
+  } finally { cleanup(teamDir, store); }
+});
+
 // --- Next Work ---
 
-Deno.test("GET /api/agents/next-work returns unclaimed task with teammate transitions", async () => {
+Deno.test("GET /api/agents/next-work returns the ready agent-state task", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     const res = await app.request("/api/agents/next-work?agentId=a1");
     const body = await res.json();
     assertEquals(body.task?.id, "s1-1");
     assertEquals(body.task?.storyId, "s1");
     assertEquals(body.task?.title, "T1");
-    // Slimmed down: no status, description, transitions, etc.
-    assertEquals(body.task?.status, undefined);
-    assertEquals(body.task?.availableTransitions, undefined);
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("GET /api/agents/next-work returns null when paused", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     await post(app, "/api/control/pause", {});
     const res = await app.request("/api/agents/next-work?agentId=a1");
@@ -105,50 +134,46 @@ Deno.test("GET /api/agents/next-work returns null when paused", async () => {
 Deno.test("GET /api/agents/next-work returns null when task is claimed", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
-    // Claim the task
     await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    // Another agent should see no work
-    store.registerMember("a2", "trinity", { directory: "/tmp" }, {});
+    store.registerMember("a2", "trinity", {}, {});
     const res = await app.request("/api/agents/next-work?agentId=a2");
     const body = await res.json();
     assertEquals(body.task, null);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/agents/claim includes comments from lead", async () => {
+Deno.test("next-work never offers a task in a manual state", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
-    // Lead adds a comment
-    store.addComment("s1-1", "lead", "Please check the edge cases");
-    // Claim surfaces lead comments in the assembled prompt
-    const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    const body = await res.json();
-    assertStringIncludes(body.prompt, "Comments from Team Lead");
-    assertStringIncludes(body.prompt, "Please check the edge cases");
-    // Guidance carries the "summarize + release" close (no separate trailing line).
-    assertStringIncludes(body.prompt, "provide a brief summary of what you accomplished and release the task");
+    // Drive the task to the manual review state.
+    await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    await post(app, "/api/agents/done/s1-1", { agentId: "a1", result: "did it" });
+    assertEquals(store.getTask("s1-1")?.status, "review");
+    // It sits with the human; no agent work available.
+    const res = await app.request("/api/agents/next-work?agentId=a1");
+    assertEquals((await res.json()).task, null);
   } finally { cleanup(teamDir, store); }
 });
 
 // --- Claim ---
 
-Deno.test("POST /api/agents/claim/:taskId assigns and transitions to working state", async () => {
+Deno.test("POST /api/agents/claim/:taskId leases the task (no state change)", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
-    // Task should transition to first teammate state (in_progress)
+    // Claim never moves the task — it flips substatus to claimed.
     assertEquals(store.getTask("s1-1")?.status, "in_progress");
+    assertEquals(store.getTask("s1-1")?.substatus, "claimed");
     assertEquals(body.task.status, "in_progress");
-    // Agent should be marked as working
     assertEquals(store.getMember("a1")?.status, "working");
   } finally { cleanup(teamDir, store); }
 });
@@ -156,171 +181,231 @@ Deno.test("POST /api/agents/claim/:taskId assigns and transitions to working sta
 Deno.test("POST /api/agents/claim/:taskId rejects double claim", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
-    store.registerMember("a2", "trinity", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
+    store.registerMember("a2", "trinity", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
     const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a2" });
     assertEquals(res.status, 409);
-    const body = await res.json();
-    assertEquals(body.success, false);
   } finally { cleanup(teamDir, store); }
 });
 
-// --- Release ---
-
-Deno.test("POST /api/agents/release/:taskId advances state and releases", async () => {
+Deno.test("POST /api/agents/claim rejects a task waiting in todo", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "S1", "D", "open", [], [
+      { title: "T1", description: "D1" },
+      { title: "T2", description: "D2" },
+    ], undefined, "default");
+    const res = await post(app, "/api/agents/claim/s1-2", { agentId: "a1" });
+    assertEquals(res.status, 409);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("claim prompt includes state role, lead comments, and completion guidance", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
+    store.addComment("s1-1", "lead", "Please check the edge cases");
+    const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    const body = await res.json();
+    assertStringIncludes(body.prompt, "Your Role: in_progress");
+    assertStringIncludes(body.prompt, "Comments from Team Lead");
+    assertStringIncludes(body.prompt, "Please check the edge cases");
+    assertStringIncludes(body.prompt, "the task advances automatically");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("claim prompt includes the story's working directory instruction", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default", undefined, undefined, "/tmp/proj");
+    const res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    const body = await res.json();
+    assertStringIncludes(body.prompt, "Working Directory");
+    assertStringIncludes(body.prompt, "/tmp/proj");
+    assertStringIncludes(body.prompt, "AGENTS.md");
+  } finally { cleanup(teamDir, store); }
+});
+
+// --- Done (mechanical advance) ---
+
+Deno.test("POST /api/agents/done/:taskId advances to the next state and clears the lease", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    // Task is now in_progress. Release should advance to next state (review)
-    const res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "Done working" });
+    const res = await post(app, "/api/agents/done/s1-1", { agentId: "a1", result: "Done working" });
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
+    assertEquals(body.newStatus, "review");
+    assertEquals(body.completed, false);
+    const task = store.getTask("s1-1")!;
+    assertEquals(task.status, "review");
+    assertEquals(task.substatus, null);       // manual state: no substatus
+    assertEquals(task.result, "Done working");
     assertEquals(store.getAssignment("s1-1"), null);
     assertEquals(store.getMember("a1")?.status, "idle");
-    assertEquals(store.getTask("s1-1")?.result, "Done working");
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/agents/release/:taskId completes task when reaching done state", async () => {
-  const customWorkflow: WorkflowConfig = {
-    states: ["todo", "in_progress", "done"],
-    transitions: {
-      todo: { in_progress: "any" },
-      in_progress: { done: "teammate" },
-    },
-  };
-  const { app, store, teamDir } = setup({
-    workflows: { default: customWorkflow },
-  });
+Deno.test("done in the last state completes the task and admits the next one", async () => {
+  const soloAgent: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
+  const { app, store, teamDir } = setup({ workflows: { default: soloAgent } });
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
-    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "S1", "D", "open", [], [
+      { title: "T1", description: "D1" },
+      { title: "T2", description: "D2" },
+    ], undefined, "default");
     await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    // Task is now in_progress. Release should advance to done.
-    const res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "All done" });
+    const res = await post(app, "/api/agents/done/s1-1", { agentId: "a1", result: "All done" });
     const body = await res.json();
-    assertEquals(body.success, true);
     assertEquals(body.completed, true);
     assertEquals(body.newStatus, "done");
     assertEquals(store.getTask("s1-1")?.status, "done");
-    assertEquals(store.getAssignment("s1-1"), null);
-    assertEquals(store.getMember("a1")?.status, "idle");
+    // CONWIP token freed → T2 admitted.
+    assertEquals(store.getTask("s1-2")?.status, "work");
+    assertEquals(store.getTask("s1-2")?.substatus, "ready");
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/agents/release/:taskId rejects if not owned", async () => {
+Deno.test("POST /api/agents/done/:taskId rejects if not owned", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
-    const res = await post(app, "/api/agents/release/s1-1", { agentId: "a1" });
+    const res = await post(app, "/api/agents/done/s1-1", { agentId: "a1" });
     assertEquals(res.status, 403);
   } finally { cleanup(teamDir, store); }
 });
 
-// --- Full lifecycle ---
-
-Deno.test("Full lifecycle: claim → release → lead moves → claim again", async () => {
-  // Workflow: todo→coding(any) → testing(teammate) → review(lead) → done(lead)
-  const customWorkflow: WorkflowConfig = {
-    states: ["todo", "coding", "testing", "review", "done"],
-    transitions: {
-      todo: { coding: "any" },
-      coding: { testing: "teammate" },
-      testing: { review: "teammate" },
-      review: { done: "lead", coding: "lead" },
-    },
-  };
-  const { app, store, teamDir } = setup({
-    workflows: { default: customWorkflow },
-  });
+Deno.test("release stays as a deprecated alias for done", async () => {
+  const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
-    store.createStory("s1", "Story", "Desc", "open", [], [{ title: "Task1", description: "Do it" }], undefined, "default");
-
-    // 1. Agent polls and finds work
-    let res = await app.request("/api/agents/next-work?agentId=a1");
-    let body = await res.json();
-    assertEquals(body.task?.id, "s1-1");
-
-    // 2. Agent claims — transitions todo→coding
-    res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    body = await res.json();
-    assertEquals(body.success, true);
-    assertEquals(body.task.status, "coding");
-    assertEquals(store.getTask("s1-1")?.status, "coding");
-
-    // 3. Agent releases — transitions coding→testing
-    res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "Code written" });
-    body = await res.json();
-    assertEquals(body.success, true);
-    assertEquals(body.newStatus, "testing");
-    assertEquals(body.completed, false);
-    assertEquals(store.getMember("a1")?.status, "idle");
-
-    // 4. Agent polls again — finds task in testing (has teammate transition)
-    res = await app.request("/api/agents/next-work?agentId=a1");
-    body = await res.json();
-    assertEquals(body.task?.id, "s1-1");
-
-    // 5. Agent claims — testing is NOT initial state, so stays in testing
-    res = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    body = await res.json();
-    assertEquals(body.success, true);
-    assertEquals(body.task.status, "testing");
-
-    // 6. Agent releases — transitions testing→review
-    res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "Tests passing" });
-    body = await res.json();
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
+    await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    const res = await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "via alias" });
+    const body = await res.json();
     assertEquals(body.success, true);
     assertEquals(body.newStatus, "review");
-    assertEquals(body.completed, false);
-    assertEquals(store.getMember("a1")?.status, "idle");
-
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Rework flow: lead sends task back, agent re-claims with comments", async () => {
-  const customWorkflow: WorkflowConfig = {
-    states: ["todo", "coding", "review", "done"],
-    transitions: {
-      todo: { coding: "any" },
-      coding: { review: "teammate" },
-      review: { done: "lead", coding: "lead" },
-    },
-  };
-  const { app, store, teamDir } = setup({
-    workflows: { default: customWorkflow },
-  });
-  try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
-    store.createStory("s1", "Story", "Desc", "open", [], [{ title: "Task1", description: "Do it" }], undefined, "default");
+// --- Return ---
 
-    // Agent claims (todo→coding) and releases (coding→review)
+Deno.test("POST /api/agents/return/:taskId puts the task back to ready with a comment", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    await post(app, "/api/agents/release/s1-1", { agentId: "a1", result: "First attempt" });
+    const res = await post(app, "/api/agents/return/s1-1", { agentId: "a1", comment: "Need the API key" });
+    assertEquals((await res.json()).success, true);
+    const task = store.getTask("s1-1")!;
+    assertEquals(task.status, "in_progress");   // stays in state
+    assertEquals(task.substatus, "ready");      // available again
+    assertEquals(store.getAssignment("s1-1"), null);
+    const comments = store.getComments("s1-1");
+    assertEquals(comments.some(c => c.body.includes("Need the API key")), true);
+  } finally { cleanup(teamDir, store); }
+});
+
+// --- Full lifecycle + rework ---
+
+Deno.test("Full lifecycle: admit → claim → done → human ships it → next task admitted", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "Story", "Desc", "open", [], [
+      { title: "Task1", description: "Do it" },
+      { title: "Task2", description: "Then this" },
+    ], undefined, "default");
+
+    // 1. Agent polls and finds the admitted task.
+    let res = await app.request("/api/agents/next-work?agentId=a1");
+    assertEquals((await res.json()).task?.id, "s1-1");
+
+    // 2. Claim → work → done: advances to the manual review state.
+    await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    await post(app, "/api/agents/done/s1-1", { agentId: "a1", result: "Code written" });
     assertEquals(store.getTask("s1-1")?.status, "review");
 
-    // Lead reviews, adds comment, sends back to coding
+    // 3. CONWIP: Task2 still waits — the token is held by Task1 in review.
+    assertEquals(store.getTask("s1-2")?.status, "todo");
+    res = await app.request("/api/agents/next-work?agentId=a1");
+    assertEquals((await res.json()).task, null);
+
+    // 4. Human ships it (judgment move to done) → token freed → Task2 admitted.
+    await post(app, "/api/tasks/s1-1/move", { status: "done" });
+    assertEquals(store.getTask("s1-1")?.status, "done");
+    assertEquals(store.getTask("s1-2")?.status, "in_progress");
+    assertEquals(store.getTask("s1-2")?.substatus, "ready");
+
+    res = await app.request("/api/agents/next-work?agentId=a1");
+    assertEquals((await res.json()).task?.id, "s1-2");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("Rework flow: human sends the task back; re-entry ≡ first entry", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("a1", "neo", {}, {});
+    store.createStory("s1", "Story", "Desc", "open", [], [
+      { title: "Task1", description: "Do it" },
+      { title: "Task2", description: "Next" },
+    ], undefined, "default");
+
+    // Work Task1 into review.
+    await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
+    await post(app, "/api/agents/done/s1-1", { agentId: "a1", result: "First attempt" });
+    assertEquals(store.getTask("s1-1")?.status, "review");
+
+    // Human reviews, adds a comment, sends it back.
     store.addComment("s1-1", "lead", "Please fix the edge case in parser.ts");
-    await post(app, "/api/tasks/s1-1/move", { status: "coding" });
-    assertEquals(store.getTask("s1-1")?.status, "coding");
+    await post(app, "/api/tasks/s1-1/move", { status: "in_progress" });
+    const task = store.getTask("s1-1")!;
+    assertEquals(task.status, "in_progress");
+    assertEquals(task.substatus, "ready");   // re-entry resets, same as first entry
 
-    // Agent polls — finds task in coding
+    // CONWIP held: Task2 still in todo (rework doesn't free the token).
+    assertEquals(store.getTask("s1-2")?.status, "todo");
+
+    // Agent re-discovers it exactly like new work; prompt carries the feedback.
     const res = await app.request("/api/agents/next-work?agentId=a1");
-    const body = await res.json();
-    assertEquals(body.task?.id, "s1-1");
-
-    // Agent claims again — coding is NOT initial state, stays in coding
+    assertEquals((await res.json()).task?.id, "s1-1");
     const claimRes = await post(app, "/api/agents/claim/s1-1", { agentId: "a1" });
-    const claimBody = await claimRes.json();
-    assertStringIncludes(claimBody.prompt, "Please fix the edge case in parser.ts");
-    assertEquals(store.getTask("s1-1")?.status, "coding");
+    assertStringIncludes((await claimRes.json()).prompt, "Please fix the edge case in parser.ts");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("Shelving: moving the active task to todo admits the next instead", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S", "D", "open", [], [
+      { title: "T1", description: "D1" },
+      { title: "T2", description: "D2" },
+    ], undefined, "default");
+    assertEquals(store.getTask("s1-1")?.status, "in_progress");
+    // Human shelves T1 → it must not bounce back; T2 takes its place.
+    await post(app, "/api/tasks/s1-1/move", { status: "todo" });
+    assertEquals(store.getTask("s1-1")?.status, "todo");
+    assertEquals(store.getTask("s1-2")?.status, "in_progress");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("move rejects a state not in the workflow", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
+    const res = await post(app, "/api/tasks/s1-1/move", { status: "nonsense" });
+    assertEquals(res.status, 400);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -344,8 +429,8 @@ Deno.test("POST/GET /api/agents/comments/:taskId roundtrip", async () => {
 Deno.test("GET /api/agents lists all registered agents", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
-    store.registerMember("a2", "trinity", { directory: "/home" }, {});
+    store.registerMember("a1", "neo", {}, {});
+    store.registerMember("a2", "trinity", {}, {});
     const res = await app.request("/api/agents");
     const body = await res.json();
     assertEquals(body.agents.length, 2);
@@ -356,11 +441,9 @@ Deno.test("GET /api/agents lists all registered agents", async () => {
 Deno.test("DELETE /api/agents/:id removes an agent", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     const res = await app.request("/api/agents/a1", { method: "DELETE" });
     assertEquals(res.status, 200);
-    const body = await res.json();
-    assertEquals(body.success, true);
     assertEquals(store.getMembers().length, 0);
   } finally { cleanup(teamDir, store); }
 });
@@ -373,37 +456,29 @@ Deno.test("DELETE /api/agents/:id returns 404 for unknown", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-// --- Capability-based work matching ---
-
-Deno.test("next-work: directory requirement gates by the well-known directory capability", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    // Story requires work in /tmp/project.
-    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], { directory: "/tmp/project" }, "default");
-
-    // Agent in the wrong directory: no match.
-    store.registerMember("wrong", "neo", { directory: "/tmp/other" }, {});
-    let res = await app.request("/api/agents/next-work?agentId=wrong");
-    assertEquals((await res.json()).task, null);
-
-    // Agent in the right directory (trailing slash normalized): match.
-    store.registerMember("right", "trinity", { directory: "/tmp/project/" }, {});
-    res = await app.request("/api/agents/next-work?agentId=right");
-    assertEquals((await res.json()).task.id, "s1-1");
-  } finally { cleanup(teamDir, store); }
-});
+// --- Capability-based work matching (skills; directory is story data now) ---
 
 Deno.test("next-work: skill requirement needs matching capability (presence-only)", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], { python: null }, "default");
 
-    store.registerMember("no-py", "neo", { directory: "/tmp" }, {});
+    store.registerMember("no-py", "neo", {}, {});
     let res = await app.request("/api/agents/next-work?agentId=no-py");
     assertEquals((await res.json()).task, null);
 
-    store.registerMember("py", "trinity", { directory: "/tmp", python: "3.11" }, {});
+    store.registerMember("py", "trinity", { python: "3.11" }, {});
     res = await app.request("/api/agents/next-work?agentId=py");
+    assertEquals((await res.json()).task.id, "s1-1");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("next-work: story directory does not gate matching (agents cd to it)", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default", undefined, undefined, "/tmp/project");
+    store.registerMember("anywhere", "neo", {}, {});
+    const res = await app.request("/api/agents/next-work?agentId=anywhere");
     assertEquals((await res.json()).task.id, "s1-1");
   } finally { cleanup(teamDir, store); }
 });
@@ -412,24 +487,14 @@ Deno.test("next-work: paused stories are never handed out", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default", undefined, true);
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {});
+    store.registerMember("a1", "neo", {}, {});
     const res = await app.request("/api/agents/next-work?agentId=a1");
     assertEquals((await res.json()).task, null);
 
-    // Un-pausing makes it workable.
+    // Un-pausing admits + makes it workable.
     store.updateStoryDetails("s1", { paused: false });
     const res2 = await app.request("/api/agents/next-work?agentId=a1");
     assertEquals((await res2.json()).task.id, "s1-1");
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("next-work: eager-helper picks up work regardless of directory when story has no requirements", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
-    store.registerMember("a1", "neo", { directory: "/somewhere/else" }, {}); // default workMode = eager-helper
-    const res = await app.request("/api/agents/next-work?agentId=a1");
-    assertEquals((await res.json()).task.id, "s1-1");
   } finally { cleanup(teamDir, store); }
 });
 
@@ -440,24 +505,22 @@ Deno.test("assigned-story: only works its assigned story", async () => {
   try {
     store.createStory("mine", "Mine", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
     store.createStory("other", "Other", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {}, undefined, "assigned-story", "mine");
+    store.registerMember("a1", "neo", {}, {}, undefined, "assigned-story", "mine");
     const res = await app.request("/api/agents/next-work?agentId=a1");
     assertEquals((await res.json()).task.storyId, "mine");
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("assigned-story: archives story and dismisses agent when exhausted", async () => {
-  const { app, store, teamDir } = setup();
+  const soloAgent: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
+  const { app, store, teamDir } = setup({ workflows: { default: soloAgent } });
   try {
-    // Single-task workflow that a teammate can drive to done.
-    const wf: WorkflowConfig = { states: ["todo", "in_progress", "done"], transitions: { todo: { in_progress: "any" }, in_progress: { done: "teammate" } } };
-    store.saveWorkflow("solo", wf);
-    store.createStory("mine", "Mine", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "solo");
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {}, undefined, "assigned-story", "mine");
+    store.createStory("mine", "Mine", "D", "open", [], [{ title: "T1", description: "D1" }], undefined, "default");
+    store.registerMember("a1", "neo", {}, {}, undefined, "assigned-story", "mine");
 
-    // Claim + release drives the only task to done.
+    // Claim + done drives the only task to the done bucket.
     await post(app, "/api/agents/claim/mine-1", { agentId: "a1" });
-    await post(app, "/api/agents/release/mine-1", { agentId: "a1", result: "done" });
+    await post(app, "/api/agents/done/mine-1", { agentId: "a1", result: "done" });
 
     // No more work: daemon archives the story and dismisses the agent.
     const res = await app.request("/api/agents/next-work?agentId=a1");

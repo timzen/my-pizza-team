@@ -23,8 +23,9 @@ Manages stories, tasks, workflows, and agent lifecycle. Connects to coding agent
 ```
 
 - **You** create stories and tasks via the web UI or API
-- **Agent harnesses** poll for work, claim tasks, do the work, and release
-- **The daemon** enforces workflow rules, manages assignments, tracks progress
+- **Agent harnesses** poll for work, claim tasks, do the work, and mark done
+- **The daemon** admits work (one task in flight per story), advances completed
+  work, manages assignments, tracks progress
 
 📖 **New here?** See [QUICKSTART.md](QUICKSTART.md) to get running in 5 minutes.
 
@@ -151,54 +152,53 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 
 ## Workflows
 
-Workflows define the states tasks move through and who can trigger each transition.
+A workflow is an **ordered pipeline of active states** between the implicit
+`todo` and `done` buckets (see [docs/WORK-MODEL.md](docs/WORK-MODEL.md)).
+There is no transition matrix: the daemon admits one task per story into the
+pipeline (CONWIP), advances completed agent work automatically, and you can
+move any card anywhere.
 
 ### workflow.json
 
 ```json
 {
-  "states": ["todo", "in_progress", "leader_review", "done"],
-  "transitions": {
-    "todo": { "in_progress": "any" },
-    "in_progress": { "leader_review": "teammate" },
-    "leader_review": { "done": "lead", "in_progress": "lead" }
-  }
+  "states": [
+    { "name": "in_progress", "type": "agent" },
+    { "name": "leader_review", "type": "manual" }
+  ]
 }
 ```
 
-**States**: Ordered list. First = initial state for new tasks, last = terminal "done" state (override with `initialState`/`doneState`).
+**States**: Ordered. `todo` and `done` are implicit — never declared.
 
-**Transitions**: Map of `fromState → { toState: permission }`:
+| Type | Who works it | How it completes |
+|------|--------------|------------------|
+| `"agent"` | Teammates (claim → work → done) | Daemon advances automatically |
+| `"manual"` | You (or the leader agent) | You move the card onward |
 
-| Permission | Who can trigger | Use case |
-|-----------|----------------|----------|
-| `"any"` | Lead or teammate | Starting work |
-| `"teammate"` | Only agents | Autonomous work (coding, testing) |
-| `"lead"` | Only the human | Review gates, approvals |
+Tasks in agent states carry a **substatus**: `ready` (waiting for a teammate)
+or `claimed` (a teammate is on it).
 
-### Transition Instructions
+### State Personas
 
-Markdown files in the workflow directory guide agents when entering a state. Filename matches state name:
+Markdown files in the workflow directory give each **agent state** a persona —
+role framing injected into the claim prompt. Filename matches state name:
 
 ```
 workflows/default/
 ├── workflow.json
-├── in_progress.md       # Shown when entering in_progress
-└── leader_review.md     # Shown when entering leader_review
+└── in_progress.md       # The "implementer" persona for in_progress
 ```
 
-Example `leader_review.md`:
+Example `in_progress.md`:
 
 ```markdown
-## On Enter
-- Create a diff: `git diff HEAD~1 --output=/tmp/<TASKID>.diff`
-- Upload the diff using upload_attachment
-- Post a summary of what you accomplished
-
-## Exit Criteria
-- All review comments addressed
-- Lead approves or has no comments
+You are a careful implementer. Write the code the task describes,
+add tests, and keep the change minimal. Summarize what you did when
+you finish — the task advances automatically.
 ```
+
+Manual states need no persona (no prompt is ever built for them).
 
 ### Multiple Workflows
 
@@ -207,8 +207,8 @@ Define different workflows for different types of work:
 ```
 workflows/
 ├── default/         # Standard dev: todo → in_progress → review → done
-├── bugfix/          # Simplified: todo → fixing → done
-└── doc-writing/     # idea → outline → write → edit → publish
+├── bugfix/          # Simplified: [fixing]
+└── doc-writing/     # [outline, write, edit] with a manual publish gate
 ```
 
 Assign a workflow when creating a story (required).
@@ -217,14 +217,16 @@ Assign a workflow when creating a story (required).
 
 ## Agent Protocol
 
-Agents use a simple claim/release loop. The daemon handles all state transitions:
+Agents use a poll → claim → work → done loop. Workers never move tasks — the
+daemon advances completed work and admits new tasks (CONWIP):
 
 ```
 1. POST /api/agents/register       → register with daemon
 2. GET  /api/agents/next-work      → { task: { id, storyId, title } | null }
-3. POST /api/agents/claim/:id      → assigns + transitions to working state
-   (agent does the work)
-4. POST /api/agents/release/:id    → advances state, stores result, releases
+3. POST /api/agents/claim/:id      → lease + persona prompt (substatus → claimed)
+   (agent does the work, in the story's directory)
+4. POST /api/agents/done/:id       → daemon advances the task, stores result
+   or: POST /api/agents/return/:id → can't proceed: back to ready + comment
 5. POST /api/agents/heartbeat      → keep-alive
 ```
 

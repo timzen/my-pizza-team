@@ -51,38 +51,50 @@ export interface TeammateConfig {
   nouns?: string[];
 }
 
+/**
+ * A workflow is an ordered list of **active states** between the implicit
+ * `todo` and `done` buckets (see docs/WORK-MODEL.md). There is no transition
+ * matrix: the daemon advances completed agent-state tasks to the next state
+ * mechanically, admission pulls from `todo` (CONWIP), and humans/the leader
+ * may move any task anywhere.
+ */
 export interface WorkflowConfig {
-  states: string[];
-  transitions: Record<string, Record<string, TransitionPermission>>;
-  /** The state tasks start in (defaults to first state in states array) */
-  initialState?: string;
-  /** The terminal state meaning work is complete (defaults to last state in states array) */
-  doneState?: string;
-  /** Instruction files per state (relative to workflow directory) */
-  instructions?: Record<string, string>;
+  states: WorkflowState[];
 }
 
-export type TransitionPermission = "any" | "teammate" | "lead";
+export interface WorkflowState {
+  /** State name (must not be the reserved bucket names "todo"/"done"). */
+  name: string;
+  /**
+   * - `agent`: worked by teammates via the claim protocol (has substatus,
+   *   and an optional persona markdown file `workflows/<wf>/<name>.md`).
+   * - `manual`: worked by a human/leader; moving the card onward is the
+   *   completion. No substatus, no persona.
+   */
+  type: "agent" | "manual";
+}
+
+/** Implicit bucket states present in every workflow (never in config). */
+export const TODO_STATE = "todo";
+export const DONE_STATE = "done";
+
+/** A task's within-state position. Only tasks in agent states have one. */
+export type TaskSubstatus = "ready" | "claimed";
 
 /**
  * A capability/requirement map.
  *
  * Used two ways:
  * - On an agent (Member.capabilities): the capabilities the agent *has*.
- *   Keys are capability names, values are optional detail (e.g. a version,
- *   or the agent's working directory for the well-known `directory` key).
+ *   Keys are capability names, values are optional detail (e.g. a version).
  * - On a story (Story.requirements): the capabilities a story *needs*.
  *   A `null` value means "agent must have this capability, any value";
  *   a non-null value means "agent's value for this capability must match exactly".
  *
- * There is no special case for working directory: it is simply the well-known
- * `directory` capability (see DIRECTORY_CAP) whose required value is matched
- * exactly. See docs/DESIGN.md "Capability-Based Work Matching".
+ * Note: a story's working directory is NOT a capability — it's the plain
+ * `Story.directory` field; agents `cd` there (see docs/WORK-MODEL.md).
  */
 export type Capabilities = Record<string, string | null>;
-
-/** Well-known capability key for an agent's working directory / a story's directory affinity. */
-export const DIRECTORY_CAP = "directory";
 
 /**
  * How an agent selects which work to pick up.
@@ -133,6 +145,11 @@ export interface Story {
   dependsOn: string[];
   /** Capabilities an agent must have to work this story (see Capabilities). */
   requirements?: Capabilities;
+  /**
+   * Where the work happens. Plain data (not a matching key): the task prompt
+   * instructs the agent to `cd` here and read the repo's AGENTS.md first.
+   */
+  directory?: string;
   /** When true, the story's tasks are not handed out to agents (temporal gate). */
   paused?: boolean;
   workflow?: string;
@@ -160,7 +177,10 @@ export interface Task {
   id: string;
   title: string;
   description: string;
+  /** Workflow position: an active state name, or the "todo"/"done" buckets. */
   status: string;
+  /** Within-state position; only present for tasks in agent states. */
+  substatus?: TaskSubstatus | null;
   result: string | null;
   /** Context-library entry ids attached to this task (injected into its prompt). */
   context?: string[];
@@ -219,12 +239,10 @@ export const DEFAULT_CONFIG: TeamConfig = {
   defaultWorkflow: "default",
   workflows: {
     default: {
-      states: ["todo", "in_progress", "review", "done"],
-      transitions: {
-        todo: { in_progress: "any" },
-        in_progress: { review: "teammate" },
-        review: { done: "lead", in_progress: "lead" },
-      },
+      states: [
+        { name: "in_progress", type: "agent" },
+        { name: "review", type: "manual" },
+      ],
     },
   },
   autosave: {
@@ -239,11 +257,6 @@ export const DEFAULT_CONFIG: TeamConfig = {
   assistantTurnDebounceSeconds: 5,
   teammates: {},
 };
-
-export interface TransitionInstructions {
-  onEnter?: string;
-  onExit?: string;
-}
 
 export const TEAM_DIR = ".my-pizza-team";
 export const CONFIG_FILE = "config.json";
@@ -260,16 +273,6 @@ export function slugify(text: string): string {
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-|-$/g, "")
     .slice(0, 40);
-}
-
-/** Get the initial state for a workflow (first state unless overridden) */
-export function getInitialState(wf: WorkflowConfig): string {
-  return wf.initialState || wf.states[0] || "todo";
-}
-
-/** Get the done/terminal state for a workflow (last state unless overridden) */
-export function getDoneState(wf: WorkflowConfig): string {
-  return wf.doneState || wf.states[wf.states.length - 1] || "done";
 }
 
 /** Default adjectives for teammate name generation */

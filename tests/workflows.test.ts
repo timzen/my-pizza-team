@@ -34,9 +34,11 @@ Deno.test("GET /api/workflows returns workflow summaries", async () => {
 
   const defaultWf = body.find((w: { name: string }) => w.name === "default");
   assertEquals(defaultWf.name, "default");
-  assertEquals(defaultWf.stateCount, 4);
-  assertEquals(typeof defaultWf.transitionCount, "number");
-  assertEquals(defaultWf.transitionCount > 0, true);
+  // Default workflow: in_progress (agent) → review (manual); todo/done are
+  // implicit buckets, not states.
+  assertEquals(defaultWf.stateCount, 2);
+  assertEquals(defaultWf.agentCount, 1);
+  assertEquals(defaultWf.manualCount, 1);
   assertEquals(defaultWf.isDefault, true);
 });
 
@@ -46,8 +48,10 @@ Deno.test("GET /api/workflows/:name returns full workflow config", async () => {
 
   const body = await res.json();
   assertEquals(Array.isArray(body.states), true);
-  assertEquals(body.states.length, 4);
-  assertEquals(typeof body.transitions, "object");
+  assertEquals(body.states.length, 2);
+  assertEquals(body.states[0].name, "in_progress");
+  assertEquals(body.states[0].type, "agent");
+  assertEquals(body.states[1].type, "manual");
 });
 
 Deno.test("GET /api/workflows/:name returns 404 for unknown workflow", async () => {

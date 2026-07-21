@@ -15,7 +15,8 @@ import { Plus, ArrowRight } from "lucide-react";
 interface WorkflowSummary {
   name: string;
   stateCount: number;
-  transitionCount: number;
+  agentCount: number;
+  manualCount: number;
   isDefault: boolean;
 }
 
@@ -59,8 +60,10 @@ export function WorkflowsPage() {
 
     try {
       const newWorkflow = {
-        states: ["todo", "done"],
-        transitions: { todo: { done: "any" } },
+        states: [
+          { name: "in_progress", type: "agent" },
+          { name: "review", type: "manual" },
+        ],
       };
       const updatedConfig = {
         ...config,
@@ -95,7 +98,7 @@ export function WorkflowsPage() {
               </div>
               <div className="flex items-center gap-4 text-sm text-muted-foreground">
                 <span>{wf.stateCount} states</span>
-                <span>{wf.transitionCount} transitions</span>
+                <span>{wf.agentCount} agent · {wf.manualCount} manual</span>
                 <ArrowRight className="h-4 w-4" />
               </div>
             </CardContent>
@@ -132,7 +135,7 @@ export function WorkflowsPage() {
           </div>
           {newName.trim() && (
             <p className="text-xs text-muted-foreground">
-              Will be created as: <code className="bg-muted px-1 py-0.5 rounded">{slugify(newName.trim())}</code> with states [todo, done]
+              Will be created as: <code className="bg-muted px-1 py-0.5 rounded">{slugify(newName.trim())}</code> with states [in_progress · agent, review · manual]
             </p>
           )}
           {error && <p className="text-xs text-destructive">{error}</p>}

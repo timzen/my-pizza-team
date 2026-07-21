@@ -10,6 +10,7 @@ import type { RouteContext } from "./types.ts";
 import type { WorkflowConfig } from "../../shared/types.ts";
 import { DEFAULT_NOUNS } from "../../shared/types.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
+import { validateWorkflow } from "../workflow-engine.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -106,6 +107,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       config.defaultWorkflow = body.defaultWorkflow;
 
       for (const [name, wf] of Object.entries(body.workflows)) {
+        const invalid = validateWorkflow(wf as WorkflowConfig);
+        if (invalid) return c.json({ success: false, error: `Workflow "${name}": ${invalid}` }, 400);
         store.saveWorkflow(name, wf as WorkflowConfig);
       }
       store.reloadWorkflows();
@@ -180,10 +183,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   app.get("/api/workflows", (c) => {
     const workflows = store.getWorkflows();
     const summaries = Object.entries(workflows).map(([name, wf]) => {
-      const transitionCount = Object.values(wf.transitions).reduce(
-        (sum, t) => sum + Object.keys(t).length, 0
-      );
-      return { name, stateCount: wf.states.length, transitionCount, isDefault: name === config.defaultWorkflow };
+      const agentCount = wf.states.filter((s) => s.type === "agent").length;
+      return { name, stateCount: wf.states.length, agentCount, manualCount: wf.states.length - agentCount, isDefault: name === config.defaultWorkflow };
     });
     return c.json(summaries);
   });

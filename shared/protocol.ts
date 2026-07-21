@@ -31,6 +31,8 @@ export interface StoryView {
   dependsOn: string[];
   ready: boolean;
   requirements?: Record<string, string | null>;
+  /** Where the work happens (plain data; agents cd here — see WORK-MODEL.md). */
+  directory?: string;
   paused?: boolean;
   workflow?: string;
   context?: string[];
@@ -42,6 +44,8 @@ export interface TaskView {
   seq: number;
   title: string;
   status: string;
+  /** Within-state position for agent states: 'ready' | 'claimed' (see WORK-MODEL.md). */
+  substatus?: "ready" | "claimed" | null;
   description?: string;
   context?: string[];
   assignee: string | null;
@@ -56,7 +60,7 @@ export interface PostCommentResponse { success: boolean }
 export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/stories
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null>; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[] }> }
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null>; directory?: string; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[] }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // POST /api/stories/:storyId/tasks
@@ -84,7 +88,7 @@ export interface TokenUsageResponse { success: boolean; costUsd?: number; error?
 
 
 // PUT /api/stories/:id
-export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null> | null; paused?: boolean; workflow?: string | null; context?: string[] | null }
+export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null> | null; directory?: string | null; paused?: boolean; workflow?: string | null; context?: string[] | null }
 export interface UpdateStoryResponse { success: boolean; error?: string }
 
 // DELETE /api/stories/:id
@@ -182,6 +186,15 @@ export interface AgentClaimResponse { success: boolean; error?: string; task?: {
 // POST /api/agents/release/:taskId
 export interface AgentReleaseRequest { agentId: string; result?: string }
 export interface AgentReleaseResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
+
+// POST /api/agents/done/:taskId — work complete; the daemon advances the task.
+// (Same contract as the deprecated /release alias.)
+export interface AgentDoneRequest { agentId: string; result?: string }
+export interface AgentDoneResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
+
+// POST /api/agents/return/:taskId — agent gives up; task returns to ready.
+export interface AgentReturnRequest { agentId: string; comment?: string }
+export interface AgentReturnResponse { success: boolean; error?: string }
 
 // GET /api/agents/comments/:taskId
 export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }

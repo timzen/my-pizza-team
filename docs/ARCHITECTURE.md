@@ -24,14 +24,14 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `main.ts` — Entry point. Reads PORT/HOST/TEAM_DIR from env, validates bind safety, starts `Deno.serve()`.
 - `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
 - `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
-- `workflow-engine.ts` — Centralized workflow state machine logic: `getClaimTarget()`, `getReleaseTarget()`, `canTransition()`, `getExitState()`, `isWorkableByAgent()`, `isDone()`.
+- `workflow-engine.ts` — Workflow position logic for the state/substatus model (docs/WORK-MODEL.md): `activeStateNames()`, `isAgentState()`, `firstActiveState()`, `nextState()`, `entrySubstatus()`, `boardColumns()`, `isValidPosition()`, `validateWorkflow()`. No transition matrix, no permission checks — the store applies the two mechanical rules (advance + admission) and humans may move tasks anywhere.
 - `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. **Task order is owned by the story** (`Story.taskOrder`, an array of task IDs in story.json); `getTasksForStory()` reconciles it against the tasks on disk (listed order first, orphans appended by creation `seq`, danglers ignored) and `reorderTasks()` just rewrites `taskOrder` — task IDs, titles, and directories are untouched. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`. Self-contained concerns are split into `store/`:
   - `store/context.ts` — context library (reusable prompt/context entries as markdown files under `context/`, with `title`/`description`/`tags` frontmatter). Entries can be **attached to stories/tasks** (`story.context` / `task.context`, arrays of entry ids); `store.resolveTaskContext()` merges + dedupes them for prompt injection.
   - `store/scratchpad.ts` — personal scratch pad kept as plain files under the team dir (no SQLite): `todo.jsonl` (one `{status,item,created,completed}` per line, addressed by index) + `notes.md` (free-form markdown).
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
-- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim, release, comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
-- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (Story → Task → reference context → prior-task context → lead comments → state guidance → transition instructions for leaving the previous state and entering the working state). **Reference context** is the set of context-library entries attached to the story and/or task (resolved + deduped by `store.resolveTaskContext`), inlined verbatim so every harness gets the same material. Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored instruction headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
+- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim (lease), **done** (work complete → daemon advances; `release` kept as deprecated alias), **return** (give up → back to ready + comment), comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
+- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (**state persona** → Story → working-directory instruction (cd + read that repo's AGENTS.md) → Task → reference context → prior-task context → lead comments → completion guidance). The state persona is the markdown at `workflows/<wf>/<state>.md` — role framing for whoever works that state. There are no transition instructions: workers never move tasks (docs/WORK-MODEL.md). **Reference context** is the set of context-library entries attached to the story and/or task (resolved + deduped by `store.resolveTaskContext`), inlined verbatim so every harness gets the same material. Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
 - `workflow-lint.ts` — `validateInstructionMarkdown()`: lints authored state-instruction markdown. Unbalanced code fences are **errors** (they'd swallow the rest of the prompt) and block the save; shallow headings and stray `---` rules are **warnings** (the prompt builder normalizes headings anyway).
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
 - `routes/stories.ts` — Story CRUD, archive, backlog.
@@ -89,7 +89,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/stories/:id/backlog` | Move story to backlog |
 | POST | `/api/stories/:storyId/tasks` | Add a task to a story |
 | POST | `/api/stories/:storyId/tasks/reorder` | Reorder a story's tasks (`{ order: [taskId, ...] }`) |
-| POST | `/api/tasks/:id/move` | Lead moves a task to new status |
+| POST | `/api/tasks/:id/move` | Judgment move (human/leader): put a task anywhere in its workflow; entering an agent state resets substatus + clears the lease |
 | PUT | `/api/tasks/:id` | Update task title/description |
 | DELETE | `/api/tasks/:id` | Delete a task |
 | POST | `/api/tasks/:id/comment` | Post a comment on a task |
@@ -124,7 +124,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |
 | GET | `/api/spawn-requests` | List pending `spawn` directives across all hosts (name, cwd, hostId, createdAt) — surfaces stuck spawns in the UI |
 | DELETE | `/api/spawn-requests/:id` | Cancel a pending spawn request (marks it `cancelled` so the leader stops retrying) |
-| GET | `/api/workflows` | List workflow summaries (name, stateCount, transitionCount, isDefault) |
+| GET | `/api/workflows` | List workflow summaries (name, stateCount, agentCount, manualCount, isDefault) |
 | GET | `/api/workflows/:name` | Get full WorkflowConfig for a workflow |
 | GET | `/api/workflows/:name/instructions/:filename` | Read a workflow instruction markdown file |
 | PUT | `/api/workflows/:name/instructions/:filename` | Write/update a workflow instruction markdown file. Lints content: unbalanced code fences are errors (rejected, 400); shallow headings / `---` return `warnings` on success. |
@@ -137,9 +137,11 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | DELETE | `/api/capabilities/:name` | Remove a key, or one value with `?value=X` |
 | POST | `/api/agents/register` | Register an agent (`capabilities` map, `workMode`, `assignedStoryId`, opaque `metadata`) |
 | POST | `/api/agents/heartbeat` | Agent heartbeat |
-| GET | `/api/agents/next-work?agentId=X` | Poll for workable tasks; returns `{ task: null, dismiss: true }` when an `assigned-story` agent's story is exhausted (daemon archives it) |
-| POST | `/api/agents/claim/:taskId` | Claim task and transition to working state |
-| POST | `/api/agents/release/:taskId` | Finish work, advance state, release ownership |
+| GET | `/api/agents/next-work?agentId=X` | Poll for a `ready` agent-state task; returns `{ task: null, dismiss: true }` when an `assigned-story` agent's story is exhausted (daemon archives it) |
+| POST | `/api/agents/claim/:taskId` | Lease a ready task (substatus → claimed) and get the persona prompt |
+| POST | `/api/agents/done/:taskId` | Work complete → daemon advances the task (admission may admit the next) |
+| POST | `/api/agents/release/:taskId` | Deprecated alias for done |
+| POST | `/api/agents/return/:taskId` | Give up → task back to `ready` (+ optional comment) |
 | GET | `/api/agents/comments/:taskId` | Get task comments |
 | POST | `/api/agents/comments/:taskId` | Post a comment on a task |
 | GET | `/api/agents` | List all registered agents |
@@ -147,20 +149,22 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 
 ## Agent Lifecycle
 
-Agents use a simple claim/release loop. The daemon handles all state transitions:
+Agents use a poll → claim → work → done loop (see docs/WORK-MODEL.md). Workers
+never move tasks: the daemon owns admission (CONWIP) and advance.
 
 ```
-1. Poll GET /api/agents/next-work → finds unclaimed task with teammate transitions
-2. POST /api/agents/claim/:taskId → assigns ownership + transitions to working state
-3. Agent does the work
-4. POST /api/agents/release/:taskId → advances to next state, releases ownership
+1. Poll GET /api/agents/next-work → a task sitting `ready` in an agent state
+2. POST /api/agents/claim/:taskId → lease (substatus → claimed) + persona prompt
+3. Agent does the work (cd to the story's directory)
+4a. POST /api/agents/done/:taskId   → daemon advances to the next state
+4b. POST /api/agents/return/:taskId → give up: back to `ready` + comment
 5. Agent polls again (repeat)
 ```
 
-If the lead needs to act (e.g., review→done is lead-only), the release advances
-to that state anyway and the task leaves the agent's hands. If the lead sends
-the task back (e.g., review→coding with comments), the agent discovers it on
-the next poll, claims it again, and sees the comments.
+Manual states (e.g. review) belong to humans/the leader: moving the card onward
+is the completion. Rework is a judgment move back into an agent state — it
+resets substatus to `ready`, so re-entry is indistinguishable from first entry;
+the agent discovers it on the next poll and sees the comments.
 
 Comments are task-level, not real-time chat. Agents load them when
 starting work to see lead feedback or rework instructions.

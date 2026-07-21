@@ -1,5 +1,6 @@
 /**
- * tests/prompt.test.ts — Verifies the canonical task prompt assembly.
+ * tests/prompt.test.ts — Verifies the canonical task prompt assembly
+ * (state persona + story/task context; see docs/WORK-MODEL.md).
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
@@ -7,10 +8,10 @@ import { buildTaskPrompt } from "../daemon/prompt.ts";
 
 Deno.test("buildTaskPrompt: assembles sections in order", () => {
   const out = buildTaskPrompt({
-    story: { id: "auth", title: "Add Auth", description: "Story desc." },
+    story: { id: "auth", title: "Add Auth", description: "Story desc.", directory: "/tmp/proj" },
     task: { id: "auth-1", storyId: "auth", title: "Auth module", description: "Task desc." },
-    guidance: "You are entering the 'in_progress' state. When your work is complete, release the task and it will advance to 'review'.",
-    transition: { fromState: "review", toState: "in_progress", exit: "REVIEW EXIT NOTES", enter: "## On Enter\n- do the thing" },
+    state: "in_progress",
+    persona: "## Implementer\n- write the code",
     previousResults: "[Earlier]: done",
     comments: [
       { from: "lead", body: "Please add tests.", at: "t" },
@@ -18,62 +19,60 @@ Deno.test("buildTaskPrompt: assembles sections in order", () => {
     ],
   });
 
-  // Story precedes Task, which precedes context/comments/state.
+  // Role (persona) first, then Story → Directory → Task → prev → comments → completion.
+  const iRole = out.indexOf("## Your Role: in_progress");
   const iStory = out.indexOf("## Story: Add Auth");
+  const iDir = out.indexOf("## Working Directory");
   const iTask = out.indexOf("## Task: Auth module");
   const iPrev = out.indexOf("## Context from previous tasks");
   const iLead = out.indexOf("## Comments from Team Lead");
-  const iState = out.indexOf("## State Context");
-  const iInstr = out.indexOf("### Instructions:");
-  assertEquals(iStory >= 0 && iStory < iTask, true);
-  assertEquals(iTask < iPrev && iPrev < iLead && iLead < iState && iState < iInstr, true);
+  const iDone = out.indexOf("## Completing This Task");
+  assertEquals(iRole >= 0 && iRole < iStory, true);
+  assertEquals(iStory < iDir && iDir < iTask && iTask < iPrev && iPrev < iLead && iLead < iDone, true);
+
+  // Persona headings are demoted so they nest under the Role section.
+  assertStringIncludes(out, "### Implementer");
+  assertStringIncludes(out, "write the code");
+
+  // Directory instruction includes cd + AGENTS.md guidance.
+  assertStringIncludes(out, "/tmp/proj");
+  assertStringIncludes(out, "AGENTS.md");
 
   // Only lead comments are surfaced.
   assertStringIncludes(out, "> Please add tests.");
   assertEquals(out.includes("ignored"), false);
 
-  // Both leaving (exit) and entering (enter) instructions are surfaced, nested
-  // under State Context as `###`.
-  assertStringIncludes(out, "### Instructions: review");
-  assertStringIncludes(out, "REVIEW EXIT NOTES");
-  assertStringIncludes(out, "### Instructions: in_progress");
-  assertStringIncludes(out, "do the thing");
-  // The enter file's `## On Enter` is demoted to `#### On Enter` (nested under ###).
-  assertStringIncludes(out, "#### On Enter");
-
-  // No session-specific framing in the canonical prompt.
-  assertEquals(out.includes("Ignore any task IDs"), false);
+  // Workers never move tasks: completion guidance says so.
+  assertStringIncludes(out, "the task advances automatically");
+  assertEquals(out.includes("release the task"), false);
 });
 
-Deno.test("buildTaskPrompt: skips exit instructions on a same-state re-claim", () => {
+Deno.test("buildTaskPrompt: default role framing when the state has no persona", () => {
   const out = buildTaskPrompt({
     task: { id: "x-1", storyId: "x", title: "T", description: "D" },
-    guidance: "You are entering the 'coding' state.",
-    transition: { fromState: "coding", toState: "coding", exit: "CODING FILE", enter: "CODING FILE" },
+    state: "coding",
   });
-  // Leaving/entering are the same state — show the instructions once.
-  assertStringIncludes(out, "### Instructions: coding");
-  assertEquals(out.split("### Instructions: coding").length - 1, 1);
-  assertEquals(out.split("CODING FILE").length - 1, 1);
+  assertStringIncludes(out, "## Your Role: coding");
+  assertStringIncludes(out, "'coding' state");
 });
 
 Deno.test("buildTaskPrompt: omits optional sections cleanly", () => {
   const out = buildTaskPrompt({
     task: { id: "x-1", storyId: "x", title: "T", description: "D" },
-    guidance: "You are entering the 'todo' state. When your work is complete, release the task.",
+    state: "work",
   });
   assertEquals(out.includes("## Story:"), false);
+  assertEquals(out.includes("## Working Directory"), false);
   assertEquals(out.includes("## Context from previous tasks"), false);
   assertEquals(out.includes("## Comments from Team Lead"), false);
-  assertEquals(out.includes("### Instructions:"), false);
   assertStringIncludes(out, "## Task: T");
-  assertStringIncludes(out, "## State Context");
+  assertStringIncludes(out, "## Completing This Task");
 });
 
 Deno.test("buildTaskPrompt: injects attached reference context", () => {
   const out = buildTaskPrompt({
     task: { id: "x-1", storyId: "x", title: "T", description: "D" },
-    guidance: "g",
+    state: "work",
     contextEntries: [
       { title: "Coding Standards", content: "Always write tests." },
       { title: "API Conventions", content: "# Heading\n\nUse REST." },
@@ -90,7 +89,7 @@ Deno.test("buildTaskPrompt: injects attached reference context", () => {
 Deno.test("buildTaskPrompt: omits reference context when none attached", () => {
   const out = buildTaskPrompt({
     task: { id: "x-1", storyId: "x", title: "T", description: "D" },
-    guidance: "g",
+    state: "work",
     contextEntries: [],
   });
   assertEquals(out.includes("## Reference Context"), false);

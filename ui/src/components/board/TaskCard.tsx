@@ -38,6 +38,8 @@ interface TaskCardProps {
     seq: number;
     title: string;
     status: string;
+    /** Within-state position for agent states: ready (waiting) or claimed (leased). */
+    substatus?: "ready" | "claimed" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };
@@ -101,6 +103,15 @@ export function TaskCard({ task, storyId, states, onView, onStatusChange }: Task
               <Badge variant="secondary" className={`text-xs ${statusColor(task.status, states)}`}>
                 {task.status.replace(/_/g, " ")}
               </Badge>
+              {task.substatus && (
+                <Badge
+                  variant="outline"
+                  className="ml-1 text-[10px] px-1 py-0"
+                  title={task.substatus === "claimed" ? "A teammate is working on this" : "Waiting for a teammate"}
+                >
+                  {task.substatus}
+                </Badge>
+              )}
               <Button
                 variant="ghost"
                 size="icon"

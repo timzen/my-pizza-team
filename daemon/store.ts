@@ -16,14 +16,14 @@
 import { Database } from "@db/sqlite";
 import {
   slugify,
-  getInitialState,
-  getDoneState,
   DEFAULT_CONFIG,
   generateTeammateName,
   meetsRequirements,
   normalizeDirectory,
-  DIRECTORY_CAP,
   DEFAULT_WORK_MODE,
+  TODO_STATE,
+  DONE_STATE,
+  type TaskSubstatus,
   type Capabilities,
   type Comment,
   type Story,
@@ -35,7 +35,7 @@ import {
   type Member,
   type Assignment,
 } from "../shared/types.ts";
-import { isWorkableByAgent, canTransition as wfCanTransition } from "./workflow-engine.ts";
+import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, entrySubstatus, validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { readScratchpad, addTodo, updateTodo, deleteTodo, writeNotes, type TodoItem } from "./store/scratchpad.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
@@ -52,6 +52,7 @@ function serializeStory(story: Story): Story {
     dependsOn: story.dependsOn,
   };
   if (story.requirements && Object.keys(story.requirements).length > 0) data.requirements = story.requirements;
+  if (story.directory) data.directory = story.directory;
   if (story.paused) data.paused = true;
   if (story.workflow) data.workflow = story.workflow;
   if (story.context && story.context.length > 0) data.context = story.context;
@@ -135,7 +136,9 @@ export class Store {
         if (!existsSync(wfFile)) continue;
         try {
           const wf: WorkflowConfig = JSON.parse(Deno.readTextFileSync(wfFile));
-          this.workflows[entry.name] = wf;
+          // Only accept the state/substatus shape (see docs/WORK-MODEL.md);
+          // malformed or legacy transition-matrix files are skipped.
+          if (validateWorkflow(wf) === null) this.workflows[entry.name] = wf;
         } catch {
           // Skip malformed workflow files
         }
@@ -189,6 +192,7 @@ export class Store {
         workflow TEXT,
         context TEXT DEFAULT '[]',
         task_order TEXT DEFAULT '[]',
+        directory TEXT,
         dir_path TEXT
       );
 
@@ -200,6 +204,7 @@ export class Store {
         title TEXT,
         description TEXT,
         status TEXT DEFAULT 'todo',
+        substatus TEXT,
         result TEXT,
         context TEXT DEFAULT '[]',
         dir_path TEXT,
@@ -307,6 +312,10 @@ export class Store {
     if (!storyColumns.some((col) => col.name === "task_order")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN task_order TEXT DEFAULT '[]'");
     }
+    // Work-model: the story's working directory is plain data (see docs/WORK-MODEL.md).
+    if (!storyColumns.some((col) => col.name === "directory")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN directory TEXT");
+    }
 
     // Assistant chat model migration: `turn_id` groups messages under a
     // response turn (added when the 1:1 placeholder model was replaced by the
@@ -319,6 +328,10 @@ export class Store {
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
     if (!taskColumns.some((col) => col.name === "last_read_at")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN last_read_at INTEGER");
+    }
+    // Work-model: within-state position for tasks in agent states (see docs/WORK-MODEL.md).
+    if (!taskColumns.some((col) => col.name === "substatus")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN substatus TEXT");
     }
     if (!taskColumns.some((col) => col.name === "context")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT '[]'");
@@ -381,26 +394,52 @@ export class Store {
         this.upsertTask(task, story.id, seq, slug, taskDirPath);
       }
     }
+
+    // Reconcile positions and run admission so every ready story has its one
+    // in-flight task (CONWIP). Tolerates hand-edited JSON.
+    this.reconcilePositions();
+    for (const story of this.getStories()) this.runAdmission(story.id);
+  }
+
+  /**
+   * Defensive position cleanup after a disk load: a task sitting in an agent
+   * state must carry a substatus (`claimed` if assigned, else `ready`); tasks
+   * in manual states or buckets must carry none.
+   */
+  private reconcilePositions(): void {
+    for (const story of this.getStories()) {
+      const wf = this.getWorkflowForStory(story.id);
+      for (const task of this.getTasksForStory(story.id)) {
+        if (isAgentState(wf, task.status)) {
+          if (!task.substatus) {
+            const assigned = !!this.getAssignment(task.id);
+            this.db.prepare("UPDATE tasks SET substatus = ? WHERE id = ?").run(assigned ? "claimed" : "ready", task.id);
+          }
+        } else if (task.substatus) {
+          this.db.prepare("UPDATE tasks SET substatus = NULL WHERE id = ?").run(task.id);
+        }
+      }
+    }
   }
 
   private upsertStory(story: Story, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, context, task_order, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, context, task_order, directory, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
       JSON.stringify(story.dependsOn), JSON.stringify(story.requirements || {}),
       story.paused ? 1 : 0,
       story.workflow || null, JSON.stringify(story.context || []),
-      JSON.stringify(story.taskOrder || []), dirPath
+      JSON.stringify(story.taskOrder || []), story.directory || null, dirPath
     );
   }
 
   private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, result, context, dir_path, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
-    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.result, JSON.stringify(task.context || []), dirPath);
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, substatus, result, context, dir_path, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.substatus || null, task.result, JSON.stringify(task.context || []), dirPath);
   }
 
   // --- Stories ---
@@ -418,6 +457,7 @@ export class Store {
       workflow: (row.workflow as string) || undefined,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       taskOrder: row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : undefined,
+      directory: (row.directory as string) || undefined,
       dirPath: row.dir_path as string,
     };
   }
@@ -432,6 +472,7 @@ export class Store {
       title: row.title as string,
       description: row.description as string,
       status: row.status as string,
+      substatus: (row.substatus as TaskSubstatus) || null,
       result: row.result as string | null,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       dirPath: row.dir_path as string,
@@ -458,7 +499,8 @@ export class Store {
     requirements?: Capabilities,
     workflow?: string,
     context?: string[],
-    paused?: boolean
+    paused?: boolean,
+    directory?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storiesDir = path.join(this.teamDir, "stories");
     const storyDirPath = path.join(storiesDir, id);
@@ -467,11 +509,9 @@ export class Store {
 
     const storyData: Story = { id, title, description, status, dependsOn };
     if (requirements && Object.keys(requirements).length > 0) {
-      // Normalize the well-known directory requirement for exact matching.
-      const reqs: Capabilities = { ...requirements };
-      if (typeof reqs[DIRECTORY_CAP] === "string") reqs[DIRECTORY_CAP] = normalizeDirectory(reqs[DIRECTORY_CAP] as string);
-      storyData.requirements = reqs;
+      storyData.requirements = { ...requirements };
     }
+    if (directory) storyData.directory = normalizeDirectory(directory);
     if (paused) storyData.paused = true;
     if (workflow) storyData.workflow = workflow;
     if (context && context.length > 0) storyData.context = context;
@@ -483,10 +523,9 @@ export class Store {
 
     const createdTasks: TaskWithMeta[] = [];
 
-    // Resolve initial task status from the story's workflow (falls back to defaultWorkflow for direct store calls)
-    const wfName = workflow || this.config.defaultWorkflow;
-    const wf = this.workflows[wfName] || this.workflows[this.config.defaultWorkflow]!;
-    const initialStatus = getInitialState(wf);
+    // Every task starts in the implicit `todo` bucket; admission (CONWIP)
+    // pulls the first one into the workflow's first active state below.
+    const initialStatus = TODO_STATE;
 
     if (tasks && tasks.length > 0) {
       const tasksDir = path.join(storyDirPath, "tasks");
@@ -532,6 +571,9 @@ export class Store {
       this.upsertStory(storyData, storyDirPath);
     }
 
+    // Admit the first task into the pipeline (no-op for paused/dependent stories).
+    this.runAdmission(id);
+
     return { story: storyData, tasks: createdTasks };
   }
 
@@ -564,6 +606,7 @@ export class Store {
     paused?: boolean;
     workflow?: string | null;
     context?: string[] | null;
+    directory?: string | null;
   }): boolean {
     const story = this.getStory(storyId);
     if (!story) return false;
@@ -572,17 +615,17 @@ export class Store {
     const newDescription = updates.description ?? story.description;
     const newStatus = updates.status ?? story.status;
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
-    let newRequirements = updates.requirements !== undefined ? (updates.requirements || undefined) : story.requirements;
-    if (newRequirements && typeof newRequirements[DIRECTORY_CAP] === "string") {
-      newRequirements = { ...newRequirements, [DIRECTORY_CAP]: normalizeDirectory(newRequirements[DIRECTORY_CAP] as string) };
-    }
+    const newRequirements = updates.requirements !== undefined ? (updates.requirements || undefined) : story.requirements;
     const newPaused = updates.paused !== undefined ? updates.paused : (story.paused || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
     const newContext = updates.context !== undefined ? (updates.context || []) : (story.context || []);
+    const newDirectory = updates.directory !== undefined
+      ? (updates.directory ? normalizeDirectory(updates.directory) : null)
+      : (story.directory || null);
 
     this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, context = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), storyId);
+      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, context = ?, directory = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
     this.recordCapabilities(newRequirements || undefined);
 
     // Write back to disk
@@ -594,12 +637,16 @@ export class Store {
       status: newStatus,
       dependsOn: newDependsOn,
       requirements: newRequirements,
+      directory: newDirectory || undefined,
       paused: newPaused,
       workflow: newWorkflow || undefined,
       context: newContext,
       taskOrder: story.taskOrder,
     });
     Deno.writeTextFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
+
+    // Unpausing (or dependency edits) may make the story admissible.
+    this.runAdmission(storyId);
 
     return true;
   }
@@ -659,25 +706,59 @@ export class Store {
     return this.rowToTask(row);
   }
 
-  updateTaskStatus(taskId: string, status: string, result?: string): void {
+  /**
+   * Low-level position setter: writes (status, substatus) [+ result], keeps the
+   * story's open/done status in sync. All position changes flow through here.
+   */
+  private setTaskPosition(taskId: string, status: string, substatus: TaskSubstatus | null, result?: string): void {
     if (result !== undefined) {
-      this.db.prepare("UPDATE tasks SET status = ?, result = ?, dirty = 1 WHERE id = ?").run(status, result, taskId);
+      this.db.prepare("UPDATE tasks SET status = ?, substatus = ?, result = ?, dirty = 1 WHERE id = ?").run(status, substatus, result, taskId);
     } else {
-      this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
+      this.db.prepare("UPDATE tasks SET status = ?, substatus = ?, dirty = 1 WHERE id = ?").run(status, substatus, taskId);
     }
 
-    // Check if story is complete (all tasks in their workflow's done state)
     const task = this.getTask(taskId);
-    if (task) {
-      const wf = this.getWorkflowForStory(task.storyId);
-      const doneState = getDoneState(wf);
-      if (status === doneState) {
-        const tasks = this.getTasksForStory(task.storyId);
-        if (tasks.every((t) => t.status === doneState)) {
-          this.updateStoryStatus(task.storyId, "done");
-        }
-      }
+    if (!task) return;
+    const story = this.getStory(task.storyId);
+    if (!story) return;
+    if (status === DONE_STATE) {
+      const tasks = this.getTasksForStory(task.storyId);
+      if (tasks.every((t) => t.status === DONE_STATE)) this.updateStoryStatus(task.storyId, "done");
+    } else if (story.status === "done") {
+      // A task moved back out of `done` reopens the story.
+      this.updateStoryStatus(task.storyId, "open");
     }
+  }
+
+  /**
+   * Set a task's status, deriving the substatus for the target position.
+   * (Compatibility wrapper; judgment moves should use `moveTask`.)
+   */
+  updateTaskStatus(taskId: string, status: string, result?: string): void {
+    const task = this.getTask(taskId);
+    if (!task) return;
+    const wf = this.getWorkflowForStory(task.storyId);
+    this.setTaskPosition(taskId, status, entrySubstatus(wf, status), result);
+  }
+
+  /**
+   * Judgment move (human or leader agent): put a task anywhere in its
+   * workflow's positions. Entering an agent state resets substatus to `ready`
+   * and clears any assignment — re-entry ≡ first entry (rework path). Runs
+   * admission excluding the moved task, so shelving a task to `todo` doesn't
+   * bounce it straight back in (the *next* task may be admitted instead).
+   */
+  moveTask(taskId: string, newStatus: string): { ok: boolean; error?: string } {
+    const task = this.getTask(taskId);
+    if (!task) return { ok: false, error: "Task not found" };
+    const wf = this.getWorkflowForStory(task.storyId);
+    if (!isValidPosition(wf, newStatus)) {
+      return { ok: false, error: `"${newStatus}" is not a state in this story's workflow` };
+    }
+    this.setTaskPosition(taskId, newStatus, entrySubstatus(wf, newStatus));
+    this.releaseTask(taskId);
+    this.runAdmission(task.storyId, taskId);
+    return { ok: true };
   }
 
   updateTaskDetails(taskId: string, updates: { title?: string; description?: string; context?: string[] | null }): boolean {
@@ -709,6 +790,9 @@ export class Store {
       this.persistTaskOrder(storyId, story.taskOrder.filter(id => id !== taskId));
     }
 
+    // Deleting the in-flight task frees the CONWIP token.
+    this.runAdmission(storyId);
+
     return true;
   }
 
@@ -732,33 +816,27 @@ export class Store {
 
   /**
    * Find the next available task for a teammate.
-   * Rules:
-   * - Story must be ready (all dependencies met)
-   * - Task must have a valid teammate/any transition from its current state
-   * - Must not already be assigned
-   * - Within a story, tasks are sequential: only the first eligible task is returned
+   * (Alias kept for API stability; see getNextWorkableTask.)
    */
   getNextAvailableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): TaskWithMeta | null {
     return this.getNextWorkableTask(agent);
   }
 
   /**
-   * Find the next workable task for an agent.
-   * A task is "workable" if:
-   * - Its story is ready (dependencies met) and not paused
-   * - The agent's capabilities satisfy the story's requirements (the
-   *   working directory is just the well-known `directory` requirement)
-   * - For workMode `assigned-story`, the story is the agent's assigned story
-   * - It is NOT claimed by anyone
-   * - It has at least one "teammate" or "any" transition from its current state
-   * - It is the first non-done task in the story (sequential ordering)
+   * Find the next workable task for an agent (see docs/WORK-MODEL.md).
    *
-   * This supports multi-transition ownership: an agent picks up a task,
-   * drives it through all teammate-allowed transitions, releases when
-   * blocked by a lead-only transition, and re-picks-up when the lead
-   * moves it to a state with teammate transitions available again.
+   * A task is workable when:
+   * - Its story is ready (dependencies met), not paused, and matches the
+   *   agent's workMode (`assigned-story` agents only see their bound story)
+   * - The agent's capabilities satisfy the story's requirements (skills —
+   *   the working directory is story data, not a capability)
+   * - It sits in an **agent state** with substatus `ready` and no assignment
+   *
+   * CONWIP means a story has at most one task in its active section, so per
+   * story there is at most one candidate. Admission has already run at every
+   * mutation point; tasks in `todo` are never offered.
    */
-  getNextWorkableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): (TaskWithMeta & { availableTransitions: Array<{ state: string; permission: string }> }) | null {
+  getNextWorkableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): TaskWithMeta | null {
     const capabilities = agent?.capabilities || {};
     const workMode = agent?.workMode || DEFAULT_WORK_MODE;
     const stories = this.getStories();
@@ -771,43 +849,98 @@ export class Store {
       // assigned-story agents only work their bound story.
       if (workMode === "assigned-story" && story.id !== agent?.assignedStoryId) continue;
 
-      // The agent's capabilities must satisfy the story's requirements.
-      // Directory affinity is expressed as the well-known `directory` requirement.
+      // The agent's capabilities must satisfy the story's requirements (skills).
       if (!meetsRequirements(capabilities, story.requirements)) continue;
 
       const wf = this.getWorkflowForStory(story.id);
-      const doneState = getDoneState(wf);
+      // The story's single in-flight task (CONWIP), if any.
+      const active = this.getTasksForStory(story.id).find((t) => isActiveState(wf, t.status));
+      if (!active) continue;
+      if (!isAgentState(wf, active.status)) continue;      // manual state: a human's move
+      if (active.substatus !== "ready") continue;          // claimed (or mid-write)
+      if (this.getAssignment(active.id)) continue;         // defensive: leased
 
-      const tasks = this.getTasksForStory(story.id);
-      for (const task of tasks) {
-        // Skip done tasks
-        if (task.status === doneState) continue;
-
-        // Must not be claimed by anyone
-        const assignment = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(task.id);
-        if (assignment) break; // Sequential: if this task is claimed, don't look further in this story
-
-        // Check if task is workable using the workflow engine
-        if (!isWorkableByAgent(wf, task.status)) break;
-
-        const transitions = wf.transitions[task.status] || {};
-        const available = Object.entries(transitions)
-          .filter(([_, perm]) => perm === "teammate" || perm === "any")
-          .map(([state, perm]) => ({ state, permission: perm as string }));
-
-        return { ...task, availableTransitions: available };
-      }
+      return active;
     }
     return null;
   }
 
+  // --- Mechanical rules: admission (CONWIP) + advance ---
+
+  /**
+   * CONWIP admission: pull the next task (story order) from `todo` into the
+   * workflow's first active state — but only when the story has no task
+   * anywhere in its active section (WIP = 1 per story). `excludeTaskId` keeps
+   * a just-shelved task from being re-admitted by its own move.
+   */
+  runAdmission(storyId: string, excludeTaskId?: string): void {
+    const story = this.getStory(storyId);
+    if (!story || story.status !== "open" || story.paused) return;
+    if (!this.isStoryReady(storyId)) return;
+
+    const wf = this.getWorkflowForStory(storyId);
+    const first = firstActiveState(wf);
+    if (!first) return; // empty workflow: nothing to admit into
+
+    const tasks = this.getTasksForStory(storyId);
+    // Token taken: something is already in the active section.
+    if (tasks.some((t) => isActiveState(wf, t.status))) return;
+
+    const candidate = tasks.find((t) => t.status === TODO_STATE && t.id !== excludeTaskId);
+    if (!candidate) return;
+
+    this.setTaskPosition(candidate.id, first, entrySubstatus(wf, first));
+  }
+
+  /**
+   * Complete an agent-state task's work: mechanical advance to the next state
+   * (or the `done` bucket), clear the lease, and re-run admission (finishing
+   * the last state frees the CONWIP token). Returns the landing position.
+   */
+  completeTaskWork(taskId: string, result?: string): { newStatus: string; completed: boolean } | null {
+    const task = this.getTask(taskId);
+    if (!task) return null;
+    const wf = this.getWorkflowForStory(task.storyId);
+    if (!isAgentState(wf, task.status)) return null;
+
+    const next = nextState(wf, task.status);
+    this.setTaskPosition(taskId, next, entrySubstatus(wf, next), result);
+    this.releaseTask(taskId);
+    this.runAdmission(task.storyId);
+    return { newStatus: next, completed: next === DONE_STATE };
+  }
+
+  /**
+   * Return a claimed task to `ready` (agent gave up, or its lease was reaped).
+   * The task stays in its state; the next poll can pick it up fresh.
+   */
+  returnTaskToReady(taskId: string): void {
+    const task = this.getTask(taskId);
+    if (!task) return;
+    const wf = this.getWorkflowForStory(task.storyId);
+    if (isAgentState(wf, task.status)) {
+      this.db.prepare("UPDATE tasks SET substatus = 'ready', dirty = 1 WHERE id = ?").run(taskId);
+    }
+    this.releaseTask(taskId);
+  }
+
   // --- Assignments ---
 
+  /**
+   * Lease a ready agent-state task to a member: substatus → `claimed` plus an
+   * assignment row (reaped back to `ready` if the member's heartbeat dies).
+   */
   claimTask(taskId: string, memberId: string): boolean {
     const existing = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(taskId);
     if (existing) return false;
 
+    const task = this.getTask(taskId);
+    if (!task) return false;
+    const wf = this.getWorkflowForStory(task.storyId);
+    if (!isAgentState(wf, task.status) || task.substatus !== "ready") return false;
+
     this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(taskId, memberId, Date.now());
+    this.db.prepare("UPDATE tasks SET substatus = 'claimed', dirty = 1 WHERE id = ?").run(taskId);
     return true;
   }
 
@@ -979,9 +1112,7 @@ export class Store {
     workMode: WorkMode = DEFAULT_WORK_MODE,
     assignedStoryId?: string,
   ): void {
-    // Normalize the well-known directory capability for exact matching.
     const caps: Capabilities = { ...capabilities };
-    if (typeof caps[DIRECTORY_CAP] === "string") caps[DIRECTORY_CAP] = normalizeDirectory(caps[DIRECTORY_CAP] as string);
     this.db.prepare(
       `INSERT OR REPLACE INTO members (id, name, capabilities, work_mode, assigned_story_id, metadata, host_id, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
@@ -1058,7 +1189,7 @@ export class Store {
       const existing = map[name] ? [...map[name]] : [];
       if (!(name in map)) changed = true;
       if (rawValue !== null && rawValue !== "") {
-        const value = name === DIRECTORY_CAP ? normalizeDirectory(rawValue) : rawValue;
+        const value = rawValue;
         const without = existing.filter((v) => v !== value);
         const next = [value, ...without].slice(0, MAX_CAPABILITY_VALUES);
         if (next.length !== existing.length || next[0] !== existing[0]) changed = true;
@@ -1087,8 +1218,7 @@ export class Store {
     const map = { ...(this.config.recentCapabilities || {}) };
     if (!(name in map)) return false;
     if (value !== undefined) {
-      const normalized = name === DIRECTORY_CAP ? normalizeDirectory(value) : value;
-      const next = map[name]!.filter((v) => v !== normalized);
+      const next = map[name]!.filter((v) => v !== value);
       if (next.length === map[name]!.length) return false;
       map[name] = next;
     } else {
@@ -1130,10 +1260,11 @@ export class Store {
 
       if (assignment) {
         const taskId = assignment.task_id as string;
-        this.releaseTask(taskId);
+        // Reaped lease: the task returns to `ready` for the next teammate.
+        this.returnTaskToReady(taskId);
         console.warn(
           `⚠️  Agent "${name}" (${id}) timed out (no heartbeat for ${agoSec}s). ` +
-          `Released task "${taskId}".`
+          `Returned task "${taskId}" to ready.`
         );
       } else {
         console.warn(
@@ -1169,6 +1300,7 @@ export class Store {
           status: row.status,
           result: row.result,
         };
+        if (row.substatus) taskData.substatus = row.substatus;
         if (row.context && (row.context as string) !== "[]") {
           taskData.context = JSON.parse(row.context as string);
         }
@@ -1222,25 +1354,14 @@ export class Store {
 
   // --- Transition Instructions ---
 
-  getTransitionInstructions(
-    fromStatus: string,
-    toStatus: string,
-    workflowName?: string
-  ): { exitInstructions?: string; enterInstructions?: string } {
-    const result: { exitInstructions?: string; enterInstructions?: string } = {};
+  /**
+   * The persona for an agent state: the markdown file `workflows/<wf>/<state>.md`
+   * (the former "state instructions" — same storage, same editing API). Injected
+   * into the claim prompt as the worker's role framing for that state.
+   */
+  getStatePersona(workflowName: string | undefined, state: string): string | undefined {
     const wfName = workflowName || this.config.defaultWorkflow;
-    const wf = this.workflows[wfName];
-
-    const exitFile = wf?.instructions?.[fromStatus] || `${fromStatus}.md`;
-    const enterFile = wf?.instructions?.[toStatus] || `${toStatus}.md`;
-
-    const exitContent = this.readInstructionFile(wfName, exitFile);
-    if (exitContent) result.exitInstructions = exitContent;
-
-    const enterContent = this.readInstructionFile(wfName, enterFile);
-    if (enterContent) result.enterInstructions = enterContent;
-
-    return result;
+    return this.readInstructionFile(wfName, `${state}.md`);
   }
 
   /** Read an instruction file from the workflow's directory */
@@ -1272,15 +1393,6 @@ export class Store {
     } catch {
       return undefined;
     }
-  }
-
-  // --- Workflow validation ---
-
-  canTransition(taskId: string, newStatus: string, actor: "lead" | "teammate"): { ok: boolean; error?: string } {
-    const task = this.getTask(taskId);
-    if (!task) return { ok: false, error: "Task not found" };
-    const workflow = this.getWorkflowForTask(taskId);
-    return wfCanTransition(workflow, task.status, newStatus, actor);
   }
 
   // --- Archive ---
@@ -1355,9 +1467,7 @@ export class Store {
   isStoryArchivable(storyId: string): boolean {
     const tasks = this.getTasksForStory(storyId);
     if (tasks.length === 0) return false;
-    const wf = this.getWorkflowForStory(storyId);
-    const doneState = getDoneState(wf);
-    return tasks.every((t) => t.status === doneState);
+    return tasks.every((t) => t.status === DONE_STATE);
   }
 
   archiveStory(storyId: string): void {

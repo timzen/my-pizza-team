@@ -11,6 +11,7 @@ import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
 import { RequirementsEditor } from "@/components/board/RequirementsEditor";
@@ -30,6 +31,7 @@ interface StoryView {
   description: string;
   status?: "open" | "done";
   requirements?: Record<string, string | null>;
+  directory?: string;
   paused?: boolean;
   workflow?: string;
   context?: string[];
@@ -47,6 +49,7 @@ export function StoryDetailPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [requirements, setRequirements] = useState<Record<string, string | null>>({});
+  const [directory, setDirectory] = useState("");
   const [context, setContext] = useState<string[]>([]);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
@@ -58,6 +61,7 @@ export function StoryDetailPage() {
       setTitle(story.title);
       setDescription(story.description);
       setRequirements(story.requirements ? { ...story.requirements } : {});
+      setDirectory(story.directory || "");
       setContext(story.context ? [...story.context] : []);
       setPaused(!!story.paused); setError("");
     }
@@ -76,6 +80,7 @@ export function StoryDetailPage() {
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, {
       title, description,
       requirements: Object.keys(requirements).length > 0 ? requirements : null,
+      directory: directory.trim() || null,
       context,
       paused,
     });
@@ -164,6 +169,8 @@ export function StoryDetailPage() {
             {paused ? "Unpause" : "Pause"}
           </Button>
         </div>
+
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><p className="text-xs text-muted-foreground mb-2">Where the work happens — teammates cd here and read its AGENTS.md before starting.</p><Input placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Requirements</Label></div><RequirementsEditor value={requirements} onChange={setRequirements} /></div>
 
