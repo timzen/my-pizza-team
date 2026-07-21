@@ -214,7 +214,10 @@ detects `dismiss`, stops the loop, and fires `onDismissed` so the agent exits.
 Spawn requests carrying a `storyId` are launched as assigned-story teammates:
 `spawnAgent()` fills the `{workArgs}` placeholder in the pi harness template with
 `--ppt-work-mode=assigned-story --ppt-story=<id>`, so a story-scoped spawn runs
-its story and then dismisses itself automatically.
+its story and then dismisses itself automatically. Requests carrying `skills`
+append `--ppt-skills=<a,b>` so the teammate advertises those capabilities for
+story-requirement matching (the spawn cwd is just the process home — teammates
+cd to each story's directory to work).
 
 `spawnAgent()` is idempotent by tmux window name: because tmux does **not**
 enforce unique window names, `new-window -n <name>` would create a duplicate

@@ -114,6 +114,11 @@ test("spawn directive with storyId spawns an assigned-story teammate", () => {
   assert.ok(src.includes("storyId: params.storyId"));
 });
 
+test("spawn directive threads skills into --ppt-skills", () => {
+  assert.ok(src.includes("--ppt-skills="));
+  assert.ok(src.includes("params.skills"));
+});
+
 test("loads custom harness templates from daemon config", () => {
   assert.ok(src.includes("daemonConfig.harnessCommands"));
 });

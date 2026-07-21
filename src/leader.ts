@@ -338,10 +338,12 @@ function spawnAgent(
     harnessTemplates: HarnessTemplates;
     /** When set, spawn the teammate in assigned-story mode bound to this story. */
     storyId?: string;
+    /** Capabilities the teammate should advertise (--ppt-skills). */
+    skills?: string[];
   },
   execSync: any
 ): boolean {
-  const { session, daemonUrl, harness, harnessTemplates, storyId } = options;
+  const { session, daemonUrl, harness, harnessTemplates, storyId, skills } = options;
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
   const safeCwd = shellSafe(agentCwd);
@@ -391,10 +393,14 @@ function spawnAgent(
 
   // Resolve the command template
   // A spawn request bound to a story becomes an assigned-story teammate that
-  // dismisses itself once that story is complete.
-  const workArgs = storyId
+  // dismisses itself once that story is complete. Skills become the advertised
+  // capability list (--ppt-skills) used for story-requirement matching.
+  let workArgs = storyId
     ? ` --ppt-work-mode=assigned-story --ppt-story=${shellSafe(storyId)}`
     : "";
+  if (skills && skills.length > 0) {
+    workArgs += ` --ppt-skills=${shellSafe(skills.join(","))}`;
+  }
   const template = harnessTemplates[harness] || harnessTemplates.pi;
   const cmd = template
     .replace(/\{name\}/g, shellSafe(name))
@@ -429,6 +435,7 @@ function dispatchDirective(
       harness,
       harnessTemplates: ctx.harnessTemplates,
       storyId: params.storyId as string | undefined,
+      skills: Array.isArray(params.skills) ? (params.skills as string[]).filter(s => typeof s === "string" && s.trim()) : undefined,
     }, execSync);
     return;
   }
