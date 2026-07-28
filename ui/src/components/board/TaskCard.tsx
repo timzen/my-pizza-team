@@ -13,13 +13,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { User } from "lucide-react";
-
-/** Drag payload MIME type; the story id is baked in so a swimlane can accept
- *  only its own tasks during dragover (dataTransfer values are unreadable
- *  until drop, but the *types* are visible). */
-export function taskDragType(storyId: string): string {
-  return `application/x-mpt-task--${storyId.toLowerCase()}`;
-}
+import { taskDragType } from "./task-drag";
 
 interface TaskCardProps {
   task: {

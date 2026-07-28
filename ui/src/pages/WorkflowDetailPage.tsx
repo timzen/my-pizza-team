@@ -8,7 +8,7 @@
  * instructions" — same files, injected into that state's claim prompt).
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, Link } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
 import { PersonaEditor } from "@/components/workflow/PersonaEditor";
@@ -147,7 +147,13 @@ function StatesEditor({ name, workflow, config, onSaved }: {
   const [error, setError] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
 
-  useEffect(() => setStates(workflow.states), [workflow]);
+  // Re-seed the editable state list when the workflow prop changes
+  // (render-time adjustment; see React's "you might not need an effect").
+  const [seededFrom, setSeededFrom] = useState(workflow.states);
+  if (workflow.states !== seededFrom) {
+    setSeededFrom(workflow.states);
+    setStates(workflow.states);
+  }
 
   const move = (idx: number, dir: -1 | 1) => {
     const next = [...states];

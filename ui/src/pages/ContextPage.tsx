@@ -41,7 +41,7 @@ export function ContextPage() {
   // "New Entry" opens it blank; "New Persona" pre-tags it with `persona`.
   const [creating, setCreating] = useState<string | null>(null);
 
-  const entries = data?.entries || [];
+  const entries = useMemo(() => data?.entries || [], [data]);
 
   // Unique tags across all entries, with counts, for the filter chips.
   const tagCounts = useMemo(() => {

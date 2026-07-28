@@ -14,7 +14,7 @@
  * - Auto-refresh for comments
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
@@ -107,10 +107,14 @@ export function TaskDetailPage() {
   const [context, setContext] = useState<string[]>([]);
   const [editError, setEditError] = useState("");
 
-  // Seed the edit fields whenever the task loads/changes.
-  useEffect(() => {
-    if (task) { setTitle(task.title); setDescription(task.description || ""); setContext(task.context ? [...task.context] : []); setEditError(""); }
-  }, [task?.id]);
+  // Seed the edit fields whenever the task loads/changes. Adjusting state
+  // during render (guarded by a "last seeded" marker) is React's recommended
+  // pattern for deriving state from external data.
+  const [seededId, setSeededId] = useState<string | null>(null);
+  if (task && task.id !== seededId) {
+    setSeededId(task.id);
+    setTitle(task.title); setDescription(task.description || ""); setContext(task.context ? [...task.context] : []); setEditError("");
+  }
 
   // Resolve workflow states/transitions for this task's story.
   const workflows = statusData?.workflows || {};
