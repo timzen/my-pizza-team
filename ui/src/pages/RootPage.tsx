@@ -6,14 +6,18 @@
  *
  * The active tab follows the route (`/` = Workflows, `/context` = Context) so
  * both stay deep-linkable and the workflow detail page can link back here.
+ * Rendered with the shared RouteTabs control for consistency with the Board
+ * surface's tabs.
  */
 
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
+import { RouteTabs } from "@/components/RouteTabs";
 import { WorkflowsPage } from "./WorkflowsPage";
 import { ContextPage } from "./ContextPage";
 
 const TABS = [
-  { path: "/", label: "Workflows" },
+  // "/" is the Workflows tab: active whenever we're not on /context.
+  { path: "/", label: "Workflows", isActive: (pathname: string) => pathname !== "/context" },
   { path: "/context", label: "Context" },
 ];
 
@@ -23,24 +27,7 @@ export function RootPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4">
-      <div className="flex items-center gap-1 border-b border-border">
-        {TABS.map((tab) => {
-          const active = tab.path === "/context" ? isContext : !isContext;
-          return (
-            <Link
-              key={tab.path}
-              to={tab.path}
-              className={`px-4 py-2 text-sm font-medium border-b-2 -mb-px transition-colors ${
-                active
-                  ? "border-primary text-foreground"
-                  : "border-transparent text-muted-foreground hover:text-foreground"
-              }`}
-            >
-              {tab.label}
-            </Link>
-          );
-        })}
-      </div>
+      <RouteTabs tabs={TABS} />
 
       {isContext ? <ContextPage /> : <WorkflowsPage />}
     </div>

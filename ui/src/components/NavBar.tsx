@@ -1,40 +1,30 @@
 /**
  * NavBar — Top navigation bar with links to main pages and theme toggle.
  * Config is shown as a gear icon beside the theme toggle. Backlog/Archive
- * are in a dropdown beside the Board link to reduce clutter.
+ * are tabs within the Board surface (see BoardTabs), so the Board link
+ * highlights for those routes too.
  */
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, CircleEllipsis, Pause, Play, HelpCircle } from "lucide-react";
+import { Pizza, Settings, Pause, Play, HelpCircle } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
-import {
-  DropdownMenu,
-  DropdownMenuTrigger,
-  DropdownMenuContent,
-  DropdownMenuItem,
-} from "@/components/ui/dropdown-menu";
 
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
-  { path: "/board", label: "Board" },
-  { path: "/assistant", label: "Assistant" },
-  { path: "/scratchpad", label: "Scratch Pad" },
-];
-
-/** Items nested under the "More" dropdown beside Board */
-const MORE_ITEMS = [
-  { path: "/backlog", label: "Backlog" },
-  { path: "/archived", label: "Archive" },
+  // matches: other routes that count as "within" this section for highlighting
+  { path: "/board", label: "Board", matches: ["/backlog", "/archived"] },
+  { path: "/assistant", label: "Assistant", matches: [] },
+  { path: "/scratchpad", label: "Scratch Pad", matches: [] },
 ];
 
 export function NavBar() {
   const location = useLocation();
 
-  const linkClass = (path: string) =>
+  const linkClass = (path: string, matches: string[] = []) =>
     `px-3 py-1.5 text-sm rounded-md transition-colors ${
-      location.pathname === path
+      location.pathname === path || matches.includes(location.pathname)
         ? "bg-accent text-accent-foreground font-medium"
         : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
     }`;
@@ -49,37 +39,15 @@ export function NavBar() {
 
         <nav className="flex items-center gap-1 flex-1">
           {NAV_ITEMS.map((item) => (
-            <Link key={item.path} to={item.path} className={linkClass(item.path)}>
+            <Link key={item.path} to={item.path} className={linkClass(item.path, item.matches)}>
               {item.label}
             </Link>
           ))}
         </nav>
 
-        {/* More, pause/play, help, config gear, theme toggle */}
+        {/* Pause/play, help, config gear, theme toggle */}
         <div className="flex items-center gap-1">
 
-          {/* Dropdown for Backlog & Archive */}
-          <DropdownMenu>
-            <DropdownMenuTrigger
-              className={`inline-flex items-center gap-0.5 px-2 py-1.5 text-sm rounded-md transition-colors ${
-                MORE_ITEMS.some(i => location.pathname === i.path)
-                  ? "bg-accent text-accent-foreground font-medium"
-                  : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-              }`}
-
-              title="Menu"
-            >
-              <CircleEllipsis className="h-4 w-4" />
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start">
-              {MORE_ITEMS.map((item) => (
-                <DropdownMenuItem key={item.path} render={<Link to={item.path} />}>
-                  {item.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-          
           <PauseButton />
           <Link
             to="/help"
@@ -95,7 +63,7 @@ export function NavBar() {
           <Link
             to="/config"
             className={`p-2 rounded-md transition-colors ${
-              location.pathname === "/config"
+              location.pathname.startsWith("/config")
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}

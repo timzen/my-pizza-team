@@ -10,6 +10,7 @@
  * - Read-only task preview modal (editing lives on the task page)
  * - Archive and backlog buttons per story
  * - Spawn teammate dialog
+ * - Board/Backlog/Archive tabs (one surface, three lifecycle views)
  */
 
 import { useState, useMemo } from "react";
@@ -17,6 +18,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
+import { BoardTabs } from "@/components/board/BoardTabs";
 import { AddStoryDialog } from "@/components/board/AddStoryDialog";
 import { AddTaskDialog } from "@/components/board/AddTaskDialog";
 import { TaskViewDialog } from "@/components/board/TaskViewDialog";
@@ -125,9 +127,9 @@ export function BoardPage() {
 
   return (
     <div className="container mx-auto p-4 space-y-4">
-      {/* Header: title + story/task counts */}
+      {/* Header: lifecycle tabs + story/task counts */}
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl font-bold">Board</h1>
+        <BoardTabs />
         <div className="text-sm text-muted-foreground">
           {stories.length} {stories.length === 1 ? "story" : "stories"} · {taskCount} {taskCount === 1 ? "task" : "tasks"}
         </div>

@@ -1,10 +1,14 @@
 /**
  * ConfigPage — Edit daemon configuration with tabs for General, Teammates,
- * Categories, and Workflows. Mirrors functionality from the legacy HTML config page.
+ * and Capabilities. Tabs are route-driven (`/config`, `/config/teammates`,
+ * `/config/capabilities`) via the shared RouteTabs control, so each tab is
+ * deep-linkable and consistent with the Board and Root page tabs.
  */
 
 import { useState, useEffect } from "react";
+import { useLocation } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
+import { RouteTabs } from "@/components/RouteTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -30,10 +34,23 @@ interface ConfigData {
 
 type Tab = "general" | "teammates" | "capabilities";
 
+const TABS = [
+  { path: "/config", label: "General" },
+  { path: "/config/teammates", label: "Teammates" },
+  { path: "/config/capabilities", label: "Capabilities" },
+];
+
+/** Resolve the active tab from the current pathname (unknown → general). */
+function tabFromPath(pathname: string): Tab {
+  if (pathname === "/config/teammates") return "teammates";
+  if (pathname === "/config/capabilities") return "capabilities";
+  return "general";
+}
+
 export function ConfigPage() {
   const { data, loading, refetch } = useApi<ConfigData>("/api/config");
   const [config, setConfig] = useState<ConfigData | null>(null);
-  const [activeTab, setActiveTab] = useState<Tab>("general");
+  const activeTab = tabFromPath(useLocation().pathname);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
 
@@ -65,12 +82,6 @@ export function ConfigPage() {
     setSaving(false);
   };
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: "general", label: "General" },
-    { id: "teammates", label: "Teammates" },
-    { id: "capabilities", label: "Capabilities" },
-  ];
-
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       <div className="flex items-center gap-2">
@@ -78,22 +89,8 @@ export function ConfigPage() {
         <h1 className="text-2xl font-bold">Configuration</h1>
       </div>
 
-      {/* Tab bar */}
-      <div className="flex gap-1 border-b border-border">
-        {tabs.map((t) => (
-          <button
-            key={t.id}
-            onClick={() => setActiveTab(t.id)}
-            className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors -mb-px ${
-              activeTab === t.id
-                ? "border-primary text-foreground"
-                : "border-transparent text-muted-foreground hover:text-foreground"
-            }`}
-          >
-            {t.label}
-          </button>
-        ))}
-      </div>
+      {/* Tab bar (route-driven) */}
+      <RouteTabs tabs={TABS} />
 
       {/* Tab content */}
       {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}

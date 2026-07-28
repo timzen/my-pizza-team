@@ -1,8 +1,10 @@
 /**
- * BacklogPage — Shows backlogged stories with restore action.
+ * BacklogPage — Shows backlogged stories with restore action. Presented as a
+ * tab of the Board surface (see BoardTabs).
  */
 
 import { useApi, apiPost } from "@/hooks/useApi";
+import { BoardTabs } from "@/components/board/BoardTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -27,11 +29,16 @@ export function BacklogPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <h1 className="text-2xl font-bold">Backlog</h1>
+    <div className="container mx-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <BoardTabs />
+        <div className="text-sm text-muted-foreground">
+          {stories.length} {stories.length === 1 ? "story" : "stories"}
+        </div>
+      </div>
       <p className="text-sm text-muted-foreground">Stories moved off the active board. Restore them when ready.</p>
 
-      <div className="space-y-2">
+      <div className="space-y-2 max-w-3xl">
         {stories.map(story => (
           <Card key={story.id}>
             <CardContent className="p-4 flex items-start justify-between gap-3">

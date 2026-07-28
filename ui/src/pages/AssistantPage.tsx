@@ -14,6 +14,7 @@ import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { SegmentedTabs } from "@/components/RouteTabs";
 import { Send, SquarePen, UserPlus, Check, CheckCheck, Eraser } from "lucide-react";
 
 interface Message {
@@ -157,25 +158,18 @@ export function AssistantPage() {
         </div>
       </div>
 
-      {/* Persona chips — only when the assistant can load a persona */}
+      {/* Persona picker — only when the assistant can load a persona */}
       {personaCapable && personas.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap pt-3">
-          <span className="text-xs text-muted-foreground mr-1">Persona:</span>
-          <Button variant={activePersonaId === null ? "default" : "outline"} size="sm" disabled={swapping} onClick={() => swapPersona(null)}>
-            Default
-          </Button>
-          {personas.map(p => (
-            <Button
-              key={p.id}
-              variant={activePersonaId === p.id ? "default" : "outline"}
-              size="sm"
-              disabled={swapping}
-              title={p.description || p.title}
-              onClick={() => swapPersona(p.id)}
-            >
-              {p.title}
-            </Button>
-          ))}
+          <SegmentedTabs
+            tabs={[
+              { key: null, label: "Default" },
+              ...personas.map(p => ({ key: p.id, label: p.title, title: p.description || p.title })),
+            ]}
+            active={activePersonaId}
+            disabled={swapping}
+            onSelect={swapPersona}
+          />
         </div>
       )}
 

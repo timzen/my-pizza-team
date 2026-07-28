@@ -35,6 +35,7 @@ function App() {
               <Route path="/backlog" element={<BacklogPage />} />
               <Route path="/archived" element={<ArchivedPage />} />
               <Route path="/config" element={<ConfigPage />} />
+              <Route path="/config/:tab" element={<ConfigPage />} />
               <Route path="/workflows/:name" element={<WorkflowDetailPage />} />
               <Route path="/help" element={<HelpPage />} />
             </Routes>
