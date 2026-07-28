@@ -9,6 +9,10 @@
  * - Optional capabilities (advertised skills, same key/value editor as story
  *   requirements: `python` presence-only, or `java: 8` value-bound — stories
  *   with matching requirements will be offered to it)
+ * - Optional story binding: pick an open story to spawn an `assigned-story`
+ *   teammate that only works that story (the leader passes
+ *   `--ppt-work-mode=assigned-story --ppt-story=<id>`); leave unset for an
+ *   eager helper that picks up any matching work
  *
  * There is deliberately no state picker: teammates are generalists that work
  * every agent state; the state persona does the specializing.
@@ -52,6 +56,8 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
   const [capabilities, setCapabilities] = useState<Record<string, string | null>>({});
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
+  const [stories, setStories] = useState<StoryOption[]>([]);
+  const [storyId, setStoryId] = useState("");
   const [storyDirs, setStoryDirs] = useState<string[]>([]);
   const [hosts, setHosts] = useState<string[]>([]);
 
@@ -62,9 +68,12 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
     fetch("/api/stories")
       .then(r => r.json())
       .then((data: { stories: StoryOption[] }) => {
+        const open = data.stories.filter(s => s.status === "open");
+        // Open stories are candidates for story-bound spawns.
+        setStories(open);
         // Suggest open stories' working directories as candidate homes.
-        const dirs = data.stories
-          .filter(s => s.status === "open" && typeof s.directory === "string")
+        const dirs = open
+          .filter(s => typeof s.directory === "string")
           .map(s => s.directory as string);
         setStoryDirs([...new Set(dirs)]);
       })
@@ -101,11 +110,12 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
     const skillList = Object.entries(capabilities).map(([k, v]) => (v ? `${k}:${v}` : k));
     const res = await apiPost<{ success: boolean; directive?: { id: string }; error?: string }>(`/api/hosts/${encodeURIComponent(hostId)}/leader/directives`, {
       action: "spawn",
-      params: { cwd: cwd || undefined, skills: skillList.length > 0 ? skillList : undefined, reason: "teammate" },
+      params: { cwd: cwd || undefined, storyId: storyId || undefined, skills: skillList.length > 0 ? skillList : undefined, reason: "teammate" },
     });
     if (res.success) {
       setSuccess("Spawn request sent! The leader will create the agent.");
       setCwd("");
+      setStoryId("");
       setCapabilities({});
       onSpawned?.();
       setTimeout(() => setOpen(false), 1500);
@@ -126,7 +136,7 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
         </Button>
       )}
       <Dialog open={open} onOpenChange={(o) => { setOpen(o); setError(""); setSuccess(""); }}>
-        <DialogContent>
+        <DialogContent className="max-w-xl">
           <DialogHeader><DialogTitle>Spawn Teammate</DialogTitle></DialogHeader>
           <form onSubmit={handleSpawn} className="space-y-4">
             {/* Host selection */}
@@ -149,6 +159,23 @@ export function SpawnDialog({ onSpawned, compact }: SpawnDialogProps) {
               {hosts.length === 0 && (
                 <p className="text-xs text-destructive">No online leaders detected. Enter a host ID manually or start a leader.</p>
               )}
+            </div>
+
+            {/* Story binding (optional — assigned-story vs eager helper) */}
+            <div className="space-y-1.5">
+              <Label>Story (optional)</Label>
+              <Select value={storyId} onValueChange={(v) => setStoryId(v ?? "")}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Any story (eager helper)" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="">Any story (eager helper)</SelectItem>
+                  {stories.map(s => (
+                    <SelectItem key={s.id} value={s.id}>{s.title}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">Bind this teammate to one story: it only works tasks from that story. Leave unset for a generalist that picks up any matching work.</p>
             </div>
 
             {/* Home directory (process cwd — not a matching key) */}
