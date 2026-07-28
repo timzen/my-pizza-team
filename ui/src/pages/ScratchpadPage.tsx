@@ -7,7 +7,7 @@
  * when dirty). The assistant can read this when asked.
  */
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -124,11 +124,13 @@ function NotesEditor({ notes, onSaved }: { notes: string; onSaved: () => void })
   const [saving, setSaving] = useState(false);
   const dirty = value !== notes;
 
-  // Re-seed when the fetched notes change (and we're not mid-edit).
-  useEffect(() => {
+  // Re-seed when the fetched notes change (and we're not mid-edit) —
+  // render-time adjustment guarded by a "last seen" marker.
+  const [seededNotes, setSeededNotes] = useState(notes);
+  if (notes !== seededNotes) {
+    setSeededNotes(notes);
     if (!editing) setValue(notes);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [notes]);
+  }
 
   const save = async () => {
     if (!dirty || saving) return;

@@ -35,21 +35,27 @@ function getFileType(name: string): string {
 }
 
 export function FileViewer({ open, onClose, taskId, storedName, displayName, onReviewSubmitted }: FileViewerProps) {
-  const [content, setContent] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
+  // The last fetched file, keyed by URL — content/loading are derived from it
+  // rather than synced with setState in the effect (only the fetch itself is
+  // the external system here).
+  const [loaded, setLoaded] = useState<{ url: string; text: string } | null>(null);
   const fileType = getFileType(displayName);
   const fileUrl = `/api/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(storedName)}`;
 
   useEffect(() => {
-    if (!open) { setContent(null); return; }
+    if (!open) return;
     if (fileType === "image") return; // images use <img src>
 
-    setLoading(true);
+    let cancelled = false;
     fetch(fileUrl)
       .then(r => r.text())
-      .then(text => { setContent(text); setLoading(false); })
-      .catch(() => { setContent("Failed to load file"); setLoading(false); });
+      .then(text => { if (!cancelled) setLoaded({ url: fileUrl, text }); })
+      .catch(() => { if (!cancelled) setLoaded({ url: fileUrl, text: "Failed to load file" }); });
+    return () => { cancelled = true; };
   }, [open, fileUrl, fileType]);
+
+  const content = loaded?.url === fileUrl ? loaded.text : null;
+  const loading = open && fileType !== "image" && content === null;
 
   const handleReviewSubmitted = () => {
     onClose();

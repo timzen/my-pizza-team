@@ -11,6 +11,9 @@ export function useApi<T>(url: string, deps: unknown[] = [], options?: { pollInt
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const pollInterval = options?.pollInterval;
+  // Serialize caller-supplied deps so the useCallback dependency list stays a
+  // literal array (callers pass primitives like ids/filters).
+  const depsKey = JSON.stringify(deps);
 
   const refetch = useCallback(async () => {
     setLoading(true);
@@ -25,9 +28,13 @@ export function useApi<T>(url: string, deps: unknown[] = [], options?: { pollInt
     } finally {
       setLoading(false);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [url, ...deps]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- depsKey stands in for the caller-supplied deps array
+  }, [url, depsKey]);
 
+  // Data-fetching hook: the fetch is the external system being synced; the
+  // loading/data flips are its protocol. Restructuring to satisfy the rule
+  // would break stale-while-refetch behavior for polling consumers.
+  // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { refetch(); }, [refetch]);
 
   // Auto-refresh polling

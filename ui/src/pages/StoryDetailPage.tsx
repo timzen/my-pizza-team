@@ -5,7 +5,7 @@
  * paused). The board only links here; all story edits happen on this page.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
@@ -53,17 +53,19 @@ export function StoryDetailPage() {
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
 
-  // Seed edit fields when the story loads/changes.
-  useEffect(() => {
-    if (story) {
-      setTitle(story.title);
-      setDescription(story.description);
-      setRequirements(story.requirements ? { ...story.requirements } : {});
-      setDirectory(story.directory || "");
-      setContext(story.context ? [...story.context] : []);
-      setPaused(!!story.paused); setError("");
-    }
-  }, [story?.id]);
+  // Seed edit fields when the story loads/changes. Adjusting state during
+  // render (guarded by a "last seeded" marker) is React's recommended pattern
+  // for deriving state from external data — no effect, no cascading render.
+  const [seededId, setSeededId] = useState<string | null>(null);
+  if (story && story.id !== seededId) {
+    setSeededId(story.id);
+    setTitle(story.title);
+    setDescription(story.description);
+    setRequirements(story.requirements ? { ...story.requirements } : {});
+    setDirectory(story.directory || "");
+    setContext(story.context ? [...story.context] : []);
+    setPaused(!!story.paused); setError("");
+  }
 
   if (!story) {
     return (

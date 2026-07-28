@@ -14,7 +14,8 @@ import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
-import { TaskCard, taskDragType } from "./TaskCard";
+import { TaskCard } from "./TaskCard";
+import { taskDragType } from "./task-drag";
 import { Archive, FolderMinus, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 

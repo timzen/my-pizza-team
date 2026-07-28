@@ -59,7 +59,7 @@ export function BoardPage() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
 
-  const stories = storiesData?.stories || [];
+  const stories = useMemo(() => storiesData?.stories || [], [storiesData]);
   const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
   const workflows = statusData?.workflows || {};
