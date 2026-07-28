@@ -45,7 +45,7 @@ src/
 ├── teammate.ts           # TeammateLoop: poll → claim → work → done (or return) → fresh session loop
 ├── assistant.ts          # AssistantLoop: poll turn → claim → stream bubbles → complete
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
-├── permissions.ts        # Dynamic yoloMode toggling for permission system
+├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link
 └── shared/
     └── types.ts          # Minimal types: WorkflowConfig, DEFAULT_DAEMON_URL, helpers
 ```
@@ -266,14 +266,15 @@ harness/tmux mechanism lives; the daemon stays agnostic.
 
 ## Permission System Integration
 
-Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, read fresh on every tool call.
+Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, read fresh on every tool call, plus a registered **authorizer chain link**.
 
 File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
-- **Created at spawn time** by leader's tmux spawner with `yoloMode: true`
+- **Created at spawn time** by leader's tmux spawner with `yoloMode: true` + `authorizerChain: ["ppt-autonomous"]`
 - **Toggled dynamically** by `permissions.ts`:
   - Interactive input detected → rewrite with `yoloMode: false` + pause loop
   - `/ppt-worker-resume` → rewrite with `yoloMode: true` + resume loop
+- **Authorizer chain link** (`ppt-autonomous`, registered by `registerAutonomousAuthorizer`): yoloMode alone cannot approve the permission system's fail-closed asks — as of v24 its bash **wrapper floor** clamps any `allow` (yolo included) back to `ask` for indirection wrappers (`timeout`, `nohup`, `sudo`, `env`, `xargs`, ...). The link answers those asks: `allow` while autonomous, `defer` (normal prompting) while pairing. It resolves the service via the `Symbol.for("@gotgenes/pi-permission-system:service")` globalThis slot (no hard dependency; degrades gracefully when absent), re-registers on every `permissions:ready` broadcast, and writes a `ppt.autonomous_auto_allow` audit entry per auto-allowed ask. The chain owner caps its authority: an allow on the `path`/`external_directory` surfaces downgrades to defer.
 
 ## tmux Integration (leader only)
 

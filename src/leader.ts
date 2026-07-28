@@ -550,6 +550,12 @@ function validateSpawnCwd(agentCwd: string): string | null {
 /**
  * Ensure permissive permission config exists for autonomous Pi agents.
  * Writes to <cwd>/.pi/extensions/pi-permission-system/config.json
+ *
+ * Mirrors permissions.ts updatePermissionConfig(autonomous=true), including
+ * the `authorizerChain` naming the teammate's `ppt-autonomous` link (needed
+ * because the wrapper floor clamps even yolo allows back to ask; see
+ * permissions.ts). The teammate overwrites this file on session start anyway;
+ * this spawn-time copy just avoids a first-turn prompt window.
  */
 function ensurePermissiveConfig(agentCwd: string): void {
   const configDir = path.join(agentCwd, ".pi", "extensions", "pi-permission-system");
@@ -558,6 +564,7 @@ function ensurePermissiveConfig(agentCwd: string): void {
     fs.mkdirSync(configDir, { recursive: true });
     const permissiveConfig = {
       yoloMode: true,
+      authorizerChain: ["ppt-autonomous"],
       permission: { "*": "allow", bash: { "*": "allow" }, external_directory: "allow" },
     };
     fs.writeFileSync(configFile, JSON.stringify(permissiveConfig, null, 2) + "\n");

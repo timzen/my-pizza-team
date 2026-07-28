@@ -190,8 +190,8 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed data flow and API 
 
 Works with [`@gotgenes/pi-permission-system`](https://www.npmjs.com/package/@gotgenes/pi-permission-system):
 
-- **Autonomous mode** — `yoloMode: true`, no permission prompts
-- **Pairing mode** — `yoloMode: false`, normal permission rules apply
+- **Autonomous mode** — `yoloMode: true`, no permission prompts; a registered `ppt-autonomous` authorizer chain link also auto-approves fail-closed asks that yolo can't (e.g. the bash indirection-wrapper floor on `timeout`/`nohup`/`sudo` commands)
+- **Pairing mode** — `yoloMode: false`, normal permission rules apply (the link defers to you)
 
 The toggle is automatic: when you type in a teammate's window, it switches to pairing mode. Run `/ppt-worker-resume` to return to autonomous.
 

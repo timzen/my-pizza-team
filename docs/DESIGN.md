@@ -74,7 +74,11 @@ the agent reports back as opaque `metadata` so later directives can target it.
 The permission system (`@gotgenes/pi-permission-system`) follows the teammate's
 mode: autonomous work runs with `yoloMode` on (no prompts); when you type into the
 window it switches to pairing (`yoloMode` off, normal rules). `/ppt-worker-resume`
-returns to autonomous.
+returns to autonomous. Because the permission system's fail-closed bash wrapper
+floor clamps even yolo allows back to `ask` (`timeout`/`nohup`/`sudo`/... wrapped
+commands), the teammate also registers a `ppt-autonomous` authorizer chain link
+that answers those asks — allow while autonomous, defer while pairing — with an
+audit entry per auto-allow in the permission review log.
 
 ## Interaction Model
 
@@ -98,10 +102,10 @@ construction. A scheduled poll remains as a safety net in case the reset
 fails.
 
 ### Permission toggling
-| Mode | yoloMode | Behavior |
-|------|----------|----------|
-| Autonomous (working) | `true` | No prompts, full freedom |
-| Pairing (human hopped in) | `false` | Normal permission rules |
+| Mode | yoloMode | Authorizer link | Behavior |
+|------|----------|-----------------|----------|
+| Autonomous (working) | `true` | allows asks | No prompts, full freedom (including wrapper-floored asks) |
+| Pairing (human hopped in) | `false` | defers | Normal permission rules |
 
 Detection is automatic: interactive input → pairing; `/ppt-worker-resume` →
 autonomous.

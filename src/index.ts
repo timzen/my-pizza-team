@@ -189,7 +189,7 @@ async function setupTeammate(
   workOpts?: { workMode: "eager-helper" | "assigned-story"; assignedStoryId: string; skills: string[] }
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
-  const { registerPermissionBypass, updatePermissionConfig } = await import("./permissions.js");
+  const { registerPermissionBypass, updatePermissionConfig, registerAutonomousAuthorizer } = await import("./permissions.js");
   const { registerTeammateTools } = await import("./tools.js");
 
   // Check daemon reachability
@@ -263,6 +263,12 @@ async function setupTeammate(
     },
     cwd
   );
+
+  // Authorizer chain link: auto-allows fail-closed asks (e.g. the bash
+  // indirection-wrapper floor on `timeout`/`nohup` commands, which even
+  // yoloMode can't approve) while autonomous; defers to the human while
+  // pairing. Activated via `authorizerChain` in the config we write.
+  registerAutonomousAuthorizer(pi, () => loop.isAutonomous);
 
   // Wire permission toggler to the loop
   const configPath = path.join(cwd, ".pi/extensions/pi-permission-system/config.json");
