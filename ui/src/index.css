@@ -128,3 +128,79 @@
     @apply font-sans;
     }
 }
+
+/* ─── Palettes ──────────────────────────────────────────────────────────
+   A palette is orthogonal to light/dark mode: `html[data-theme]` selects the
+   palette, `.dark` selects the mode within it. The default palette is the
+   :root / .dark pair above (no data-theme). Adding a palette = two blocks
+   overriding the same variables. */
+
+/* Solarized (Ethan Schoonover) — light */
+html[data-theme="solarized"] {
+    --background: #fdf6e3;          /* base3 */
+    --foreground: #586e75;          /* base01 */
+    --card: #eee8d5;                /* base2 */
+    --card-foreground: #586e75;
+    --popover: #fdf6e3;
+    --popover-foreground: #586e75;
+    --primary: #268bd2;             /* blue */
+    --primary-foreground: #fdf6e3;
+    --secondary: #eee8d5;
+    --secondary-foreground: #586e75;
+    --muted: #eee8d5;
+    --muted-foreground: #839496;    /* base0 */
+    --accent: #eee8d5;
+    --accent-foreground: #073642;
+    --destructive: #dc322f;         /* red */
+    --border: #d9d2c0;
+    --input: #d9d2c0;
+    --ring: #93a1a1;                /* base1 */
+    --chart-1: #b58900;             /* yellow */
+    --chart-2: #cb4b16;             /* orange */
+    --chart-3: #268bd2;             /* blue */
+    --chart-4: #2aa198;             /* cyan */
+    --chart-5: #859900;             /* green */
+    --sidebar: #eee8d5;
+    --sidebar-foreground: #586e75;
+    --sidebar-primary: #268bd2;
+    --sidebar-primary-foreground: #fdf6e3;
+    --sidebar-accent: #fdf6e3;
+    --sidebar-accent-foreground: #073642;
+    --sidebar-border: #d9d2c0;
+    --sidebar-ring: #93a1a1;
+}
+
+/* Solarized — dark */
+html.dark[data-theme="solarized"] {
+    --background: #002b36;          /* base03 */
+    --foreground: #93a1a1;          /* base1 */
+    --card: #073642;                /* base02 */
+    --card-foreground: #93a1a1;
+    --popover: #073642;
+    --popover-foreground: #93a1a1;
+    --primary: #268bd2;             /* blue */
+    --primary-foreground: #fdf6e3;
+    --secondary: #073642;
+    --secondary-foreground: #93a1a1;
+    --muted: #073642;
+    --muted-foreground: #657b83;    /* base00 */
+    --accent: #073642;
+    --accent-foreground: #eee8d5;
+    --destructive: #dc322f;         /* red */
+    --border: #093c4a;
+    --input: #0d4354;
+    --ring: #586e75;                /* base01 */
+    --chart-1: #b58900;             /* yellow */
+    --chart-2: #cb4b16;             /* orange */
+    --chart-3: #268bd2;             /* blue */
+    --chart-4: #2aa198;             /* cyan */
+    --chart-5: #859900;             /* green */
+    --sidebar: #073642;
+    --sidebar-foreground: #93a1a1;
+    --sidebar-primary: #268bd2;
+    --sidebar-primary-foreground: #fdf6e3;
+    --sidebar-accent: #002b36;
+    --sidebar-accent-foreground: #eee8d5;
+    --sidebar-border: #093c4a;
+    --sidebar-ring: #586e75;
+}
