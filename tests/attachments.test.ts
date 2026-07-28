@@ -52,16 +52,42 @@ Deno.test("POST /api/tasks/:id/attachments returns 400 without name", async () =
 Deno.test("GET /api/tasks/:id/attachments lists uploaded files", async () => {
   const res = await app.request(`/api/tasks/${taskId}/attachments`);
   assertEquals(res.status, 200);
-  const data = await res.json() as { attachments: Array<{ name: string; storedName: string; size: number }> };
+  const data = await res.json() as { attachments: Array<{ name: string; storedName: string; size: number; addedAt: number }> };
   assertEquals(data.attachments.length >= 1, true);
   assertEquals(data.attachments[0]!.name.includes("changes"), true);
 });
 
+Deno.test("GET /api/tasks/:id/attachments includes addedAt and sorts newest first", async () => {
+  // Upload a second file with the same display name — the timestamps are how
+  // the UI tells same-named uploads apart.
+  const upload = await app.request(`/api/tasks/${taskId}/attachments`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ name: "changes.diff", content: "second upload" }),
+  });
+  assertEquals(upload.status, 200);
+  await upload.body?.cancel();
+
+  const res = await app.request(`/api/tasks/${taskId}/attachments`);
+  const data = await res.json() as { attachments: Array<{ storedName: string; addedAt: number }> };
+  assertEquals(data.attachments.length >= 2, true);
+  for (const att of data.attachments) {
+    // addedAt is the epoch-ms prefix of the stored name.
+    assertEquals(typeof att.addedAt, "number");
+    assertEquals(String(att.addedAt), att.storedName.split("-")[0]);
+  }
+  // Newest first.
+  for (let i = 1; i < data.attachments.length; i++) {
+    assertEquals(data.attachments[i - 1]!.addedAt >= data.attachments[i]!.addedAt, true);
+  }
+});
+
 Deno.test("GET /api/tasks/:id/attachments/:filename downloads the file", async () => {
-  // Get the stored name first
+  // Get the stored name of the original upload (list is newest first, so
+  // the first upload is last).
   const listRes = await app.request(`/api/tasks/${taskId}/attachments`);
   const listData = await listRes.json() as { attachments: Array<{ storedName: string }> };
-  const storedName = listData.attachments[0]!.storedName;
+  const storedName = listData.attachments[listData.attachments.length - 1]!.storedName;
 
   const res = await app.request(`/api/tasks/${taskId}/attachments/${storedName}`);
   assertEquals(res.status, 200);

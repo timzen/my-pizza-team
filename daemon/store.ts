@@ -1043,20 +1043,28 @@ export class Store {
     return resolved;
   }
 
-  /** List attachments for a task */
-  getAttachments(taskId: string): Array<{ name: string; storedName: string; size: number }> {
+  /**
+   * List attachments for a task, newest first. Uploads are stored as
+   * `<epoch-ms>-<name>` (see saveAttachment), so the upload time is recovered
+   * from the stored name; files placed by other means fall back to mtime.
+   * Teammates often upload the same display name repeatedly — addedAt is how
+   * the UI tells them apart.
+   */
+  getAttachments(taskId: string): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
     const task = this.getTask(taskId);
     if (!task) return [];
     const attachDir = path.join(task.dirPath, "attachments");
     if (!existsSync(attachDir)) return [];
-    const results: Array<{ name: string; storedName: string; size: number }> = [];
+    const results: Array<{ name: string; storedName: string; size: number; addedAt: number }> = [];
     for (const entry of Deno.readDirSync(attachDir)) {
       if (!entry.isFile) continue;
       const stat = Deno.statSync(path.join(attachDir, entry.name));
       const displayName = entry.name.replace(/^\d+-/, "");
-      results.push({ name: displayName, storedName: entry.name, size: stat.size });
+      const tsPrefix = entry.name.match(/^(\d+)-/);
+      const addedAt = tsPrefix ? Number(tsPrefix[1]) : (stat.mtime?.getTime() ?? 0);
+      results.push({ name: displayName, storedName: entry.name, size: stat.size, addedAt });
     }
-    return results;
+    return results.sort((a, b) => b.addedAt - a.addedAt);
   }
 
   /** Delete an attachment file from a task */

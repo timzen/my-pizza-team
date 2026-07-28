@@ -40,6 +40,8 @@ interface Attachment {
   name: string;
   storedName: string;
   size: number;
+  /** Upload time (ms epoch) — distinguishes same-named files; server sorts newest first. */
+  addedAt: number;
 }
 
 interface TaskData {
@@ -388,6 +390,7 @@ export function TaskDetailPage() {
             >
               {getFileIcon(att.name)}
               <span className="text-sm font-medium flex-1">{att.name}</span>
+              <span className="text-xs text-muted-foreground">{new Date(att.addedAt).toLocaleString()}</span>
               <span className="text-xs text-muted-foreground">{formatSize(att.size)}</span>
               <Button
                 variant="ghost"
