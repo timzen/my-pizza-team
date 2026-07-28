@@ -1,14 +1,17 @@
 /**
  * ConfigPage — Edit daemon configuration with tabs for General, Teammates,
- * and Capabilities. Tabs are route-driven (`/config`, `/config/teammates`,
- * `/config/capabilities`) via the shared RouteTabs control, so each tab is
- * deep-linkable and consistent with the Board and Root page tabs.
+ * Capabilities, and Theme. Tabs are route-driven (`/config`,
+ * `/config/teammates`, `/config/capabilities`, `/config/theme`) via the
+ * shared RouteTabs control, so each tab is deep-linkable and consistent with
+ * the Board and Root page tabs. The Theme tab is a client-side preference
+ * (localStorage, applied immediately) rather than daemon config.
  */
 
-import { useState, useEffect } from "react";
+import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
-import { RouteTabs } from "@/components/RouteTabs";
+import { RouteTabs, SegmentedTabs } from "@/components/RouteTabs";
+import { PALETTES, getStoredPalette, applyPalette } from "@/lib/theme";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -32,18 +35,20 @@ interface ConfigData {
   defaultNouns?: string[];
 }
 
-type Tab = "general" | "teammates" | "capabilities";
+type Tab = "general" | "teammates" | "capabilities" | "theme";
 
 const TABS = [
   { path: "/config", label: "General" },
   { path: "/config/teammates", label: "Teammates" },
   { path: "/config/capabilities", label: "Capabilities" },
+  { path: "/config/theme", label: "Theme" },
 ];
 
 /** Resolve the active tab from the current pathname (unknown → general). */
 function tabFromPath(pathname: string): Tab {
   if (pathname === "/config/teammates") return "teammates";
   if (pathname === "/config/capabilities") return "capabilities";
+  if (pathname === "/config/theme") return "theme";
   return "general";
 }
 
@@ -54,9 +59,14 @@ export function ConfigPage() {
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
 
-  useEffect(() => {
-    if (data) setConfig(structuredClone(data));
-  }, [data]);
+  // Seed the editable draft from the fetched config. Adjusting state during
+  // render (guarded by a "last seeded" marker) is React's recommended pattern
+  // for deriving state from external data — no effect, no cascading render.
+  const [seededFrom, setSeededFrom] = useState<ConfigData | null>(null);
+  if (data && data !== seededFrom) {
+    setSeededFrom(data);
+    setConfig(structuredClone(data));
+  }
 
   if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
   if (!config) return <div className="container mx-auto p-6 text-muted-foreground">Cannot load config.</div>;
@@ -96,19 +106,22 @@ export function ConfigPage() {
       {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}
       {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
       {activeTab === "capabilities" && <CapabilitiesTab />}
+      {activeTab === "theme" && <ThemeTab />}
 
-      {/* Save bar */}
-      <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
-        {toast && (
-          <span className={`text-sm ${toast.error ? "text-destructive" : "text-green-600 dark:text-green-400"}`}>
-            {toast.msg}
-          </span>
-        )}
-        <Button onClick={handleSave} disabled={saving} className="gap-2">
-          <Save className="h-4 w-4" />
-          {saving ? "Saving..." : "Save Configuration"}
-        </Button>
-      </div>
+      {/* Save bar (theme is client-side and applies immediately — no save) */}
+      {activeTab !== "theme" && (
+        <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
+          {toast && (
+            <span className={`text-sm ${toast.error ? "text-destructive" : "text-green-600 dark:text-green-400"}`}>
+              {toast.msg}
+            </span>
+          )}
+          <Button onClick={handleSave} disabled={saving} className="gap-2">
+            <Save className="h-4 w-4" />
+            {saving ? "Saving..." : "Save Configuration"}
+          </Button>
+        </div>
+      )}
     </div>
   );
 }
@@ -292,6 +305,39 @@ function CapabilitiesTab() {
           <Input placeholder="value (optional)" value={newValue} onChange={(e) => setNewValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} className="flex-1" />
           <Button variant="outline" size="sm" onClick={add}><Plus className="h-3.5 w-3.5" /></Button>
         </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+// --- Theme Tab ---
+//
+// Client-side preference (localStorage + the data-theme attribute on <html>),
+// applied immediately — not part of the daemon config, so no Save button.
+// Light/dark mode stays on the NavBar toggle; this picks the palette.
+
+function ThemeTab() {
+  const [palette, setPalette] = useState(getStoredPalette);
+
+  const select = (key: string | null) => {
+    const value = key ?? "";
+    setPalette(value);
+    applyPalette(value);
+  };
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Palette</h2>
+        <p className="text-xs text-muted-foreground">
+          Colors for the whole UI, in both light and dark mode (use the sun/moon toggle in the
+          top bar to switch modes). Applied immediately and remembered in this browser.
+        </p>
+        <SegmentedTabs
+          tabs={PALETTES.map(p => ({ key: p.value, label: p.label }))}
+          active={palette}
+          onSelect={select}
+        />
       </CardContent>
     </Card>
   );

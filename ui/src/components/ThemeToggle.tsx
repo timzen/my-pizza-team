@@ -1,6 +1,7 @@
 /**
  * ThemeToggle — Toggles between light and dark mode.
  * Persists preference to localStorage, respects system default.
+ * (Palette selection lives on the Config page's Theme tab; see lib/theme.ts.)
  */
 
 import { useEffect, useState } from "react";
