@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { TaskCard, taskDragType } from "./TaskCard";
-import { Archive, FolderMinus, Plus, Eye, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
+import { Archive, FolderMinus, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 interface StoryData {
@@ -44,15 +44,12 @@ interface StoryData {
 interface StorySwimlaneProps {
   story: StoryData;
   states: string[];
-  onViewStory?: (storyId: string) => void;
-  onViewTask?: (taskId: string) => void;
-  onAddTask?: (storyId: string) => void;
   onArchive?: (storyId: string) => void;
   onBacklog?: (storyId: string) => void;
   onStatusChange?: () => void;
 }
 
-export function StorySwimlane({ story, states, onViewStory, onViewTask, onAddTask, onArchive, onBacklog, onStatusChange }: StorySwimlaneProps) {
+export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusChange }: StorySwimlaneProps) {
   /** The column currently hovered by a same-story drag (for highlight). */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -140,10 +137,7 @@ export function StorySwimlane({ story, states, onViewStory, onViewTask, onAddTas
           >
             {showBuckets ? <FoldHorizontal className="h-3.5 w-3.5" /> : <UnfoldHorizontal className="h-3.5 w-3.5" />}
           </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onViewStory?.(story.id)} title="View story">
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onAddTask?.(story.id)} title="Add task">
+          <Button variant="ghost" size="icon" className="h-7 w-7" title="Add task" render={<Link to={`/story/${story.id}/tasks/new`} />}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
           {allDone && (
@@ -178,7 +172,7 @@ export function StorySwimlane({ story, states, onViewStory, onViewTask, onAddTas
           >
             <div className="flex flex-col gap-2">
               {(tasksByStatus.get(state) || []).map(task => (
-                <TaskCard key={task.id} task={task} storyId={story.id} onView={onViewTask} />
+                <TaskCard key={task.id} task={task} storyId={story.id} />
               ))}
             </div>
           </div>

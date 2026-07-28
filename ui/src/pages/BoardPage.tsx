@@ -5,25 +5,21 @@
  * - Story swimlanes with task columns per workflow state
  * - Search/filter by story title or task title
  * - Sort by title, status, or readiness
- * - Add story modal (editing a story lives on its /story page)
- * - Add task modal
- * - Read-only task preview modal (editing lives on the task page)
+ * - Links to the full-page create forms (/stories/new, /story/:id/tasks/new)
+ *   — no modals; viewing/editing stories and tasks lives on their pages
  * - Archive and backlog buttons per story
- * - Spawn teammate dialog
  * - Board/Backlog/Archive tabs (one surface, three lifecycle views)
  */
 
 import { useState, useMemo } from "react";
+import { Link } from "react-router-dom";
+import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
 import { BoardTabs } from "@/components/board/BoardTabs";
-import { AddStoryDialog } from "@/components/board/AddStoryDialog";
-import { AddTaskDialog } from "@/components/board/AddTaskDialog";
-import { TaskViewDialog } from "@/components/board/TaskViewDialog";
-import { StoryViewDialog } from "@/components/board/StoryViewDialog";
-import { Search } from "lucide-react";
+import { Search, Plus } from "lucide-react";
 
 interface StoryView {
   id: string;
@@ -62,9 +58,6 @@ export function BoardPage() {
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
-  const [viewTaskId, setViewTaskId] = useState<string | null>(null);
-  const [viewStoryId, setViewStoryId] = useState<string | null>(null);
-  const [addTaskStoryId, setAddTaskStoryId] = useState<string | null>(null);
 
   const stories = storiesData?.stories || [];
   const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
@@ -109,10 +102,6 @@ export function BoardPage() {
   }, [filtered, sort]);
 
   // Find data for the read-only task preview modal
-  const viewTaskStory = stories.find(s => s.tasks.some(t => t.id === viewTaskId)) || null;
-  const viewTask = viewTaskStory?.tasks.find(t => t.id === viewTaskId) || null;
-  const viewStory = stories.find(s => s.id === viewStoryId) || null;
-
   const handleArchive = async (storyId: string) => {
     if (!confirm(`Archive story "${storyId}"? Tasks not in 'done' will be force-completed.`)) return;
     await apiPost(`/api/stories/${storyId}/archive`, { force: true });
@@ -156,7 +145,7 @@ export function BoardPage() {
             <SelectItem value="status">Status</SelectItem>
           </SelectContent>
         </Select>
-        <AddStoryDialog onCreated={refetch} />
+        <AddStoryButton />
       </div>
 
       {/* Swimlanes */}
@@ -166,9 +155,6 @@ export function BoardPage() {
             key={story.id}
             story={story}
             states={getStatesForStory(story)}
-            onViewStory={setViewStoryId}
-            onViewTask={setViewTaskId}
-            onAddTask={setAddTaskStoryId}
             onArchive={handleArchive}
             onBacklog={handleBacklog}
             onStatusChange={refetch}
@@ -180,11 +166,15 @@ export function BoardPage() {
           </p>
         )}
       </div>
-
-      {/* Dialogs */}
-      <TaskViewDialog task={viewTask} storyId={viewTaskStory?.id ?? null} open={!!viewTaskId} onClose={() => setViewTaskId(null)} />
-      <StoryViewDialog story={viewStory} open={!!viewStoryId} onClose={() => setViewStoryId(null)} />
-      <AddTaskDialog storyId={addTaskStoryId} open={!!addTaskStoryId} onClose={() => setAddTaskStoryId(null)} onCreated={refetch} />
     </div>
+  );
+}
+
+/** Link to the full-page story creation form. */
+function AddStoryButton() {
+  return (
+    <Button size="sm" render={<Link to="/stories/new" />}>
+      <Plus className="h-4 w-4 mr-1" /> Add Story
+    </Button>
   );
 }

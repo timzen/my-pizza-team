@@ -13,6 +13,9 @@ import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { AssistantPage } from "./pages/AssistantPage";
 import { BacklogPage } from "./pages/BacklogPage";
 import { ArchivedPage } from "./pages/ArchivedPage";
+import { NewStoryPage } from "./pages/NewStoryPage";
+import { NewTaskPage } from "./pages/NewTaskPage";
+import { SpawnPage } from "./pages/SpawnPage";
 import { ConfigPage } from "./pages/ConfigPage";
 import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { HelpPage } from "./pages/HelpPage";
@@ -31,6 +34,9 @@ function App() {
               <Route path="/scratchpad" element={<ScratchpadPage />} />
               <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
               <Route path="/story/:id" element={<StoryDetailPage />} />
+              <Route path="/stories/new" element={<NewStoryPage />} />
+              <Route path="/story/:id/tasks/new" element={<NewTaskPage />} />
+              <Route path="/spawn" element={<SpawnPage />} />
               <Route path="/assistant" element={<AssistantPage />} />
               <Route path="/backlog" element={<BacklogPage />} />
               <Route path="/archived" element={<ArchivedPage />} />
