@@ -176,7 +176,7 @@ src/
 ├── index.ts          Entry point: flag registration, role detection, wiring
 ├── client.ts         DaemonClient: unified HTTP client for daemon API
 ├── leader.ts         Leader: tmux management, spawn polling, slash commands
-├── teammate.ts       TeammateLoop: multi-transition autonomous work loop
+├── teammate.ts       TeammateLoop: autonomous work loop (fresh session per work item)
 ├── assistant.ts      AssistantLoop: works chat response turns (streams bubbles via send_message)
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling

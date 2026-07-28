@@ -11,7 +11,9 @@
 // 4. On agent_end, POST /api/agents/done/:taskId → the daemon advances the
 //    task mechanically. If the agent used the return_task tool instead, the
 //    task went back to `ready` and completion is skipped.
-// 5. Poll again for next task
+// 5. Request a fresh Pi session (context hygiene — each work item starts with
+//    an empty session; see requestFreshSession). The fresh extension instance
+//    re-registers and polls for the next task.
 //
 // The teammate never assumes workflow state names — the state persona in the
 // prompt tells it what role it plays. This makes it compatible with any
@@ -39,6 +41,15 @@ export class TeammateLoop {
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   public onTaskComplete: ((taskId: string, result: string) => void) | null = null;
+
+  /**
+   * Called after a work item ends (completed or returned) to request a fresh
+   * Pi session before the next one — each task should start with an empty
+   * context (no bleed from the previous task). Wired by setupTeammate to
+   * queue the /ppt-fresh-session command; the resulting session_start re-runs
+   * setup, which re-registers this member and starts a new loop.
+   */
+  public requestFreshSession: (() => void) | null = null;
 
   /** Called when the agent is dismissed from the UI */
   public onDismissed: (() => void) | null = null;
@@ -229,7 +240,7 @@ export class TeammateLoop {
       this.debugLog(`[ppt-debug] Task ${taskId} was returned via return_task — skipping done.`);
       this.returnedTaskId = null;
       this.currentTaskId = null;
-      this.schedulePoll();
+      this.finishWorkItem();
       return;
     }
 
@@ -254,6 +265,19 @@ export class TeammateLoop {
       this.onTaskComplete?.(taskId, fullMessage);
     }
 
+    this.finishWorkItem();
+  }
+
+  /**
+   * Wrap up a work item: request a fresh session for context hygiene, and
+   * schedule a poll as a safety net. If the session reset goes through, pi
+   * emits session_shutdown for this instance (which stops the loop and clears
+   * the timer) and a brand-new loop takes over in the fresh session. If the
+   * reset fails or isn't wired, the scheduled poll keeps this loop working —
+   * same behavior as before fresh sessions existed.
+   */
+  private finishWorkItem(): void {
+    this.requestFreshSession?.();
     this.schedulePoll();
   }
 }

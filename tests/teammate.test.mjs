@@ -176,5 +176,53 @@ test("dismisses itself when next-work returns dismiss (assigned-story exhausted)
   assert.ok(src.match(/response\.dismiss[\s\S]*?onDismissed/));
 });
 
+// ─── Fresh session per work item (context hygiene) ────────────────
+
+test("exposes a requestFreshSession hook", () => {
+  assert.ok(src.includes("public requestFreshSession:"));
+});
+
+test("finishWorkItem requests a fresh session AND schedules a poll (safety net)", () => {
+  const section = src.slice(src.indexOf("private finishWorkItem()"));
+  assert.ok(section.includes("this.requestFreshSession?.()"));
+  assert.ok(section.includes("this.schedulePoll()"));
+});
+
+test("both completion and return paths finish via finishWorkItem", () => {
+  const matches = src.match(/this\.finishWorkItem\(\)/g) || [];
+  assert.ok(matches.length >= 2, `expected >=2 finishWorkItem calls, got ${matches.length}`);
+  // Neither end-of-work path should schedule a poll directly anymore.
+  const handleSection = src.slice(src.indexOf("async handleAgentComplete"), src.indexOf("private finishWorkItem"));
+  assert.ok(!handleSection.includes("this.schedulePoll()"));
+});
+
+// The wiring lives in index.ts: a command owns ctx.newSession() (session
+// control only exists on command contexts) and the loop queues it.
+const indexSrc = fs.readFileSync(
+  path.join(import.meta.dirname, "../src/index.ts"),
+  "utf-8"
+);
+
+test("index registers ppt-fresh-session command that calls newSession", () => {
+  const cmd = indexSrc.slice(indexSrc.indexOf('registerCommand("ppt-fresh-session"'));
+  assert.ok(cmd.includes(".newSession()"));
+});
+
+test("index wires requestFreshSession to queue the command as a followUp", () => {
+  const wiring = indexSrc.slice(indexSrc.indexOf("loop.requestFreshSession ="));
+  assert.ok(wiring.includes('"/ppt-fresh-session"'));
+  assert.ok(wiring.includes('deliverAs: "followUp"'));
+});
+
+test("self-reset skips deregistration (no offline blip between work items)", () => {
+  // The teammate's session_shutdown must early-return before deregister when
+  // shutting down for a fresh-session reset.
+  assert.ok(indexSrc.includes("resettingForFreshSession = true"));
+  const shutdown = indexSrc.slice(indexSrc.indexOf("clearInterval(widgetInterval)"));
+  const returnIdx = shutdown.indexOf("if (resettingForFreshSession) return");
+  const deregisterIdx = shutdown.indexOf("client.deregister()");
+  assert.ok(returnIdx > -1 && deregisterIdx > -1 && returnIdx < deregisterIdx);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

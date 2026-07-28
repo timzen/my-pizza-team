@@ -85,8 +85,17 @@ returns to autonomous.
 3. Execute (send the prompt to the Pi agent)
 4. Done   POST /api/agents/done/:id        → daemon advances state, stores result
    or:    POST /api/agents/return/:id      → blocked: back to ready + comment
-5. Repeat (or shut down if dismissed)
+5. Fresh session (queue /ppt-fresh-session → ctx.newSession()) — the new
+   extension instance re-registers and repeats (or shuts down if dismissed)
 ```
+
+Each work item runs in a fresh Pi session: after done/return the loop queues
+the `ppt-fresh-session` command (session control only exists on command
+contexts), which calls `ctx.newSession()`. Pi tears the old instance down and
+re-runs `session_start`, so the teammate re-registers under the same identity
+and polls again with an empty context — no bleed between tasks, enforced by
+construction. A scheduled poll remains as a safety net in case the reset
+fails.
 
 ### Permission toggling
 | Mode | yoloMode | Behavior |

@@ -318,7 +318,39 @@ async function setupTeammate(
 
   // Tracking state for widget and status command
   let taskStartedAt: number | null = null;
-  let completedTasks = 0;
+
+  // Fresh session per work item (context hygiene): the loop queues this
+  // command after each completed/returned task. Session control only exists
+  // on command contexts (event handlers could deadlock), hence the documented
+  // queue-a-command pattern. ctx.newSession() tears this instance down
+  // (session_shutdown → loop.stop) and re-runs session_start in the fresh
+  // session, which re-registers this member (same flags → same memberId) and
+  // starts a new loop that polls for the next task.
+  //
+  // The flag makes session_shutdown skip deregistration for self-resets: the
+  // member row stays put (no offline blip in the UI) and the re-register
+  // upserts it moments later. If the reset dies mid-way, the daemon's
+  // heartbeat timeout marks the member offline as usual.
+  let resettingForFreshSession = false;
+  pi.registerCommand("ppt-fresh-session", {
+    description: "Start a fresh session before the next work item (used by the work loop)",
+    handler: async (_args: unknown, cmdCtx: any) => {
+      resettingForFreshSession = true;
+      try {
+        const result = await cmdCtx.newSession();
+        // Cancelled by another extension — we're staying in this session.
+        if (result?.cancelled) resettingForFreshSession = false;
+      } catch (e) {
+        resettingForFreshSession = false;
+        throw e;
+      }
+    },
+  });
+
+  loop.requestFreshSession = () => {
+    debug(`[ppt-debug] work item finished — queueing /ppt-fresh-session`);
+    pi.sendUserMessage("/ppt-fresh-session", { deliverAs: "followUp" });
+  };
 
   pi.registerCommand("ppt-worker-resume", {
     description: "Resume autonomous work after pairing session",
@@ -342,7 +374,6 @@ async function setupTeammate(
       } else {
         output += `☕ No active task (waiting for work)\n`;
       }
-      output += `\n✓ Tasks completed this session: ${completedTasks}\n`;
       if (ctx.hasUI) ctx.ui.notify(output, "info");
     },
   });
@@ -352,7 +383,7 @@ async function setupTeammate(
   loop.resume();
   await loop.start();
 
-  loop.onTaskComplete = () => { completedTasks++; taskStartedAt = null; };
+  loop.onTaskComplete = () => { taskStartedAt = null; };
 
   loop.onDismissed = () => {
     if (ctx.hasUI) {
@@ -386,6 +417,9 @@ async function setupTeammate(
   pi.on("session_shutdown", async () => {
     clearInterval(widgetInterval);
     loop.stop();
+    // Self-reset between work items: keep the daemon registration alive so
+    // the member doesn't flicker offline; the fresh instance re-registers.
+    if (resettingForFreshSession) return;
     await client.deregister().catch(() => {});
   });
 }
