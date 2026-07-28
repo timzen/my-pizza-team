@@ -1,11 +1,12 @@
 /**
- * ArchivedPage — Shows archived stories with their synopses.
+ * ArchivedPage — Shows archived stories with their synopses. Presented as a
+ * tab of the Board surface (see BoardTabs).
  */
 
 import { useApi } from "@/hooks/useApi";
+import { BoardTabs } from "@/components/board/BoardTabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Archive } from "lucide-react";
 
 interface ArchivedStory {
   id: string;
@@ -19,14 +20,16 @@ export function ArchivedPage() {
   const stories = data?.stories || [];
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <div className="flex items-center gap-2">
-        <Archive className="h-5 w-5" />
-        <h1 className="text-2xl font-bold">Archived Stories</h1>
+    <div className="container mx-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <BoardTabs />
+        <div className="text-sm text-muted-foreground">
+          {stories.length} {stories.length === 1 ? "story" : "stories"}
+        </div>
       </div>
       <p className="text-sm text-muted-foreground">Completed stories preserved for reference.</p>
 
-      <div className="space-y-3">
+      <div className="space-y-3 max-w-3xl">
         {stories.map(story => (
           <Card key={story.id}>
             <CardContent className="p-4">
