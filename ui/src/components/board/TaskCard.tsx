@@ -1,18 +1,18 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows title, assignee, substatus, an explicit "view" button (opens a
- * read-only preview modal), and a link to the task detail/comments page.
- * Clicking the card body does nothing — opening a task is always an explicit
- * action. Changing state is done by **dragging** the card to another column
- * (the column already names the state, so the card carries no state badge —
- * only the substatus chip for agent states).
+ * Shows title, assignee, substatus, and a link to the task detail/comments
+ * page. Clicking the card body does nothing — opening a task is always an
+ * explicit action (the `details →` link; there is no preview modal, the task
+ * page is the one place to read/edit a task). Changing state is done by
+ * **dragging** the card to another column (the column already names the
+ * state, so the card carries no state badge — only the substatus chip for
+ * agent states).
  */
 
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { User, Eye } from "lucide-react";
+import { User } from "lucide-react";
 
 /** Drag payload MIME type; the story id is baked in so a swimlane can accept
  *  only its own tasks during dragover (dataTransfer values are unreadable
@@ -34,11 +34,9 @@ interface TaskCardProps {
     tokenUsage?: { totalCostUsd: number };
   };
   storyId?: string;
-  /** Open the read-only preview modal for this task. */
-  onView?: (taskId: string) => void;
 }
 
-export function TaskCard({ task, storyId, onView }: TaskCardProps) {
+export function TaskCard({ task, storyId }: TaskCardProps) {
   /** Start a drag: the drop target (a swimlane column) performs the move. */
   const handleDragStart = (e: React.DragEvent) => {
     if (!storyId) return;
@@ -84,20 +82,11 @@ export function TaskCard({ task, storyId, onView }: TaskCardProps) {
               {task.substatus}
             </Badge>
           )}
-          {/* Explicit view button — opens the read-only preview modal */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-6 w-6 ml-auto"
-            onClick={() => onView?.(task.id)}
-            title="View task"
-          >
-            <Eye className="h-3.5 w-3.5" />
-          </Button>
+          {/* Explicit navigation — the task page is the one place to read/edit */}
           {storyId && (
             <Link
               to={`/task/${storyId}/${task.id}`}
-              className="text-xs text-muted-foreground hover:text-foreground hover:underline ml-2"
+              className="text-xs text-muted-foreground hover:text-foreground hover:underline ml-auto"
             >
               details →
             </Link>

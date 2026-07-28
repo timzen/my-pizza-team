@@ -16,7 +16,6 @@ import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
 import { RequirementsEditor } from "@/components/board/RequirementsEditor";
 import { ContextSelector } from "@/components/board/ContextSelector";
-import { AddTaskDialog } from "@/components/board/AddTaskDialog";
 import { ArrowLeft, Save, Trash2, Plus, ChevronUp, ChevronDown } from "lucide-react";
 
 interface StoryTask {
@@ -53,7 +52,6 @@ export function StoryDetailPage() {
   const [context, setContext] = useState<string[]>([]);
   const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
-  const [addTaskOpen, setAddTaskOpen] = useState(false);
 
   // Seed edit fields when the story loads/changes.
   useEffect(() => {
@@ -188,7 +186,7 @@ export function StoryDetailPage() {
             variant="ghost"
             size="sm"
             className="h-6 px-2 text-xs gap-1"
-            onClick={() => setAddTaskOpen(true)}
+            render={<Link to={`/story/${story.id}/tasks/new`} />}
           >
             <Plus className="h-3 w-3" /> Add
           </Button>
@@ -215,8 +213,6 @@ export function StoryDetailPage() {
         ))}
         {story.tasks.length === 0 && <p className="text-sm text-muted-foreground">No tasks yet.</p>}
       </div>
-
-      <AddTaskDialog storyId={story.id} open={addTaskOpen} onClose={() => setAddTaskOpen(false)} onCreated={refetch} />
     </div>
   );
 }
