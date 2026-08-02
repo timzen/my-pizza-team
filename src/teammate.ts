@@ -1,23 +1,23 @@
-// Teammate work loop: poll → claim → work → done
+// Teammate work loop: poll → claim → work → set-state
 //
 // Autonomous execution engine for a teammate agent. Uses the daemon's
-// agent protocol (/api/agents/*) under the work model (see the daemon's
-// docs/WORK-MODEL.md): workers never move tasks.
+// WorkItem-centric agent protocol (/api/agents/*): the WorkItem is the unit of
+// agent execution, and workers never move tasks (the daemon reacts to a terminal
+// WorkItem state). See the daemon's docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 //
 // Lifecycle:
-// 1. Poll GET /api/agents/next-work → a task sitting `ready` in an agent state
-// 2. Claim POST /api/agents/claim/:taskId → lease (substatus → claimed) + prompt
+// 1. Poll GET /api/agents/next-work → a READY WorkItem (directory affinity)
+// 2. Claim POST /api/agents/claim/:workItemId → lease (→ IN_PROGRESS) + prompt
 // 3. Execute work (deliver the daemon-assembled prompt to the Pi agent)
-// 4. On agent_end, POST /api/agents/done/:taskId → the daemon advances the
-//    task mechanically. If the agent used the return_task tool instead, the
-//    task went back to `ready` and completion is skipped.
+// 4. On agent_end, POST .../work-items/:id/state COMPLETE → the daemon advances
+//    the task mechanically. If the agent used the `fail` tool instead, the item
+//    is already FAILED and completion is skipped.
 // 5. Request a fresh Pi session (context hygiene — each work item starts with
 //    an empty session; see requestFreshSession). The fresh extension instance
-//    re-registers and polls for the next task.
+//    re-registers and polls for the next work item.
 //
-// The teammate never assumes workflow state names — the state persona in the
-// prompt tells it what role it plays. This makes it compatible with any
-// workflow configuration.
+// The teammate never assumes workflow state names — the prompt tells it what to
+// do. This makes it compatible with any workflow configuration.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
@@ -32,15 +32,15 @@ export class TeammateLoop {
   private client: DaemonClient;
   private running = false;
   private autonomous = false;
-  private currentTaskId: string | null = null;
-  private lastCompletedTaskId: string | null = null;
-  /** Set when the agent returned its current task via the return_task tool —
-   *  agent_end must then skip marking completion (the task is back to ready). */
-  private returnedTaskId: string | null = null;
+  private currentWorkItemId: string | null = null;
+  private lastCompletedWorkItemId: string | null = null;
+  /** Set when the agent failed its current WorkItem via the `fail` tool —
+   *  agent_end must then skip marking completion (the item is already FAILED). */
+  private failedWorkItemId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  public onTaskComplete: ((taskId: string, result: string) => void) | null = null;
+  public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
   /**
    * Called after a work item ends (completed or returned) to request a fresh
@@ -70,20 +70,20 @@ export class TeammateLoop {
   }
 
   get currentTask(): string | null {
-    return this.currentTaskId;
+    return this.currentWorkItemId;
   }
 
   get lastTask(): string | null {
-    return this.lastCompletedTaskId;
+    return this.lastCompletedWorkItemId;
   }
 
   /**
-   * Record that the current task was returned to the queue (the return_task
-   * tool ran). The in-flight agent turn may keep going briefly; when it ends,
-   * handleAgentComplete sees the flag and does not mark the task done.
+   * Record that the current WorkItem was failed by the agent (the `fail` tool
+   * ran). The in-flight agent turn may keep going briefly; when it ends,
+   * handleAgentComplete sees the flag and does not mark the item COMPLETE.
    */
-  markReturned(taskId: string): void {
-    if (this.currentTaskId === taskId) this.returnedTaskId = taskId;
+  markReturned(workItemId: string): void {
+    if (this.currentWorkItemId === workItemId) this.failedWorkItemId = workItemId;
   }
 
   async start(): Promise<void> {
@@ -118,9 +118,9 @@ export class TeammateLoop {
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(async () => {
       const status = this.autonomous
-        ? this.currentTaskId ? "working" : "idle"
+        ? this.currentWorkItemId ? "working" : "idle"
         : "pairing";
-      const res = await this.client.heartbeat(status, this.currentTaskId || undefined);
+      const res = await this.client.heartbeat(status, this.currentWorkItemId || undefined);
       if (res.dismissed) {
         this.stop();
         if (this.onDismissed) this.onDismissed();
@@ -133,7 +133,7 @@ export class TeammateLoop {
   // ═══════════════════════════════════════════════════════════════════
 
   private async pollForWork(): Promise<void> {
-    if (!this.running || !this.autonomous || this.currentTaskId) {
+    if (!this.running || !this.autonomous || this.currentWorkItemId) {
       this.schedulePoll();
       return;
     }
@@ -141,30 +141,21 @@ export class TeammateLoop {
     try {
       const response = await this.client.getNextWork();
 
-      // assigned-story agent whose story is exhausted: the daemon archived
-      // the story and is telling us to shut down.
-      if (response.dismiss) {
-        this.debugLog(`[ppt-debug] Received dismiss from next-work — assigned story complete. Stopping.`);
-        this.stop();
-        if (this.onDismissed) this.onDismissed();
-        return;
-      }
-
-      if (response.task) {
-        // Claim the task — daemon transitions to working state
-        const claim = await this.client.claimTask(response.task.id);
+      if (response.workItem) {
+        // Claim the WorkItem → daemon leases it (→ IN_PROGRESS).
+        const claim = await this.client.claimWorkItem(response.workItem.id);
         if (!claim.success) {
           // Someone else claimed it — try again
           this.schedulePoll();
           return;
         }
 
-        // We now own this task
-        this.currentTaskId = response.task.id;
-        this.client.heartbeat("working", response.task.id).catch(() => {});
+        // We now own this work item
+        this.currentWorkItemId = response.workItem.id;
+        this.client.heartbeat("working", response.workItem.id).catch(() => {});
 
         // Execute the work using the daemon-assembled prompt.
-        await this.executeTask(response.task.id, claim.prompt);
+        await this.executeTask(response.workItem.id, claim.prompt);
       } else {
         this.schedulePoll();
       }
@@ -185,17 +176,17 @@ export class TeammateLoop {
    * comments, state guidance, and instructions) so the teammate never augments
    * it — it just posts a status comment and sends the prompt verbatim.
    */
-  private async executeTask(taskId: string, prompt?: string): Promise<void> {
+  private async executeTask(workItemId: string, prompt?: string): Promise<void> {
     // The daemon always supplies the prompt; guard defensively just in case.
     const message = prompt && prompt.trim().length > 0
       ? prompt
-      : `You are working on task ${taskId}. Review the task details and proceed.`;
+      : `You are working on work item ${workItemId}. Review the details and proceed.`;
 
     // Post status comment
-    await this.client.postComment(taskId, `[status] Started working on this task.`).catch(() => {});
+    await this.client.postComment(workItemId, `[status] Started working on this.`).catch(() => {});
 
     // Send to Pi agent — this triggers the agent loop
-    this.debugLog(`[ppt-debug] Sending task prompt to agent (task=${taskId}, prompt length=${message.length})`);
+    this.debugLog(`[ppt-debug] Sending prompt to agent (workItem=${workItemId}, prompt length=${message.length})`);
     this.pi.sendUserMessage(message, { deliverAs: "followUp" });
   }
 
@@ -206,11 +197,10 @@ export class TeammateLoop {
   /**
    * Called by the agent_end handler when the Pi agent finishes.
    *
-   * Posts a summary comment and signals completion — the daemon advances the
-   * task to its next state (workers never move tasks). If the agent returned
-   * the task mid-turn (return_task tool), completion is skipped: the task is
-   * already back to `ready` for someone else. Rework arrives as ordinary new
-   * work: a human moves the task back with comments; the next poll finds it.
+   * Posts a summary comment and sets the WorkItem COMPLETE — the daemon advances
+   * the task to its next state (workers never move tasks). If the agent failed
+   * the item mid-turn (the `fail` tool), completion is skipped: the item is
+   * already FAILED and the task is left stuck for a human.
    */
   async handleAgentComplete(lastMessage: string, tokenUsage?: {
     inputTokens: number;
@@ -218,51 +208,49 @@ export class TeammateLoop {
     model: string;
     costFromProvider?: number;
   }): Promise<void> {
-    this.debugLog(`[ppt-debug] handleAgentComplete called. currentTaskId=${this.currentTaskId}, msgLen=${lastMessage.length}`);
-    if (!this.currentTaskId) {
-      this.debugLog(`[ppt-debug] handleAgentComplete: no currentTaskId, returning early`);
+    this.debugLog(`[ppt-debug] handleAgentComplete called. currentWorkItemId=${this.currentWorkItemId}, msgLen=${lastMessage.length}`);
+    if (!this.currentWorkItemId) {
+      this.debugLog(`[ppt-debug] handleAgentComplete: no currentWorkItemId, returning early`);
       return;
     }
 
-    const taskId = this.currentTaskId;
+    const workItemId = this.currentWorkItemId;
 
     // Report token usage
     if (tokenUsage && (tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0)) {
-      await this.client.reportTokenUsage(taskId, {
+      await this.client.reportTokenUsage(workItemId, {
         inputTokens: tokenUsage.inputTokens,
         outputTokens: tokenUsage.outputTokens,
         model: tokenUsage.model,
       }).catch(() => {});
     }
 
-    // ─── Returned mid-turn? The task is already back to ready. ────────
-    if (this.returnedTaskId === taskId) {
-      this.debugLog(`[ppt-debug] Task ${taskId} was returned via return_task — skipping done.`);
-      this.returnedTaskId = null;
-      this.currentTaskId = null;
+    // ─── Failed mid-turn? The item is already FAILED (task left stuck). ───
+    if (this.failedWorkItemId === workItemId) {
+      this.debugLog(`[ppt-debug] WorkItem ${workItemId} was failed via the fail tool — skipping COMPLETE.`);
+      this.failedWorkItemId = null;
+      this.currentWorkItemId = null;
       this.finishWorkItem();
       return;
     }
 
     // ─── Done with result ────────────────────────────────────────────
-    // The completion comment is for humans reading the task, so post the full
-    // message rather than a truncated slice (which cut summaries mid-sentence).
     const fullMessage = lastMessage.trim();
-    this.debugLog(`[ppt-debug] Completing task ${taskId} with summary: ${fullMessage.slice(0, 100)}...`);
-    await this.client.postComment(taskId, `[done] Work complete. Summary:\n${fullMessage}`).catch(() => {});
+    this.debugLog(`[ppt-debug] Completing work item ${workItemId} with summary: ${fullMessage.slice(0, 100)}...`);
+    await this.client.postComment(workItemId, `[done] Work complete. Summary:\n${fullMessage}`).catch(() => {});
 
-    // Signal completion — the daemon advances the task mechanically. The result
-    // is stored on the task and echoed into future task prompts for context.
-    const doneRes = await this.client.completeTask(taskId, fullMessage).catch((e) => {
-      this.debugLog(`[ppt-debug] completeTask FAILED: ${e}`);
+    // Set COMPLETE — the daemon advances the task mechanically. The result is
+    // stored on the task and echoed into future task prompts for context.
+    const doneRes = await this.client.setWorkItemState(workItemId, "COMPLETE", fullMessage).catch((e) => {
+      this.debugLog(`[ppt-debug] setWorkItemState COMPLETE FAILED: ${e}`);
       return null;
     });
-    this.debugLog(`[ppt-debug] completeTask response: ${JSON.stringify(doneRes)}`);
-    this.lastCompletedTaskId = taskId;
-    this.currentTaskId = null;
+    this.debugLog(`[ppt-debug] setWorkItemState response: ${JSON.stringify(doneRes)}`);
+    this.lastCompletedWorkItemId = workItemId;
+    this.currentWorkItemId = null;
 
     if (doneRes?.completed) {
-      this.onTaskComplete?.(taskId, fullMessage);
+      this.onTaskComplete?.(workItemId, fullMessage);
     }
 
     this.finishWorkItem();

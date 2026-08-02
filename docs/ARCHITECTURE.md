@@ -42,7 +42,7 @@ src/
 ├── index.ts              # Entry point: flag registration, role detection, setup
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands
-├── teammate.ts           # TeammateLoop: poll → claim → work → done (or return) → fresh session loop
+├── teammate.ts           # TeammateLoop: poll → claim → work → set-state (COMPLETE/FAILED) → fresh session loop
 ├── assistant.ts          # AssistantLoop: poll turn → claim → stream bubbles → complete
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link
@@ -61,23 +61,25 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │  TeammateLoop  (work model: workers never move tasks)   │
 │                                                          │
 │  1. GET  /api/agents/next-work?agentId=X                 │
-│     └── a task sitting `ready` in an agent state         │
-│  2. POST /api/agents/claim/:taskId  (lease → claimed)    │
+│     └── a READY WorkItem (chosen by directory affinity)  │
+│  2. POST /api/agents/claim/:workItemId  (→ IN_PROGRESS)  │
 │  3. pi.sendUserMessage(claim.prompt)                     │
 │     └── daemon-assembled prompt (state persona + task), │
 │         delivered verbatim; agent cds to the story dir   │
 │  4. agent_end event fires                                │
 │     └── handleAgentComplete(lastAssistantMessage)        │
-│         ├── task was returned via return_task → skip     │
-│         └── else POST /api/agents/done/:taskId           │
+│         ├── item failed via the `fail` tool → skip       │
+│         └── else POST .../work-items/:id/state COMPLETE  │
 │             └── daemon advances the task mechanically    │
 │  5. Back to step 1                                       │
 └─────────────────────────────────────────────────────────┘
 ```
 
-Rework needs no special path: a human moves the task back into an agent state
-(substatus resets to `ready`), and the next poll discovers it like new work —
-with the human's comments in the prompt. See the daemon's docs/WORK-MODEL.md.
+Rework needs no special path: a human moves the task back into an agent state,
+which enqueues a fresh READY WorkItem, and the next poll discovers it like new
+work — with the human's comments in the prompt. "Giving up" is the agent
+composing a comment + `FAILED` (the `fail` tool); the task is left stuck for a
+human. See the daemon's docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 
 ### Leader (spawn management)
 
@@ -147,12 +149,13 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 ### Agent Protocol Routes (new)
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/agents/register` | POST | Register agent with daemon |
-| `/api/agents/heartbeat` | POST | Agent keepalive |
-| `/api/agents/next-work?agentId=X` | GET | Poll for a ready agent-state task |
-| `/api/agents/claim/:taskId` | POST | Lease the task (substatus → claimed) + get the persona prompt |
-| `/api/agents/done/:taskId` | POST | Work complete → daemon advances the task |
-| `/api/agents/return/:taskId` | POST | Can't proceed → back to ready + comment |
+| `/api/agents/register` | POST | Register agent (name, working `directory`, metadata) |
+| `/api/agents/heartbeat` | POST | Agent keepalive (restores this agent's MORIBUND items) |
+| `/api/agents/next-work?agentId=X` | GET | Poll for a `READY` WorkItem (directory affinity) |
+| `/api/agents/claim/:workItemId` | POST | Lease the WorkItem (→ IN_PROGRESS) + get the daemon prompt |
+| `/api/agents/work-items/:workItemId/state` | POST | Set COMPLETE (advance task) or FAILED (leave stuck) |
+| `/api/agents/work-items/:workItemId/token-usage` | POST | Report token usage (resolved to the task ref) |
+| `/api/agents/work-items/:workItemId/attachments` | POST | Upload an attachment (resolved to the ref) |
 
 ### Task Routes
 | Route | Method | Purpose |
@@ -208,30 +211,20 @@ are authored in the UI/daemon.
 | `--ppt-assistant` | boolean | false | Run as assistant |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto) | Agent name |
-| `--ppt-work-mode` | string | `eager-helper` | Teammate work selection (`eager-helper` \| `assigned-story`) |
-| `--ppt-story` | string | (none) | Story to bind to for `assigned-story` mode |
-| `--ppt-skills` | string | (none) | Comma-separated capabilities: `name` presence-only, `name:value` value-bound (e.g. `python,java:8`) |
 
-### Teammate work selection
+### Teammate work selection: directory affinity
 
-At registration `setupTeammate()` builds a capability map from the
-`--ppt-skills` entries — `name` → presence-only (null), `name:value` →
-value-bound — and sends it with the chosen `workMode`/`assignedStoryId` via
-`DaemonClient.register()`. The daemon performs all matching; the teammate
-never reasons about it. (No `directory` capability: the story's directory is
-data the agent cds to.)
+Teammates are generalists — no capability/skill or work-mode configuration.
+`setupTeammate()` registers the teammate's working directory (its pi cwd) via
+`DaemonClient.register({ name, directory })`. The daemon biases work by
+directory (my-dir → un-homed → other-dir-if-nobody-homed-there); the teammate
+never reasons about matching. A teammate on work whose directory it can't reach
+just fails that item.
 
-For `assigned-story` mode, when the daemon archives the exhausted story it
-returns `{ task: null, dismiss: true }` from `next-work`; `TeammateLoop.pollForWork`
-detects `dismiss`, stops the loop, and fires `onDismissed` so the agent exits.
-
-Spawn requests carrying a `storyId` are launched as assigned-story teammates:
-`spawnAgent()` fills the `{workArgs}` placeholder in the pi harness template with
-`--ppt-work-mode=assigned-story --ppt-story=<id>`, so a story-scoped spawn runs
-its story and then dismisses itself automatically. Requests carrying `skills`
-append `--ppt-skills=<a,b>` so the teammate advertises those capabilities for
-story-requirement matching (the spawn cwd is just the process home — teammates
-cd to each story's directory to work).
+Spawn requests carry only a `cwd` (the teammate's working directory). There is
+no story binding or skills argument — `spawnAgent()` leaves the `{workArgs}`
+placeholder empty. The spawn cwd is where the teammate homes (and thus what it's
+biased toward).
 
 `spawnAgent()` is idempotent by tmux window name: because tmux does **not**
 enforce unique window names, `new-window -n <name>` would create a duplicate
@@ -287,16 +280,16 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
 2. **Daemon owns all state** — stories, tasks, workflows, context library, assistant conversation
-3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → done/return; workers never move tasks (the daemon advances + admits; see the daemon's WORK-MODEL.md)
+3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → set-state (COMPLETE/FAILED); workers never move tasks (the daemon reacts to a terminal WorkItem — advance + admit; see the daemon's FRONTIER_ENGINEER_REFACTOR_PLAN.md)
 4. **Workflow-agnostic teammate** — never hardcodes state names; the state persona in the claim prompt tells it what role it plays
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
 6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)
-7. **return_task over sentinel parsing** — giving up is an explicit tool call (comment + back to ready), never a magic string in the agent's output
+7. **`fail` over sentinel parsing** — giving up is the agent composing two primitives (a comment + set the WorkItem `FAILED`), never a magic string in the agent's output
 8. **Permission toggle is file-based** — leverages permission system's runtime config reload
 9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
 10. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
 11. **Assistant replies as chat bubbles** — the assistant answers by calling the `send_message` tool once per bubble (`.../say`), not by returning one blob. Batching guidance lives in the daemon's `ASSISTANT_CHAT_FRAMING` (injected ahead of every persona), so the extension never splits/batches text itself; it just wires `send_message` to the active turn id and lets the daemon own the chat model.
-12. **Fresh session per work item** — after each done/return the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate — the daemon/leader `reset-session` directive remains only for manual resets from the UI.
+12. **Fresh session per work item** — after each COMPLETE/FAILED the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate — the daemon/leader `reset-session` directive remains only for manual resets from the UI.
 
 ## Extending
 

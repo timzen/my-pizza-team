@@ -39,38 +39,27 @@ export interface AgentRegisterResponse {
     defaultWorkflow: string;
     workflows: Record<string, WorkflowConfig>;
     tmuxSession: string;
-    directories: string[];
   };
   error?: string;
 }
 
 /** Response from GET /api/agents/next-work */
 export interface AgentNextWorkResponse {
-  task: {
-    id: string;
-    storyId: string;
-    title: string;
-  } | null;
-  /** For assigned-story agents: story is exhausted (archived); the agent should dismiss itself. */
-  dismiss?: boolean;
+  workItem: { id: string; title: string } | null;
 }
 
-/** Response from POST /api/agents/claim/:taskId */
+/** Response from POST /api/agents/claim/:workItemId */
 export interface AgentClaimResponse {
   success: boolean;
-  /** Minimal structured task metadata for bookkeeping (the prose is in `prompt`). */
-  task?: {
-    id: string;
-    storyId: string;
-    status: string;
-  };
+  /** Minimal bookkeeping id (the prose is in `prompt`). */
+  workItem?: { id: string };
   /** Full assembled prompt from the daemon — delivered verbatim to the agent. */
   prompt?: string;
   error?: string;
 }
 
-/** Response from POST /api/agents/release/:taskId */
-export interface AgentReleaseResponse {
+/** Response from POST /api/agents/work-items/:workItemId/state */
+export interface AgentSetStateResponse {
   success: boolean;
   newStatus?: string;
   completed?: boolean;
@@ -132,7 +121,8 @@ export interface ContextEntry {
 export interface WorkflowSummary {
   name: string;
   stateCount: number;
-  transitionCount: number;
+  agentCount: number;
+  manualCount: number;
   isDefault: boolean;
 }
 
@@ -324,18 +314,14 @@ export class DaemonClient {
    * Register this agent with the daemon.
    *
    * Called once at startup. Provides the agent's name, working directory,
-   * hostId (for multi-host spawn routing), and capabilities.
+   * hostId (for multi-host spawn routing), and its working directory.
    *
    * Returns workflow config and host-specific settings.
    */
   async register(opts: {
     name: string;
-    /** Capability map (presence-only skills etc.; the working directory is story data, not a capability). */
-    capabilities?: Record<string, string | null>;
-    /** Work selection mode (default: eager-helper). */
-    workMode?: "eager-helper" | "assigned-story";
-    /** Story to bind to when workMode is assigned-story. */
-    assignedStoryId?: string;
+    /** The agent's working directory (its pi cwd). Drives directory-affinity matching. */
+    directory?: string;
     /** Opaque harness metadata (e.g. tmux window) the daemon stores + relays back. */
     metadata?: Record<string, unknown>;
   }): Promise<AgentRegisterResponse> {
@@ -343,9 +329,7 @@ export class DaemonClient {
       id: this.agentId,
       name: opts.name,
       hostId: this.hostId,
-      capabilities: opts.capabilities,
-      workMode: opts.workMode,
-      assignedStoryId: opts.assignedStoryId,
+      directory: opts.directory,
       metadata: opts.metadata,
     });
   }
@@ -385,12 +369,9 @@ export class DaemonClient {
   }
 
   /**
-   * Poll for available work.
-   *
-   * Returns the next task sitting `ready` in an agent state whose story
-   * matches this agent (workMode + capability requirements). Admission
-   * (CONWIP) has already run daemon-side — tasks in `todo` are never offered.
-   * Returns `{ task: null }` if no work is available or distribution is paused.
+   * Poll for available work. Returns the next `READY` WorkItem the daemon
+   * matches to this agent (directory affinity), or `{ workItem: null }` when
+   * none is available or distribution is paused.
    */
   async getNextWork(): Promise<AgentNextWorkResponse> {
     return this.get<AgentNextWorkResponse>(
@@ -399,38 +380,27 @@ export class DaemonClient {
   }
 
   /**
-   * Claim (lease) a ready task. The task stays in its state; its substatus
-   * flips to `claimed`. Returns the daemon-assembled prompt (state persona +
-   * story/task context) to deliver verbatim.
+   * Claim (lease) a READY WorkItem (→ IN_PROGRESS). Returns the daemon-assembled
+   * prompt (state persona + story/task context, or the WorkDef's goal) to
+   * deliver verbatim.
    */
-  async claimTask(taskId: string): Promise<AgentClaimResponse> {
+  async claimWorkItem(workItemId: string): Promise<AgentClaimResponse> {
     return this.post<AgentClaimResponse>(
-      `/api/agents/claim/${encodeURIComponent(taskId)}`,
+      `/api/agents/claim/${encodeURIComponent(workItemId)}`,
       { agentId: this.agentId }
     );
   }
 
   /**
-   * Signal that the task's work is complete. The daemon advances the task to
-   * the next workflow state mechanically (workers never move tasks) and
-   * clears the lease. Returns the landing status and whether the task is done.
+   * Set the WorkItem's terminal state (the single state-setter). `COMPLETE`
+   * advances a task ref to its next workflow state (workers never move tasks);
+   * `FAILED` leaves the task stuck for a human. "Giving up" is a comment plus a
+   * FAILED here — the daemon bundles nothing.
    */
-  async completeTask(taskId: string, result?: string): Promise<AgentReleaseResponse> {
-    return this.post<AgentReleaseResponse>(
-      `/api/agents/done/${encodeURIComponent(taskId)}`,
-      { agentId: this.agentId, result }
-    );
-  }
-
-  /**
-   * Give the task back: it returns to `ready` in its current state (with an
-   * explanatory comment) so another teammate — or this one, later — can pick
-   * it up fresh. Used when the agent cannot make progress.
-   */
-  async returnTask(taskId: string, comment?: string): Promise<{ success: boolean; error?: string }> {
-    return this.post<{ success: boolean; error?: string }>(
-      `/api/agents/return/${encodeURIComponent(taskId)}`,
-      { agentId: this.agentId, comment }
+  async setWorkItemState(workItemId: string, state: "COMPLETE" | "FAILED", result?: string): Promise<AgentSetStateResponse> {
+    return this.post<AgentSetStateResponse>(
+      `/api/agents/work-items/${encodeURIComponent(workItemId)}/state`,
+      { agentId: this.agentId, state, result }
     );
   }
 
@@ -438,28 +408,17 @@ export class DaemonClient {
   // COMMENTS (replaces old "messages")
   // ═══════════════════════════════════════════════════════════════════
 
-  /**
-   * Get comments for a task.
-   *
-   * Returns the full conversation history. Agents load this when starting
-   * work on a task to see lead feedback, review comments, or rework
-   * instructions.
-   */
-  async getComments(taskId: string): Promise<CommentsResponse> {
+  /** Get comments on a WorkItem's ref (task or WorkDef). */
+  async getComments(workItemId: string): Promise<CommentsResponse> {
     return this.get<CommentsResponse>(
-      `/api/agents/comments/${encodeURIComponent(taskId)}`
+      `/api/agents/comments/${encodeURIComponent(workItemId)}`
     );
   }
 
-  /**
-   * Post a comment on a task.
-   *
-   * Used for status updates, work summaries, questions, or attaching files.
-   * Comments are task-level and visible to the lead and any future agent.
-   */
-  async postComment(taskId: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): Promise<{ success: boolean }> {
+  /** Post a comment on a WorkItem's ref (task or WorkDef). */
+  async postComment(workItemId: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): Promise<{ success: boolean }> {
     return this.post<{ success: boolean }>(
-      `/api/agents/comments/${encodeURIComponent(taskId)}`,
+      `/api/agents/comments/${encodeURIComponent(workItemId)}`,
       { agentId: this.agentId, body, attachments }
     );
   }
@@ -474,13 +433,13 @@ export class DaemonClient {
    * Records input/output token counts and model name. The daemon
    * calculates estimated cost and stores it with the task.
    */
-  async reportTokenUsage(taskId: string, usage: {
+  async reportTokenUsage(workItemId: string, usage: {
     inputTokens: number;
     outputTokens: number;
     model: string;
   }): Promise<TokenUsageResponse> {
     return this.post<TokenUsageResponse>(
-      `/api/tasks/${encodeURIComponent(taskId)}/token-usage`,
+      `/api/agents/work-items/${encodeURIComponent(workItemId)}/token-usage`,
       usage
     );
   }
@@ -495,9 +454,9 @@ export class DaemonClient {
    * Stores the file in the task's attachments directory. The daemon
    * auto-detects the file type (diff, markdown, json, etc.).
    */
-  async uploadAttachment(taskId: string, filename: string, content: string): Promise<UploadAttachmentResponse> {
+  async uploadAttachment(workItemId: string, filename: string, content: string): Promise<UploadAttachmentResponse> {
     return this.post<UploadAttachmentResponse>(
-      `/api/tasks/${encodeURIComponent(taskId)}/attachments`,
+      `/api/agents/work-items/${encodeURIComponent(workItemId)}/attachments`,
       { name: filename, content, encoding: "utf-8" }
     );
   }
@@ -640,8 +599,7 @@ export class DaemonClient {
     title: string;
     description: string;
     dependsOn?: string[];
-    requirements?: Record<string, string | null>;
-    /** Where the work happens — plain story data; teammates cd here (WORK-MODEL.md). */
+    /** Where the work happens — story data; teammates cd here (directory affinity). */
     directory?: string;
     paused?: boolean;
     workflow?: string;
@@ -722,7 +680,7 @@ export class DaemonClient {
   }
 
   /**
-   * Get host-specific configuration (directories, tmuxSession).
+   * Get host-specific configuration (tmuxSession).
    *
    * Used by the leader to get its host's settings from the daemon.
    */

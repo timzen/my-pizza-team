@@ -50,24 +50,6 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
-  pi.registerFlag("ppt-work-mode", {
-    description: "Teammate work selection mode: eager-helper (default) or assigned-story",
-    type: "string",
-    default: "",
-  });
-
-  pi.registerFlag("ppt-story", {
-    description: "Story ID to bind to (required for --ppt-work-mode assigned-story)",
-    type: "string",
-    default: "",
-  });
-
-  pi.registerFlag("ppt-skills", {
-    description: "Comma-separated capabilities this teammate has; `name` is presence-only, `name:value` binds a value (e.g. python,java:8)",
-    type: "string",
-    default: "",
-  });
-
   // Set by the leader when spawning an agent, so the agent can report its own
   // tmux window/session back to the daemon as opaque metadata (used to deliver
   // control intents like session reset).
@@ -111,13 +93,9 @@ export default function (pi: ExtensionAPI) {
     if (isWorker) {
       const memberId = agentName || process.env.TMUX_PANE || `teammate-${Date.now()}`;
       const client = new DaemonClient(daemonUrl, memberId);
-      // Work-selection options (see my-pizza-team DESIGN.md: Capability-Based Work Matching)
-      const rawMode = (pi.getFlag("ppt-work-mode") as string) || "";
-      const workMode = rawMode === "assigned-story" ? "assigned-story" : "eager-helper";
-      const assignedStoryId = (pi.getFlag("ppt-story") as string) || "";
-      const skills = ((pi.getFlag("ppt-skills") as string) || "")
-        .split(",").map((s) => s.trim()).filter(Boolean);
-      await setupTeammate(pi, ctx, client, memberId, cwd, { workMode, assignedStoryId, skills });
+      // All teammates are generalists biased by their working directory (the pi
+      // cwd). Directory affinity is the only work-selection signal.
+      await setupTeammate(pi, ctx, client, memberId, cwd);
       return;
     }
 
@@ -186,7 +164,6 @@ async function setupTeammate(
   client: DaemonClient,
   memberId: string,
   cwd: string,
-  workOpts?: { workMode: "eager-helper" | "assigned-story"; assignedStoryId: string; skills: string[] }
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
   const { registerPermissionBypass, updatePermissionConfig, registerAutonomousAuthorizer } = await import("./permissions.js");
@@ -198,30 +175,12 @@ async function setupTeammate(
     ctx.ui.notify(`🍕 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Build the capability map from --ppt-skills entries. Each entry is either
-  // `name` (presence-only, value null) or `name:value` (value-bound — e.g.
-  // `java:8` matches a story requiring java 8 exactly, or java at any value).
-  // The working directory is NOT a capability — it's story data; the task
-  // prompt tells the agent to cd there (see the daemon's docs/WORK-MODEL.md).
-  const capabilities: Record<string, string | null> = {};
-  for (const entry of workOpts?.skills || []) {
-    const i = entry.indexOf(":");
-    if (i > 0) {
-      const name = entry.slice(0, i).trim();
-      const value = entry.slice(i + 1).trim();
-      if (name) capabilities[name] = value || null;
-    } else if (entry.trim()) {
-      capabilities[entry.trim()] = null;
-    }
-  }
-
-  // Register with daemon
+  // Register with the daemon. The agent's working directory (its pi cwd) is the
+  // only work-selection signal — the daemon biases matching by directory.
   try {
     await client.register({
       name: memberId,
-      capabilities,
-      workMode: workOpts?.workMode,
-      assignedStoryId: workOpts?.assignedStoryId || undefined,
+      directory: cwd,
       metadata: readTmuxMetadata(pi),
     });
   } catch {
@@ -246,9 +205,9 @@ async function setupTeammate(
   const loop = new TeammateLoop(pi, client);
   loop.debugLog = debug;
 
-  // Register tools. return_task lets the agent give a claimed task back to the
-  // queue with a comment when it can't proceed; the loop then skips "done".
-  registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask, (taskId) => loop.markReturned(taskId));
+  // Register tools. The `fail` tool lets the agent give up on a claimed work
+  // item with a comment when it can't proceed; the loop then skips COMPLETE.
+  registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask, (workItemId) => loop.markReturned(workItemId));
 
   // Permission bypass (auto-pause on interactive input)
   registerPermissionBypass(
@@ -453,7 +412,7 @@ async function setupAssistant(
   // knows how to load a context-library persona as its system prompt; the web
   // UI only shows persona chips when an assistant with this capability is online.
   try {
-    await client.register({ name: "assistant", capabilities: { directory: cwd, persona: "true" }, metadata: readTmuxMetadata(pi) });
+    await client.register({ name: "assistant", directory: cwd, metadata: readTmuxMetadata(pi) });
   } catch {
     if (ctx.hasUI) {
       ctx.ui.notify(`🤖 Failed to register — will keep trying via polling`, "warning");

@@ -72,26 +72,23 @@ export async function setupLeader(
   // syncDaemonConfig() is retried from the heartbeat and before dispatching
   // directives until it succeeds (configSynced).
   let tmuxSession = "pi-pizza-team";
-  let directories: string[] = [];
   let harnessTemplates: HarnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES };
   let configSynced = false;
 
   /**
    * Register with the daemon and adopt its configuration (tmux session,
-   * directory suggestions, harness templates). Safe to call repeatedly;
-   * throws if the daemon is unreachable so callers can retry later.
+   * harness templates). Safe to call repeatedly; throws if the daemon is
+   * unreachable so callers can retry later.
    */
   async function syncDaemonConfig(): Promise<void> {
-    const regRes = await client.register({ name: "leader", capabilities: { directory: cwd } });
+    const regRes = await client.register({ name: "leader", directory: cwd });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
-    if (regRes.config?.directories) directories = regRes.config.directories;
 
     // Fall back to host-specific config if register didn't provide tmuxSession
     if (!regRes.config?.tmuxSession) {
       try {
         const hostConfig = await client.getHostConfig();
         if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
-        if (hostConfig.directories?.length) directories = hostConfig.directories;
       } catch {
         // Use defaults
       }
@@ -182,7 +179,7 @@ export async function setupLeader(
     handler: async (args, cmdCtx) => {
       const parts = args?.trim().split(/\s+/) || [];
       const userProvidedName = parts[0] || undefined;
-      const spawnCwd = parts[1] || (directories.length > 0 ? directories[0] : cwd);
+      const spawnCwd = parts[1] || cwd;
       const resolvedCwd = resolvePath(spawnCwd);
 
       // Validate up front so an accidental/half-typed path gives immediate
@@ -264,22 +261,6 @@ export async function setupLeader(
       } catch {
         cmdCtx.ui.notify("Cannot reach daemon", "error");
       }
-    },
-  });
-
-  pi.registerCommand("ppt-browse", {
-    description: "Show recently used working directories for spawning",
-    handler: async (_args, cmdCtx) => {
-      if (directories.length === 0) {
-        cmdCtx.ui.notify("No recent directories yet.\nThey're recorded as stories and agents use them.", "info");
-        return;
-      }
-      let output = "📂 Recent directories:\n";
-      for (const dir of directories) {
-        output += `  • ${dir}\n`;
-      }
-      output += `\nUse /ppt-spawn <name> <dir> to spawn in a specific directory.`;
-      cmdCtx.ui.notify(output, "info");
     },
   });
 
@@ -374,14 +355,10 @@ function spawnAgent(
     daemonUrl: string;
     harness: string;
     harnessTemplates: HarnessTemplates;
-    /** When set, spawn the teammate in assigned-story mode bound to this story. */
-    storyId?: string;
-    /** Capabilities the teammate should advertise (--ppt-skills). */
-    skills?: string[];
   },
   execSync: any
 ): boolean {
-  const { session, daemonUrl, harness, harnessTemplates, storyId, skills } = options;
+  const { session, daemonUrl, harness, harnessTemplates } = options;
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
   const safeCwd = shellSafe(agentCwd);
@@ -429,16 +406,9 @@ function spawnAgent(
     execSync(`tmux new-window -n "${safeName}" -t "${safeSession}"`, { stdio: "pipe" });
   }
 
-  // Resolve the command template
-  // A spawn request bound to a story becomes an assigned-story teammate that
-  // dismisses itself once that story is complete. Skills become the advertised
-  // capability list (--ppt-skills) used for story-requirement matching.
-  let workArgs = storyId
-    ? ` --ppt-work-mode=assigned-story --ppt-story=${shellSafe(storyId)}`
-    : "";
-  if (skills && skills.length > 0) {
-    workArgs += ` --ppt-skills=${shellSafe(skills.join(","))}`;
-  }
+  // Resolve the command template. Teammates are generalists biased by their
+  // working directory (the spawn cwd) — there are no work-mode/skill args.
+  const workArgs = "";
   const template = harnessTemplates[harness] || harnessTemplates.pi;
   const cmd = template
     .replace(/\{name\}/g, shellSafe(name))
@@ -472,8 +442,6 @@ function dispatchDirective(
       daemonUrl: ctx.daemonUrl,
       harness,
       harnessTemplates: ctx.harnessTemplates,
-      storyId: params.storyId as string | undefined,
-      skills: Array.isArray(params.skills) ? (params.skills as string[]).filter(s => typeof s === "string" && s.trim()) : undefined,
     }, execSync);
     return;
   }

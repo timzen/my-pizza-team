@@ -44,61 +44,63 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
 
 /**
  * Register tools for the teammate role.
- * Includes file upload for task attachments and return_task (the escape hatch
- * for work the agent cannot complete; see the daemon's WORK-MODEL.md).
+ * Includes file upload for attachments and the `fail` escape hatch. "Giving up"
+ * is two primitives the agent composes: post a comment, then set the WorkItem
+ * FAILED (the daemon bundles nothing).
  */
 export function registerTeammateTools(
   pi: ExtensionAPI,
   client: DaemonClient,
-  getCurrentTaskId: () => string | null,
-  onTaskReturned?: (taskId: string) => void
+  getCurrentWorkItemId: () => string | null,
+  onWorkItemFailed?: (workItemId: string) => void
 ): void {
-  registerUploadAttachment(pi, client, getCurrentTaskId);
-  registerReturnTask(pi, client, getCurrentTaskId, onTaskReturned);
+  registerUploadAttachment(pi, client, getCurrentWorkItemId);
+  registerFailWorkItem(pi, client, getCurrentWorkItemId, onWorkItemFailed);
 }
 
-// ─── return_task (teammate escape hatch) ──────────────────────────────
+// ─── fail (teammate escape hatch) ──────────────────────────────
 
 /**
- * The teammate's "I can't do this" protocol action: puts the claimed task back
- * to `ready` with an explanatory comment, instead of finishing (which would
- * advance it) or silently stalling. A human/leader resolves the blocker.
+ * The teammate's "I can't do this" action: post a comment explaining the blocker,
+ * then set the current WorkItem FAILED. The task is left in place (stuck) for a
+ * human to re-enqueue, move, or edit — the daemon never auto-recovers it.
  */
-function registerReturnTask(
+function registerFailWorkItem(
   pi: ExtensionAPI,
   client: DaemonClient,
-  getCurrentTaskId: () => string | null,
-  onTaskReturned?: (taskId: string) => void
+  getCurrentWorkItemId: () => string | null,
+  onWorkItemFailed?: (workItemId: string) => void
 ): void {
   pi.registerTool({
-    name: "return_task",
-    label: "Return Task",
+    name: "fail",
+    label: "Fail Work Item",
     description:
-      "Return your current task to the queue because you cannot make progress (missing information, blocked on " +
-      "access, prerequisites not met). The task goes back to 'ready' with your comment so a human can resolve the " +
-      "blocker. Do NOT use this for finished work — just end your turn with a summary instead.",
-    promptSnippet: "Return the current task to the queue",
+      "Give up on your current work item because you cannot make progress (missing information, blocked on " +
+      "access, prerequisites not met). Posts your comment and marks the item failed; the work is left for a human to " +
+      "resolve. Do NOT use this for finished work — just end your turn with a summary instead.",
+    promptSnippet: "Fail the current work item (cannot proceed)",
     promptGuidelines: [
-      "Use return_task only when you genuinely cannot proceed; explain exactly what you need in the comment.",
-      "Never use return_task for completed work — finishing your turn signals completion.",
+      "Use fail only when you genuinely cannot proceed; explain exactly what you need in the comment.",
+      "Never use fail for completed work — finishing your turn signals completion.",
     ],
     parameters: Type.Object({
       comment: Type.String({ description: "What is blocking you and what you need to proceed (shown to the team)" }),
     }),
     async execute(_toolCallId, params) {
-      const taskId = getCurrentTaskId();
-      if (!taskId) {
-        return { content: [{ type: "text", text: "No task is currently claimed — nothing to return." }] };
+      const workItemId = getCurrentWorkItemId();
+      if (!workItemId) {
+        return { content: [{ type: "text", text: "No work item is currently claimed — nothing to fail." }] };
       }
       try {
-        const res = await client.returnTask(taskId, (params as { comment: string }).comment);
+        await client.postComment(workItemId, `[failed] ${(params as { comment: string }).comment}`).catch(() => {});
+        const res = await client.setWorkItemState(workItemId, "FAILED");
         if (!res.success) {
-          return { content: [{ type: "text", text: `Failed to return task: ${res.error || "unknown error"}` }] };
+          return { content: [{ type: "text", text: `Failed to mark the work item failed: ${res.error || "unknown error"}` }] };
         }
-        onTaskReturned?.(taskId);
-        return { content: [{ type: "text", text: `Task ${taskId} returned to the queue with your comment. Stop working on it.` }] };
+        onWorkItemFailed?.(workItemId);
+        return { content: [{ type: "text", text: `Work item ${workItemId} marked failed with your comment. Stop working on it.` }] };
       } catch {
-        return { content: [{ type: "text", text: "Failed to return task (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to mark the work item failed (daemon unreachable)." }] };
       }
     },
   });
@@ -199,20 +201,17 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       title: Type.String({ description: "Human-readable title for the story" }),
       description: Type.String({ description: "Full description of what this story accomplishes" }),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Array of story IDs this story depends on" })),
-      directory: Type.Optional(Type.String({ description: "Where the work happens (e.g., '~/Workspace/my-project'). Teammates cd here and read its AGENTS.md before starting." })),
-      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities — `name` for presence-only, `name:value` for an exact value (e.g., ['python','java:8'])" })),
+      directory: Type.Optional(Type.String({ description: "Where the work happens (e.g., '~/Workspace/my-project'). Teammates biased to this directory pick it up and cd here." })),
       paused: Type.Optional(Type.Boolean({ description: "If true, the story's tasks are not handed out until unpaused" })),
       workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default). Use list_workflows to see valid names." })),
       context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to the whole story (injected into every task's prompt). Use list_context to find ids." })),
     }),
     async execute(_toolCallId, params) {
-      const requirements = buildRequirements(params.skills);
       const result = await client.createStory({
         id: params.id,
         title: params.title,
         description: params.description,
         dependsOn: params.dependsOn,
-        requirements: Object.keys(requirements).length > 0 ? requirements : undefined,
         directory: params.directory,
         paused: params.paused,
         workflow: params.workflow,
@@ -229,21 +228,7 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
   });
 }
 
-/** Build a story requirements map from skill entries: `name` = presence-only (null), `name:value` = exact-value. */
-function buildRequirements(skills?: string[]): Record<string, string | null> {
-  const requirements: Record<string, string | null> = {};
-  for (const entry of skills || []) {
-    const i = entry.indexOf(":");
-    if (i > 0) {
-      const name = entry.slice(0, i).trim();
-      const value = entry.slice(i + 1).trim();
-      if (name) requirements[name] = value || null;
-    } else if (entry.trim()) {
-      requirements[entry.trim()] = null;
-    }
-  }
-  return requirements;
-}
+/** (removed: capability/requirements matching — stories match by directory affinity now.) */
 
 // ─── edit_story ──────────────────────────────────────────────────────
 
@@ -253,12 +238,12 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Edit Story",
     description:
       "Edit an existing story on the pi-pizza-team kanban board. Can update title, description, status, " +
-      "dependencies, required directory/skills, paused state, and workflow.",
+      "dependencies, working directory, paused state, and workflow.",
     promptSnippet: "Edit an existing story on the pi-pizza-team board",
     promptGuidelines: [
       "Use edit_story to modify existing stories.",
       "Only the fields you provide will be changed.",
-      "Pass directory to set where the work happens (empty string to clear); skills replace the story's capability requirements.",
+      "Pass directory to set where the work happens (empty string to clear).",
     ],
     parameters: Type.Object({
       storyId: Type.String({ description: "ID of the story to edit" }),
@@ -267,20 +252,15 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("done")], { description: "New status" })),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "New dependency list" })),
       directory: Type.Optional(Type.String({ description: "Where the work happens (empty string to clear). Teammates cd here." })),
-      skills: Type.Optional(Type.Array(Type.String(), { description: "Required capabilities (replaces the existing set); `name` presence-only or `name:value` exact" })),
       paused: Type.Optional(Type.Boolean({ description: "Whether the story's tasks are withheld from agents" })),
       workflow: Type.Optional(Type.String({ description: "New workflow name (empty for default)" })),
     }),
     async execute(_toolCallId, params) {
-      const { storyId, directory, skills, ...rest } = params;
+      const { storyId, directory, ...rest } = params;
       const updates: Record<string, unknown> = { ...rest };
       if (updates.workflow === "") updates.workflow = null;
       // Directory is plain story data; empty string clears it.
       if (directory !== undefined) updates.directory = directory || null;
-      if (skills !== undefined) {
-        const requirements = buildRequirements(skills);
-        updates.requirements = Object.keys(requirements).length > 0 ? requirements : null;
-      }
 
       const result = await client.updateStory(storyId, updates);
       if (!result.success) throw new Error(result.error || "Failed to update story");
@@ -348,8 +328,7 @@ function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
       if (!result.success) throw new Error(result.error || "Failed to queue request");
 
       return {
-        content: [{ type: "text", text: `Queued request for assistant (id: ${result.item?.id}).` }],
-        details: { itemId: result.item?.id },
+        content: [{ type: "text", text: `Queued request for the assistant.` }],
       };
     },
   });
@@ -411,7 +390,7 @@ function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
           return { content: [{ type: "text", text: "No workflows found." }] };
         }
         const lines = workflows.map((w) =>
-          `- ${w.name}${w.isDefault ? " (default)" : ""} — ${w.stateCount} states, ${w.transitionCount} transitions`
+          `- ${w.name}${w.isDefault ? " (default)" : ""} — ${w.stateCount} states (${w.agentCount} agent, ${w.manualCount} manual)`
         );
         return {
           content: [{ type: "text", text: `Workflows:\n${lines.join("\n")}` }],
@@ -500,15 +479,15 @@ function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
 function registerUploadAttachment(
   pi: ExtensionAPI,
   client: DaemonClient,
-  getCurrentTaskId: () => string | null
+  getCurrentWorkItemId: () => string | null
 ): void {
   pi.registerTool({
     name: "upload_attachment",
     label: "Upload Attachment",
-    description: "Upload a file as an attachment to a task. For large files (>10KB), write to disk first and pass filePath instead of content.",
-    promptSnippet: "Upload a file to the current task",
+    description: "Upload a file as an attachment to your current work item. For large files (>10KB), write to disk first and pass filePath instead of content.",
+    promptSnippet: "Upload a file to the current work item",
     promptGuidelines: [
-      "Use upload_attachment when transition instructions ask you to provide a diff or other file for review.",
+      "Use upload_attachment when the prompt asks you to provide a diff or other file for review.",
       "For LARGE files (>10KB like diffs): write the file to disk first, then use the filePath parameter.",
       "For SMALL files: you can pass content directly as a string.",
       "You MUST provide either 'content' OR 'filePath' (not both).",
@@ -518,11 +497,10 @@ function registerUploadAttachment(
       content: Type.Optional(Type.String({ description: "File content as text (for small files <10KB)" })),
       filePath: Type.Optional(Type.String({ description: "Absolute path to a file on disk to upload" })),
       message: Type.Optional(Type.String({ description: "Optional message to post alongside the attachment" })),
-      taskId: Type.Optional(Type.String({ description: "Task ID to attach to (defaults to current task)" })),
     }),
     async execute(_toolCallId, params) {
-      const taskId = params.taskId || getCurrentTaskId();
-      if (!taskId) return { content: [{ type: "text", text: "No task to attach file to. Specify a taskId parameter." }] };
+      const workItemId = getCurrentWorkItemId();
+      if (!workItemId) return { content: [{ type: "text", text: "No work item is currently claimed — nothing to attach to." }] };
 
       let fileContent: string;
       if (params.filePath) {
@@ -536,11 +514,11 @@ function registerUploadAttachment(
         return { content: [{ type: "text", text: "Provide either 'content' or 'filePath'." }] };
       }
 
-      const uploadRes = await client.uploadAttachment(taskId, params.filename, fileContent);
+      const uploadRes = await client.uploadAttachment(workItemId, params.filename, fileContent);
       if (!uploadRes.success) throw new Error(uploadRes.error || "Upload failed");
 
       const msgBody = params.message || `Attached ${params.filename} for review.`;
-      await client.postComment(taskId, msgBody, [{ name: params.filename, size: fileContent.length, type: uploadRes.type || "other" }]);
+      await client.postComment(workItemId, msgBody, [{ name: params.filename, size: fileContent.length, type: uploadRes.type || "other" }]);
 
       return { content: [{ type: "text", text: `Uploaded ${params.filename} (${fileContent.length} bytes) and posted message.` }] };
     },

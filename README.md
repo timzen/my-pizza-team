@@ -62,32 +62,22 @@ The extension detects which role to activate:
 | `--ppt-assistant` | boolean | false | Run as assistant |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
-| `--ppt-work-mode` | string | `eager-helper` | Teammate work selection: `eager-helper` or `assigned-story` |
-| `--ppt-story` | string | (none) | Story ID to bind to (required for `--ppt-work-mode assigned-story`) |
-| `--ppt-skills` | string | (none) | Comma-separated capabilities: `name` presence-only, `name:value` value-bound (e.g. `python,java:8`) |
 | `--ppt-tmux-session` | string | (set by leader) | tmux session the agent runs in (reported as metadata) |
 | `--ppt-tmux-window` | string | (set by leader) | tmux window the agent runs in (reported as metadata) |
 
-### Work modes & capabilities
+### Work selection: directory affinity
 
-A teammate registers a **capability map** with the daemon from its
-`--ppt-skills` entries: `name` is presence-only, `name:value` binds a value
-(e.g. `java:8` satisfies a story requiring `java: 8` exactly, or `java` at any
-value). The daemon only hands a teammate a story whose **requirements** it
-satisfies (see my-pizza-team `docs/DESIGN.md` → *Capability-Based Work
-Matching*). The working directory is not a capability — teammates cd to each
-story's directory.
-
-- `eager-helper` (default): picks up any story it's capable of.
-- `assigned-story` (with `--ppt-story <id>`): works only that story; when its
-  tasks are exhausted the daemon archives it and the teammate dismisses itself.
+Teammates are **generalists** — there is no capability/skill or work-mode
+configuration. A teammate registers its working directory (its pi cwd), and the
+daemon biases work by directory: a teammate preferentially picks up WorkItems
+whose story/WorkDef names its directory, falls back to un-homed work, and only
+takes another directory's work when no online teammate is homed there (see the
+daemon's `docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md`). If a teammate ends up on
+work whose directory it can't reach, it just fails that item.
 
 ```bash
-# Eager helper that can do design + python work, and advertises java 8
-pi --ppt-worker --ppt-skills=design,python,java:8
-
-# Dedicated agent for one story, exits when the story is finished
-pi --ppt-worker --ppt-work-mode=assigned-story --ppt-story=add-user-auth
+# A generalist teammate homed at the current repo
+pi --ppt-worker
 ```
 
 **Daemon URL resolution (priority order):**
@@ -127,8 +117,8 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`team_status`** — Get current team status summary
 
 ### Teammate Tools
-- **`upload_attachment`** — Upload a file to the current task
-- **`return_task`** — Give the claimed task back to the queue with a comment when the agent can't proceed (back to `ready`; a human resolves the blocker)
+- **`upload_attachment`** — Upload a file to the current work item
+- **`fail`** — Give up on the current work item: posts a comment and marks the WorkItem `FAILED`, leaving the task stuck for a human to re-enqueue/move/edit
 
 ### Assistant Tools
 - **`send_message`** — Send one chat bubble to the user; called once per bubble to deliver a batched, iMessage-style reply (the only thing the user sees)
@@ -155,17 +145,19 @@ Custom templates can be configured via the daemon's `harnessCommands` config fie
 
 ## Workflow
 
-Tasks follow the daemon's work model (its docs/WORK-MODEL.md): an ordered
-pipeline of states where **workers never move tasks**:
+Teammates work the daemon's **WorkItem queue** — the unit of agent execution.
+Workers never move tasks; the daemon reacts to a terminal WorkItem state (see the
+daemon's `docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md`):
 
-1. **Poll** — finds a task sitting `ready` in an agent state
-2. **Claim** — leases it (substatus → `claimed`); gets the state-persona prompt
-3. **Execute** — works the task (cd-ing to the story's directory)
-4. **Done** — signals completion; the daemon advances the task mechanically
-5. **Return** (escape hatch) — if blocked, `return_task` puts it back to `ready` with a comment
+1. **Poll** — `next-work` returns a `READY` WorkItem (chosen by directory affinity)
+2. **Claim** — leases it (→ `IN_PROGRESS`); gets the daemon-assembled prompt
+3. **Execute** — works it (cd-ing to the ref's directory)
+4. **Set state** — `COMPLETE` (the daemon advances the task) or, if blocked, a
+   comment + `FAILED` via the `fail` tool (the task is left stuck for a human)
 
-The teammate never hardcodes state names — the state persona in the prompt tells
-it what role it plays (implementer, CR-writer, …).
+The teammate never hardcodes state names — the prompt tells it what to do. A
+WorkItem only moves toward a terminal state; a reaped one becomes `MORIBUND` and
+is restored if the teammate reconnects.
 
 ## Architecture
 
