@@ -1,5 +1,16 @@
 # Work Model: States, Substatus, and CONWIP Admission
 
+> **Superseded in part (Frontier Refactor).** The agent-facing mechanics here —
+> task `substatus`, the `claim`/`done`/`return` protocol, and `assigned-story`
+> work modes — have been replaced by the **WorkItem queue**: see
+> [FRONTIER_ENGINEER_REFACTOR_PLAN.md](FRONTIER_ENGINEER_REFACTOR_PLAN.md) and
+> DESIGN.md ("The WorkItem: the Unit of Agent Execution"). Still current: the
+> workflow shape (ordered agent/manual states between the `todo`/`done` buckets),
+> CONWIP admission (WIP=1 per story), state personas, and "workers never move
+> tasks." A WorkItem is now the in-flight unit (not a substatus); matching is
+> directory-affinity (not capabilities); reaping goes to `MORIBUND` (not `ready`).
+
+
 This document specifies the task work model: how tasks flow through a
 workflow, who moves them, and how agents claim and complete work. It replaces
 the earlier transition-matrix model. ARCHITECTURE.md describes the resulting

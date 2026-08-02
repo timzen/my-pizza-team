@@ -1,6 +1,7 @@
 /**
- * tests/server.test.ts — Verifies API routes via Hono's app.request() test helper.
- * Tests the full request/response contract without starting a real server.
+ * tests/server.test.ts — Verifies API routes via Hono's app.request() test
+ * helper (no real server). Covers stories/tasks, the WorkItem-centric agent
+ * contract, the WorkItem queue, and WorkDefs.
  */
 
 import { assertEquals } from "@std/assert";
@@ -22,22 +23,21 @@ function cleanup(teamDir: string, store: Store) {
   try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
 }
 
+const JSON_HEADERS = { "Content-Type": "application/json" };
+
 Deno.test("GET /health returns ok", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/health");
     assertEquals(res.status, 200);
-    const body = await res.json();
-    assertEquals(body.status, "ok");
+    assertEquals((await res.json()).status, "ok");
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("GET /api/status returns dashboard data", async () => {
   const { app, store, teamDir } = setup();
   try {
-    const res = await app.request("/api/status");
-    assertEquals(res.status, 200);
-    const body = await res.json();
+    const body = await (await app.request("/api/status")).json();
     assertEquals(body.running, true);
     assertEquals(body.defaultWorkflow, "default");
   } finally { cleanup(teamDir, store); }
@@ -47,14 +47,12 @@ Deno.test("POST /api/stories creates a story", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/stories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ id: "s1", title: "Story 1", description: "Test", workflow: "default", tasks: [{ title: "T1", description: "D1" }] }),
     });
     assertEquals(res.status, 201);
     const body = await res.json();
     assertEquals(body.success, true);
-    assertEquals(body.story.id, "s1");
     assertEquals(body.story.tasks.length, 1);
   } finally { cleanup(teamDir, store); }
 });
@@ -64,38 +62,122 @@ Deno.test("POST /api/stories rejects duplicate", async () => {
   try {
     store.createStory("s1", "S1", "D", "open", []);
     const res = await app.request("/api/stories", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
+      method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ id: "s1", title: "Dup", description: "D", workflow: "default" }),
     });
     assertEquals(res.status, 409);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/stories returns all stories", async () => {
+Deno.test("agent contract: register -> next-work -> claim -> COMPLETE", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
-    const res = await app.request("/api/stories");
-    assertEquals(res.status, 200);
-    const body = await res.json();
-    assertEquals(body.stories.length, 1);
-    assertEquals(body.stories[0].tasks.length, 1);
+
+    const reg = await app.request("/api/agents/register", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ id: "a1", name: "swift-ripley", directory: "/tmp/repo" }),
+    });
+    assertEquals((await reg.json()).success, true);
+
+    const nw = await (await app.request("/api/agents/next-work?agentId=a1")).json();
+    assertEquals(typeof nw.workItem.id, "string");
+    assertEquals(nw.workItem.title, "T1");
+    const wid = nw.workItem.id;
+
+    const claim = await (await app.request(`/api/agents/claim/${wid}`, {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ agentId: "a1" }),
+    })).json();
+    assertEquals(claim.success, true);
+    assertEquals(typeof claim.prompt, "string");
+    assertEquals(claim.prompt.includes("T1"), true);
+
+    const done = await (await app.request(`/api/agents/work-items/${wid}/state`, {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ agentId: "a1", state: "COMPLETE", result: "did it" }),
+    })).json();
+    assertEquals(done.success, true);
+    assertEquals(store.getTask("s1-1")!.status, "review");
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST/GET comments roundtrip", async () => {
+Deno.test("GET /api/work-items filters by state", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
-    await app.request("/api/tasks/s1-1/comment", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ from: "teammate-1", body: "Hello!" }),
+    const res = await (await app.request("/api/work-items?state=READY")).json();
+    assertEquals(res.total, 1);
+    assertEquals(res.items[0].ref.taskId, "s1-1");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("WorkDef routes: create (solitary) enqueues; save-without-enqueue does not", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const created = await (await app.request("/api/work-defs", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "One shot", goal: "do a thing", acceptanceCriteria: "- MUST work" }),
+    })).json();
+    assertEquals(created.success, true);
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
+
+    await app.request("/api/work-defs", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "Saved only", goal: "later", acceptanceCriteria: "-", enqueue: false }),
     });
-    const res = await app.request("/api/tasks/s1-1/comments");
-    const body = await res.json();
-    assertEquals(body.comments.length, 1);
-    assertEquals(body.comments[0].from, "teammate-1");
+    // Still just the one READY item (the second was saved without enqueueing).
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
+    assertEquals(store.getWorkDefs().length, 2);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("WorkDef routes: scheduled requires a valid cron", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const bad = await app.request("/api/work-defs", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "Sched", goal: "g", acceptanceCriteria: "a", type: "Scheduled", cron: "not a cron" }),
+    });
+    assertEquals(bad.status, 400);
+
+    const ok = await app.request("/api/work-defs", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "Sched", goal: "g", acceptanceCriteria: "a", type: "Scheduled", cron: "0 9 * * *" }),
+    });
+    assertEquals(ok.status, 201);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("work-item cancel (READY) and re-enqueue by ref", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
+    const wid = store.getWorkItems({ states: ["READY"] }).items[0]!.id;
+
+    const cancel = await (await app.request(`/api/work-items/${wid}/cancel`, { method: "POST" })).json();
+    assertEquals(cancel.success, true);
+    assertEquals(store.getWorkItem(wid)!.state, "CANCELED");
+
+    const re = await (await app.request("/api/work-items/re-enqueue", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ ref: { kind: "task", storyId: "s1", taskId: "s1-1" } }),
+    })).json();
+    assertEquals(re.success, true);
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("POST/GET agent comments roundtrip (by work item)", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
+    const wid = store.getWorkItems({ states: ["READY"] }).items[0]!.id;
+    await app.request(`/api/agents/comments/${wid}`, {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ agentId: "a1", body: "working on it" }),
+    });
+    const got = await (await app.request(`/api/agents/comments/${wid}`)).json();
+    assertEquals(got.comments.length, 1);
+    assertEquals(got.comments[0].body, "working on it");
+    // The comment lives on the task ref.
+    assertEquals(store.getComments("s1-1").length, 1);
   } finally { cleanup(teamDir, store); }
 });

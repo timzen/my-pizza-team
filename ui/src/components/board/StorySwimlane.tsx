@@ -2,7 +2,8 @@
  * StorySwimlane — A horizontal swimlane for one story containing its task cards.
  * Groups tasks by workflow state into columns. Each column is a drop target:
  * dragging a card into another column performs a judgment move
- * (POST /api/tasks/:id/move) — the daemon resets substatus/lease on entry.
+ * (POST /api/tasks/:id/move) — the daemon abandons any active WorkItem and
+ * enqueues a fresh one on entry to an agent state.
  * Drops only accept tasks from the same story (the drag MIME type carries the
  * story id, so foreign cards don't even highlight). The implicit todo/done
  * bucket columns can be hidden per story (persisted in localStorage) to give
@@ -25,7 +26,6 @@ interface StoryData {
   description: string;
   status: "open" | "done";
   ready: boolean;
-  requirements?: Record<string, string | null>;
   /** Where the work happens (plain story data; teammates cd here). */
   directory?: string;
   paused?: boolean;
@@ -35,7 +35,7 @@ interface StoryData {
     seq: number;
     title: string;
     status: string;
-    substatus?: "ready" | "claimed" | null;
+    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };
@@ -121,9 +121,6 @@ export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusCha
         {story.directory && (
           <Badge variant="secondary" className="text-xs font-mono">{story.directory}</Badge>
         )}
-        {story.requirements && Object.keys(story.requirements).map(skill => (
-          <Badge key={skill} variant="outline" className="text-xs">{skill}</Badge>
-        ))}
         <div className="ml-auto flex items-center gap-1">
           {/* Hidden buckets still exist — surface their counts so nothing feels lost. */}
           {!showBuckets && (todoCount > 0 || doneCount > 0) && (

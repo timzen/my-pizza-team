@@ -2,9 +2,8 @@
  * tests/hosts.test.ts — Verifies host-namespaced configuration.
  *
  * Tests that:
- * - Agents can register with a hostId
+ * - Agents can register with a hostId (and a working directory)
  * - Per-host tmuxSession is returned on register, falling back to global
- * - Directory suggestions come from the global recentCapabilities.directory list
  * - GET /api/hosts/:hostId returns host-specific config
  */
 
@@ -33,87 +32,60 @@ function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
 }
 
 Deno.test("Agent register with hostId stores it and returns host tmuxSession", async () => {
-  const { app, store, teamDir } = setup({
-    hosts: { "laptop-1": { tmuxSession: "dev" } },
-    recentCapabilities: { directory: ["/home/user/projects"] },
-  });
+  const { app, store, teamDir } = setup({ hosts: { "laptop-1": { tmuxSession: "dev" } } });
   try {
-    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", capabilities: { directory: "/tmp" }, hostId: "laptop-1" });
+    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", directory: "/tmp", hostId: "laptop-1" });
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
     assertEquals(body.config.tmuxSession, "dev");
-    // Directory suggestions come from recentCapabilities (global). "/tmp" was
-    // just recorded by this registration, so it appears alongside the seed.
-    assertEquals(body.config.directories.includes("/home/user/projects"), true);
-
-    const member = store.getMember("a1");
-    assertEquals(member?.hostId, "laptop-1");
+    assertEquals(store.getMember("a1")?.hostId, "laptop-1");
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("Agent register without hostId falls back to global tmuxSession", async () => {
-  const { app, store, teamDir } = setup({
-    tmuxSession: "global-session",
-    hosts: { "laptop-1": { tmuxSession: "host-session" } },
-  });
+  const { app, store, teamDir } = setup({ tmuxSession: "global-session", hosts: { "laptop-1": { tmuxSession: "host-session" } } });
   try {
-    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", capabilities: { directory: "/tmp" } });
+    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", directory: "/tmp" });
     const body = await res.json();
     assertEquals(body.config.tmuxSession, "global-session");
-    const member = store.getMember("a1");
-    assertEquals(member?.hostId, undefined);
+    assertEquals(store.getMember("a1")?.hostId, undefined);
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("Agent register with unknown hostId falls back to global tmuxSession", async () => {
-  const { app, store, teamDir } = setup({
-    tmuxSession: "global-session",
-    hosts: { "laptop-1": { tmuxSession: "host-session" } },
-  });
+  const { app, store, teamDir } = setup({ tmuxSession: "global-session", hosts: { "laptop-1": { tmuxSession: "host-session" } } });
   try {
-    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", capabilities: { directory: "/tmp" }, hostId: "unknown-host" });
+    const res = await post(app, "/api/agents/register", { id: "a1", name: "neo", directory: "/tmp", hostId: "unknown-host" });
     const body = await res.json();
     assertEquals(body.config.tmuxSession, "global-session");
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/hosts/:hostId returns host tmuxSession + recent directories", async () => {
-  const { app, store, teamDir } = setup({
-    hosts: { "server-1": { tmuxSession: "server-tmux" } },
-    recentCapabilities: { directory: ["/srv/apps", "/srv/libs"] },
-  });
+Deno.test("GET /api/hosts/:hostId returns host tmuxSession", async () => {
+  const { app, store, teamDir } = setup({ hosts: { "server-1": { tmuxSession: "server-tmux" } } });
   try {
-    const res = await app.request("/api/hosts/server-1");
-    assertEquals(res.status, 200);
-    const body = await res.json();
+    const body = await (await app.request("/api/hosts/server-1")).json();
     assertEquals(body.hostId, "server-1");
     assertEquals(body.tmuxSession, "server-tmux");
-    assertEquals(body.directories, ["/srv/apps", "/srv/libs"]);
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("GET /api/hosts/:hostId returns global tmuxSession for unknown host", async () => {
   const { app, store, teamDir } = setup({ tmuxSession: "default-tmux" });
   try {
-    const res = await app.request("/api/hosts/nonexistent");
-    assertEquals(res.status, 200);
-    const body = await res.json();
+    const body = await (await app.request("/api/hosts/nonexistent")).json();
     assertEquals(body.hostId, "nonexistent");
     assertEquals(body.tmuxSession, "default-tmux");
-    assertEquals(body.directories, []);
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("GET /api/agents includes hostId in listing", async () => {
-  const { app, store, teamDir } = setup({
-    hosts: { "h1": { tmuxSession: "h1-tmux" } },
-  });
+  const { app, store, teamDir } = setup({ hosts: { "h1": { tmuxSession: "h1-tmux" } } });
   try {
-    store.registerMember("a1", "neo", { directory: "/tmp" }, {}, "h1");
-    store.registerMember("a2", "trinity", { directory: "/home" }, {});
-    const res = await app.request("/api/agents");
-    const body = await res.json();
+    store.registerMember("a1", "neo", "/tmp", {}, "h1");
+    store.registerMember("a2", "trinity", "/home");
+    const body = await (await app.request("/api/agents")).json();
     const a1 = body.agents.find((a: { id: string }) => a.id === "a1");
     const a2 = body.agents.find((a: { id: string }) => a.id === "a2");
     assertEquals(a1.hostId, "h1");

@@ -1,26 +1,25 @@
 /**
  * NewStoryPage — Full-page form for creating a new story with optional tasks
  * (/stories/new). Replaces the old AddStoryDialog modal: creation is a real
- * destination with room for the form's sections (workflow, requirements,
+ * destination with room for the form's sections (workflow, directory,
  * context, inline tasks). On success, lands on the new story's detail page.
  */
 
 import { useState } from "react";
-import { useNavigate, Link } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
-import { RequirementsEditor } from "@/components/board/RequirementsEditor";
 import { ContextSelector } from "@/components/board/ContextSelector";
 import { SegmentedTabs } from "@/components/RouteTabs";
-import { ArrowLeft, Plus, X } from "lucide-react";
+import { Plus, X } from "lucide-react";
+import { BackButton } from "@/components/ui/back-button";
 import { useApi, apiPost } from "@/hooks/useApi";
 
 interface WorkflowSummary {
   name: string;
   stateCount: number;
-  transitionCount: number;
   isDefault: boolean;
 }
 
@@ -30,7 +29,6 @@ export function NewStoryPage() {
   const [id, setId] = useState("");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [requirements, setRequirements] = useState<Record<string, string | null>>({});
   const [directory, setDirectory] = useState("");
   const [paused, setPaused] = useState(false);
   const [workflow, setWorkflow] = useState("");
@@ -60,9 +58,8 @@ export function NewStoryPage() {
     setError("");
     if (!effectiveWorkflow) { setError("Please select a workflow"); return; }
     const body: Record<string, unknown> = { id, title, description, workflow: effectiveWorkflow };
-    // The story's capability requirements (presence-only skills etc.); the
-    // working directory is plain story data — agents cd to it (WORK-MODEL.md).
-    if (Object.keys(requirements).length > 0) body.requirements = requirements;
+    // The working directory is plain story data — agents cd to it and it biases
+    // which teammate picks up the work (directory affinity).
     if (directory.trim()) body.directory = directory.trim();
     if (paused) body.paused = true;
     if (context.length > 0) body.context = context;
@@ -76,9 +73,7 @@ export function NewStoryPage() {
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       <div className="flex items-center gap-3">
-        <Link to="/board" className="text-muted-foreground hover:text-foreground" title="Back to board">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+        <BackButton fallback="/board" title="Back to board" />
         <h1 className="text-2xl font-bold">New Story</h1>
       </div>
 
@@ -100,9 +95,7 @@ export function NewStoryPage() {
         <div><Label htmlFor="story-title">Title</Label><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
 
-        <div><Label htmlFor="story-dir">Directory</Label><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md.</p><Input id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
-
-        <div><Label>Requirements</Label><div className="mt-1"><RequirementsEditor value={requirements} onChange={setRequirements} /></div></div>
+        <div><Label htmlFor="story-dir">Directory</Label><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><Input id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
 
         <div><Label>Context</Label><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
 

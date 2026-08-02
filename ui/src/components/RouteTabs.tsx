@@ -3,8 +3,8 @@
  *
  * `RouteTabs` is route-driven: each tab is a react-router link, so every tab
  * stays deep-linkable and the active tab follows the current route. Used by
- * the Board surface (Board/Backlog/Archive), the Root page (Workflows/
- * Context), and the Config page (General/Teammates/Capabilities).
+ * the Board surface (Board/Backlog/Archive/Workflows), the Root page (Inbox/
+ * Assistant), and the Config page (General/Teammates/Theme).
  *
  * `SegmentedTabs` is the controlled (state-driven) variant with identical
  * styling, for selections that aren't routes (e.g. the assistant persona

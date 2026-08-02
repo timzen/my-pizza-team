@@ -1,12 +1,12 @@
 /**
  * TaskCard — Displays a single task in the kanban board.
- * Shows title, assignee, substatus, and a link to the task detail/comments
- * page. Clicking the card body does nothing — opening a task is always an
- * explicit action (the `details →` link; there is no preview modal, the task
- * page is the one place to read/edit a task). Changing state is done by
+ * Shows title, assignee, active WorkItem state, and a link to the task
+ * detail/comments page. Clicking the card body does nothing — opening a task is
+ * always an explicit action (the `details →` link; there is no preview modal,
+ * the task page is the one place to read/edit a task). Changing state is done by
  * **dragging** the card to another column (the column already names the
- * state, so the card carries no state badge — only the substatus chip for
- * agent states).
+ * state, so the card carries no state badge — only the WorkItem chip that shows
+ * whether an agent WorkItem is queued / working / at-risk).
  */
 
 import { Link } from "react-router-dom";
@@ -21,8 +21,8 @@ interface TaskCardProps {
     seq: number;
     title: string;
     status: string;
-    /** Within-state position for agent states: ready (waiting) or claimed (leased). */
-    substatus?: "ready" | "claimed" | null;
+    /** State of the active WorkItem for this task, if any (queued/working/at-risk). */
+    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number };
@@ -64,18 +64,11 @@ export function TaskCard({ task, storyId }: TaskCardProps) {
           )}
         </div>
 
-        {/* Substatus + view/detail actions. The column names the state, so no
-            state badge here — just the within-state position for agent states. */}
+        {/* Active WorkItem chip + view/detail actions. The column names the
+            state, so no state badge here — just whether an agent WorkItem is
+            queued / working / at-risk on this task. */}
         <div className="flex items-center mt-2 pt-2 border-t border-border">
-          {task.substatus && (
-            <Badge
-              variant="outline"
-              className="text-[10px] px-1 py-0"
-              title={task.substatus === "claimed" ? "A teammate is working on this" : "Waiting for a teammate"}
-            >
-              {task.substatus}
-            </Badge>
-          )}
+          {task.workItemState && <WorkItemChip state={task.workItemState} />}
           {/* Explicit navigation — the task page is the one place to read/edit */}
           {storyId && (
             <Link
@@ -88,5 +81,23 @@ export function TaskCard({ task, storyId }: TaskCardProps) {
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+/** Small chip describing the state of a task's active agent WorkItem. */
+function WorkItemChip({ state }: { state: NonNullable<TaskCardProps["task"]["workItemState"]> }) {
+  // Only the non-terminal states carry board-level meaning (terminal ones are
+  // reviewed in the Inbox, not on the card).
+  const meta: Partial<Record<typeof state, { label: string; title: string; cls: string }>> = {
+    READY: { label: "queued", title: "Waiting for a teammate", cls: "" },
+    IN_PROGRESS: { label: "working", title: "A teammate is working on this", cls: "border-green-500/50 text-green-600" },
+    MORIBUND: { label: "at risk", title: "The teammate went offline — force-fail or wait for reconnect", cls: "border-amber-500/50 text-amber-600" },
+  };
+  const m = meta[state];
+  if (!m) return null;
+  return (
+    <Badge variant="outline" className={`text-[10px] px-1 py-0 ${m.cls}`} title={m.title}>
+      {m.label}
+    </Badge>
   );
 }

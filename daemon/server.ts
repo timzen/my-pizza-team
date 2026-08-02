@@ -21,6 +21,8 @@ import { registerSharedRoutes } from "./routes/shared.ts";
 import { registerStoryRoutes } from "./routes/stories.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
+import { registerWorkRoutes } from "./routes/work.ts";
+import { registerWorkDefRoutes } from "./routes/work-defs.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
 import { registerContextRoutes } from "./routes/context.ts";
 import { registerScratchpadRoutes } from "./routes/scratchpad.ts";
@@ -60,6 +62,8 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerStoryRoutes(ctx);
   registerTaskRoutes(ctx);
   registerAgentRoutes(ctx);
+  registerWorkRoutes(ctx);
+  registerWorkDefRoutes(ctx);
   registerAssistantRoutes(ctx);
   registerContextRoutes(ctx);
   registerScratchpadRoutes(ctx);

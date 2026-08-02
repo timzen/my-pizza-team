@@ -30,8 +30,7 @@ export interface StoryView {
   status: "open" | "done";
   dependsOn: string[];
   ready: boolean;
-  requirements?: Record<string, string | null>;
-  /** Where the work happens (plain data; agents cd here — see WORK-MODEL.md). */
+  /** Where the work happens (soft affinity bias; agents cd here). */
   directory?: string;
   paused?: boolean;
   workflow?: string;
@@ -44,8 +43,8 @@ export interface TaskView {
   seq: number;
   title: string;
   status: string;
-  /** Within-state position for agent states: 'ready' | 'claimed' (see WORK-MODEL.md). */
-  substatus?: "ready" | "claimed" | null;
+  /** Active WorkItem state for this task, if any (drives the board chip). */
+  workItemState?: string | null;
   description?: string;
   context?: string[];
   assignee: string | null;
@@ -60,7 +59,7 @@ export interface PostCommentResponse { success: boolean }
 export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/stories
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null>; directory?: string; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[] }> }
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[] }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // POST /api/stories/:storyId/tasks
@@ -88,7 +87,7 @@ export interface TokenUsageResponse { success: boolean; costUsd?: number; error?
 
 
 // PUT /api/stories/:id
-export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; requirements?: Record<string, string | null> | null; directory?: string | null; paused?: boolean; workflow?: string | null; context?: string[] | null }
+export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string | null; paused?: boolean; workflow?: string | null; context?: string[] | null }
 export interface UpdateStoryResponse { success: boolean; error?: string }
 
 // DELETE /api/stories/:id
@@ -97,13 +96,7 @@ export interface DeleteStoryResponse { success: boolean; error?: string }
 // POST /api/stories/:id/archive
 export interface ArchiveStoryResponse { success: boolean; synopsis?: string; error?: string }
 
-// --- Capabilities (recently used) ---
-// GET /api/capabilities
-export interface CapabilitiesResponse { capabilities: Record<string, string[]> }
-// POST /api/capabilities
-export interface AddCapabilityRequest { name: string; value?: string }
-// POST/DELETE responses
-export interface CapabilityMutationResponse { success: boolean; capabilities?: Record<string, string[]>; error?: string }
+// --- Capabilities removed: matching is now directory-affinity only (see refactor plan). ---
 
 // GET /api/archived
 export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: string; archivedAt: string; synopsis: string }> }
@@ -155,19 +148,17 @@ export interface AssistantPersonaResponse { personaId: string | null; entry: Con
 export interface SetAssistantPersonaRequest { personaId: string | null }
 export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; entry?: ContextEntry | null; systemPrompt?: string; error?: string }
 
-// --- Agents API ---
+// --- Agents API (WorkItem-centric; see refactor plan) ---
 
 // POST /api/agents/register
 export interface AgentRegisterRequest {
   id: string;
   name: string;
-  /** Capabilities this agent has (well-known `directory` key = working dir). */
-  capabilities?: Record<string, string | null>;
-  /** How this agent selects work (default: eager-helper). */
-  workMode?: "eager-helper" | "assigned-story";
-  /** For workMode `assigned-story`: the story to bind to. */
-  assignedStoryId?: string;
+  /** The agent's working directory (its pi cwd). Drives directory-affinity matching. */
+  directory?: string;
   hostId?: string;
+  /** Opaque harness metadata (e.g. tmux window), relayed verbatim. */
+  metadata?: Record<string, unknown>;
 }
 export interface AgentRegisterResponse { success: boolean; config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig> }; error?: string }
 
@@ -176,38 +167,88 @@ export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" 
 export interface AgentHeartbeatResponse { success: boolean }
 
 // GET /api/agents/next-work?agentId=X
-/** `dismiss: true` tells an assigned-story agent its story is exhausted (archived) and it should stop. */
-export interface AgentNextWorkResponse { task: { id: string; storyId: string; title: string } | null; dismiss?: boolean }
+export interface AgentNextWorkResponse { workItem: { id: string; title: string } | null }
 
-// POST /api/agents/claim/:taskId
+// POST /api/agents/claim/:workItemId
 export interface AgentClaimRequest { agentId: string }
-export interface AgentClaimResponse { success: boolean; error?: string; task?: { id: string; storyId: string; status: string }; prompt?: string }
+export interface AgentClaimResponse { success: boolean; error?: string; workItem?: { id: string }; prompt?: string }
 
-// POST /api/agents/release/:taskId
-export interface AgentReleaseRequest { agentId: string; result?: string }
-export interface AgentReleaseResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
+// POST /api/agents/work-items/:workItemId/state — the single state-setter.
+// The daemon reacts: COMPLETE advances a task ref; FAILED leaves it stuck.
+export interface AgentSetWorkItemStateRequest { agentId: string; state: "COMPLETE" | "FAILED"; result?: string }
+export interface AgentSetWorkItemStateResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
 
-// POST /api/agents/done/:taskId — work complete; the daemon advances the task.
-// (Same contract as the deprecated /release alias.)
-export interface AgentDoneRequest { agentId: string; result?: string }
-export interface AgentDoneResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
-
-// POST /api/agents/return/:taskId — agent gives up; task returns to ready.
-export interface AgentReturnRequest { agentId: string; comment?: string }
-export interface AgentReturnResponse { success: boolean; error?: string }
-
-// GET /api/agents/comments/:taskId
+// GET /api/agents/comments/:workItemId
 export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
-// POST /api/agents/comments/:taskId
+// POST /api/agents/comments/:workItemId
 export interface AgentPostCommentRequest { agentId: string; body: string; attachments?: Array<{ name: string; size: number; type: string }> }
 export interface AgentPostCommentResponse { success: boolean }
 
 // GET /api/agents
-export interface AgentListResponse { agents: Array<{ id: string; name: string; capabilities: Record<string, string | null>; workMode: string; assignedStoryId?: string; status: string; currentTask: string | null; lastHeartbeat: number }> }
+export interface AgentListResponse { agents: Array<{ id: string; name: string; directory?: string; status: string; currentWork: string | null; lastHeartbeat: number }> }
 
 // DELETE /api/agents/:id
 export interface AgentDeleteResponse { success: boolean; error?: string }
+
+// --- WorkItems (queue) ---
+export interface WorkItemView {
+  id: string;
+  title: string;
+  ref: { kind: "task"; storyId: string; taskId: string } | { kind: "workdef"; workDefId: string };
+  directory?: string;
+  state: string;
+  read: boolean;
+  memberId?: string;
+  enqueuedAt: string;
+  lastStateChangeAt: string;
+}
+// GET /api/work-items?state=READY,IN_PROGRESS&read=false&limit=&offset=
+export interface WorkItemsResponse { items: WorkItemView[]; total: number }
+export interface WorkItemMutationResponse { success: boolean; error?: string }
+// POST /api/work-items/:id/force-fail
+export interface ForceFailWorkItemRequest { reEnqueue?: boolean }
+// POST /api/work-items/re-enqueue
+export interface ReEnqueueRequest { ref: { kind: "task"; storyId: string; taskId: string } | { kind: "workdef"; workDefId: string } }
+
+// --- WorkDefs (Solitary + Scheduled standalone work) ---
+export interface WorkDefView {
+  id: string;
+  title: string;
+  type: "Solitary" | "Scheduled";
+  goal: string;
+  acceptanceCriteria: string;
+  additionalContext?: string;
+  contextRefs?: string[];
+  directory?: string;
+  cron?: string;
+  lastEnqueuedAt?: string;
+}
+export interface WorkDefsResponse { workDefs: WorkDefView[] }
+export interface WorkDefResponse { workDef?: WorkDefView; success?: boolean; error?: string }
+export interface SaveWorkDefRequest {
+  title: string;
+  type?: "Solitary" | "Scheduled";
+  goal: string;
+  acceptanceCriteria: string;
+  additionalContext?: string;
+  contextRefs?: string[];
+  directory?: string;
+  cron?: string;
+  /** When true (default), also enqueue a WorkItem immediately. */
+  enqueue?: boolean;
+}
+export interface UpdateWorkDefRequest {
+  title?: string;
+  type?: "Solitary" | "Scheduled";
+  goal?: string;
+  acceptanceCriteria?: string;
+  additionalContext?: string | null;
+  contextRefs?: string[] | null;
+  directory?: string | null;
+  cron?: string | null;
+}
+export interface SaveWorkDefResponse { success: boolean; workDef?: WorkDefView; error?: string }
 // --- Leader Directives (the single daemon->leader work queue, per host) ---
 
 /** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */

@@ -9,13 +9,14 @@
  */
 
 import { useState } from "react";
-import { useParams, Link } from "react-router-dom";
+import { useParams } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
 import { PersonaEditor } from "@/components/workflow/PersonaEditor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { GitBranch, ArrowLeft, Pencil, ArrowRight, Trash2, ChevronUp, ChevronDown, Plus, Bot, User } from "lucide-react";
+import { GitBranch, Pencil, ArrowRight, Trash2, ChevronUp, ChevronDown, Plus, Bot, User } from "lucide-react";
+import { BackButton } from "@/components/ui/back-button";
 
 interface WorkflowState {
   name: string;
@@ -57,9 +58,7 @@ export function WorkflowDetailPage() {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <Link to="/" className="text-muted-foreground hover:text-foreground transition-colors">
-            <ArrowLeft className="h-4 w-4" />
-          </Link>
+          <BackButton fallback="/workflows" title="Back to workflows" />
           <GitBranch className="h-5 w-5" />
           <h1 className="text-2xl font-bold">{name}</h1>
           <span className="text-sm text-muted-foreground">

@@ -102,7 +102,7 @@ Deno.test("Context: attached to stories/tasks and resolved for prompts", () => {
     const { story } = store.createStory(
       "s1", "Story One", "desc", "open", [],
       [{ title: "Task A", description: "do a", context: ["api-rules"] }],
-      undefined, undefined, ["style-guide"],
+      undefined, ["style-guide"],
     );
     assertEquals(story.context, ["style-guide"]);
 

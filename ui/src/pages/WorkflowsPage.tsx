@@ -1,7 +1,8 @@
 /**
- * WorkflowsPage — Lists all workflows with summary info (state count,
- * transition count, default status). Links to individual workflow detail pages.
+ * WorkflowsPage — Lists all workflows with summary info (state count, agent /
+ * manual states, default status). Links to individual workflow detail pages.
  * Includes a "New Workflow" form that creates a workflow with default states.
+ * Rendered as a tab of the Board surface (see BoardTabs).
  */
 
 import { useState } from "react";
@@ -11,6 +12,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, ArrowRight } from "lucide-react";
+import { BoardTabs } from "@/components/board/BoardTabs";
 
 interface WorkflowSummary {
   name: string;
@@ -83,7 +85,11 @@ export function WorkflowsPage() {
   };
 
   return (
-    <div className="space-y-4 max-w-3xl">
+    <div className="container mx-auto p-4 space-y-4">
+      <div className="flex items-center justify-between">
+        <BoardTabs />
+      </div>
+      <div className="space-y-4 max-w-3xl">
       {/* Workflow cards */}
       <div className="grid gap-3">
         {data?.map((wf) => (
@@ -141,6 +147,7 @@ export function WorkflowsPage() {
           {error && <p className="text-xs text-destructive">{error}</p>}
         </CardContent>
       </Card>
+      </div>
     </div>
   );
 }

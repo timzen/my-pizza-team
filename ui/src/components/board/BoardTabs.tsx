@@ -11,6 +11,7 @@ const TABS = [
   { path: "/board", label: "Board" },
   { path: "/backlog", label: "Backlog" },
   { path: "/archived", label: "Archive" },
+  { path: "/workflows", label: "Workflows" },
 ];
 
 export function BoardTabs() {

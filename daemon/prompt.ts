@@ -135,3 +135,54 @@ export function buildTaskPrompt(input: TaskPromptInput): string {
 
   return out.trimEnd() + "\n";
 }
+
+/** Input for a standalone WorkDef prompt (Solitary/Scheduled work). */
+export interface WorkDefPromptInput {
+  title: string;
+  goal: string;
+  acceptanceCriteria: string;
+  additionalContext?: string;
+  /** Optional working directory (agent cds here). */
+  directory?: string;
+  /** Resolved context-library entries to inline. */
+  contextEntries?: Array<{ title: string; content: string }>;
+}
+
+/**
+ * Build the prompt for a standalone WorkDef (no workflow/persona). Section
+ * order: Task → Working Directory → Goal → Acceptance Criteria → Additional /
+ * reference context → completion guidance. Delivered verbatim by the harness.
+ */
+export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
+  const { title, goal, acceptanceCriteria, additionalContext, directory, contextEntries } = input;
+  let out = `## Task: ${title}\n\n`;
+
+  if (directory) {
+    out += `## Working Directory\n\nWork in \`${directory}\`. Change to that directory before starting. `;
+    out += `If it contains an AGENTS.md (or CLAUDE.md), read it first and follow its instructions while working there.\n\n`;
+  }
+
+  out += `## Goal\n\n${goal.trim()}\n\n`;
+
+  if (acceptanceCriteria.trim()) {
+    out += `## Acceptance Criteria\n\n${acceptanceCriteria.trim()}\n\n`;
+  }
+
+  if (additionalContext && additionalContext.trim()) {
+    out += `## Additional Context\n\n${normalizeInstructionMarkdown(additionalContext, 3)}\n\n`;
+  }
+
+  if (contextEntries && contextEntries.length > 0) {
+    out += `## Reference Context\n\n`;
+    for (const entry of contextEntries) {
+      out += `### ${entry.title}\n\n${normalizeInstructionMarkdown(entry.content, 4)}\n\n`;
+    }
+  }
+
+  out += `## Completing This Task\n\n`;
+  out += `Do only this task's work. When you finish, end with a concise summary of what you accomplished — `;
+  out += `it becomes the recorded result. If you cannot make progress, post a comment explaining what you need `;
+  out += `and mark this work item failed.\n`;
+
+  return out.trimEnd() + "\n";
+}

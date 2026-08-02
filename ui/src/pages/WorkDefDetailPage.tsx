@@ -1,0 +1,177 @@
+/**
+ * WorkDefDetailPage — View, edit, run, and delete a WorkDef (`/work-defs/:id`).
+ *
+ * The WorkDef is the home for a Solitary/Scheduled job's rich detail: its goal,
+ * acceptance criteria, context, and the run thread (comments — including the
+ * completion summaries agents post after each run). Editing saves via PUT;
+ * "Run now" enqueues a fresh WorkItem. Comments live on the ref, not on any
+ * individual WorkItem (see the daemon's refactor plan).
+ */
+
+import { useState } from "react";
+import { useParams, useNavigate, Link } from "react-router-dom";
+import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
+import { Button } from "@/components/ui/button";
+import { Badge } from "@/components/ui/badge";
+import { Label } from "@/components/ui/label";
+import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
+import { MarkdownField } from "@/components/ui/markdown-field";
+import { MarkdownView } from "@/components/ui/markdown-view";
+import { DirectoryInput } from "@/components/ui/directory-input";
+import { ContextSelector } from "@/components/board/ContextSelector";
+import { Save, Trash2, Play, CalendarClock, Zap } from "lucide-react";
+import { BackButton } from "@/components/ui/back-button";
+
+interface WorkDef {
+  id: string;
+  title: string;
+  type: "Solitary" | "Scheduled";
+  goal: string;
+  acceptanceCriteria?: string;
+  additionalContext?: string;
+  contextRefs?: string[];
+  directory?: string | null;
+  cron?: string | null;
+  lastEnqueuedAt?: string | null;
+}
+
+interface Comment {
+  from: string;
+  body: string;
+  at: string;
+  attachments?: Array<{ name: string; size: number; type: string }>;
+}
+
+export function WorkDefDetailPage() {
+  const { id } = useParams<{ id: string }>();
+  const navigate = useNavigate();
+  const { data, refetch } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
+  const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/work-defs/${id}/comments`, [id], { pollInterval: 10_000 });
+  const def = data?.workDef;
+
+  const [title, setTitle] = useState("");
+  const [goal, setGoal] = useState("");
+  const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
+  const [additionalContext, setAdditionalContext] = useState("");
+  const [directory, setDirectory] = useState("");
+  const [contextRefs, setContextRefs] = useState<string[]>([]);
+  const [cron, setCron] = useState("");
+  const [error, setError] = useState("");
+  const [newComment, setNewComment] = useState("");
+
+  // Seed edit fields once the def loads (React's derive-state-in-render pattern).
+  const [seededId, setSeededId] = useState<string | null>(null);
+  if (def && def.id !== seededId) {
+    setSeededId(def.id);
+    setTitle(def.title);
+    setGoal(def.goal);
+    setAcceptanceCriteria(def.acceptanceCriteria || "");
+    setAdditionalContext(def.additionalContext || "");
+    setDirectory(def.directory || "");
+    setContextRefs(def.contextRefs ? [...def.contextRefs] : []);
+    setCron(def.cron || "");
+    setError("");
+  }
+
+  if (!def) {
+    return (
+      <div className="container mx-auto p-6">
+        <p className="text-muted-foreground">Work not found. <Link to="/tasks" className="underline">Back to Tasks</Link></p>
+      </div>
+    );
+  }
+
+  const backTo = def.type === "Scheduled" ? "/schedule" : "/tasks";
+
+  const handleSave = async () => {
+    setError("");
+    const body: Record<string, unknown> = {
+      title, goal, acceptanceCriteria, additionalContext,
+      directory: directory.trim() || null,
+      contextRefs,
+    };
+    if (def.type === "Scheduled") body.cron = cron.trim();
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}`, body);
+    if (res.success) refetch();
+    else setError(res.error || "Failed to save");
+  };
+
+  const run = async () => {
+    await apiPost(`/api/work-defs/${def.id}/enqueue`, {});
+    refetch();
+  };
+
+  const remove = async () => {
+    if (!confirm(`Delete "${def.title}"? This can't be undone.`)) return;
+    await apiDelete(`/api/work-defs/${def.id}`);
+    navigate(backTo);
+  };
+
+  const addComment = async () => {
+    const b = newComment.trim();
+    if (!b) return;
+    await apiPost(`/api/work-defs/${def.id}/comment`, { from: "you", body: b });
+    setNewComment("");
+    refetchComments();
+  };
+
+  const comments = commentsData?.comments || [];
+
+  return (
+    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
+      <div className="flex items-center gap-3">
+        <BackButton fallback={backTo} title="Back" />
+        <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
+        <Badge variant="outline" className="flex items-center gap-1">
+          {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
+        </Badge>
+        <Button variant="outline" size="sm" onClick={run}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+      </div>
+
+      <div className="space-y-4">
+        <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
+        <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
+        <MarkdownField label="Acceptance criteria" value={acceptanceCriteria} onChange={setAcceptanceCriteria} rows={2} />
+        <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
+        <div><Label>Directory</Label><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
+        <div><Label>Context</Label><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
+        {def.type === "Scheduled" && (
+          <div><Label>Schedule (cron)</Label><Input className="font-mono mt-1" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" /></div>
+        )}
+
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <div className="flex gap-2">
+          <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" />Save</Button>
+          <Button variant="destructive" onClick={remove}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
+        </div>
+      </div>
+
+      {/* Run thread — completion summaries and human notes live here. */}
+      <div className="pt-4 border-t border-border space-y-3">
+        <h2 className="text-sm font-semibold">Run thread</h2>
+        {comments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
+        {comments.map((c, i) => (
+          <div key={i} className="rounded-md border border-border bg-background p-3">
+            <div className="flex items-center justify-between mb-1">
+              <span className="text-xs font-medium">{c.from}</span>
+              <span className="text-xs text-muted-foreground">{new Date(c.at).toLocaleString()}</span>
+            </div>
+            <MarkdownView content={c.body} />
+            {c.attachments && c.attachments.length > 0 && (
+              <div className="flex flex-wrap gap-1 mt-2">
+                {c.attachments.map(a => (
+                  <Badge key={a.name} variant="secondary" className="text-[10px] font-mono">{a.name}</Badge>
+                ))}
+              </div>
+            )}
+          </div>
+        ))}
+        <div className="flex gap-2">
+          <Textarea value={newComment} onChange={e => setNewComment(e.target.value)} rows={2} placeholder="Add a note…" className="flex-1 resize-none" />
+          <Button className="self-end" onClick={addComment} disabled={!newComment.trim()}>Post</Button>
+        </div>
+      </div>
+    </div>
+  );
+}

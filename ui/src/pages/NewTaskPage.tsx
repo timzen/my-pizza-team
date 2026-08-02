@@ -5,13 +5,13 @@
  */
 
 import { useState } from "react";
-import { useNavigate, useParams, Link } from "react-router-dom";
+import { useNavigate, useParams } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { ContextSelector } from "@/components/board/ContextSelector";
-import { ArrowLeft } from "lucide-react";
+import { BackButton } from "@/components/ui/back-button";
 import { apiPost } from "@/hooks/useApi";
 
 export function NewTaskPage() {
@@ -33,9 +33,7 @@ export function NewTaskPage() {
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       <div className="flex items-center gap-3">
-        <Link to={`/story/${storyId}`} className="text-muted-foreground hover:text-foreground" title="Back to story">
-          <ArrowLeft className="h-5 w-5" />
-        </Link>
+        <BackButton fallback={`/story/${storyId}`} title="Back to story" />
         <h1 className="text-2xl font-bold">Add Task to {storyId}</h1>
       </div>
 

@@ -1,7 +1,7 @@
 /**
  * ConfigPage — Edit daemon configuration with tabs for General, Teammates,
- * Capabilities, and Theme. Tabs are route-driven (`/config`,
- * `/config/teammates`, `/config/capabilities`, `/config/theme`) via the
+ * and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
+ * `/config/theme`) via the
  * shared RouteTabs control, so each tab is deep-linkable and consistent with
  * the Board and Root page tabs. The Theme tab is a client-side preference
  * (localStorage, applied immediately) rather than daemon config.
@@ -9,7 +9,7 @@
 
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
-import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
+import { useApi, apiPut } from "@/hooks/useApi";
 import { RouteTabs, SegmentedTabs } from "@/components/RouteTabs";
 import { PALETTES, getStoredPalette, applyPalette } from "@/lib/theme";
 import { Card, CardContent } from "@/components/ui/card";
@@ -35,19 +35,17 @@ interface ConfigData {
   defaultNouns?: string[];
 }
 
-type Tab = "general" | "teammates" | "capabilities" | "theme";
+type Tab = "general" | "teammates" | "theme";
 
 const TABS = [
   { path: "/config", label: "General" },
   { path: "/config/teammates", label: "Teammates" },
-  { path: "/config/capabilities", label: "Capabilities" },
   { path: "/config/theme", label: "Theme" },
 ];
 
 /** Resolve the active tab from the current pathname (unknown → general). */
 function tabFromPath(pathname: string): Tab {
   if (pathname === "/config/teammates") return "teammates";
-  if (pathname === "/config/capabilities") return "capabilities";
   if (pathname === "/config/theme") return "theme";
   return "general";
 }
@@ -105,7 +103,6 @@ export function ConfigPage() {
       {/* Tab content */}
       {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}
       {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
-      {activeTab === "capabilities" && <CapabilitiesTab />}
       {activeTab === "theme" && <ThemeTab />}
 
       {/* Save bar (theme is client-side and applies immediately — no save) */}
@@ -238,75 +235,6 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-// --- Capabilities Tab ---
-//
-// Recently used capabilities (name -> known values) are auto-populated from
-// story requirements and agent registrations, and edited here via the live
-// /api/capabilities endpoints (applied immediately, not via the Save button).
-
-function CapabilitiesTab() {
-  const { data, refetch } = useApi<{ capabilities: Record<string, string[]> }>("/api/capabilities");
-  const [newName, setNewName] = useState("");
-  const [newValue, setNewValue] = useState("");
-  const caps = data?.capabilities || {};
-  const names = Object.keys(caps).sort();
-
-  const add = async () => {
-    const name = newName.trim();
-    if (!name) return;
-    await apiPost("/api/capabilities", { name, value: newValue.trim() || undefined });
-    setNewName(""); setNewValue("");
-    refetch();
-  };
-
-  const removeKey = async (name: string) => {
-    await apiDelete(`/api/capabilities/${encodeURIComponent(name)}`);
-    refetch();
-  };
-
-  const removeValue = async (name: string, value: string) => {
-    await apiDelete(`/api/capabilities/${encodeURIComponent(name)}?value=${encodeURIComponent(value)}`);
-    refetch();
-  };
-
-  return (
-    <Card>
-      <CardContent className="p-4 space-y-3">
-        <h2 className="font-semibold">Recent Capabilities</h2>
-        <p className="text-xs text-muted-foreground">
-          Capability names and their known values, used to suggest story requirements and agent capabilities.
-          Auto-updated from stories and agent registrations.
-        </p>
-        <div className="space-y-2">
-          {names.map((name) => (
-            <div key={name} className="flex items-start gap-2">
-              <Badge variant="secondary" className="gap-1 shrink-0">
-                {name}
-                <button onClick={() => removeKey(name)} className="hover:text-destructive" title="Remove capability"><X className="h-3 w-3" /></button>
-              </Badge>
-              <div className="flex flex-wrap gap-1 flex-1">
-                {caps[name]!.length === 0 && <span className="text-xs text-muted-foreground italic">presence-only</span>}
-                {caps[name]!.map((v) => (
-                  <Badge key={v} variant="outline" className="gap-1 font-mono text-xs">
-                    {v}
-                    <button onClick={() => removeValue(name, v)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
-                  </Badge>
-                ))}
-              </div>
-            </div>
-          ))}
-          {names.length === 0 && <span className="text-xs text-muted-foreground italic">No capabilities recorded yet</span>}
-        </div>
-        <div className="flex gap-2 pt-1">
-          <Input placeholder="name (e.g. python)" value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} className="max-w-[180px]" />
-          <Input placeholder="value (optional)" value={newValue} onChange={(e) => setNewValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && add()} className="flex-1" />
-          <Button variant="outline" size="sm" onClick={add}><Plus className="h-3.5 w-3.5" /></Button>
-        </div>
-      </CardContent>
-    </Card>
   );
 }
 
