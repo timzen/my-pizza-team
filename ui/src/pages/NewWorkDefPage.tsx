@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
+import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { ContextSelector } from "@/components/board/ContextSelector";
 import { BackButton } from "@/components/ui/back-button";
@@ -92,7 +93,12 @@ export function NewWorkDefPage() {
         <div><Label htmlFor="wd-title">Title</Label><Input id="wd-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
 
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} required defaultEditing />
-        <MarkdownField label="Acceptance criteria" value={acceptanceCriteria} onChange={setAcceptanceCriteria} rows={2} />
+        <div>
+          <Label>Acceptance criteria</Label>
+          <div className="mt-1">
+            <AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} />
+          </div>
+        </div>
         <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
 
         <div><Label htmlFor="wd-dir">Directory</Label><p className="text-xs text-muted-foreground mb-1">Where the work happens — the agent cds here. Also biases which teammate picks it up.</p><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} /></div>
