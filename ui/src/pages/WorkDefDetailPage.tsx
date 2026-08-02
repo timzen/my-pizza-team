@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownField } from "@/components/ui/markdown-field";
+import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { ContextSelector } from "@/components/board/ContextSelector";
@@ -132,7 +133,12 @@ export function WorkDefDetailPage() {
       <div className="space-y-4">
         <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
-        <MarkdownField label="Acceptance criteria" value={acceptanceCriteria} onChange={setAcceptanceCriteria} rows={2} />
+        <div>
+          <Label>Acceptance criteria</Label>
+          <div className="mt-1">
+            <AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} />
+          </div>
+        </div>
         <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
         <div><Label>Directory</Label><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
         <div><Label>Context</Label><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
