@@ -20,14 +20,6 @@ export interface TeamConfig {
   autosave: AutosaveConfig;
   maxTeammates?: number;
   teammates?: TeammateConfig;
-  /**
-   * Recently used capabilities, as a map of capability name -> known values
-   * (most-recent-first, deduped, capped). Presence-only capabilities map to an
-   * empty array. Auto-populated when stories declare `requirements` and when
-   * agents register `capabilities`; also editable via the /api/capabilities API.
-   * Used to drive autocomplete for requirement/capability keys and their values.
-   */
-  recentCapabilities?: Record<string, string[]>;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
   /** Seconds a claimed assistant response turn may run before it's failed and the composer unlocks (default: 300) */
@@ -66,10 +58,11 @@ export interface WorkflowState {
   /** State name (must not be the reserved bucket names "todo"/"done"). */
   name: string;
   /**
-   * - `agent`: worked by teammates via the claim protocol (has substatus,
-   *   and an optional persona markdown file `workflows/<wf>/<name>.md`).
+   * - `agent`: worked by teammates via the claim protocol (its task's WorkItem
+   *   is the in-flight unit; has an optional persona markdown file
+   *   `workflows/<wf>/<name>.md`).
    * - `manual`: worked by a human/leader; moving the card onward is the
-   *   completion. No substatus, no persona.
+   *   completion. No WorkItem, no persona.
    */
   type: "agent" | "manual";
 }
@@ -78,56 +71,80 @@ export interface WorkflowState {
 export const TODO_STATE = "todo";
 export const DONE_STATE = "done";
 
-/** A task's within-state position. Only tasks in agent states have one. */
-export type TaskSubstatus = "ready" | "claimed";
-
 /**
- * A capability/requirement map.
- *
- * Used two ways:
- * - On an agent (Member.capabilities): the capabilities the agent *has*.
- *   Keys are capability names, values are optional detail (e.g. a version).
- * - On a story (Story.requirements): the capabilities a story *needs*.
- *   A `null` value means "agent must have this capability, any value";
- *   a non-null value means "agent's value for this capability must match exactly".
- *
- * Note: a story's working directory is NOT a capability — it's the plain
- * `Story.directory` field; agents `cd` there (see docs/WORK-MODEL.md).
+ * The unit of agent execution: a single, dumb, terminal-only attempt to do some
+ * work (see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md). A WorkItem points at its
+ * work via a polymorphic `ref` (a story task, or a standalone WorkDef) and only
+ * ever moves toward a terminal state. All rich detail (goal, comments, results)
+ * lives on the ref, never here.
  */
-export type Capabilities = Record<string, string | null>;
+export type WorkItemState =
+  | "READY"        // waiting for a teammate to claim it
+  | "IN_PROGRESS"  // leased to a teammate
+  | "MORIBUND"     // the owning teammate went quiet (reaped); not dead yet
+  | "COMPLETE"     // finished successfully (terminal)
+  | "FAILED"       // the teammate gave up, or a moribund item was force-failed (terminal)
+  | "CANCELED";    // a human canceled it before/instead of running (terminal)
 
-/**
- * How an agent selects which work to pick up.
- * - `eager-helper` (default): any story whose requirements the agent satisfies.
- * - `assigned-story`: only the agent's assigned story; when its tasks are
- *   exhausted the daemon archives the story and dismisses the agent.
- */
-export type WorkMode = "eager-helper" | "assigned-story";
+/** Non-terminal states — a WorkItem in one of these is "in the queue / in flight". */
+export const ACTIVE_WORK_ITEM_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND"];
 
-/** Default work mode when an agent does not specify one. */
-export const DEFAULT_WORK_MODE: WorkMode = "eager-helper";
+/** Polymorphic pointer to the work a WorkItem represents. */
+export type WorkItemRef =
+  | { kind: "task"; storyId: string; taskId: string }
+  | { kind: "workdef"; workDefId: string };
 
-/**
- * Normalize a directory value for exact-match comparison: expand a leading
- * `~` to $HOME and strip a trailing slash. Applied at write time so the
- * matcher itself can stay a dumb exact-string comparison.
- */
-export function normalizeDirectory(dir: string): string {
-  return dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~").replace(/\/+$/, "");
+export interface WorkItem {
+  id: string;
+  /** Denormalized title for the queue/inbox/sidebar (from the ref at creation). */
+  title: string;
+  ref: WorkItemRef;
+  /** Working directory copied from the ref at creation (affinity bias). */
+  directory?: string;
+  state: WorkItemState;
+  /** Inbox unread flag (a notification concern, not part of the lifecycle). */
+  read: boolean;
+  /** The teammate that is/was working it. */
+  memberId?: string;
+  enqueuedAt: string;
+  lastStateChangeAt: string;
 }
 
 /**
- * Does an agent with the given capabilities satisfy all of a story's requirements?
- * For each required (name, value): the agent must have `name`, and if `value`
- * is non-null the agent's value must equal it exactly.
+ * A durable, standalone work definition (see the refactor plan). `Solitary` is a
+ * one-shot; `Scheduled` re-enqueues on its `cron`. (`Story` is reserved for a
+ * future step folding story subtasks into WorkDefs.)
  */
-export function meetsRequirements(capabilities: Capabilities, requirements?: Capabilities): boolean {
-  if (!requirements) return true;
-  for (const [name, requiredValue] of Object.entries(requirements)) {
-    if (!(name in capabilities)) return false;
-    if (requiredValue !== null && capabilities[name] !== requiredValue) return false;
-  }
-  return true;
+export type WorkDefType = "Solitary" | "Scheduled";
+
+export interface WorkDef {
+  id: string;
+  title: string;
+  type: WorkDefType;
+  /** What to achieve. */
+  goal: string;
+  /** How the agent knows it's done (MUST/SHOULD/MAY bullets). */
+  acceptanceCriteria: string;
+  /** Optional freeform markdown context. */
+  additionalContext?: string;
+  /** Context-library entry ids to inline into the prompt. */
+  contextRefs?: string[];
+  /** Optional working directory (affinity bias; agents cd here). */
+  directory?: string;
+  /** Cron expression (5-field); required when type === "Scheduled". */
+  cron?: string;
+  /** ISO timestamp of the last time a run was enqueued (scheduling bookkeeping). */
+  lastEnqueuedAt?: string;
+}
+
+/**
+ * Normalize a directory value for comparison: expand a leading `~` to $HOME and
+ * strip a trailing slash. Applied at write time. Directory matching is only a
+ * soft affinity bias, so an imperfect normalization (symlink/mount variants)
+ * merely loses the preference — it never strands work (see the refactor plan).
+ */
+export function normalizeDirectory(dir: string): string {
+  return dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~").replace(/\/+$/, "");
 }
 
 export interface AutosaveConfig {
@@ -143,11 +160,10 @@ export interface Story {
   description: string;
   status: "open" | "done";
   dependsOn: string[];
-  /** Capabilities an agent must have to work this story (see Capabilities). */
-  requirements?: Capabilities;
   /**
-   * Where the work happens. Plain data (not a matching key): the task prompt
-   * instructs the agent to `cd` here and read the repo's AGENTS.md first.
+   * Where the work happens. Plain data used as a soft affinity bias for
+   * matching (agents cd here; see the refactor plan). Copied onto a task's
+   * WorkItem at enqueue time.
    */
   directory?: string;
   /** When true, the story's tasks are not handed out to agents (temporal gate). */
@@ -179,8 +195,6 @@ export interface Task {
   description: string;
   /** Workflow position: an active state name, or the "todo"/"done" buckets. */
   status: string;
-  /** Within-state position; only present for tasks in agent states. */
-  substatus?: TaskSubstatus | null;
   result: string | null;
   /** Context-library entry ids attached to this task (injected into its prompt). */
   context?: string[];
@@ -210,12 +224,8 @@ export interface Comment {
 export interface Member {
   id: string;
   name: string;
-  /** Capabilities this agent has, including the well-known `directory` key. */
-  capabilities: Capabilities;
-  /** How this agent selects work. */
-  workMode: WorkMode;
-  /** For workMode `assigned-story`: the story this agent is bound to. */
-  assignedStoryId?: string;
+  /** Working directory (the agent's pi cwd). Drives directory-affinity matching. */
+  directory?: string;
   /**
    * Opaque harness-owned metadata supplied at registration (e.g. the leader's
    * tmux window). The daemon stores and relays it verbatim and never interprets
@@ -265,6 +275,8 @@ export const STORIES_DIR = "stories";
 export const ARCHIVED_DIR = "archived";
 export const BACKLOG_DIR = "backlog";
 export const WORKFLOWS_DIR = "workflows";
+/** Directory holding standalone WorkDef markdown files (Solitary + Scheduled). */
+export const WORKDEFS_DIR = "tasks";
 
 /** Generate a URL-safe slug from a title (max 40 chars) */
 export function slugify(text: string): string {

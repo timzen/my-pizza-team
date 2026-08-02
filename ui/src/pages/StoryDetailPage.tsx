@@ -1,7 +1,7 @@
 /**
  * StoryDetailPage — Full story view and editor at /story/:id.
  *
- * This page is the home for story *editing* (title, description, requirements,
+ * This page is the home for story *editing* (title, description, directory,
  * paused). The board only links here; all story edits happen on this page.
  */
 
@@ -14,9 +14,9 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
-import { RequirementsEditor } from "@/components/board/RequirementsEditor";
 import { ContextSelector } from "@/components/board/ContextSelector";
-import { ArrowLeft, Save, Trash2, Plus, ChevronUp, ChevronDown } from "lucide-react";
+import { Save, Trash2, Plus, ChevronUp, ChevronDown } from "lucide-react";
+import { BackButton } from "@/components/ui/back-button";
 
 interface StoryTask {
   id: string;
@@ -29,15 +29,12 @@ interface StoryView {
   title: string;
   description: string;
   status?: "open" | "done";
-  requirements?: Record<string, string | null>;
   directory?: string;
   paused?: boolean;
   workflow?: string;
   context?: string[];
   tasks: StoryTask[];
 }
-
-/** Story requirements are a capability map: key -> value (string) or presence-only (null). */
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -47,7 +44,6 @@ export function StoryDetailPage() {
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [requirements, setRequirements] = useState<Record<string, string | null>>({});
   const [directory, setDirectory] = useState("");
   const [context, setContext] = useState<string[]>([]);
   const [paused, setPaused] = useState(false);
@@ -61,7 +57,6 @@ export function StoryDetailPage() {
     setSeededId(story.id);
     setTitle(story.title);
     setDescription(story.description);
-    setRequirements(story.requirements ? { ...story.requirements } : {});
     setDirectory(story.directory || "");
     setContext(story.context ? [...story.context] : []);
     setPaused(!!story.paused); setError("");
@@ -79,7 +74,6 @@ export function StoryDetailPage() {
     setError("");
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, {
       title, description,
-      requirements: Object.keys(requirements).length > 0 ? requirements : null,
       directory: directory.trim() || null,
       context,
       paused,
@@ -132,9 +126,7 @@ export function StoryDetailPage() {
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       {/* Top bar: back to board + save/delete actions */}
       <div className="flex items-center justify-between">
-        <Link to="/board" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back to board
-        </Link>
+        <BackButton fallback="/board" label="Back to board" />
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={handleSave} title="Save changes">
             <Save className="h-4 w-4" />
@@ -171,8 +163,6 @@ export function StoryDetailPage() {
         </div>
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><p className="text-xs text-muted-foreground mb-2">Where the work happens — teammates cd here and read its AGENTS.md before starting.</p><Input placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
-
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Requirements</Label></div><RequirementsEditor value={requirements} onChange={setRequirements} /></div>
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-2">Injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
 

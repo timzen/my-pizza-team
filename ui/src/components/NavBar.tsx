@@ -1,30 +1,31 @@
 /**
  * NavBar — Top navigation bar with links to main pages and theme toggle.
- * Config is shown as a gear icon beside the theme toggle. Backlog/Archive
- * are tabs within the Board surface (see BoardTabs), so the Board link
- * highlights for those routes too.
+ * Config is shown as a gear icon beside the theme toggle. Backlog/Archive/
+ * Workflows are tabs within the Board surface (see BoardTabs), so the Board
+ * link highlights for those routes (and story/task detail) too.
  */
 
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, Pause, Play, HelpCircle } from "lucide-react";
+import { Pizza, Settings, Pause, Play, HelpCircle, NotebookPen } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
-  // matches: other routes that count as "within" this section for highlighting
-  { path: "/board", label: "Board", matches: ["/backlog", "/archived"] },
-  { path: "/assistant", label: "Assistant", matches: [] },
-  { path: "/scratchpad", label: "Scratch Pad", matches: [] },
+  // prefixes: routes that count as "within" this section for highlighting
+  { path: "/board", label: "Board", prefixes: ["/backlog", "/archived", "/workflows", "/story", "/stories", "/task"] },
+  { path: "/tasks", label: "Tasks", prefixes: [] },
+  { path: "/schedule", label: "Schedule", prefixes: ["/work-defs"] },
+  { path: "/context", label: "Context", prefixes: [] },
 ];
 
 export function NavBar() {
   const location = useLocation();
 
-  const linkClass = (path: string, matches: string[] = []) =>
+  const linkClass = (path: string, prefixes: string[] = []) =>
     `px-3 py-1.5 text-sm rounded-md transition-colors ${
-      location.pathname === path || matches.includes(location.pathname)
+      location.pathname === path || prefixes.some((p) => location.pathname.startsWith(p))
         ? "bg-accent text-accent-foreground font-medium"
         : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
     }`;
@@ -39,7 +40,7 @@ export function NavBar() {
 
         <nav className="flex items-center gap-1 flex-1">
           {NAV_ITEMS.map((item) => (
-            <Link key={item.path} to={item.path} className={linkClass(item.path, item.matches)}>
+            <Link key={item.path} to={item.path} className={linkClass(item.path, item.prefixes)}>
               {item.label}
             </Link>
           ))}
@@ -49,6 +50,17 @@ export function NavBar() {
         <div className="flex items-center gap-1">
 
           <PauseButton />
+          <Link
+            to="/scratchpad"
+            className={`p-2 rounded-md transition-colors ${
+              location.pathname === "/scratchpad"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            }`}
+            title="Scratch Pad"
+          >
+            <NotebookPen className="h-4 w-4" />
+          </Link>
           <Link
             to="/help"
             className={`p-2 rounded-md transition-colors ${

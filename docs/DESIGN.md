@@ -18,87 +18,75 @@
 
 ---
 
-## Work Matching: Capabilities & Requirements
+## The WorkItem: the Unit of Agent Execution
 
-Which agent works which task is decided by a single, uniform capability model.
+The WorkItem queue is the single, legible record of what **will** happen (`READY`),
+**is** happening (`IN_PROGRESS`, and `MORIBUND` when an agent goes quiet), and
+**did** happen (`COMPLETE`/`FAILED` in the Inbox; `CANCELED` in the audit trail).
+Every stuck state has exactly one recovery action: cancel a READY item, force-fail
+a MORIBUND one, re-enqueue a failed task.
 
-- An **agent** advertises a `capabilities` map: `Record<string, string | null>`.
-- A **story** declares a `requirements` map of the same shape.
-- **Match rule**: for each `(name, requiredValue)` in the story's requirements, the
-  agent must have `name` in its capabilities; if `requiredValue` is non-null the
-  agent's value must equal it exactly. `null` means "must have it, any value"
-  (presence-only, e.g. a skill like `python`).
+A WorkItem is deliberately **dumb and terminal-only**: it carries just identity,
+a polymorphic `ref` (a story task or a WorkDef), a directory (affinity), a state,
+read flag, and timestamps. It never moves backward — retrying is a *new* item.
+All rich detail (goal, comments, results) lives on the **ref**, never on the item.
 
-The working directory is **not** a capability at all: it is the story's
-`directory` field — plain data. Teammates cd to it at work time (the task prompt
-says so), which removes the whole class of path-string-matching bugs (symlinks,
-mounts, `~` variants). See docs/WORK-MODEL.md.
+The WorkItem **drives** the task (inverted from a board-first model): the daemon
+reacts to a terminal state. `COMPLETE` advances a task ref to its next workflow
+state (freeing the CONWIP token when it reaches `done`); `FAILED`/`CANCELED`
+leaves the task in place with no active item — "stuck" until a human re-enqueues,
+moves, or edits it. CONWIP admission still governs which task per story is active;
+landing a task in an agent state is what enqueues its READY item.
 
-Stories use `requirements`, agents register `capabilities` — both are skills-style
-constraints (presence-only or exact-value).
+*Why:* one queue, one lifecycle, terminal-only transitions. It collapses several
+ad-hoc mechanisms (capability matching, assigned-story scoping, the `return`
+bundle, task substatus) into one legible object, and makes "what happened / how do
+I get it back on track" obvious. See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 
-*Why:* one matcher, one mental model — for genuine capabilities. "Where the work
-happens" turned out not to be a capability: two paths to the same physical
-directory would fail an exact-string match, so it became data the agent acts on
-instead of a key the daemon compares.
+## Work Matching: Directory Affinity
 
-## Work Modes & Pause
+Which agent works which item is decided by a soft **directory bias**, never a hard
+gate. There is no capability/`requirements` model. Each agent has a working
+`directory` (its pi cwd); a story/WorkDef has an optional `directory` copied onto
+its WorkItem. `getNextWorkItem` picks the oldest `READY` item by priority tier:
 
-Three independent knobs sit on top of capability matching:
+1. item `directory` == agent `directory` (my repo's work)
+2. item has no directory (anyone's)
+3. item `directory` != agent `directory` **and no online agent has that dir**
+   (nobody's coming for it — the agent cds and may fail if it can't reach it)
 
-- **`Member.workMode`** — how an agent selects work:
-  - `eager-helper` (default): any ready story whose requirements it satisfies.
-  - `assigned-story` (+ `assignedStoryId`): only its bound story. When that story's
-    tasks are exhausted, `/api/agents/next-work` archives the story and returns
-    `{ task: null, dismiss: true }`, and the agent shuts itself down.
-- **`Story.paused`** — a *temporal* gate: when true, the story's tasks are never
-  handed out, regardless of capabilities ("not now" vs. "can you").
+Tier 3 is presence-based, not timed: if an online agent with the matching
+directory exists, the item waits for it. `Story.paused` is an independent temporal
+gate (its READY items are never offered while paused).
 
-There is deliberately no `working-directory` work mode — where the work happens
-is the story's `directory` field (data, not a mode or a requirement).
+*Why:* the only signal that ever mattered was "where the work happens." Making it a
+*bias* (not a filter) retires the path-string bug class that killed directory
+matching before — a false-negative match merely loses the preference; it never
+strands work.
 
-*Why:* placement (skills) belongs to the story's requirements; location is data
-the agent acts on (cd); lifecycle (work everything vs. one story then leave)
-belongs to the agent's mode; availability (pause) is a separate temporal switch.
-Keeping the concerns independent avoids overloading any one field.
+## WorkDefs: Solitary & Scheduled Work
 
-## Recently Used Capabilities
+A `WorkDef` is a standalone work definition (`type: Solitary | Scheduled`; `Story`
+reserved for a future fold-in), stored as markdown+frontmatter under `tasks/<id>/`
+with a per-def `comments.jsonl`. Creating one enqueues a WorkItem by default
+("save without enqueueing" skips it). A Scheduled def re-enqueues on its 5-field
+`cron` via the daemon's scheduler tick (minute-granular, deduped per minute).
 
-`config.recentCapabilities` is a map of **capability name → known values**
-(most-recent-first, deduped, capped at 50 values per key). Presence-only
-capabilities map to an empty array so the key itself is remembered.
+*Why:* the human-centric goal is a clear way to enqueue work and review results.
+Solitary/Scheduled defs plus the story board all feed the one WorkItem queue, so a
+teammate works "the next thing" without caring where it came from.
 
-It is populated automatically when a story is created/updated (from its
-`requirements`) and when an agent registers (from its `capabilities`), and edited
-explicitly via `GET/POST/DELETE /api/capabilities`. Values are stored verbatim.
+## Reaping: MORIBUND, not a Guess
 
-*Why:* it drives autocomplete for both the capability *key* and its *values* when
-authoring requirements or spawning agents — the `name → values` shape mirrors the
-capability model. It lives in `config.json` (durable, human-editable), written
-losslessly by `Store.persistConfig()`.
+A claim is a lease kept alive by heartbeats. When the reaper sees a silent agent
+it does **not** declare failure or hand the work to someone else — it moves the
+agent's `IN_PROGRESS` items to `MORIBUND` and keeps the lease. The agent
+reconnecting restores them to `IN_PROGRESS`; a human who's sure it's gone
+force-fails them (optionally re-enqueuing).
 
----
-
-## Agent Lifecycle: Claim / Release
-
-Agents run a pure claim/release loop; the daemon owns all workflow state.
-
-```
-1. Poll  GET  /api/agents/next-work   → an unclaimed task with a teammate/any transition
-2. Claim POST /api/agents/claim/:id   → assigns ownership AND transitions to the working state
-3. Do the work
-4. Release POST /api/agents/release/:id (with result) → advances to the next state, releases
-5. Repeat
-```
-
-Agents never call an explicit "transition" endpoint and never need to understand
-workflow topology — the daemon knows the graph and makes the correct transitions.
-This keeps agent implementations trivial and eliminates invalid-transition bugs.
-
-Task distribution is workflow-aware: `next-work` and claim return/act on the first
-unassigned task that has a valid `teammate`/`any` transition from its *current*
-state (not only the initial state), so custom workflows work at any point in the
-chain.
+*Why:* a heartbeat can false-positive (a hung-but-alive agent mid-commit).
+Auto-re-enqueuing on a guess risks two agents doing the same work; MORIBUND makes
+reaping honest and puts the recovery decision with the human.
 
 ## Workflows
 

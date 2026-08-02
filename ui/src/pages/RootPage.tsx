@@ -1,35 +1,55 @@
 /**
- * RootPage — Home for the foundational setup: Workflows and the Context
- * library, presented as two tabs. Workflows define how work flows; context
- * entries are the reusable prompts/context injected into agents. Both are
- * "configure once, use everywhere" concerns, so they live at the root.
+ * RootPage — The team's home (`/`). Two things live here:
  *
- * The active tab follows the route (`/` = Workflows, `/context` = Context) so
- * both stay deep-linkable and the workflow detail page can link back here.
- * Rendered with the shared RouteTabs control for consistency with the Board
- * surface's tabs.
+ *  1. A quick-create row — the fastest path to enqueue work (new story, a
+ *     one-off Solitary task, a Scheduled job) or add a teammate.
+ *  2. Inbox + Assistant tabs — review completed work (Inbox) and chat with the
+ *     team assistant. The active tab follows the route (`/` = Inbox,
+ *     `/assistant` = Assistant) so both stay deep-linkable.
+ *
+ * Foundational setup (Workflows, Context) moved out of the root: Workflows is a
+ * Board sub-tab and Context is a top-level nav item.
  */
 
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { RouteTabs } from "@/components/RouteTabs";
-import { WorkflowsPage } from "./WorkflowsPage";
-import { ContextPage } from "./ContextPage";
+import { Button } from "@/components/ui/button";
+import { InboxPage } from "./InboxPage";
+import { AssistantPage } from "./AssistantPage";
+import { Plus, Zap, CalendarClock, UserPlus } from "lucide-react";
 
 const TABS = [
-  // "/" is the Workflows tab: active whenever we're not on /context.
-  { path: "/", label: "Workflows", isActive: (pathname: string) => pathname !== "/context" },
-  { path: "/context", label: "Context" },
+  // "/" is the Inbox tab: active whenever we're not on /assistant.
+  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/assistant" },
+  { path: "/assistant", label: "Assistant" },
 ];
 
 export function RootPage() {
   const location = useLocation();
-  const isContext = location.pathname === "/context";
+  const isAssistant = location.pathname === "/assistant";
 
   return (
     <div className="container mx-auto p-6 space-y-4">
+      {/* Quick-create row — the fastest way to get work moving. */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Button variant="outline" size="sm" render={<Link to="/stories/new" />}>
+          <Plus className="h-4 w-4 mr-1" /> New Story
+        </Button>
+        <Button variant="outline" size="sm" render={<Link to="/work-defs/new?type=Solitary" />}>
+          <Zap className="h-4 w-4 mr-1" /> Solitary Task
+        </Button>
+        <Button variant="outline" size="sm" render={<Link to="/work-defs/new?type=Scheduled" />}>
+          <CalendarClock className="h-4 w-4 mr-1" /> Scheduled Job
+        </Button>
+        <Button variant="outline" size="sm" render={<Link to="/spawn" />}>
+          <UserPlus className="h-4 w-4 mr-1" /> Spawn Teammate
+        </Button>
+      </div>
+
       <RouteTabs tabs={TABS} />
 
-      {isContext ? <ContextPage /> : <WorkflowsPage />}
+      {/* AssistantPage owns its own full-height layout; the Inbox is a plain list. */}
+      {isAssistant ? <AssistantPage /> : <InboxPage />}
     </div>
   );
 }

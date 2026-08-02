@@ -28,7 +28,6 @@ interface StoryView {
   status: "open" | "done";
   dependsOn: string[];
   ready: boolean;
-  requirements?: Record<string, string | null>;
   directory?: string;
   paused?: boolean;
   workflow?: string;
@@ -38,7 +37,7 @@ interface StoryView {
     seq: number;
     title: string;
     status: string;
-    substatus?: "ready" | "claimed" | null;
+    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
     description?: string;
     assignee: string | null;
     tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };

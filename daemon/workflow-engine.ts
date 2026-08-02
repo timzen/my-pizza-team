@@ -1,15 +1,14 @@
 /**
- * daemon/workflow-engine.ts — Workflow position logic for the state/substatus
- * work model (see docs/WORK-MODEL.md).
+ * daemon/workflow-engine.ts — Workflow position logic for the state model
  *
  * A workflow is an ordered list of active states between the implicit `todo`
- * and `done` buckets. There is no transition matrix: this module answers
+ * and `done` buckets (see docs/WORK-MODEL.md). There is no transition matrix: this module answers
  * position questions (what's active, what's next, is this an agent state) and
  * the store applies the two mechanical rules (advance, admission). Humans may
  * move tasks anywhere, so there is no permission checking here either.
  */
 
-import { type WorkflowConfig, TODO_STATE, DONE_STATE, type TaskSubstatus } from "../shared/types.ts";
+import { type WorkflowConfig, TODO_STATE, DONE_STATE } from "../shared/types.ts";
 
 /** Names of a workflow's active states, in order. */
 export function activeStateNames(wf: WorkflowConfig): string[] {
@@ -40,15 +39,6 @@ export function nextState(wf: WorkflowConfig, status: string): string {
   const idx = wf.states.findIndex((s) => s.name === status);
   if (idx < 0) return DONE_STATE;
   return wf.states[idx + 1]?.name ?? DONE_STATE;
-}
-
-/**
- * The substatus a task carries on entering `status`: `ready` for agent states,
- * null for manual states and buckets. Applied on every entry — admission,
- * mechanical advance, and judgment moves alike — so re-entry ≡ first entry.
- */
-export function entrySubstatus(wf: WorkflowConfig, status: string): TaskSubstatus | null {
-  return isAgentState(wf, status) ? "ready" : null;
 }
 
 /** Board columns: the implicit buckets around the active states. */

@@ -26,7 +26,8 @@ import { Label } from "@/components/ui/label";
 import { ContextSelector } from "@/components/board/ContextSelector";
 import { TitleField } from "@/components/ui/title-field";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { ArrowLeft, Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload, Trash2, Save } from "lucide-react";
+import { Send, MessageSquare, Paperclip, FileText, FileCode, Image, Upload, Trash2, Save } from "lucide-react";
+import { BackButton } from "@/components/ui/back-button";
 import { FileViewer } from "@/components/viewer/FileViewer";
 
 interface Comment {
@@ -227,9 +228,7 @@ export function TaskDetailPage() {
     <div className="container mx-auto p-6 space-y-4 max-w-4xl">
       {/* Top bar: back to board + save/delete actions */}
       <div className="flex items-center justify-between">
-        <Link to="/board" className="flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground">
-          <ArrowLeft className="h-4 w-4" /> Back to board
-        </Link>
+        <BackButton fallback="/board" label="Back to board" />
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={saveTask} title="Save changes">
             <Save className="h-4 w-4" />

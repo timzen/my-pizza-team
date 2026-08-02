@@ -7,13 +7,14 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - **daemon/** — HTTP API server built with [Hono](https://hono.dev/) on Deno's native `Deno.serve()` adapter
 - **cli/** — Command-line interface for interacting with the daemon
 - **ui/** — Frontend application (React + Vite + shadcn/ui). Talks to the daemon's HTTP API.
-  - `src/App.tsx` — Router + shell layout: `NavBar` on top, a scrollable `<main>` for the routed page, and a persistent `TeammateSidebar` on the right (shown on `lg+`). Pages: `/` + `/context` (RootPage — Workflows/Context tabs), `/board`, `/scratchpad`, `/assistant`, `/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`, `/spawn`, `/backlog`, `/archived`, `/config` (+ `/config/:tab`), `/workflows/:name`, `/help`. Route-driven tab groups (RootPage's Workflows/Context, the Board's Board/Backlog/Archive, ConfigPage's General/Teammates/Capabilities/Theme — Theme being a client-side palette preference, not daemon config) share `src/components/RouteTabs.tsx`.
+  - `src/App.tsx` — Router + shell layout: `NavBar` on top, a scrollable `<main>` for the routed page, and a persistent `TeammateSidebar` on the right (shown on `lg+`). Pages: `/` + `/assistant` (RootPage — Inbox/Assistant tabs), `/context` (ContextPage), `/board`, `/tasks`, `/schedule`, `/work-defs/new`, `/work-defs/:id`, `/scratchpad`, `/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`, `/spawn`, `/backlog`, `/archived`, `/config` (+ `/config/:tab`), `/workflows` (+ `/workflows/:name`), `/help`. The NavBar surfaces the four primary destinations — **Board · Tasks · Schedule · Context** — plus scratch-pad/help/config/theme icons. Route-driven tab groups (RootPage's Inbox/Assistant, the Board's Board/Backlog/Archive/Workflows, ConfigPage's General/Teammates/Theme — Theme being a client-side palette preference, not daemon config) share `src/components/RouteTabs.tsx`.
   - `src/components/ThemeToggle.tsx` — Light/dark mode toggle (the `dark` class on `<html>`, persisted to `localStorage`). Palette selection lives on the Config page's Theme tab; `src/lib/theme.ts` owns the palette preference (the `data-theme` attribute, applied at startup by `main.tsx`). Palettes are CSS variable blocks in `index.css` (`html[data-theme="…"]` for light, `html.dark[data-theme="…"]` for dark; Default and Solarized) — adding a palette is two variable blocks plus a `PALETTES` entry.
-  - `src/pages/RootPage.tsx` — Home. Two tabs for the foundational setup: **Workflows** (`/`) and **Context** (`/context`); renders `WorkflowsPage` / `ContextPage` as panels.
-  - `src/components/TeammateSidebar.tsx` — Always-visible right column listing connected teammates (status dot, current task, **capability badges**) with per-teammate reset (`reset-session` directive → Pi's `/new`) and dismiss, plus a Spawn button linking to the spawn page. Collapses to a slim icon rail (status avatars + Spawn `+`); the choice is persisted in `localStorage`. Replaces the old standalone teammates page.
-  - `src/pages/SpawnPage.tsx` — Spawn page (`/spawn`; replaces the old spawn modal). Asks for host, an optional **story binding** (spawn params `storyId` → leader passes `--ppt-work-mode=assigned-story --ppt-story=<id>`, so the teammate only works that story; unset spawns an eager helper), an optional **home directory** (just the pi process cwd — not a matching key; teammates cd to each story's directory), and optional **skills** (advertised capabilities, threaded to `--ppt-skills`). No state picker: teammates are generalists (WORK-MODEL.md).
-  - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (the `details →` link opens the task page — there are no preview modals). Headed by `src/components/board/BoardTabs.tsx`, a segmented control presenting Board / Backlog / Archive as tabs of one surface (three lifecycle views over the same stories); `/backlog` and `/archived` stay deep-linkable routes and render the same tabs. Built on `src/components/RouteTabs.tsx`, the shared route-driven segmented tab control also used by RootPage (Workflows/Context). The NavBar's Board link highlights for all three.
-  - `src/pages/NewStoryPage.tsx` — Story creation page (`/stories/new`; replaces the old modal): workflow, requirements, context, inline task list. On success lands on the new story's page.
+  - `src/pages/RootPage.tsx` — Home (`/`). A **quick-create row** (new story / Solitary task / Scheduled job / spawn teammate) over two tabs: **Inbox** (`/`) and **Assistant** (`/assistant`). The Inbox (`src/pages/InboxPage.tsx`) is a paginated, unread-by-default review queue of terminal WorkItems (COMPLETE/FAILED; CANCELED excluded), each linking to its ref (task or WorkDef) where the rich detail lives. Foundational setup moved out of the root: **Workflows** is a Board sub-tab and **Context** is a top-level nav page.
+  - `src/pages/TasksPage.tsx` / `src/pages/SchedulePage.tsx` — Standalone WorkDefs: **Solitary** one-shots (Tasks) and **Scheduled** cron jobs (Schedule). Both list `/api/work-defs` (filtered by type) with a **Run**/Run-now action; Schedule shows a friendly cron description. `src/pages/NewWorkDefPage.tsx` is the shared create form (`/work-defs/new?type=…`; Scheduled adds cron presets, Solitary an "enqueue now" toggle); `src/pages/WorkDefDetailPage.tsx` is the view/edit page with the per-def **run thread** (comments — including agent completion summaries).
+  - `src/components/TeammateSidebar.tsx` — Always-visible right column with two sections: **Team** (connected agents grouped by role — leader `[L]`, assistant `[A]`, teammates `[Tn]` — each row showing status dot, current work, and **working directory** as the only work-selection signal; per-agent reset via `reset-session` directive → Pi's `/new`, and dismiss) and **Queue** (non-terminal WorkItems — READY/IN_PROGRESS/MORIBUND — with recovery actions: cancel a READY item, force-fail a MORIBUND one, or force-fail-and-re-enqueue). Also surfaces pending spawn requests. Collapses to a slim icon rail (role avatars + Spawn `+` + queue badge); the choice is persisted in `localStorage`.
+  - `src/pages/SpawnPage.tsx` — Spawn page (`/spawn`; replaces the old spawn modal). Asks for host and an optional **working directory** (the pi process cwd) — teammates are a flat generalist pool, and this directory is the sole work-selection signal (directory affinity; see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md). No state picker, story binding, or capability list.
+  - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (the `details →` link opens the task page — there are no preview modals). A card shows a small chip for its active agent WorkItem (queued / working / at-risk). Headed by `src/components/board/BoardTabs.tsx`, a segmented control presenting Board / Backlog / Archive / Workflows as tabs of one surface; `/backlog`, `/archived`, and `/workflows` stay deep-linkable routes and render the same tabs. Built on `src/components/RouteTabs.tsx`, the shared route-driven segmented tab control. The NavBar's Board link highlights for all of them (and story/task detail).
+  - `src/pages/NewStoryPage.tsx` — Story creation page (`/stories/new`; replaces the old modal): workflow, directory, context, inline task list. On success lands on the new story's page.
   - `src/pages/NewTaskPage.tsx` — Task creation page (`/story/:id/tasks/new`; replaces the old modal), linked from the board swimlane header and the story page. On success returns to where you came from.
   - `src/pages/TaskDetailPage.tsx` — Task page. Home for task editing (title, description, workflow status moves, delete) plus comments, attachments, and diff review. Attachments list newest first with upload timestamps (`addedAt`, recovered from the `<epoch-ms>-` stored-name prefix) since teammates often upload the same display name repeatedly.
   - `src/pages/StoryDetailPage.tsx` — Story page (`/story/:id`). Home for story editing (title, description, requirements, paused, delete) plus a linked task list. Reached by clicking a story title on the board. Requirements are edited with `RequirementsEditor` as key/value capabilities.
@@ -26,13 +27,18 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `main.ts` — Entry point. Reads PORT/HOST/TEAM_DIR from env, validates bind safety, starts `Deno.serve()`.
 - `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
 - `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
-- `workflow-engine.ts` — Workflow position logic for the state/substatus model (docs/WORK-MODEL.md): `activeStateNames()`, `isAgentState()`, `firstActiveState()`, `nextState()`, `entrySubstatus()`, `boardColumns()`, `isValidPosition()`, `validateWorkflow()`. No transition matrix, no permission checks — the store applies the two mechanical rules (advance + admission) and humans may move tasks anywhere.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/assignments/members/comments, workflow validation, JSON file sync, autosave timers, and agent heartbeat timeout reaping. **Task order is owned by the story** (`Story.taskOrder`, an array of task IDs in story.json); `getTasksForStory()` reconciles it against the tasks on disk (listed order first, orphans appended by creation `seq`, danglers ignored) and `reorderTasks()` just rewrites `taskOrder` — task IDs, titles, and directories are untouched. Also owns **capability-based work matching** (`getNextWorkableTask`): skips paused stories, restricts to `assignedStoryId` for `assigned-story` agents, and applies `meetsRequirements()` (the `directory` capability is just one requirement among many). Tracks **recently used capabilities** (`recordCapabilities`/`addCapability`/`removeCapability`) into `config.recentCapabilities` and persists `config.json` losslessly via `persistConfig()`. Self-contained concerns are split into `store/`:
-  - `store/context.ts` — context library (reusable prompt/context entries as markdown files under `context/`, with `title`/`description`/`tags` frontmatter). Entries can be **attached to stories/tasks** (`story.context` / `task.context`, arrays of entry ids); `store.resolveTaskContext()` merges + dedupes them for prompt injection.
+- `workflow-engine.ts` — Workflow position logic for the state model (docs/WORK-MODEL.md): `activeStateNames()`, `isAgentState()`, `firstActiveState()`, `nextState()`, `boardColumns()`, `isValidPosition()`, `validateWorkflow()`. No transition matrix, no permission checks.
+- `cron.ts` — vendored 5-field cron parser (`parseCron`/`cronMatches`/`isCronDue`/`isValidCron`) for Scheduled WorkDefs.
+- `token-cost.ts` — rough token-cost estimation shared by the task + agent routes.
+- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/tasks/members/comments, workflow validation, JSON file sync, autosave timers, and heartbeat/turn/cron timers. **Task order is owned by the story** (`Story.taskOrder`). Also owns the **WorkItem queue** — the unit of agent execution (see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md): admission enqueues a `READY` WorkItem when a task lands in an agent state; `getNextWorkItem()` matches by **directory affinity** (priority tiers: my-dir → no-dir → other-dir-if-no-online-agent-has-it); `claimWorkItem`/`setWorkItemState` drive the terminal-only lifecycle (COMPLETE advances the task, FAILED leaves it stuck), and the heartbeat reaper moves in-flight items to `MORIBUND` (restored on reconnect, or force-failed by a human). A **cron scheduler** (`runScheduler`) enqueues due Scheduled WorkDefs. Self-contained concerns are split into `store/`:
+  - `store/workdefs.ts` — on-disk IO for standalone **WorkDefs** (Solitary + Scheduled work) as markdown+frontmatter under `tasks/<id>/`, with per-def `comments.jsonl`.
+  - `store/context.ts` — context library (reusable prompt/context entries as markdown files under `context/`, with `title`/`description`/`tags` frontmatter). Entries can be **attached to stories/tasks** (`story.context` / `task.context`); `store.resolveTaskContext()` merges + dedupes them for prompt injection.
   - `store/scratchpad.ts` — personal scratch pad kept as plain files under the team dir (no SQLite): `todo.jsonl` (one `{status,item,created,completed}` per line, addressed by index) + `notes.md` (free-form markdown).
   - `store/git-sync.ts` — optional git checkpointing of the team directory.
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
-- `routes/agents.ts` — Agent protocol: register, heartbeat, next-work, claim (lease), **done** (work complete → daemon advances; `release` kept as deprecated alias), **return** (give up → back to ready + comment), comments, and per-host leader directives. The claim response returns just `prompt` (the full message assembled by `prompt.ts`) plus minimal `task` metadata (`id`/`storyId`/`status`) — harnesses deliver the prompt verbatim instead of each re-assembling their own.
+- `routes/agents.ts` — Agent protocol (WorkItem-centric): register (with a working `directory`), heartbeat, next-work (returns `{ workItem }`), claim (lease + daemon-assembled prompt), the single **state-setter** (`work-items/:id/state` → COMPLETE|FAILED), work-item comments/token-usage/attachments (resolved to the backing ref), and per-host leader directives. No `done`/`release`/`return` — the daemon offers primitives; "giving up" is a comment + FAILED composed by the agent.
+- `routes/work.ts` — WorkItem queue: list (filter/paginate — powers Inbox + sidebar), cancel (READY), force-fail (MORIBUND, optional re-enqueue), read/unread, re-enqueue by ref.
+- `routes/work-defs.ts` — WorkDef CRUD + enqueue ("save without enqueueing" = `enqueue:false`) + per-def comments.
 - `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (**state persona** → Story → working-directory instruction (cd + read that repo's AGENTS.md) → Task → reference context → prior-task context → lead comments → completion guidance). The state persona is the markdown at `workflows/<wf>/<state>.md` — role framing for whoever works that state. There are no transition instructions: workers never move tasks (docs/WORK-MODEL.md). **Reference context** is the set of context-library entries attached to the story and/or task (resolved + deduped by `store.resolveTaskContext`), inlined verbatim so every harness gets the same material. Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
 - `workflow-lint.ts` — `validateInstructionMarkdown()`: lints authored state-instruction markdown. Unbalanced code fences are **errors** (they'd swallow the rest of the prompt) and block the save; shallow headings and stray `---` rules are **warnings** (the prompt builder normalizes headings anyway).
 - `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
@@ -47,7 +53,7 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login.
 
 ### shared/
-- `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, etc.) and utility functions (slugify, getInitialState, getDoneState, generateTeammateName). Also defines the capability model: `Capabilities` (`Record<string, string | null>`), `WorkMode`, the `DIRECTORY_CAP` well-known key, `normalizeDirectory()`, and `meetsRequirements()`.
+- `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, `WorkItem`/`WorkItemState`/`WorkItemRef`, `WorkDef`/`WorkDefType`, etc.) and utilities (slugify, generateTeammateName, `normalizeDirectory`). Matching is directory-affinity only — there is no capability/requirements model.
 - `protocol.ts` — API request/response type contracts for all HTTP endpoints.
 - `frontmatter.ts` — Parsing/serialization of YAML-like frontmatter (`title`, `description`, `tags`) for context entries.
 
@@ -134,42 +140,58 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/hosts/:hostId` | Get host-specific config (directories, tmuxSession) |
 | POST | `/api/control/pause` | Pause task distribution |
 | POST | `/api/control/resume` | Resume task distribution |
-| GET | `/api/capabilities` | Get recently used capabilities (name -> known values) |
-| POST | `/api/capabilities` | Add a capability key (and optional value) |
-| DELETE | `/api/capabilities/:name` | Remove a key, or one value with `?value=X` |
-| POST | `/api/agents/register` | Register an agent (`capabilities` map, `workMode`, `assignedStoryId`, opaque `metadata`) |
-| POST | `/api/agents/heartbeat` | Agent heartbeat |
-| GET | `/api/agents/next-work?agentId=X` | Poll for a `ready` agent-state task; returns `{ task: null, dismiss: true }` when an `assigned-story` agent's story is exhausted (daemon archives it) |
-| POST | `/api/agents/claim/:taskId` | Lease a ready task (substatus → claimed) and get the persona prompt |
-| POST | `/api/agents/done/:taskId` | Work complete → daemon advances the task (admission may admit the next) |
-| POST | `/api/agents/release/:taskId` | Deprecated alias for done |
-| POST | `/api/agents/return/:taskId` | Give up → task back to `ready` (+ optional comment) |
-| GET | `/api/agents/comments/:taskId` | Get task comments |
-| POST | `/api/agents/comments/:taskId` | Post a comment on a task |
+| POST | `/api/agents/register` | Register an agent (working `directory`, opaque `metadata`, `hostId`) |
+| POST | `/api/agents/heartbeat` | Agent heartbeat (restores this agent's MORIBUND items to IN_PROGRESS) |
+| GET | `/api/agents/next-work?agentId=X` | Poll for a `READY` WorkItem by directory affinity; `{ workItem: null }` when none |
+| POST | `/api/agents/claim/:workItemId` | Lease a READY WorkItem (→ IN_PROGRESS) and get the daemon-assembled prompt |
+| POST | `/api/agents/work-items/:workItemId/state` | Set COMPLETE (advances a task ref) or FAILED (leaves it stuck) |
+| POST | `/api/agents/work-items/:workItemId/token-usage` | Record token usage (resolved to the backing task) |
+| POST | `/api/agents/work-items/:workItemId/attachments` | Upload an attachment (resolved to the backing ref) |
+| GET | `/api/agents/comments/:workItemId` | Get comments on the WorkItem's ref |
+| POST | `/api/agents/comments/:workItemId` | Post a comment on the WorkItem's ref |
 | GET | `/api/agents` | List all registered agents |
 | DELETE | `/api/agents/:id` | Unregister an agent |
+| GET | `/api/work-items` | List WorkItems (`?state=`, `?read=`, `?limit=&offset=`) — powers Inbox + sidebar |
+| POST | `/api/work-items/:id/cancel` | Cancel a READY item |
+| POST | `/api/work-items/:id/force-fail` | MORIBUND → FAILED (`{ reEnqueue? }`) |
+| POST | `/api/work-items/:id/read` | Mark read/unread (`?read=false`) |
+| POST | `/api/work-items/re-enqueue` | Create a fresh READY item for a ref with none active (`{ ref }`) |
+| GET/POST | `/api/work-defs` | List / create WorkDefs (create enqueues unless `enqueue:false`) |
+| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete a WorkDef |
+| POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem for the def |
+| GET/POST | `/api/work-defs/:id/comment(s)` | Per-def comment thread |
 
 ## Agent Lifecycle
 
-Agents use a poll → claim → work → done loop (see docs/WORK-MODEL.md). Workers
-never move tasks: the daemon owns admission (CONWIP) and advance.
+Agents use a poll → claim → set-state loop over **WorkItems** (the unit of agent
+execution). Workers never move tasks: the daemon owns admission (CONWIP), advance,
+and the WorkItem lifecycle. See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 
 ```
-1. Poll GET /api/agents/next-work → a task sitting `ready` in an agent state
-2. POST /api/agents/claim/:taskId → lease (substatus → claimed) + persona prompt
-3. Agent does the work (cd to the story's directory)
-4a. POST /api/agents/done/:taskId   → daemon advances to the next state
-4b. POST /api/agents/return/:taskId → give up: back to `ready` + comment
+1. Poll  GET  /api/agents/next-work        → a READY WorkItem (directory affinity)
+2. POST /api/agents/claim/:workItemId       → lease (→ IN_PROGRESS) + daemon prompt
+3. Agent does the work (cd to the ref's directory)
+4a. POST .../work-items/:id/state COMPLETE  → daemon advances the task (task refs)
+4b. comment + .../state FAILED              → give up: task left stuck for a human
 5. Agent polls again (repeat)
 ```
 
-Manual states (e.g. review) belong to humans/the leader: moving the card onward
-is the completion. Rework is a judgment move back into an agent state — it
-resets substatus to `ready`, so re-entry is indistinguishable from first entry;
-the agent discovers it on the next poll and sees the comments.
+A WorkItem only ever moves toward a terminal state (COMPLETE/FAILED/CANCELED);
+`MORIBUND` is the reaped-but-not-dead state (restored on reconnect, or
+force-failed by a human). Rework is a judgment move back into an agent state,
+which enqueues a fresh READY WorkItem — re-entry is indistinguishable from first
+entry. Manual states (e.g. review) belong to humans/the leader.
 
-Comments are task-level, not real-time chat. Agents load them when
-starting work to see lead feedback or rework instructions.
+Members and assignments are **connection state, not durable records**: they live
+in SQLite for the running process but are cleared on daemon boot
+(`resetConnectionsForBoot`), since a freshly-started daemon holds zero live
+connections. Without this, a restarted daemon would list the previous run's
+agents as "offline" forever. Agents re-register on reconnect; any WorkItem left
+IN_PROGRESS across the restart is moved to `MORIBUND` (its `member_id` kept, so
+the same agent can still complete it or a human can recover it).
+
+Comments live on the **ref** (per-task for story tasks, per-def for WorkDefs),
+not on the WorkItem. Agents load them when starting work.
 
 ## Pi Extension (Thin Adapter)
 

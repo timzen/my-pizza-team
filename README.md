@@ -89,17 +89,6 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
     "autoCommit": true
   },
 
-
-  // ─── Recently Used Capabilities (auto-maintained) ───────────────
-  // Map of capability name → known values (most-recent-first). Auto-updated
-  // when stories declare `requirements` and when agents register. Presence-only
-  // capabilities map to []. Editable via the /api/capabilities endpoints.
-  "recentCapabilities": {
-    "directory": ["/path/to/project"],
-    "python": ["3.11"],
-    "design": []
-  },
-
   // ─── Teammates ─────────────────────────────────────────────────
   "teammates": {
     "nouns": ["ripley", "deckard", "neo"]
@@ -173,11 +162,13 @@ move any card anywhere.
 
 | Type | Who works it | How it completes |
 |------|--------------|------------------|
-| `"agent"` | Teammates (claim → work → done) | Daemon advances automatically |
+| `"agent"` | Teammates (claim → work → COMPLETE) | Daemon advances automatically |
 | `"manual"` | You (or the leader agent) | You move the card onward |
 
-Tasks in agent states carry a **substatus**: `ready` (waiting for a teammate)
-or `claimed` (a teammate is on it).
+When a task lands in an **agent state** the daemon enqueues a `READY` WorkItem
+for it; a teammate claims it (→ `IN_PROGRESS`) and, on COMPLETE, the daemon
+advances the task. The board shows the active WorkItem as a chip (queued /
+working / at-risk).
 
 ### State Personas
 
@@ -217,60 +208,57 @@ Assign a workflow when creating a story (required).
 
 ## Agent Protocol
 
-Agents use a poll → claim → work → done loop. Workers never move tasks — the
-daemon advances completed work and admits new tasks (CONWIP):
+Agents work the **WorkItem queue** — the single unit of agent execution — in a
+poll → claim → work → set-state loop. Workers never move tasks; the daemon
+reacts to a terminal WorkItem state (COMPLETE advances the task, FAILED leaves
+it stuck for a human). See [docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md](docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
 
 ```
-1. POST /api/agents/register       → register with daemon
-2. GET  /api/agents/next-work      → { task: { id, storyId, title } | null }
-3. POST /api/agents/claim/:id      → lease + persona prompt (substatus → claimed)
-   (agent does the work, in the story's directory)
-4. POST /api/agents/done/:id       → daemon advances the task, stores result
-   or: POST /api/agents/return/:id → can't proceed: back to ready + comment
-5. POST /api/agents/heartbeat      → keep-alive
+1. POST /api/agents/register              → register with daemon
+2. GET  /api/agents/next-work             → { workItem: { id, title } | null }
+3. POST /api/agents/claim/:workItemId     → lease (→ IN_PROGRESS) + daemon prompt
+   (agent does the work, in the ref's directory)
+4. POST /api/agents/work-items/:id/state  → { state: "COMPLETE" } (advance task)
+   or { state: "FAILED" } after posting a comment (leave the task stuck)
+5. POST /api/agents/heartbeat             → keep-alive (restores this agent's MORIBUND items)
 ```
 
-### Registration: capabilities & work mode
+### Registration: name + directory
 
 ```jsonc
 POST /api/agents/register
 {
   "id": "neo",
   "name": "neo",
-  // Capabilities this agent has. The well-known `directory` key is the
-  // agent's working directory; other keys are skills/tools it possesses.
-  "capabilities": { "directory": "/path/to/project", "python": "3.11", "docker": null },
-  // How this agent picks work (default: eager-helper).
-  "workMode": "eager-helper",           // or "assigned-story"
-  "assignedStoryId": "my-story"          // required when workMode = assigned-story
+  // The agent's working directory (its pi cwd). This is the ONLY work-selection
+  // signal — teammates are a flat generalist pool biased by directory.
+  "directory": "/path/to/project"
 }
 ```
 
-**Work modes:**
+There are no capabilities, skills, or work modes: every teammate is a
+generalist. Retiring capability matching removed a whole class of
+path-string/skill-mismatch bugs.
 
-| Mode | Behavior |
-|------|----------|
-| `eager-helper` *(default)* | Picks up any story whose requirements the agent satisfies |
-| `assigned-story` | Works only its `assignedStoryId`; when that story's tasks are exhausted, the daemon archives it and `next-work` returns `{ dismiss: true }` so the agent shuts down |
+### How work is matched: directory affinity
 
-### How work is matched
+`getNextWorkItem()` picks the next `READY` WorkItem for a polling agent using
+soft, presence-based **directory affinity** (no timers, no hard requirements):
 
-A task is offered to an agent only if its story is **ready**, **not paused**, and
-the agent's capabilities **satisfy the story's requirements**. Directory affinity
-is not special — it's just the `directory` requirement:
+1. **My directory** — items whose ref names the agent's `directory`.
+2. **Un-homed work** — items with no directory.
+3. **Another directory** — only if *no online agent* is homed there (so nothing
+   starves), otherwise it waits for a matching-directory teammate to appear.
 
-- `requirements.directory` must equal the agent's `capabilities.directory` (exact, normalized).
-- Any other `requirements` key must be present in the agent's capabilities; a
-  `null` value means "just needs to have it", a non-null value must match exactly.
-
-See [docs/DESIGN.md](docs/DESIGN.md) → *Capability-Based Work Matching*.
+An item that ends up somewhere an agent can't reach is simply failed by that
+agent. See [docs/DESIGN.md](docs/DESIGN.md).
 
 ### What the agent gets on claim
 
 | Field | Description |
 |-------|-------------|
-| `task` | Minimal structured metadata for bookkeeping: `id`, `storyId`, `status` |
-| `prompt` | **The full, ready-to-use prompt** assembled by the daemon (story, task, prior-task context, lead comments, state guidance, and the transition instructions for leaving the previous state and entering the working state). Harnesses deliver this verbatim rather than re-assembling their own. |
+| `workItem` | Minimal bookkeeping metadata: `{ id }` (the harness treats it as opaque) |
+| `prompt` | **The full, ready-to-use prompt** assembled by the daemon (state persona, story/WorkDef, working-directory instruction, reference context, prior-task context, lead comments, completion guidance). Harnesses deliver this verbatim rather than re-assembling their own. |
 
 ---
 
@@ -284,7 +272,7 @@ The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension provides 
 pi install git:github.com/timzen/pi-pizza-team
 ```
 
-The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → release → repeat.
+The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → set-state → repeat.
 
 ### Claude Code (MCP Server)
 
@@ -317,28 +305,28 @@ A shell-based runner that polls for work and executes via Codex CLI:
 DAEMON_URL="http://localhost:7437"
 AGENT_NAME="codex-1"
 
-# Register
+# Register (name + working directory)
 curl -s -X POST "$DAEMON_URL/api/agents/register" \
   -H "Content-Type: application/json" \
-  -d "{\"id\": \"$AGENT_NAME\", \"name\": \"$AGENT_NAME\", \"cwd\": \"$(pwd)\"}"
+  -d "{\"id\": \"$AGENT_NAME\", \"name\": \"$AGENT_NAME\", \"directory\": \"$(pwd)\"}"
 
-# Poll → claim → execute → release loop
+# Poll → claim → execute → set-state loop
 while true; do
-  TASK=$(curl -s "$DAEMON_URL/api/agents/next-work?agentId=$AGENT_NAME" | jq -r '.task.id // empty')
-  [ -z "$TASK" ] && sleep 5 && continue
+  WI=$(curl -s "$DAEMON_URL/api/agents/next-work?agentId=$AGENT_NAME" | jq -r '.workItem.id // empty')
+  [ -z "$WI" ] && sleep 5 && continue
 
-  # Claim (daemon transitions to working state)
-  CLAIM=$(curl -s -X POST "$DAEMON_URL/api/agents/claim/$TASK" \
+  # Claim (daemon leases the WorkItem → IN_PROGRESS and returns the prompt)
+  CLAIM=$(curl -s -X POST "$DAEMON_URL/api/agents/claim/$WI" \
     -H "Content-Type: application/json" \
     -d "{\"agentId\": \"$AGENT_NAME\"}")
 
   # Execute with codex...
   RESULT="Work completed"
 
-  # Release (daemon advances to next state)
-  curl -s -X POST "$DAEMON_URL/api/agents/release/$TASK" \
+  # Complete (daemon advances the task). Use "FAILED" to give up (leave it stuck).
+  curl -s -X POST "$DAEMON_URL/api/agents/work-items/$WI/state" \
     -H "Content-Type: application/json" \
-    -d "{\"agentId\": \"$AGENT_NAME\", \"result\": \"$RESULT\"}"
+    -d "{\"agentId\": \"$AGENT_NAME\", \"state\": \"COMPLETE\", \"result\": \"$RESULT\"}"
 done
 ```
 
@@ -351,12 +339,13 @@ done
 | Health | `GET /health` | Uptime, agents, memory |
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
-| Agents | `/api/agents/*` | Register, heartbeat, claim, release |
+| Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, work-item state |
 | Assistant | `/api/assistant/*` | Chat conversation (batched replies, read receipts, response turns) |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
 | Scratch Pad | `/api/scratchpad/*` | Personal todos (`todo.jsonl`) + notes (`notes.md`) |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
-| Capabilities | `GET/POST/DELETE /api/capabilities` | Recently used capability names + values |
+| WorkItems | `GET /api/work-items`, `POST /api/work-items/:id/{cancel,force-fail,read}`, `POST /api/work-items/re-enqueue` | The queue: list (Inbox/sidebar) + recovery actions |
+| WorkDefs | `GET/POST/PUT/DELETE /api/work-defs`, `POST /api/work-defs/:id/enqueue` | Standalone Solitary + Scheduled work |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |
 
 Full API route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)

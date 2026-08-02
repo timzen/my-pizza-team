@@ -18,26 +18,28 @@ import {
   slugify,
   DEFAULT_CONFIG,
   generateTeammateName,
-  meetsRequirements,
   normalizeDirectory,
-  DEFAULT_WORK_MODE,
   TODO_STATE,
   DONE_STATE,
-  type TaskSubstatus,
-  type Capabilities,
+  ACTIVE_WORK_ITEM_STATES,
   type Comment,
   type Story,
   type Task,
   type TaskWithMeta,
   type TeamConfig,
   type WorkflowConfig,
-  type WorkMode,
+  type WorkItem,
+  type WorkItemState,
+  type WorkItemRef,
+  type WorkDef,
   type Member,
   type Assignment,
 } from "../shared/types.ts";
-import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, entrySubstatus, validateWorkflow } from "./workflow-engine.ts";
+import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { readScratchpad, addTodo, updateTodo, deleteTodo, writeNotes, type TodoItem } from "./store/scratchpad.ts";
+import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, workDefDir } from "./store/workdefs.ts";
+import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
@@ -51,7 +53,6 @@ function serializeStory(story: Story): Story {
     status: story.status,
     dependsOn: story.dependsOn,
   };
-  if (story.requirements && Object.keys(story.requirements).length > 0) data.requirements = story.requirements;
   if (story.directory) data.directory = story.directory;
   if (story.paused) data.paused = true;
   if (story.workflow) data.workflow = story.workflow;
@@ -61,14 +62,10 @@ function serializeStory(story: Story): Story {
   return data;
 }
 
-/** Max number of remembered values per capability key in config.recentCapabilities. */
-const MAX_CAPABILITY_VALUES = 50;
-
 /**
  * Derive a task's creation counter (`seq`) from its stable id. Task IDs are
- * `${storyId}-${seq}`, so we strip the known story-id prefix and parse the
- * numeric suffix. Returns null for hand-authored non-numeric ids (the caller
- * falls back to directory iteration order).
+ * `${storyId}-${seq}`; strip the story-id prefix and parse the numeric suffix.
+ * Returns null for hand-authored non-numeric ids (caller falls back to order).
  */
 function taskSeqFromId(storyId: string, taskId: string): number | null {
   const prefix = `${storyId}-`;
@@ -95,9 +92,6 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.apiToken) out.apiToken = config.apiToken;
   if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
   if (config.hosts && Object.keys(config.hosts).length > 0) out.hosts = config.hosts;
-  if (config.recentCapabilities && Object.keys(config.recentCapabilities).length > 0) {
-    out.recentCapabilities = config.recentCapabilities;
-  }
   return out;
 }
 
@@ -109,6 +103,7 @@ export class Store {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null;
+  private schedulerTimer: ReturnType<typeof setInterval> | null = null;
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
 
@@ -120,7 +115,27 @@ export class Store {
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.initSchema();
+    this.resetConnectionsForBoot();
     this.loadWorkflows();
+  }
+
+  /**
+   * Clear ephemeral connection state on daemon boot. Members and assignments
+   * are connection state, not durable records (see the file header) — but they
+   * live in SQLite, so without this a freshly-started daemon (which holds zero
+   * live agent connections) would keep listing the previous run's agents as
+   * "offline" forever. Agents re-register when they reconnect.
+   *
+   * Any WorkItem left IN_PROGRESS lost its holder across the restart, so it's
+   * moved to MORIBUND — honest about the lost connection and recoverable by a
+   * human (force-fail / re-enqueue) or by the same agent reconnecting and
+   * completing it (setWorkItemState accepts MORIBUND). Its `member_id` is kept
+   * so that path still authorizes.
+   */
+  private resetConnectionsForBoot(): void {
+    this.db.prepare("UPDATE work_items SET state = 'MORIBUND', last_state_change_at = ? WHERE state = 'IN_PROGRESS'").run(Date.now());
+    this.db.exec("DELETE FROM assignments");
+    this.db.exec("DELETE FROM members");
   }
 
   /** Load workflows from the workflows/ directory (falls back to the built-in default). */
@@ -289,6 +304,24 @@ export class Store {
         key TEXT PRIMARY KEY,       -- simple daemon-wide key/value settings
         value TEXT
       );
+
+      -- The WorkItem queue: the unit of agent execution. A dumb, terminal-only
+      -- attempt pointing at its work via a polymorphic ref (task or workdef).
+      -- See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+      CREATE TABLE IF NOT EXISTS work_items (
+        id TEXT PRIMARY KEY,
+        title TEXT,
+        ref_kind TEXT,             -- 'task' | 'workdef'
+        story_id TEXT,             -- task refs
+        task_id TEXT,              -- task refs
+        work_def_id TEXT,          -- workdef refs
+        directory TEXT,            -- affinity bias, copied from the ref at creation
+        state TEXT,                -- READY|IN_PROGRESS|MORIBUND|COMPLETE|FAILED|CANCELED
+        read INTEGER DEFAULT 0,
+        member_id TEXT,            -- who is/was working it
+        enqueued_at INTEGER,
+        last_state_change_at INTEGER
+      );
     `);
 
     // Migration: add columns if they don't exist (for existing databases)
@@ -353,6 +386,10 @@ export class Store {
     if (!memberColumns.some((col) => col.name === "metadata")) {
       this.db.exec("ALTER TABLE members ADD COLUMN metadata TEXT DEFAULT '{}'");
     }
+    // Directory-affinity matching: the agent's working directory (see refactor plan).
+    if (!memberColumns.some((col) => col.name === "directory")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN directory TEXT");
+    }
   }
 
   // --- Load from filesystem ---
@@ -395,28 +432,26 @@ export class Store {
       }
     }
 
-    // Reconcile positions and run admission so every ready story has its one
-    // in-flight task (CONWIP). Tolerates hand-edited JSON.
-    this.reconcilePositions();
+    // Run admission so every ready story has its one in-flight task (CONWIP),
+    // then reconcile the WorkItem queue: every task sitting in an agent state
+    // must have an active (READY/IN_PROGRESS/MORIBUND) WorkItem. Tolerates
+    // hand-edited JSON and rebuilds the queue after a restart.
     for (const story of this.getStories()) this.runAdmission(story.id);
+    this.reconcileQueue();
   }
 
   /**
-   * Defensive position cleanup after a disk load: a task sitting in an agent
-   * state must carry a substatus (`claimed` if assigned, else `ready`); tasks
-   * in manual states or buckets must carry none.
+   * Ensure every task currently in an agent state has an active WorkItem. Creates
+   * a READY item for any agent-state task that has none (e.g. after a restart, a
+   * hand-edit, or a task admitted before the queue existed). Never touches tasks
+   * in buckets/manual states, and never resurrects terminal WorkItems.
    */
-  private reconcilePositions(): void {
+  private reconcileQueue(): void {
     for (const story of this.getStories()) {
       const wf = this.getWorkflowForStory(story.id);
       for (const task of this.getTasksForStory(story.id)) {
-        if (isAgentState(wf, task.status)) {
-          if (!task.substatus) {
-            const assigned = !!this.getAssignment(task.id);
-            this.db.prepare("UPDATE tasks SET substatus = ? WHERE id = ?").run(assigned ? "claimed" : "ready", task.id);
-          }
-        } else if (task.substatus) {
-          this.db.prepare("UPDATE tasks SET substatus = NULL WHERE id = ?").run(task.id);
+        if (isAgentState(wf, task.status) && !this.getActiveWorkItemForTask(task.id)) {
+          this.createTaskWorkItem(task, story);
         }
       }
     }
@@ -424,11 +459,11 @@ export class Store {
 
   private upsertStory(story: Story, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, requirements, paused, workflow, context, task_order, directory, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, paused, workflow, context, task_order, directory, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
-      JSON.stringify(story.dependsOn), JSON.stringify(story.requirements || {}),
+      JSON.stringify(story.dependsOn),
       story.paused ? 1 : 0,
       story.workflow || null, JSON.stringify(story.context || []),
       JSON.stringify(story.taskOrder || []), story.directory || null, dirPath
@@ -437,9 +472,9 @@ export class Store {
 
   private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, substatus, result, context, dir_path, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
-    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.substatus || null, task.result, JSON.stringify(task.context || []), dirPath);
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, result, context, dir_path, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.result, JSON.stringify(task.context || []), dirPath);
   }
 
   // --- Stories ---
@@ -452,7 +487,6 @@ export class Store {
       description: row.description as string,
       status: row.status as "open" | "done",
       dependsOn: JSON.parse(row.depends_on as string),
-      requirements: row.requirements && (row.requirements as string) !== "{}" ? JSON.parse(row.requirements as string) : undefined,
       paused: row.paused ? true : undefined,
       workflow: (row.workflow as string) || undefined,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
@@ -472,7 +506,6 @@ export class Store {
       title: row.title as string,
       description: row.description as string,
       status: row.status as string,
-      substatus: (row.substatus as TaskSubstatus) || null,
       result: row.result as string | null,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       dirPath: row.dir_path as string,
@@ -496,7 +529,6 @@ export class Store {
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
     tasks?: Array<{ title: string; description: string; context?: string[] }>,
-    requirements?: Capabilities,
     workflow?: string,
     context?: string[],
     paused?: boolean,
@@ -508,9 +540,6 @@ export class Store {
     Deno.mkdirSync(storyDirPath, { recursive: true });
 
     const storyData: Story = { id, title, description, status, dependsOn };
-    if (requirements && Object.keys(requirements).length > 0) {
-      storyData.requirements = { ...requirements };
-    }
     if (directory) storyData.directory = normalizeDirectory(directory);
     if (paused) storyData.paused = true;
     if (workflow) storyData.workflow = workflow;
@@ -519,7 +548,6 @@ export class Store {
     Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
 
     this.upsertStory(storyData, storyDirPath);
-    this.recordCapabilities(storyData.requirements);
 
     const createdTasks: TaskWithMeta[] = [];
 
@@ -602,7 +630,6 @@ export class Store {
     description?: string;
     status?: "open" | "done";
     dependsOn?: string[];
-    requirements?: Capabilities | null;
     paused?: boolean;
     workflow?: string | null;
     context?: string[] | null;
@@ -615,7 +642,6 @@ export class Store {
     const newDescription = updates.description ?? story.description;
     const newStatus = updates.status ?? story.status;
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
-    const newRequirements = updates.requirements !== undefined ? (updates.requirements || undefined) : story.requirements;
     const newPaused = updates.paused !== undefined ? updates.paused : (story.paused || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
     const newContext = updates.context !== undefined ? (updates.context || []) : (story.context || []);
@@ -624,9 +650,8 @@ export class Store {
       : (story.directory || null);
 
     this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, requirements = ?, paused = ?, workflow = ?, context = ?, directory = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), JSON.stringify(newRequirements || {}), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
-    this.recordCapabilities(newRequirements || undefined);
+      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, paused = ?, workflow = ?, context = ?, directory = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
 
     // Write back to disk
     const storyFile = path.join(story.dirPath, "story.json");
@@ -636,7 +661,6 @@ export class Store {
       description: newDescription,
       status: newStatus,
       dependsOn: newDependsOn,
-      requirements: newRequirements,
       directory: newDirectory || undefined,
       paused: newPaused,
       workflow: newWorkflow || undefined,
@@ -707,20 +731,41 @@ export class Store {
   }
 
   /**
-   * Low-level position setter: writes (status, substatus) [+ result], keeps the
-   * story's open/done status in sync. All position changes flow through here.
+   * Low-level position setter: writes status [+ result], keeps the story's
+   * open/done status in sync, and ensures the WorkItem queue reflects the new
+   * position. All position changes flow through here.
+   *
+   * WorkItem sync: landing in an agent state creates a READY WorkItem (unless
+   * one is already active for the task). Leaving an agent state (or any
+   * non-agent landing) abandons the task's active WorkItem as CANCELED — a
+   * position change out from under an in-flight attempt is a human override.
+   * `keepWorkItem` skips that abandonment (used by the WorkItem's own COMPLETE
+   * advance, which already terminated the item).
    */
-  private setTaskPosition(taskId: string, status: string, substatus: TaskSubstatus | null, result?: string): void {
+  private setTaskPosition(taskId: string, status: string, result?: string, keepWorkItem = false): void {
+    const before = this.getTask(taskId);
     if (result !== undefined) {
-      this.db.prepare("UPDATE tasks SET status = ?, substatus = ?, result = ?, dirty = 1 WHERE id = ?").run(status, substatus, result, taskId);
+      this.db.prepare("UPDATE tasks SET status = ?, result = ?, dirty = 1 WHERE id = ?").run(status, result, taskId);
     } else {
-      this.db.prepare("UPDATE tasks SET status = ?, substatus = ?, dirty = 1 WHERE id = ?").run(status, substatus, taskId);
+      this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
     }
 
     const task = this.getTask(taskId);
     if (!task) return;
     const story = this.getStory(task.storyId);
     if (!story) return;
+    const wf = this.getWorkflowForStory(task.storyId);
+
+    // Abandon a now-stale WorkItem when the task's position changed out from
+    // under it (unless the caller already handled the item).
+    if (!keepWorkItem && before && before.status !== status) {
+      this.abandonActiveWorkItem(taskId);
+    }
+    // Landing in an agent state ⇒ ensure a READY WorkItem exists.
+    if (isAgentState(wf, status) && !this.getActiveWorkItemForTask(taskId)) {
+      this.createTaskWorkItem(task, story);
+    }
+
     if (status === DONE_STATE) {
       const tasks = this.getTasksForStory(task.storyId);
       if (tasks.every((t) => t.status === DONE_STATE)) this.updateStoryStatus(task.storyId, "done");
@@ -731,22 +776,20 @@ export class Store {
   }
 
   /**
-   * Set a task's status, deriving the substatus for the target position.
-   * (Compatibility wrapper; judgment moves should use `moveTask`.)
+   * Set a task's status. (Compatibility wrapper; judgment moves should use
+   * `moveTask`.)
    */
   updateTaskStatus(taskId: string, status: string, result?: string): void {
-    const task = this.getTask(taskId);
-    if (!task) return;
-    const wf = this.getWorkflowForStory(task.storyId);
-    this.setTaskPosition(taskId, status, entrySubstatus(wf, status), result);
+    if (!this.getTask(taskId)) return;
+    this.setTaskPosition(taskId, status, result);
   }
 
   /**
    * Judgment move (human or leader agent): put a task anywhere in its
-   * workflow's positions. Entering an agent state resets substatus to `ready`
-   * and clears any assignment — re-entry ≡ first entry (rework path). Runs
-   * admission excluding the moved task, so shelving a task to `todo` doesn't
-   * bounce it straight back in (the *next* task may be admitted instead).
+   * workflow's positions. Any active WorkItem is abandoned (CANCELED) and,
+   * when entering an agent state, a fresh READY WorkItem is created — re-entry
+   * ≡ first entry (rework path). Runs admission excluding the moved task, so
+   * shelving a task to `todo` doesn't bounce it straight back in.
    */
   moveTask(taskId: string, newStatus: string): { ok: boolean; error?: string } {
     const task = this.getTask(taskId);
@@ -755,7 +798,7 @@ export class Store {
     if (!isValidPosition(wf, newStatus)) {
       return { ok: false, error: `"${newStatus}" is not a state in this story's workflow` };
     }
-    this.setTaskPosition(taskId, newStatus, entrySubstatus(wf, newStatus));
+    this.setTaskPosition(taskId, newStatus);
     this.releaseTask(taskId);
     this.runAdmission(task.storyId, taskId);
     return { ok: true };
@@ -777,6 +820,8 @@ export class Store {
     if (!task) return false;
 
     const storyId = task.storyId;
+    // Cancel any active WorkItem for this task before removing it.
+    this.abandonActiveWorkItem(taskId);
     this.removeTaskData(taskId);
 
     // Remove task directory from disk
@@ -814,55 +859,237 @@ export class Store {
     return true;
   }
 
-  /**
-   * Find the next available task for a teammate.
-   * (Alias kept for API stability; see getNextWorkableTask.)
-   */
-  getNextAvailableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): TaskWithMeta | null {
-    return this.getNextWorkableTask(agent);
+  // --- WorkItem queue ---
+  //
+  // A WorkItem is the unit of agent execution: a dumb, terminal-only attempt
+  // pointing at a story task or a WorkDef. It drives the task: a COMPLETE item
+  // advances its task, a FAILED/CANCELED one leaves the task stuck for a human.
+  // See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+
+  private rowToWorkItem(row: Record<string, unknown>): WorkItem {
+    const ref: WorkItemRef = row.ref_kind === "workdef"
+      ? { kind: "workdef", workDefId: row.work_def_id as string }
+      : { kind: "task", storyId: row.story_id as string, taskId: row.task_id as string };
+    return {
+      id: row.id as string,
+      title: (row.title as string) || "",
+      ref,
+      directory: (row.directory as string) || undefined,
+      state: row.state as WorkItemState,
+      read: !!row.read,
+      memberId: (row.member_id as string) || undefined,
+      enqueuedAt: new Date(row.enqueued_at as number).toISOString(),
+      lastStateChangeAt: new Date(row.last_state_change_at as number).toISOString(),
+    };
+  }
+
+  getWorkItem(id: string): WorkItem | null {
+    const row = this.db.prepare("SELECT * FROM work_items WHERE id = ?").get(id) as Record<string, unknown> | undefined;
+    return row ? this.rowToWorkItem(row) : null;
+  }
+
+  /** List WorkItems, optionally filtered by state(s)/read, newest-first, paginated. */
+  getWorkItems(opts?: { states?: WorkItemState[]; read?: boolean; limit?: number; offset?: number }): { items: WorkItem[]; total: number } {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (opts?.states && opts.states.length > 0) {
+      where.push(`state IN (${opts.states.map(() => "?").join(",")})`);
+      params.push(...opts.states);
+    }
+    if (opts?.read !== undefined) { where.push("read = ?"); params.push(opts.read ? 1 : 0); }
+    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM work_items ${clause}`).get(...params) as { n: number }).n;
+    let sql = `SELECT * FROM work_items ${clause} ORDER BY enqueued_at DESC`;
+    if (opts?.limit !== undefined) { sql += " LIMIT ?"; params.push(opts.limit); if (opts?.offset) { sql += " OFFSET ?"; params.push(opts.offset); } }
+    const rows = this.db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
+    return { items: rows.map((r) => this.rowToWorkItem(r)), total };
+  }
+
+  /** The active (READY/IN_PROGRESS/MORIBUND) WorkItem for a task, if any. */
+  getActiveWorkItemForTask(taskId: string): WorkItem | null {
+    const row = this.db.prepare(
+      `SELECT * FROM work_items WHERE ref_kind = 'task' AND task_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
+    ).get(taskId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
+    return row ? this.rowToWorkItem(row) : null;
+  }
+
+  private getActiveWorkItemForRef(ref: WorkItemRef): WorkItem | null {
+    if (ref.kind === "task") return this.getActiveWorkItemForTask(ref.taskId);
+    const row = this.db.prepare(
+      `SELECT * FROM work_items WHERE ref_kind = 'workdef' AND work_def_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
+    ).get(ref.workDefId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
+    return row ? this.rowToWorkItem(row) : null;
+  }
+
+  /** Insert a READY WorkItem for a ref. Caller ensures none is already active. */
+  private insertWorkItem(ref: WorkItemRef, title: string, directory?: string): WorkItem {
+    const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
+    const now = Date.now();
+    this.db.prepare(
+      `INSERT INTO work_items (id, title, ref_kind, story_id, task_id, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'READY', 0, NULL, ?, ?)`
+    ).run(
+      id, title, ref.kind,
+      ref.kind === "task" ? ref.storyId : null,
+      ref.kind === "task" ? ref.taskId : null,
+      ref.kind === "workdef" ? ref.workDefId : null,
+      directory || null, now, now,
+    );
+    return this.getWorkItem(id)!;
+  }
+
+  /** Create a READY WorkItem for a story task (idempotent-ish: caller guards). */
+  private createTaskWorkItem(task: TaskWithMeta, story: Story): WorkItem {
+    return this.insertWorkItem({ kind: "task", storyId: story.id, taskId: task.id }, task.title, story.directory);
+  }
+
+  private setWorkItemStateRow(id: string, state: WorkItemState, memberId?: string | null): void {
+    if (memberId === undefined) {
+      this.db.prepare("UPDATE work_items SET state = ?, last_state_change_at = ? WHERE id = ?").run(state, Date.now(), id);
+    } else {
+      this.db.prepare("UPDATE work_items SET state = ?, member_id = ?, last_state_change_at = ? WHERE id = ?").run(state, memberId, Date.now(), id);
+    }
+  }
+
+  /** Cancel a task's active WorkItem (internal override on position changes). */
+  private abandonActiveWorkItem(taskId: string): void {
+    const item = this.getActiveWorkItemForTask(taskId);
+    if (item) this.setWorkItemStateRow(item.id, "CANCELED");
   }
 
   /**
-   * Find the next workable task for an agent (see docs/WORK-MODEL.md).
-   *
-   * A task is workable when:
-   * - Its story is ready (dependencies met), not paused, and matches the
-   *   agent's workMode (`assigned-story` agents only see their bound story)
-   * - The agent's capabilities satisfy the story's requirements (skills —
-   *   the working directory is story data, not a capability)
-   * - It sits in an **agent state** with substatus `ready` and no assignment
-   *
-   * CONWIP means a story has at most one task in its active section, so per
-   * story there is at most one candidate. Admission has already run at every
-   * mutation point; tasks in `todo` are never offered.
+   * Pick the next READY WorkItem for a polling agent using directory affinity
+   * (see the refactor plan). Eligibility: task refs must belong to a ready,
+   * unpaused story. Priority tiers:
+   *   1. item.directory == agent.directory  (my repo's work)
+   *   2. item has no directory              (anyone's)
+   *   3. item.directory != agent.directory AND no online agent has that dir
+   * Oldest-first within a tier.
    */
-  getNextWorkableTask(agent?: { capabilities?: Capabilities; workMode?: WorkMode; assignedStoryId?: string }): TaskWithMeta | null {
-    const capabilities = agent?.capabilities || {};
-    const workMode = agent?.workMode || DEFAULT_WORK_MODE;
-    const stories = this.getStories();
-    for (const story of stories) {
-      if (!this.isStoryReady(story.id)) continue;
+  getNextWorkItem(agent: { id?: string; directory?: string }): WorkItem | null {
+    const rows = this.db.prepare("SELECT * FROM work_items WHERE state = 'READY' ORDER BY enqueued_at ASC").all() as Array<Record<string, unknown>>;
+    const candidates = rows.map((r) => this.rowToWorkItem(r)).filter((wi) => this.isWorkItemEligible(wi));
+    if (candidates.length === 0) return null;
 
-      // Paused stories are a temporal gate: never hand out their tasks.
-      if (story.paused) continue;
+    const agentDir = agent.directory ? normalizeDirectory(agent.directory) : undefined;
+    const onlineDirs = new Set(
+      this.getMembers()
+        .filter((m) => m.status !== "offline" && m.directory)
+        .map((m) => normalizeDirectory(m.directory!)),
+    );
 
-      // assigned-story agents only work their bound story.
-      if (workMode === "assigned-story" && story.id !== agent?.assignedStoryId) continue;
+    const tier1 = candidates.filter((wi) => agentDir && wi.directory === agentDir);
+    if (tier1[0]) return tier1[0];
+    const tier2 = candidates.filter((wi) => !wi.directory);
+    if (tier2[0]) return tier2[0];
+    const tier3 = candidates.filter((wi) => wi.directory && wi.directory !== agentDir && !onlineDirs.has(wi.directory));
+    return tier3[0] ?? null;
+  }
 
-      // The agent's capabilities must satisfy the story's requirements (skills).
-      if (!meetsRequirements(capabilities, story.requirements)) continue;
-
+  /** A READY WorkItem is eligible if its backing work still wants doing. */
+  private isWorkItemEligible(wi: WorkItem): boolean {
+    if (wi.ref.kind === "task") {
+      const story = this.getStory(wi.ref.storyId);
+      if (!story || story.paused || !this.isStoryReady(story.id)) return false;
+      const task = this.getTask(wi.ref.taskId);
+      if (!task) return false;
       const wf = this.getWorkflowForStory(story.id);
-      // The story's single in-flight task (CONWIP), if any.
-      const active = this.getTasksForStory(story.id).find((t) => isActiveState(wf, t.status));
-      if (!active) continue;
-      if (!isAgentState(wf, active.status)) continue;      // manual state: a human's move
-      if (active.substatus !== "ready") continue;          // claimed (or mid-write)
-      if (this.getAssignment(active.id)) continue;         // defensive: leased
-
-      return active;
+      return isAgentState(wf, task.status);
     }
-    return null;
+    return this.getWorkDef(wi.ref.workDefId) !== null;
+  }
+
+  /** Lease a READY WorkItem to a member (→ IN_PROGRESS). Task refs also get an assignment row. */
+  claimWorkItem(id: string, memberId: string): boolean {
+    const item = this.getWorkItem(id);
+    if (!item || item.state !== "READY") return false;
+    this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
+    if (item.ref.kind === "task") {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+      this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(item.ref.taskId, memberId, Date.now());
+    }
+    return true;
+  }
+
+  /**
+   * Agent-facing terminal transition (the single state-setter). COMPLETE on a
+   * task ref advances the task; FAILED leaves it stuck. WorkDef refs just record
+   * the outcome (the completion summary is a comment on the ref, posted by the
+   * agent). Returns the resulting task position for task refs.
+   */
+  setWorkItemState(id: string, state: "COMPLETE" | "FAILED", result?: string): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
+    const item = this.getWorkItem(id);
+    if (!item) return { ok: false, error: "WorkItem not found" };
+    if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
+      return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
+    }
+    this.setWorkItemStateRow(id, state);
+    if (item.ref.kind === "task") {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+      if (state === "COMPLETE") {
+        const advance = this.advanceTask(item.ref.taskId, result);
+        return { ok: true, ...advance };
+      }
+      // FAILED: leave the task in place (stuck) with no active WorkItem.
+    }
+    return { ok: true };
+  }
+
+  /**
+   * Advance a task out of its current agent state to the next state (or `done`),
+   * then re-run admission (finishing the last state frees the CONWIP token).
+   * `keepWorkItem` on setTaskPosition avoids abandoning the item we just closed.
+   */
+  private advanceTask(taskId: string, result?: string): { newStatus?: string; completed?: boolean } {
+    const task = this.getTask(taskId);
+    if (!task) return {};
+    const wf = this.getWorkflowForStory(task.storyId);
+    const next = nextState(wf, task.status);
+    this.setTaskPosition(taskId, next, result, true);
+    this.runAdmission(task.storyId);
+    return { newStatus: next, completed: next === DONE_STATE };
+  }
+
+  /** Cancel a READY WorkItem (human). */
+  cancelWorkItem(id: string): boolean {
+    const item = this.getWorkItem(id);
+    if (!item || item.state !== "READY") return false;
+    this.setWorkItemStateRow(id, "CANCELED");
+    if (item.ref.kind === "task") this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+    return true;
+  }
+
+  /** Force a MORIBUND item to FAILED (human decided the agent is truly gone). */
+  forceFailWorkItem(id: string, reEnqueue = false): { ok: boolean; error?: string; newItem?: WorkItem | null } {
+    const item = this.getWorkItem(id);
+    if (!item || item.state !== "MORIBUND") return { ok: false, error: "WorkItem is not moribund" };
+    this.setWorkItemStateRow(id, "FAILED");
+    if (item.ref.kind === "task") this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+    let newItem: WorkItem | null = null;
+    if (reEnqueue) newItem = this.reEnqueueRef(item.ref);
+    return { ok: true, newItem };
+  }
+
+  /** Create a fresh READY WorkItem for a ref that has no active one. */
+  reEnqueueRef(ref: WorkItemRef): WorkItem | null {
+    if (this.getActiveWorkItemForRef(ref)) return null;
+    if (ref.kind === "task") {
+      const task = this.getTask(ref.taskId);
+      const story = this.getStory(ref.storyId);
+      if (!task || !story) return null;
+      return this.createTaskWorkItem(task, story);
+    }
+    const def = this.getWorkDef(ref.workDefId);
+    if (!def) return null;
+    return this.insertWorkItem(ref, def.title, def.directory);
+  }
+
+  /** Mark a WorkItem read/unread (Inbox). */
+  markWorkItemRead(id: string, read = true): boolean {
+    const item = this.getWorkItem(id);
+    if (!item) return false;
+    this.db.prepare("UPDATE work_items SET read = ? WHERE id = ?").run(read ? 1 : 0, id);
+    return true;
   }
 
   // --- Mechanical rules: admission (CONWIP) + advance ---
@@ -889,61 +1116,11 @@ export class Store {
     const candidate = tasks.find((t) => t.status === TODO_STATE && t.id !== excludeTaskId);
     if (!candidate) return;
 
-    this.setTaskPosition(candidate.id, first, entrySubstatus(wf, first));
+    // setTaskPosition creates the READY WorkItem when landing in an agent state.
+    this.setTaskPosition(candidate.id, first);
   }
 
-  /**
-   * Complete an agent-state task's work: mechanical advance to the next state
-   * (or the `done` bucket), clear the lease, and re-run admission (finishing
-   * the last state frees the CONWIP token). Returns the landing position.
-   */
-  completeTaskWork(taskId: string, result?: string): { newStatus: string; completed: boolean } | null {
-    const task = this.getTask(taskId);
-    if (!task) return null;
-    const wf = this.getWorkflowForStory(task.storyId);
-    if (!isAgentState(wf, task.status)) return null;
-
-    const next = nextState(wf, task.status);
-    this.setTaskPosition(taskId, next, entrySubstatus(wf, next), result);
-    this.releaseTask(taskId);
-    this.runAdmission(task.storyId);
-    return { newStatus: next, completed: next === DONE_STATE };
-  }
-
-  /**
-   * Return a claimed task to `ready` (agent gave up, or its lease was reaped).
-   * The task stays in its state; the next poll can pick it up fresh.
-   */
-  returnTaskToReady(taskId: string): void {
-    const task = this.getTask(taskId);
-    if (!task) return;
-    const wf = this.getWorkflowForStory(task.storyId);
-    if (isAgentState(wf, task.status)) {
-      this.db.prepare("UPDATE tasks SET substatus = 'ready', dirty = 1 WHERE id = ?").run(taskId);
-    }
-    this.releaseTask(taskId);
-  }
-
-  // --- Assignments ---
-
-  /**
-   * Lease a ready agent-state task to a member: substatus → `claimed` plus an
-   * assignment row (reaped back to `ready` if the member's heartbeat dies).
-   */
-  claimTask(taskId: string, memberId: string): boolean {
-    const existing = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(taskId);
-    if (existing) return false;
-
-    const task = this.getTask(taskId);
-    if (!task) return false;
-    const wf = this.getWorkflowForStory(task.storyId);
-    if (!isAgentState(wf, task.status) || task.substatus !== "ready") return false;
-
-    this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(taskId, memberId, Date.now());
-    this.db.prepare("UPDATE tasks SET substatus = 'claimed', dirty = 1 WHERE id = ?").run(taskId);
-    return true;
-  }
-
+  /** Release a task's assignment row (does not change its position). */
   releaseTask(taskId: string): void {
     this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
   }
@@ -1114,38 +1291,39 @@ export class Store {
   registerMember(
     id: string,
     name: string,
-    capabilities: Capabilities,
+    directory?: string,
     metadata: Record<string, unknown> = {},
     hostId?: string,
-    workMode: WorkMode = DEFAULT_WORK_MODE,
-    assignedStoryId?: string,
   ): void {
-    const caps: Capabilities = { ...capabilities };
     this.db.prepare(
-      `INSERT OR REPLACE INTO members (id, name, capabilities, work_mode, assigned_story_id, metadata, host_id, status, last_heartbeat)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
-    ).run(id, name, JSON.stringify(caps), workMode, assignedStoryId || null, JSON.stringify(metadata || {}), hostId || null, Date.now());
-    this.recordCapabilities(caps);
+      `INSERT OR REPLACE INTO members (id, name, directory, metadata, host_id, status, last_heartbeat)
+       VALUES (?, ?, ?, ?, ?, 'idle', ?)`
+    ).run(id, name, directory ? normalizeDirectory(directory) : null, JSON.stringify(metadata || {}), hostId || null, Date.now());
   }
 
   updateMemberStatus(id: string, status: string): void {
     this.db.prepare("UPDATE members SET status = ?, last_heartbeat = ? WHERE id = ?").run(status, Date.now(), id);
   }
 
+  /**
+   * Record a heartbeat. A previously-reaped agent coming back restores its
+   * MORIBUND WorkItems to IN_PROGRESS — it was alive after all (see the
+   * refactor plan's reaping model).
+   */
   heartbeat(id: string, status: string): void {
+    const prev = this.getMember(id);
     this.db.prepare("UPDATE members SET status = ?, last_heartbeat = ? WHERE id = ?").run(status, Date.now(), id);
+    if (prev && prev.status === "offline" && status !== "offline") {
+      const rows = this.db.prepare("SELECT id FROM work_items WHERE member_id = ? AND state = 'MORIBUND'").all(id) as Array<Record<string, unknown>>;
+      for (const row of rows) this.setWorkItemStateRow(row.id as string, "IN_PROGRESS");
+    }
   }
 
   private rowToMember(row: Record<string, unknown>): Member {
-    const capabilities: Capabilities = row.capabilities && (row.capabilities as string) !== "{}"
-      ? JSON.parse(row.capabilities as string)
-      : {};
     return {
       id: row.id as string,
       name: row.name as string,
-      capabilities,
-      workMode: (row.work_mode as WorkMode) || DEFAULT_WORK_MODE,
-      assignedStoryId: (row.assigned_story_id as string) || undefined,
+      directory: (row.directory as string) || undefined,
       metadata: row.metadata && (row.metadata as string) !== "{}" ? JSON.parse(row.metadata as string) : {},
       hostId: (row.host_id as string) || undefined,
       status: row.status as Member["status"],
@@ -1166,75 +1344,8 @@ export class Store {
 
   removeMember(id: string): void {
     this.db.prepare("DELETE FROM assignments WHERE member_id = ?").run(id);
+    this.db.prepare("UPDATE work_items SET member_id = NULL WHERE member_id = ?").run(id);
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
-  }
-
-  // --- Recently used capabilities (config.recentCapabilities) ---
-
-  /** Persist the current in-memory config to config.json (lossless). */
-  private persistConfig(): void {
-    const configFile = path.join(this.teamDir, "config.json");
-    Deno.writeTextFileSync(configFile, JSON.stringify(serializeConfig(this.config), null, 2) + "\n");
-  }
-
-  /** Get the recently used capabilities map (name -> known values). */
-  getRecentCapabilities(): Record<string, string[]> {
-    return this.config.recentCapabilities || {};
-  }
-
-  /**
-   * Merge a set of used capabilities into config.recentCapabilities and persist
-   * if anything changed. Each key is remembered even when presence-only (null
-   * value); non-null values are recorded most-recent-first, deduped, and capped.
-   * The well-known `directory` value is normalized so it matches agent registrations.
-   */
-  recordCapabilities(capabilities?: Capabilities): void {
-    if (!capabilities) return;
-    let changed = false;
-    const map = { ...(this.config.recentCapabilities || {}) };
-    for (const [name, rawValue] of Object.entries(capabilities)) {
-      if (!name) continue;
-      const existing = map[name] ? [...map[name]] : [];
-      if (!(name in map)) changed = true;
-      if (rawValue !== null && rawValue !== "") {
-        const value = rawValue;
-        const without = existing.filter((v) => v !== value);
-        const next = [value, ...without].slice(0, MAX_CAPABILITY_VALUES);
-        if (next.length !== existing.length || next[0] !== existing[0]) changed = true;
-        map[name] = next;
-      } else {
-        map[name] = existing;
-      }
-    }
-    if (changed) {
-      this.config.recentCapabilities = map;
-      this.persistConfig();
-    }
-  }
-
-  /** Explicitly add a capability key (and optionally a value) to the recent list. */
-  addCapability(name: string, value?: string): void {
-    if (!name) return;
-    this.recordCapabilities({ [name]: value ?? null });
-  }
-
-  /**
-   * Remove a capability from the recent list. With a value, removes just that
-   * value; without, removes the whole key. Returns true if something changed.
-   */
-  removeCapability(name: string, value?: string): boolean {
-    const map = { ...(this.config.recentCapabilities || {}) };
-    if (!(name in map)) return false;
-    if (value !== undefined) {
-      const next = map[name]!.filter((v) => v !== value);
-      if (next.length === map[name]!.length) return false;
-      map[name] = next;
-    } else {
-      delete map[name];
-    }
-    this.config.recentCapabilities = map;
-    this.persistConfig();
-    return true;
   }
 
   /**
@@ -1261,18 +1372,18 @@ export class Store {
       const lastHb = row.last_heartbeat as number;
       const agoSec = Math.round((Date.now() - lastHb) / 1000);
 
-      // Release any claimed tasks
-      const assignment = this.db.prepare(
-        "SELECT task_id FROM assignments WHERE member_id = ?"
-      ).get(id) as Record<string, unknown> | undefined;
-
-      if (assignment) {
-        const taskId = assignment.task_id as string;
-        // Reaped lease: the task returns to `ready` for the next teammate.
-        this.returnTaskToReady(taskId);
+      // Move any in-flight WorkItem to MORIBUND (the agent went quiet, but we
+      // don't declare failure or hand its work to someone else — see the
+      // refactor plan's reaping model). The lease is kept; a human force-fails
+      // it, or the agent reconnects and its item is restored to IN_PROGRESS.
+      const inflight = this.db.prepare(
+        "SELECT id FROM work_items WHERE member_id = ? AND state = 'IN_PROGRESS'"
+      ).all(id) as Array<Record<string, unknown>>;
+      for (const wi of inflight) this.setWorkItemStateRow(wi.id as string, "MORIBUND");
+      if (inflight.length > 0) {
         console.warn(
           `⚠️  Agent "${name}" (${id}) timed out (no heartbeat for ${agoSec}s). ` +
-          `Returned task "${taskId}" to ready.`
+          `${inflight.length} work item(s) marked MORIBUND.`
         );
       } else {
         console.warn(
@@ -1308,7 +1419,6 @@ export class Store {
           status: row.status,
           result: row.result,
         };
-        if (row.substatus) taskData.substatus = row.substatus;
         if (row.context && (row.context as string) !== "[]") {
           taskData.context = JSON.parse(row.context as string);
         }
@@ -1348,12 +1458,31 @@ export class Store {
       this.reapOfflineAgents();
       this.reapStuckAssistantTurns();
     }, 30_000);
+
+    // Cron scheduler: enqueue due Scheduled WorkDefs, checked every 30s
+    // (matching is minute-granular and deduped per minute; see cron.ts).
+    this.schedulerTimer = setInterval(() => this.runScheduler(), 30_000);
   }
 
   stopTimers(): void {
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.commitTimer) clearInterval(this.commitTimer);
     if (this.heartbeatCheckTimer) clearInterval(this.heartbeatCheckTimer);
+    if (this.schedulerTimer) clearInterval(this.schedulerTimer);
+  }
+
+  /**
+   * Enqueue a WorkItem for every Scheduled WorkDef whose cron is due now (and
+   * that isn't already in flight). Stamps `lastEnqueuedAt` for per-minute dedupe.
+   */
+  runScheduler(now: Date = new Date()): void {
+    for (const def of listWorkDefs(this.teamDir)) {
+      if (def.type !== "Scheduled" || !def.cron) continue;
+      if (!isCronDue(def.cron, now, def.lastEnqueuedAt)) continue;
+      if (this.getActiveWorkItemForRef({ kind: "workdef", workDefId: def.id })) continue;
+      this.insertWorkItem({ kind: "workdef", workDefId: def.id }, def.title, def.directory);
+      updateWorkDef(this.teamDir, def.id, { lastEnqueuedAt: now.toISOString() });
+    }
   }
 
   commitToGit(message?: string): void {
@@ -2038,6 +2167,98 @@ export class Store {
       } catch { /* ignore */ }
     }
     return generateTeammateName(existingNames, this.config.teammates);
+  }
+
+  // --- WorkDefs (standalone Solitary + Scheduled work; see store/workdefs.ts) ---
+
+  getWorkDefs(): WorkDef[] {
+    return listWorkDefs(this.teamDir);
+  }
+
+  getWorkDef(id: string): WorkDef | null {
+    return getWorkDef(this.teamDir, id);
+  }
+
+  /** Create a WorkDef; when `enqueue` (default), also enqueue a READY WorkItem. */
+  createWorkDef(input: {
+    title: string; type?: WorkDef["type"]; goal: string; acceptanceCriteria: string;
+    additionalContext?: string; contextRefs?: string[]; directory?: string; cron?: string;
+  }, enqueue = true): WorkDef {
+    const def = saveWorkDef(this.teamDir, {
+      ...input,
+      directory: input.directory ? normalizeDirectory(input.directory) : undefined,
+    });
+    if (enqueue) this.enqueueWorkDef(def.id);
+    return def;
+  }
+
+  updateWorkDefDetails(id: string, updates: {
+    title?: string; type?: WorkDef["type"]; goal?: string; acceptanceCriteria?: string;
+    additionalContext?: string | null; contextRefs?: string[] | null;
+    directory?: string | null; cron?: string | null;
+  }): WorkDef | null {
+    return updateWorkDef(this.teamDir, id, {
+      ...updates,
+      directory: updates.directory !== undefined ? (updates.directory ? normalizeDirectory(updates.directory) : null) : undefined,
+    });
+  }
+
+  deleteWorkDef(id: string): boolean {
+    // Cancel any active WorkItem for this def, then remove it from disk.
+    const active = this.getActiveWorkItemForRef({ kind: "workdef", workDefId: id });
+    if (active) this.setWorkItemStateRow(active.id, "CANCELED");
+    return deleteWorkDef(this.teamDir, id);
+  }
+
+  /** Enqueue a READY WorkItem for a WorkDef (unless one is already active). */
+  enqueueWorkDef(id: string): WorkItem | null {
+    const def = this.getWorkDef(id);
+    if (!def) return null;
+    if (this.getActiveWorkItemForRef({ kind: "workdef", workDefId: id })) return null;
+    const item = this.insertWorkItem({ kind: "workdef", workDefId: id }, def.title, def.directory);
+    updateWorkDef(this.teamDir, id, { lastEnqueuedAt: new Date().toISOString() });
+    return item;
+  }
+
+  // --- Ref-based comments/attachments ---
+  //
+  // Comments live on the *ref* (per-def for WorkDefs; per-task for story tasks),
+  // not on the WorkItem. These dispatch a ref to the right on-disk directory so
+  // agents can post via a WorkItem id (resolved to its ref). See the refactor plan.
+
+  private refDir(ref: WorkItemRef): string | null {
+    if (ref.kind === "task") return this.getTask(ref.taskId)?.dirPath ?? null;
+    return getWorkDef(this.teamDir, ref.workDefId) ? workDefDir(this.teamDir, ref.workDefId) : null;
+  }
+
+  getCommentsForRef(ref: WorkItemRef): Comment[] {
+    const dir = this.refDir(ref);
+    if (!dir) return [];
+    const file = path.join(dir, "comments.jsonl");
+    if (!existsSync(file)) return [];
+    return Deno.readTextFileSync(file).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Comment);
+  }
+
+  addCommentForRef(ref: WorkItemRef, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
+    const dir = this.refDir(ref);
+    if (!dir) return;
+    Deno.mkdirSync(dir, { recursive: true });
+    const comment: Comment = { from, body, at: new Date().toISOString() };
+    if (attachments && attachments.length > 0) comment.attachments = attachments;
+    Deno.writeTextFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(comment) + "\n", { append: true });
+  }
+
+  saveAttachmentForRef(ref: WorkItemRef, filename: string, data: Uint8Array | string): string | null {
+    const dir = this.refDir(ref);
+    if (!dir) return null;
+    const attachDir = path.join(dir, "attachments");
+    Deno.mkdirSync(attachDir, { recursive: true });
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const storedName = `${Date.now()}-${safeName}`;
+    const filePath = path.join(attachDir, storedName);
+    if (typeof data === "string") Deno.writeTextFileSync(filePath, data);
+    else Deno.writeFileSync(filePath, data);
+    return storedName;
   }
 
   // --- Context entries (reusable prompt/context library; see store/context.ts) ---

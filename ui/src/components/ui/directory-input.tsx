@@ -1,7 +1,7 @@
 /**
- * DirectoryInput — A text input with a dropdown of recently used directories.
- * Allows typing a custom path or selecting from the recent `directory` capability values.
- * Fetches directory suggestions from /api/capabilities.
+ * DirectoryInput — A text input with a dropdown of known working directories.
+ * Allows typing a custom path or selecting from directories teammates are
+ * currently homed at (from /api/agents) plus any caller-supplied extras.
  */
 
 import { useState, useRef, useEffect } from "react";
@@ -9,8 +9,8 @@ import { Input } from "@/components/ui/input";
 import { ChevronDown } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 
-interface CapabilitiesData {
-  capabilities?: Record<string, string[]>;
+interface AgentsData {
+  agents?: Array<{ directory?: string | null }>;
 }
 
 interface DirectoryInputProps {
@@ -18,15 +18,15 @@ interface DirectoryInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   id?: string;
-  /** Additional directories to include in the dropdown (merged with recent) */
+  /** Additional directories to include in the dropdown (merged with known) */
   extraDirectories?: string[];
 }
 
 export function DirectoryInput({ value, onChange, placeholder, id, extraDirectories }: DirectoryInputProps) {
-  const { data } = useApi<CapabilitiesData>("/api/capabilities");
-  const recent = data?.capabilities?.directory || [];
-  // Merge recent directories and extras, deduplicate
-  const allDirs = [...new Set([...recent, ...(extraDirectories || [])])];
+  const { data } = useApi<AgentsData>("/api/agents");
+  const known = (data?.agents || []).map(a => a.directory).filter((d): d is string => !!d);
+  // Merge known + extra directories, deduplicate
+  const allDirs = [...new Set([...known, ...(extraDirectories || [])])];
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
 

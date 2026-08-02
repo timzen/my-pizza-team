@@ -44,7 +44,7 @@ const PERSONA_TAG = "persona";
 
 export function AssistantPage() {
   const { data, refetch } = useApi<{ messages: Message[]; activeTurn: ActiveTurn | null }>("/api/assistant/messages", [], { pollInterval: 2000 });
-  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string; capabilities?: Record<string, string | null> }> }>("/api/agents", [], { pollInterval: 10_000 });
+  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents", [], { pollInterval: 10_000 });
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
   const { data: contextData } = useApi<{ entries: ContextEntry[] }>("/api/context", [], { pollInterval: 30_000 });
   const [draft, setDraft] = useState("");
@@ -63,9 +63,9 @@ export function AssistantPage() {
   const agents = agentsData?.agents || [];
   const onlineAssistant = agents.find(a => a.name.includes("assistant") && a.status !== "offline");
   const assistantOnline = !!onlineAssistant;
-  // Persona chips are only meaningful when the assistant advertises the
-  // `persona` capability (i.e. a build that knows how to load one).
-  const personaCapable = !!onlineAssistant?.capabilities && PERSONA_TAG in onlineAssistant.capabilities;
+  // Persona chips show whenever the context library defines personas; swapping
+  // one takes effect on the assistant's next turn (the daemon vends it).
+  const personaCapable = true;
   const personas = (contextData?.entries || []).filter(e => e.tags.includes(PERSONA_TAG));
   const activePersonaId = personaData?.personaId ?? null;
 
