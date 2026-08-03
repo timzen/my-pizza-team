@@ -11,9 +11,9 @@ import type { WorkItemsResponse, WorkItemMutationResponse, ForceFailWorkItemRequ
 
 const ALL_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND", "COMPLETE", "FAILED", "CANCELED"];
 
-function view(wi: WorkItem) {
+function view(wi: WorkItem, parent?: { kind: "story" | "schedule"; id: string }) {
   return {
-    id: wi.id, title: wi.title, ref: wi.ref, directory: wi.directory,
+    id: wi.id, title: wi.title, ref: wi.ref, parent, directory: wi.directory,
     state: wi.state, read: wi.read, memberId: wi.memberId,
     enqueuedAt: wi.enqueuedAt, lastStateChangeAt: wi.lastStateChangeAt,
   };
@@ -34,13 +34,13 @@ export function registerWorkRoutes(ctx: RouteContext): void {
     const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!, 10) : undefined;
 
     const { items, total } = store.getWorkItems({ states, read, limit, offset });
-    return c.json({ items: items.map(view), total } satisfies WorkItemsResponse);
+    return c.json({ items: items.map((wi) => view(wi, store.getWorkDef(wi.ref.workDefId)?.parent)), total } satisfies WorkItemsResponse);
   });
 
   app.get("/api/work-items/:id", (c) => {
     const item = store.getWorkItem(c.req.param("id"));
     if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
-    return c.json({ item: view(item) });
+    return c.json({ item: view(item, store.getWorkDef(item.ref.workDefId)?.parent) });
   });
 
   // Cancel a READY item (human).

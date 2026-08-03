@@ -128,14 +128,17 @@ A one-time, in-place migrator runs on load for existing team dirs:
   added. Contract to agents (`/api/agents/*`, WorkItem ids) unchanged.
 - **tests** — update the suite; `deno test` green.
 
-### M2 — UI to green *(`npm run build`)*
-- Merge `TaskDetailPage` into `WorkDefDetailPage` (one detail page for Board/
-  Solitary/Scheduled; shows parent linkage contextually).
-- Board reads stories → child WorkDefs via `Story.tasks`; task cards read status
-  from the story entry.
-- Tasks page = parentless WorkDefs; Schedule page = `/api/schedules` with their
-  child WorkDefs (UI stays 1 schedule ~ 1 WorkDef for creation).
-- Acceptance-criteria editor on the (former) task detail path too.
+### M2 — UI to green *(`npm run build`)* — ✅ DONE
+- **Two coherent detail pages** (revised from "merge"): the board keeps its
+  feature-rich `TaskDetailPage` (comments, attachments, diff review, moves) at
+  `/task/:storyId/:taskId`; standalone work uses `WorkDefDetailPage` at
+  `/work-defs/:id`. The model is unified (M1); forcing one page would regress
+  board features for little gain.
+- `WorkItemView` gains `parent` so the **Inbox** routes each completed item to
+  the right page (board → `/task/:storyId/:id`, standalone → `/work-defs/:id`).
+- Board reads stories → child tasks via `Story.tasks` (unchanged API shape).
+- Tasks page = parentless WorkDefs; **Schedule page + WorkDefDetail read cron
+  from `/api/schedules`** (cron moved off the WorkDef).
 - Keep the human word “task” for Board items though the type is `WorkDef`.
 
 ### M3 — Demo + docs

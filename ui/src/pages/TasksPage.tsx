@@ -17,11 +17,9 @@ import { Plus, Play, Zap, FolderOpen } from "lucide-react";
 interface WorkDef {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled";
+  type: "Solitary" | "Scheduled" | "Board";
   goal: string;
   directory?: string | null;
-  cron?: string | null;
-  lastEnqueuedAt?: string | null;
 }
 
 export function TasksPage() {
@@ -60,7 +58,6 @@ export function TasksPage() {
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
-                  <span>{def.lastEnqueuedAt ? `last run ${new Date(def.lastEnqueuedAt).toLocaleString()}` : "never run"}</span>
                 </div>
               </Link>
               <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>
