@@ -195,7 +195,7 @@ export interface AgentDeleteResponse { success: boolean; error?: string }
 export interface WorkItemView {
   id: string;
   title: string;
-  ref: { kind: "task"; storyId: string; taskId: string } | { kind: "workdef"; workDefId: string };
+  ref: { workDefId: string };
   directory?: string;
   state: string;
   read: boolean;
@@ -209,46 +209,52 @@ export interface WorkItemMutationResponse { success: boolean; error?: string }
 // POST /api/work-items/:id/force-fail
 export interface ForceFailWorkItemRequest { reEnqueue?: boolean }
 // POST /api/work-items/re-enqueue
-export interface ReEnqueueRequest { ref: { kind: "task"; storyId: string; taskId: string } | { kind: "workdef"; workDefId: string } }
+export interface ReEnqueueRequest { ref: { workDefId: string } }
 
-// --- WorkDefs (Solitary + Scheduled standalone work) ---
+// --- WorkDefs (every unit of work; parent-owned; see WORKDEF_UNIFICATION.md) ---
 export interface WorkDefView {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled";
+  /** Derived from parent kind: story→Board, schedule→Scheduled, none→Solitary. */
+  type: "Solitary" | "Scheduled" | "Board";
+  parent?: { kind: "story" | "schedule"; id: string };
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string;
-  cron?: string;
-  lastEnqueuedAt?: string;
 }
 export interface WorkDefsResponse { workDefs: WorkDefView[] }
 export interface WorkDefResponse { workDef?: WorkDefView; success?: boolean; error?: string }
 export interface SaveWorkDefRequest {
   title: string;
+  /** Solitary (default) or Scheduled; Scheduled also creates a Schedule from `cron`. */
   type?: "Solitary" | "Scheduled";
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string;
+  /** Required when type === "Scheduled": the cron for the created Schedule. */
   cron?: string;
-  /** When true (default), also enqueue a WorkItem immediately. */
+  /** When true (default) for Solitary, also enqueue a WorkItem immediately. */
   enqueue?: boolean;
 }
 export interface UpdateWorkDefRequest {
   title?: string;
-  type?: "Solitary" | "Scheduled";
   goal?: string;
   acceptanceCriteria?: string;
   additionalContext?: string | null;
   contextRefs?: string[] | null;
   directory?: string | null;
+  /** For a Scheduled WorkDef, update its parent Schedule's cron. */
   cron?: string | null;
 }
 export interface SaveWorkDefResponse { success: boolean; workDef?: WorkDefView; error?: string }
+
+// --- Schedules (cron parents) ---
+export interface ScheduleView { id: string; title?: string; cron: string; lastEnqueuedAt?: string }
+export interface SchedulesResponse { schedules: ScheduleView[] }
 // --- Leader Directives (the single daemon->leader work queue, per host) ---
 
 /** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */

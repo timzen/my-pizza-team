@@ -29,22 +29,10 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     const story = store.getStory(storyId);
     if (!story) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies CreateTaskResponse, 404);
 
-    const existingTasks = store.getTasksForStory(storyId);
-    const nextSeq = existingTasks.length > 0 ? Math.max(...existingTasks.map(t => t.seq)) + 1 : 1;
-    const taskId = `${storyId}-${nextSeq}`;
-    // Directory is named by the stable task id only (identity, not order/title).
-    const taskDirPath = path.join(story.dirPath, "tasks", taskId);
-    Deno.mkdirSync(taskDirPath, { recursive: true });
+    const task = store.addTask(storyId, { title: body.title, description: body.description, context: Array.isArray(body.context) ? body.context : undefined });
+    if (!task) return c.json({ success: false, error: "Failed to add task" } satisfies CreateTaskResponse, 400);
 
-    // Every task starts in the implicit `todo` bucket; admission pulls it into
-    // the pipeline when the story's CONWIP token is free (see WORK-MODEL.md).
-    const initialStatus = TODO_STATE;
-    const taskData: Record<string, unknown> = { id: taskId, title: body.title, description: body.description, status: initialStatus, result: null };
-    if (Array.isArray(body.context) && body.context.length > 0) taskData.context = body.context;
-    Deno.writeTextFileSync(path.join(taskDirPath, "task.json"), JSON.stringify(taskData, null, 2) + "\n");
-    store.loadFromDisk();
-
-    return c.json({ success: true, task: { id: taskId, seq: nextSeq, title: body.title, description: body.description, status: initialStatus } } satisfies CreateTaskResponse, 201);
+    return c.json({ success: true, task: { id: task.id, seq: task.seq, title: task.title, description: task.description, status: task.status } } satisfies CreateTaskResponse, 201);
   });
 
   app.put("/api/tasks/:taskId", async (c) => {

@@ -22,27 +22,57 @@ import {
   TODO_STATE,
   DONE_STATE,
   ACTIVE_WORK_ITEM_STATES,
+  STORIES_DIR,
+  WORKDEFS_DIR,
   type Comment,
   type Story,
-  type Task,
-  type TaskWithMeta,
+  type StoryTaskRef,
   type TeamConfig,
   type WorkflowConfig,
   type WorkItem,
   type WorkItemState,
   type WorkItemRef,
   type WorkDef,
+  type WorkDefParent,
+  type Schedule,
   type Member,
   type Assignment,
 } from "../shared/types.ts";
 import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { readScratchpad, addTodo, updateTodo, deleteTodo, writeNotes, type TodoItem } from "./store/scratchpad.ts";
-import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, workDefDir } from "./store/workdefs.ts";
+import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
+import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
+
+/**
+ * Internal board-task view: a WorkDef whose parent is a story, joined with its
+ * workflow position (from the story's `tasks` list). This is a runtime cache
+ * shape only — the persisted model is the WorkDef (`tasks/<id>/workdef.md`) plus
+ * the story's `tasks: [{id, status}]` (see docs/WORKDEF_UNIFICATION.md). The
+ * WorkDef body's Goal is surfaced as `description` for the (pre-unification) API.
+ */
+export interface Task {
+  id: string;
+  title: string;
+  /** The WorkDef's Goal (kept as `description` for API back-compat). */
+  description: string;
+  acceptanceCriteria?: string;
+  additionalContext?: string;
+  status: string;
+  context?: string[];
+}
+
+export interface TaskWithMeta extends Task {
+  storyId: string;
+  seq: number;
+  slug: string;
+  /** The WorkDef directory (`tasks/<id>/`) — comments/attachments live here. */
+  dirPath: string;
+}
 
 /** Serialize a Story to the on-disk story.json shape (omitting empty fields). */
 function serializeStory(story: Story): Story {
@@ -52,12 +82,12 @@ function serializeStory(story: Story): Story {
     description: story.description,
     status: story.status,
     dependsOn: story.dependsOn,
+    tasks: story.tasks || [],
   };
   if (story.directory) data.directory = story.directory;
   if (story.paused) data.paused = true;
   if (story.workflow) data.workflow = story.workflow;
   if (story.context && story.context.length > 0) data.context = story.context;
-  if (story.taskOrder && story.taskOrder.length > 0) data.taskOrder = story.taskOrder;
   if (story.archivedAt) data.archivedAt = story.archivedAt;
   return data;
 }
@@ -369,6 +399,14 @@ export class Store {
     if (!taskColumns.some((col) => col.name === "context")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT '[]'");
     }
+    // WorkDef unification: board tasks are WorkDefs — cache their authored
+    // acceptance criteria / additional context (see docs/WORKDEF_UNIFICATION.md).
+    if (!taskColumns.some((col) => col.name === "acceptance_criteria")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT");
+    }
+    if (!taskColumns.some((col) => col.name === "additional_context")) {
+      this.db.exec("ALTER TABLE tasks ADD COLUMN additional_context TEXT");
+    }
 
     const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
     if (!memberColumns.some((col) => col.name === "host_id")) {
@@ -395,49 +433,62 @@ export class Store {
   // --- Load from filesystem ---
 
   loadFromDisk(): void {
-    const storiesDir = path.join(this.teamDir, "stories");
-    if (!existsSync(storiesDir)) return;
+    const storiesDir = path.join(this.teamDir, STORIES_DIR);
 
-    for (const entry of Deno.readDirSync(storiesDir)) {
-      if (!entry.isDirectory) continue;
-      const storyDirPath = path.join(storiesDir, entry.name);
-      const storyFile = path.join(storyDirPath, "story.json");
-      if (!existsSync(storyFile)) continue;
+    // Read flat story files (stories/<id>.json).
+    const stories: Story[] = [];
+    if (existsSync(storiesDir)) {
+      for (const entry of Deno.readDirSync(storiesDir)) {
+        if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+        try { stories.push(JSON.parse(Deno.readTextFileSync(path.join(storiesDir, entry.name))) as Story); }
+        catch { /* skip malformed */ }
+      }
+    }
 
-      const story: Story = JSON.parse(Deno.readTextFileSync(storyFile));
-      this.upsertStory(story, storyDirPath);
+    // Index board WorkDefs (parent.kind === "story") by their story.
+    const boardByStory = new Map<string, WorkDef[]>();
+    for (const def of listWorkDefs(this.teamDir)) {
+      if (def.parent?.kind === "story") {
+        const arr = boardByStory.get(def.parent.id) || [];
+        arr.push(def);
+        boardByStory.set(def.parent.id, arr);
+      }
+    }
 
-      const tasksDir = path.join(storyDirPath, "tasks");
-      if (!existsSync(tasksDir)) continue;
+    for (const story of stories) {
+      // Reconcile story.tasks against the board WorkDefs actually on disk:
+      // keep listed ones that still exist (in order), append orphans as todo.
+      const defs = boardByStory.get(story.id) || [];
+      const defById = new Map(defs.map((d) => [d.id, d]));
+      const listed = (story.tasks || []).filter((t) => defById.has(t.id));
+      const listedIds = new Set(listed.map((t) => t.id));
+      const orphans = defs.filter((d) => !listedIds.has(d.id)).map((d) => ({ id: d.id, status: TODO_STATE }));
+      story.tasks = [...listed, ...orphans];
+      this.upsertStory(story);
 
-      const taskDirs = [...Deno.readDirSync(tasksDir)]
-        .filter((e) => e.isDirectory)
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      let fallbackSeq = 0;
-      for (const taskEntry of taskDirs) {
-        const taskDirPath = path.join(tasksDir, taskEntry.name);
-        const taskFile = path.join(taskDirPath, "task.json");
-        if (!existsSync(taskFile)) continue;
-
-        const task: Task = JSON.parse(Deno.readTextFileSync(taskFile));
-        // Directory names are just the stable task id (identity only). `seq` is
-        // the creation counter derived from the id; `slug` is derived from the
-        // current title, so neither drifts with the folder name or ordering.
-        fallbackSeq += 1;
-        const seq = taskSeqFromId(story.id, task.id) ?? fallbackSeq;
-        const slug = slugify(task.title);
-
-        this.upsertTask(task, story.id, seq, slug, taskDirPath);
+      let seq = 0;
+      for (const t of story.tasks) {
+        seq += 1;
+        this.upsertTask(defById.get(t.id)!, story.id, t.status, seq);
       }
     }
 
     // Run admission so every ready story has its one in-flight task (CONWIP),
-    // then reconcile the WorkItem queue: every task sitting in an agent state
-    // must have an active (READY/IN_PROGRESS/MORIBUND) WorkItem. Tolerates
-    // hand-edited JSON and rebuilds the queue after a restart.
+    // then reconcile the WorkItem queue: every task in an agent state must have
+    // an active (READY/IN_PROGRESS/MORIBUND) WorkItem (rebuilds after a restart).
     for (const story of this.getStories()) this.runAdmission(story.id);
     this.reconcileQueue();
+  }
+
+  /** Absolute path of a story's flat json file (`stories/<id>.json`). */
+  private storyFile(id: string): string {
+    return path.join(this.teamDir, STORIES_DIR, `${id}.json`);
+  }
+
+  /** Write a story to its flat json file. */
+  private writeStory(story: Story): void {
+    Deno.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
+    Deno.writeTextFileSync(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
   }
 
   /**
@@ -451,13 +502,13 @@ export class Store {
       const wf = this.getWorkflowForStory(story.id);
       for (const task of this.getTasksForStory(story.id)) {
         if (isAgentState(wf, task.status) && !this.getActiveWorkItemForTask(task.id)) {
-          this.createTaskWorkItem(task, story);
+          this.enqueueFor(task.id);
         }
       }
     }
   }
 
-  private upsertStory(story: Story, dirPath: string): void {
+  private upsertStory(story: Story): void {
     this.db.prepare(
       `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, paused, workflow, context, task_order, directory, dir_path)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -466,21 +517,34 @@ export class Store {
       JSON.stringify(story.dependsOn),
       story.paused ? 1 : 0,
       story.workflow || null, JSON.stringify(story.context || []),
-      JSON.stringify(story.taskOrder || []), story.directory || null, dirPath
+      JSON.stringify((story.tasks || []).map((t) => t.id)), story.directory || null,
+      path.join(this.teamDir, STORIES_DIR),
     );
   }
 
-  private upsertTask(task: Task, storyId: string, seq: number, slug: string, dirPath: string): void {
+  /** Cache a board WorkDef (+ its story-owned status) into the tasks index. */
+  private upsertTask(def: WorkDef, storyId: string, status: string, seq: number): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, status, result, context, dir_path, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
-    ).run(task.id, storyId, seq, slug, task.title, task.description, task.status, task.result, JSON.stringify(task.context || []), dirPath);
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, context, dir_path, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+    ).run(
+      def.id, storyId, seq, slugify(def.title), def.title, def.goal,
+      def.acceptanceCriteria || "", def.additionalContext || null,
+      status, JSON.stringify(def.contextRefs || []), workDefDir(this.teamDir, def.id),
+    );
   }
 
   // --- Stories ---
 
-  /** Map a raw SQLite row to a Story object */
+  /** Map a raw SQLite row to a Story object (tasks[] joined from the task index). */
   private rowToStory(row: Record<string, unknown>): Story & { dirPath: string } {
+    const order: string[] = row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : [];
+    const taskRows = this.db.prepare("SELECT id, status, seq FROM tasks WHERE story_id = ?").all(row.id as string) as Array<Record<string, unknown>>;
+    const statusById = new Map(taskRows.map((t) => [t.id as string, t.status as string]));
+    const ids = order.filter((id) => statusById.has(id));
+    for (const t of [...taskRows].sort((a, b) => (a.seq as number) - (b.seq as number))) {
+      if (!ids.includes(t.id as string)) ids.push(t.id as string);
+    }
     return {
       id: row.id as string,
       title: row.title as string,
@@ -490,9 +554,9 @@ export class Store {
       paused: row.paused ? true : undefined,
       workflow: (row.workflow as string) || undefined,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
-      taskOrder: row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : undefined,
       directory: (row.directory as string) || undefined,
-      dirPath: row.dir_path as string,
+      tasks: ids.map((id) => ({ id, status: statusById.get(id) ?? TODO_STATE })),
+      dirPath: path.join(this.teamDir, STORIES_DIR),
     };
   }
 
@@ -505,8 +569,9 @@ export class Store {
       slug: row.slug as string,
       title: row.title as string,
       description: row.description as string,
+      acceptanceCriteria: (row.acceptance_criteria as string) || undefined,
+      additionalContext: (row.additional_context as string) || undefined,
       status: row.status as string,
-      result: row.result as string | null,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       dirPath: row.dir_path as string,
     };
@@ -534,75 +599,75 @@ export class Store {
     paused?: boolean,
     directory?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
-    const storiesDir = path.join(this.teamDir, "stories");
-    const storyDirPath = path.join(storiesDir, id);
-
-    Deno.mkdirSync(storyDirPath, { recursive: true });
-
-    const storyData: Story = { id, title, description, status, dependsOn };
+    const storyData: Story = { id, title, description, status, dependsOn, tasks: [] };
     if (directory) storyData.directory = normalizeDirectory(directory);
     if (paused) storyData.paused = true;
     if (workflow) storyData.workflow = workflow;
     if (context && context.length > 0) storyData.context = context;
-    const storyFile = path.join(storyDirPath, "story.json");
-    Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
 
-    this.upsertStory(storyData, storyDirPath);
+    // Insert the story row first so task rows can satisfy the story_id FK.
+    this.upsertStory(storyData);
 
     const createdTasks: TaskWithMeta[] = [];
-
-    // Every task starts in the implicit `todo` bucket; admission (CONWIP)
-    // pulls the first one into the workflow's first active state below.
-    const initialStatus = TODO_STATE;
-
+    // Every task starts in the implicit `todo` bucket; admission (CONWIP) pulls
+    // the first one into the workflow's first active state below.
     if (tasks && tasks.length > 0) {
-      const tasksDir = path.join(storyDirPath, "tasks");
-      Deno.mkdirSync(tasksDir, { recursive: true });
-
       for (let i = 0; i < tasks.length; i++) {
         const taskDef = tasks[i]!;
         const seq = i + 1;
-        const slug = slugify(taskDef.title);
         const taskId = `${id}-${seq}`;
-        // Directory is named by the stable task id only — not order, not title.
-        const taskDirPath = path.join(tasksDir, taskId);
-
-        Deno.mkdirSync(taskDirPath, { recursive: true });
-
-        const taskData: Task = {
+        // A board task is a WorkDef whose parent is this story. Its Goal is the
+        // task's description (goal/acceptance-criteria authoring lands in the UI).
+        const def = saveWorkDef(this.teamDir, {
           id: taskId,
           title: taskDef.title,
-          description: taskDef.description,
-          status: initialStatus,
-          result: null,
-        };
-        if (taskDef.context && taskDef.context.length > 0) taskData.context = taskDef.context;
-        const taskFile = path.join(taskDirPath, "task.json");
-        Deno.writeTextFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
-
-        this.upsertTask(taskData, id, seq, slug, taskDirPath);
-
+          parent: { kind: "story", id },
+          goal: taskDef.description,
+          acceptanceCriteria: "",
+          contextRefs: taskDef.context && taskDef.context.length > 0 ? taskDef.context : undefined,
+        });
+        storyData.tasks.push({ id: taskId, status: TODO_STATE });
+        this.upsertTask(def, id, TODO_STATE, seq);
         createdTasks.push({
-          ...taskData,
-          storyId: id,
-          seq,
-          slug,
-          dirPath: taskDirPath,
+          id: taskId, title: def.title, description: def.goal,
+          acceptanceCriteria: def.acceptanceCriteria, status: TODO_STATE,
+          context: def.contextRefs, storyId: id, seq, slug: slugify(def.title),
+          dirPath: workDefDir(this.teamDir, taskId),
         });
       }
     }
 
-    // The story owns task ordering: record the created tasks' order.
-    if (createdTasks.length > 0) {
-      storyData.taskOrder = createdTasks.map(t => t.id);
-      Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory(storyData), null, 2) + "\n");
-      this.upsertStory(storyData, storyDirPath);
-    }
+    this.writeStory(storyData);
+    this.upsertStory(storyData);
 
     // Admit the first task into the pipeline (no-op for paused/dependent stories).
     this.runAdmission(id);
 
     return { story: storyData, tasks: createdTasks };
+  }
+
+  /** Append a board task (a WorkDef parented to the story) in the `todo` bucket. */
+  addTask(storyId: string, input: { title: string; description: string; context?: string[] }): TaskWithMeta | null {
+    const story = this.getStory(storyId);
+    if (!story) return null;
+    const existing = this.getTasksForStory(storyId);
+    const nextSeq = existing.length > 0 ? Math.max(...existing.map((t) => t.seq)) + 1 : 1;
+    const taskId = `${storyId}-${nextSeq}`;
+    const def = saveWorkDef(this.teamDir, {
+      id: taskId, title: input.title, parent: { kind: "story", id: storyId },
+      goal: input.description, acceptanceCriteria: "",
+      contextRefs: input.context && input.context.length > 0 ? input.context : undefined,
+    });
+    const tasks = [...story.tasks, { id: taskId, status: TODO_STATE }];
+    this.writeStory({ ...story, tasks });
+    this.upsertStory({ ...story, tasks });
+    this.upsertTask(def, storyId, TODO_STATE, nextSeq);
+    this.runAdmission(storyId);
+    return {
+      id: taskId, title: def.title, description: def.goal, acceptanceCriteria: def.acceptanceCriteria,
+      status: TODO_STATE, context: def.contextRefs, storyId, seq: nextSeq,
+      slug: slugify(def.title), dirPath: workDefDir(this.teamDir, taskId),
+    };
   }
 
   getStory(id: string): (Story & { dirPath: string }) | null {
@@ -654,8 +719,7 @@ export class Store {
     ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
 
     // Write back to disk
-    const storyFile = path.join(story.dirPath, "story.json");
-    const data = serializeStory({
+    this.writeStory({
       id: storyId,
       title: newTitle,
       description: newDescription,
@@ -665,9 +729,8 @@ export class Store {
       paused: newPaused,
       workflow: newWorkflow || undefined,
       context: newContext,
-      taskOrder: story.taskOrder,
+      tasks: story.tasks,
     });
-    Deno.writeTextFileSync(storyFile, JSON.stringify(data, null, 2) + "\n");
 
     // Unpausing (or dependency edits) may make the story admissible.
     this.runAdmission(storyId);
@@ -678,10 +741,7 @@ export class Store {
   updateStoryStatus(storyId: string, status: "open" | "done"): void {
     this.db.prepare("UPDATE stories SET status = ? WHERE id = ?").run(status, storyId);
     const story = this.getStory(storyId);
-    if (story) {
-      const storyFile = path.join(story.dirPath, "story.json");
-      Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory({ ...story, status }), null, 2) + "\n");
-    }
+    if (story) this.writeStory({ ...story, status });
   }
 
   // --- Tasks ---
@@ -706,22 +766,23 @@ export class Store {
     return [...ordered, ...orphans];
   }
 
-  /** Persist a story's task order to both its DB row and story.json. */
+  /** Persist a story's task order (reorders `story.tasks` by the given ids). */
   private persistTaskOrder(storyId: string, ids: string[]): void {
     const story = this.getStory(storyId);
     if (!story) return;
     this.db.prepare("UPDATE stories SET task_order = ? WHERE id = ?").run(JSON.stringify(ids), storyId);
-    const storyFile = path.join(story.dirPath, "story.json");
-    if (existsSync(storyFile)) {
-      Deno.writeTextFileSync(storyFile, JSON.stringify(serializeStory({ ...story, taskOrder: ids }), null, 2) + "\n");
-    }
+    const byId = new Map(story.tasks.map((t) => [t.id, t]));
+    const reordered: StoryTaskRef[] = [];
+    for (const id of ids) { const t = byId.get(id); if (t) reordered.push(t); }
+    for (const t of story.tasks) if (!ids.includes(t.id)) reordered.push(t);
+    this.writeStory({ ...story, tasks: reordered });
   }
 
   getTasksForStory(storyId: string): TaskWithMeta[] {
     const rows = this.db.prepare("SELECT * FROM tasks WHERE story_id = ? ORDER BY seq").all(storyId) as Array<Record<string, unknown>>;
     const tasks = rows.map((row) => this.rowToTask(row));
     const story = this.getStory(storyId);
-    return this.orderTasks(story?.taskOrder, tasks);
+    return this.orderTasks(story?.tasks.map((t) => t.id), tasks);
   }
 
   getTask(taskId: string): TaskWithMeta | null {
@@ -742,19 +803,18 @@ export class Store {
    * `keepWorkItem` skips that abandonment (used by the WorkItem's own COMPLETE
    * advance, which already terminated the item).
    */
-  private setTaskPosition(taskId: string, status: string, result?: string, keepWorkItem = false): void {
+  private setTaskPosition(taskId: string, status: string, keepWorkItem = false): void {
     const before = this.getTask(taskId);
-    if (result !== undefined) {
-      this.db.prepare("UPDATE tasks SET status = ?, result = ?, dirty = 1 WHERE id = ?").run(status, result, taskId);
-    } else {
-      this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
-    }
+    this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
 
     const task = this.getTask(taskId);
     if (!task) return;
     const story = this.getStory(task.storyId);
     if (!story) return;
     const wf = this.getWorkflowForStory(task.storyId);
+
+    // Persist the new position to the story's owned tasks[] on disk.
+    this.writeStory(story);
 
     // Abandon a now-stale WorkItem when the task's position changed out from
     // under it (unless the caller already handled the item).
@@ -763,7 +823,7 @@ export class Store {
     }
     // Landing in an agent state ⇒ ensure a READY WorkItem exists.
     if (isAgentState(wf, status) && !this.getActiveWorkItemForTask(taskId)) {
-      this.createTaskWorkItem(task, story);
+      this.enqueueFor(taskId);
     }
 
     if (status === DONE_STATE) {
@@ -779,9 +839,9 @@ export class Store {
    * Set a task's status. (Compatibility wrapper; judgment moves should use
    * `moveTask`.)
    */
-  updateTaskStatus(taskId: string, status: string, result?: string): void {
+  updateTaskStatus(taskId: string, status: string): void {
     if (!this.getTask(taskId)) return;
-    this.setTaskPosition(taskId, status, result);
+    this.setTaskPosition(taskId, status);
   }
 
   /**
@@ -811,6 +871,12 @@ export class Store {
     const newTitle = updates.title ?? task.title;
     const newDescription = updates.description ?? task.description;
     const newContext = updates.context !== undefined ? (updates.context || []) : (task.context || []);
+    // A board task is a WorkDef: persist authored edits to its workdef.md.
+    updateWorkDef(this.teamDir, taskId, {
+      title: newTitle,
+      goal: newDescription,
+      contextRefs: newContext,
+    });
     this.db.prepare("UPDATE tasks SET title = ?, description = ?, context = ?, dirty = 1 WHERE id = ?").run(newTitle, newDescription, JSON.stringify(newContext), taskId);
     return true;
   }
@@ -824,15 +890,13 @@ export class Store {
     this.abandonActiveWorkItem(taskId);
     this.removeTaskData(taskId);
 
-    // Remove task directory from disk
-    if (task.dirPath && existsSync(task.dirPath)) {
-      Deno.removeSync(task.dirPath, { recursive: true });
-    }
+    // Remove the WorkDef directory (workdef.md + comments + attachments).
+    deleteWorkDef(this.teamDir, taskId);
 
-    // Drop the task from the story's owned order (keeps story.json clean).
+    // Drop the task from the story's owned tasks[] (keeps story.json clean).
     const story = this.getStory(storyId);
-    if (story?.taskOrder?.includes(taskId)) {
-      this.persistTaskOrder(storyId, story.taskOrder.filter(id => id !== taskId));
+    if (story?.tasks.some((t) => t.id === taskId)) {
+      this.writeStory({ ...story, tasks: story.tasks.filter((t) => t.id !== taskId) });
     }
 
     // Deleting the in-flight task frees the CONWIP token.
@@ -867,9 +931,7 @@ export class Store {
   // See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 
   private rowToWorkItem(row: Record<string, unknown>): WorkItem {
-    const ref: WorkItemRef = row.ref_kind === "workdef"
-      ? { kind: "workdef", workDefId: row.work_def_id as string }
-      : { kind: "task", storyId: row.story_id as string, taskId: row.task_id as string };
+    const ref: WorkItemRef = { workDefId: (row.work_def_id ?? row.task_id) as string };
     return {
       id: row.id as string,
       title: (row.title as string) || "",
@@ -905,42 +967,37 @@ export class Store {
     return { items: rows.map((r) => this.rowToWorkItem(r)), total };
   }
 
-  /** The active (READY/IN_PROGRESS/MORIBUND) WorkItem for a task, if any. */
-  getActiveWorkItemForTask(taskId: string): WorkItem | null {
+  /** The active (READY/IN_PROGRESS/MORIBUND) WorkItem for a WorkDef, if any. */
+  getActiveWorkItemForTask(workDefId: string): WorkItem | null {
     const row = this.db.prepare(
-      `SELECT * FROM work_items WHERE ref_kind = 'task' AND task_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
-    ).get(taskId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
+      `SELECT * FROM work_items WHERE work_def_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
+    ).get(workDefId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
     return row ? this.rowToWorkItem(row) : null;
   }
 
   private getActiveWorkItemForRef(ref: WorkItemRef): WorkItem | null {
-    if (ref.kind === "task") return this.getActiveWorkItemForTask(ref.taskId);
-    const row = this.db.prepare(
-      `SELECT * FROM work_items WHERE ref_kind = 'workdef' AND work_def_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
-    ).get(ref.workDefId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
-    return row ? this.rowToWorkItem(row) : null;
+    return this.getActiveWorkItemForTask(ref.workDefId);
   }
 
-  /** Insert a READY WorkItem for a ref. Caller ensures none is already active. */
-  private insertWorkItem(ref: WorkItemRef, title: string, directory?: string): WorkItem {
+  /**
+   * The single WorkItem creator: enqueue a READY item for any WorkDef (board,
+   * Solitary, or Scheduled). Board WorkDefs inherit their story's directory
+   * when they don't set one. Caller ensures none is already active.
+   */
+  private enqueueFor(workDefId: string): WorkItem | null {
+    const def = this.getWorkDef(workDefId);
+    if (!def) return null;
+    let directory = def.directory;
+    if (!directory && def.parent?.kind === "story") {
+      directory = this.getStory(def.parent.id)?.directory;
+    }
     const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     this.db.prepare(
-      `INSERT INTO work_items (id, title, ref_kind, story_id, task_id, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'READY', 0, NULL, ?, ?)`
-    ).run(
-      id, title, ref.kind,
-      ref.kind === "task" ? ref.storyId : null,
-      ref.kind === "task" ? ref.taskId : null,
-      ref.kind === "workdef" ? ref.workDefId : null,
-      directory || null, now, now,
-    );
+      `INSERT INTO work_items (id, title, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at)
+       VALUES (?, ?, ?, ?, 'READY', 0, NULL, ?, ?)`
+    ).run(id, def.title, def.id, directory || null, now, now);
     return this.getWorkItem(id)!;
-  }
-
-  /** Create a READY WorkItem for a story task (idempotent-ish: caller guards). */
-  private createTaskWorkItem(task: TaskWithMeta, story: Story): WorkItem {
-    return this.insertWorkItem({ kind: "task", storyId: story.id, taskId: task.id }, task.title, story.directory);
   }
 
   private setWorkItemStateRow(id: string, state: WorkItemState, memberId?: string | null): void {
@@ -988,34 +1045,34 @@ export class Store {
 
   /** A READY WorkItem is eligible if its backing work still wants doing. */
   private isWorkItemEligible(wi: WorkItem): boolean {
-    if (wi.ref.kind === "task") {
-      const story = this.getStory(wi.ref.storyId);
+    const task = this.getTask(wi.ref.workDefId);
+    if (task) {
+      const story = this.getStory(task.storyId);
       if (!story || story.paused || !this.isStoryReady(story.id)) return false;
-      const task = this.getTask(wi.ref.taskId);
-      if (!task) return false;
       const wf = this.getWorkflowForStory(story.id);
       return isAgentState(wf, task.status);
     }
+    // Standalone (Solitary/Scheduled) WorkDef: eligible while it exists.
     return this.getWorkDef(wi.ref.workDefId) !== null;
   }
 
-  /** Lease a READY WorkItem to a member (→ IN_PROGRESS). Task refs also get an assignment row. */
+  /** Lease a READY WorkItem to a member (→ IN_PROGRESS). Board tasks also get an assignment row. */
   claimWorkItem(id: string, memberId: string): boolean {
     const item = this.getWorkItem(id);
     if (!item || item.state !== "READY") return false;
     this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
-    if (item.ref.kind === "task") {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
-      this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(item.ref.taskId, memberId, Date.now());
+    if (this.getTask(item.ref.workDefId)) {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
+      this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(item.ref.workDefId, memberId, Date.now());
     }
     return true;
   }
 
   /**
-   * Agent-facing terminal transition (the single state-setter). COMPLETE on a
-   * task ref advances the task; FAILED leaves it stuck. WorkDef refs just record
-   * the outcome (the completion summary is a comment on the ref, posted by the
-   * agent). Returns the resulting task position for task refs.
+   * Agent-facing terminal transition (the single state-setter). A `result`
+   * summary, if given, is posted as a completion comment on the ref (unified
+   * for board + standalone). COMPLETE on a board task advances it; FAILED
+   * leaves it stuck. Returns the resulting task position for board tasks.
    */
   setWorkItemState(id: string, state: "COMPLETE" | "FAILED", result?: string): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
     const item = this.getWorkItem(id);
@@ -1024,10 +1081,13 @@ export class Store {
       return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
     }
     this.setWorkItemStateRow(id, state);
-    if (item.ref.kind === "task") {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+    if (result && result.trim()) {
+      this.addCommentForRef(item.ref, item.memberId || "agent", result.trim());
+    }
+    if (this.getTask(item.ref.workDefId)) {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
       if (state === "COMPLETE") {
-        const advance = this.advanceTask(item.ref.taskId, result);
+        const advance = this.advanceTask(item.ref.workDefId);
         return { ok: true, ...advance };
       }
       // FAILED: leave the task in place (stuck) with no active WorkItem.
@@ -1040,12 +1100,12 @@ export class Store {
    * then re-run admission (finishing the last state frees the CONWIP token).
    * `keepWorkItem` on setTaskPosition avoids abandoning the item we just closed.
    */
-  private advanceTask(taskId: string, result?: string): { newStatus?: string; completed?: boolean } {
+  private advanceTask(taskId: string): { newStatus?: string; completed?: boolean } {
     const task = this.getTask(taskId);
     if (!task) return {};
     const wf = this.getWorkflowForStory(task.storyId);
     const next = nextState(wf, task.status);
-    this.setTaskPosition(taskId, next, result, true);
+    this.setTaskPosition(taskId, next, true);
     this.runAdmission(task.storyId);
     return { newStatus: next, completed: next === DONE_STATE };
   }
@@ -1055,7 +1115,7 @@ export class Store {
     const item = this.getWorkItem(id);
     if (!item || item.state !== "READY") return false;
     this.setWorkItemStateRow(id, "CANCELED");
-    if (item.ref.kind === "task") this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+    if (this.getTask(item.ref.workDefId)) this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
     return true;
   }
 
@@ -1064,7 +1124,7 @@ export class Store {
     const item = this.getWorkItem(id);
     if (!item || item.state !== "MORIBUND") return { ok: false, error: "WorkItem is not moribund" };
     this.setWorkItemStateRow(id, "FAILED");
-    if (item.ref.kind === "task") this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.taskId);
+    if (this.getTask(item.ref.workDefId)) this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
     let newItem: WorkItem | null = null;
     if (reEnqueue) newItem = this.reEnqueueRef(item.ref);
     return { ok: true, newItem };
@@ -1073,15 +1133,7 @@ export class Store {
   /** Create a fresh READY WorkItem for a ref that has no active one. */
   reEnqueueRef(ref: WorkItemRef): WorkItem | null {
     if (this.getActiveWorkItemForRef(ref)) return null;
-    if (ref.kind === "task") {
-      const task = this.getTask(ref.taskId);
-      const story = this.getStory(ref.storyId);
-      if (!task || !story) return null;
-      return this.createTaskWorkItem(task, story);
-    }
-    const def = this.getWorkDef(ref.workDefId);
-    if (!def) return null;
-    return this.insertWorkItem(ref, def.title, def.directory);
+    return this.enqueueFor(ref.workDefId);
   }
 
   /** Mark a WorkItem read/unread (Inbox). */
@@ -1476,12 +1528,21 @@ export class Store {
    * that isn't already in flight). Stamps `lastEnqueuedAt` for per-minute dedupe.
    */
   runScheduler(now: Date = new Date()): void {
+    // Group WorkDefs by their schedule parent.
+    const childrenBySchedule = new Map<string, WorkDef[]>();
     for (const def of listWorkDefs(this.teamDir)) {
-      if (def.type !== "Scheduled" || !def.cron) continue;
-      if (!isCronDue(def.cron, now, def.lastEnqueuedAt)) continue;
-      if (this.getActiveWorkItemForRef({ kind: "workdef", workDefId: def.id })) continue;
-      this.insertWorkItem({ kind: "workdef", workDefId: def.id }, def.title, def.directory);
-      updateWorkDef(this.teamDir, def.id, { lastEnqueuedAt: now.toISOString() });
+      if (def.parent?.kind !== "schedule") continue;
+      const arr = childrenBySchedule.get(def.parent.id) || [];
+      arr.push(def);
+      childrenBySchedule.set(def.parent.id, arr);
+    }
+    for (const sched of listSchedules(this.teamDir)) {
+      if (!isCronDue(sched.cron, now, sched.lastEnqueuedAt)) continue;
+      for (const def of childrenBySchedule.get(sched.id) || []) {
+        if (this.getActiveWorkItemForRef({ workDefId: def.id })) continue;
+        this.enqueueFor(def.id);
+      }
+      updateSchedule(this.teamDir, sched.id, { lastEnqueuedAt: now.toISOString() });
     }
   }
 
@@ -2169,7 +2230,7 @@ export class Store {
     return generateTeammateName(existingNames, this.config.teammates);
   }
 
-  // --- WorkDefs (standalone Solitary + Scheduled work; see store/workdefs.ts) ---
+  // --- WorkDefs + Schedules (see store/workdefs.ts, store/schedules.ts) ---
 
   getWorkDefs(): WorkDef[] {
     return listWorkDefs(this.teamDir);
@@ -2181,8 +2242,8 @@ export class Store {
 
   /** Create a WorkDef; when `enqueue` (default), also enqueue a READY WorkItem. */
   createWorkDef(input: {
-    title: string; type?: WorkDef["type"]; goal: string; acceptanceCriteria: string;
-    additionalContext?: string; contextRefs?: string[]; directory?: string; cron?: string;
+    title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
+    additionalContext?: string; contextRefs?: string[]; directory?: string;
   }, enqueue = true): WorkDef {
     const def = saveWorkDef(this.teamDir, {
       ...input,
@@ -2193,9 +2254,8 @@ export class Store {
   }
 
   updateWorkDefDetails(id: string, updates: {
-    title?: string; type?: WorkDef["type"]; goal?: string; acceptanceCriteria?: string;
-    additionalContext?: string | null; contextRefs?: string[] | null;
-    directory?: string | null; cron?: string | null;
+    title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
+    additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
   }): WorkDef | null {
     return updateWorkDef(this.teamDir, id, {
       ...updates,
@@ -2205,29 +2265,37 @@ export class Store {
 
   deleteWorkDef(id: string): boolean {
     // Cancel any active WorkItem for this def, then remove it from disk.
-    const active = this.getActiveWorkItemForRef({ kind: "workdef", workDefId: id });
+    const active = this.getActiveWorkItemForRef({ workDefId: id });
     if (active) this.setWorkItemStateRow(active.id, "CANCELED");
     return deleteWorkDef(this.teamDir, id);
   }
 
   /** Enqueue a READY WorkItem for a WorkDef (unless one is already active). */
   enqueueWorkDef(id: string): WorkItem | null {
-    const def = this.getWorkDef(id);
-    if (!def) return null;
-    if (this.getActiveWorkItemForRef({ kind: "workdef", workDefId: id })) return null;
-    const item = this.insertWorkItem({ kind: "workdef", workDefId: id }, def.title, def.directory);
-    updateWorkDef(this.teamDir, id, { lastEnqueuedAt: new Date().toISOString() });
-    return item;
+    if (this.getActiveWorkItemForRef({ workDefId: id })) return null;
+    return this.enqueueFor(id);
+  }
+
+  // Schedules (cron parents that own WorkDefs via parent = {kind:schedule,id}).
+  getSchedules(): Schedule[] { return listSchedules(this.teamDir); }
+  getSchedule(id: string): Schedule | null { return getSchedule(this.teamDir, id); }
+  createSchedule(input: { id?: string; title?: string; cron: string }): Schedule { return saveSchedule(this.teamDir, input); }
+  updateScheduleDetails(id: string, updates: { title?: string | null; cron?: string }): Schedule | null { return updateSchedule(this.teamDir, id, updates); }
+  deleteSchedule(id: string): boolean {
+    // Orphan its children (drop their parent) so they don't dangle a ref.
+    for (const def of listWorkDefs(this.teamDir)) {
+      if (def.parent?.kind === "schedule" && def.parent.id === id) updateWorkDef(this.teamDir, def.id, { parent: null });
+    }
+    return deleteSchedule(this.teamDir, id);
   }
 
   // --- Ref-based comments/attachments ---
   //
-  // Comments live on the *ref* (per-def for WorkDefs; per-task for story tasks),
-  // not on the WorkItem. These dispatch a ref to the right on-disk directory so
-  // agents can post via a WorkItem id (resolved to its ref). See the refactor plan.
+  // Comments live on the *ref* — i.e. the WorkDef directory (`tasks/<id>/`),
+  // uniformly for board tasks and standalone work. Agents post via a WorkItem
+  // id, resolved to its ref. See docs/WORKDEF_UNIFICATION.md.
 
   private refDir(ref: WorkItemRef): string | null {
-    if (ref.kind === "task") return this.getTask(ref.taskId)?.dirPath ?? null;
     return getWorkDef(this.teamDir, ref.workDefId) ? workDefDir(this.teamDir, ref.workDefId) : null;
   }
 

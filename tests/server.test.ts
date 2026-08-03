@@ -106,7 +106,7 @@ Deno.test("GET /api/work-items filters by state", async () => {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
     const res = await (await app.request("/api/work-items?state=READY")).json();
     assertEquals(res.total, 1);
-    assertEquals(res.items[0].ref.taskId, "s1-1");
+    assertEquals(res.items[0].ref.workDefId, "s1-1");
   } finally { cleanup(teamDir, store); }
 });
 
@@ -159,7 +159,7 @@ Deno.test("work-item cancel (READY) and re-enqueue by ref", async () => {
 
     const re = await (await app.request("/api/work-items/re-enqueue", {
       method: "POST", headers: JSON_HEADERS,
-      body: JSON.stringify({ ref: { kind: "task", storyId: "s1", taskId: "s1-1" } }),
+      body: JSON.stringify({ ref: { workDefId: "s1-1" } }),
     })).json();
     assertEquals(re.success, true);
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);

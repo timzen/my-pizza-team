@@ -89,10 +89,12 @@ export type WorkItemState =
 /** Non-terminal states — a WorkItem in one of these is "in the queue / in flight". */
 export const ACTIVE_WORK_ITEM_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND"];
 
-/** Polymorphic pointer to the work a WorkItem represents. */
-export type WorkItemRef =
-  | { kind: "task"; storyId: string; taskId: string }
-  | { kind: "workdef"; workDefId: string };
+/** Polymorphic pointer to the work a WorkItem represents. Every unit of work is
+ * now a WorkDef, so the ref is simply its id (the old task|workdef union
+ * collapsed — see docs/WORKDEF_UNIFICATION.md). */
+export interface WorkItemRef {
+  workDefId: string;
+}
 
 export interface WorkItem {
   id: string;
@@ -111,16 +113,37 @@ export interface WorkItem {
 }
 
 /**
- * A durable, standalone work definition (see the refactor plan). `Solitary` is a
- * one-shot; `Scheduled` re-enqueues on its `cron`. (`Story` is reserved for a
- * future step folding story subtasks into WorkDefs.)
+ * Every unit of work is a WorkDef: purely *authored* content (see
+ * docs/WORKDEF_UNIFICATION.md). A WorkDef names its `parent` (the enqueuer that
+ * decides when it emits WorkItems); its "type" is derived from the parent kind:
+ *   - parent { kind: "story" }    → a board task (workflow-driven)
+ *   - parent { kind: "schedule" } → scheduled (cron-driven)
+ *   - no parent                    → Solitary (manual)
+ * No mutable/runtime state lives on a WorkDef: workflow status lives on the
+ * Story, cron/lastEnqueuedAt on the Schedule. The daemon never rewrites a
+ * WorkDef file except on an explicit human/agent edit.
  */
-export type WorkDefType = "Solitary" | "Scheduled";
+export type WorkDefParentKind = "story" | "schedule";
+
+export interface WorkDefParent {
+  kind: WorkDefParentKind;
+  id: string;
+}
+
+/** Derived label for a WorkDef, from its parent kind. */
+export type WorkDefType = "Solitary" | "Scheduled" | "Board";
+
+/** Derive the display type from a WorkDef's parent. */
+export function workDefType(parent?: WorkDefParent): WorkDefType {
+  if (!parent) return "Solitary";
+  return parent.kind === "schedule" ? "Scheduled" : "Board";
+}
 
 export interface WorkDef {
   id: string;
   title: string;
-  type: WorkDefType;
+  /** The enqueuer that owns this WorkDef. Absent = Solitary (manual). */
+  parent?: WorkDefParent;
   /** What to achieve. */
   goal: string;
   /** How the agent knows it's done (MUST/SHOULD/MAY bullets). */
@@ -131,9 +154,15 @@ export interface WorkDef {
   contextRefs?: string[];
   /** Optional working directory (affinity bias; agents cd here). */
   directory?: string;
-  /** Cron expression (5-field); required when type === "Scheduled". */
-  cron?: string;
-  /** ISO timestamp of the last time a run was enqueued (scheduling bookkeeping). */
+}
+
+/** A cron enqueuer: fires a WorkItem for each of its child WorkDefs on schedule. */
+export interface Schedule {
+  id: string;
+  title?: string;
+  /** 5-field cron expression. */
+  cron: string;
+  /** ISO timestamp of the last time this schedule enqueued its children. */
   lastEnqueuedAt?: string;
 }
 
@@ -154,6 +183,14 @@ export interface AutosaveConfig {
   autoCommit: boolean;
 }
 
+/** A child WorkDef of a story: its id plus its workflow position (the story owns
+ * both the ordering and the mutable status — see docs/WORKDEF_UNIFICATION.md). */
+export interface StoryTaskRef {
+  id: string;
+  /** Workflow position: an active state name, or the "todo"/"done" buckets. */
+  status: string;
+}
+
 export interface Story {
   id: string;
   title: string;
@@ -162,22 +199,22 @@ export interface Story {
   dependsOn: string[];
   /**
    * Where the work happens. Plain data used as a soft affinity bias for
-   * matching (agents cd here; see the refactor plan). Copied onto a task's
-   * WorkItem at enqueue time.
+   * matching (agents cd here). A child WorkDef's own `directory` takes
+   * precedence; this is the story-wide fallback, copied onto the WorkItem.
    */
   directory?: string;
   /** When true, the story's tasks are not handed out to agents (temporal gate). */
   paused?: boolean;
   workflow?: string;
-  /** Context-library entry ids attached to this story (injected into every task's prompt). */
+  /** Context-library entry ids attached to this story (injected into every child's prompt). */
   context?: string[];
   /**
-   * The story owns its task ordering: an ordered list of task IDs. This keeps
-   * order separate from a task's stable `id` and its `title`. `loadFromDisk`
-   * reconciles it against the tasks actually on disk (appends orphans, ignores
-   * danglers), so it tolerates hand-edits. Absent = fall back to creation order.
+   * The story's child WorkDefs, in order, each with its workflow position. This
+   * is the single source of truth for both ordering and status (no parallel
+   * taskOrder/taskStatus that could drift). `loadFromDisk` reconciles it against
+   * the WorkDefs actually on disk (appends orphans, ignores danglers).
    */
-  taskOrder?: string[];
+  tasks: StoryTaskRef[];
   archivedAt?: string;
 }
 
@@ -187,25 +224,6 @@ export interface TokenUsage {
   model: string;
   costUsd: number;
   at: string;
-}
-
-export interface Task {
-  id: string;
-  title: string;
-  description: string;
-  /** Workflow position: an active state name, or the "todo"/"done" buckets. */
-  status: string;
-  result: string | null;
-  /** Context-library entry ids attached to this task (injected into its prompt). */
-  context?: string[];
-  tokenUsage?: TokenUsage[];
-}
-
-export interface TaskWithMeta extends Task {
-  storyId: string;
-  seq: number;
-  slug: string;
-  dirPath: string;
 }
 
 export interface CommentAttachment {
@@ -275,8 +293,10 @@ export const STORIES_DIR = "stories";
 export const ARCHIVED_DIR = "archived";
 export const BACKLOG_DIR = "backlog";
 export const WORKFLOWS_DIR = "workflows";
-/** Directory holding standalone WorkDef markdown files (Solitary + Scheduled). */
+/** Directory holding every WorkDef (`tasks/<id>/workdef.md` + comments + attachments). */
 export const WORKDEFS_DIR = "tasks";
+/** Directory holding cron Schedule files (`schedules/<id>.json`). */
+export const SCHEDULES_DIR = "schedules";
 
 /** Generate a URL-safe slug from a title (max 40 chars) */
 export function slugify(text: string): string {
