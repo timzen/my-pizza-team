@@ -2,211 +2,188 @@
 
 ## Overview
 
-My Pizza Team (MPT) is a task coordination daemon for a team of AI **teammates**. You create **stories** (units of work), break them into **tasks**, and your teammates execute them autonomously through a defined **workflow**.
+My Pizza Team (MPT) is a work-coordination daemon for a team of AI **teammates**. You define work, and teammates execute it autonomously by draining a **queue** of work items. You review the results in an **Inbox**.
 
 Teammates *are* AI agents — autonomous coding assistants (Pi, Claude Code, Codex, …) that connect to the daemon and poll for work. We call them "teammates" throughout the UI because that's how you work with them; "agent" is just the underlying technical term (and the one the HTTP API uses, e.g. `/api/agents`).
 
-The web UI at `http://localhost:7437` is your control center for managing all of this.
+The web UI at `http://localhost:7437` is your control center.
 
 ---
 
 ## Core Concepts
 
+### WorkDef — the unit of work
+
+Everything a teammate does is defined by a **WorkDef**: a small authored document with a **Goal**, **Acceptance Criteria**, and optional **Additional Context**. There are three kinds, distinguished only by *what triggers them*:
+
+- **Board task** — a WorkDef that belongs to a **Story** and moves through a **workflow**.
+- **Solitary** — a standalone one-shot you run on demand (the **Tasks** page).
+- **Scheduled** — driven by a cron **Schedule** (the **Schedule** page).
+
 ### Stories
 
-A story is a high-level unit of work — like a feature, bug fix, or research task. Each story has:
+A story groups related board tasks and gives them order + a workflow. Each story has an **ID**, **Title**, **Description**, a **Workflow**, an optional **Directory** (where the work happens), **Dependencies** (other stories that must finish first), and an ordered list of its tasks with each task's current status.
 
-- **ID** — A unique slug (e.g., `auth-system`)
-- **Title** — Human-readable name
-- **Description** — What needs to be accomplished (supports markdown)
-- **Workflow** — Which workflow governs its tasks
-- **Directory** — Optional working directory for teammates
-- **Dependencies** — Other stories that must complete first
+### WorkItems — the queue
 
-### Tasks
+A **WorkItem** is a single attempt to do one WorkDef's work — the actual unit teammates claim. It's deliberately dumb and terminal-only: it moves `READY → IN_PROGRESS → COMPLETE / FAILED` and never backward. Retrying is always a *fresh* WorkItem. A board task emits a WorkItem each time it enters an agent state (initial work + any rework); a Schedule emits one per cron tick; a Solitary WorkDef emits one when you hit **Run**.
 
-Tasks are the individual steps within a story. They're worked on sequentially — the first unblocked task gets picked up by a teammate. Each task has:
-
-- **Title & Description** — What to do (supports markdown)
-- **Status** — Current state in the workflow (e.g., `todo`, `in_progress`, `review`)
-- **Assignee** — Which teammate is currently working on it
-- **Comments** — Communication between you and your teammates
-- **Attachments** — Files teammates upload (diffs, screenshots, etc.)
+If a teammate goes silent mid-work, its WorkItem becomes **MORIBUND** (reaped but not declared dead) — you can force-fail it (optionally re-enqueuing) or it's restored if the teammate reconnects.
 
 ### Workflows
 
-A workflow defines the lifecycle of tasks: what states they pass through and who can trigger each transition. For example:
+A workflow is an ordered list of **states** a board task passes through, e.g. `todo → in_progress → review → done` (`todo`/`done` are implicit buckets). Each state is one of two types:
 
-```
-todo → in_progress → leader_review → done
-```
+- **agent** — worked by teammates (claiming its WorkItem). Has an optional **persona** file — role framing injected into the prompt for that state.
+- **manual** — worked by you or the leader; moving the card onward *is* the completion (review gates, approvals).
 
-Each transition has a permission:
-- **any** — Anyone (lead or teammate) can trigger it
-- **teammate** — Only teammates can trigger it (autonomous work)
-- **lead** — Only you can trigger it (review gates, approvals)
-
-Workflows also have **instruction files** — markdown documents that tell teammates what to do when entering each state and what criteria must be met to exit.
+**Workers never move tasks.** Completing an agent state advances the task automatically; you make the judgment moves (send to review, approve, send back for rework). There are no per-transition permissions to configure — just the state type.
 
 ### Teammates
 
-Teammates are autonomous AI agents that connect to the daemon. They follow a simple loop:
+Teammates are a **flat generalist pool** — no skills or capabilities to configure. Each registers its **working directory** (its startup cwd), and the daemon biases work by **directory affinity**: a teammate prefers WorkItems whose story/WorkDef names its directory, then un-homed work, and only reaches into another directory's work when no teammate is homed there. They loop:
 
-1. Poll for available work
-2. Claim a task (daemon transitions it to the working state)
-3. Do the work
-4. Release the task (daemon advances to the next state)
-5. Repeat
+1. Poll for a `READY` WorkItem (chosen by directory affinity)
+2. Claim it (→ `IN_PROGRESS`); receive the daemon-assembled prompt
+3. Do the work (cd-ing into the WorkDef's directory)
+4. Set the outcome — **COMPLETE** (the task advances) or, if blocked, post a comment and mark it **FAILED** (the task is left stuck for you)
 
-You don't need to manage a teammate's state — the daemon handles assignments, transitions, and handoffs.
+---
 
-Each teammate advertises **capabilities** — a set of things it can do. The working **directory** is one such capability (it's just a well-known one); teammates can also advertise skills like `python` or `docker`. The daemon only hands a task to a teammate whose capabilities meet the story's requirements.
+## Navigation
+
+The nav bar has four destinations, plus scratch-pad/help/config/theme icons:
+
+- **Board** — story swimlanes; sub-tabs for Backlog, Archive, and Workflows.
+- **Tasks** — standalone Solitary WorkDefs.
+- **Schedule** — cron-driven Scheduled jobs.
+- **Context** — the reusable context library.
+
+The **home page** (`/`) has a quick-create row (New Story / Solitary Task / Scheduled Job / Spawn Teammate) over two tabs: **Inbox** and **Assistant**.
+
+### Inbox
+
+The Inbox is your review queue: completed WorkItems (**COMPLETE** and **FAILED**), unread by default. Each row links to the work it came from — a board task opens its task page, standalone work opens its WorkDef page — where the completion summary lives as a comment. Clicking a row marks it read.
 
 ---
 
 ## The Board
 
-The board (`/board`) is the main view showing all active stories as horizontal swimlanes with task cards arranged by workflow state.
+The board (`/board`) shows active stories as horizontal swimlanes with task cards arranged by workflow state.
 
 ### Creating a Story
 
-Click **Add Story** to open the creation dialog:
+Use **New Story** (from the home quick-create row, or `/stories/new`):
 
-1. **ID** — A URL-safe identifier (auto-suggested from title)
-2. **Directory** — Where teammates should work (select from recent directories or type custom)
-3. **Workflow** — Select which workflow governs this story's tasks (required)
-4. **Title** — What the story is about
-5. **Description** — Detailed requirements (markdown supported)
-6. **Tasks** — Optionally add initial tasks inline
+1. **ID** — a URL-safe identifier
+2. **Workflow** — which workflow governs this story's tasks
+3. **Title** & **Description** (markdown)
+4. **Directory** — where teammates work (also the affinity bias)
+5. **Context** — context-library entries injected into every task's prompt
+6. **Tasks** — optionally add initial tasks inline
 
-### Managing Tasks
+### Managing tasks
 
-The board is for glancing and light triage — editing happens on the dedicated pages, not on the board.
+The board is for glancing and light triage; editing happens on the task page.
 
-- **Add tasks** — Click the `+` button on a story swimlane
-- **Preview a story** — Click the 👁 (eye) button on a story header for a read-only popup showing the story description and a link to the story page
-- **Preview a task** — Click the 👁 (eye) button on a card for a read-only popup showing the description and a link to the task page
-- **Nudge status** — Use the arrow buttons (◀ ▶) on a card to move it a step along the workflow
-- **Edit a task** — Click `details →` on a card to open the task page, where you can edit the title, description, move status, delete, and read comments/files
-- **Edit a story** — Click the story title to open its story page (`/story/:id`), where you edit its title, description, requirements, and paused state
+- **Add a task** — the `+` on a story swimlane
+- **Move a task** — drag its card to another column (that's how you send to review, approve, or send back for rework)
+- **Open a task** — the `details →` link opens the task page (edit title/description/context, move, delete, read comments, upload/review files)
+- **Edit a story** — click the story title to open its page (title, description, directory, context, paused)
 
-> Clicking the body of a task card does nothing — opening a task is always an explicit action, and editing is reserved for the task/story pages.
+A card shows its title/ID, assignee, cost (if tracked), and a small chip when it has an active WorkItem: **queued** (READY), **working** (IN_PROGRESS), or **at risk** (MORIBUND).
 
-### Task Cards
+---
 
-Each card shows:
-- Title and ID
-- Current assignee (if claimed)
-- Token cost (if tracked)
-- Status badge with navigation arrows (◀ ▶)
-- A 👁 preview button and a `details →` link to the task page
+## Tasks & Schedule (standalone work)
+
+Not all work belongs on the board. Two pages manage standalone WorkDefs:
+
+- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies").
+- **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately.
+
+Both use the same create form (`New Solitary Task` / `New Scheduled Job`). **Acceptance criteria** are entered as an add-as-you-go checklist, and each line gets a live badge scoring it against [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) — normative (MUST/SHALL), recommended (SHOULD), optional (MAY), or vague — nudging you toward testable, unambiguous criteria.
 
 ---
 
 ## Workflows
 
-The **Workflows** tab on the home page (`/`) lets you view and manage workflow definitions.
+The **Workflows** tab (under Board) lists workflow definitions.
 
-### Viewing a Workflow
+### Viewing / editing a workflow
 
-Click any workflow to see:
-- **State graph** — Visual representation of states and transitions
-- **Lifecycle preview** — How a task flows through the states
-- **Instructions** — Markdown instruction files for each state
+Open a workflow to see its ordered states and edit them: add/remove states and set each state's **type** (**agent** or **manual**). There are no transitions or permissions to configure — the pipeline is the ordered list, and the daemon advances agent states automatically.
 
-### Editing States & Transitions
+### State personas
 
-Click **Edit States & Transitions** to open the editor dialog where you can:
-- Add/remove states
-- Add/remove transitions between states
-- Set permissions (any, teammate, lead) for each transition
-
-### Instruction Files
-
-Each state can have a markdown instruction file that teammates receive when entering that state. These guide the teammate on:
-- **What to do** in this phase
-- **Exit criteria** — what must be true before releasing the task
-
-Write clear, actionable instructions. Teammates receive these verbatim.
+Each **agent** state can have a markdown **persona** file — role framing the teammate receives when working that state (implementer, reviewer, CR-writer, …). Write clear, actionable guidance; it's injected into the prompt verbatim.
 
 ---
 
 ## Teammates
 
-Teammates are shown in a persistent column on the right of every page — each with its status, current task, and capabilities. The team is always in view, so you never leave what you're doing to check on it.
+Teammates appear in a persistent right-hand column on every page, grouped by role — leader, assistant, and the teammate pool — each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions.
 
-### Spawning Teammates
+### Spawning
 
-Click **Spawn** at the top of the teammates column to request a new teammate:
-- **Host** — Which machine should start the teammate
-- **Working Directory** — Where the teammate operates (recent + story dirs shown)
+Click **Spawn** to request a teammate:
+- **Host** — which machine starts it
+- **Working Directory** — where it operates (this is its affinity bias)
 
-### Teammate Lifecycle
+### Recovery actions (the Queue section)
 
-Teammates are autonomous — once spawned, they:
-1. Register with the daemon
-2. Poll for work every few seconds
-3. Claim and work on tasks
-4. Release when done
-5. Repeat until dismissed
+- **Cancel** a `READY` item you don't want run.
+- **Force-fail** a `MORIBUND` item (a teammate that went silent), optionally **re-enqueuing** a fresh attempt.
 
-### Managing a Teammate
+### Managing a teammate
 
-- **Reset** (↺) — Resets a teammate's session, clearing its context window (the harness realizes this as Pi's `/new`). Useful when a teammate's context is full or has drifted.
-- **Dismiss** (🗑) — Removes the teammate. Offline teammates can be cleared in bulk with **Dismiss all**.
+- **Reset** (↺) — clears its context window (the harness realizes this as Pi's `/new`).
+- **Dismiss** (🗑) — removes it.
 
-### Pausing Distribution
+### Pausing distribution
 
-The **pause button** (⏸) in the navbar stops the daemon from handing out new tasks. Existing in-progress work continues. Use this when you need to reorganize stories without teammates claiming things.
+The **pause button** (⏸) in the navbar stops the daemon from handing out new WorkItems; in-flight work continues. Use it while reorganizing.
 
 ---
 
 ## Comments & Review
 
-Comments are the communication channel between you and your teammates:
+Comments are the channel between you and your teammates, and they live on the **work** (the task or WorkDef), not the WorkItem — so they persist across attempts:
 
-- **You → Teammate**: Add comments on a task to provide feedback, request changes, or answer questions
-- **Teammate → You**: Teammates post status updates, summaries, and questions
+- **You → Teammate**: comment on a task to give feedback or answer questions.
+- **Teammate → You**: teammates post their completion summary as a comment when they finish (that's what you review in the Inbox).
 
-When a teammate releases a task that moves to a lead-only state (like `review`), it will appear on the board in that column. Review the work, check any attached diffs or comments, then either:
-- **Approve** — Move the task forward (e.g., `review → done`)
-- **Send back** — Move it back (e.g., `review → in_progress`) with comments explaining what to fix
-
-The teammate will pick it up again, see your comments, and address them.
+When a teammate completes an agent state, the task advances to the next state. If that's a **manual** state (like `review`), it waits for you: review the work and any attached diffs, then **drag it forward** (approve → `done`) or **back** (send to rework) with a comment explaining what to fix. Moving it back into an agent state enqueues a fresh WorkItem, and the teammate picks it up again with your comments in the prompt.
 
 ---
 
 ## Context Library
 
-The context library (the **Context** tab on the home page, `/context`) stores reusable prompt/context entries that you can inject into teammates or the assistant.
+The **Context** page stores reusable prompt/context entries to inject into teammates or the assistant.
 
-- **Metadata** — Each entry has a title, a short description, and tags
-- **Filter** — Tag chips and free-text search narrow the list (client-side; the collection is meant to stay small)
-- **Markdown body** — The entry body is the prompt/context text itself
+- **Metadata** — title, short description, tags
+- **Filter** — tag chips + free-text search (client-side; the collection is meant to stay small)
+- **Markdown body** — the prompt/context text itself
 
-Good things to keep in the context library:
-- Coding conventions and style guides
-- Architecture decisions
-- Common patterns and gotchas
-- Project-specific context
+Good things to keep: coding conventions, architecture decisions, common patterns/gotchas, project-specific context.
 
 ### Attaching context to work
 
-Attach context entries to a **story** (applies to all its tasks) or an individual **task** from the story/task editor. Attached entries are inlined into the task prompt under a **Reference Context** section when a teammate claims the task — so the daemon vends the right context to every harness, no per-agent tools needed.
+Attach entries to a **story** (applies to all its tasks) or an individual **WorkDef** from its editor. Attached entries are inlined into the prompt under a **Reference Context** section when a teammate claims the work — so the daemon vends the right context to every harness, no per-agent tools needed.
 
 ### Assistant personas
 
-Tag a context entry with **`persona`** to turn it into a swappable assistant persona. On the Assistant page (when a persona-capable assistant is online), persona entries appear as chips above the chat. Picking one starts a fresh chat in which that entry's body becomes the assistant's system prompt; **Default** returns to the daemon's built-in assistant persona. Swapping resets the assistant's context window, and **New chat** does the same without changing persona.
+Tag a context entry with **`persona`** to make it a swappable assistant persona. On the Assistant tab, persona entries appear as chips above the chat; picking one starts a fresh chat with that entry as the assistant's system prompt. **Default** returns to the built-in persona. Swapping resets the assistant's context window.
 
 ---
 
 ## Scratch Pad
 
-A personal space for quick capture (`/scratchpad`), rendered as a todo list on the left and free-form notes on the right.
+A personal space (the notebook icon in the navbar) — a todo list on the left and free-form notes on the right.
 
-- **Todos** — add, check off (stamps a completion date), and delete items. Stored in `todo.jsonl`.
-- **Notes** — a free-form markdown doc with edit/preview; saves on blur. Stored in `notes.md`.
-- **Assistant access** — the assistant can *read* your scratch pad on request ("take a look at my scratch pad and help me plan my day") via its `read_scratchpad` tool. It's read-only; the assistant summarizes and helps, it doesn't edit.
+- **Todos** — add, check off (stamps a completion date), delete. Stored in `todo.jsonl`.
+- **Notes** — free-form markdown with edit/preview; saves on blur. Stored in `notes.md`.
+- **Assistant access** — the assistant can *read* your scratch pad on request ("take a look at my scratch pad and help me plan my day"). Read-only.
 
 Both files live at the root of the team directory as plain text — easy to hand-edit or grep.
 
@@ -214,19 +191,20 @@ Both files live at the root of the team directory as plain text — easy to hand
 
 ## Configuration
 
-Visit `/config` to manage settings:
+Visit `/config`:
 
-- **Port & Session** — Daemon network settings
-- **Autosave** — How often work is flushed to disk and git-committed
-- **Favorite Directories** — Quick-access paths shown in directory dropdowns
-- **Host Settings** — Per-machine configuration for multi-host setups
+- **General** — port, session, autosave (flush/commit cadence)
+- **Teammates** — name generation
+- **Theme** — palette (a client-side preference)
 
 ---
 
 ## Tips
 
-- **Write good task descriptions** — Teammates work from what you give them. Be specific about requirements, constraints, and expected outcomes.
-- **Use workflow instructions** — They're your chance to give teammates phase-specific guidance (what tools to use, what to check, what to produce).
-- **Review early** — Don't let review queues build up. Quick feedback loops keep teammates productive.
-- **Use the context library** — Store patterns, conventions, and decisions so every teammate works consistently.
-- **One story per concern** — Keep stories focused. Multiple small stories with clear tasks work better than one giant story.
+- **Write testable acceptance criteria** — use RFC 2119 keywords (MUST/SHOULD/MAY). The editor scores them for you.
+- **Home the right teammates** — a teammate started in a repo preferentially picks up that repo's work. Spawn teammates where the work is.
+- **Review early** — drain the Inbox; quick feedback loops keep teammates productive.
+- **Use workflow personas** — give each agent state phase-specific role framing.
+- **Use the context library** — store patterns and decisions so every teammate works consistently.
+- **One story per concern** — small focused stories beat one giant story.
+- **Standalone for chores** — recurring or ad-hoc work that isn't a feature belongs on Tasks/Schedule, not the board.

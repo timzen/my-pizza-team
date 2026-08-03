@@ -78,7 +78,9 @@ Visit **http://localhost:7437/** to see the board, manage stories, configure wor
 
 ## Next steps
 
-- **Create a story** — via the UI board page (requires selecting a workflow)
-- **Spawn teammates** — use the Spawn button in the UI or `/ppt-spawn` in Pi
-- **Configure workflows** — visit the Workflows page to customize states and transitions
-- **Read the full docs** — see [README.md](README.md) for configuration, workflows, and harness guides
+- **Create a story** — **New Story** on the home page (pick a workflow), or add tasks to it later
+- **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for cron-driven ones
+- **Spawn teammates** — use the Spawn button in the UI or `/ppt-spawn` in Pi (a teammate is biased toward work in its own directory)
+- **Review results** — completed work lands in the **Inbox** on the home page
+- **Configure workflows** — the Workflows tab (under Board) to customize states and their personas
+- **Read the full docs** — see [README.md](README.md) for configuration and harness guides, or the in-app **Help** for the user guide
