@@ -7,15 +7,15 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import type { WorkDef } from "../../shared/types.ts";
+import { workDefType, type WorkDef } from "../../shared/types.ts";
 import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
 
 function view(d: WorkDef) {
   return {
-    id: d.id, title: d.title, type: d.type, goal: d.goal, acceptanceCriteria: d.acceptanceCriteria,
+    id: d.id, title: d.title, type: workDefType(d.parent), parent: d.parent,
+    goal: d.goal, acceptanceCriteria: d.acceptanceCriteria,
     additionalContext: d.additionalContext, contextRefs: d.contextRefs, directory: d.directory,
-    cron: d.cron, lastEnqueuedAt: d.lastEnqueuedAt,
   };
 }
 
@@ -36,24 +36,35 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const body = (await c.req.json()) as SaveWorkDefRequest;
     if (!body.title) return c.json({ success: false, error: "Field 'title' is required" } satisfies SaveWorkDefResponse, 400);
     if (!body.goal) return c.json({ success: false, error: "Field 'goal' is required" } satisfies SaveWorkDefResponse, 400);
-    const type = body.type === "Scheduled" ? "Scheduled" : "Solitary";
-    if (type === "Scheduled") {
+    const scheduled = body.type === "Scheduled";
+    let parent;
+    if (scheduled) {
       if (!body.cron || !isValidCron(body.cron)) return c.json({ success: false, error: "Scheduled work needs a valid 5-field 'cron'" } satisfies SaveWorkDefResponse, 400);
+      // Scheduled work: create a cron Schedule parent, then point the WorkDef at it.
+      const sched = store.createSchedule({ title: body.title, cron: body.cron });
+      parent = { kind: "schedule" as const, id: sched.id };
     }
     const def = store.createWorkDef({
-      title: body.title, type, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria || "",
-      additionalContext: body.additionalContext, contextRefs: body.contextRefs,
-      directory: body.directory, cron: type === "Scheduled" ? body.cron : undefined,
-    }, body.enqueue !== false && type === "Solitary");
+      title: body.title, parent, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria || "",
+      additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
+    }, body.enqueue !== false && !scheduled);
     return c.json({ success: true, workDef: view(def) } satisfies SaveWorkDefResponse, 201);
   });
 
   app.put("/api/work-defs/:id", async (c) => {
     const id = c.req.param("id");
     const body = (await c.req.json()) as UpdateWorkDefRequest;
-    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" } satisfies SaveWorkDefResponse, 404);
-    if (body.cron && !isValidCron(body.cron)) return c.json({ success: false, error: "Invalid 'cron' expression" } satisfies SaveWorkDefResponse, 400);
-    const def = store.updateWorkDefDetails(id, body);
+    const existing = store.getWorkDef(id);
+    if (!existing) return c.json({ success: false, error: "WorkDef not found" } satisfies SaveWorkDefResponse, 404);
+    if (body.cron !== undefined && body.cron !== null && !isValidCron(body.cron)) return c.json({ success: false, error: "Invalid 'cron' expression" } satisfies SaveWorkDefResponse, 400);
+    // A cron edit updates the WorkDef's parent Schedule, not the WorkDef itself.
+    if (body.cron && existing.parent?.kind === "schedule") {
+      store.updateScheduleDetails(existing.parent.id, { cron: body.cron });
+    }
+    const def = store.updateWorkDefDetails(id, {
+      title: body.title, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria,
+      additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
+    });
     if (!def) return c.json({ success: false, error: "Update failed" } satisfies SaveWorkDefResponse, 400);
     return c.json({ success: true, workDef: view(def) } satisfies SaveWorkDefResponse);
   });
@@ -75,7 +86,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   app.get("/api/work-defs/:id/comments", (c) => {
     const id = c.req.param("id");
     if (!store.getWorkDef(id)) return c.json({ comments: [] });
-    return c.json({ comments: store.getCommentsForRef({ kind: "workdef", workDefId: id }) });
+    return c.json({ comments: store.getCommentsForRef({ workDefId: id }) });
   });
 
   app.post("/api/work-defs/:id/comment", async (c) => {
@@ -83,7 +94,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const body = (await c.req.json()) as { from?: string; body?: string };
     if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
     if (!body.from || !body.body) return c.json({ success: false, error: "Fields 'from' and 'body' are required" }, 400);
-    store.addCommentForRef({ kind: "workdef", workDefId: id }, body.from, body.body);
+    store.addCommentForRef({ workDefId: id }, body.from, body.body);
     return c.json({ success: true });
   });
 }

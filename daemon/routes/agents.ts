@@ -12,7 +12,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { buildTaskPrompt, buildWorkDefPrompt } from "../prompt.ts";
+import { buildWorkDefPrompt } from "../prompt.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkItemRef } from "../../shared/types.ts";
 
@@ -124,10 +124,10 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
       return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
     }
-    // Token usage is only tracked for story tasks (board display); WorkDef runs no-op.
-    if (item.ref.kind === "task") {
+    // Token usage is only tracked for board tasks (display); standalone runs no-op.
+    if (store.getTask(item.ref.workDefId)) {
       const costUsd = estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
-      store.addTokenUsage(item.ref.taskId, body.inputTokens, body.outputTokens, body.model, costUsd);
+      store.addTokenUsage(item.ref.workDefId, body.inputTokens, body.outputTokens, body.model, costUsd);
     }
     return c.json({ success: true });
   });
@@ -226,38 +226,24 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
 /** Assemble the canonical claim prompt for a WorkItem's ref. */
 function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): string {
-  if (ref.kind === "workdef") {
-    const def = store.getWorkDef(ref.workDefId);
-    if (!def) return "";
-    return buildWorkDefPrompt({
-      title: def.title,
-      goal: def.goal,
-      acceptanceCriteria: def.acceptanceCriteria,
-      additionalContext: def.additionalContext,
-      directory: def.directory,
-      contextEntries: store.resolveTaskContext(def.contextRefs, undefined),
-    });
-  }
+  const def = store.getWorkDef(ref.workDefId);
+  if (!def) return "";
 
-  const task = store.getTask(ref.taskId);
-  if (!task) return "";
-  const story = store.getStory(task.storyId);
-  const storyTasks = store.getTasksForStory(task.storyId);
-  const currentIdx = storyTasks.findIndex(t => t.id === task.id);
-  const previousResults = storyTasks
-    .slice(0, currentIdx < 0 ? 0 : currentIdx)
-    .filter(t => t.result)
-    .map(t => `[${t.title}]: ${t.result}`)
-    .join("\n\n");
-  const comments = store.getComments(task.id);
+  // A board task carries workflow framing (its story + state persona); a
+  // standalone WorkDef (Solitary/Scheduled) has none.
+  const task = store.getTask(ref.workDefId);
+  const story = task ? store.getStory(task.storyId) : null;
+  const comments = store.getCommentsForRef(ref);
 
-  return buildTaskPrompt({
+  return buildWorkDefPrompt({
+    workDef: {
+      title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria,
+      additionalContext: def.additionalContext, directory: def.directory,
+    },
     story: story ? { id: story.id, title: story.title, description: story.description, directory: story.directory } : undefined,
-    task: { id: task.id, storyId: task.storyId, title: task.title, description: task.description },
-    state: task.status,
-    persona: store.getStatePersona(story?.workflow, task.status),
-    previousResults: previousResults || undefined,
+    state: task ? task.status : undefined,
+    persona: task ? store.getStatePersona(story?.workflow, task.status) : undefined,
     comments: comments.length > 0 ? comments : undefined,
-    contextEntries: store.resolveTaskContext(story?.context, task.context),
+    contextEntries: store.resolveTaskContext(story?.context, def.contextRefs),
   });
 }

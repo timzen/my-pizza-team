@@ -183,7 +183,7 @@ Deno.test("claim prompt includes state role, lead comments, and completion guida
     assertStringIncludes(body.prompt, "Your Role: in_progress");
     assertStringIncludes(body.prompt, "Comments from Team Lead");
     assertStringIncludes(body.prompt, "Please check the edge cases");
-    assertStringIncludes(body.prompt, "the task advances automatically");
+    assertStringIncludes(body.prompt, "advances automatically");
   } finally { cleanup(teamDir, store); }
 });
 
@@ -213,7 +213,7 @@ Deno.test("state=COMPLETE advances to the next state and clears the lease", asyn
     assertEquals(body.newStatus, "review");
     assertEquals(body.completed, false);
     assertEquals(store.getTask("s1-1")!.status, "review");
-    assertEquals(store.getTask("s1-1")!.result, "Done working");
+    assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).some((c) => c.body === "Done working"), true);
     assertEquals(store.getWorkItem(wid)!.state, "COMPLETE");
     assertEquals(store.getAssignment("s1-1"), null);
     assertEquals(store.getMember("a1")?.status, "idle");
@@ -397,8 +397,8 @@ Deno.test("next-work biases to the agent's directory; unhomed work is anyone's",
     // ag-a isn't registered → treat as no directory; register it properly:
     store.registerMember("ag-a", "a", "/repo/a");
     const forA2 = await (await app.request("/api/agents/next-work?agentId=ag-a")).json();
-    assertEquals(store.getWorkItem(forA2.workItem.id)!.ref.kind === "task", true);
-    assertEquals((store.getWorkItem(forA2.workItem.id)!.ref as { storyId: string }).storyId, "sa");
+    assertEquals(!!store.getTask(store.getWorkItem(forA2.workItem.id)!.ref.workDefId), true);
+    assertEquals(store.getTask(store.getWorkItem(forA2.workItem.id)!.ref.workDefId)!.storyId, "sa");
     void forA;
   } finally { cleanup(teamDir, store); }
 });

@@ -6,7 +6,7 @@
 
 import { assertEquals, assertExists } from "@std/assert";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG } from "../shared/types.ts";
+import { DEFAULT_CONFIG, workDefType } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function createTempTeamDir(): string {
@@ -79,7 +79,7 @@ Deno.test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits 
 
     const item = store.getNextWorkItem({ id: "m1", directory: "/tmp/repo" });
     assertExists(item);
-    assertEquals(item.ref.kind, "task");
+    assertEquals(item.ref.workDefId, "drive-1");
 
     assertEquals(store.claimWorkItem(item.id, "m1"), true);
     assertEquals(store.getWorkItem(item.id)!.state, "IN_PROGRESS");
@@ -91,7 +91,6 @@ Deno.test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits 
     assertEquals(res.ok, true);
     assertEquals(store.getWorkItem(item.id)!.state, "COMPLETE");
     assertEquals(store.getTask("drive-1")!.status, "review");
-    assertEquals(store.getTask("drive-1")!.result, "done it");
 
     // Moving the review task to done frees the CONWIP token → T2 is admitted.
     store.moveTask("drive-1", "done");
@@ -147,12 +146,12 @@ Deno.test("Store: FAILED leaves the task stuck; re-enqueue creates a fresh item"
     assertEquals(store.getActiveWorkItemForTask("fail-1"), null);
 
     // Re-enqueue creates a new READY item (a fresh attempt, not a re-open).
-    const fresh = store.reEnqueueRef({ kind: "task", storyId: "fail", taskId: "fail-1" });
+    const fresh = store.reEnqueueRef({ workDefId: "fail-1" });
     assertExists(fresh);
     assertEquals(fresh.state, "READY");
     assertEquals(fresh.id !== item.id, true);
     // No double re-enqueue while one is active.
-    assertEquals(store.reEnqueueRef({ kind: "task", storyId: "fail", taskId: "fail-1" }), null);
+    assertEquals(store.reEnqueueRef({ workDefId: "fail-1" }), null);
 
     store.close();
   } finally { cleanupDir(teamDir); }
@@ -214,13 +213,13 @@ Deno.test("Store: directory-affinity matching (tiers + presence reservation)", (
 
     // An agent in /repo/a: tier 1 is its own dir (A). It should get A.
     const forA = store.getNextWorkItem({ id: "ag-a", directory: "/repo/a" });
-    assertEquals(forA!.ref.kind === "task" && forA!.ref.storyId, "sa");
+    assertEquals(forA!.ref.workDefId, "sa-1");
 
     // An agent in /repo/x: no tier-1; tier-2 is the no-directory story C. B is
     // reserved (an online /repo/b agent exists), A is reserved only if an online
     // agent has /repo/a — none does, but C (no dir) wins tier 2 first.
     const forX = store.getNextWorkItem({ id: "ag-x", directory: "/repo/x" });
-    assertEquals(forX!.ref.kind === "task" && forX!.ref.storyId, "sc");
+    assertEquals(forX!.ref.workDefId, "sc-1");
 
     store.close();
   } finally { cleanupDir(teamDir); }
@@ -234,7 +233,7 @@ Deno.test("Store: tier-3 fallback only when no online agent has that directory",
 
     // No online agent in /repo/b → an agent elsewhere may take it (tier 3).
     const taken = store.getNextWorkItem({ id: "ag-x", directory: "/repo/x" });
-    assertEquals(taken!.ref.kind === "task" && taken!.ref.storyId, "sb");
+    assertEquals(taken!.ref.workDefId, "sb-1");
 
     // But if a /repo/b agent is online, the item is reserved for it.
     store.registerMember("ag-b", "ag-b", "/repo/b");
@@ -253,12 +252,12 @@ Deno.test("Store: WorkDef create + enqueue + prompt-able", () => {
       title: "Daily summary", goal: "Write a summary", acceptanceCriteria: "- MUST cover today",
       directory: "/repo/a",
     }, true);
-    assertEquals(def.type, "Solitary");
+    assertEquals(workDefType(def.parent), "Solitary");
 
     // Enqueued a READY WorkItem referencing the def, with the def's directory.
     const { items } = store.getWorkItems({ states: ["READY"] });
     assertEquals(items.length, 1);
-    assertEquals(items[0]!.ref.kind, "workdef");
+    assertEquals(items[0]!.ref.workDefId, def.id);
     assertEquals(items[0]!.directory, "/repo/a");
 
     // Round-trips from disk (markdown).
@@ -276,7 +275,9 @@ Deno.test("Store: scheduled WorkDef is enqueued when its cron is due", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
-    store.createWorkDef({ title: "Every minute", goal: "g", acceptanceCriteria: "a", type: "Scheduled", cron: "* * * * *" }, false);
+    // Scheduled work: a cron Schedule parent owns the WorkDef.
+    const sched = store.createSchedule({ title: "Every minute", cron: "* * * * *" });
+    store.createWorkDef({ title: "Every minute", goal: "g", acceptanceCriteria: "a", parent: { kind: "schedule", id: sched.id } }, false);
     // Not enqueued on creation (Scheduled).
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 0);
 

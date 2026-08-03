@@ -1,20 +1,23 @@
 /**
- * daemon/store/workdefs.ts — On-disk IO for standalone WorkDefs (Solitary +
- * Scheduled work). See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+ * daemon/store/workdefs.ts — On-disk IO for WorkDefs (every unit of work).
+ * See docs/WORKDEF_UNIFICATION.md.
  *
  * Each WorkDef is a directory under `<teamDir>/tasks/<id>/`:
  *   - `workdef.md` — markdown + frontmatter (the human-authored definition)
  *   - `comments.jsonl` — the per-def comment/run thread (owned by the ref)
  *   - `attachments/` — uploaded files
  *
- * Storage is markdown (not JSON) per the refactor decision: frontmatter carries
- * metadata; the body carries the Goal / Acceptance Criteria / Additional Context
- * sections, round-tripped by those exact headers.
+ * A WorkDef is *authored content only* — the daemon never rewrites this file
+ * except on an explicit human/agent edit. All mutable runtime state lives off
+ * the markdown: workflow status on the Story, cron/lastEnqueuedAt on the
+ * Schedule. Frontmatter carries only structural metadata (title, parent,
+ * directory, contextRefs); the body carries Goal / Acceptance Criteria /
+ * Additional Context, round-tripped by those exact headers.
  */
 
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
-import { slugify, type WorkDef, type WorkDefType, WORKDEFS_DIR } from "../../shared/types.ts";
+import { slugify, type WorkDef, type WorkDefParent, type WorkDefParentKind, WORKDEFS_DIR } from "../../shared/types.ts";
 
 const FILE = "workdef.md";
 const GOAL_H = "## Goal";
@@ -34,11 +37,12 @@ export function workDefDir(teamDir: string, id: string): string {
 export function serializeWorkDef(def: WorkDef): string {
   const fm: string[] = ["---"];
   fm.push(`title: ${quote(def.title)}`);
-  fm.push(`type: ${def.type}`);
+  if (def.parent) {
+    fm.push(`parentKind: ${def.parent.kind}`);
+    fm.push(`parentId: ${quote(def.parent.id)}`);
+  }
   if (def.directory) fm.push(`directory: ${quote(def.directory)}`);
-  if (def.cron) fm.push(`cron: ${quote(def.cron)}`);
   if (def.contextRefs && def.contextRefs.length > 0) fm.push(`contextRefs: [${def.contextRefs.join(", ")}]`);
-  if (def.lastEnqueuedAt) fm.push(`lastEnqueuedAt: ${def.lastEnqueuedAt}`);
   fm.push("---");
   const body = [
     GOAL_H, "", def.goal.trim(), "",
@@ -55,25 +59,31 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
   const fm = m[1] ?? "";
   const body = m[2] ?? "";
 
-  const type = (scalar(fm, "type") as WorkDefType) || "Solitary";
   const def: WorkDef = {
     id,
     title: scalar(fm, "title") || id,
-    type: type === "Scheduled" ? "Scheduled" : "Solitary",
     goal: section(body, GOAL_H, ACCEPT_H),
     acceptanceCriteria: section(body, ACCEPT_H, CONTEXT_H),
   };
   const additional = section(body, CONTEXT_H, null);
   if (additional) def.additionalContext = additional;
+  const parent = parseParent(fm);
+  if (parent) def.parent = parent;
   const dir = scalar(fm, "directory");
   if (dir) def.directory = dir;
-  const cron = scalar(fm, "cron");
-  if (cron) def.cron = cron;
   const refs = list(fm, "contextRefs");
   if (refs.length > 0) def.contextRefs = refs;
-  const last = scalar(fm, "lastEnqueuedAt");
-  if (last) def.lastEnqueuedAt = last;
   return def;
+}
+
+/** Read the parent pointer from frontmatter (parentKind + parentId). */
+function parseParent(fm: string): WorkDefParent | undefined {
+  const kind = scalar(fm, "parentKind");
+  const id = scalar(fm, "parentId");
+  if ((kind === "story" || kind === "schedule") && id) {
+    return { kind: kind as WorkDefParentKind, id };
+  }
+  return undefined;
 }
 
 /** List all WorkDefs on disk, sorted by id. */
@@ -95,48 +105,47 @@ export function getWorkDef(teamDir: string, id: string): WorkDef | null {
   return parseWorkDef(id, Deno.readTextFileSync(file));
 }
 
-/** Create/overwrite a WorkDef; id derived from title (deduped). */
+/** Create a WorkDef; id derived from title (deduped) unless one is supplied. */
 export function saveWorkDef(teamDir: string, input: {
-  title: string; type?: WorkDefType; goal: string; acceptanceCriteria: string;
-  additionalContext?: string; contextRefs?: string[]; directory?: string; cron?: string;
+  id?: string; title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
+  additionalContext?: string; contextRefs?: string[]; directory?: string;
 }): WorkDef {
-  const baseId = slugify(input.title) || "task";
-  let id = baseId;
-  let n = 2;
-  while (existsSync(workDefDir(teamDir, id))) { id = `${baseId}-${n}`; n++; }
+  let id = input.id;
+  if (!id) {
+    const baseId = slugify(input.title) || "task";
+    id = baseId;
+    let n = 2;
+    while (existsSync(workDefDir(teamDir, id))) { id = `${baseId}-${n}`; n++; }
+  }
 
   const def: WorkDef = {
     id,
     title: input.title,
-    type: input.type === "Scheduled" ? "Scheduled" : "Solitary",
     goal: input.goal,
     acceptanceCriteria: input.acceptanceCriteria,
   };
+  if (input.parent) def.parent = input.parent;
   if (input.additionalContext) def.additionalContext = input.additionalContext;
   if (input.contextRefs && input.contextRefs.length > 0) def.contextRefs = input.contextRefs;
   if (input.directory) def.directory = input.directory;
-  if (input.cron) def.cron = input.cron;
 
   writeWorkDef(teamDir, def);
   return def;
 }
 
 export function updateWorkDef(teamDir: string, id: string, updates: {
-  title?: string; type?: WorkDefType; goal?: string; acceptanceCriteria?: string;
-  additionalContext?: string | null; contextRefs?: string[] | null;
-  directory?: string | null; cron?: string | null; lastEnqueuedAt?: string;
+  title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
+  additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
 }): WorkDef | null {
   const def = getWorkDef(teamDir, id);
   if (!def) return null;
   if (updates.title !== undefined) def.title = updates.title;
-  if (updates.type !== undefined) def.type = updates.type;
+  if (updates.parent !== undefined) def.parent = updates.parent || undefined;
   if (updates.goal !== undefined) def.goal = updates.goal;
   if (updates.acceptanceCriteria !== undefined) def.acceptanceCriteria = updates.acceptanceCriteria;
   if (updates.additionalContext !== undefined) def.additionalContext = updates.additionalContext || undefined;
   if (updates.contextRefs !== undefined) def.contextRefs = updates.contextRefs || undefined;
   if (updates.directory !== undefined) def.directory = updates.directory || undefined;
-  if (updates.cron !== undefined) def.cron = updates.cron || undefined;
-  if (updates.lastEnqueuedAt !== undefined) def.lastEnqueuedAt = updates.lastEnqueuedAt;
   writeWorkDef(teamDir, def);
   return def;
 }
@@ -148,7 +157,7 @@ export function deleteWorkDef(teamDir: string, id: string): boolean {
   return true;
 }
 
-function writeWorkDef(teamDir: string, def: WorkDef): void {
+export function writeWorkDef(teamDir: string, def: WorkDef): void {
   const dir = workDefDir(teamDir, def.id);
   Deno.mkdirSync(dir, { recursive: true });
   Deno.writeTextFileSync(path.join(dir, FILE), serializeWorkDef(def) + "\n");
