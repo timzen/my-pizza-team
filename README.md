@@ -121,15 +121,17 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 ├── workflows/
 │   └── default/
 │       ├── workflow.json
-│       └── *.md         # Transition instructions per state
-├── stories/
-│   └── my-story/
-│       ├── story.json
-│       └── tasks/
-│           └── 01-task-slug/
-│               ├── task.json
-│               ├── comments.jsonl
-│               └── attachments/
+│       └── *.md         # State persona per agent state
+├── stories/            # flat story files (grouping/order/status)
+│   ├── my-story.json    #   tasks: [{id, status}]  (children live in tasks/)
+│   └── …
+├── tasks/              # EVERY unit of work is a WorkDef (authored markdown)
+│   └── my-story-1/
+│       ├── workdef.md   #   Goal / Acceptance Criteria / Additional Context + parent
+│       ├── comments.jsonl
+│       └── attachments/
+├── schedules/          # cron parents (fire their child WorkDefs)
+│   └── nightly.json
 ├── archived/
 ├── backlog/
 ├── context/             # Context library: reusable prompt/context markdown entries
