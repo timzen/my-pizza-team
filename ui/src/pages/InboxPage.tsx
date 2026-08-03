@@ -17,14 +17,13 @@ import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Inbox as InboxIcon } from "lucide-react";
 
 type WorkItemState = "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED";
-type WorkItemRef =
-  | { kind: "task"; storyId: string; taskId: string }
-  | { kind: "workdef"; workDefId: string };
+type WorkItemParent = { kind: "story" | "schedule"; id: string };
 
 interface WorkItem {
   id: string;
   title: string;
-  ref: WorkItemRef;
+  ref: { workDefId: string };
+  parent?: WorkItemParent;
   directory?: string | null;
   state: WorkItemState;
   read: boolean;
@@ -35,11 +34,13 @@ interface WorkItem {
 
 const PAGE_SIZE = 20;
 
-/** The detail route for a WorkItem's ref (where the completion comments live). */
-function refLink(ref: WorkItemRef): string {
-  return ref.kind === "task"
-    ? `/task/${encodeURIComponent(ref.storyId)}/${encodeURIComponent(ref.taskId)}`
-    : `/work-defs/${encodeURIComponent(ref.workDefId)}`;
+/** The detail route for a WorkItem: board tasks open their task page, standalone
+ *  work opens its WorkDef page (comments/outcome live on the ref either way). */
+function refLink(item: WorkItem): string {
+  if (item.parent?.kind === "story") {
+    return `/task/${encodeURIComponent(item.parent.id)}/${encodeURIComponent(item.ref.workDefId)}`;
+  }
+  return `/work-defs/${encodeURIComponent(item.ref.workDefId)}`;
 }
 
 export function InboxPage() {
@@ -110,7 +111,7 @@ function InboxRow({ item, onMarkRead }: { item: WorkItem; onMarkRead: (id: strin
 
   return (
     <Link
-      to={refLink(item.ref)}
+      to={refLink(item)}
       onClick={() => { if (!item.read) onMarkRead(item.id, true); }}
       className={`flex items-start gap-3 rounded-md border p-3 transition-colors hover:bg-accent/50 ${
         item.read ? "border-border bg-background" : "border-primary/30 bg-primary/5"
@@ -124,7 +125,7 @@ function InboxRow({ item, onMarkRead }: { item: WorkItem; onMarkRead: (id: strin
         <p className="text-xs text-muted-foreground mt-0.5">
           {failed ? "Failed" : "Completed"}
           {item.memberId ? ` by ${item.memberId}` : ""} · {when}
-          {" · "}{item.ref.kind === "task" ? item.ref.storyId : "scheduled/solitary"}
+          {" · "}{item.parent?.kind === "story" ? item.parent.id : "scheduled/solitary"}
         </p>
       </div>
       {!item.read && <span className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />}

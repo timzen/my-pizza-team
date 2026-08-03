@@ -27,15 +27,16 @@ import { BackButton } from "@/components/ui/back-button";
 interface WorkDef {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled";
+  type: "Solitary" | "Scheduled" | "Board";
+  parent?: { kind: "story" | "schedule"; id: string };
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string | null;
-  cron?: string | null;
-  lastEnqueuedAt?: string | null;
 }
+
+interface Schedule { id: string; cron: string; lastEnqueuedAt?: string | null }
 
 interface Comment {
   from: string;
@@ -50,6 +51,9 @@ export function WorkDefDetailPage() {
   const { data, refetch } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/work-defs/${id}/comments`, [id], { pollInterval: 10_000 });
   const def = data?.workDef;
+  // Cron lives on the parent Schedule, not the WorkDef.
+  const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
+  const { data: schedData } = useApi<{ schedule?: Schedule }>(scheduleId ? `/api/schedules/${scheduleId}` : "/api/schedules?none", [scheduleId]);
 
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
@@ -71,8 +75,14 @@ export function WorkDefDetailPage() {
     setAdditionalContext(def.additionalContext || "");
     setDirectory(def.directory || "");
     setContextRefs(def.contextRefs ? [...def.contextRefs] : []);
-    setCron(def.cron || "");
     setError("");
+  }
+
+  // Seed cron once its parent Schedule loads.
+  const [seededCron, setSeededCron] = useState<string | null>(null);
+  if (schedData?.schedule && schedData.schedule.id !== seededCron) {
+    setSeededCron(schedData.schedule.id);
+    setCron(schedData.schedule.cron || "");
   }
 
   if (!def) {

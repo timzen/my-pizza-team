@@ -196,6 +196,8 @@ export interface WorkItemView {
   id: string;
   title: string;
   ref: { workDefId: string };
+  /** The backing WorkDef's parent, so clients can route to the right detail page. */
+  parent?: { kind: "story" | "schedule"; id: string };
   directory?: string;
   state: string;
   read: boolean;

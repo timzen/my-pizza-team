@@ -17,10 +17,16 @@ import { Plus, Play, CalendarClock, FolderOpen } from "lucide-react";
 interface WorkDef {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled";
+  type: "Solitary" | "Scheduled" | "Board";
+  parent?: { kind: "story" | "schedule"; id: string };
   goal: string;
   directory?: string | null;
-  cron?: string | null;
+}
+
+interface Schedule {
+  id: string;
+  title?: string;
+  cron: string;
   lastEnqueuedAt?: string | null;
 }
 
@@ -39,7 +45,9 @@ function describeCron(cron?: string | null): string {
 
 export function SchedulePage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });
+  const { data: schedData } = useApi<{ schedules: Schedule[] }>("/api/schedules", [], { pollInterval: 10_000 });
   const defs = (data?.workDefs || []).filter(d => d.type === "Scheduled");
+  const schedById = new Map((schedData?.schedules || []).map(s => [s.id, s]));
 
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
@@ -64,24 +72,29 @@ export function SchedulePage() {
       )}
 
       <div className="grid gap-3">
-        {defs.map(def => (
+        {defs.map(def => {
+          const sched = def.parent?.kind === "schedule" ? schedById.get(def.parent.id) : undefined;
+          const cron = sched?.cron;
+          const lastEnqueuedAt = sched?.lastEnqueuedAt;
+          return (
           <Card key={def.id} className="hover:border-primary/50 transition-colors">
             <CardContent className="p-4 flex items-center gap-3">
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                  <Badge variant="outline" className="text-[10px] flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" />{describeCron(def.cron)}</Badge>
-                  <code className="text-[10px] bg-muted px-1 rounded">{def.cron}</code>
+                  <Badge variant="outline" className="text-[10px] flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" />{describeCron(cron)}</Badge>
+                  {cron && <code className="text-[10px] bg-muted px-1 rounded">{cron}</code>}
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
-                  <span>{def.lastEnqueuedAt ? `last run ${new Date(def.lastEnqueuedAt).toLocaleString()}` : "never run"}</span>
+                  <span>{lastEnqueuedAt ? `last run ${new Date(lastEnqueuedAt).toLocaleString()}` : "never run"}</span>
                 </div>
               </Link>
               <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a run now"><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
             </CardContent>
           </Card>
-        ))}
+          );
+        })}
       </div>
     </div>
   );
