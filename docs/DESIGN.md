@@ -27,21 +27,21 @@ Every stuck state has exactly one recovery action: cancel a READY item, force-fa
 a MORIBUND one, re-enqueue a failed task.
 
 A WorkItem is deliberately **dumb and terminal-only**: it carries just identity,
-a polymorphic `ref` (a story task or a WorkDef), a directory (affinity), a state,
-read flag, and timestamps. It never moves backward — retrying is a *new* item.
-All rich detail (goal, comments, results) lives on the **ref**, never on the item.
+a `ref` (the backing WorkDef's id), a directory (affinity), a state, read flag,
+and timestamps. It never moves backward — retrying is a *new* item. All rich
+detail (goal, comments, outcome) lives on the **ref** (the WorkDef), never on the item.
 
-The WorkItem **drives** the task (inverted from a board-first model): the daemon
-reacts to a terminal state. `COMPLETE` advances a task ref to its next workflow
+The WorkItem **drives** its work (inverted from a board-first model): the daemon
+reacts to a terminal state. `COMPLETE` advances a board task to its next workflow
 state (freeing the CONWIP token when it reaches `done`); `FAILED`/`CANCELED`
-leaves the task in place with no active item — "stuck" until a human re-enqueues,
+leaves the work in place with no active item — "stuck" until a human re-enqueues,
 moves, or edits it. CONWIP admission still governs which task per story is active;
 landing a task in an agent state is what enqueues its READY item.
 
 *Why:* one queue, one lifecycle, terminal-only transitions. It collapses several
 ad-hoc mechanisms (capability matching, assigned-story scoping, the `return`
 bundle, task substatus) into one legible object, and makes "what happened / how do
-I get it back on track" obvious. See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+I get it back on track" obvious. See docs/WORKDEF_UNIFICATION.md.
 
 ## Work Matching: Directory Affinity
 
@@ -64,17 +64,29 @@ gate (its READY items are never offered while paused).
 matching before — a false-negative match merely loses the preference; it never
 strands work.
 
-## WorkDefs: Solitary & Scheduled Work
+## WorkDefs & Parents: One Model for All Work
 
-A `WorkDef` is a standalone work definition (`type: Solitary | Scheduled`; `Story`
-reserved for a future fold-in), stored as markdown+frontmatter under `tasks/<id>/`
-with a per-def `comments.jsonl`. Creating one enqueues a WorkItem by default
-("save without enqueueing" skips it). A Scheduled def re-enqueues on its 5-field
-`cron` via the daemon's scheduler tick (minute-granular, deduped per minute).
+Every unit of work is a **WorkDef**: purely *authored* content (Goal / Acceptance
+Criteria / Additional Context + `directory`, `contextRefs`), stored as
+markdown+frontmatter under `tasks/<id>/` with a per-def `comments.jsonl`. A
+WorkDef names its **parent** — the *enqueuer* that decides when it emits
+WorkItems — and its type is derived from that parent:
 
-*Why:* the human-centric goal is a clear way to enqueue work and review results.
-Solitary/Scheduled defs plus the story board all feed the one WorkItem queue, so a
-teammate works "the next thing" without caring where it came from.
+- **parent = a Story** → a **Board** task: the story's workflow admits it and
+  advances it (status lives on the story as `tasks: [{id, status}]`).
+- **parent = a Schedule** → **Scheduled**: a cron parent (`schedules/<id>.json`)
+  fires a WorkItem for each child on its 5-field cron.
+- **no parent** → **Solitary**: a one-shot, enqueued manually.
+
+All three funnel through one `enqueueFor(workDefId)`; a teammate works "the next
+thing" without caring where it came from.
+
+*Why:* the WorkItem is already the universal execution unit, so the thing that
+*defines* work should be universal too. Splitting board tasks from standalone
+work was redundant. Keeping the WorkDef authored-only (all mutable state — status
+on the story, cron/lastEnqueuedAt on the schedule — lives off the markdown) means
+the daemon never rewrites a `workdef.md` except on an explicit edit. See
+[WORKDEF_UNIFICATION.md](WORKDEF_UNIFICATION.md).
 
 ## Reaping: MORIBUND, not a Guess
 
@@ -102,24 +114,21 @@ the choice explicit ensures the creator picks the right one.
 
 A task has three independent concerns: its **id** (a stable, opaque key like
 `auth-3` — the number is a creation counter, not a position), its **name**
-(`title`), and its **order** within the story. Order is owned by the story as
-`taskOrder`, an array of task IDs in `story.json`. `getTasksForStory` reconciles
-that array against the tasks actually on disk: listed tasks first, then any
-orphan (not-yet-listed) tasks appended by creation `seq`, with dangling ids
-ignored. Reordering rewrites just that one array.
+(`title`), and its **order** within the story. The story owns both order *and*
+status in one place: `tasks: [{ id, status }]` in `stories/<id>.json`. On load,
+the daemon reconciles that list against the board WorkDefs actually on disk
+(those whose `parent` is this story): listed entries first, then any orphan
+(not-yet-listed) WorkDef appended as `todo`, with dangling ids ignored.
 
-Task directories are named by the **task id only** (`tasks/auth-3/`). The folder
-name is pure identity: it never encodes order, and it never drifts when the
-title changes. On load, `seq` is derived from the id and `slug` from the current
-title — so directory browsing shows *creation* identity, while execution order
-lives entirely in `taskOrder`.
+A WorkDef directory is named by the **id only** (`tasks/auth-3/`) — pure
+identity: it never encodes order and never drifts when the title changes.
 
-*Why:* ordering is a property of the collection, not of each task. Keeping it in
-one array (rather than a per-task field, a directory-name prefix, or a linked
-list) means a reorder is a single-file write — atomic, easy to hand-edit, and
-friendly to git merges — and it never forces task IDs, titles, or directories
-(where comments/attachments live) to change. Reconcile-on-load makes the system
-tolerant of manual edits to `story.json` or the tasks directory.
+*Why:* ordering and position are properties of the collection, not of each task.
+Keeping them in one list (rather than parallel arrays that could drift, a
+per-task field, or a directory-name prefix) means a reorder or advance is a
+single-file write — atomic, hand-editable, git-friendly — and never forces ids,
+titles, or the `tasks/<id>/` dirs (where comments/attachments live) to change.
+Reconcile-on-load tolerates manual edits.
 
 ## The Daemon Owns the Prompt
 

@@ -141,7 +141,7 @@ A one-time, in-place migrator runs on load for existing team dirs:
   from `/api/schedules`** (cron moved off the WorkDef).
 - Keep the human word “task” for Board items though the type is `WorkDef`.
 
-### M3 — Demo + docs
+### M3 — Demo + docs — ✅ DONE
 - Rewrite `mpt-demo-team` fixtures to the flat layout (`stories/<id>.json`,
   `tasks/<id>/workdef.md`, a sample `schedules/<id>.json`); update `setup-demo.sh`.
 - Refresh `README.md`, `docs/ARCHITECTURE.md`, `docs/DESIGN.md`, and the
