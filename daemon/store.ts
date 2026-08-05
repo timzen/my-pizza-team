@@ -2318,10 +2318,18 @@ export class Store {
     title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
     additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
   }): WorkDef | null {
-    return updateWorkDef(this.teamDir, id, {
+    const def = updateWorkDef(this.teamDir, id, {
       ...updates,
       directory: updates.directory !== undefined ? (updates.directory ? normalizeDirectory(updates.directory) : null) : undefined,
     });
+    // A board task is a WorkDef whose fields are cached in the `tasks` table
+    // (what /api/stories reads). Keep that cache in sync so an edit through the
+    // WorkDef path is reflected on the board without waiting for a reload.
+    if (def && this.getTask(id)) {
+      this.db.prepare("UPDATE tasks SET title = ?, description = ?, context = ?, dirty = 1 WHERE id = ?")
+        .run(def.title, def.goal, JSON.stringify(def.contextRefs || []), id);
+    }
+    return def;
   }
 
   deleteWorkDef(id: string): boolean {
