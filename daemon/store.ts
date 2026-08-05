@@ -49,6 +49,14 @@ import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
 /**
+ * Reserved singleton identity for the team assistant. The daemon owns member
+ * identity (DESIGN.md "the daemon coordinates; harnesses execute") and already
+ * keys the assistant chat + `reset-session` routing on this name, so it must be
+ * the daemon — not the harness — that assigns it at spawn time.
+ */
+export const ASSISTANT_MEMBER_NAME = "assistant";
+
+/**
  * Internal board-task view: a WorkDef whose parent is a story, joined with its
  * workflow position (from the story's `tasks` list). This is a runtime cache
  * shape only — the persisted model is the WorkDef (`tasks/<id>/workdef.md`) plus
@@ -2150,15 +2158,33 @@ export class Store {
   }
 
   /**
-   * Create a leader directive for a host. For the `spawn` action a unique
-   * teammate name is generated into params (unless one was supplied).
+   * Create a leader directive for a host. For the `spawn` action a name is
+   * assigned into params (unless one was supplied):
+   *
+   *   - `reason: "assistant"` spawns get the reserved singleton name
+   *     `"assistant"`. Identity is daemon-owned state (DESIGN.md "the daemon
+   *     coordinates; harnesses execute") — the daemon already keys the
+   *     assistant chat + `reset-session` routing on this name, so it must be
+   *     the one to assign it rather than letting the harness hardcode it. The
+   *     assistant is a singleton, so a duplicate spawn (an assistant already
+   *     online, or a pending assistant spawn) is coalesced into the existing
+   *     request instead of emitting a second directive.
+   *   - all other spawns get a unique generated adjective-noun name.
    */
   createLeaderDirective(hostId: string, action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): ReturnType<Store["rowToDirective"]> {
     const id = `dir-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     const params: Record<string, unknown> = { ...(opts?.params || {}) };
     if (action === "spawn" && !params.name) {
-      params.name = this.generateSpawnName();
+      if (params.reason === "assistant") {
+        // Singleton: coalesce onto an existing assistant member or a pending
+        // assistant spawn rather than creating a duplicate.
+        const existing = this.findExistingAssistantSpawn();
+        if (existing) return existing;
+        params.name = ASSISTANT_MEMBER_NAME;
+      } else {
+        params.name = this.generateSpawnName();
+      }
     }
     this.db.prepare(
       "INSERT INTO leader_directives (id, host_id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)"
@@ -2214,6 +2240,41 @@ export class Store {
     if (!row) return false;
     this.db.prepare("UPDATE leader_directives SET status = ?, updated_at = ? WHERE id = ?").run(status, Date.now(), id);
     return true;
+  }
+
+  /**
+   * Find an existing assistant "presence" that a new assistant spawn should
+   * coalesce onto: an online assistant member, or an already-pending assistant
+   * spawn directive. Returns the representative directive (a synthetic one for
+   * a live member) or null if none exists. Enforces the assistant singleton at
+   * the point identity is assigned. See createLeaderDirective.
+   */
+  private findExistingAssistantSpawn(): ReturnType<Store["rowToDirective"]> | null {
+    // An assistant is already online — nothing to spawn. Surface a done marker.
+    const member = this.getMember(ASSISTANT_MEMBER_NAME)
+      || this.getMembers().find((m) => m.name === ASSISTANT_MEMBER_NAME || m.name.includes("assistant"));
+    // A pending assistant spawn already exists — reuse it (idempotent retry).
+    const pending = this.db.prepare(
+      "SELECT * FROM leader_directives WHERE action = 'spawn' AND status = 'pending'"
+    ).all() as Array<Record<string, unknown>>;
+    for (const row of pending) {
+      try {
+        const p = JSON.parse((row.params as string) || "{}");
+        if (p.name === ASSISTANT_MEMBER_NAME || p.reason === "assistant") {
+          return this.rowToDirective(row);
+        }
+      } catch { /* ignore */ }
+    }
+    if (member) {
+      // Represent the live assistant as a synthetic completed directive so the
+      // caller gets a stable, non-duplicating response.
+      return this.rowToDirective({
+        id: `dir-assistant-live`, action: "spawn", member_id: null,
+        params: JSON.stringify({ name: ASSISTANT_MEMBER_NAME, reason: "assistant" }),
+        status: "done", created_at: Date.now(),
+      });
+    }
+    return null;
   }
 
   /** Generate a unique teammate name (avoids current members + pending spawn directives). */
