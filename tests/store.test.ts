@@ -403,3 +403,31 @@ Deno.test("Store: delete story removes from DB and disk", () => {
     store.close();
   } finally { cleanupDir(teamDir); }
 });
+
+Deno.test("Store: editing a board task via updateWorkDefDetails syncs the tasks cache", () => {
+  // A board task is a WorkDef; editing it through the WorkDef path must keep
+  // the tasks table (what /api/stories reads) in sync so the board reflects
+  // title/goal/context edits without a reload. See TaskDetailPage unification.
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    store.createStory("bt", "Board Task", "S", "open", [], [{ title: "Old Title", description: "old goal" }]);
+    const taskId = store.getTasksForStory("bt")[0]!.id;
+
+    const def = store.updateWorkDefDetails(taskId, {
+      title: "New Title", goal: "new goal",
+      acceptanceCriteria: "- done", additionalContext: "ctx",
+      contextRefs: ["conventions"],
+    });
+    assertExists(def);
+    assertEquals(def!.title, "New Title");
+    assertEquals(def!.acceptanceCriteria, "- done");
+
+    // The tasks cache (title/description/context) is updated in lockstep.
+    const task = store.getTask(taskId)!;
+    assertEquals(task.title, "New Title");
+    assertEquals(task.description, "new goal");
+    assertEquals(task.context, ["conventions"]);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
