@@ -408,9 +408,10 @@ async function setupAssistant(
     ctx.ui.notify(`🤖 Cannot reach daemon at ${client.url} — will retry...`, "warning");
   }
 
-  // Register with daemon. The `persona` capability advertises that this build
-  // knows how to load a context-library persona as its system prompt; the web
-  // UI only shows persona chips when an assistant with this capability is online.
+  // Register with the daemon under the reserved singleton name "assistant".
+  // The daemon/web UI identify the assistant by this name (persona chips show
+  // whenever the context library defines personas — there is no capability
+  // model anymore; matching is directory-affinity only).
   try {
     await client.register({ name: "assistant", directory: cwd, metadata: readTmuxMetadata(pi) });
   } catch {

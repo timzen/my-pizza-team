@@ -54,8 +54,8 @@ test("polls with getNextWork() (not getNextTask)", () => {
   assert.ok(!src.includes("getNextTask"));
 });
 
-test("claims with claimTask (daemon transitions to working state)", () => {
-  assert.ok(src.includes("this.client.claimTask("));
+test("claims with claimWorkItem (daemon leases the WorkItem → IN_PROGRESS)", () => {
+  assert.ok(src.includes("this.client.claimWorkItem("));
 });
 
 test("does NOT call transitionTask (removed from model)", () => {
@@ -66,8 +66,8 @@ test("does NOT track availableTransitions (daemon handles transitions)", () => {
   assert.ok(!src.includes("availableTransitions"));
 });
 
-test("completes with completeTask and passes result", () => {
-  assert.ok(src.includes("this.client.completeTask(taskId, fullMessage)"));
+test("completes with setWorkItemState(COMPLETE) and passes result", () => {
+  assert.ok(src.includes('this.client.setWorkItemState(workItemId, "COMPLETE", fullMessage)'));
 });
 
 test("posts the full completion message as a comment (not a truncated slice)", () => {
@@ -104,15 +104,15 @@ test("does NOT hardcode 'done' state name", () => {
 
 // ─── Completion → done ───────────────────────────────────────
 
-test("marks the task done on agent completion (no NEEDS_INPUT protocol)", () => {
+test("marks the item COMPLETE on agent completion (no NEEDS_INPUT protocol)", () => {
   // The teammate never parses agent output for a NEEDS_INPUT sentinel. It
-  // marks completion (daemon advances state); the return_task tool is the
-  // explicit escape hatch, and rework arrives as an ordinary judgment move.
+  // sets the item COMPLETE (daemon advances state); rework arrives as an
+  // ordinary judgment move.
   assert.ok(!src.includes("NEEDS_INPUT"));
   assert.ok(src.includes("handleAgentComplete"));
   const completeSection = src.slice(src.indexOf("handleAgentComplete"));
-  assert.ok(completeSection.includes("completeTask"));
-  // Returned tasks skip the done call.
+  assert.ok(completeSection.includes('setWorkItemState(workItemId, "COMPLETE"'));
+  // Returned items skip the COMPLETE call.
   assert.ok(src.includes("markReturned"));
 });
 
@@ -171,9 +171,11 @@ test("executes the daemon-assembled prompt from the claim response", () => {
   assert.ok(src.includes("claim.prompt"));
 });
 
-test("dismisses itself when next-work returns dismiss (assigned-story exhausted)", () => {
-  assert.ok(src.includes("response.dismiss"));
-  assert.ok(src.match(/response\.dismiss[\s\S]*?onDismissed/));
+test("dismisses itself when the daemon reports dismissal via heartbeat", () => {
+  // Dismissal is delivered on the heartbeat response (res.dismissed), which
+  // stops the loop and fires the onDismissed hook.
+  assert.ok(src.includes("res.dismissed"));
+  assert.ok(src.match(/res\.dismissed[\s\S]*?onDismissed/));
 });
 
 // ─── Fresh session per work item (context hygiene) ────────────────

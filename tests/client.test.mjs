@@ -81,13 +81,12 @@ test("has register method with opts object", () => {
   assert.ok(clientSrc.includes("async register(opts:"));
 });
 
-test("register sends id, name, capabilities, workMode, assignedStoryId, hostId", () => {
+test("register sends id, name, hostId, directory, metadata", () => {
   assert.ok(clientSrc.includes("id: this.agentId"));
   assert.ok(clientSrc.includes("name: opts.name"));
   assert.ok(clientSrc.includes("hostId: this.hostId"));
-  assert.ok(clientSrc.includes("capabilities: opts.capabilities"));
-  assert.ok(clientSrc.includes("workMode: opts.workMode"));
-  assert.ok(clientSrc.includes("assignedStoryId: opts.assignedStoryId"));
+  assert.ok(clientSrc.includes("directory: opts.directory"));
+  assert.ok(clientSrc.includes("metadata: opts.metadata"));
 });
 
 test("has deregister method (DELETE /api/agents/:id)", () => {
@@ -110,29 +109,28 @@ test("has getNextWork method", () => {
   assert.ok(clientSrc.includes("async getNextWork()"));
 });
 
-test("has claimTask method", () => {
-  assert.ok(clientSrc.includes("async claimTask(taskId"));
+test("has claimWorkItem method", () => {
+  assert.ok(clientSrc.includes("async claimWorkItem(workItemId"));
 });
 
 test("does NOT have transitionTask method (removed)", () => {
   assert.ok(!clientSrc.includes("transitionTask"));
 });
 
-test("has completeTask + returnTask methods (done/return protocol)", () => {
-  assert.ok(clientSrc.includes("async completeTask(taskId"));
-  assert.ok(clientSrc.includes("async returnTask(taskId"));
-  assert.ok(clientSrc.includes("/api/agents/done/"));
-  assert.ok(clientSrc.includes("/api/agents/return/"));
+test("has setWorkItemState method (single COMPLETE/FAILED state-setter)", () => {
+  assert.ok(clientSrc.includes("async setWorkItemState(workItemId"));
+  assert.ok(clientSrc.includes('"COMPLETE" | "FAILED"'));
+  assert.ok(clientSrc.includes("/state"));
 });
 
 // ─── Comments (not messages) ─────────────────────────────────────
 
 test("has getComments method", () => {
-  assert.ok(clientSrc.includes("async getComments(taskId"));
+  assert.ok(clientSrc.includes("async getComments(workItemId"));
 });
 
 test("has postComment method with agentId", () => {
-  assert.ok(clientSrc.includes("async postComment(taskId"));
+  assert.ok(clientSrc.includes("async postComment(workItemId"));
   assert.ok(clientSrc.includes("agentId: this.agentId"));
 });
 
@@ -227,7 +225,7 @@ test("has createTask method (not addTask)", () => {
 });
 
 test("has uploadAttachment method", () => {
-  assert.ok(clientSrc.includes("async uploadAttachment(taskId"));
+  assert.ok(clientSrc.includes("async uploadAttachment(workItemId"));
 });
 
 test("has enqueueAssistantRequest method", () => {

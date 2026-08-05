@@ -171,9 +171,13 @@ test("AssistantLoop refreshes the persona from the daemon", () => {
   assert.ok(src.includes("refreshPersona"));
 });
 
-test("assistant advertises the persona capability on register", () => {
+test("assistant registers under the reserved singleton name", () => {
   const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
-  assert.ok(assistantSection.includes('persona: "true"'));
+  // Identity is name-based (no capability model): the assistant registers as
+  // "assistant" with its cwd + opaque tmux metadata.
+  assert.ok(assistantSection.includes('client.register({ name: "assistant"'));
+  assert.ok(assistantSection.includes("directory: cwd"));
+  assert.ok(assistantSection.includes("metadata: readTmuxMetadata(pi)"));
 });
 
 test("assistant injects the persona via before_agent_start", () => {

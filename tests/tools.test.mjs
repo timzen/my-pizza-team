@@ -159,18 +159,13 @@ test("edit_story calls client.updateStory", () => {
   assert.ok(src.includes("client.updateStory("));
 });
 
-test("story tools use the capability model (directory/skills/paused), not dir", () => {
-  assert.ok(src.includes("buildRequirements("));
+test("story tools use directory affinity (directory/paused), not a capability model", () => {
+  // Matching is directory-affinity only: no skills/requirements/dir legacy.
+  assert.ok(src.includes("directory:"));
   assert.ok(src.includes("paused:"));
-  assert.ok(src.includes("skills:"));
-  assert.ok(!/dir:/.test(src)); // no legacy dir field
-});
-
-test("skills accept name:value entries (value-bound capabilities)", () => {
-  // buildRequirements must split on the first colon: `java:8` -> { java: "8" },
-  // bare `python` -> { python: null }.
-  assert.ok(src.includes('entry.indexOf(":")'));
-  assert.ok(src.includes("entry.slice(0, i)"));
+  assert.ok(!src.includes("buildRequirements("));
+  assert.ok(!src.includes("skills:"));
+  assert.ok(!/\bdir:/.test(src)); // no legacy dir field
 });
 
 test("add_task calls client.createTask", () => {
@@ -213,7 +208,7 @@ test("upload_attachment calls client.uploadAttachment", () => {
 });
 
 test("upload_attachment calls client.postComment for the message", () => {
-  assert.ok(src.includes("client.postComment(taskId"));
+  assert.ok(src.includes("client.postComment(workItemId"));
 });
 
 // ─── No server-side deps ─────────────────────────────────────────
