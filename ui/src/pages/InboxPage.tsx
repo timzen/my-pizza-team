@@ -35,12 +35,14 @@ interface WorkItem {
 const PAGE_SIZE = 20;
 
 /** The detail route for a WorkItem: board tasks open their task page, standalone
- *  work opens its WorkDef page (comments/outcome live on the ref either way). */
+ *  work opens its WorkDef page (comments/outcome live on the ref either way).
+ *  Deep-links to the **Thread** tab since the inbox is about a completed run's
+ *  outcome, which lives in the comments. */
 function refLink(item: WorkItem): string {
-  if (item.parent?.kind === "story") {
-    return `/task/${encodeURIComponent(item.parent.id)}/${encodeURIComponent(item.ref.workDefId)}`;
-  }
-  return `/work-defs/${encodeURIComponent(item.ref.workDefId)}`;
+  const base = item.parent?.kind === "story"
+    ? `/task/${encodeURIComponent(item.parent.id)}/${encodeURIComponent(item.ref.workDefId)}`
+    : `/work-defs/${encodeURIComponent(item.ref.workDefId)}`;
+  return `${base}?tab=thread`;
 }
 
 export function InboxPage() {
