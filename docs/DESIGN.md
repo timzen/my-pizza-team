@@ -206,6 +206,16 @@ and `status`. Two rules hold:
    The leader records its tmux window/session there at spawn time; directives
    targeting a member carry that metadata back so the leader knows where to
    deliver.
+3. **The daemon owns identity, so it assigns spawn names.** A `spawn` directive
+   always carries a `params.name` chosen by the daemon — a generated
+   adjective-noun for a teammate, or the reserved singleton name `assistant`
+   for an assistant spawn (`reason: "assistant"`). The harness must not invent
+   or hardcode names: it names the tmux window and `--ppt-name` after
+   `params.name`, keeping the window, the registered member, and the UI label
+   consistent. Because the assistant is a singleton (the chat and
+   `reset-session` routing are keyed on the `assistant` name), a duplicate
+   assistant spawn — one already online, or a pending assistant spawn — is
+   coalesced onto the existing request instead of emitting a second directive.
 
 Clearing the assistant conversation (`DELETE /api/assistant/messages`) enqueues a
 `reset-session` directive for the assistant, so its in-agent context is dropped —

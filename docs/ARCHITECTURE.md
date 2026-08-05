@@ -128,7 +128,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | PUT | `/api/scratchpad/todos/:index` | Update a todo by index (`status`/`item`; done stamps `completed`) |
 | DELETE | `/api/scratchpad/todos/:index` | Delete a todo by index |
 | PUT | `/api/scratchpad/notes` | Overwrite the notes markdown (`{content}`) |
-| POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...) |
+| POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...). For `spawn`, the daemon assigns `params.name` if absent: a generated adjective-noun for teammates, or the reserved singleton name `assistant` for `reason: "assistant"` (a duplicate assistant spawn is coalesced onto the existing member/pending spawn, not duplicated) |
 | GET | `/api/hosts/:hostId/leader/directives` | Poll pending directives for a host (single leader queue) |
 | PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |
 | GET | `/api/spawn-requests` | List pending `spawn` directives across all hosts (name, cwd, hostId, createdAt) — surfaces stuck spawns in the UI |
