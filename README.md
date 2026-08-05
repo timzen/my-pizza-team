@@ -138,10 +138,13 @@ The leader supports spawning agents with different harness types:
 | Harness | Command Template |
 |---------|-----------------|
 | `pi` (default) | `pi --ppt-worker --ppt-daemon={url} --ppt-name={name}` |
+| `pi-assistant` | `pi --ppt-assistant --ppt-daemon={url} --ppt-name={name}` |
 | `claude-code` | `mpt-claude-runner --name={name} --daemon={url} --cwd={cwd}` |
 | `codex` | `mpt-codex-runner --name={name} --daemon={url} --cwd={cwd}` |
 
 Custom templates can be configured via the daemon's `harnessCommands` config field.
+
+The `pi-assistant` template selects the assistant **role** (`--ppt-assistant`) but does *not* choose a name: identity is daemon-owned, so `{name}` is threaded from the directive just like a worker. The daemon assigns the reserved singleton name `assistant` for assistant spawns, which keeps the tmux window, the registered agent name, and the MPT web UI label all consistent.
 
 ## Workflow
 

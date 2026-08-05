@@ -38,7 +38,12 @@ interface HarnessTemplates {
 // only applied once the project is trusted anyway.
 const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
   pi: "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-  "pi-assistant": "pi -a --ppt-assistant --ppt-daemon={url} --ppt-name=assistant --ppt-tmux-session={session} --ppt-tmux-window={window}",
+  // The assistant is a distinct role (--ppt-assistant) but NOT a distinct
+  // identity: the daemon owns names and assigns the reserved "assistant" name
+  // for assistant spawns, so we thread {name} through here just like a worker
+  // rather than hardcoding it. This keeps the tmux window, the registered
+  // name, and the web UI label consistent (all "assistant").
+  "pi-assistant": "pi -a --ppt-assistant --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
 };
 
 
@@ -434,6 +439,9 @@ function dispatchDirective(
 ): void {
   if (directive.action === "spawn") {
     const params = directive.params || {};
+    // The daemon owns identity: it supplies params.name (a generated
+    // adjective-noun for teammates, or the reserved "assistant" for the
+    // assistant singleton). We only pick the harness *role* here.
     const name = (params.name as string) || `agent-${Date.now()}`;
     let harness = (params.harness as string) || "pi";
     if (params.reason === "assistant") harness = "pi-assistant";

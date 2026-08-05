@@ -273,6 +273,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 - Polls its directive queue via `/api/hosts/:hostId/leader/directives`
 - Creates tmux windows with `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
+- Identity is daemon-owned: the leader names each tmux window (and the `--ppt-name`) after the directive's `params.name`, never inventing one. Teammate spawns carry a generated adjective-noun name; assistant spawns (`reason: "assistant"`) carry the reserved singleton name `assistant` and use the `pi-assistant` template — which differs only in the `--ppt-assistant` **role** flag, still threading `{name}`. This is why the tmux window, registered name, and MPT UI label always match.
 - `-a` (`--approve`) trusts the teammate's project cwd non-interactively, so a spawn into a folder outside a trusted parent (`~/.pi/agent/trust.json`) doesn't block on pi's "Trust project folder?" prompt
 - Writes permissive permission config to teammate's cwd before launching (only applied once the project is trusted, hence `-a`)
 

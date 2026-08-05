@@ -109,8 +109,12 @@ test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name", () => {
   assert.ok(src.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
 });
 
-test("pi-assistant template uses -a --ppt-assistant", () => {
-  assert.ok(src.includes("pi -a --ppt-assistant --ppt-daemon={url} --ppt-name=assistant"));
+test("pi-assistant template uses -a --ppt-assistant and threads {name} (daemon-owned identity)", () => {
+  // The assistant is a distinct role but not a distinct identity: the daemon
+  // assigns the reserved "assistant" name, so the template threads {name}
+  // rather than hardcoding it. This keeps tmux window == registered name.
+  assert.ok(src.includes("pi -a --ppt-assistant --ppt-daemon={url} --ppt-name={name}"));
+  assert.ok(!src.includes("--ppt-name=assistant"));
 });
 
 test("pi harness templates auto-approve project trust", () => {
