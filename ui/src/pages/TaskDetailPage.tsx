@@ -2,17 +2,17 @@
  * TaskDetailPage — Full board-task view (`/task/:storyId/:taskId`).
  *
  * A board task IS a WorkDef (parent = its story), so this page mirrors the
- * WorkDefDetailPage format: it edits the WorkDef fields (title, goal,
- * acceptance criteria, additional context, directory, context) via the
- * work-defs API and shows a single **run thread** at the bottom. The
- * board-specific concerns layered on top are the story breadcrumb, the
- * workflow status + move buttons, and delete (which routes through the task
- * endpoint so the story's task list + CONWIP token are cleaned up).
+ * WorkDefDetailPage format: two tabs below the title — **Details** (title, goal,
+ * acceptance criteria, additional context, directory, context) and **Thread**
+ * (the run thread — comments + attachments, newest first). Details is the
+ * default; the Inbox deep-links to `?tab=thread`. The board-specific concerns
+ * layered on top are the story breadcrumb, the workflow status + move buttons,
+ * and delete (which routes through the task endpoint so the story's task list +
+ * CONWIP token are cleaned up).
  *
  * Comments live on the WorkDef's ref (same comments.jsonl the agents append
  * completion summaries to). Attachments remain clickable — opening the diff/
- * file viewer with line-level review — so nothing regresses versus the old
- * two-tab (Comments/Files) layout.
+ * file viewer with line-level review.
  */
 
 import { useState, useRef } from "react";
@@ -28,6 +28,7 @@ import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-ed
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { ContextSelector } from "@/components/board/ContextSelector";
+import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { Save, Trash2, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { FileViewer } from "@/components/viewer/FileViewer";
@@ -93,11 +94,15 @@ export function TaskDetailPage() {
   const story = storiesData?.stories.find(s => s.id === storyId);
   const task = story?.tasks.find(t => t.id === taskId);
   const comments = commentsData?.comments || [];
+  // Newest first: the run thread's most recent outcome should be at the top
+  // (comments are stored oldest-first).
+  const threadComments = [...comments].reverse();
   const attachments = attachData?.attachments || [];
 
   const [newComment, setNewComment] = useState("");
   const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
   const [uploading, setUploading] = useState(false);
+  const [tab, setTab] = useDetailTab();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // --- Edit fields (WorkDef model) ---
@@ -228,6 +233,9 @@ export function TaskDetailPage() {
         {task.assignee && <span className="text-sm text-muted-foreground">Assigned to <strong>{task.assignee}</strong></span>}
       </div>
 
+      <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />
+
+      {tab === "details" && (
       <div className="space-y-4">
         <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
@@ -263,18 +271,20 @@ export function TaskDetailPage() {
           <Button variant="destructive" onClick={deleteTask}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
         </div>
       </div>
+      )}
 
-      {/* Run thread — human notes, agent completion summaries, and attachments. */}
-      <div className="pt-4 border-t border-border space-y-3">
-        <div className="flex items-center justify-between">
-          <h2 className="text-sm font-semibold">Run thread</h2>
+      {/* Run thread — human notes, agent completion summaries, and attachments,
+          newest first. */}
+      {tab === "thread" && (
+      <div className="space-y-3">
+        <div className="flex items-center justify-end">
           <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
           <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
             <Upload className="h-3.5 w-3.5 mr-1" />{uploading ? "Uploading…" : "Attach"}
           </Button>
         </div>
-        {comments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
-        {comments.map((c, i) => (
+        {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
+        {threadComments.map((c, i) => (
           <div key={i} className="rounded-md border border-border bg-background p-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium">{c.from}</span>
@@ -309,6 +319,7 @@ export function TaskDetailPage() {
           <Button className="self-end" onClick={sendComment} disabled={!newComment.trim()}>Post</Button>
         </div>
       </div>
+      )}
 
       {/* File Viewer Modal (diff review with line comments) */}
       {viewerFile && taskId && (

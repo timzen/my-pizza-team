@@ -1,9 +1,11 @@
 /**
  * WorkDefDetailPage — View, edit, run, and delete a WorkDef (`/work-defs/:id`).
  *
- * The WorkDef is the home for a Solitary/Scheduled job's rich detail: its goal,
- * acceptance criteria, context, and the run thread (comments — including the
- * completion summaries agents post after each run). Editing saves via PUT;
+ * The WorkDef is the home for a Solitary/Scheduled job's rich detail, split
+ * into two tabs below the title: **Details** (goal, acceptance criteria,
+ * context, directory) and **Thread** (the run thread — comments, including the
+ * completion summaries agents post after each run, newest first). Details is
+ * the default; the Inbox deep-links to `?tab=thread`. Editing saves via PUT;
  * "Run now" enqueues a fresh WorkItem. Comments live on the ref, not on any
  * individual WorkItem (see the daemon's refactor plan).
  */
@@ -21,6 +23,7 @@ import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-ed
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { ContextSelector } from "@/components/board/ContextSelector";
+import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { Save, Trash2, Play, CalendarClock, Zap } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 
@@ -64,6 +67,7 @@ export function WorkDefDetailPage() {
   const [cron, setCron] = useState("");
   const [error, setError] = useState("");
   const [newComment, setNewComment] = useState("");
+  const [tab, setTab] = useDetailTab();
 
   // Seed edit fields once the def loads (React's derive-state-in-render pattern).
   const [seededId, setSeededId] = useState<string | null>(null);
@@ -128,6 +132,9 @@ export function WorkDefDetailPage() {
   };
 
   const comments = commentsData?.comments || [];
+  // Newest first: the run thread's most recent outcome should be at the top
+  // (comments are stored oldest-first).
+  const threadComments = [...comments].reverse();
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
@@ -140,6 +147,9 @@ export function WorkDefDetailPage() {
         <Button variant="outline" size="sm" onClick={run}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
       </div>
 
+      <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />
+
+      {tab === "details" && (
       <div className="space-y-4">
         <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
@@ -162,12 +172,13 @@ export function WorkDefDetailPage() {
           <Button variant="destructive" onClick={remove}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
         </div>
       </div>
+      )}
 
-      {/* Run thread — completion summaries and human notes live here. */}
-      <div className="pt-4 border-t border-border space-y-3">
-        <h2 className="text-sm font-semibold">Run thread</h2>
-        {comments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
-        {comments.map((c, i) => (
+      {/* Run thread — completion summaries and human notes, newest first. */}
+      {tab === "thread" && (
+      <div className="space-y-3">
+        {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
+        {threadComments.map((c, i) => (
           <div key={i} className="rounded-md border border-border bg-background p-3">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium">{c.from}</span>
@@ -188,6 +199,7 @@ export function WorkDefDetailPage() {
           <Button className="self-end" onClick={addComment} disabled={!newComment.trim()}>Post</Button>
         </div>
       </div>
+      )}
     </div>
   );
 }
