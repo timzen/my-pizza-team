@@ -349,6 +349,7 @@ done
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | WorkItems | `GET /api/work-items`, `POST /api/work-items/:id/{cancel,force-fail,read}`, `POST /api/work-items/re-enqueue` | The queue: list (Inbox/sidebar) + recovery actions |
 | WorkDefs | `GET/POST/PUT/DELETE /api/work-defs`, `POST /api/work-defs/:id/enqueue` | Standalone Solitary + Scheduled work |
+| Hosts | `GET /api/hosts/:hostId`, `POST /api/hosts/:hostId/readiness`, `GET /api/hosts-readiness` | Host config + readiness (a not-ready host holds scheduled work destined for it) |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |
 
 Full API route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)

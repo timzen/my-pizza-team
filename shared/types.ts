@@ -30,12 +30,21 @@ export interface TeamConfig {
   apiToken?: string;
   /** Per-host configuration (keyed by host ID) */
   hosts?: Record<string, HostConfig>;
+  /**
+   * Default host readiness probe command. The leader runs this on each heartbeat;
+   * exit 0 = ready, non-zero = not ready (stdout's first line = reason). A not-ready
+   * host holds scheduled work destined for it instead of failing it. Per-host
+   * overrides live at `hosts[hostId].readinessProbe`. See docs/ARCHITECTURE.md.
+   */
+  readinessProbe?: string;
 }
 
 /** Per-host configuration for multi-machine setups */
 export interface HostConfig {
   /** tmux session name for this host (overrides top-level tmuxSession) */
   tmuxSession?: string;
+  /** Host readiness probe command (overrides top-level readinessProbe for this host) */
+  readinessProbe?: string;
 }
 
 export interface TeammateConfig {
@@ -164,6 +173,15 @@ export interface Schedule {
   cron: string;
   /** ISO timestamp of the last time this schedule enqueued its children. */
   lastEnqueuedAt?: string;
+  /**
+   * Set when a due occurrence was held back because no ready agent could take
+   * its work (e.g. a teammate whose credentials expired reported not-ready).
+   * The scheduler fires the held occurrence once when an agent becomes ready
+   * again — collapsing any missed occurrences into a single catch-up run so
+   * the queue never accumulates a per-occurrence backlog. See
+   * docs/ARCHITECTURE.md "Scheduler readiness gating".
+   */
+  heldForReadiness?: boolean;
 }
 
 /**
@@ -253,6 +271,24 @@ export interface Member {
   hostId?: string;
   status: "idle" | "working" | "pairing" | "offline";
   lastHeartbeat: number;
+}
+
+/**
+ * A host's current readiness, reported by that host's leader from an optional
+ * probe (e.g. "are the shared credentials on this box valid?"). Readiness is a
+ * host-level fact, not a per-teammate one — everything on a host shares the same
+ * credential/VPN/network state. The daemon holds scheduled enqueues destined for
+ * a not-ready host until it recovers. See docs/ARCHITECTURE.md "Scheduler
+ * readiness gating". Ephemeral connection state (not persisted across restarts):
+ * an unknown host is treated as ready.
+ */
+export interface HostReadiness {
+  hostId: string;
+  ready: boolean;
+  /** Human-readable reason when not ready (e.g. "mwinit credentials expired"). */
+  reason?: string;
+  /** Epoch ms of the last report. */
+  at: number;
 }
 
 export interface Assignment {

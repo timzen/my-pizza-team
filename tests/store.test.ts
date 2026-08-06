@@ -291,7 +291,58 @@ Deno.test("Store: scheduled WorkDef is enqueued when its cron is due", () => {
   } finally { cleanupDir(teamDir); }
 });
 
+Deno.test("Store: scheduler holds a due job when the target host is not ready, then fires once on recovery", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    // An agent on hostA works /repo/a; the scheduled job targets /repo/a.
+    store.registerMember("ag-a", "ag-a", "/repo/a", {}, "hostA");
+    const sched = store.createSchedule({ title: "Every minute", cron: "* * * * *" });
+    store.createWorkDef(
+      { title: "Every minute", goal: "g", acceptanceCriteria: "a", directory: "/repo/a", parent: { kind: "schedule", id: sched.id } },
+      false,
+    );
+
+    // Host reports not-ready (e.g. expired credentials) → the due job is held,
+    // not enqueued, and the schedule is flagged so it keeps retrying.
+    store.setHostReadiness("hostA", false, "mwinit credentials expired");
+    store.runScheduler(new Date());
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 0);
+    assertEquals(store.getSchedule(sched.id)!.heldForReadiness, true);
+
+    // Still not ready a tick later (a new minute): still held, no backlog builds.
+    store.runScheduler(new Date(Date.now() + 60_000));
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 0);
+
+    // Host recovers → the held job fires exactly once and the flag clears.
+    store.setHostReadiness("hostA", true);
+    store.runScheduler(new Date(Date.now() + 120_000));
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
+    assertEquals(store.getSchedule(sched.id)!.heldForReadiness, undefined);
+
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: scheduler ignores readiness when no agent is connected (waits for connection, as before)", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const sched = store.createSchedule({ title: "Every minute", cron: "* * * * *" });
+    store.createWorkDef(
+      { title: "Every minute", goal: "g", acceptanceCriteria: "a", directory: "/repo/a", parent: { kind: "schedule", id: sched.id } },
+      false,
+    );
+    // No members online at all: readiness gating doesn't apply (it's about
+    // connected-but-unable hosts, not absent ones) — the item enqueues.
+    store.runScheduler(new Date());
+    assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
 Deno.test("Store: comments append to JSONL (task ref)", () => {
+
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);

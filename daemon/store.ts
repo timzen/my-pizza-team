@@ -36,6 +36,7 @@ import {
   type WorkDefParent,
   type Schedule,
   type Member,
+  type HostReadiness,
   type Assignment,
 } from "../shared/types.ts";
 import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
@@ -130,6 +131,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.apiToken) out.apiToken = config.apiToken;
   if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
   if (config.hosts && Object.keys(config.hosts).length > 0) out.hosts = config.hosts;
+  if (config.readinessProbe) out.readinessProbe = config.readinessProbe;
   return out;
 }
 
@@ -144,6 +146,13 @@ export class Store {
   private schedulerTimer: ReturnType<typeof setInterval> | null = null;
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
+  /**
+   * Host readiness reported by each host's leader (see HostReadiness). Held in
+   * memory only: like member connections, it's live state that a freshly-booted
+   * daemon has no knowledge of — an unknown host is treated as ready until its
+   * leader reports otherwise (within a heartbeat).
+   */
+  private hostReadiness: Map<string, HostReadiness> = new Map();
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -1543,9 +1552,77 @@ export class Store {
     if (this.schedulerTimer) clearInterval(this.schedulerTimer);
   }
 
+  // --- Host readiness (see HostReadiness) ---
+
+  /** Record a host's readiness (reported by that host's leader). */
+  setHostReadiness(hostId: string, ready: boolean, reason?: string): void {
+    this.hostReadiness.set(hostId, { hostId, ready, reason: ready ? undefined : reason, at: Date.now() });
+  }
+
+  /** A host's last-reported readiness, or undefined if it has never reported. */
+  getHostReadiness(hostId: string): HostReadiness | undefined {
+    return this.hostReadiness.get(hostId);
+  }
+
+  /** All reported host-readiness records (for /health and the UI). */
+  getAllHostReadiness(): HostReadiness[] {
+    return [...this.hostReadiness.values()];
+  }
+
+  /** A host with no report yet is treated as ready (backward compatible). */
+  private isHostReady(hostId?: string): boolean {
+    if (!hostId) return true;
+    const r = this.hostReadiness.get(hostId);
+    return r ? r.ready : true;
+  }
+
+  /**
+   * Would enqueuing a scheduled WorkDef with directory `defDir` land on a host
+   * that is currently *ready*? Used to gate the cron scheduler so a host whose
+   * leader reported not-ready (e.g. expired credentials) doesn't cause an
+   * overnight pile-up of failed scheduled runs.
+   *
+   * Readiness is a host-level fact, but which host runs a scheduled item is
+   * decided by directory affinity, so we roll the affinity tiers (mirroring
+   * `getNextWorkItem`) up to the set of hosts that could run it:
+   *   - no directory on the def → any online host
+   *   - some online agent shares the def's directory → that agent's host(s) (tier 1)
+   *   - otherwise → any online host (tier 3 fallback)
+   *
+   * We only *hold* the enqueue when there is at least one would-be host online
+   * and every such host is not-ready. If no would-be host is online at all, we
+   * allow the enqueue (preserving the pre-existing behavior where the queue just
+   * waits for an agent to connect — readiness gating is about connected-but-
+   * unable hosts, not absent ones).
+   */
+  private canScheduleForDirectory(defDir?: string): boolean {
+    const norm = defDir ? normalizeDirectory(defDir) : undefined;
+    const online = this.getMembers().filter((m) => m.status !== "offline");
+    if (online.length === 0) return true; // no connected agents — not a readiness problem
+
+    let takers: Member[];
+    if (!norm) {
+      takers = online;
+    } else if (online.some((m) => m.directory && normalizeDirectory(m.directory) === norm)) {
+      takers = online.filter((m) => m.directory && normalizeDirectory(m.directory) === norm);
+    } else {
+      takers = online; // tier-3 fallback: no online agent owns this dir
+    }
+    if (takers.length === 0) return true;
+    // The hosts those agents run on. Allow if any such host is ready.
+    const hostIds = new Set(takers.map((m) => m.hostId));
+    return [...hostIds].some((h) => this.isHostReady(h));
+  }
+
   /**
    * Enqueue a WorkItem for every Scheduled WorkDef whose cron is due now (and
    * that isn't already in flight). Stamps `lastEnqueuedAt` for per-minute dedupe.
+   *
+   * Readiness gating (see docs/ARCHITECTURE.md): a due child whose target host
+   * is not ready is *held* rather than enqueued, and the schedule is flagged
+   * `heldForReadiness` so it re-attempts every tick (independent of the cron
+   * window) until the host recovers — firing exactly one catch-up run instead of
+   * a per-occurrence backlog.
    */
   runScheduler(now: Date = new Date()): void {
     // Group WorkDefs by their schedule parent.
@@ -1557,12 +1634,28 @@ export class Store {
       childrenBySchedule.set(def.parent.id, arr);
     }
     for (const sched of listSchedules(this.teamDir)) {
-      if (!isCronDue(sched.cron, now, sched.lastEnqueuedAt)) continue;
+      const due = isCronDue(sched.cron, now, sched.lastEnqueuedAt);
+      const held = sched.heldForReadiness === true;
+      // A schedule is worked either when its cron fires, or when it has work held
+      // back for readiness that we keep retrying until the host recovers.
+      if (!due && !held) continue;
+
+      let anyHeld = false;
       for (const def of childrenBySchedule.get(sched.id) || []) {
         if (this.getActiveWorkItemForRef({ workDefId: def.id })) continue;
+        if (!this.canScheduleForDirectory(def.directory)) { anyHeld = true; continue; }
         this.enqueueFor(def.id);
       }
-      updateSchedule(this.teamDir, sched.id, { lastEnqueuedAt: now.toISOString() });
+
+      const patch: { lastEnqueuedAt?: string; heldForReadiness?: boolean } = {};
+      // Advance the cron cursor only for a genuine cron firing (dedupes within
+      // the minute). Recovery of held work is driven by `heldForReadiness`, not
+      // the cron window, so a job held past its minute still fires once on recovery.
+      if (due) patch.lastEnqueuedAt = now.toISOString();
+      if (anyHeld !== held) patch.heldForReadiness = anyHeld;
+      if (patch.lastEnqueuedAt !== undefined || patch.heldForReadiness !== undefined) {
+        updateSchedule(this.teamDir, sched.id, patch);
+      }
     }
   }
 
