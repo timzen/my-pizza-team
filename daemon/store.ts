@@ -297,7 +297,10 @@ export class Store {
 
       CREATE TABLE IF NOT EXISTS token_usage (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT REFERENCES tasks(id),
+        -- The WorkDef ref id (a board task id, or a standalone/Scheduled WorkDef
+        -- id). No FK to tasks(id): usage is recorded on the ref, and standalone
+        -- WorkDefs have no tasks row. See docs/WORKDEF_UNIFICATION.md.
+        task_id TEXT,
         input_tokens INTEGER,
         output_tokens INTEGER,
         model TEXT,
@@ -1254,30 +1257,14 @@ export class Store {
   saveAttachment(taskId: string, filename: string, data: Uint8Array | string): string | null {
     const task = this.getTask(taskId);
     if (!task) return null;
-    const attachDir = path.join(task.dirPath, "attachments");
-    Deno.mkdirSync(attachDir, { recursive: true });
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const storedName = `${Date.now()}-${safeName}`;
-    const filePath = path.join(attachDir, storedName);
-    if (typeof data === "string") {
-      Deno.writeTextFileSync(filePath, data);
-    } else {
-      Deno.writeFileSync(filePath, data);
-    }
-    return storedName;
+    return this.saveAttachmentInDir(path.join(task.dirPath, "attachments"), filename, data);
   }
 
   /** Get an attachment file path */
   getAttachmentPath(taskId: string, filename: string): string | null {
     const task = this.getTask(taskId);
     if (!task) return null;
-    const filePath = path.join(task.dirPath, "attachments", filename);
-    if (!existsSync(filePath)) return null;
-    // Security: ensure the resolved path is within the attachments directory
-    const resolved = path.resolve(filePath);
-    const attachDirResolved = path.resolve(path.join(task.dirPath, "attachments"));
-    if (!resolved.startsWith(attachDirResolved)) return null;
-    return resolved;
+    return this.resolveAttachmentInDir(path.join(task.dirPath, "attachments"), filename);
   }
 
   /**
@@ -1290,18 +1277,7 @@ export class Store {
   getAttachments(taskId: string): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
     const task = this.getTask(taskId);
     if (!task) return [];
-    const attachDir = path.join(task.dirPath, "attachments");
-    if (!existsSync(attachDir)) return [];
-    const results: Array<{ name: string; storedName: string; size: number; addedAt: number }> = [];
-    for (const entry of Deno.readDirSync(attachDir)) {
-      if (!entry.isFile) continue;
-      const stat = Deno.statSync(path.join(attachDir, entry.name));
-      const displayName = entry.name.replace(/^\d+-/, "");
-      const tsPrefix = entry.name.match(/^(\d+)-/);
-      const addedAt = tsPrefix ? Number(tsPrefix[1]) : (stat.mtime?.getTime() ?? 0);
-      results.push({ name: displayName, storedName: entry.name, size: stat.size, addedAt });
-    }
-    return results.sort((a, b) => b.addedAt - a.addedAt);
+    return this.listAttachmentsInDir(path.join(task.dirPath, "attachments"));
   }
 
   /** Delete an attachment file from a task */
@@ -1314,6 +1290,42 @@ export class Store {
     } catch {
       return false;
     }
+  }
+
+  // Shared attachment-directory primitives (used by both the task-scoped and
+  // ref-scoped helpers — a board task's dir IS its WorkDef ref dir).
+  private saveAttachmentInDir(attachDir: string, filename: string, data: Uint8Array | string): string {
+    Deno.mkdirSync(attachDir, { recursive: true });
+    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
+    const storedName = `${Date.now()}-${safeName}`;
+    const filePath = path.join(attachDir, storedName);
+    if (typeof data === "string") Deno.writeTextFileSync(filePath, data);
+    else Deno.writeFileSync(filePath, data);
+    return storedName;
+  }
+
+  private resolveAttachmentInDir(attachDir: string, filename: string): string | null {
+    const filePath = path.join(attachDir, filename);
+    if (!existsSync(filePath)) return null;
+    // Security: the resolved path must stay within the attachments directory.
+    const resolved = path.resolve(filePath);
+    const base = path.resolve(attachDir);
+    if (!resolved.startsWith(base)) return null;
+    return resolved;
+  }
+
+  private listAttachmentsInDir(attachDir: string): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
+    if (!existsSync(attachDir)) return [];
+    const results: Array<{ name: string; storedName: string; size: number; addedAt: number }> = [];
+    for (const entry of Deno.readDirSync(attachDir)) {
+      if (!entry.isFile) continue;
+      const stat = Deno.statSync(path.join(attachDir, entry.name));
+      const displayName = entry.name.replace(/^\d+-/, "");
+      const tsPrefix = entry.name.match(/^(\d+)-/);
+      const addedAt = tsPrefix ? Number(tsPrefix[1]) : (stat.mtime?.getTime() ?? 0);
+      results.push({ name: displayName, storedName: entry.name, size: stat.size, addedAt });
+    }
+    return results.sort((a, b) => b.addedAt - a.addedAt);
   }
 
 
@@ -2388,14 +2400,39 @@ export class Store {
   saveAttachmentForRef(ref: WorkItemRef, filename: string, data: Uint8Array | string): string | null {
     const dir = this.refDir(ref);
     if (!dir) return null;
-    const attachDir = path.join(dir, "attachments");
-    Deno.mkdirSync(attachDir, { recursive: true });
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const storedName = `${Date.now()}-${safeName}`;
-    const filePath = path.join(attachDir, storedName);
-    if (typeof data === "string") Deno.writeTextFileSync(filePath, data);
-    else Deno.writeFileSync(filePath, data);
-    return storedName;
+    return this.saveAttachmentInDir(path.join(dir, "attachments"), filename, data);
+  }
+
+  /** List a ref's attachments, newest first (works for any WorkDef). */
+  getAttachmentsForRef(ref: WorkItemRef): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
+    const dir = this.refDir(ref);
+    if (!dir) return [];
+    return this.listAttachmentsInDir(path.join(dir, "attachments"));
+  }
+
+  /** Resolve a ref attachment's file path (or null if missing / out of bounds). */
+  getAttachmentPathForRef(ref: WorkItemRef, filename: string): string | null {
+    const dir = this.refDir(ref);
+    if (!dir) return null;
+    return this.resolveAttachmentInDir(path.join(dir, "attachments"), filename);
+  }
+
+  /** Delete a ref attachment. Returns false if it doesn't exist. */
+  deleteAttachmentForRef(ref: WorkItemRef, storedName: string): boolean {
+    const filePath = this.getAttachmentPathForRef(ref, storedName);
+    if (!filePath) return false;
+    try { Deno.removeSync(filePath); return true; } catch { return false; }
+  }
+
+  // Token usage on the ref (works for any WorkDef; token_usage is keyed by the
+  // WorkDef id). Board tasks also flip the tasks `dirty` flag for git sync.
+  addTokenUsageForRef(ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number): void {
+    if (!this.refDir(ref)) return;
+    this.addTokenUsage(ref.workDefId, inputTokens, outputTokens, model, costUsd);
+  }
+
+  getTokenUsageSummaryForRef(ref: WorkItemRef): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {
+    return this.getTokenUsageSummary(ref.workDefId);
   }
 
   // --- Context entries (reusable prompt/context library; see store/context.ts) ---

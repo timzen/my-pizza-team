@@ -147,6 +147,72 @@ Deno.test("WorkDef routes: scheduled requires a valid cron", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
+Deno.test("WorkDef routes: ref-based attachments (upload, list, serve, delete) work for standalone work", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const created = await (await app.request("/api/work-defs", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "Solo", goal: "g", acceptanceCriteria: "-", enqueue: false }),
+    })).json();
+    const id = created.workDef.id;
+
+    // Upload
+    const up = await (await app.request(`/api/work-defs/${id}/attachments`, {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ name: "patch.diff", content: "--- a\n+++ b\n" }),
+    })).json();
+    assertEquals(up.success, true);
+    assertEquals(up.type, "diff");
+    const storedName = up.storedName;
+
+    // List
+    const list = await (await app.request(`/api/work-defs/${id}/attachments`)).json();
+    assertEquals(list.attachments.length, 1);
+    assertEquals(list.attachments[0].name, "patch.diff");
+
+    // Serve raw content with a diff mime type
+    const raw = await app.request(`/api/work-defs/${id}/attachments/${encodeURIComponent(storedName)}`);
+    assertEquals(raw.status, 200);
+    assertEquals(raw.headers.get("content-type"), "text/x-diff");
+    assertEquals((await raw.text()).includes("+++ b"), true);
+
+    // Delete
+    const del = await app.request(`/api/work-defs/${id}/attachments/${encodeURIComponent(storedName)}`, { method: "DELETE" });
+    assertEquals(del.status, 200);
+    const after = await (await app.request(`/api/work-defs/${id}/attachments`)).json();
+    assertEquals(after.attachments.length, 0);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("WorkDef routes: comment carries attachment metadata; token-usage records cost", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const created = await (await app.request("/api/work-defs", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "Solo", goal: "g", acceptanceCriteria: "-", enqueue: false }),
+    })).json();
+    const id = created.workDef.id;
+
+    // Comment with an attachment badge is preserved on the ref.
+    await app.request(`/api/work-defs/${id}/comment`, {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ from: "lead", body: "see diff", attachments: [{ name: "r.review.json", size: 3, type: "review" }] }),
+    });
+    const comments = store.getCommentsForRef({ workDefId: id });
+    assertEquals(comments.length, 1);
+    assertEquals(comments[0]!.attachments?.[0]?.name, "r.review.json");
+
+    // Token usage is accepted for a standalone WorkDef and reports a cost.
+    const tu = await (await app.request(`/api/work-defs/${id}/token-usage`, {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ inputTokens: 100, outputTokens: 50, model: "gpt-4o" }),
+    })).json();
+    assertEquals(tu.success, true);
+    assertEquals(typeof tu.costUsd, "number");
+    assertEquals(store.getTokenUsageSummaryForRef({ workDefId: id })!.totalInputTokens, 100);
+  } finally { cleanup(teamDir, store); }
+});
+
 Deno.test("work-item cancel (READY) and re-enqueue by ref", async () => {
   const { app, store, teamDir } = setup();
   try {

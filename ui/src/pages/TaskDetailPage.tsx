@@ -84,10 +84,10 @@ export function TaskDetailPage() {
   const { data: storiesData, refetch: refetchStories } = useApi<{ stories: StoryView[] }>("/api/stories");
   const { data: statusData } = useApi<StatusData>("/api/status");
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(
-    `/api/tasks/${encodeURIComponent(taskId || "")}/comments`, [], { pollInterval: 5000 }
+    `/api/work-defs/${encodeURIComponent(taskId || "")}/comments`, [], { pollInterval: 5000 }
   );
   const { data: attachData, refetch: refetchAttachments } = useApi<{ attachments: Attachment[] }>(
-    `/api/tasks/${encodeURIComponent(taskId || "")}/attachments`
+    `/api/work-defs/${encodeURIComponent(taskId || "")}/attachments`
   );
 
   const def = defData?.workDef;
@@ -167,7 +167,7 @@ export function TaskDetailPage() {
 
   const sendComment = async () => {
     if (!newComment.trim() || !taskId) return;
-    await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/comment`, { from: "lead", body: newComment });
+    await apiPost(`/api/work-defs/${encodeURIComponent(taskId)}/comment`, { from: "lead", body: newComment });
     setNewComment("");
     refetchComments();
   };
@@ -200,7 +200,7 @@ export function TaskDetailPage() {
       } else {
         content = await file.text();
       }
-      await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/attachments`, { name: file.name, content, encoding });
+      await apiPost(`/api/work-defs/${encodeURIComponent(taskId)}/attachments`, { name: file.name, content, encoding });
       refetchAttachments();
     } catch {
       // silently fail
@@ -326,7 +326,7 @@ export function TaskDetailPage() {
         <FileViewer
           open={!!viewerFile}
           onClose={() => setViewerFile(null)}
-          taskId={taskId}
+          workDefId={taskId}
           storedName={viewerFile.storedName}
           displayName={viewerFile.displayName}
           onReviewSubmitted={handleReviewSubmitted}

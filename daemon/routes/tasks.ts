@@ -10,8 +10,8 @@ import { TODO_STATE } from "../../shared/types.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse, UpdateTaskRequest, UpdateTaskResponse,
-  DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse, PostCommentRequest,
-  PostCommentResponse, CommentsResponse, TokenUsageRequest, TokenUsageResponse,
+  DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse,
+  TokenUsageRequest, TokenUsageResponse,
   ReorderTasksRequest, ReorderTasksResponse,
 } from "../../shared/protocol.ts";
 import * as path from "@std/path";
@@ -80,18 +80,12 @@ export function registerTaskRoutes(ctx: RouteContext): void {
   });
 
   // ─── Comments ──────────────────────────────────────────────────────
-
-  app.post("/api/tasks/:taskId/comment", async (c) => {
-    const taskId = c.req.param("taskId");
-    const body = (await c.req.json()) as PostCommentRequest;
-    store.addComment(taskId, body.from, body.body, body.attachments);
-    return c.json({ success: true } satisfies PostCommentResponse);
-  });
-
-  app.get("/api/tasks/:taskId/comments", (c) => {
-    const taskId = c.req.param("taskId");
-    return c.json({ comments: store.getComments(taskId) } satisfies CommentsResponse);
-  });
+  //
+  // Task comments are ref-scoped and live on the WorkDef, so the canonical
+  // routes are `/api/work-defs/:id/comment(s)` (used by the web UI) and
+  // `/api/agents/comments/:workItemId` (used by harnesses). The old
+  // `/api/tasks/:taskId/comment(s)` duplicates were removed — they resolved to
+  // the same comments.jsonl on the same ref. See docs/WORKDEF_UNIFICATION.md.
 
   // ─── Attachments ───────────────────────────────────────────────────
 

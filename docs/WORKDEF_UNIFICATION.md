@@ -65,6 +65,29 @@ triggers all call it:
   child and bump `lastEnqueuedAt`.
 - **Solitary** — the manual "Run" action.
 
+## Route surface (the `/api/tasks` vs `/api/work-defs` seam)
+
+The model unified, so the HTTP surface follows one rule: **ref/WorkDef
+operations live under `/api/work-defs/:id`; Story-parent operations live under
+`/api/tasks` + `/api/stories/:id/tasks`.**
+
+- **`/api/work-defs/:id/*`** — the WorkDef itself, for *every* kind (board,
+  Solitary, Scheduled): get/update/delete, enqueue, comments, **attachments**
+  (upload/list/serve/delete), **token-usage**. This is the canonical web-UI
+  surface; a board task is a WorkDef, so its detail page uses these too.
+- **Story-parent only** (no WorkDef analog): `POST /api/stories/:id/tasks`
+  (create-in-story), `.../tasks/reorder`, `POST /api/tasks/:id/move` (workflow
+  position), `DELETE /api/tasks/:id` (also drops the task from the story +
+  frees the CONWIP token).
+- **Harness contract unchanged** — agents use `/api/agents/*` (ref-resolved).
+
+Dropped as redundant: `/api/tasks/:id/comment(s)` (identical ref file as the
+work-defs route). Kept for back-compat: `/api/tasks/:id/attachments*` and
+`/api/tasks/:id/token-usage` are still served because **mpt-mcp-server** calls
+them; the web UI no longer does. `token_usage.task_id` dropped its FK to
+`tasks(id)` so usage can be recorded on standalone WorkDefs (they have no tasks
+row) — this also fixed the same latent gap on the agent token-usage path.
+
 ## Dropped concepts
 
 - **`Task` type** — folded into `WorkDef`.

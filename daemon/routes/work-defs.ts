@@ -10,6 +10,7 @@ import type { RouteContext } from "./types.ts";
 import { workDefType, type WorkDef } from "../../shared/types.ts";
 import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
+import { estimateTokenCost } from "../token-cost.ts";
 
 function view(d: WorkDef) {
   return {
@@ -91,10 +92,79 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.post("/api/work-defs/:id/comment", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as { from?: string; body?: string };
+    const body = (await c.req.json()) as { from?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
     if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
     if (!body.from || !body.body) return c.json({ success: false, error: "Fields 'from' and 'body' are required" }, 400);
-    store.addCommentForRef({ workDefId: id }, body.from, body.body);
+    store.addCommentForRef({ workDefId: id }, body.from, body.body, body.attachments);
     return c.json({ success: true });
+  });
+
+  // ── Attachments (on the ref) ─────────────────────────────────────────
+  // These work for ANY WorkDef (board / Solitary / Scheduled), unlike the
+  // board-only /api/tasks/:taskId/attachments routes. The web UI uses these;
+  // the mpt-mcp-server still uses the task-scoped ones (kept for compat).
+
+  const MIME_TYPES: Record<string, string> = {
+    diff: "text/x-diff", patch: "text/x-diff", md: "text/markdown",
+    txt: "text/plain", json: "application/json",
+    png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
+    gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
+  };
+
+  app.post("/api/work-defs/:id/attachments", async (c) => {
+    const id = c.req.param("id");
+    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    const body = await c.req.json() as { name?: string; content?: string; encoding?: string };
+    if (!body.name || !body.content) return c.json({ success: false, error: "Fields 'name' and 'content' are required" }, 400);
+
+    let data: string | Uint8Array = body.content;
+    if (body.encoding === "base64") {
+      const bin = atob(body.content);
+      const bytes = new Uint8Array(bin.length);
+      for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+      data = bytes;
+    }
+    const storedName = store.saveAttachmentForRef({ workDefId: id }, body.name, data);
+    if (!storedName) return c.json({ success: false, error: "Failed to save attachment" }, 500);
+    const ext = body.name.split(".").pop()?.toLowerCase() || "";
+    const typeMap: Record<string, string> = { diff: "diff", patch: "diff", md: "markdown", txt: "text", json: "json", png: "image", jpg: "image", jpeg: "image" };
+    return c.json({ success: true, storedName, type: typeMap[ext] || "other", size: body.content.length });
+  });
+
+  app.get("/api/work-defs/:id/attachments", (c) => {
+    const id = c.req.param("id");
+    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    return c.json({ attachments: store.getAttachmentsForRef({ workDefId: id }) });
+  });
+
+  app.get("/api/work-defs/:id/attachments/:filename", (c) => {
+    const id = c.req.param("id");
+    const filename = c.req.param("filename");
+    if (!store.getWorkDef(id)) return c.json({ error: "WorkDef not found", id }, 404);
+    const filePath = store.getAttachmentPathForRef({ workDefId: id }, filename);
+    if (!filePath) return c.json({ error: "Attachment not found", id, filename }, 404);
+    const content = Deno.readFileSync(filePath);
+    const ext = filename.split(".").pop()?.toLowerCase() || "";
+    return new Response(content, { headers: { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" } });
+  });
+
+  app.delete("/api/work-defs/:id/attachments/:filename", (c) => {
+    const id = c.req.param("id");
+    const deleted = store.deleteAttachmentForRef({ workDefId: id }, c.req.param("filename"));
+    if (!deleted) return c.json({ success: false, error: "Attachment not found" }, 404);
+    return c.json({ success: true });
+  });
+
+  // ── Token usage (on the ref) ─────────────────────────────────────────
+  app.post("/api/work-defs/:id/token-usage", async (c) => {
+    const id = c.req.param("id");
+    const body = (await c.req.json()) as { inputTokens?: number; outputTokens?: number; model?: string };
+    if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
+      return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
+    }
+    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    const costUsd = estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
+    store.addTokenUsageForRef({ workDefId: id }, body.inputTokens, body.outputTokens, body.model, costUsd);
+    return c.json({ success: true, costUsd });
   });
 }
