@@ -79,11 +79,11 @@ export function NewStoryPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <div><Label htmlFor="story-id">ID</Label><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
+          <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-id">ID</Label></div><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
           <div className="flex items-end pb-1"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paused} onChange={e => setPaused(e.target.checked)} /> Paused (don't hand out tasks yet)</label></div>
         </div>
         <div>
-          <Label>Workflow</Label>
+          <div className="mb-2 pb-1 border-b border-border"><Label>Workflow</Label></div>
           <div className="mt-1">
             <SegmentedTabs
               tabs={(workflows || []).map(wf => ({ key: wf.name, label: wf.name }))}
@@ -92,15 +92,15 @@ export function NewStoryPage() {
             />
           </div>
         </div>
-        <div><Label htmlFor="story-title">Title</Label><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-title">Title</Label></div><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
 
-        <div><Label htmlFor="story-dir">Directory</Label><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><Input id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><Input id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
 
-        <div><Label>Context</Label><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
 
         <div>
-          <div className="flex items-center justify-between mb-2">
+          <div className="flex items-center justify-between mb-2 pb-1 border-b border-border">
             <Label>Tasks</Label>
             <Button type="button" variant="outline" size="sm" onClick={addTask}><Plus className="h-3 w-3 mr-1" />Task</Button>
           </div>

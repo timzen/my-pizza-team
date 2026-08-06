@@ -90,24 +90,24 @@ export function NewWorkDefPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div><Label htmlFor="wd-title">Title</Label><Input id="wd-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-title">Title</Label></div><Input id="wd-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
 
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} required defaultEditing />
         <div>
-          <Label>Acceptance criteria</Label>
+          <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
           <div className="mt-1">
             <AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} />
           </div>
         </div>
         <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
 
-        <div><Label htmlFor="wd-dir">Directory</Label><p className="text-xs text-muted-foreground mb-1">Where the work happens — the agent cds here. Also biases which teammate picks it up.</p><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — the agent cds here. Also biases which teammate picks it up.</p><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} /></div>
 
-        <div><Label>Context</Label><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into the work prompt.</p><ContextSelector value={contextRefs} onChange={setContextRefs} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into the work prompt.</p><ContextSelector value={contextRefs} onChange={setContextRefs} /></div>
 
         {type === "Scheduled" ? (
           <div>
-            <Label htmlFor="wd-cron">Schedule (cron)</Label>
+            <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-cron">Schedule (cron)</Label></div>
             <p className="text-xs text-muted-foreground mb-1">5-field cron (minute hour day month weekday). Pick a preset or edit.</p>
             <div className="flex flex-wrap gap-1 mb-2">
               {CRON_PRESETS.map(p => (
