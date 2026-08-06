@@ -38,9 +38,9 @@ export function NewTaskPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
-        <div><Label>Context</Label><div className="mt-1"><ContextSelector value={context} onChange={setContext} /></div></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={context} onChange={setContext} /></div></div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button type="submit">Add Task</Button>
