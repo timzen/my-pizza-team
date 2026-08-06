@@ -150,12 +150,13 @@ export function registerTaskRoutes(ctx: RouteContext): void {
 
   app.post("/api/tasks/:taskId/token-usage", async (c) => {
     const taskId = c.req.param("taskId");
-    const body = (await c.req.json()) as TokenUsageRequest;
+    const body = (await c.req.json()) as TokenUsageRequest & { costUsd?: number };
     if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
       return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" } satisfies TokenUsageResponse, 400);
     }
     if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies TokenUsageResponse, 404);
-    const costUsd = estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
+    // Prefer the harness-reported cost; estimate only as a fallback.
+    const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
     store.addTokenUsage(taskId, body.inputTokens, body.outputTokens, body.model, costUsd);
     return c.json({ success: true, costUsd } satisfies TokenUsageResponse);
   });

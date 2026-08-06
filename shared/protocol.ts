@@ -225,6 +225,8 @@ export interface WorkDefView {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string;
+  /** Aggregate token usage/cost across this def's runs (recorded on the ref). */
+  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 export interface WorkDefsResponse { workDefs: WorkDefView[] }
 export interface WorkDefResponse { workDef?: WorkDefView; success?: boolean; error?: string }

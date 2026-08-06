@@ -21,6 +21,7 @@ interface WorkDef {
   parent?: { kind: "story" | "schedule"; id: string };
   goal: string;
   directory?: string | null;
+  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
 interface Schedule {
@@ -88,6 +89,9 @@ export function SchedulePage() {
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
                   <span>{lastEnqueuedAt ? `last run ${new Date(lastEnqueuedAt).toLocaleString()}` : "never run"}</span>
+                  {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
+                    <span className="font-mono" title="Total cost across all runs">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
+                  )}
                 </div>
               </Link>
               <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a run now"><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
