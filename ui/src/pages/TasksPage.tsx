@@ -20,6 +20,7 @@ interface WorkDef {
   type: "Solitary" | "Scheduled" | "Board";
   goal: string;
   directory?: string | null;
+  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
 export function TasksPage() {
@@ -57,6 +58,9 @@ export function TasksPage() {
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
+                  )}
+                  {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
+                    <span className="font-mono" title="Total cost across all runs">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
                   )}
                 </div>
               </Link>

@@ -12,11 +12,13 @@ import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkD
 import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 
-function view(d: WorkDef) {
+function view(d: WorkDef, store: RouteContext["store"]) {
   return {
     id: d.id, title: d.title, type: workDefType(d.parent), parent: d.parent,
     goal: d.goal, acceptanceCriteria: d.acceptanceCriteria,
     additionalContext: d.additionalContext, contextRefs: d.contextRefs, directory: d.directory,
+    // Aggregate cost/tokens across this def's runs (recorded on the ref).
+    tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
   };
 }
 
@@ -24,13 +26,13 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
 
   app.get("/api/work-defs", (c) => {
-    return c.json({ workDefs: store.getWorkDefs().map(view) } satisfies WorkDefsResponse);
+    return c.json({ workDefs: store.getWorkDefs().map((d) => view(d, store)) } satisfies WorkDefsResponse);
   });
 
   app.get("/api/work-defs/:id", (c) => {
     const def = store.getWorkDef(c.req.param("id"));
     if (!def) return c.json({ success: false, error: "WorkDef not found" } satisfies WorkDefResponse, 404);
-    return c.json({ workDef: view(def) } satisfies WorkDefResponse);
+    return c.json({ workDef: view(def, store) } satisfies WorkDefResponse);
   });
 
   app.post("/api/work-defs", async (c) => {
@@ -49,7 +51,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
       title: body.title, parent, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria || "",
       additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
     }, body.enqueue !== false && !scheduled);
-    return c.json({ success: true, workDef: view(def) } satisfies SaveWorkDefResponse, 201);
+    return c.json({ success: true, workDef: view(def, store) } satisfies SaveWorkDefResponse, 201);
   });
 
   app.put("/api/work-defs/:id", async (c) => {
@@ -67,7 +69,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
       additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
     });
     if (!def) return c.json({ success: false, error: "Update failed" } satisfies SaveWorkDefResponse, 400);
-    return c.json({ success: true, workDef: view(def) } satisfies SaveWorkDefResponse);
+    return c.json({ success: true, workDef: view(def, store) } satisfies SaveWorkDefResponse);
   });
 
   app.delete("/api/work-defs/:id", (c) => {
@@ -158,12 +160,13 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   // ── Token usage (on the ref) ─────────────────────────────────────────
   app.post("/api/work-defs/:id/token-usage", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as { inputTokens?: number; outputTokens?: number; model?: string };
+    const body = (await c.req.json()) as { inputTokens?: number; outputTokens?: number; model?: string; costUsd?: number };
     if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
       return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
     }
     if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
-    const costUsd = estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
+    // Prefer the harness-reported cost; estimate only as a fallback.
+    const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
     store.addTokenUsageForRef({ workDefId: id }, body.inputTokens, body.outputTokens, body.model, costUsd);
     return c.json({ success: true, costUsd });
   });

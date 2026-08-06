@@ -42,6 +42,7 @@ interface WorkDef {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string | null;
+  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
 interface Schedule { id: string; cron: string; lastEnqueuedAt?: string | null }
@@ -197,6 +198,11 @@ export function WorkDefDetailPage() {
         <Badge variant="outline" className="flex items-center gap-1">
           {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
         </Badge>
+        {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
+          <Badge variant="secondary" className="font-mono" title={`${def.tokenUsage.totalInputTokens.toLocaleString()} in / ${def.tokenUsage.totalOutputTokens.toLocaleString()} out tokens across all runs`}>
+            ${def.tokenUsage.totalCostUsd.toFixed(3)}
+          </Badge>
+        )}
         <Button variant="outline" size="sm" onClick={run}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
       </div>
 

@@ -210,6 +210,16 @@ Deno.test("WorkDef routes: comment carries attachment metadata; token-usage reco
     assertEquals(tu.success, true);
     assertEquals(typeof tu.costUsd, "number");
     assertEquals(store.getTokenUsageSummaryForRef({ workDefId: id })!.totalInputTokens, 100);
+
+    // A harness-reported costUsd is stored verbatim (not re-estimated).
+    await app.request(`/api/work-defs/${id}/token-usage`, {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ inputTokens: 10, outputTokens: 5, model: "gpt-4o", costUsd: 0.42 }),
+    });
+    // 0.42 (reported) + the first entry's small estimate; the reported one must
+    // land exactly, so the total exceeds 0.42.
+    const summary = store.getTokenUsageSummaryForRef({ workDefId: id })!;
+    assertEquals(summary.totalCostUsd >= 0.42, true);
   } finally { cleanup(teamDir, store); }
 });
 

@@ -120,15 +120,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.post("/api/agents/work-items/:workItemId/token-usage", async (c) => {
     const item = store.getWorkItem(c.req.param("workItemId"));
     if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
-    const body = await c.req.json() as { inputTokens?: number; outputTokens?: number; model?: string };
+    const body = await c.req.json() as { inputTokens?: number; outputTokens?: number; model?: string; costUsd?: number };
     if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
       return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
     }
-    // Token usage is only tracked for board tasks (display); standalone runs no-op.
-    if (store.getTask(item.ref.workDefId)) {
-      const costUsd = estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
-      store.addTokenUsage(item.ref.workDefId, body.inputTokens, body.outputTokens, body.model, costUsd);
-    }
+    // Prefer the harness-reported cost (accurate + cache-aware); fall back to a
+    // rough estimate only when the harness doesn't supply one. Recorded on the
+    // ref, so it works for board tasks AND standalone (Solitary/Scheduled) work.
+    const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
+    store.addTokenUsageForRef(item.ref, body.inputTokens, body.outputTokens, body.model, costUsd);
     return c.json({ success: true });
   });
 
