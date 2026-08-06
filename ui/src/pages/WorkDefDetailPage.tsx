@@ -216,7 +216,13 @@ export function WorkDefDetailPage() {
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
         {def.type === "Scheduled" && (
-          <div><div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div><Input className="font-mono mt-1" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" /></div>
+          <div>
+            <div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div>
+            <Input className="font-mono mt-1" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
+            <p className="text-[11px] text-muted-foreground mt-1">
+              Five fields: <span className="font-mono">minute hour day-of-month month day-of-week</span> (use <span className="font-mono">*</span> for any). E.g. <span className="font-mono">0 9 * * *</span> = 9:00 every day; <span className="font-mono">*/15 * * * *</span> = every 15 min; <span className="font-mono">0 2 * * 1</span> = 02:00 every Monday.
+            </p>
+          </div>
         )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
