@@ -1,5 +1,5 @@
 /**
- * FileViewer — Modal viewer for task attachments.
+ * FileViewer — Modal viewer for WorkDef attachments.
  *
  * Supports:
  * - .diff/.patch: Interactive DiffViewer with line commenting
@@ -16,7 +16,8 @@ import { DiffViewer } from "./DiffViewer";
 interface FileViewerProps {
   open: boolean;
   onClose: () => void;
-  taskId: string;
+  /** WorkDef id (a board task id is its WorkDef id). */
+  workDefId: string;
   storedName: string;
   displayName: string;
   onReviewSubmitted?: () => void;
@@ -34,13 +35,13 @@ function getFileType(name: string): string {
   return map[ext] || "other";
 }
 
-export function FileViewer({ open, onClose, taskId, storedName, displayName, onReviewSubmitted }: FileViewerProps) {
+export function FileViewer({ open, onClose, workDefId, storedName, displayName, onReviewSubmitted }: FileViewerProps) {
   // The last fetched file, keyed by URL — content/loading are derived from it
   // rather than synced with setState in the effect (only the fetch itself is
   // the external system here).
   const [loaded, setLoaded] = useState<{ url: string; text: string } | null>(null);
   const fileType = getFileType(displayName);
-  const fileUrl = `/api/tasks/${encodeURIComponent(taskId)}/attachments/${encodeURIComponent(storedName)}`;
+  const fileUrl = `/api/work-defs/${encodeURIComponent(workDefId)}/attachments/${encodeURIComponent(storedName)}`;
 
   useEffect(() => {
     if (!open) return;
@@ -76,7 +77,7 @@ export function FileViewer({ open, onClose, taskId, storedName, displayName, onR
             <DiffViewer
               content={content}
               filename={displayName}
-              taskId={taskId}
+              workDefId={workDefId}
               storedName={storedName}
               onReviewSubmitted={handleReviewSubmitted}
             />

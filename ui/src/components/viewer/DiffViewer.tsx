@@ -23,12 +23,13 @@ interface ReviewComment {
 interface DiffViewerProps {
   content: string;
   filename: string;
-  taskId: string;
+  /** WorkDef id (a board task id is its WorkDef id). */
+  workDefId: string;
   storedName: string;
   onReviewSubmitted?: () => void;
 }
 
-export function DiffViewer({ content, filename, taskId, storedName, onReviewSubmitted }: DiffViewerProps) {
+export function DiffViewer({ content, filename, workDefId, storedName, onReviewSubmitted }: DiffViewerProps) {
   const [comments, setComments] = useState<ReviewComment[]>([]);
   const [activeInput, setActiveInput] = useState<number | null>(null);
   const [inputValue, setInputValue] = useState("");
@@ -66,7 +67,7 @@ export function DiffViewer({ content, filename, taskId, storedName, onReviewSubm
 
     // Upload review JSON as attachment
     const reviewFileName = `review-${Date.now()}.review.json`;
-    await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/attachments`, {
+    await apiPost(`/api/work-defs/${encodeURIComponent(workDefId)}/attachments`, {
       name: reviewFileName,
       content: JSON.stringify(review, null, 2),
     });
@@ -80,7 +81,7 @@ export function DiffViewer({ content, filename, taskId, storedName, onReviewSubm
     }
     if (summary) msgBody += `Summary: ${summary}`;
 
-    await apiPost(`/api/tasks/${encodeURIComponent(taskId)}/comment`, {
+    await apiPost(`/api/work-defs/${encodeURIComponent(workDefId)}/comment`, {
       from: "lead",
       body: msgBody.trim(),
       attachments: [{ name: reviewFileName, size: JSON.stringify(review).length, type: "review" }],

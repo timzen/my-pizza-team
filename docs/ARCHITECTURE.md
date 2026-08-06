@@ -39,10 +39,10 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
 - `routes/agents.ts` — Agent protocol (WorkItem-centric): register (with a working `directory`), heartbeat, next-work (returns `{ workItem }`), claim (lease + daemon-assembled prompt), the single **state-setter** (`work-items/:id/state` → COMPLETE|FAILED), work-item comments/token-usage/attachments (resolved to the backing ref), and per-host leader directives. No `done`/`release`/`return` — the daemon offers primitives; "giving up" is a comment + FAILED composed by the agent.
 - `routes/work.ts` — WorkItem queue: list (filter/paginate — powers Inbox + sidebar), cancel (READY), force-fail (MORIBUND, optional re-enqueue), read/unread, re-enqueue by ref.
-- `routes/work-defs.ts` — WorkDef CRUD + enqueue ("save without enqueueing" = `enqueue:false`) + per-def comments.
+- `routes/work-defs.ts` — WorkDef CRUD + enqueue ("save without enqueueing" = `enqueue:false`) + the ref-scoped surface for **any** WorkDef: comments, attachments (upload/list/serve/delete), and token-usage. This is the canonical UI surface for board tasks too (a board task is a WorkDef).
 - `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (**state persona** → Story → working-directory instruction (cd + read that repo's AGENTS.md) → Task → reference context → prior-task context → lead comments → completion guidance). The state persona is the markdown at `workflows/<wf>/<state>.md` — role framing for whoever works that state. There are no transition instructions: workers never move tasks (docs/WORK-MODEL.md). **Reference context** is the set of context-library entries attached to the story and/or task (resolved + deduped by `store.resolveTaskContext`), inlined verbatim so every harness gets the same material. Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
 - `workflow-lint.ts` — `validateInstructionMarkdown()`: lints authored state-instruction markdown. Unbalanced code fences are **errors** (they'd swallow the rest of the prompt) and block the save; shallow headings and stray `---` rules are **warnings** (the prompt builder normalizes headings anyway).
-- `routes/tasks.ts` — Task CRUD, move (lead), comments, attachments, token usage.
+- `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move (lead), delete. Board-only attachments + token-usage routes are kept here for mpt-mcp-server; comments moved to the ref-scoped `/api/work-defs/:id/comment(s)`. See docs/WORKDEF_UNIFICATION.md “Route surface.”
 - `routes/stories.ts` — Story CRUD, archive, backlog.
 - `routes/shared.ts` — Health, status, config, control (pause/resume), hosts, workflow management.
 - `routes/assistant.ts` — Assistant **chat** (append-only user/assistant messages) + the agent-facing response **turn** protocol, and the assistant **persona**. The chat is a real conversation: sending a user message just appends it; replies are produced by a coalescing response *turn* the assistant polls/claims/streams-into/completes (see DESIGN.md "Assistant chat model"). The vended `systemPrompt` is always `ASSISTANT_CHAT_FRAMING` (chat/batching rules + the `send_message` tool contract) followed by the persona body — or `DEFAULT_ASSISTANT_PERSONA` when none is selected — so the chat behavior is system-level and no persona needs to restate it. Swapping the persona clears + resets the session.
@@ -99,11 +99,10 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/stories/:storyId/tasks` | Add a task to a story |
 | POST | `/api/stories/:storyId/tasks/reorder` | Reorder a story's tasks (`{ order: [taskId, ...] }`) |
 | POST | `/api/tasks/:id/move` | Judgment move (human/leader): put a task anywhere in its workflow; entering an agent state resets substatus + clears the lease |
-| PUT | `/api/tasks/:id` | Update task title/description |
-| DELETE | `/api/tasks/:id` | Delete a task |
-| POST | `/api/tasks/:id/comment` | Post a comment on a task |
-| GET | `/api/tasks/:id/comments` | Get task comments |
-| POST | `/api/tasks/:id/token-usage` | Record token usage |
+| PUT | `/api/tasks/:id` | Update task title/description (legacy; edits also go through `PUT /api/work-defs/:id`) |
+| DELETE | `/api/tasks/:id` | Delete a task (drops it from the story + frees the CONWIP token) |
+| POST/GET/DELETE | `/api/tasks/:id/attachments[/:filename]` | Board-task attachments (kept for mpt-mcp-server; the web UI uses the ref-based `/api/work-defs/:id/attachments`) |
+| POST | `/api/tasks/:id/token-usage` | Record token usage (kept for mpt-mcp-server; ref-based equivalent is `/api/work-defs/:id/token-usage`) |
 | GET | `/api/archived` | List archived stories |
 | GET | `/api/backlog` | List backlogged stories |
 | POST | `/api/backlog/:id/restore` | Restore from backlog |
@@ -160,7 +159,9 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET/POST | `/api/work-defs` | List / create WorkDefs (create enqueues unless `enqueue:false`) |
 | GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete a WorkDef |
 | POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem for the def |
-| GET/POST | `/api/work-defs/:id/comment(s)` | Per-def comment thread |
+| GET/POST | `/api/work-defs/:id/comment(s)` | Per-def comment thread (ref-scoped; the canonical UI comment routes for **all** WorkDefs incl. board tasks) |
+| POST/GET/DELETE | `/api/work-defs/:id/attachments[/:filename]` | Ref-scoped attachments for **any** WorkDef (board/Solitary/Scheduled) — upload, list, serve raw, delete |
+| POST | `/api/work-defs/:id/token-usage` | Record token usage on the ref (works for any WorkDef) |
 
 ## Agent Lifecycle
 
