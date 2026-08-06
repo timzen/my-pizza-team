@@ -138,7 +138,7 @@ export function AssistantPage() {
   }, [draft, turnActive]);
 
   return (
-    <div className="container mx-auto flex flex-col h-[calc(100vh-4rem)] max-w-3xl p-4">
+    <div className="flex flex-col h-full min-h-0 w-full max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-border">
         <div className="flex items-center gap-2">
