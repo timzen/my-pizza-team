@@ -46,7 +46,10 @@ export function RootPage() {
         </Button>
       </div>
 
-      <RouteTabs tabs={TABS} />
+      {/* Wrap the tab bar so it keeps its content width: as a flex-column child
+          on the Assistant tab it would otherwise stretch full-width (align-items
+          stretch). self-start is ignored in the Inbox's normal block flow. */}
+      <div className="self-start"><RouteTabs tabs={TABS} /></div>
 
       {/* AssistantPage owns its own full-height layout (fills the bounded flex
           column so its composer stays pinned in view); the Inbox is a plain
