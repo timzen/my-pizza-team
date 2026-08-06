@@ -29,7 +29,7 @@ export function RootPage() {
   const isAssistant = location.pathname === "/assistant";
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
+    <div className={`container mx-auto p-6 space-y-4 ${isAssistant ? "flex flex-col h-full min-h-0" : ""}`}>
       {/* Quick-create row — the fastest way to get work moving. */}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" render={<Link to="/stories/new" />}>
@@ -48,8 +48,12 @@ export function RootPage() {
 
       <RouteTabs tabs={TABS} />
 
-      {/* AssistantPage owns its own full-height layout; the Inbox is a plain list. */}
-      {isAssistant ? <AssistantPage /> : <InboxPage />}
+      {/* AssistantPage owns its own full-height layout (fills the bounded flex
+          column so its composer stays pinned in view); the Inbox is a plain
+          list that scrolls with the page. */}
+      {isAssistant ? (
+        <div className="flex-1 min-h-0"><AssistantPage /></div>
+      ) : <InboxPage />}
     </div>
   );
 }
