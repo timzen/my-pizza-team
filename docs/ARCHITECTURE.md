@@ -50,8 +50,8 @@ my-pizza-team is a Deno-based application organized into four main modules:
 - `routes/scratchpad.ts` — Personal scratch pad (`/api/scratchpad`): todos (add/toggle/delete by index) + notes, over `store/scratchpad.ts`.
 
 ### cli/
-- `main.ts` — CLI entry point (start/stop/status/install/uninstall/rotate-token). Exposes `main()` for the compiled binary and runs directly under `deno run`.
-- `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login.
+- `main.ts` — CLI entry point (start/stop/status/install/uninstall/rotate-token/upgrade). Exposes `main()` for the compiled binary and runs directly under `deno run`. `upgrade` self-updates the compiled binary from the latest GitHub release (`timzen/my-pizza-team`): it maps the platform to the release asset (`mpt-<os>-<arch>`), verifies against `checksums.sha256`, atomically replaces `Deno.execPath()` in place, and — when a service is installed — restarts it via the service manager (warning if the service points at a different binary). Refuses when run from source (`deno run`), where the executable is `deno` itself.
+- `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login (embedding the binary's absolute path at install time). `detectInstalledService()` locates an installed plist/unit, parses the launched binary path, and exposes a `restart()` (launchctl kickstart / systemctl --user restart) used by `mpt upgrade`.
 
 ### shared/
 - `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, `WorkItem`/`WorkItemState`/`WorkItemRef`, `WorkDef`/`WorkDefType`, etc.) and utilities (slugify, generateTeammateName, `normalizeDirectory`). Matching is directory-affinity only — there is no capability/requirements model.
