@@ -369,6 +369,24 @@ export class DaemonClient {
   }
 
   /**
+   * Report this host's readiness to the daemon.
+   *
+   * Readiness is a host-level fact (shared credentials, VPN, etc.), so the
+   * leader — the per-host singleton — runs a probe and reports the result here.
+   * The daemon holds scheduled enqueues destined for a not-ready host until it
+   * recovers (see the daemon's docs/ARCHITECTURE.md "Scheduler readiness gating").
+   *
+   * Never throws — safe for background intervals.
+   */
+  async reportHostReadiness(ready: boolean, reason?: string): Promise<void> {
+    try {
+      await this.post(`/api/hosts/${encodeURIComponent(this.hostId)}/readiness`, { ready, reason });
+    } catch {
+      // Non-fatal — the daemon may be temporarily unreachable; retried next tick.
+    }
+  }
+
+  /**
    * Poll for available work. Returns the next `READY` WorkItem the daemon
    * matches to this agent (directory affinity), or `{ workItem: null }` when
    * none is available or distribution is paused.

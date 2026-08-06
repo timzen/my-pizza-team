@@ -40,6 +40,7 @@ test("src/teammate.ts exists", () => { if (!exists("src/teammate.ts")) throw new
 test("src/assistant.ts exists", () => { if (!exists("src/assistant.ts")) throw new Error("missing"); });
 test("src/tools.ts exists", () => { if (!exists("src/tools.ts")) throw new Error("missing"); });
 test("src/permissions.ts exists", () => { if (!exists("src/permissions.ts")) throw new Error("missing"); });
+test("src/readiness.ts exists", () => { if (!exists("src/readiness.ts")) throw new Error("missing"); });
 test("src/shared/types.ts exists", () => { if (!exists("src/shared/types.ts")) throw new Error("missing"); });
 
 // Removed files/dirs

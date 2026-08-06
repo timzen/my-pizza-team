@@ -64,6 +64,7 @@ The extension detects which role to activate:
 | `--ppt-name` | string | (auto-generated) | Agent name |
 | `--ppt-tmux-session` | string | (set by leader) | tmux session the agent runs in (reported as metadata) |
 | `--ppt-tmux-window` | string | (set by leader) | tmux window the agent runs in (reported as metadata) |
+| `--ppt-readiness-probe` | string | (none) | **Leader only.** Host readiness probe command (highest-priority override); exit 0 = ready, non-zero = not ready (stdout's first line is the reason). Also settable via the `PPT_READINESS_PROBE` env var or — the recommended way — via the daemon's **Config page** (`readinessProbe` in config.json, with optional per-host override at `hosts[hostId].readinessProbe`). A not-ready host makes the daemon **hold** scheduled work destined for it instead of failing it (e.g. while `mwinit` credentials are expired), firing it once on recovery. No probe = always ready. |
 
 ### Work selection: directory affinity
 

@@ -41,11 +41,12 @@ The extension operates in one of three roles:
 src/
 ├── index.ts              # Entry point: flag registration, role detection, setup
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
-├── leader.ts             # Leader role: tmux management, spawn polling, slash commands
+├── leader.ts             # Leader role: tmux management, spawn polling, slash commands, host readiness probe
 ├── teammate.ts           # TeammateLoop: poll → claim → work → set-state (COMPLETE/FAILED) → fresh session loop
 ├── assistant.ts          # AssistantLoop: poll turn → claim → stream bubbles → complete
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link
+├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
 └── shared/
     └── types.ts          # Minimal types: WorkflowConfig, DEFAULT_DAEMON_URL, helpers
 ```
@@ -93,8 +94,27 @@ human. See the daemon's docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 │  2. Poll GET /api/hosts/:hostId/leader/directives (5s) │
 │     └── For each request: spawn tmux window + ack       │
 │  3. User tools → POST /api/stories, /api/stories/:id/tasks │
+│  4. (opt) Run host readiness probe → POST                │
+│     /api/hosts/:hostId/readiness on each heartbeat       │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Host readiness probe (leader-owned).** The leader is the per-host singleton,
+so it also owns the optional *host readiness probe* — a host-level check
+(credentials, VPN, network). Configured via the daemon's **Config page** (the
+recommended way — `readinessProbe` in config.json, with per-host override at
+`hosts[hostId].readinessProbe`), or the `--ppt-readiness-probe` flag /
+`PPT_READINESS_PROBE` env var (highest-priority override for local dev/testing).
+The leader resolves: **flag > host-specific config > default config**. On each
+heartbeat it runs the command (exit 0 = ready; non-zero = not ready, stdout's
+first line is the reason) and reports the result to `POST
+/api/hosts/:hostId/readiness`. The daemon uses this to **hold** scheduled work
+destined for the host instead of failing it — e.g. while cloud-desktop `mwinit`
+credentials are expired — and fires the held job once when the host recovers
+(see the daemon's docs/ARCHITECTURE.md "Scheduler readiness gating"). No probe
+configured → the host is always considered ready (fully backward compatible).
+Because the leader re-syncs daemon config on each heartbeat, changing the probe
+in the UI takes effect within 30 seconds without restarting the leader.
 
 **Config sync is retryable, not one-shot.** The leader starts with a
 hardcoded fallback `tmuxSession` ("pi-pizza-team") that must be replaced by

@@ -20,6 +20,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
 import { registerLeaderTools } from "./tools.js";
+import { resolveReadinessProbe, runReadinessProbe } from "./readiness.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
@@ -79,6 +80,8 @@ export async function setupLeader(
   let tmuxSession = "pi-pizza-team";
   let harnessTemplates: HarnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES };
   let configSynced = false;
+  /** Resolved readiness probe command (flag > host-specific > default config). */
+  let resolvedProbeCommand: string | null = null;
 
   /**
    * Register with the daemon and adopt its configuration (tmux session,
@@ -96,6 +99,21 @@ export async function setupLeader(
         if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
       } catch {
         // Use defaults
+      }
+    }
+
+    // Resolve readiness probe: flag > host-specific > default from daemon config.
+    // The flag is the highest-priority override (local dev, testing); daemon
+    // config is the canonical source for normal usage (set via the UI).
+    const flagProbe = ((pi.getFlag("ppt-readiness-probe") as string) || "").trim();
+    if (flagProbe) {
+      resolvedProbeCommand = flagProbe;
+    } else {
+      try {
+        const hostConfig = await client.getHostConfig();
+        resolvedProbeCommand = (hostConfig.readinessProbe as string) || null;
+      } catch {
+        // Use whatever we had before
       }
     }
 
@@ -133,6 +151,14 @@ export async function setupLeader(
   // registration failed (daemon not up yet) or the daemon restarted and no
   // longer knows us (heartbeat reports dismissed), re-register so tmuxSession
   // and friends reflect the daemon's config instead of the hardcoded default.
+  //
+  // The leader is the per-host singleton, so it also owns the optional host
+  // readiness probe: a host-level check (e.g. "are the shared credentials on
+  // this box valid?") whose result the daemon uses to hold scheduled work
+  // destined for this host instead of failing it. Configured via the UI
+  // (config.readinessProbe or config.hosts[hostId].readinessProbe), the
+  // --ppt-readiness-probe flag, or the PPT_READINESS_PROBE env var; when
+  // unset, the host is always considered ready. See docs/ARCHITECTURE.md.
   const HEARTBEAT_INTERVAL_MS = 30_000;
   const heartbeatTick = async () => {
     if (!configSynced) {
@@ -143,6 +169,20 @@ export async function setupLeader(
       // The daemon doesn't know us (e.g. it restarted) — re-register.
       configSynced = false;
       try { await syncDaemonConfig(); } catch { /* retry next beat */ }
+    }
+    // Report host readiness (if a probe is configured) so the daemon can hold
+    // scheduled work when this box can't currently do it (e.g. stale creds).
+    // resolvedProbeCommand is re-evaluated on each syncDaemonConfig() so a
+    // config change in the UI takes effect without restarting the leader.
+    const probeConfig = resolvedProbeCommand
+      ? resolveReadinessProbe(resolvedProbeCommand)
+      : resolveReadinessProbe((pi.getFlag("ppt-readiness-probe") as string) || "");
+    if (probeConfig) {
+      const result = await runReadinessProbe(probeConfig);
+      await client.reportHostReadiness(result.ready, result.reason);
+      if (ctx.hasUI) {
+        ctx.ui.setStatus("pi-pizza-team-readiness", result.ready ? "" : `🚫 host not ready: ${result.reason || ""}`);
+      }
     }
   };
   const heartbeatTimer = setInterval(() => { heartbeatTick().catch(() => {}); }, HEARTBEAT_INTERVAL_MS);

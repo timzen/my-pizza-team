@@ -282,5 +282,11 @@ test("only imports os and shared/types", () => {
   assert.ok(imports.length === 2, `Expected 2 imports, got ${imports.length}: ${imports.join(', ')}`);
 });
 
+test("reports host readiness to the daemon", () => {
+  assert.ok(clientSrc.includes("reportHostReadiness"));
+  assert.ok(clientSrc.includes("/readiness"));
+  assert.ok(clientSrc.includes("this.hostId"));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
