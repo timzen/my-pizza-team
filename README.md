@@ -43,6 +43,7 @@ Commands:
   rotate-token          Generate a new API token
   install               Install as system service (auto-start on login)
   uninstall             Remove system service
+  upgrade [--check]     Self-update to the latest GitHub release (--check only reports)
 
 Environment:
   TEAM_DIR    Team directory or its parent (default: ./.my-pizza-team)

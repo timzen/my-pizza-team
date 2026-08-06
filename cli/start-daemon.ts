@@ -51,7 +51,7 @@ export async function startDaemonInProcess(
     console.error(`❌ Failed to initialize daemon: ${msg}`);
     console.error(`   Team dir: ${teamDir}`);
     if (msg.includes("Cannot read properties") || msg.includes("undefined")) {
-      console.error(`   This likely means config.json is missing required fields. Try running: mpt upgrade`);
+      console.error(`   This likely means config.json is missing required fields or is malformed. Check ${teamDir}/config.json.`);
     } else {
       console.error(`   This often means SQLite failed to load. Ensure libsqlite3 is available.`);
     }

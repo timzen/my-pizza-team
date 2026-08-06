@@ -371,3 +371,66 @@ export async function uninstall(): Promise<void> {
     await uninstallSystemd();
   }
 }
+
+/** Info about an installed daemon service, used by `mpt upgrade` to restart the
+ *  right thing after replacing the binary. */
+export interface InstalledService {
+  manager: "launchd" | "systemd";
+  /** Absolute path to the executable the service launches (best-effort parse). */
+  programPath: string | null;
+  /** Restart the service; resolves true on success. */
+  restart: () => Promise<boolean>;
+  /** Human-readable restart command (printed when auto-restart fails). */
+  restartHint: string;
+}
+
+/**
+ * Detect an installed mpt service (launchd plist / systemd unit) on this host.
+ * Returns null when none is installed (or the platform is unsupported).
+ */
+export function detectInstalledService(): InstalledService | null {
+  const os = Deno.build.os;
+  if (os === "darwin") {
+    const plistPath = getPlistPath();
+    if (!existsSync(plistPath)) return null;
+    let programPath: string | null = null;
+    try {
+      const xml = Deno.readTextFileSync(plistPath);
+      // First <string> inside ProgramArguments is the executable.
+      const m = xml.match(/<key>ProgramArguments<\/key>\s*<array>\s*<string>([^<]+)<\/string>/);
+      programPath = m?.[1] ?? null;
+    } catch { /* ignore */ }
+    const uid = typeof Deno.uid === "function" ? Deno.uid() : null;
+    const target = uid != null ? `gui/${uid}/${SERVICE_LABEL}` : SERVICE_LABEL;
+    return {
+      manager: "launchd",
+      programPath,
+      restart: async () => {
+        // kickstart -k restarts the (possibly running) service in place.
+        const r = await new Deno.Command("launchctl", { args: ["kickstart", "-k", target], stdout: "piped", stderr: "piped" }).output();
+        return r.code === 0;
+      },
+      restartHint: `launchctl kickstart -k gui/$(id -u)/${SERVICE_LABEL}`,
+    };
+  }
+  if (os === "linux") {
+    const unitPath = getUnitPath();
+    if (!existsSync(unitPath)) return null;
+    let programPath: string | null = null;
+    try {
+      const unit = Deno.readTextFileSync(unitPath);
+      const m = unit.match(/^ExecStart=(\S+)/m);
+      programPath = m?.[1] ?? null;
+    } catch { /* ignore */ }
+    return {
+      manager: "systemd",
+      programPath,
+      restart: async () => {
+        const r = await new Deno.Command("systemctl", { args: ["--user", "restart", SYSTEMD_UNIT_NAME], stdout: "piped", stderr: "piped" }).output();
+        return r.code === 0;
+      },
+      restartHint: `systemctl --user restart ${SYSTEMD_UNIT_NAME}`,
+    };
+  }
+  return null;
+}
