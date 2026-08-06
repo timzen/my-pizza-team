@@ -206,7 +206,8 @@ export class TeammateLoop {
     inputTokens: number;
     outputTokens: number;
     model: string;
-    costFromProvider?: number;
+    /** Real cost from the harness (pi's cache-aware total). Preferred over the daemon's estimate. */
+    costUsd?: number;
   }): Promise<void> {
     this.debugLog(`[ppt-debug] handleAgentComplete called. currentWorkItemId=${this.currentWorkItemId}, msgLen=${lastMessage.length}`);
     if (!this.currentWorkItemId) {
@@ -216,12 +217,13 @@ export class TeammateLoop {
 
     const workItemId = this.currentWorkItemId;
 
-    // Report token usage
+    // Report token usage (include the harness-computed cost when we have it).
     if (tokenUsage && (tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0)) {
       await this.client.reportTokenUsage(workItemId, {
         inputTokens: tokenUsage.inputTokens,
         outputTokens: tokenUsage.outputTokens,
         model: tokenUsage.model,
+        costUsd: tokenUsage.costUsd,
       }).catch(() => {});
     }
 

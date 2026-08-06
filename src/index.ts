@@ -256,6 +256,7 @@ async function setupTeammate(
     let lastText = "";
     let inputTokens = 0;
     let outputTokens = 0;
+    let costUsd = 0;
     let model = "unknown";
 
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -264,6 +265,10 @@ async function setupTeammate(
         if (msg.usage) {
           inputTokens += msg.usage.input || 0;
           outputTokens += msg.usage.output || 0;
+          // pi computes the real, provider- + cache-aware cost per message
+          // (the same number its powerline footer shows). Prefer it over
+          // MPT's rough estimate.
+          costUsd += msg.usage.cost?.total || 0;
         }
         if (msg.model && model === "unknown") model = msg.model;
         if (!lastText) {
@@ -274,9 +279,9 @@ async function setupTeammate(
       }
     }
 
-    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${inputTokens} out=${outputTokens}, model=${model}`);
+    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${inputTokens} out=${outputTokens}, cost=${costUsd}, model=${model}`);
 
-    await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model });
+    await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model, costUsd });
   });
 
   // ─── Commands ────────────────────────────────────────────────────

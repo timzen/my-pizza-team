@@ -154,7 +154,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/agents/next-work?agentId=X` | GET | Poll for a `READY` WorkItem (directory affinity) |
 | `/api/agents/claim/:workItemId` | POST | Lease the WorkItem (→ IN_PROGRESS) + get the daemon prompt |
 | `/api/agents/work-items/:workItemId/state` | POST | Set COMPLETE (advance task) or FAILED (leave stuck) |
-| `/api/agents/work-items/:workItemId/token-usage` | POST | Report token usage (resolved to the task ref) |
+| `/api/agents/work-items/:workItemId/token-usage` | POST | Report token usage + the harness's real `costUsd` (pi's cache-aware total; daemon estimates only if omitted) |
 | `/api/agents/work-items/:workItemId/attachments` | POST | Upload an attachment (resolved to the ref) |
 
 ### Task Routes

@@ -428,15 +428,18 @@ export class DaemonClient {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Report token usage for a task.
+   * Report token usage for a work item.
    *
-   * Records input/output token counts and model name. The daemon
-   * calculates estimated cost and stores it with the task.
+   * Records input/output token counts and model name. When `costUsd` is
+   * supplied (pi's real, cache-aware cost — the number its powerline footer
+   * shows), the daemon stores it verbatim; otherwise the daemon falls back to a
+   * rough estimate from the model + token counts.
    */
   async reportTokenUsage(workItemId: string, usage: {
     inputTokens: number;
     outputTokens: number;
     model: string;
+    costUsd?: number;
   }): Promise<TokenUsageResponse> {
     return this.post<TokenUsageResponse>(
       `/api/agents/work-items/${encodeURIComponent(workItemId)}/token-usage`,
