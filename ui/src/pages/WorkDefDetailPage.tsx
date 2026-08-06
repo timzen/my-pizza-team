@@ -204,19 +204,19 @@ export function WorkDefDetailPage() {
 
       {tab === "details" && (
       <div className="space-y-4">
-        <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
         <div>
-          <Label>Acceptance criteria</Label>
+          <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
           <div className="mt-1">
             <AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} />
           </div>
         </div>
         <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
-        <div><Label>Directory</Label><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
-        <div><Label>Context</Label><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
         {def.type === "Scheduled" && (
-          <div><Label>Schedule (cron)</Label><Input className="font-mono mt-1" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" /></div>
+          <div><div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div><Input className="font-mono mt-1" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" /></div>
         )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
