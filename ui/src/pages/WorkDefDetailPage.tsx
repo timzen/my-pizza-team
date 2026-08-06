@@ -7,10 +7,14 @@
  * completion summaries agents post after each run, newest first). Details is
  * the default; the Inbox deep-links to `?tab=thread`. Editing saves via PUT;
  * "Run now" enqueues a fresh WorkItem. Comments live on the ref, not on any
- * individual WorkItem (see the daemon's refactor plan).
+ * individual WorkItem (see the daemon's refactor plan). Thread attachments are
+ * clickable (open the diff/file viewer with line-level review) and the composer
+ * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
+ * attachments`), so they work for Solitary and Scheduled work just like board
+ * tasks.
  */
 
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
@@ -24,7 +28,8 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { ContextSelector } from "@/components/board/ContextSelector";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
-import { Save, Trash2, Play, CalendarClock, Zap } from "lucide-react";
+import { FileViewer } from "@/components/viewer/FileViewer";
+import { Save, Trash2, Play, CalendarClock, Zap, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 
 interface WorkDef {
@@ -48,11 +53,19 @@ interface Comment {
   attachments?: Array<{ name: string; size: number; type: string }>;
 }
 
+interface Attachment {
+  name: string;
+  storedName: string;
+  size: number;
+  addedAt: number;
+}
+
 export function WorkDefDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, refetch } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/work-defs/${id}/comments`, [id], { pollInterval: 10_000 });
+  const { data: attachData, refetch: refetchAttachments } = useApi<{ attachments: Attachment[] }>(`/api/work-defs/${id}/attachments`, [id]);
   const def = data?.workDef;
   // Cron lives on the parent Schedule, not the WorkDef.
   const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
@@ -68,6 +81,9 @@ export function WorkDefDetailPage() {
   const [error, setError] = useState("");
   const [newComment, setNewComment] = useState("");
   const [tab, setTab] = useDetailTab();
+  const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Seed edit fields once the def loads (React's derive-state-in-render pattern).
   const [seededId, setSeededId] = useState<string | null>(null);
@@ -131,6 +147,43 @@ export function WorkDefDetailPage() {
     refetchComments();
   };
 
+  const attachments = attachData?.attachments || [];
+  const openFileByName = (displayName: string) => {
+    const att = attachments.find(a => a.name === displayName);
+    if (att) setViewerFile({ storedName: att.storedName, displayName: att.name });
+  };
+  const handleReviewSubmitted = () => {
+    refetchComments();
+    refetchAttachments();
+  };
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setUploading(true);
+    try {
+      const isBinary = file.type.startsWith("image/") || file.type === "application/octet-stream";
+      let content: string;
+      let encoding: string | undefined;
+      if (isBinary) {
+        const buffer = await file.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = "";
+        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
+        content = btoa(binary);
+        encoding = "base64";
+      } else {
+        content = await file.text();
+      }
+      await apiPost(`/api/work-defs/${def.id}/attachments`, { name: file.name, content, encoding });
+      refetchAttachments();
+    } catch {
+      // silently fail
+    } finally {
+      setUploading(false);
+      if (fileInputRef.current) fileInputRef.current.value = "";
+    }
+  };
+
   const comments = commentsData?.comments || [];
   // Newest first: the run thread's most recent outcome should be at the top
   // (comments are stored oldest-first).
@@ -177,6 +230,12 @@ export function WorkDefDetailPage() {
       {/* Run thread — completion summaries and human notes, newest first. */}
       {tab === "thread" && (
       <div className="space-y-3">
+        <div className="flex items-center justify-end">
+          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
+          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
+            <Upload className="h-3.5 w-3.5 mr-1" />{uploading ? "Uploading…" : "Attach"}
+          </Button>
+        </div>
         {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
         {threadComments.map((c, i) => (
           <div key={i} className="rounded-md border border-border bg-background p-3">
@@ -188,7 +247,14 @@ export function WorkDefDetailPage() {
             {c.attachments && c.attachments.length > 0 && (
               <div className="flex flex-wrap gap-1 mt-2">
                 {c.attachments.map(a => (
-                  <Badge key={a.name} variant="secondary" className="text-[10px] font-mono">{a.name}</Badge>
+                  <Badge
+                    key={a.name}
+                    variant="secondary"
+                    className="text-[10px] font-mono cursor-pointer hover:bg-accent"
+                    onClick={() => openFileByName(a.name)}
+                  >
+                    📎 {a.name}
+                  </Badge>
                 ))}
               </div>
             )}
@@ -199,6 +265,18 @@ export function WorkDefDetailPage() {
           <Button className="self-end" onClick={addComment} disabled={!newComment.trim()}>Post</Button>
         </div>
       </div>
+      )}
+
+      {/* File Viewer Modal (diff review with line comments) */}
+      {viewerFile && (
+        <FileViewer
+          open={!!viewerFile}
+          onClose={() => setViewerFile(null)}
+          workDefId={def.id}
+          storedName={viewerFile.storedName}
+          displayName={viewerFile.displayName}
+          onReviewSubmitted={handleReviewSubmitted}
+        />
       )}
     </div>
   );
