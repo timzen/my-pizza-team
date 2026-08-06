@@ -66,12 +66,17 @@ export function saveSchedule(teamDir: string, input: { id?: string; title?: stri
   return sched;
 }
 
-export function updateSchedule(teamDir: string, id: string, updates: { title?: string | null; cron?: string; lastEnqueuedAt?: string }): Schedule | null {
+export function updateSchedule(teamDir: string, id: string, updates: { title?: string | null; cron?: string; lastEnqueuedAt?: string; heldForReadiness?: boolean }): Schedule | null {
   const sched = getSchedule(teamDir, id);
   if (!sched) return null;
   if (updates.title !== undefined) { if (updates.title) sched.title = updates.title; else delete sched.title; }
   if (updates.cron !== undefined) sched.cron = updates.cron;
   if (updates.lastEnqueuedAt !== undefined) sched.lastEnqueuedAt = updates.lastEnqueuedAt;
+  // Persist the readiness-hold marker; drop it from disk when cleared to keep files tidy.
+  if (updates.heldForReadiness !== undefined) {
+    if (updates.heldForReadiness) sched.heldForReadiness = true;
+    else delete sched.heldForReadiness;
+  }
   writeSchedule(teamDir, sched);
   return sched;
 }

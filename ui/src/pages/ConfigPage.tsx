@@ -33,6 +33,8 @@ interface ConfigData {
   maxTeammates?: number;
   teammates?: TeammateConfig;
   defaultNouns?: string[];
+  readinessProbe?: string;
+  hosts?: Record<string, { tmuxSession?: string; readinessProbe?: string }>;
 }
 
 type Tab = "general" | "teammates" | "theme";
@@ -152,6 +154,25 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
               </SelectContent>
             </Select>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardContent className="p-4 space-y-3">
+          <h2 className="font-semibold">Scheduling</h2>
+          <div className="grid grid-cols-[160px_1fr] gap-3 items-center">
+            <Label>Readiness Probe</Label>
+            <Input
+              value={config.readinessProbe || ""}
+              onChange={(e) => update("readinessProbe", e.target.value || undefined)}
+              placeholder="e.g. /path/to/check-creds.sh"
+              className="max-w-[400px] font-mono text-xs"
+            />
+          </div>
+          <p className="text-xs text-muted-foreground">
+            Shell command run by the leader each heartbeat. Exit 0 = ready; non-zero = not ready (stdout = reason).
+            Scheduled work is held while the host is not ready, then fires once on recovery.
+          </p>
         </CardContent>
       </Card>
 

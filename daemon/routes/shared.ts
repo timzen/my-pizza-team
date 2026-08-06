@@ -53,6 +53,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // whether a leader coordinator (a member named "leader") is connected.
       tmuxSession: config.tmuxSession,
       leaderPresent: members.some((m) => m.name === "leader" && m.status !== "offline"),
+      // Hosts whose leader reported not-ready (e.g. expired credentials). While a
+      // host is not ready, scheduled work destined for it is held (not failed).
+      hostsNotReady: store.getAllHostReadiness().filter((h) => !h.ready),
     });
   });
 
@@ -121,6 +124,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         };
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
+      if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
+      if (body.hosts !== undefined) config.hosts = body.hosts;
 
       const configFile = path.join(teamDir, "config.json");
       const toWrite: Record<string, unknown> = {
@@ -131,6 +136,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         maxTeammates: config.maxTeammates,
       };
       if (config.teammates && Object.keys(config.teammates).length > 0) toWrite.teammates = config.teammates;
+      if (config.readinessProbe) toWrite.readinessProbe = config.readinessProbe;
+      if (config.hosts && Object.keys(config.hosts).length > 0) toWrite.hosts = config.hosts;
       Deno.writeTextFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
 
       return c.json({ success: true });
@@ -147,7 +154,26 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     return c.json({
       hostId,
       tmuxSession: hostConfig?.tmuxSession || config.tmuxSession,
+      readinessProbe: hostConfig?.readinessProbe || config.readinessProbe || null,
+      readiness: store.getHostReadiness(hostId) ?? null,
     });
+  });
+
+  // Report a host's readiness (its leader runs a probe — e.g. "are the shared
+  // credentials on this box valid?"). A not-ready host holds scheduled enqueues
+  // that would land on it until it recovers. See docs/ARCHITECTURE.md.
+  app.post("/api/hosts/:hostId/readiness", async (c) => {
+    const hostId = c.req.param("hostId");
+    const body = await c.req.json().catch(() => ({})) as { ready?: boolean; reason?: string };
+    if (typeof body.ready !== "boolean") {
+      return c.json({ success: false, error: "Field 'ready' (boolean) is required" }, 400);
+    }
+    store.setHostReadiness(hostId, body.ready, body.reason);
+    return c.json({ success: true });
+  });
+
+  app.get("/api/hosts-readiness", (c) => {
+    return c.json({ hosts: store.getAllHostReadiness() });
   });
 
   // ─── Workflows ─────────────────────────────────────────────────────
