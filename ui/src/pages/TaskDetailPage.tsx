@@ -237,15 +237,15 @@ export function TaskDetailPage() {
 
       {tab === "details" && (
       <div className="space-y-4">
-        <div><Label>Title</Label><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
         <div>
-          <Label>Acceptance criteria</Label>
+          <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
           <div className="mt-1"><AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} /></div>
         </div>
         <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
-        <div><Label>Directory</Label><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
-        <div><Label>Context</Label><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
 
         {/* Workflow moves */}
         {validTransitions.length > 0 && (
