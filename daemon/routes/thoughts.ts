@@ -8,7 +8,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import type { ThoughtStatus } from "../../shared/types.ts";
+import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
 
 const COORD_LIMIT = 1e7;
 
@@ -145,7 +145,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   });
 
   app.patch("/api/thought-groups/:id", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { title?: string; x?: number; y?: number; w?: number; h?: number };
+    const body = await c.req.json().catch(() => ({})) as { title?: string; x?: number; y?: number; w?: number; h?: number; groupColor?: string | null; plateOpacity?: string };
     if (body.title !== undefined && typeof body.title !== "string") {
       return c.json({ success: false, error: "Field 'title' must be a string" }, 400);
     }
@@ -154,7 +154,13 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
         return c.json({ success: false, error: `Field '${k}' must be a finite number` }, 400);
       }
     }
-    const group = store.updateThoughtGroup(c.req.param("id"), body);
+    if (body.groupColor !== undefined && body.groupColor !== null && !(THOUGHT_COLORS as readonly string[]).includes(body.groupColor)) {
+      return c.json({ success: false, error: "Field 'groupColor' must be a palette color or null" }, 400);
+    }
+    if (body.plateOpacity !== undefined && !(PLATE_OPACITIES as readonly string[]).includes(body.plateOpacity)) {
+      return c.json({ success: false, error: "Field 'plateOpacity' must be subtle|medium|solid" }, 400);
+    }
+    const group = store.updateThoughtGroup(c.req.param("id"), body as { plateOpacity?: "subtle" | "medium" | "solid" });
     if (!group) return c.json({ success: false, error: "Group not found" }, 404);
     return c.json({ success: true, group });
   });

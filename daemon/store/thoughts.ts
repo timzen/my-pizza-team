@@ -125,6 +125,8 @@ export function listThoughtGroups(teamDir: string): ThoughtGroup[] {
     const parsed = JSON.parse(Deno.readTextFileSync(file));
     if (!Array.isArray(parsed)) return [];
     const n = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
+    const validOpacity = (v: unknown): ThoughtGroup["plateOpacity"] =>
+      v === "subtle" || v === "solid" ? v : "medium";
     return parsed
       .filter((g): g is Record<string, unknown> => !!g && typeof g.id === "string")
       .map((g) => ({
@@ -134,6 +136,8 @@ export function listThoughtGroups(teamDir: string): ThoughtGroup[] {
         y: n(g.y, 0),
         w: n(g.w, DEFAULT_GROUP_SIZE.w),
         h: n(g.h, DEFAULT_GROUP_SIZE.h),
+        groupColor: typeof g.groupColor === "string" ? g.groupColor : null,
+        plateOpacity: validOpacity(g.plateOpacity),
       }));
   } catch {
     return [];

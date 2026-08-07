@@ -2567,6 +2567,8 @@ export class Store {
       y: input.y ?? 0,
       w: input.w ?? DEFAULT_GROUP_SIZE.w,
       h: input.h ?? DEFAULT_GROUP_SIZE.h,
+      groupColor: null,
+      plateOpacity: "medium",
     };
     writeThoughtGroups(this.teamDir, [...groups, group]);
     // Stamp membership on any provided notes (exclusive: switches groups).
@@ -2576,7 +2578,7 @@ export class Store {
     return group;
   }
 
-  updateThoughtGroup(id: string, updates: { title?: string; x?: number; y?: number; w?: number; h?: number }): ThoughtGroup | null {
+  updateThoughtGroup(id: string, updates: { title?: string; x?: number; y?: number; w?: number; h?: number; groupColor?: string | null; plateOpacity?: "subtle" | "medium" | "solid" }): ThoughtGroup | null {
     const groups = this.getThoughtGroups();
     const group = groups.find((g) => g.id === id);
     if (!group) return null;
@@ -2585,6 +2587,8 @@ export class Store {
     if (updates.y !== undefined) group.y = updates.y;
     if (updates.w !== undefined) group.w = updates.w;
     if (updates.h !== undefined) group.h = updates.h;
+    if (updates.groupColor !== undefined) group.groupColor = updates.groupColor;
+    if (updates.plateOpacity !== undefined) group.plateOpacity = updates.plateOpacity;
     writeThoughtGroups(this.teamDir, groups);
     return group;
   }
