@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon, MoreHorizontal } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
@@ -58,8 +58,7 @@ export function ThoughtsPage() {
   const [view, setView] = useState({ tx: 40, ty: 40, scale: 1 });
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
-  const [paletteFor, setPaletteFor] = useState<string | null>(null);
-  const [groupMenuFor, setGroupMenuFor] = useState<string | null>(null);
+  const [noteMenuFor, setNoteMenuFor] = useState<string | null>(null);
   const [platePaintFor, setPlatePaintFor] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupTitle, setGroupTitle] = useState("");
@@ -100,7 +99,7 @@ export function ThoughtsPage() {
   // ─── Pan / marquee (drag on empty canvas) ─────────────────────────
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    setPaletteFor(null); setGroupMenuFor(null); setPlatePaintFor(null);
+    setNoteMenuFor(null); setPlatePaintFor(null);
     if (selectMode || e.shiftKey) {
       // Marquee select. Shift is additive (keep the current selection as a base).
       const { wx, wy } = screenToWorld(e.clientX, e.clientY);
@@ -252,7 +251,6 @@ export function ThoughtsPage() {
   };
   const setColor = async (id: string, color: string) => {
     setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, color } : n)));
-    setPaletteFor(null);
     await apiPatch(`/api/thoughts/${id}`, { color });
   };
   const togglePin = async (n: Thought) => {
@@ -369,7 +367,7 @@ export function ThoughtsPage() {
   // Membership is explicit (via a note's Group menu), not spatial — assigning
   // never depends on where a note happens to sit. null removes it from a group.
   const assignGroup = async (id: string, groupId: string | null) => {
-    setGroupMenuFor(null);
+    setNoteMenuFor(null);
     setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, groupId } : x)));
     await apiPatch(`/api/thoughts/${id}`, { groupId });
   };
@@ -519,36 +517,32 @@ export function ThoughtsPage() {
               className={`group absolute rounded-lg border shadow-sm ${noteClass(n.color)} ${n.pinned ? "ring-2 ring-offset-1 ring-amber-400/70" : ""} ${selected.has(n.id) ? "outline outline-2 outline-primary outline-offset-2" : ""}`}
               style={{ left: n.x, top: n.y, width: n.w ?? NOTE_W, minHeight: 80, zIndex: (n.zIndex || 1) + 1 }}
             >
-              {/* Hover toolbar. Wrapped with bottom padding that overlaps the
-                  note's top edge so moving the cursor up to the toolbar never
-                  crosses a dead zone (which would drop group-hover and hide it). */}
+              {/* Hover toolbar: quick color swatches + a ⋯ overflow menu. */}
               <div className="absolute -top-9 right-0 hidden pb-2 group-hover:block">
-                <div className="flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5 shadow-sm">
-                  <IconBtn title="Color" onClick={() => { setPaletteFor(paletteFor === n.id ? null : n.id); setGroupMenuFor(null); }}><Palette className="h-3.5 w-3.5" /></IconBtn>
-                  <IconBtn title="Group" onClick={() => { setGroupMenuFor(groupMenuFor === n.id ? null : n.id); setPaletteFor(null); }}><SquareStack className="h-3.5 w-3.5" /></IconBtn>
-                  <IconBtn title={n.pinned ? "Unpin" : "Pin"} onClick={() => togglePin(n)}>{n.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}</IconBtn>
-                  <IconBtn title="Archive" onClick={() => archive(n.id)}><Archive className="h-3.5 w-3.5" /></IconBtn>
-                  <IconBtn title="Delete" onClick={() => remove(n.id)}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
+                <div className="flex items-center gap-1 rounded-md border border-border bg-card px-1 py-0.5 shadow-sm" onPointerDown={(e) => e.stopPropagation()}>
+                  {THOUGHT_COLORS.map((c) => (
+                    <button key={c} onClick={() => setColor(n.id, c)} className={`h-3.5 w-3.5 rounded-full ${dotClass(c)} ${n.color === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
+                  ))}
+                  <div className="mx-0.5 h-4 w-px bg-border" />
+                  <button title="More" onClick={() => setNoteMenuFor(noteMenuFor === n.id ? null : n.id)} className="rounded p-1 text-muted-foreground hover:bg-accent/60 hover:text-foreground"><MoreHorizontal className="h-3.5 w-3.5" /></button>
                 </div>
               </div>
 
-              {/* Palette popover */}
-              {paletteFor === n.id && (
-                <div className="absolute -top-8 left-0 z-40 flex gap-1 rounded-md border border-border bg-card p-1 shadow" onPointerDown={(e) => e.stopPropagation()}>
-                  {THOUGHT_COLORS.map((c) => (
-                    <button key={c} onClick={() => setColor(n.id, c)} className={`h-4 w-4 rounded-full ${dotClass(c)} ${n.color === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
-                  ))}
-                </div>
-              )}
-
-              {/* Group menu popover — explicit add/remove membership */}
-              {groupMenuFor === n.id && (
-                <div className="absolute -top-8 left-0 z-40 w-52 rounded-md border border-border bg-card p-1 text-sm shadow" onPointerDown={(e) => e.stopPropagation()}>
-                  {groups.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">No groups yet — make one with the <span className="font-medium">Group</span> button.</div>}
+              {/* ⋯ overflow menu — pin, group, copy id, archive, delete. */}
+              {noteMenuFor === n.id && (
+                <div className="absolute -top-8 right-0 z-40 w-48 rounded-md border border-border bg-card p-1 text-sm shadow" onPointerDown={(e) => e.stopPropagation()}>
+                  <button onClick={() => { togglePin(n); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60">{n.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}{n.pinned ? "Unpin" : "Pin"}</button>
+                  <div className="my-1 border-t border-border" />
+                  <div className="px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">Group</div>
+                  {groups.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">No groups yet</div>}
                   {groups.map((gr) => (
                     <button key={gr.id} onClick={() => assignGroup(n.id, gr.id)} className={`block w-full truncate rounded px-2 py-1 text-left hover:bg-accent/60 ${n.groupId === gr.id ? "font-medium text-foreground" : ""}`}>{n.groupId === gr.id ? "✓ " : ""}{gr.title}</button>
                   ))}
-                  {n.groupId && <button onClick={() => assignGroup(n.id, null)} className="mt-1 block w-full rounded border-t border-border px-2 py-1 text-left text-muted-foreground hover:bg-accent/60">Remove from group</button>}
+                  {n.groupId && <button onClick={() => assignGroup(n.id, null)} className="block w-full rounded px-2 py-1 text-left text-muted-foreground hover:bg-accent/60">Remove from group</button>}
+                  <div className="my-1 border-t border-border" />
+                  <button onClick={() => { navigator.clipboard?.writeText(n.id).catch(() => {}); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60"><Hash className="h-3.5 w-3.5" />Copy id</button>
+                  <button onClick={() => { archive(n.id); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60"><Archive className="h-3.5 w-3.5" />Archive</button>
+                  <button onClick={() => { remove(n.id); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-red-600 hover:bg-accent/60"><Trash2 className="h-3.5 w-3.5" />Delete</button>
                 </div>
               )}
 
@@ -595,18 +589,11 @@ export function ThoughtsPage() {
                 </div>
               )}
 
-              {/* Copyable note id + group chip (bottom, on hover). */}
-              {editingId !== n.id && (
-                <>
-                  {n.groupId && (
-                    <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                      <SquareStack className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
-                    </div>
-                  )}
-                  <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <CopyId id={n.id} />
-                  </div>
-                </>
+              {/* Group membership chip (bottom-left, on hover). */}
+              {editingId !== n.id && n.groupId && (
+                <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  <SquareStack className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
+                </div>
               )}
             </div>
           ))}
@@ -656,13 +643,6 @@ export function ThoughtsPage() {
         </div>
       )}
     </div>
-  );
-}
-
-function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {  return (
-    <button title={title} onClick={onClick} onPointerDown={(e) => e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent/60 hover:text-foreground">
-      {children}
-    </button>
   );
 }
 
