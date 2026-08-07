@@ -48,7 +48,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const body = await c.req.json() as { id?: string; status?: string };
     if (!body.id || !body.status) return c.json({ success: false, error: "Fields 'id' and 'status' are required" }, 400);
     const member = store.getMember(body.id);
-    if (!member) return c.json({ success: false, dismissed: true });
+    if (!member) {
+      // Distinguish an explicit dismissal (shut down) from a merely-unknown
+      // member (re-register). A daemon restart wipes the members table, so
+      // treating unknown as "dismissed" would kill every running agent on
+      // restart/upgrade; instead we tell them to re-register.
+      if (store.isDismissed(body.id)) return c.json({ success: false, dismissed: true });
+      return c.json({ success: false, reregister: true });
+    }
     store.heartbeat(body.id, body.status);
     return c.json({ success: true });
   });
@@ -185,7 +192,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const agentId = c.req.param("id");
     const member = store.getMember(agentId);
     if (!member) return c.json({ success: false, error: `Agent "${agentId}" not found` }, 404);
-    store.removeMember(agentId);
+    // `?dismiss=true` (a human clicking "dismiss") tombstones the id so its next
+    // heartbeat shuts the agent down. A plain DELETE (clean self-deregister on
+    // shutdown) just removes it — no tombstone.
+    if (c.req.query("dismiss") === "true") store.dismissMember(agentId);
+    else store.removeMember(agentId);
     return c.json({ success: true });
   });
 

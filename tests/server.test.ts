@@ -339,3 +339,58 @@ Deno.test("Thoughts API: batch positions + groups", async () => {
     assertEquals(store.getThought(a.id)!.groupId, null);
   } finally { cleanup(teamDir, store); }
 });
+
+// ─── Agent dismiss vs. re-register (daemon restart safety) ───────────
+
+Deno.test("Heartbeat: unknown member is told to re-register (not dismissed)", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    // Never-registered id → reregister, not dismissed (mirrors a restart wipe).
+    const res = await (await app.request("/api/agents/heartbeat", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "ghost", status: "idle" }),
+    })).json();
+    assertEquals(res.dismissed, undefined);
+    assertEquals(res.reregister, true);
+
+    // A registered member heartbeats normally.
+    store.registerMember("m1", "m1", "/tmp/repo");
+    const ok = await (await app.request("/api/agents/heartbeat", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "m1", status: "idle" }),
+    })).json();
+    assertEquals(ok.success, true);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("Heartbeat: an explicitly dismissed member is told to shut down", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("m1", "m1", "/tmp/repo");
+    // UI dismiss (?dismiss=true) tombstones the id.
+    await app.request("/api/agents/m1?dismiss=true", { method: "DELETE" });
+    const res = await (await app.request("/api/agents/heartbeat", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "m1", status: "idle" }),
+    })).json();
+    assertEquals(res.dismissed, true);
+    assertEquals(res.reregister, undefined);
+
+    // Re-registering clears the tombstone (so a reused id isn't stuck dismissed).
+    store.registerMember("m1", "m1", "/tmp/repo");
+    const after = await (await app.request("/api/agents/heartbeat", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "m1", status: "idle" }),
+    })).json();
+    assertEquals(after.success, true);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("Heartbeat: a plain deregister (no dismiss) → re-register, not dismissed", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    store.registerMember("m1", "m1", "/tmp/repo");
+    await app.request("/api/agents/m1", { method: "DELETE" }); // clean self-deregister
+    const res = await (await app.request("/api/agents/heartbeat", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "m1", status: "idle" }),
+    })).json();
+    assertEquals(res.reregister, true);
+    assertEquals(res.dismissed, undefined);
+  } finally { cleanup(teamDir, store); }
+});
