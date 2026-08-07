@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, Users, X, FolderPlus, Palette, Hash, Check } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
@@ -296,7 +296,7 @@ export function ThoughtsPage() {
                   the input/buttons stop propagation for their own actions. */}
               <div className="absolute -top-7 left-0 right-0 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
-                  <Users className="h-3 w-3 shrink-0" />
+                  <SquareStack className="h-3 w-3 shrink-0" />
                   {editingGroupId === g.id ? (
                     <input
                       autoFocus
@@ -338,7 +338,7 @@ export function ThoughtsPage() {
               <div className="absolute -top-9 right-0 hidden pb-2 group-hover:block">
                 <div className="flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5 shadow-sm">
                   <IconBtn title="Color" onClick={() => { setPaletteFor(paletteFor === n.id ? null : n.id); setGroupMenuFor(null); }}><Palette className="h-3.5 w-3.5" /></IconBtn>
-                  <IconBtn title="Group" onClick={() => { setGroupMenuFor(groupMenuFor === n.id ? null : n.id); setPaletteFor(null); }}><Users className="h-3.5 w-3.5" /></IconBtn>
+                  <IconBtn title="Group" onClick={() => { setGroupMenuFor(groupMenuFor === n.id ? null : n.id); setPaletteFor(null); }}><SquareStack className="h-3.5 w-3.5" /></IconBtn>
                   <IconBtn title={n.pinned ? "Unpin" : "Pin"} onClick={() => togglePin(n)}>{n.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}</IconBtn>
                   <IconBtn title="Archive" onClick={() => archive(n.id)}><Archive className="h-3.5 w-3.5" /></IconBtn>
                   <IconBtn title="Delete" onClick={() => remove(n.id)}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
@@ -391,7 +391,7 @@ export function ThoughtsPage() {
                 <>
                   {n.groupId && (
                     <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                      <Users className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
+                      <SquareStack className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
                     </div>
                   )}
                   <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
