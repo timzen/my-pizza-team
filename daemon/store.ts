@@ -39,6 +39,7 @@ import {
   type ThoughtStatus,
   type ThoughtGroup,
   DEFAULT_THOUGHT_COLOR,
+  DEFAULT_GROUP_SIZE,
   type Member,
   type HostReadiness,
   type Assignment,
@@ -2582,11 +2583,15 @@ export class Store {
   /** Hard delete (direct — no archive-first guard; it's a personal workspace). */
   deleteThought(id: string): boolean { return deleteThoughtFile(this.teamDir, id); }
 
-  createThoughtGroup(input: { title?: string; memberIds?: string[] }): ThoughtGroup {
+  createThoughtGroup(input: { title?: string; x?: number; y?: number; w?: number; h?: number; memberIds?: string[] }): ThoughtGroup {
     const groups = this.getThoughtGroups();
     const group: ThoughtGroup = {
       id: this.mintId("grp-", (id) => groups.some((g) => g.id === id)),
-      title: (input.title || "").trim() || "Group",
+      title: (input.title || "").trim() || "New Group",
+      x: input.x ?? 0,
+      y: input.y ?? 0,
+      w: input.w ?? DEFAULT_GROUP_SIZE.w,
+      h: input.h ?? DEFAULT_GROUP_SIZE.h,
     };
     writeThoughtGroups(this.teamDir, [...groups, group]);
     // Stamp membership on any provided notes (exclusive: switches groups).
@@ -2596,11 +2601,15 @@ export class Store {
     return group;
   }
 
-  updateThoughtGroup(id: string, updates: { title?: string }): ThoughtGroup | null {
+  updateThoughtGroup(id: string, updates: { title?: string; x?: number; y?: number; w?: number; h?: number }): ThoughtGroup | null {
     const groups = this.getThoughtGroups();
     const group = groups.find((g) => g.id === id);
     if (!group) return null;
-    if (updates.title !== undefined) group.title = updates.title.trim() || "Group";
+    if (updates.title !== undefined) group.title = updates.title.trim() || "New Group";
+    if (updates.x !== undefined) group.x = updates.x;
+    if (updates.y !== undefined) group.y = updates.y;
+    if (updates.w !== undefined) group.w = updates.w;
+    if (updates.h !== undefined) group.h = updates.h;
     writeThoughtGroups(this.teamDir, groups);
     return group;
   }

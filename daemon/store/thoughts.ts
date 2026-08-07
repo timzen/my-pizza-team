@@ -22,6 +22,7 @@ import {
   THOUGHTS_DIR,
   THOUGHT_GROUPS_FILE,
   DEFAULT_THOUGHT_COLOR,
+  DEFAULT_GROUP_SIZE,
 } from "../../shared/types.ts";
 
 function thoughtsDir(teamDir: string): string {
@@ -123,9 +124,17 @@ export function listThoughtGroups(teamDir: string): ThoughtGroup[] {
   try {
     const parsed = JSON.parse(Deno.readTextFileSync(file));
     if (!Array.isArray(parsed)) return [];
+    const n = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
     return parsed
-      .filter((g): g is ThoughtGroup => g && typeof g.id === "string")
-      .map((g) => ({ id: g.id, title: typeof g.title === "string" ? g.title : "" }));
+      .filter((g): g is Record<string, unknown> => !!g && typeof g.id === "string")
+      .map((g) => ({
+        id: g.id as string,
+        title: typeof g.title === "string" ? g.title : "",
+        x: n(g.x, 0),
+        y: n(g.y, 0),
+        w: n(g.w, DEFAULT_GROUP_SIZE.w),
+        h: n(g.h, DEFAULT_GROUP_SIZE.h),
+      }));
   } catch {
     return [];
   }

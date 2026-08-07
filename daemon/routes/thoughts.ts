@@ -128,21 +128,31 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // ─── Groups ────────────────────────────────────────────────────────
 
   // POST /api/thought-groups — create a group. memberIds optional (omitted =
-  // empty group as an assistant target); present members are stamped in.
+  // empty group as a drop target); x/y/w/h optional (client places the plate).
   app.post("/api/thought-groups", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { title?: string; memberIds?: string[] };
+    const body = await c.req.json().catch(() => ({})) as { title?: string; memberIds?: string[]; x?: number; y?: number; w?: number; h?: number };
     if (body.memberIds !== undefined &&
       (!Array.isArray(body.memberIds) || body.memberIds.some((m) => typeof m !== "string"))) {
       return c.json({ success: false, error: "Field 'memberIds' must be a string array when present" }, 400);
+    }
+    for (const k of ["x", "y", "w", "h"] as const) {
+      if (body[k] !== undefined && (typeof body[k] !== "number" || !Number.isFinite(body[k]))) {
+        return c.json({ success: false, error: `Field '${k}' must be a finite number` }, 400);
+      }
     }
     const group = store.createThoughtGroup(body);
     return c.json({ success: true, group }, 201);
   });
 
   app.patch("/api/thought-groups/:id", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { title?: string };
+    const body = await c.req.json().catch(() => ({})) as { title?: string; x?: number; y?: number; w?: number; h?: number };
     if (body.title !== undefined && typeof body.title !== "string") {
       return c.json({ success: false, error: "Field 'title' must be a string" }, 400);
+    }
+    for (const k of ["x", "y", "w", "h"] as const) {
+      if (body[k] !== undefined && (typeof body[k] !== "number" || !Number.isFinite(body[k]))) {
+        return c.json({ success: false, error: `Field '${k}' must be a finite number` }, 400);
+      }
     }
     const group = store.updateThoughtGroup(c.req.param("id"), body);
     if (!group) return c.json({ success: false, error: "Group not found" }, 404);

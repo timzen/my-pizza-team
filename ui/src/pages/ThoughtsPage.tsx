@@ -19,12 +19,26 @@ interface Thought {
   x: number; y: number; w: number | null; h: number | null; zIndex: number;
   pinned: boolean; groupId: string | null; createdBy: string; createdAt: string; updatedAt: string;
 }
-interface ThoughtGroup { id: string; title: string; }
+interface ThoughtGroup { id: string; title: string; x: number; y: number; w: number; h: number; }
 interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
 const NOTE_W = 220;
+const NOTE_H_EST = 120;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
+const MIN_GROUP_W = 180;
+const MIN_GROUP_H = 140;
+
+/** The group whose rectangle contains a note's center (topmost by order wins). */
+function containingGroup(groups: ThoughtGroup[], n: { x: number; y: number; w: number | null; h: number | null }): string | null {
+  const cx = n.x + (n.w ?? NOTE_W) / 2;
+  const cy = n.y + (n.h ?? NOTE_H_EST) / 2;
+  let hit: string | null = null;
+  for (const g of groups) {
+    if (cx >= g.x && cx <= g.x + g.w && cy >= g.y && cy <= g.y + g.h) hit = g.id;
+  }
+  return hit;
+}
 
 /** Flip the index-th `- [ ]`↔`- [x]` task marker (source order) in markdown. */
 function toggleTaskMarker(content: string, index: number): string {
@@ -48,15 +62,18 @@ export function ThoughtsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [paletteFor, setPaletteFor] = useState<string | null>(null);
-  const [groupMenuFor, setGroupMenuFor] = useState<string | null>(null);
+  const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
+  const [groupTitle, setGroupTitle] = useState("");
   const [showArchived, setShowArchived] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
-  // Active gesture: pan (canvas) or drag (a note). Held in a ref so the
-  // window move/up listeners always see fresh values without re-binding.
+  // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
+  // Held in a ref so the window move/up listeners always see fresh values.
   const gesture = useRef<
     | { kind: "pan"; startX: number; startY: number; tx: number; ty: number }
     | { kind: "drag"; id: string; startX: number; startY: number; ox: number; oy: number; moved: boolean }
+    | { kind: "plate-move"; id: string; startX: number; startY: number; ox: number; oy: number }
+    | { kind: "plate-resize"; id: string; startX: number; startY: number; ow: number; oh: number }
     | null
   >(null);
 
@@ -66,7 +83,7 @@ export function ThoughtsPage() {
   // ─── Pan (drag on empty canvas) ────────────────────────────────────
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    setPaletteFor(null); setGroupMenuFor(null);
+    setPaletteFor(null);
     gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty };
   };
 
@@ -77,16 +94,34 @@ export function ThoughtsPage() {
     gesture.current = { kind: "drag", id: note.id, startX: e.clientX, startY: e.clientY, ox: note.x, oy: note.y, moved: false };
   };
 
+  // ─── Plate move / resize ───────────────────────────────────────────
+  const onPlatePointerDown = (e: React.PointerEvent, g: ThoughtGroup) => {
+    if (e.button !== 0 || editingGroupId === g.id) return;
+    e.stopPropagation();
+    gesture.current = { kind: "plate-move", id: g.id, startX: e.clientX, startY: e.clientY, ox: g.x, oy: g.y };
+  };
+  const onPlateResizePointerDown = (e: React.PointerEvent, g: ThoughtGroup) => {
+    if (e.button !== 0) return;
+    e.stopPropagation();
+    gesture.current = { kind: "plate-resize", id: g.id, startX: e.clientX, startY: e.clientY, ow: g.w, oh: g.h };
+  };
+
   useEffect(() => {
     const onMove = (e: PointerEvent) => {
       const g = gesture.current;
       if (!g) return;
       if (g.kind === "pan") {
         setView((v) => ({ ...v, tx: g.tx + (e.clientX - g.startX), ty: g.ty + (e.clientY - g.startY) }));
-      } else {
+      } else if (g.kind === "drag") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) g.moved = true;
         setNotes((ns) => ns.map((n) => (n.id === g.id ? { ...n, x: g.ox + dx, y: g.oy + dy } : n)));
+      } else if (g.kind === "plate-move") {
+        const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
+        setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, x: g.ox + dx, y: g.oy + dy } : gr)));
+      } else if (g.kind === "plate-resize") {
+        const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
+        setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, w: Math.max(MIN_GROUP_W, g.ow + dx), h: Math.max(MIN_GROUP_H, g.oh + dy) } : gr)));
       }
     };
     const onUp = () => {
@@ -94,13 +129,26 @@ export function ThoughtsPage() {
       gesture.current = null;
       if (g?.kind === "drag" && g.moved) {
         const n = notes.find((x) => x.id === g.id);
-        if (n) apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
+        if (!n) return;
+        apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
+        // Membership follows the drop: joins the plate it landed in, or leaves.
+        const gid = containingGroup(groups, n);
+        if ((n.groupId ?? null) !== gid) {
+          setNotes((ns) => ns.map((x) => (x.id === n.id ? { ...x, groupId: gid } : x)));
+          apiPatch(`/api/thoughts/${n.id}`, { groupId: gid });
+        }
+      } else if (g?.kind === "plate-move") {
+        const gr = groups.find((x) => x.id === g.id);
+        if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { x: Math.round(gr.x), y: Math.round(gr.y) });
+      } else if (g?.kind === "plate-resize") {
+        const gr = groups.find((x) => x.id === g.id);
+        if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { w: Math.round(gr.w), h: Math.round(gr.h) });
       }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
-  }, [notes, screenToWorldDelta]);
+  }, [notes, groups, screenToWorldDelta]);
 
   // ─── Zoom (wheel, anchored at cursor) ──────────────────────────────
   const onWheel = (e: React.WheelEvent) => {
@@ -163,31 +211,21 @@ export function ThoughtsPage() {
   };
 
   const newGroup = async () => {
-    const title = prompt("Group name?")?.trim();
-    if (!title) return;
-    await apiPost("/api/thought-groups", { title });
-    refetch();
+    // Place the new plate centered in the current viewport.
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const cx = rect ? (rect.width / 2 - view.tx) / view.scale : 0;
+    const cy = rect ? (rect.height / 2 - view.ty) / view.scale : 0;
+    const res = await apiPost<{ group: ThoughtGroup }>("/api/thought-groups", { title: "New Group", x: Math.round(cx - 180), y: Math.round(cy - 130) });
+    await refetch();
+    if (res.group) { setEditingGroupId(res.group.id); setGroupTitle(res.group.title); }
   };
-  const assignGroup = async (id: string, groupId: string | null) => {
-    setGroupMenuFor(null);
-    await apiPatch(`/api/thoughts/${id}`, { groupId });
-    refetch();
+  const saveGroupTitle = async (id: string) => {
+    const title = groupTitle.trim() || "New Group";
+    setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, title } : g)));
+    setEditingGroupId(null);
+    await apiPatch(`/api/thought-groups/${id}`, { title });
   };
   const ungroup = async (groupId: string) => { await apiDelete(`/api/thought-groups/${groupId}`); refetch(); };
-
-  // ─── Group plates (bounding box behind member notes) ───────────────
-  const plates = groups
-    .map((g) => {
-      const members = notes.filter((n) => n.groupId === g.id);
-      if (members.length === 0) return null;
-      const pad = 16;
-      const minX = Math.min(...members.map((m) => m.x)) - pad;
-      const minY = Math.min(...members.map((m) => m.y)) - pad - 22; // room for the label
-      const maxX = Math.max(...members.map((m) => m.x + (m.w ?? NOTE_W))) + pad;
-      const maxY = Math.max(...members.map((m) => m.y + (m.h ?? 140))) + pad;
-      return { group: g, minX, minY, w: maxX - minX, h: maxY - minY };
-    })
-    .filter((p): p is NonNullable<typeof p> => p !== null);
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
@@ -226,14 +264,35 @@ export function ThoughtsPage() {
       >
         {/* Transformed world layer */}
         <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` }}>
-          {/* Group plates (behind notes) */}
-          {plates.map((p) => (
-            <div key={p.group.id} className="absolute rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/30" style={{ left: p.minX, top: p.minY, width: p.w, height: p.h, zIndex: 0 }}>
-              <div className="absolute -top-0.5 left-2 flex items-center gap-1 text-xs font-medium text-muted-foreground">
-                <Users className="h-3 w-3" /> {p.group.title}
-                <CopyId id={p.group.id} />
-                <button onClick={() => ungroup(p.group.id)} className="ml-1 rounded p-0.5 hover:bg-accent/60" title="Ungroup"><X className="h-3 w-3" /></button>
+          {/* Group plates (real rectangles; behind notes). Drag the header to
+              move, the corner to resize; drop a note inside to add it. */}
+          {groups.map((g) => (
+            <div key={g.id} className="group/plate absolute rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: g.x, top: g.y, width: g.w, height: g.h, zIndex: 0 }}>
+              {/* Header / move handle */}
+              <div onPointerDown={(e) => onPlatePointerDown(e, g)} className="absolute -top-7 left-0 right-0 flex cursor-move items-center justify-between gap-2">
+                <div className="flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
+                  <Users className="h-3 w-3 shrink-0" />
+                  {editingGroupId === g.id ? (
+                    <input
+                      autoFocus
+                      value={groupTitle}
+                      onPointerDown={(e) => e.stopPropagation()}
+                      onChange={(e) => setGroupTitle(e.target.value)}
+                      onBlur={() => saveGroupTitle(g.id)}
+                      onKeyDown={(e) => { if (e.key === "Enter") saveGroupTitle(g.id); if (e.key === "Escape") setEditingGroupId(null); }}
+                      className="w-36 bg-transparent outline-none"
+                    />
+                  ) : (
+                    <span className="cursor-text" onDoubleClick={() => { setEditingGroupId(g.id); setGroupTitle(g.title); }} title="Double-click to rename">{g.title}</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/plate:opacity-100">
+                  <CopyId id={g.id} />
+                  <button onPointerDown={(e) => e.stopPropagation()} onClick={() => ungroup(g.id)} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" title="Delete group (notes stay)"><X className="h-3 w-3" /></button>
+                </div>
               </div>
+              {/* Resize handle */}
+              <div onPointerDown={(e) => onPlateResizePointerDown(e, g)} className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize rounded-br-xl border-b-2 border-r-2 border-muted-foreground/40 opacity-0 transition-opacity group-hover/plate:opacity-100" />
             </div>
           ))}
 
@@ -250,8 +309,7 @@ export function ThoughtsPage() {
                   crosses a dead zone (which would drop group-hover and hide it). */}
               <div className="absolute -top-9 right-0 hidden pb-2 group-hover:block">
                 <div className="flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5 shadow-sm">
-                  <IconBtn title="Color" onClick={() => { setPaletteFor(paletteFor === n.id ? null : n.id); setGroupMenuFor(null); }}><Palette className="h-3.5 w-3.5" /></IconBtn>
-                  <IconBtn title="Group" onClick={() => { setGroupMenuFor(groupMenuFor === n.id ? null : n.id); setPaletteFor(null); }}><Users className="h-3.5 w-3.5" /></IconBtn>
+                  <IconBtn title="Color" onClick={() => setPaletteFor(paletteFor === n.id ? null : n.id)}><Palette className="h-3.5 w-3.5" /></IconBtn>
                   <IconBtn title={n.pinned ? "Unpin" : "Pin"} onClick={() => togglePin(n)}>{n.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}</IconBtn>
                   <IconBtn title="Archive" onClick={() => archive(n.id)}><Archive className="h-3.5 w-3.5" /></IconBtn>
                   <IconBtn title="Delete" onClick={() => remove(n.id)}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
@@ -264,17 +322,6 @@ export function ThoughtsPage() {
                   {THOUGHT_COLORS.map((c) => (
                     <button key={c} onClick={() => setColor(n.id, c)} className={`h-4 w-4 rounded-full ${dotClass(c)} ${n.color === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
                   ))}
-                </div>
-              )}
-
-              {/* Group menu popover */}
-              {groupMenuFor === n.id && (
-                <div className="absolute -top-8 left-0 z-40 w-44 rounded-md border border-border bg-card p-1 text-sm shadow" onPointerDown={(e) => e.stopPropagation()}>
-                  {groups.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">No groups yet</div>}
-                  {groups.map((g) => (
-                    <button key={g.id} onClick={() => assignGroup(n.id, g.id)} className={`block w-full rounded px-2 py-1 text-left hover:bg-accent/60 ${n.groupId === g.id ? "font-medium" : ""}`}>{g.title}</button>
-                  ))}
-                  {n.groupId && <button onClick={() => assignGroup(n.id, null)} className="mt-1 block w-full rounded px-2 py-1 text-left text-muted-foreground hover:bg-accent/60">Remove from group</button>}
                 </div>
               )}
 
