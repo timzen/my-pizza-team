@@ -271,9 +271,10 @@ export function ThoughtsPage() {
           {/* Group plates (real rectangles; behind notes). Drag the header to
               move, the corner to resize; drop a note inside to add it. */}
           {groups.map((g) => (
-            <div key={g.id} className="group/plate absolute rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: g.x, top: g.y, width: g.w, height: g.h, zIndex: 0 }}>
-              {/* Header / move handle */}
-              <div onPointerDown={(e) => onPlatePointerDown(e, g)} className="absolute -top-7 left-0 right-0 flex cursor-move items-center justify-between gap-2">
+            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: g.x, top: g.y, width: g.w, height: g.h, zIndex: 0 }}>
+              {/* Header (title + controls). Bubbles to the plate for moving;
+                  the input/buttons stop propagation for their own actions. */}
+              <div className="absolute -top-7 left-0 right-0 flex items-center justify-between gap-2">
                 <div className="flex items-center gap-1 rounded bg-muted/80 px-1.5 py-0.5 text-xs font-medium text-muted-foreground">
                   <Users className="h-3 w-3 shrink-0" />
                   {editingGroupId === g.id ? (
