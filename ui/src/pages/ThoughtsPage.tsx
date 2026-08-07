@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
@@ -56,16 +56,20 @@ export function ThoughtsPage() {
   const [showArchived, setShowArchived] = useState(false);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
+  // Select mode: when on, a plain drag on empty canvas marquee-selects instead
+  // of panning (toggled by the toolbar lasso or the `S` key). Shift+drag always
+  // marquees regardless, so panning stays available.
+  const [selectMode, setSelectMode] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
   // Held in a ref so the window move/up listeners always see fresh values.
   const gesture = useRef<
     | { kind: "pan"; startX: number; startY: number; tx: number; ty: number; moved: boolean }
-    | { kind: "drag"; id: string; startX: number; startY: number; ox: number; oy: number; moved: boolean }
+    | { kind: "drag"; ids: string[]; startX: number; startY: number; starts: Array<{ id: string; x: number; y: number }>; moved: boolean }
     | { kind: "plate-move"; id: string; startX: number; startY: number; ox: number; oy: number; members: Array<{ id: string; x: number; y: number }> }
     | { kind: "plate-resize"; id: string; startX: number; startY: number; ow: number; oh: number }
-    | { kind: "marquee"; startWX: number; startWY: number; curWX: number; curWY: number }
+    | { kind: "marquee"; startWX: number; startWY: number; curWX: number; curWY: number; additive: boolean; base: Set<string> }
     | null
   >(null);
 
@@ -83,10 +87,10 @@ export function ThoughtsPage() {
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     setPaletteFor(null); setGroupMenuFor(null);
-    if (e.shiftKey) {
-      // Shift+drag on empty canvas = marquee select (plain drag still pans).
+    if (selectMode || e.shiftKey) {
+      // Marquee select. Shift is additive (keep the current selection as a base).
       const { wx, wy } = screenToWorld(e.clientX, e.clientY);
-      gesture.current = { kind: "marquee", startWX: wx, startWY: wy, curWX: wx, curWY: wy };
+      gesture.current = { kind: "marquee", startWX: wx, startWY: wy, curWX: wx, curWY: wy, additive: e.shiftKey, base: new Set(selected) };
       setMarquee({ x0: wx, y0: wy, x1: wx, y1: wy });
     } else {
       gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty, moved: false };
@@ -102,7 +106,11 @@ export function ThoughtsPage() {
       setSelected((s) => { const next = new Set(s); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next; });
       return;
     }
-    gesture.current = { kind: "drag", id: note.id, startX: e.clientX, startY: e.clientY, ox: note.x, oy: note.y, moved: false };
+    // Dragging a note that's part of a multi-selection moves the whole selection;
+    // otherwise just this note (a click without movement selects it alone).
+    const ids = selected.has(note.id) && selected.size > 1 ? [...selected] : [note.id];
+    const starts = notes.filter((n) => ids.includes(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y }));
+    gesture.current = { kind: "drag", ids, startX: e.clientX, startY: e.clientY, starts, moved: false };
   };
 
   // ─── Plate move / resize ───────────────────────────────────────────
@@ -134,7 +142,7 @@ export function ThoughtsPage() {
       } else if (g.kind === "drag") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) g.moved = true;
-        setNotes((ns) => ns.map((n) => (n.id === g.id ? { ...n, x: g.ox + dx, y: g.oy + dy } : n)));
+        setNotes((ns) => ns.map((n) => { const s = g.starts.find((ss) => ss.id === n.id); return s ? { ...n, x: s.x + dx, y: s.y + dy } : n; }));
       } else if (g.kind === "plate-move") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, x: g.ox + dx, y: g.oy + dy } : gr)));
@@ -159,12 +167,12 @@ export function ThoughtsPage() {
       if (g?.kind === "pan") {
         if (!g.moved) setSelected(new Set()); // a click on empty canvas clears selection
       } else if (g?.kind === "drag") {
-        const n = notes.find((x) => x.id === g.id);
-        if (!n) return;
         if (g.moved) {
-          apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
+          const ids = new Set(g.ids);
+          const moves = notes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }));
+          if (moves.length) apiPost("/api/thoughts/positions", { moves });
         } else {
-          setSelected(new Set([n.id])); // a click (no drag) selects just this note
+          setSelected(new Set([g.ids[0]])); // a click (no drag) selects just this note
         }
       } else if (g?.kind === "plate-move") {
         const gr = groups.find((x) => x.id === g.id);
@@ -180,7 +188,7 @@ export function ThoughtsPage() {
         const y0 = Math.min(g.startWY, g.curWY), y1 = Math.max(g.startWY, g.curWY);
         // Select notes whose rect intersects the marquee.
         const hit = notes.filter((n) => n.x < x1 && n.x + (n.w ?? NOTE_W) > x0 && n.y < y1 && n.y + (n.h ?? 140) > y0).map((n) => n.id);
-        setSelected(new Set(hit));
+        setSelected(g.additive ? new Set([...g.base, ...hit]) : new Set(hit));
         setMarquee(null);
       }
     };
@@ -240,6 +248,21 @@ export function ThoughtsPage() {
   const archive = async (id: string) => { await apiPost(`/api/thoughts/${id}/archive`, {}); refetch(); refetchArchived(); };
   const restore = async (id: string) => { await apiPost(`/api/thoughts/${id}/restore`, {}); refetch(); refetchArchived(); };
   const remove = async (id: string) => { await apiDelete(`/api/thoughts/${id}`); refetch(); refetchArchived(); };
+
+  // ─── Selection-scoped actions (keyboard + multi-select) ───────────────
+  const archiveSelected = async () => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    setSelected(new Set());
+    await Promise.all(ids.map((id) => apiPost(`/api/thoughts/${id}/archive`, {}).catch(() => {})));
+    refetch(); refetchArchived();
+  };
+  const colorSelected = async (color: string) => {
+    const ids = [...selected];
+    if (!ids.length) return;
+    setNotes((ns) => ns.map((n) => (selected.has(n.id) ? { ...n, color } : n)));
+    await Promise.all(ids.map((id) => apiPatch(`/api/thoughts/${id}`, { color }).catch(() => {})));
+  };
 
   // Toggle a checklist item inside a note (rewrites the markdown, persists).
   const toggleTask = async (n: Thought, index: number) => {
@@ -325,6 +348,32 @@ export function ThoughtsPage() {
   };
   const groupTitleById = (id: string) => groups.find((g) => g.id === id)?.title ?? "group";
 
+  // ─── Keyboard shortcuts ──────────────────────────────────────────
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      // Never hijack keys while typing in a note/title editor.
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (editingId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA") return;
+
+      if (e.key === "Escape") { setSelected(new Set()); setPaletteFor(null); setGroupMenuFor(null); return; }
+      // Zoom (with modifier).
+      if ((e.metaKey || e.ctrlKey) && e.key === "0") { e.preventDefault(); setView({ tx: 40, ty: 40, scale: 1 }); return; }
+      if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomBy(1.2); return; }
+      if ((e.metaKey || e.ctrlKey) && e.key === "-") { e.preventDefault(); zoomBy(1 / 1.2); return; }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+
+      if (e.key === "s" || e.key === "S") { setSelectMode((m) => !m); return; }
+      // Selection-scoped.
+      if (!selected.size) return;
+      if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); archiveSelected(); return; }
+      if (e.key === "g" || e.key === "G") { newGroup(); return; }
+      const n = Number(e.key);
+      if (Number.isInteger(n) && n >= 1 && n <= THOUGHT_COLORS.length) { colorSelected(THOUGHT_COLORS[n - 1]); return; }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [editingId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup]);
+
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
       {/* Toolbar */}
@@ -337,6 +386,9 @@ export function ThoughtsPage() {
         </button>
         <button onClick={tidy} title="Arrange notes into a grid (per group + ungrouped)" className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
           <LayoutGrid className="h-4 w-4" /> Tidy
+        </button>
+        <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${selectMode ? "bg-accent" : "bg-card"}`}>
+          <BoxSelect className="h-4 w-4" /> Select{selected.size ? ` (${selected.size})` : ""}
         </button>
         <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
           <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
@@ -361,7 +413,7 @@ export function ThoughtsPage() {
         ref={viewportRef}
         onPointerDown={onCanvasPointerDown}
         onWheel={onWheel}
-        className="h-full w-full cursor-grab bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:24px_24px] active:cursor-grabbing"
+        className={`h-full w-full bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:24px_24px] ${selectMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       >
         {/* Transformed world layer */}
         <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` }}>
