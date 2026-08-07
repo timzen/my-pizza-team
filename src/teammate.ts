@@ -54,6 +54,14 @@ export class TeammateLoop {
   /** Called when the agent is dismissed from the UI */
   public onDismissed: (() => void) | null = null;
 
+  /**
+   * Re-register this member with the daemon. Wired by setupTeammate. Invoked
+   * when a heartbeat reports the daemon doesn't know us (`reregister`) — e.g.
+   * after a daemon restart/upgrade wiped its in-memory members table — so a
+   * restart is transparent to a running teammate instead of shutting it down.
+   */
+  public reregister: (() => Promise<void>) | null = null;
+
   /** Expose a way for external code to toggle permissions */
   public setAutonomousPermissions: ((autonomous: boolean) => void) | null = null;
 
@@ -124,6 +132,10 @@ export class TeammateLoop {
       if (res.dismissed) {
         this.stop();
         if (this.onDismissed) this.onDismissed();
+      } else if (res.reregister) {
+        // The daemon forgot us (restart/upgrade) — re-register and keep working.
+        this.debugLog(`[ppt-debug] heartbeat: daemon asked to re-register (restart?) — re-registering`);
+        await this.reregister?.();
       }
     }, HEARTBEAT_INTERVAL_MS);
   }

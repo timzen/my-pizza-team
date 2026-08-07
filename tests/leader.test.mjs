@@ -70,8 +70,8 @@ test("config sync is a retryable function", () => {
   assert.ok(src.includes("configSynced = true"));
 });
 
-test("heartbeat retries config sync and re-registers when dismissed", () => {
-  assert.ok(src.includes("if (res.dismissed)"));
+test("heartbeat retries config sync and re-registers when dismissed or unknown", () => {
+  assert.ok(src.includes("if (res.dismissed || res.reregister)"));
   assert.ok(/if \(!configSynced\) \{\s*\n\s*try \{ await syncDaemonConfig\(\); \}/.test(src));
 });
 

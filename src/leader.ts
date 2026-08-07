@@ -165,8 +165,8 @@ export async function setupLeader(
       try { await syncDaemonConfig(); } catch { /* daemon still unreachable */ }
     }
     const res = await client.heartbeat("idle");
-    if (res.dismissed) {
-      // The daemon doesn't know us (e.g. it restarted) — re-register.
+    if (res.dismissed || res.reregister) {
+      // The daemon doesn't know us (it restarted, or forgot us) — re-register.
       configSynced = false;
       try { await syncDaemonConfig(); } catch { /* retry next beat */ }
     }

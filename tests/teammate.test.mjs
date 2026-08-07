@@ -178,6 +178,13 @@ test("dismisses itself when the daemon reports dismissal via heartbeat", () => {
   assert.ok(src.match(/res\.dismissed[\s\S]*?onDismissed/));
 });
 
+test("re-registers (not exit) when the daemon reports it's unknown (restart)", () => {
+  // A daemon restart/upgrade wipes the members table; the heartbeat then
+  // reports res.reregister, and the loop re-registers instead of shutting down.
+  assert.ok(src.includes("res.reregister"));
+  assert.ok(src.includes("this.reregister"));
+});
+
 // ─── Fresh session per work item (context hygiene) ────────────────
 
 test("exposes a requestFreshSession hook", () => {

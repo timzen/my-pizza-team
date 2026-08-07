@@ -370,14 +370,14 @@ export class DaemonClient {
    *
    * Never throws — safe for background intervals.
    */
-  async heartbeat(status: "idle" | "working" | "pairing", currentTask?: string): Promise<{ dismissed?: boolean }> {
+  async heartbeat(status: "idle" | "working" | "pairing", currentTask?: string): Promise<{ dismissed?: boolean; reregister?: boolean }> {
     try {
-      const res = await this.post<{ success: boolean; dismissed?: boolean }>("/api/agents/heartbeat", {
+      const res = await this.post<{ success: boolean; dismissed?: boolean; reregister?: boolean }>("/api/agents/heartbeat", {
         id: this.agentId,
         status,
         currentTask,
       });
-      return { dismissed: res.dismissed };
+      return { dismissed: res.dismissed, reregister: res.reregister };
     } catch {
       // Heartbeat failures are non-fatal — daemon may be temporarily unreachable
       return {};

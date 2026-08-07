@@ -375,6 +375,13 @@ async function setupTeammate(
     setTimeout(() => process.exit(0), 500);
   };
 
+  // Re-register when the daemon reports it doesn't know us (restart/upgrade),
+  // so an `mpt upgrade` or daemon restart doesn't shut down a running teammate.
+  loop.reregister = async () => {
+    await client.register({ name: memberId, directory: cwd, metadata: readTmuxMetadata(pi) }).catch(() => {});
+    if (ctx.hasUI) ctx.ui.notify("🍕 Reconnected to daemon (it had restarted).", "info");
+  };
+
   const updateWidget = () => {
     if (!ctx.hasUI || !loop.isAutonomous) return;
     if (loop.currentTask) {
