@@ -8,6 +8,7 @@ import { TeammateSidebar } from "./components/TeammateSidebar";
 import { RootPage } from "./pages/RootPage";
 import { BoardPage } from "./pages/BoardPage";
 import { ScratchpadPage } from "./pages/ScratchpadPage";
+import { ThoughtsPage } from "./pages/ThoughtsPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { ContextPage } from "./pages/ContextPage";
@@ -42,6 +43,7 @@ function App() {
               <Route path="/work-defs/new" element={<NewWorkDefPage />} />
               <Route path="/work-defs/:id" element={<WorkDefDetailPage />} />
               <Route path="/scratchpad" element={<ScratchpadPage />} />
+              <Route path="/thoughts" element={<ThoughtsPage />} />
               <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
               <Route path="/story/:id" element={<StoryDetailPage />} />
               <Route path="/stories/new" element={<NewStoryPage />} />
