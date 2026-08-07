@@ -8,8 +8,9 @@
 //                          list_context, queue_request, team_status
 //   - registerTeammateTools: upload_attachment
 //   - registerAssistantTools: send_message, create_story, edit_story, add_task,
-//                             list_workflows, list_context, queue_request,
-//                             read_scratchpad
+//                             create_task, create_schedule, list_workflows,
+//                             list_context, queue_request, list_thought_groups,
+//                             list_thoughts, get_thought
 //
 // Note: story/task creation can attach context-library entries via the
 // `context` parameter; list_context surfaces the available entry ids. The
@@ -123,10 +124,14 @@ export function registerAssistantTools(
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
+  registerCreateTask(pi, client);
+  registerCreateSchedule(pi, client);
   registerListWorkflows(pi, client);
   registerListContext(pi, client);
   registerQueueRequest(pi, client);
-  registerReadScratchpad(pi, client);
+  registerListThoughtGroups(pi, client);
+  registerListThoughts(pi, client);
+  registerGetThought(pi, client);
 }
 
 // ─── send_message (assistant chat bubbles) ────────────────────────────
@@ -336,33 +341,166 @@ function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
 
 // ─── read_scratchpad ──────────────────────────────────────────
 
-function registerReadScratchpad(pi: ExtensionAPI, client: DaemonClient): void {
+// ─── create_task (standalone Solitary work) ───────────────────────────
+
+function registerCreateTask(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "read_scratchpad",
-    label: "Read Scratch Pad",
-    description: "Read the user's personal scratch pad: their todo list and free-form notes. Use this when the user asks you to look at their scratch pad, todos, or notes (e.g. to help plan their day).",
-    promptSnippet: "Read the user's scratch pad (todos + notes)",
+    name: "create_task",
+    label: "Create Task",
+    description:
+      "Create a standalone one-off task (a Solitary WorkDef). It is enqueued immediately and, when a teammate " +
+      "finishes it, lands in the user's Inbox. Use this for a single unit of work that doesn't belong to a story " +
+      "(e.g. turning a thought into an actionable task).",
+    promptSnippet: "Create a standalone one-off task",
     promptGuidelines: [
-      "Use read_scratchpad when the user references their scratch pad, todos, or notes.",
-      "It's read-only — summarize or help act on what you find; you can't modify it.",
+      "Use create_task for a single actionable item; use create_story + add_task when work needs multiple sequential steps.",
+      "Write goal as a complete prompt the teammate can execute autonomously; put concrete, checkable acceptance criteria in acceptanceCriteria.",
+      "Pass directory when the work targets a specific repo/folder so a teammate biased there picks it up.",
+    ],
+    parameters: Type.Object({
+      title: Type.String({ description: "Short title for the task" }),
+      goal: Type.String({ description: "Full task description/prompt for autonomous execution" }),
+      acceptanceCriteria: Type.Optional(Type.String({ description: "Checkable done criteria (markdown list; RFC-2119 MUST/SHOULD encouraged)" })),
+      additionalContext: Type.Optional(Type.String({ description: "Any extra background the teammate should have" })),
+      directory: Type.Optional(Type.String({ description: "Working directory the task targets (e.g. '~/Workspace/proj')" })),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string; directory?: string };
+      const res = await client.createWorkDef({ title: p.title, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, additionalContext: p.additionalContext, directory: p.directory });
+      if (!res.success) throw new Error(res.error || "Failed to create task");
+      return {
+        content: [{ type: "text", text: `Created task "${p.title}" (${res.workDef?.id}) — enqueued; it'll appear in the Inbox when done.` }],
+        details: { workDefId: res.workDef?.id },
+      };
+    },
+  });
+}
+
+// ─── create_schedule (recurring job) ──────────────────────────────────
+
+function registerCreateSchedule(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "create_schedule",
+    label: "Create Schedule",
+    description:
+      "Create a recurring scheduled job: a WorkDef that the daemon enqueues on a 5-field cron. Use this when the " +
+      "user wants work to run on a schedule (e.g. 'every weekday at 9am, summarize my open thoughts').",
+    promptSnippet: "Create a recurring scheduled job (cron)",
+    promptGuidelines: [
+      "Confirm the cadence with the user and translate it to a standard 5-field cron (MIN HOUR DOM MON DOW).",
+      "goal is the prompt the teammate runs each time; keep it self-contained since each run starts fresh.",
+    ],
+    parameters: Type.Object({
+      title: Type.String({ description: "Short title for the scheduled job" }),
+      cron: Type.String({ description: "5-field cron expression, e.g. '0 9 * * 1-5' for weekdays at 9am" }),
+      goal: Type.String({ description: "The prompt the teammate executes on each run" }),
+      acceptanceCriteria: Type.Optional(Type.String({ description: "Checkable done criteria for each run" })),
+      directory: Type.Optional(Type.String({ description: "Working directory the job targets" })),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { title: string; cron: string; goal: string; acceptanceCriteria?: string; directory?: string };
+      const res = await client.createWorkDef({ type: "Scheduled", title: p.title, cron: p.cron, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, directory: p.directory });
+      if (!res.success) throw new Error(res.error || "Failed to create schedule");
+      return {
+        content: [{ type: "text", text: `Created scheduled job "${p.title}" on cron \`${p.cron}\`.` }],
+        details: { workDefId: res.workDef?.id },
+      };
+    },
+  });
+}
+
+// ─── Thoughts (read the user's sticky-note workspace) ─────────────────
+
+function registerListThoughtGroups(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "list_thought_groups",
+    label: "List Thought Groups",
+    description:
+      "List the groups on the user's Thoughts board (their sticky-note workspace). Use this to resolve a group the " +
+      "user names (e.g. 'the Q3 group') to its id before reading its notes with list_thoughts.",
+    promptSnippet: "List the user's thought groups",
+    promptGuidelines: [
+      "Use list_thought_groups when the user refers to a group by name so you can find its id.",
     ],
     parameters: Type.Object({}),
     async execute(_toolCallId, _params) {
       try {
-        const { todos, notes } = await client.getScratchpad();
-        const open = todos.filter((t) => t.status !== "done");
-        const done = todos.filter((t) => t.status === "done");
-        const fmt = (t: { item: string; created: string; completed: string }) => `- ${t.item}`;
-        let text = "# Scratch Pad\n\n## Todos\n";
-        text += open.length > 0 ? `\n### Open\n${open.map(fmt).join("\n")}\n` : "\n(no open todos)\n";
-        if (done.length > 0) text += `\n### Done\n${done.map(fmt).join("\n")}\n`;
-        text += `\n## Notes\n\n${notes.trim() || "(empty)"}\n`;
+        const { groups } = await client.listThoughts();
+        if (groups.length === 0) return { content: [{ type: "text", text: "No thought groups." }] };
         return {
-          content: [{ type: "text", text }],
-          details: { openCount: open.length, doneCount: done.length },
+          content: [{ type: "text", text: `Thought groups:\n${groups.map((g) => `- ${g.title} (${g.id})`).join("\n")}` }],
+          details: { groups },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to read the scratch pad (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to list thought groups (daemon unreachable)." }] };
+      }
+    },
+  });
+}
+
+function registerListThoughts(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "list_thoughts",
+    label: "List Thoughts",
+    description:
+      "Read the user's Thoughts board: their markdown sticky notes. Optionally filter to one group (groupId) to read " +
+      "just that cluster. This is the assistant's window into the user's captured ideas — read them to help turn them " +
+      "into work (a story/task/schedule). Read-only.",
+    promptSnippet: "Read the user's thoughts (optionally by group)",
+    promptGuidelines: [
+      "When the user says 'look at the thoughts in group X and help me create a task', resolve X with list_thought_groups, then list_thoughts with that groupId, then propose the work.",
+      "It's read-only. Don't invent notes; work from what's there. Note ids let you cite specifics with get_thought.",
+    ],
+    parameters: Type.Object({
+      groupId: Type.Optional(Type.String({ description: "Only return notes in this group (from list_thought_groups)" })),
+      includeArchived: Type.Optional(Type.Boolean({ description: "Include archived notes (default false)" })),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { groupId?: string; includeArchived?: boolean };
+      try {
+        const { thoughts, groups } = await client.listThoughts(p.includeArchived ? undefined : "active");
+        let notes = thoughts;
+        if (p.groupId) notes = notes.filter((t) => t.groupId === p.groupId);
+        if (notes.length === 0) return { content: [{ type: "text", text: p.groupId ? "No notes in that group." : "No thoughts on the board." }] };
+        const titleOf = (id: string | null) => groups.find((g) => g.id === id)?.title;
+        const fmt = (t: typeof notes[number]) => {
+          const g = t.groupId ? ` [${titleOf(t.groupId) ?? t.groupId}]` : "";
+          const pin = t.pinned ? " 📌" : "";
+          return `### ${t.id}${g}${pin}\n${t.content.trim() || "(empty)"}`;
+        };
+        return {
+          content: [{ type: "text", text: `${notes.length} thought(s):\n\n${notes.map(fmt).join("\n\n")}` }],
+          details: { count: notes.length, ids: notes.map((t) => t.id) },
+        };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to read thoughts (daemon unreachable)." }] };
+      }
+    },
+  });
+}
+
+function registerGetThought(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "get_thought",
+    label: "Get Thought",
+    description: "Read one sticky note by id (from list_thoughts). Use when the user references a specific note or you need its full content.",
+    promptSnippet: "Read one thought by id",
+    promptGuidelines: ["Use get_thought to pull the full content of a specific note before acting on it."],
+    parameters: Type.Object({
+      id: Type.String({ description: "The thought id (e.g. 'th-1786...')" }),
+    }),
+    async execute(_toolCallId, params) {
+      const id = (params as { id: string }).id;
+      try {
+        const res = await client.getThought(id);
+        if (!res.success || !res.thought) return { content: [{ type: "text", text: `Thought "${id}" not found.` }] };
+        const t = res.thought;
+        return {
+          content: [{ type: "text", text: `# ${t.id}${t.pinned ? " 📌" : ""}\nstatus: ${t.status}\n\n${t.content.trim() || "(empty)"}` }],
+          details: { thought: t },
+        };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to read the thought (daemon unreachable)." }] };
       }
     },
   });

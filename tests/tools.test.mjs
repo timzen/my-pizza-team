@@ -73,8 +73,10 @@ test("has team_status tool", () => {
   assert.ok(src.includes('name: "team_status"'));
 });
 
-test("has read_scratchpad tool", () => {
-  assert.ok(src.includes('name: "read_scratchpad"'));
+test("has thought-reading tools (list_thoughts / get_thought / list_thought_groups)", () => {
+  assert.ok(src.includes('name: "list_thoughts"'));
+  assert.ok(src.includes('name: "get_thought"'));
+  assert.ok(src.includes('name: "list_thought_groups"'));
 });
 
 test("has upload_attachment tool", () => {
@@ -134,9 +136,14 @@ test("registerAssistantTools includes list_workflows and list_context (read-only
   assert.ok(assistantFn.includes("registerListContext"));
 });
 
-test("registerAssistantTools includes read_scratchpad", () => {
+test("registerAssistantTools includes thought-reading tools + create_task/create_schedule (not read_scratchpad)", () => {
   const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// TOOL IMPLEMENTATIONS"));
-  assert.ok(assistantFn.includes("registerReadScratchpad"));
+  assert.ok(assistantFn.includes("registerListThoughts"));
+  assert.ok(assistantFn.includes("registerGetThought"));
+  assert.ok(assistantFn.includes("registerListThoughtGroups"));
+  assert.ok(assistantFn.includes("registerCreateTask"));
+  assert.ok(assistantFn.includes("registerCreateSchedule"));
+  assert.ok(!assistantFn.includes("registerReadScratchpad"));
 });
 
 test("registerAssistantTools does NOT include team_status", () => {

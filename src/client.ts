@@ -117,6 +117,22 @@ export interface ContextEntry {
   updatedAt: string;
 }
 
+/** A Thoughts-board sticky note (see the daemon's Thought type). */
+export interface Thought {
+  id: string;
+  content: string;
+  color: string;
+  status: "active" | "archived";
+  pinned: boolean;
+  groupId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A named group of thoughts. */
+export interface ThoughtGroup { id: string; title: string; }
+
 /** A workflow summary from GET /api/workflows. */
 export interface WorkflowSummary {
   name: string;
@@ -551,11 +567,30 @@ export class DaemonClient {
   }
 
   /**
-   * Read the user's scratch pad (todo list + notes doc). Read-only: the
-   * assistant looks at it when the user asks (e.g. "help me plan my day").
+   * Read the user's Thoughts board (markdown sticky notes) + groups. Read-only:
+   * the assistant reads notes — often by group — to help turn them into work
+   * (a story/task/schedule). Optional status filter (active|archived).
    */
-  async getScratchpad(): Promise<{ todos: Array<{ status: string; item: string; created: string; completed: string }>; notes: string }> {
-    return this.get("/api/scratchpad");
+  async listThoughts(status?: string): Promise<{ thoughts: Thought[]; groups: ThoughtGroup[] }> {
+    const q = status ? `?status=${encodeURIComponent(status)}` : "";
+    return this.get(`/api/thoughts${q}`);
+  }
+
+  /** Read a single thought by id. */
+  async getThought(id: string): Promise<{ success: boolean; thought?: Thought; error?: string }> {
+    return this.get(`/api/thoughts/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Create a standalone WorkDef. Solitary by default (enqueued immediately so it
+   * lands in the Inbox when done); pass `type: "Scheduled"` + `cron` to create a
+   * recurring job instead. This is how the assistant turns thoughts into work.
+   */
+  async createWorkDef(body: {
+    title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string;
+    directory?: string; contextRefs?: string[]; type?: "Solitary" | "Scheduled"; cron?: string; enqueue?: boolean;
+  }): Promise<{ success: boolean; workDef?: { id: string; title: string }; error?: string }> {
+    return this.post("/api/work-defs", body);
   }
 
   /**
