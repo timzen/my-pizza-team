@@ -334,6 +334,55 @@ export const WORKDEFS_DIR = "tasks";
 /** Directory holding cron Schedule files (`schedules/<id>.json`). */
 export const SCHEDULES_DIR = "schedules";
 
+/** Directory holding thought notes (`thoughts/<id>.md`); groups live in `groups.json`. */
+export const THOUGHTS_DIR = "thoughts";
+export const THOUGHT_GROUPS_FILE = "groups.json";
+
+/**
+ * A thought: a markdown sticky note on the Thoughts canvas (a personal
+ * workspace/outbox that feeds the assistant). Ported/simplified from the
+ * standalone "Thoughts" product: two-state lifecycle (active⇄archived, direct
+ * delete allowed), pinning as an orthogonal flag (not a state), and no
+ * auto-sweeps. Stored as `thoughts/<id>.md` with frontmatter; the markdown
+ * body is the note content. Canvas geometry (x/y/w/h/z) rides the frontmatter
+ * and is flushed to disk debounced (dirty-flag), while content edits flush
+ * promptly. See docs/ARCHITECTURE.md "Thoughts".
+ */
+export type ThoughtStatus = "active" | "archived";
+
+export interface Thought {
+  id: string;
+  /** Markdown note body. */
+  content: string;
+  /** A color key from the fixed palette (see THOUGHT_COLORS). */
+  color: string;
+  status: ThoughtStatus;
+  /** World coordinates (zoom/pan independent). */
+  x: number;
+  y: number;
+  /** null until the user explicitly resizes (auto-sized otherwise). */
+  w: number | null;
+  h: number | null;
+  zIndex: number;
+  pinned: boolean;
+  /** id of the ThoughtGroup this note belongs to (exclusive), or null. */
+  groupId: string | null;
+  createdBy: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+/** A named group of thoughts (a spatial container). Title only — membership
+ * lives on each note's `groupId` (the note file is the source of truth). */
+export interface ThoughtGroup {
+  id: string;
+  title: string;
+}
+
+/** The fixed note palette (the lighter canvas drops the 16-key superset). */
+export const THOUGHT_COLORS = ["yellow", "blue", "green", "pink", "purple", "orange"] as const;
+export const DEFAULT_THOUGHT_COLOR = "yellow";
+
 /** Generate a URL-safe slug from a title (max 40 chars) */
 export function slugify(text: string): string {
   return text
