@@ -17,7 +17,6 @@ const NAV_ITEMS = [
   { path: "/board", label: "Board", prefixes: ["/backlog", "/archived", "/workflows", "/story", "/stories", "/task"] },
   { path: "/tasks", label: "Tasks", prefixes: [] },
   { path: "/schedule", label: "Schedule", prefixes: ["/work-defs"] },
-  { path: "/thoughts", label: "Thoughts", prefixes: [] },
   { path: "/context", label: "Context", prefixes: [] },
 ];
 

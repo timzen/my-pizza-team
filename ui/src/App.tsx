@@ -7,7 +7,6 @@ import { NavBar } from "./components/NavBar";
 import { TeammateSidebar } from "./components/TeammateSidebar";
 import { RootPage } from "./pages/RootPage";
 import { BoardPage } from "./pages/BoardPage";
-import { ThoughtsPage } from "./pages/ThoughtsPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { ContextPage } from "./pages/ContextPage";
@@ -35,13 +34,13 @@ function App() {
             <Routes>
               <Route path="/" element={<RootPage />} />
               <Route path="/assistant" element={<RootPage />} />
+              <Route path="/thoughts" element={<RootPage />} />
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />
               <Route path="/tasks" element={<TasksPage />} />
               <Route path="/schedule" element={<SchedulePage />} />
               <Route path="/work-defs/new" element={<NewWorkDefPage />} />
               <Route path="/work-defs/:id" element={<WorkDefDetailPage />} />
-              <Route path="/thoughts" element={<ThoughtsPage />} />
               <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
               <Route path="/story/:id" element={<StoryDetailPage />} />
               <Route path="/stories/new" element={<NewStoryPage />} />
