@@ -380,7 +380,7 @@ export function ThoughtsPage() {
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (editingId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA") return;
 
-      if (e.key === "Escape") { setSelected(new Set()); setPaletteFor(null); setGroupMenuFor(null); return; }
+      if (e.key === "Escape") { setSelected(new Set()); setNoteMenuFor(null); setPlatePaintFor(null); return; }
       // Zoom (with modifier).
       if ((e.metaKey || e.ctrlKey) && e.key === "0") { e.preventDefault(); setView({ tx: 40, ty: 40, scale: 1 }); return; }
       if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomBy(1.2); return; }
