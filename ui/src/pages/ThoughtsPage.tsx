@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
@@ -60,6 +60,7 @@ export function ThoughtsPage() {
   // of panning (toggled by the toolbar lasso or the `S` key). Shift+drag always
   // marquees regardless, so panning stays available.
   const [selectMode, setSelectMode] = useState(false);
+  const [minimapOn, setMinimapOn] = useState(false);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
@@ -363,6 +364,7 @@ export function ThoughtsPage() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === "s" || e.key === "S") { setSelectMode((m) => !m); return; }
+      if (e.key === "m" || e.key === "M") { setMinimapOn((m) => !m); return; }
       // Selection-scoped.
       if (!selected.size) return;
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); archiveSelected(); return; }
@@ -389,6 +391,9 @@ export function ThoughtsPage() {
         </button>
         <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${selectMode ? "bg-accent" : "bg-card"}`}>
           <BoxSelect className="h-4 w-4" /> Select{selected.size ? ` (${selected.size})` : ""}
+        </button>
+        <button onClick={() => setMinimapOn((m) => !m)} title="Minimap (M)" className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${minimapOn ? "bg-accent" : "bg-card"}`}>
+          <MapIcon className="h-4 w-4" />
         </button>
         <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
           <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
@@ -557,6 +562,13 @@ export function ThoughtsPage() {
         </div>
       </div>
 
+      {/* Minimap (bottom-left; M toggles) */}
+      {minimapOn && <Minimap notes={notes} view={view} viewportRef={viewportRef} onRecenter={(wx, wy) => {
+        const r = viewportRef.current?.getBoundingClientRect();
+        const vpW = r?.width ?? 800, vpH = r?.height ?? 600;
+        setView((v) => ({ ...v, tx: vpW / 2 - wx * v.scale, ty: vpH / 2 - wy * v.scale }));
+      }} />}
+
       {/* Archived drawer */}
       {showArchived && (
         <div className="absolute right-0 top-0 z-30 flex h-full w-80 flex-col border-l border-border bg-card shadow-lg">
@@ -588,8 +600,7 @@ export function ThoughtsPage() {
   );
 }
 
-function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {
-  return (
+function IconBtn({ children, title, onClick }: { children: React.ReactNode; title: string; onClick: () => void }) {  return (
     <button title={title} onClick={onClick} onPointerDown={(e) => e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent/60 hover:text-foreground">
       {children}
     </button>
@@ -613,5 +624,53 @@ function CopyId({ id }: { id: string }) {
       {copied ? <Check className="h-2.5 w-2.5" /> : <Hash className="h-2.5 w-2.5" />}
       {copied ? "copied" : id}
     </button>
+  );
+}
+
+/** A small orientation minimap (bottom-left): note dots + the current viewport
+ *  rectangle over the board's extent. Click/drag to recenter the view. */
+function Minimap({ notes, view, viewportRef, onRecenter }: {
+  notes: Thought[];
+  view: { tx: number; ty: number; scale: number };
+  viewportRef: React.RefObject<HTMLDivElement | null>;
+  onRecenter: (wx: number, wy: number) => void;
+}) {
+  const MMW = 192, MMH = 128, PAD = 40;
+  const r = viewportRef.current?.getBoundingClientRect();
+  const vpW = r?.width ?? 800, vpH = r?.height ?? 600;
+  // Current viewport in world coords.
+  const vwx0 = (0 - view.tx) / view.scale, vwy0 = (0 - view.ty) / view.scale;
+  const vwx1 = (vpW - view.tx) / view.scale, vwy1 = (vpH - view.ty) / view.scale;
+  // Board extent = notes ∪ viewport (+ padding), so the viewport is always shown.
+  let minX = vwx0, minY = vwy0, maxX = vwx1, maxY = vwy1;
+  for (const n of notes) {
+    minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
+    maxX = Math.max(maxX, n.x + (n.w ?? NOTE_W)); maxY = Math.max(maxY, n.y + (n.h ?? 140));
+  }
+  minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
+  const extW = Math.max(1, maxX - minX), extH = Math.max(1, maxY - minY);
+  const s = Math.min(MMW / extW, MMH / extH);
+  const mx = (wx: number) => (wx - minX) * s;
+  const my = (wy: number) => (wy - minY) * s;
+
+  const recenterFrom = (e: React.PointerEvent) => {
+    const box = e.currentTarget.getBoundingClientRect();
+    onRecenter(minX + (e.clientX - box.left) / s, minY + (e.clientY - box.top) / s);
+  };
+
+  return (
+    <div
+      className="absolute bottom-4 left-4 z-30 overflow-hidden rounded-md border border-border bg-card/90 shadow-sm"
+      style={{ width: MMW, height: MMH }}
+      onPointerDown={(e) => { e.preventDefault(); recenterFrom(e); }}
+      onPointerMove={(e) => { if (e.buttons === 1) recenterFrom(e); }}
+      title="Minimap — click to jump"
+    >
+      {notes.map((n) => (
+        <div key={n.id} className="absolute rounded-[1px] bg-muted-foreground/50" style={{ left: mx(n.x), top: my(n.y), width: Math.max(2, (n.w ?? NOTE_W) * s), height: Math.max(2, (n.h ?? 140) * s) }} />
+      ))}
+      {/* Viewport rectangle */}
+      <div className="absolute border border-primary bg-primary/10" style={{ left: mx(vwx0), top: my(vwy0), width: (vwx1 - vwx0) * s, height: (vwy1 - vwy0) * s }} />
+    </div>
   );
 }
