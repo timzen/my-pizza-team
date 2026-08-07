@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
@@ -280,6 +280,34 @@ export function ThoughtsPage() {
   };
   const ungroup = async (groupId: string) => { await apiDelete(`/api/thought-groups/${groupId}`); refetch(); };
 
+  // Tidy: lay every group's notes out in a grid anchored at the group's
+  // top-left (the plate auto-wraps them), and grid the ungrouped notes in
+  // place. One batched position write.
+  const tidy = async () => {
+    const GAP = 20, COL_W = NOTE_W + GAP, ROW_H = 200;
+    const moves: Array<{ id: string; x: number; y: number }> = [];
+    const place = (list: Thought[], originX: number, originY: number, cols: number) => {
+      list.forEach((n, i) => {
+        moves.push({ id: n.id, x: Math.round(originX + (i % cols) * COL_W), y: Math.round(originY + Math.floor(i / cols) * ROW_H) });
+      });
+    };
+    for (const g of groups) {
+      const members = notes.filter((n) => n.groupId === g.id);
+      if (!members.length) continue;
+      place(members, g.x + 16, g.y + 16, Math.max(1, Math.min(4, Math.ceil(Math.sqrt(members.length)))));
+    }
+    const ungrouped = notes.filter((n) => !n.groupId);
+    if (ungrouped.length) {
+      const ox = Math.min(...ungrouped.map((n) => n.x));
+      const oy = Math.min(...ungrouped.map((n) => n.y));
+      place(ungrouped, ox, oy, Math.max(1, Math.min(6, Math.ceil(Math.sqrt(ungrouped.length)))));
+    }
+    if (!moves.length) return;
+    const byId = new Map(moves.map((m) => [m.id, m]));
+    setNotes((ns) => ns.map((n) => { const m = byId.get(n.id); return m ? { ...n, x: m.x, y: m.y } : n; }));
+    await apiPost("/api/thoughts/positions", { moves });
+  };
+
   // Membership is explicit (via a note's Group menu), not spatial — assigning
   // never depends on where a note happens to sit. null removes it from a group.
   const assignGroup = async (id: string, groupId: string | null) => {
@@ -298,6 +326,9 @@ export function ThoughtsPage() {
         </button>
         <button onClick={newGroup} title={selected.size > 0 ? `New group with ${selected.size} selected note(s)` : "New empty group"} className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
           <FolderPlus className="h-4 w-4" /> {selected.size > 0 ? `Group ${selected.size}` : "Group"}
+        </button>
+        <button onClick={tidy} title="Arrange notes into a grid (per group + ungrouped)" className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
+          <LayoutGrid className="h-4 w-4" /> Tidy
         </button>
         <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
           <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
