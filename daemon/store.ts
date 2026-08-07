@@ -1739,7 +1739,9 @@ export class Store {
 
   // --- Archive ---
 
-  private generateSynopsis(destPath: string, story: Story & { dirPath: string }, tasks: TaskWithMeta[], archivedAt: string): void {
+  /** Build the archive SYNOPSIS markdown for a story (stored inline in the
+   * flat archived json). */
+  private buildSynopsis(story: Story, tasks: TaskWithMeta[], archivedAt: string): string {
     const date = archivedAt.split("T")[0];
     const lines: string[] = [
       `# ${story.title}`,
@@ -1754,13 +1756,9 @@ export class Store {
       "## Tasks",
       "",
     ];
-
-    for (const task of tasks) {
-      lines.push(`- ${task.title}`);
-    }
+    for (const task of tasks) lines.push(`- ${task.title}`);
     lines.push("");
-
-    Deno.writeTextFileSync(path.join(destPath, "SYNOPSIS.md"), lines.join("\n"));
+    return lines.join("\n");
   }
 
   /** Remove all task-related data from SQLite (assignments, comments, token_usage, task row) */
@@ -1797,11 +1795,12 @@ export class Store {
       throw new Error(`Cannot delete story "${storyId}": ${activeTasks.length} task(s) are currently assigned`);
     }
 
+    // Delete the story's child task WorkDefs (tasks/<id>/), then the flat story
+    // file (stories/<id>.json), then its SQLite rows.
+    for (const t of tasks) deleteWorkDef(this.teamDir, t.id);
     this.removeStoryFromDb(storyId);
-
-    if (story.dirPath && existsSync(story.dirPath)) {
-      Deno.removeSync(story.dirPath, { recursive: true });
-    }
+    const file = this.storyFile(storyId);
+    if (existsSync(file)) Deno.removeSync(file);
 
     return true;
   }
@@ -1822,33 +1821,20 @@ export class Store {
 
     const archivedDir = path.join(this.teamDir, "archived");
     Deno.mkdirSync(archivedDir, { recursive: true });
-
-    const sourcePath = story.dirPath;
-    const destPath = path.join(archivedDir, storyId);
     const archivedAt = new Date().toISOString();
+    const tasks = this.getTasksForStory(storyId);
 
-    if (existsSync(sourcePath)) {
-      Deno.renameSync(sourcePath, destPath);
-
-      // Update story.json with archivedAt timestamp
-      const storyFile = path.join(destPath, "story.json");
-      if (existsSync(storyFile)) {
-        const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
-        storyData.archivedAt = archivedAt;
-        Deno.writeTextFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
-      }
-
-      // Generate SYNOPSIS.md
-      const tasks = this.getTasksForStory(storyId);
-      this.generateSynopsis(destPath, story, tasks, archivedAt);
-    } else {
-      // Source directory missing — create a minimal archive entry
-      Deno.mkdirSync(destPath, { recursive: true });
-      const tasks = this.getTasksForStory(storyId);
-      const storyData = { id: storyId, title: story.title, description: story.description, status: "done", archivedAt };
-      Deno.writeTextFileSync(path.join(destPath, "story.json"), JSON.stringify(storyData, null, 2) + "\n");
-      this.generateSynopsis(destPath, story, tasks, archivedAt);
-    }
+    // Flat model: write archived/<id>.json (story fields + archivedAt + an
+    // inline synopsis). The child task WorkDefs stay in tasks/ (hidden once the
+    // story leaves stories/); getArchivedStoryContext reads them back by id.
+    const src = this.storyFile(storyId);
+    const data = existsSync(src)
+      ? JSON.parse(Deno.readTextFileSync(src)) as Record<string, unknown>
+      : serializeStory(story) as unknown as Record<string, unknown>;
+    data.archivedAt = archivedAt;
+    data.synopsis = this.buildSynopsis(story, tasks, archivedAt);
+    Deno.writeTextFileSync(path.join(archivedDir, `${storyId}.json`), JSON.stringify(data, null, 2) + "\n");
+    if (existsSync(src)) Deno.removeSync(src);
 
     this.removeStoryFromDb(storyId);
   }
@@ -1859,54 +1845,32 @@ export class Store {
 
     const results: Array<{ id: string; title: string; synopsis: string }> = [];
     for (const entry of Deno.readDirSync(archivedDir)) {
-      if (!entry.isDirectory) continue;
-      const dirPath = path.join(archivedDir, entry.name);
-      const storyFile = path.join(dirPath, "story.json");
-      if (!existsSync(storyFile)) continue;
-
-      const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
-
-      let synopsis = storyData.description || "";
-      const synopsisFile = path.join(dirPath, "SYNOPSIS.md");
-      if (existsSync(synopsisFile)) {
-        synopsis = Deno.readTextFileSync(synopsisFile);
-      }
-
-      results.push({ id: storyData.id, title: storyData.title, synopsis });
+      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+      try {
+        const data = JSON.parse(Deno.readTextFileSync(path.join(archivedDir, entry.name)));
+        results.push({ id: data.id, title: data.title, synopsis: data.synopsis || data.description || "" });
+      } catch { /* skip malformed */ }
     }
     return results;
   }
 
   getArchivedStoryContext(storyId: string): { story: Record<string, unknown>; tasks: Record<string, unknown>[]; comments: Record<string, Comment[]> } | null {
-    const archivedDir = path.join(this.teamDir, "archived", storyId);
-    if (!existsSync(archivedDir)) return null;
+    const file = path.join(this.teamDir, "archived", `${storyId}.json`);
+    if (!existsSync(file)) return null;
 
-    const storyFile = path.join(archivedDir, "story.json");
-    if (!existsSync(storyFile)) return null;
-
-    const story = JSON.parse(Deno.readTextFileSync(storyFile));
+    const story = JSON.parse(Deno.readTextFileSync(file));
     const tasks: Record<string, unknown>[] = [];
     const comments: Record<string, Comment[]> = {};
 
-    const tasksDir = path.join(archivedDir, "tasks");
-    if (existsSync(tasksDir)) {
-      const taskDirs = [...Deno.readDirSync(tasksDir)]
-        .filter((e) => e.isDirectory)
-        .sort((a, b) => a.name.localeCompare(b.name));
-
-      for (const taskEntry of taskDirs) {
-        const taskDirPath = path.join(tasksDir, taskEntry.name);
-        const taskFile = path.join(taskDirPath, "task.json");
-        if (!existsSync(taskFile)) continue;
-
-        const task = JSON.parse(Deno.readTextFileSync(taskFile));
-        tasks.push(task);
-
-        const commentsFile = path.join(taskDirPath, "comments.jsonl");
-        if (existsSync(commentsFile)) {
-          const lines = Deno.readTextFileSync(commentsFile).split("\n").filter(Boolean);
-          comments[task.id] = lines.map((line: string) => JSON.parse(line) as Comment);
-        }
+    // The archived story lists its task ids; their WorkDefs + comments still
+    // live under tasks/<id>/ (flat model doesn't move them on archive).
+    for (const t of (story.tasks as Array<{ id: string; status: string }> | undefined) ?? []) {
+      const def = getWorkDef(this.teamDir, t.id);
+      if (def) tasks.push({ id: def.id, title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria, status: t.status });
+      const commentsFile = path.join(workDefDir(this.teamDir, t.id), "comments.jsonl");
+      if (existsSync(commentsFile)) {
+        const lines = Deno.readTextFileSync(commentsFile).split("\n").filter(Boolean);
+        comments[t.id] = lines.map((line: string) => JSON.parse(line) as Comment);
       }
     }
 
@@ -1950,19 +1914,12 @@ export class Store {
     Deno.mkdirSync(backlogDir, { recursive: true });
 
     for (const id of toMove) {
-      const s = this.getStory(id);
-      if (!s) continue;
-
-      const sourcePath = s.dirPath;
-      const destPath = path.join(backlogDir, id);
-
-      Deno.renameSync(sourcePath, destPath);
-
-      const storyFile = path.join(destPath, "story.json");
-      const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
-      storyData.backloggedAt = new Date().toISOString();
-      Deno.writeTextFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
-
+      const src = this.storyFile(id);
+      if (!existsSync(src)) continue;
+      const data = JSON.parse(Deno.readTextFileSync(src)) as Record<string, unknown>;
+      data.backloggedAt = new Date().toISOString();
+      Deno.writeTextFileSync(path.join(backlogDir, `${id}.json`), JSON.stringify(data, null, 2) + "\n");
+      Deno.removeSync(src);
       this.removeStoryFromDb(id);
     }
 
@@ -1971,22 +1928,15 @@ export class Store {
 
   /** Move a story from backlog back to active stories. */
   moveFromBacklog(storyId: string): void {
-    const backlogDir = path.join(this.teamDir, "backlog");
-    const sourcePath = path.join(backlogDir, storyId);
-    if (!existsSync(sourcePath)) {
+    const src = path.join(this.teamDir, "backlog", `${storyId}.json`);
+    if (!existsSync(src)) {
       throw new Error(`Story "${storyId}" not found in backlog`);
     }
-
-    const storiesDir = path.join(this.teamDir, "stories");
-    const destPath = path.join(storiesDir, storyId);
-
-    const storyFile = path.join(sourcePath, "story.json");
-    const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
-    delete storyData.backloggedAt;
-    Deno.writeTextFileSync(storyFile, JSON.stringify(storyData, null, 2) + "\n");
-
-    Deno.renameSync(sourcePath, destPath);
-
+    const data = JSON.parse(Deno.readTextFileSync(src)) as Record<string, unknown>;
+    delete data.backloggedAt;
+    Deno.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
+    Deno.writeTextFileSync(this.storyFile(storyId), JSON.stringify(data, null, 2) + "\n");
+    Deno.removeSync(src);
     this.loadFromDisk();
   }
 
@@ -1997,18 +1947,17 @@ export class Store {
 
     const results: Array<{ id: string; title: string; description: string; dependsOn: string[]; backloggedAt?: string }> = [];
     for (const entry of Deno.readDirSync(backlogDir)) {
-      if (!entry.isDirectory) continue;
-      const storyFile = path.join(backlogDir, entry.name, "story.json");
-      if (!existsSync(storyFile)) continue;
-
-      const storyData = JSON.parse(Deno.readTextFileSync(storyFile));
-      results.push({
-        id: storyData.id,
-        title: storyData.title,
-        description: storyData.description || "",
-        dependsOn: storyData.dependsOn || [],
-        backloggedAt: storyData.backloggedAt,
-      });
+      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+      try {
+        const data = JSON.parse(Deno.readTextFileSync(path.join(backlogDir, entry.name)));
+        results.push({
+          id: data.id,
+          title: data.title,
+          description: data.description || "",
+          dependsOn: data.dependsOn || [],
+          backloggedAt: data.backloggedAt,
+        });
+      } catch { /* skip malformed */ }
     }
     return results;
   }

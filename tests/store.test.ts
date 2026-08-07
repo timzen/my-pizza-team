@@ -514,10 +514,13 @@ Deno.test("Store: delete story removes from DB and disk", () => {
     store.createStory("del-test", "DT", "Delete", "open", [], [{ title: "T1", description: "D1" }]);
     const story = store.getStory("del-test");
     assertExists(story);
+    const taskId = store.getTasksForStory("del-test")[0]!.id;
     assertEquals(store.deleteStory("del-test"), true);
     assertEquals(store.getStory("del-test"), null);
-    const exists = (() => { try { Deno.statSync(story.dirPath); return true; } catch { return false; } })();
-    assertEquals(exists, false);
+    // Flat story file and the child task WorkDef dir are both gone.
+    const gone = (p: string) => { try { Deno.statSync(p); return false; } catch { return true; } };
+    assertEquals(gone(path.join(teamDir, "stories", "del-test.json")), true);
+    assertEquals(gone(path.join(teamDir, "tasks", taskId)), true);
     store.close();
   } finally { cleanupDir(teamDir); }
 });
@@ -549,3 +552,44 @@ Deno.test("Store: editing a board task via updateWorkDefDetails syncs the tasks 
     store.close();
   } finally { cleanupDir(teamDir); }
 });
+
+Deno.test("Store: backlog/restore + archive + delete use flat story files (not dirPath)", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    store.createStory("s-a", "A", "desc a", "open", [], [{ title: "T1", description: "d" }], "default", undefined, false);
+    store.createStory("s-b", "B", "desc b", "open", [], [{ title: "T1", description: "d" }], "default", undefined, false);
+
+    // Backlog s-a: its flat file moves to backlog/, board no longer lists it,
+    // and the OTHER story's file is untouched (regression: dirPath was the
+    // whole stories/ dir, so this used to move/lose everything).
+    store.moveToBacklog("s-a");
+    assertEquals(store.getStory("s-a"), null);
+    assertEquals(store.getStory("s-b")!.id, "s-b"); // sibling survived
+    assertEquals(Deno.statSync(path.join(teamDir, "stories", "s-b.json")).isFile, true);
+    assertEquals(store.getBacklogStories().map((s) => s.id), ["s-a"]);
+
+    // Restore brings it back to the active board.
+    store.moveFromBacklog("s-a");
+    assertEquals(store.getStory("s-a")!.id, "s-a");
+    assertEquals(store.getBacklogStories().length, 0);
+
+    // Archive s-b (mark its task done first).
+    const bTask = store.getTasksForStory("s-b")[0]!;
+    store.moveTask(bTask.id, "done");
+    store.archiveStory("s-b");
+    assertEquals(store.getStory("s-b"), null);
+    assertEquals(store.getArchivedStories().map((s) => s.id), ["s-b"]);
+    assertEquals(Deno.statSync(path.join(teamDir, "archived", "s-b.json")).isFile, true);
+
+    // Delete s-a: flat file gone, sibling data intact.
+    store.deleteStory("s-a");
+    assertEquals(store.getStory("s-a"), null);
+    assertEquals(existsSyncTest(path.join(teamDir, "stories", "s-a.json")), false);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+function existsSyncTest(p: string): boolean {
+  try { Deno.statSync(p); return true; } catch { return false; }
+}
