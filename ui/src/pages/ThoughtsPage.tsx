@@ -12,14 +12,14 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
+import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 
 interface Thought {
   id: string; content: string; color: string; status: "active" | "archived";
   x: number; y: number; w: number | null; h: number | null; zIndex: number;
   pinned: boolean; groupId: string | null; createdBy: string; createdAt: string; updatedAt: string;
 }
-interface ThoughtGroup { id: string; title: string; x: number; y: number; w: number; h: number; }
+interface ThoughtGroup { id: string; title: string; x: number; y: number; w: number; h: number; groupColor: string | null; plateOpacity: "subtle" | "medium" | "solid"; }
 interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
 const NOTE_W = 220;
@@ -60,6 +60,7 @@ export function ThoughtsPage() {
   const [editText, setEditText] = useState("");
   const [paletteFor, setPaletteFor] = useState<string | null>(null);
   const [groupMenuFor, setGroupMenuFor] = useState<string | null>(null);
+  const [platePaintFor, setPlatePaintFor] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupTitle, setGroupTitle] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -99,7 +100,7 @@ export function ThoughtsPage() {
   // ─── Pan / marquee (drag on empty canvas) ─────────────────────────
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    setPaletteFor(null); setGroupMenuFor(null);
+    setPaletteFor(null); setGroupMenuFor(null); setPlatePaintFor(null);
     if (selectMode || e.shiftKey) {
       // Marquee select. Shift is additive (keep the current selection as a base).
       const { wx, wy } = screenToWorld(e.clientX, e.clientY);
@@ -316,6 +317,19 @@ export function ThoughtsPage() {
   };
   const ungroup = async (groupId: string) => { await apiDelete(`/api/thought-groups/${groupId}`); refetch(); };
 
+  const setGroupColor = async (id: string, groupColor: string | null) => {
+    setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, groupColor } : g)));
+    await apiPatch(`/api/thought-groups/${id}`, { groupColor });
+  };
+  const cyclePlateOpacity = async (id: string) => {
+    const order = ["subtle", "medium", "solid"] as const;
+    const g = groups.find((x) => x.id === id);
+    if (!g) return;
+    const next = order[(order.indexOf(g.plateOpacity) + 1) % order.length];
+    setGroups((gs) => gs.map((x) => (x.id === id ? { ...x, plateOpacity: next } : x)));
+    await apiPatch(`/api/thought-groups/${id}`, { plateOpacity: next });
+  };
+
   // Tidy: lay every group's notes out in a grid and shrink the plate to fit;
   // grid the ungrouped notes in place. Groups stay anchored at their current
   // top-left. One batched note-position write + a geometry update per group.
@@ -453,7 +467,7 @@ export function ThoughtsPage() {
             }
             const rect = { left, top, width: right - left, height: bottom - top };
             return (
-            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 0 }}>
+            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 0, ...plateTintStyle(g.groupColor, g.plateOpacity) }}>
               {/* Header (title + controls). Bubbles to the plate for moving;
                   the input/buttons stop propagation for their own actions. */}
               <div className="absolute -top-7 left-0 right-0 flex items-center justify-between gap-2">
@@ -474,10 +488,21 @@ export function ThoughtsPage() {
                   )}
                 </div>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/plate:opacity-100">
+                  <button onPointerDown={(e) => e.stopPropagation()} onClick={() => setPlatePaintFor(platePaintFor === g.id ? null : g.id)} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" title="Plate color"><Palette className="h-3 w-3" /></button>
                   <CopyId id={g.id} />
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => ungroup(g.id)} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" title="Delete group (notes stay)"><X className="h-3 w-3" /></button>
                 </div>
               </div>
+              {/* Plate color/opacity popover */}
+              {platePaintFor === g.id && (
+                <div className="absolute -top-9 right-0 z-40 flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow" onPointerDown={(e) => e.stopPropagation()}>
+                  {THOUGHT_COLORS.map((c) => (
+                    <button key={c} onClick={() => setGroupColor(g.id, c)} className={`h-4 w-4 rounded-full ${dotClass(c)} ${g.groupColor === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
+                  ))}
+                  <button onClick={() => setGroupColor(g.id, null)} className="rounded p-0.5 text-muted-foreground hover:bg-accent/60" title="No tint"><X className="h-3.5 w-3.5" /></button>
+                  <button onClick={() => cyclePlateOpacity(g.id)} className="ml-1 rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/60" title="Cycle plate opacity">{g.plateOpacity}</button>
+                </div>
+              )}
               {memberCount === 0 && (
                 <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/50">Empty group — add notes with a note's ⌘ Group menu</div>
               )}

@@ -33,3 +33,22 @@ export function noteClass(color: string): string {
 export function dotClass(color: string): string {
   return DOT_CLASSES[color] ?? DOT_CLASSES.yellow;
 }
+
+/** Hex per palette color (≈Tailwind 500), for inline group-plate tints. */
+export const COLOR_HEX: Record<string, string> = {
+  yellow: "#eab308", blue: "#3b82f6", green: "#22c55e", pink: "#ec4899", purple: "#a855f7", orange: "#f97316",
+};
+
+function hexA(hex: string, a: number): string {
+  const h = hex.replace("#", "");
+  return `rgba(${parseInt(h.slice(0, 2), 16)}, ${parseInt(h.slice(2, 4), 16)}, ${parseInt(h.slice(4, 6), 16)}, ${a})`;
+}
+
+/** Inline style for a group plate tinted by `color` at the given opacity step
+ *  (empty when no color → the caller's neutral default classes apply). */
+export function plateTintStyle(color: string | null, opacity: "subtle" | "medium" | "solid"): { backgroundColor?: string; borderColor?: string } {
+  if (!color || !COLOR_HEX[color]) return {};
+  const fill = { subtle: 0.08, medium: 0.16, solid: 0.28 }[opacity];
+  const border = { subtle: 0.35, medium: 0.5, solid: 0.7 }[opacity];
+  return { backgroundColor: hexA(COLOR_HEX[color], fill), borderColor: hexA(COLOR_HEX[color], border) };
+}

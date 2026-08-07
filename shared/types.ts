@@ -383,7 +383,13 @@ export interface ThoughtGroup {
   y: number;
   w: number;
   h: number;
+  /** Manual plate tint: a THOUGHT_COLORS key, or null for the neutral default. */
+  groupColor: string | null;
+  /** Plate fill strength. */
+  plateOpacity: "subtle" | "medium" | "solid";
 }
+
+export const PLATE_OPACITIES = ["subtle", "medium", "solid"] as const;
 
 /** Default plate size for a newly created group. */
 export const DEFAULT_GROUP_SIZE = { w: 360, h: 260 };
