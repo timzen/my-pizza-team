@@ -54,32 +54,54 @@ export function ThoughtsPage() {
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupTitle, setGroupTitle] = useState("");
   const [showArchived, setShowArchived] = useState(false);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [marquee, setMarquee] = useState<{ x0: number; y0: number; x1: number; y1: number } | null>(null);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
   // Held in a ref so the window move/up listeners always see fresh values.
   const gesture = useRef<
-    | { kind: "pan"; startX: number; startY: number; tx: number; ty: number }
+    | { kind: "pan"; startX: number; startY: number; tx: number; ty: number; moved: boolean }
     | { kind: "drag"; id: string; startX: number; startY: number; ox: number; oy: number; moved: boolean }
     | { kind: "plate-move"; id: string; startX: number; startY: number; ox: number; oy: number; members: Array<{ id: string; x: number; y: number }> }
     | { kind: "plate-resize"; id: string; startX: number; startY: number; ow: number; oh: number }
+    | { kind: "marquee"; startWX: number; startWY: number; curWX: number; curWY: number }
     | null
   >(null);
 
   // ─── World ⇄ screen ────────────────────────────────────────────────
   const screenToWorldDelta = useCallback((dx: number, dy: number) => ({ dx: dx / view.scale, dy: dy / view.scale }), [view.scale]);
+  // Absolute world coords under a screen point (for marquee hit-testing).
+  const screenToWorld = useCallback((clientX: number, clientY: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const ox = rect ? clientX - rect.left : clientX;
+    const oy = rect ? clientY - rect.top : clientY;
+    return { wx: (ox - view.tx) / view.scale, wy: (oy - view.ty) / view.scale };
+  }, [view]);
 
-  // ─── Pan (drag on empty canvas) ────────────────────────────────────
+  // ─── Pan / marquee (drag on empty canvas) ─────────────────────────
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
     setPaletteFor(null); setGroupMenuFor(null);
-    gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty };
+    if (e.shiftKey) {
+      // Shift+drag on empty canvas = marquee select (plain drag still pans).
+      const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+      gesture.current = { kind: "marquee", startWX: wx, startWY: wy, curWX: wx, curWY: wy };
+      setMarquee({ x0: wx, y0: wy, x1: wx, y1: wy });
+    } else {
+      gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty, moved: false };
+    }
   };
 
-  // ─── Note drag ─────────────────────────────────────────────────────
+  // ─── Note drag / select ────────────────────────────────────────────
   const onNotePointerDown = (e: React.PointerEvent, note: Thought) => {
     if (e.button !== 0 || editingId === note.id) return;
     e.stopPropagation();
+    if (e.shiftKey) {
+      // Shift-click toggles the note in the selection (no drag).
+      setSelected((s) => { const next = new Set(s); if (next.has(note.id)) next.delete(note.id); else next.add(note.id); return next; });
+      return;
+    }
     gesture.current = { kind: "drag", id: note.id, startX: e.clientX, startY: e.clientY, ox: note.x, oy: note.y, moved: false };
   };
 
@@ -106,7 +128,9 @@ export function ThoughtsPage() {
       const g = gesture.current;
       if (!g) return;
       if (g.kind === "pan") {
-        setView((v) => ({ ...v, tx: g.tx + (e.clientX - g.startX), ty: g.ty + (e.clientY - g.startY) }));
+        const dxs = e.clientX - g.startX, dys = e.clientY - g.startY;
+        if (Math.abs(dxs) > 2 || Math.abs(dys) > 2) g.moved = true;
+        setView((v) => ({ ...v, tx: g.tx + dxs, ty: g.ty + dys }));
       } else if (g.kind === "drag") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         if (Math.abs(dx) > 2 || Math.abs(dy) > 2) g.moved = true;
@@ -114,7 +138,6 @@ export function ThoughtsPage() {
       } else if (g.kind === "plate-move") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, x: g.ox + dx, y: g.oy + dy } : gr)));
-        // Carry member notes along, preserving their relative layout.
         if (g.members.length) {
           setNotes((ns) => ns.map((n) => {
             const m = g.members.find((mm) => mm.id === n.id);
@@ -124,30 +147,47 @@ export function ThoughtsPage() {
       } else if (g.kind === "plate-resize") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, w: Math.max(MIN_GROUP_W, g.ow + dx), h: Math.max(MIN_GROUP_H, g.oh + dy) } : gr)));
+      } else if (g.kind === "marquee") {
+        const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+        g.curWX = wx; g.curWY = wy;
+        setMarquee({ x0: g.startWX, y0: g.startWY, x1: wx, y1: wy });
       }
     };
     const onUp = () => {
       const g = gesture.current;
       gesture.current = null;
-      if (g?.kind === "drag" && g.moved) {
+      if (g?.kind === "pan") {
+        if (!g.moved) setSelected(new Set()); // a click on empty canvas clears selection
+      } else if (g?.kind === "drag") {
         const n = notes.find((x) => x.id === g.id);
-        if (n) apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
+        if (!n) return;
+        if (g.moved) {
+          apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
+        } else {
+          setSelected(new Set([n.id])); // a click (no drag) selects just this note
+        }
       } else if (g?.kind === "plate-move") {
         const gr = groups.find((x) => x.id === g.id);
         if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { x: Math.round(gr.x), y: Math.round(gr.y) });
-        // Persist the member notes that moved with the plate.
         const ids = new Set(g.members.map((m) => m.id));
         const moves = notes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }));
         if (moves.length) apiPost("/api/thoughts/positions", { moves });
       } else if (g?.kind === "plate-resize") {
         const gr = groups.find((x) => x.id === g.id);
         if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { w: Math.round(gr.w), h: Math.round(gr.h) });
+      } else if (g?.kind === "marquee") {
+        const x0 = Math.min(g.startWX, g.curWX), x1 = Math.max(g.startWX, g.curWX);
+        const y0 = Math.min(g.startWY, g.curWY), y1 = Math.max(g.startWY, g.curWY);
+        // Select notes whose rect intersects the marquee.
+        const hit = notes.filter((n) => n.x < x1 && n.x + (n.w ?? NOTE_W) > x0 && n.y < y1 && n.y + (n.h ?? 140) > y0).map((n) => n.id);
+        setSelected(new Set(hit));
+        setMarquee(null);
       }
     };
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", onUp);
     return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
-  }, [notes, groups, screenToWorldDelta]);
+  }, [notes, groups, screenToWorldDelta, screenToWorld]);
 
   // ─── Zoom (wheel, anchored at cursor) ──────────────────────────────
   const onWheel = (e: React.WheelEvent) => {
@@ -210,11 +250,25 @@ export function ThoughtsPage() {
   };
 
   const newGroup = async () => {
-    // Place the new plate centered in the current viewport.
-    const rect = viewportRef.current?.getBoundingClientRect();
-    const cx = rect ? (rect.width / 2 - view.tx) / view.scale : 0;
-    const cy = rect ? (rect.height / 2 - view.ty) / view.scale : 0;
-    const res = await apiPost<{ group: ThoughtGroup }>("/api/thought-groups", { title: "New Group", x: Math.round(cx - 180), y: Math.round(cy - 130) });
+    const memberIds = [...selected];
+    let x: number, y: number, w: number | undefined, h: number | undefined;
+    if (memberIds.length) {
+      // Wrap the selected notes' bounding box so the plate encapsulates them.
+      const sel = notes.filter((n) => selected.has(n.id));
+      const pad = 28;
+      const minX = Math.min(...sel.map((n) => n.x)) - pad;
+      const minY = Math.min(...sel.map((n) => n.y)) - pad;
+      const maxX = Math.max(...sel.map((n) => n.x + (n.w ?? NOTE_W))) + pad;
+      const maxY = Math.max(...sel.map((n) => n.y + (n.h ?? 140))) + pad;
+      x = Math.round(minX); y = Math.round(minY); w = Math.round(maxX - minX); h = Math.round(maxY - minY);
+    } else {
+      // Empty group: place centered in the current viewport.
+      const rect = viewportRef.current?.getBoundingClientRect();
+      x = Math.round((rect ? (rect.width / 2 - view.tx) / view.scale : 0) - 180);
+      y = Math.round((rect ? (rect.height / 2 - view.ty) / view.scale : 0) - 130);
+    }
+    const res = await apiPost<{ group: ThoughtGroup }>("/api/thought-groups", { title: "New Group", x, y, w, h, memberIds });
+    setSelected(new Set());
     await refetch();
     if (res.group) { setEditingGroupId(res.group.id); setGroupTitle(res.group.title); }
   };
@@ -242,8 +296,8 @@ export function ThoughtsPage() {
         <button onClick={createNote} className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
           <Plus className="h-4 w-4" /> Note
         </button>
-        <button onClick={newGroup} className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
-          <FolderPlus className="h-4 w-4" /> Group
+        <button onClick={newGroup} title={selected.size > 0 ? `New group with ${selected.size} selected note(s)` : "New empty group"} className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
+          <FolderPlus className="h-4 w-4" /> {selected.size > 0 ? `Group ${selected.size}` : "Group"}
         </button>
         <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
           <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
@@ -329,7 +383,7 @@ export function ThoughtsPage() {
             <div
               key={n.id}
               onPointerDown={(e) => onNotePointerDown(e, n)}
-              className={`group absolute rounded-lg border shadow-sm ${noteClass(n.color)} ${n.pinned ? "ring-2 ring-offset-1 ring-amber-400/70" : ""}`}
+              className={`group absolute rounded-lg border shadow-sm ${noteClass(n.color)} ${n.pinned ? "ring-2 ring-offset-1 ring-amber-400/70" : ""} ${selected.has(n.id) ? "outline outline-2 outline-primary outline-offset-2" : ""}`}
               style={{ left: n.x, top: n.y, width: n.w ?? NOTE_W, minHeight: 80, zIndex: (n.zIndex || 1) + 1 }}
             >
               {/* Hover toolbar. Wrapped with bottom padding that overlaps the
@@ -401,6 +455,14 @@ export function ThoughtsPage() {
               )}
             </div>
           ))}
+
+          {/* Marquee selection rectangle (shift+drag on empty canvas) */}
+          {marquee && (
+            <div
+              className="pointer-events-none absolute rounded border-2 border-primary/60 bg-primary/10"
+              style={{ left: Math.min(marquee.x0, marquee.x1), top: Math.min(marquee.y0, marquee.y1), width: Math.abs(marquee.x1 - marquee.x0), height: Math.abs(marquee.y1 - marquee.y0), zIndex: 50 }}
+            />
+          )}
         </div>
       </div>
 
