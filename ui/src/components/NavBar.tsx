@@ -8,7 +8,7 @@
 import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, Pause, Play, HelpCircle, NotebookPen } from "lucide-react";
+import { Pizza, Settings, Pause, Play, HelpCircle } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 /** Primary nav items always visible in the bar */
@@ -51,17 +51,6 @@ export function NavBar() {
         <div className="flex items-center gap-1">
 
           <PauseButton />
-          <Link
-            to="/scratchpad"
-            className={`p-2 rounded-md transition-colors ${
-              location.pathname === "/scratchpad"
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            }`}
-            title="Scratch Pad"
-          >
-            <NotebookPen className="h-4 w-4" />
-          </Link>
           <Link
             to="/help"
             className={`p-2 rounded-md transition-colors ${
