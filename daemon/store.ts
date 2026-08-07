@@ -1101,21 +1101,21 @@ export class Store {
   }
 
   /**
-   * Agent-facing terminal transition (the single state-setter). A `result`
-   * summary, if given, is posted as a completion comment on the ref (unified
-   * for board + standalone). COMPLETE on a board task advances it; FAILED
-   * leaves it stuck. Returns the resulting task position for board tasks.
+   * Agent-facing terminal transition (the single state-setter). COMPLETE on a
+   * board task advances it; FAILED leaves it stuck. The daemon posts NO comment
+   * — the agent composes its own completion/failure comment (via the comment
+   * routes) before setting state. Returns the resulting task position for board
+   * tasks.
    */
-  setWorkItemState(id: string, state: "COMPLETE" | "FAILED", result?: string): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
+  setWorkItemState(id: string, state: "COMPLETE" | "FAILED"): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
     const item = this.getWorkItem(id);
     if (!item) return { ok: false, error: "WorkItem not found" };
     if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
       return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
     }
     this.setWorkItemStateRow(id, state);
-    if (result && result.trim()) {
-      this.addCommentForRef(item.ref, item.memberId || "agent", result.trim());
-    }
+    // The daemon posts nothing: the agent composes its own completion/failure
+    // comment (see the teammate loop / fail tool) before calling this.
     if (this.getTask(item.ref.workDefId)) {
       this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
       if (state === "COMPLETE") {
