@@ -52,7 +52,7 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 
 ## Navigation
 
-The nav bar has four destinations, plus scratch-pad/help/config/theme icons:
+The nav bar has four destinations, plus help/config/theme icons:
 
 - **Board** — story swimlanes; sub-tabs for Backlog, Archive, and Workflows.
 - **Tasks** — standalone Solitary WorkDefs.
@@ -177,15 +177,15 @@ Tag a context entry with **`persona`** to make it a swappable assistant persona.
 
 ---
 
-## Scratch Pad
+## Thoughts
 
-A personal space (the notebook icon in the navbar) — a todo list on the left and free-form notes on the right.
+A personal workspace — the **Thoughts** tab on the home page (alongside Inbox and Assistant). An infinite canvas of markdown sticky notes you can pan, zoom, drag, color, pin, and group.
 
-- **Todos** — add, check off (stamps a completion date), delete. Stored in `todo.jsonl`.
-- **Notes** — free-form markdown with edit/preview; saves on blur. Stored in `notes.md`.
-- **Assistant access** — the assistant can *read* your scratch pad on request ("take a look at my scratch pad and help me plan my day"). Read-only.
+- **Capture** — hit **+ Note** and write markdown; checklists (`- [ ] task`) render as checkboxes you can tick right on the note.
+- **Organize** — drag notes around, group related ones (they get a labeled, tintable plate), pin the important ones, **Tidy** to grid-arrange, archive what's done. Select mode (`S`) or shift+drag marquee-selects; `Delete` archives, `1–6` recolor, `G` groups, `M` toggles the minimap.
+- **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
-Both files live at the root of the team directory as plain text — easy to hand-edit or grep.
+Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatter) — easy to hand-edit or grep; groups are in `groups.json`.
 
 ---
 
