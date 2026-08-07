@@ -45,7 +45,6 @@ import {
 } from "../shared/types.ts";
 import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
-import { readScratchpad, addTodo, updateTodo, deleteTodo, writeNotes, type TodoItem } from "./store/scratchpad.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
@@ -2720,28 +2719,6 @@ export class Store {
       if (entry) resolved.push({ title: entry.title, content: entry.content });
     }
     return resolved;
-  }
-
-  // --- Scratch pad (personal todos + notes; see store/scratchpad.ts) ---
-
-  getScratchpad(): { todos: TodoItem[]; notes: string } {
-    return readScratchpad(this.teamDir);
-  }
-
-  addScratchpadTodo(item: string): TodoItem[] {
-    return addTodo(this.teamDir, item);
-  }
-
-  updateScratchpadTodo(index: number, updates: { status?: "open" | "done"; item?: string }): TodoItem[] | null {
-    return updateTodo(this.teamDir, index, updates);
-  }
-
-  deleteScratchpadTodo(index: number): TodoItem[] | null {
-    return deleteTodo(this.teamDir, index);
-  }
-
-  setScratchpadNotes(content: string): void {
-    writeNotes(this.teamDir, content);
   }
 
   // --- Cleanup ---

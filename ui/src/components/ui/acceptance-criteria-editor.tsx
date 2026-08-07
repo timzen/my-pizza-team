@@ -1,6 +1,6 @@
 /**
  * AcceptanceCriteriaEditor — Build acceptance criteria as a running list of
- * items (like the scratchpad's "Add a todo…") instead of one free-text blob.
+ * items (add-as-you-go, like a checklist) instead of one free-text blob.
  *
  * Round-trips a markdown bullet list: the `value` is markdown (e.g.
  * "- The API MUST …\n- It SHOULD …") and `onChange` emits the same, so it drops
