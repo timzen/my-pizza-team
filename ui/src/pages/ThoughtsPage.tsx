@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Pin, PinOff, Trash2, Archive, ArchiveRestore, Users, X, FolderPlus, Palette } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, Users, X, FolderPlus, Palette } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
@@ -106,6 +106,17 @@ export function ThoughtsPage() {
     });
   };
 
+  // Button zoom: anchor on the viewport center so the view stays put.
+  const zoomBy = (factor: number) => {
+    const rect = viewportRef.current?.getBoundingClientRect();
+    const cx = rect ? rect.width / 2 : 0, cy = rect ? rect.height / 2 : 0;
+    setView((v) => {
+      const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, v.scale * factor));
+      const k = next / v.scale;
+      return { scale: next, tx: cx - (cx - v.tx) * k, ty: cy - (cy - v.ty) * k };
+    });
+  };
+
   // ─── Mutations ─────────────────────────────────────────────────────
   const createNote = async () => {
     // Place near the current viewport center so a new note lands in view.
@@ -176,14 +187,18 @@ export function ThoughtsPage() {
         </button>
       </div>
 
-      {/* Zoom readout / reset */}
-      <button
-        onClick={() => setView({ tx: 40, ty: 40, scale: 1 })}
-        className="absolute right-4 top-4 z-30 rounded-md border border-border bg-card px-2.5 py-1 text-xs text-muted-foreground shadow-sm hover:bg-accent/50"
-        title="Reset view"
-      >
-        {Math.round(view.scale * 100)}%
-      </button>
+      {/* Zoom controls: −  NN% (reset)  + */}
+      <div className="absolute right-4 top-4 z-30 flex items-center rounded-md border border-border bg-card shadow-sm">
+        <button onClick={() => zoomBy(1 / 1.2)} className="rounded-l-md px-2 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Zoom out">
+          <Minus className="h-4 w-4" />
+        </button>
+        <button onClick={() => setView({ tx: 40, ty: 40, scale: 1 })} className="min-w-[3rem] border-x border-border px-1 py-1 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Reset view">
+          {Math.round(view.scale * 100)}%
+        </button>
+        <button onClick={() => zoomBy(1.2)} className="rounded-r-md px-2 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Zoom in">
+          <Plus className="h-4 w-4" />
+        </button>
+      </div>
 
       {/* Canvas viewport */}
       <div
