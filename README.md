@@ -126,8 +126,10 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`create_story`** — Create stories from prompts
 - **`edit_story`** — Edit stories
 - **`add_task`** — Add tasks to stories
+- **`create_task`** — Create a standalone one-off task (Solitary WorkDef); enqueued, lands in the Inbox when done
+- **`create_schedule`** — Create a recurring scheduled job (Scheduled WorkDef on a cron)
 - **`queue_request`** — Delegate sub-requests
-- **`read_scratchpad`** — Read the user's scratch pad (todos + notes) on request; read-only
+- **`list_thought_groups`** / **`list_thoughts`** / **`get_thought`** — Read the user's Thoughts board (markdown sticky notes), optionally by group, so the assistant can turn captured ideas into work; read-only
 
 > The context library is **vended by the daemon** where needed (e.g. the assistant's
 > persona system prompt) — agents don't search or CRUD context through tools.

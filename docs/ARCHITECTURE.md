@@ -202,6 +202,14 @@ planner can pick a valid workflow and choose which context to attach before
 creating anything. Agents still never create or edit context entries — those
 are authored in the UI/daemon.
 
+The assistant also bridges the **Thoughts** board into work: `list_thought_groups`,
+`list_thoughts` (optionally by `groupId`), and `get_thought` read the user's
+sticky-note workspace (read-only), while `create_task` (Solitary WorkDef) and
+`create_schedule` (Scheduled WorkDef on a cron) turn what it finds into work
+that flows to the Inbox. Notes stay decoupled from tasks (no linkedTaskId) —
+the assistant reads and produces; it never mutates the board. This replaced the
+old `read_scratchpad` tool.
+
 ### Assistant Conversation
 | Route | Method | Purpose |
 |-------|--------|---------|
@@ -210,7 +218,8 @@ are authored in the UI/daemon.
 | `/api/assistant/messages/:id/say` | POST | Append one chat bubble to the active turn (the `send_message` tool; call repeatedly to batch) |
 | `/api/assistant/messages/:id/complete` | POST | Close the turn (`result` is a fallback bubble used only if none were sent) |
 | `/api/assistant/persona` | GET | Effective system prompt (daemon-vended: chat framing + selected persona or default) |
-| `/api/scratchpad` | GET | Read the user's scratch pad (todos + notes) for the read_scratchpad tool |
+| `/api/thoughts` | GET | Read the user's Thoughts board + groups for the list_thoughts / get_thought tools |
+| `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools |
 
 ### Spawn / Config
 | Route | Method | Purpose |
