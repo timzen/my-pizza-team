@@ -27,6 +27,7 @@ import { registerScheduleRoutes } from "./routes/schedules.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
 import { registerContextRoutes } from "./routes/context.ts";
 import { registerScratchpadRoutes } from "./routes/scratchpad.ts";
+import { registerThoughtRoutes } from "./routes/thoughts.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -69,6 +70,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerAssistantRoutes(ctx);
   registerContextRoutes(ctx);
   registerScratchpadRoutes(ctx);
+  registerThoughtRoutes(ctx);
 
   return app;
 }

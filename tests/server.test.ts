@@ -257,3 +257,85 @@ Deno.test("POST/GET agent comments roundtrip (by work item)", async () => {
     assertEquals(store.getComments("s1-1").length, 1);
   } finally { cleanup(teamDir, store); }
 });
+
+// ─── Thoughts board ──────────────────────────────────────────────────
+
+Deno.test("Thoughts API: create, list, patch, archive, delete", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    // Create
+    const created = await (await app.request("/api/thoughts", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ content: "idea one", color: "blue" }),
+    })).json();
+    assertEquals(created.success, true);
+    assertEquals(created.thought.content, "idea one");
+    const id = created.thought.id;
+
+    // List (active default)
+    const list = await (await app.request("/api/thoughts")).json();
+    assertEquals(list.thoughts.length, 1);
+    assertEquals(Array.isArray(list.groups), true);
+
+    // Patch content + pin
+    const patched = await (await app.request(`/api/thoughts/${id}`, {
+      method: "PATCH", headers: JSON_HEADERS,
+      body: JSON.stringify({ content: "idea one (edited)", pinned: true }),
+    })).json();
+    assertEquals(patched.thought.pinned, true);
+    assertEquals(patched.thought.content, "idea one (edited)");
+
+    // Archive → excluded from active list
+    await app.request(`/api/thoughts/${id}/archive`, { method: "POST" });
+    const activeOnly = await (await app.request("/api/thoughts?status=active")).json();
+    assertEquals(activeOnly.thoughts.length, 0);
+
+    // Delete (direct)
+    const del = await app.request(`/api/thoughts/${id}`, { method: "DELETE" });
+    assertEquals(del.status, 200);
+    assertEquals(store.getThought(id), null);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("Thoughts API: x/y must be provided together", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const res = await app.request("/api/thoughts", {
+      method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "x", x: 10 }),
+    });
+    assertEquals(res.status, 400);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("Thoughts API: batch positions + groups", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const a = (await (await app.request("/api/thoughts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "a" }) })).json()).thought;
+    const b = (await (await app.request("/api/thoughts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "b" }) })).json()).thought;
+
+    // Batch move
+    const moved = await (await app.request("/api/thoughts/positions", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ moves: [{ id: a.id, x: 5, y: 6 }, { id: b.id, x: 7, y: 8 }] }),
+    })).json();
+    assertEquals(moved.updated.length, 2);
+
+    // Create a group with members
+    const grp = await (await app.request("/api/thought-groups", {
+      method: "POST", headers: JSON_HEADERS,
+      body: JSON.stringify({ title: "Ideas", memberIds: [a.id, b.id] }),
+    })).json();
+    assertEquals(grp.success, true);
+    assertEquals(store.getThought(a.id)!.groupId, grp.group.id);
+
+    // Rename
+    const renamed = await (await app.request(`/api/thought-groups/${grp.group.id}`, {
+      method: "PATCH", headers: JSON_HEADERS, body: JSON.stringify({ title: "Ideas v2" }),
+    })).json();
+    assertEquals(renamed.group.title, "Ideas v2");
+
+    // Ungroup clears membership
+    await app.request(`/api/thought-groups/${grp.group.id}`, { method: "DELETE" });
+    assertEquals(store.getThought(a.id)!.groupId, null);
+  } finally { cleanup(teamDir, store); }
+});
