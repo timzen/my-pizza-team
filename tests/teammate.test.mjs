@@ -66,8 +66,10 @@ test("does NOT track availableTransitions (daemon handles transitions)", () => {
   assert.ok(!src.includes("availableTransitions"));
 });
 
-test("completes with setWorkItemState(COMPLETE) and passes result", () => {
-  assert.ok(src.includes('this.client.setWorkItemState(workItemId, "COMPLETE", fullMessage)'));
+test("completes with setWorkItemState(COMPLETE) and posts its own [done] comment", () => {
+  assert.ok(src.includes('this.client.setWorkItemState(workItemId, "COMPLETE")'));
+  // The agent owns its completion comment; the daemon posts nothing.
+  assert.ok(src.includes('[done] Work complete. Summary:'));
 });
 
 test("posts the full completion message as a comment (not a truncated slice)", () => {

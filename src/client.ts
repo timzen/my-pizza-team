@@ -431,10 +431,10 @@ export class DaemonClient {
    * `FAILED` leaves the task stuck for a human. "Giving up" is a comment plus a
    * FAILED here — the daemon bundles nothing.
    */
-  async setWorkItemState(workItemId: string, state: "COMPLETE" | "FAILED", result?: string): Promise<AgentSetStateResponse> {
+  async setWorkItemState(workItemId: string, state: "COMPLETE" | "FAILED"): Promise<AgentSetStateResponse> {
     return this.post<AgentSetStateResponse>(
       `/api/agents/work-items/${encodeURIComponent(workItemId)}/state`,
-      { agentId: this.agentId, state, result }
+      { agentId: this.agentId, state }
     );
   }
 

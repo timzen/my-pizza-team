@@ -251,11 +251,12 @@ export class TeammateLoop {
     // ─── Done with result ────────────────────────────────────────────
     const fullMessage = lastMessage.trim();
     this.debugLog(`[ppt-debug] Completing work item ${workItemId} with summary: ${fullMessage.slice(0, 100)}...`);
+    // The agent owns its completion record — post it once here. The daemon does
+    // NOT post anything on setWorkItemState, so this is the single done comment.
     await this.client.postComment(workItemId, `[done] Work complete. Summary:\n${fullMessage}`).catch(() => {});
 
-    // Set COMPLETE — the daemon advances the task mechanically. The result is
-    // stored on the task and echoed into future task prompts for context.
-    const doneRes = await this.client.setWorkItemState(workItemId, "COMPLETE", fullMessage).catch((e) => {
+    // Set COMPLETE — the daemon advances the task mechanically (no comment).
+    const doneRes = await this.client.setWorkItemState(workItemId, "COMPLETE").catch((e) => {
       this.debugLog(`[ppt-debug] setWorkItemState COMPLETE FAILED: ${e}`);
       return null;
     });
