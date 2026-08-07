@@ -202,6 +202,16 @@ agents as "offline" forever. Agents re-register on reconnect; any WorkItem left
 IN_PROGRESS across the restart is moved to `MORIBUND` (its `member_id` kept, so
 the same agent can still complete it or a human can recover it).
 
+Because the members table is wiped on boot, a heartbeat from a still-running
+agent whose row is gone must be disambiguated: an **unknown** member is told to
+`reregister` (a daemon restart/upgrade forgot it — it re-registers and keeps
+working), while an **explicitly dismissed** member is told it's `dismissed` (it
+shuts down). Dismissal leaves an in-memory tombstone (`dismissMember`, set by
+`DELETE /api/agents/:id?dismiss=true` — the UI's dismiss button); a plain
+`DELETE` (clean self-deregister on shutdown) leaves no tombstone. (Re)registering
+clears the tombstone. This keeps `mpt upgrade`/restarts from silently killing
+running teammates while preserving the dismiss action.
+
 Comments live on the **ref** (per-task for story tasks, per-def for WorkDefs),
 not on the WorkItem. Agents load them when starting work.
 

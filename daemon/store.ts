@@ -158,6 +158,13 @@ export class Store {
    * leader reports otherwise (within a heartbeat).
    */
   private hostReadiness: Map<string, HostReadiness> = new Map();
+  /**
+   * Ids explicitly dismissed by a human (tombstones). A dismissed id's next
+   * heartbeat is told to shut down; an unknown-but-not-dismissed id is told to
+   * re-register. In-memory only — a daemon restart clears it (and also wipes
+   * members), so after a restart every agent simply re-registers.
+   */
+  private dismissedIds: Set<string> = new Set();
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -1381,6 +1388,8 @@ export class Store {
     metadata: Record<string, unknown> = {},
     hostId?: string,
   ): void {
+    // (Re)registering clears any dismiss tombstone for this id.
+    this.dismissedIds.delete(id);
     this.db.prepare(
       `INSERT OR REPLACE INTO members (id, name, directory, metadata, host_id, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, 'idle', ?)`
@@ -1432,6 +1441,23 @@ export class Store {
     this.db.prepare("DELETE FROM assignments WHERE member_id = ?").run(id);
     this.db.prepare("UPDATE work_items SET member_id = NULL WHERE member_id = ?").run(id);
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
+  }
+
+  /**
+   * Explicitly dismiss a member (a human clicked "dismiss"): remove it AND leave
+   * an in-memory tombstone so its next heartbeat is told `dismissed` (shut down),
+   * not `reregister`. This is the ONLY path that makes an agent exit — a mere
+   * unknown member (e.g. after a daemon restart wiped the members table) gets
+   * `reregister` instead, so restarts/upgrades don't kill running teammates.
+   */
+  dismissMember(id: string): void {
+    this.dismissedIds.add(id);
+    this.removeMember(id);
+  }
+
+  /** True when `id` was explicitly dismissed (tombstoned) and not since re-registered. */
+  isDismissed(id: string): boolean {
+    return this.dismissedIds.has(id);
   }
 
   /**

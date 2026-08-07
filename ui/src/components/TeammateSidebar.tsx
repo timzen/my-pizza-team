@@ -96,7 +96,10 @@ export function TeammateSidebar() {
   };
 
   const dismiss = async (id: string) => {
-    await apiDelete(`/api/agents/${encodeURIComponent(id)}`);
+    // `?dismiss=true` tombstones the id so the agent actually shuts down (a plain
+    // DELETE would just remove it, and the agent would re-register on its next
+    // heartbeat, treating it like a daemon restart).
+    await apiDelete(`/api/agents/${encodeURIComponent(id)}?dismiss=true`);
     refetch();
   };
 
