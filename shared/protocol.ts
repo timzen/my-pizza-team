@@ -132,14 +132,7 @@ export interface UpdateContextEntryRequest { title?: string; description?: strin
 export interface SaveContextEntryResponse { success: boolean; entry?: ContextEntry; error?: string }
 export interface DeleteContextEntryResponse { success: boolean; error?: string }
 
-// --- Scratch Pad ---
-export interface TodoItem { status: "open" | "done"; item: string; created: string; completed: string }
-export interface ScratchpadResponse { todos: TodoItem[]; notes: string }
-export interface AddTodoRequest { item: string }
-export interface UpdateTodoRequest { status?: "open" | "done"; item?: string }
-export interface TodosMutationResponse { success: boolean; todos?: TodoItem[]; error?: string }
-export interface SetNotesRequest { content: string }
-export interface SetNotesResponse { success: boolean; error?: string }
+// --- Scratch Pad (removed: replaced by the Thoughts board) ---
 
 // --- Assistant Persona ---
 // GET /api/assistant/persona
