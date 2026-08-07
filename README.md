@@ -136,6 +136,8 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 ├── archived/
 ├── backlog/
 ├── context/             # Context library: reusable prompt/context markdown entries
+├── thoughts/            # Thoughts board: markdown sticky notes (thoughts/<id>.md)
+├── groups.json          # Thought groups ([{id, title}]; membership lives on each note)
 ├── todo.jsonl           # Scratch pad todos (one JSON object per line)
 └── notes.md             # Scratch pad notes (free-form markdown)
 ```
@@ -346,6 +348,7 @@ done
 | Assistant | `/api/assistant/*` | Chat conversation (batched replies, read receipts, response turns) |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
 | Scratch Pad | `/api/scratchpad/*` | Personal todos (`todo.jsonl`) + notes (`notes.md`) |
+| Thoughts | `GET/POST /api/thoughts`, `POST /api/thoughts/positions`, `PATCH /api/thoughts/:id`, `POST .../archive\|restore`, `DELETE`, `POST/PATCH/DELETE /api/thought-groups[/:id]` | Markdown sticky-note board (a personal workspace/outbox) |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | WorkItems | `GET /api/work-items`, `POST /api/work-items/:id/{cancel,force-fail,read}`, `POST /api/work-items/re-enqueue` | The queue: list (Inbox/sidebar) + recovery actions |
 | WorkDefs | `GET/POST/PUT/DELETE /api/work-defs`, `POST /api/work-defs/:id/enqueue` | Standalone Solitary + Scheduled work |
