@@ -26,6 +26,15 @@ const NOTE_W = 220;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 
+/** Flip the index-th `- [ ]`↔`- [x]` task marker (source order) in markdown. */
+function toggleTaskMarker(content: string, index: number): string {
+  let i = -1;
+  return content.replace(/(^[ \t]*[-*+] \[)([ xX])(\])/gm, (m, pre, mark, post) => {
+    i++;
+    return i === index ? `${pre}${mark === " " ? "x" : " "}${post}` : m;
+  });
+}
+
 export function ThoughtsPage() {
   const { data, refetch } = useApi<ThoughtsData>("/api/thoughts?status=active");
   const { data: archivedData, refetch: refetchArchived } = useApi<ThoughtsData>("/api/thoughts?status=archived");
@@ -144,6 +153,14 @@ export function ThoughtsPage() {
   const archive = async (id: string) => { await apiPost(`/api/thoughts/${id}/archive`, {}); refetch(); refetchArchived(); };
   const restore = async (id: string) => { await apiPost(`/api/thoughts/${id}/restore`, {}); refetch(); refetchArchived(); };
   const remove = async (id: string) => { await apiDelete(`/api/thoughts/${id}`); refetch(); refetchArchived(); };
+
+  // Toggle a checklist item inside a note (rewrites the markdown, persists).
+  const toggleTask = async (n: Thought, index: number) => {
+    const content = toggleTaskMarker(n.content, index);
+    if (content === n.content) return;
+    setNotes((ns) => ns.map((x) => (x.id === n.id ? { ...x, content } : x)));
+    await apiPatch(`/api/thoughts/${n.id}`, { content });
+  };
 
   const newGroup = async () => {
     const title = prompt("Group name?")?.trim();
@@ -276,7 +293,7 @@ export function ThoughtsPage() {
               ) : (
                 <div className="cursor-text p-3" onDoubleClick={() => { setEditingId(n.id); setEditText(n.content); }}>
                   {n.content.trim()
-                    ? <MarkdownView content={n.content} />
+                    ? <MarkdownView content={n.content} onToggleTask={(i) => toggleTask(n, i)} />
                     : <span className="text-sm text-muted-foreground/60">Empty note — double-click to edit</span>}
                 </div>
               )}
