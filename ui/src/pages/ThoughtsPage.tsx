@@ -413,11 +413,11 @@ export function ThoughtsPage() {
         <button onClick={tidy} title="Arrange notes into a grid (per group + ungrouped)" className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
           <LayoutGrid className="h-4 w-4" /> Tidy
         </button>
-        <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${selectMode ? "bg-accent" : "bg-card"}`}>
+        <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${selectMode ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
           <BoxSelect className="h-4 w-4" /> Select{selected.size ? ` (${selected.size})` : ""}
         </button>
-        <button onClick={() => setMinimapOn((m) => !m)} title="Minimap (M)" className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${minimapOn ? "bg-accent" : "bg-card"}`}>
-          <MapIcon className="h-4 w-4" />
+        <button onClick={() => setMinimapOn((m) => !m)} title="Minimap (M)" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${minimapOn ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
+          <MapIcon className="h-4 w-4" /> Map
         </button>
         <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
           <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
@@ -540,7 +540,6 @@ export function ThoughtsPage() {
                   ))}
                   {n.groupId && <button onClick={() => assignGroup(n.id, null)} className="block w-full rounded px-2 py-1 text-left text-muted-foreground hover:bg-accent/60">Remove from group</button>}
                   <div className="my-1 border-t border-border" />
-                  <button onClick={() => { navigator.clipboard?.writeText(n.id).catch(() => {}); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60"><Hash className="h-3.5 w-3.5" />Copy id</button>
                   <button onClick={() => { archive(n.id); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60"><Archive className="h-3.5 w-3.5" />Archive</button>
                   <button onClick={() => { remove(n.id); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-red-600 hover:bg-accent/60"><Trash2 className="h-3.5 w-3.5" />Delete</button>
                 </div>
@@ -589,11 +588,18 @@ export function ThoughtsPage() {
                 </div>
               )}
 
-              {/* Group membership chip (bottom-left, on hover). */}
-              {editingId !== n.id && n.groupId && (
-                <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                  <SquareStack className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
-                </div>
+              {/* Group membership chip (bottom-left) + copyable note id (bottom-right), on hover. */}
+              {editingId !== n.id && (
+                <>
+                  {n.groupId && (
+                    <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                      <SquareStack className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
+                    </div>
+                  )}
+                  <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <CopyId id={n.id} />
+                  </div>
+                </>
               )}
             </div>
           ))}
