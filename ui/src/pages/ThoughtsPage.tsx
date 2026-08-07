@@ -9,7 +9,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, Users, X, FolderPlus, Palette } from "lucide-react";
+import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, Users, X, FolderPlus, Palette, Hash, Check } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass } from "@/lib/thoughtColors";
@@ -231,6 +231,7 @@ export function ThoughtsPage() {
             <div key={p.group.id} className="absolute rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/30" style={{ left: p.minX, top: p.minY, width: p.w, height: p.h, zIndex: 0 }}>
               <div className="absolute -top-0.5 left-2 flex items-center gap-1 text-xs font-medium text-muted-foreground">
                 <Users className="h-3 w-3" /> {p.group.title}
+                <CopyId id={p.group.id} />
                 <button onClick={() => ungroup(p.group.id)} className="ml-1 rounded p-0.5 hover:bg-accent/60" title="Ungroup"><X className="h-3 w-3" /></button>
               </div>
             </div>
@@ -297,6 +298,14 @@ export function ThoughtsPage() {
                     : <span className="text-sm text-muted-foreground/60">Empty note — double-click to edit</span>}
                 </div>
               )}
+
+              {/* Copyable note id (bottom-right, on hover) — for referencing a
+                  specific note to the assistant ("look at th-…"). */}
+              {editingId !== n.id && (
+                <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                  <CopyId id={n.id} />
+                </div>
+              )}
             </div>
           ))}
         </div>
@@ -337,6 +346,26 @@ function IconBtn({ children, title, onClick }: { children: React.ReactNode; titl
   return (
     <button title={title} onClick={onClick} onPointerDown={(e) => e.stopPropagation()} className="rounded p-1 text-muted-foreground hover:bg-accent/60 hover:text-foreground">
       {children}
+    </button>
+  );
+}
+
+/** A click-to-copy id chip (monospace). Copying lets you paste a note/group id
+ *  into the assistant chat to reference it precisely. */
+function CopyId({ id }: { id: string }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <button
+      title={`Copy id: ${id}`}
+      onPointerDown={(e) => e.stopPropagation()}
+      onClick={(e) => {
+        e.stopPropagation();
+        navigator.clipboard?.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {});
+      }}
+      className="inline-flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-background hover:text-foreground"
+    >
+      {copied ? <Check className="h-2.5 w-2.5" /> : <Hash className="h-2.5 w-2.5" />}
+      {copied ? "copied" : id}
     </button>
   );
 }
