@@ -28,6 +28,15 @@ const MAX_SCALE = 2.5;
 const MIN_GROUP_W = 180;
 const MIN_GROUP_H = 140;
 
+/** Next palette color for a new note: one step past the most-recently-created
+ *  note's color (cycling), so a run of new notes fans through the palette. */
+function nextRotatedColor(notes: Thought[]): string {
+  if (notes.length === 0) return THOUGHT_COLORS[0];
+  const recent = notes.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+  const idx = (THOUGHT_COLORS as readonly string[]).indexOf(recent.color);
+  return THOUGHT_COLORS[(idx >= 0 ? idx + 1 : 0) % THOUGHT_COLORS.length];
+}
+
 /** Flip the index-th `- [ ]`↔`- [x]` task marker (source order) in markdown. */
 function toggleTaskMarker(content: string, index: number): string {
   let i = -1;
@@ -231,7 +240,7 @@ export function ThoughtsPage() {
     const rect = viewportRef.current?.getBoundingClientRect();
     const cx = rect ? (rect.width / 2 - view.tx) / view.scale : 0;
     const cy = rect ? (rect.height / 2 - view.ty) / view.scale : 0;
-    const res = await apiPost<{ thought: Thought }>("/api/thoughts", { content: "", x: Math.round(cx), y: Math.round(cy) });
+    const res = await apiPost<{ thought: Thought }>("/api/thoughts", { content: "", color: nextRotatedColor(notes), x: Math.round(cx), y: Math.round(cy) });
     await refetch();
     if (res.thought) { setEditingId(res.thought.id); setEditText(""); }
   };
