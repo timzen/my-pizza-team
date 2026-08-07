@@ -23,22 +23,10 @@ interface ThoughtGroup { id: string; title: string; x: number; y: number; w: num
 interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
 const NOTE_W = 220;
-const NOTE_H_EST = 120;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 const MIN_GROUP_W = 180;
 const MIN_GROUP_H = 140;
-
-/** The group whose rectangle contains a note's center (topmost by order wins). */
-function containingGroup(groups: ThoughtGroup[], n: { x: number; y: number; w: number | null; h: number | null }): string | null {
-  const cx = n.x + (n.w ?? NOTE_W) / 2;
-  const cy = n.y + (n.h ?? NOTE_H_EST) / 2;
-  let hit: string | null = null;
-  for (const g of groups) {
-    if (cx >= g.x && cx <= g.x + g.w && cy >= g.y && cy <= g.y + g.h) hit = g.id;
-  }
-  return hit;
-}
 
 /** Flip the index-th `- [ ]`↔`- [x]` task marker (source order) in markdown. */
 function toggleTaskMarker(content: string, index: number): string {
@@ -62,6 +50,7 @@ export function ThoughtsPage() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editText, setEditText] = useState("");
   const [paletteFor, setPaletteFor] = useState<string | null>(null);
+  const [groupMenuFor, setGroupMenuFor] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupTitle, setGroupTitle] = useState("");
   const [showArchived, setShowArchived] = useState(false);
@@ -72,7 +61,7 @@ export function ThoughtsPage() {
   const gesture = useRef<
     | { kind: "pan"; startX: number; startY: number; tx: number; ty: number }
     | { kind: "drag"; id: string; startX: number; startY: number; ox: number; oy: number; moved: boolean }
-    | { kind: "plate-move"; id: string; startX: number; startY: number; ox: number; oy: number }
+    | { kind: "plate-move"; id: string; startX: number; startY: number; ox: number; oy: number; members: Array<{ id: string; x: number; y: number }> }
     | { kind: "plate-resize"; id: string; startX: number; startY: number; ow: number; oh: number }
     | null
   >(null);
@@ -83,7 +72,7 @@ export function ThoughtsPage() {
   // ─── Pan (drag on empty canvas) ────────────────────────────────────
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    setPaletteFor(null);
+    setPaletteFor(null); setGroupMenuFor(null);
     gesture.current = { kind: "pan", startX: e.clientX, startY: e.clientY, tx: view.tx, ty: view.ty };
   };
 
@@ -102,7 +91,9 @@ export function ThoughtsPage() {
     // and pan everything while a freshly-created group was in rename mode.)
     if (e.button !== 0) return;
     e.stopPropagation();
-    gesture.current = { kind: "plate-move", id: g.id, startX: e.clientX, startY: e.clientY, ox: g.x, oy: g.y };
+    // Capture member start positions so the group carries its notes as it moves.
+    const members = notes.filter((n) => n.groupId === g.id).map((n) => ({ id: n.id, x: n.x, y: n.y }));
+    gesture.current = { kind: "plate-move", id: g.id, startX: e.clientX, startY: e.clientY, ox: g.x, oy: g.y, members };
   };
   const onPlateResizePointerDown = (e: React.PointerEvent, g: ThoughtGroup) => {
     if (e.button !== 0) return;
@@ -123,6 +114,13 @@ export function ThoughtsPage() {
       } else if (g.kind === "plate-move") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, x: g.ox + dx, y: g.oy + dy } : gr)));
+        // Carry member notes along, preserving their relative layout.
+        if (g.members.length) {
+          setNotes((ns) => ns.map((n) => {
+            const m = g.members.find((mm) => mm.id === n.id);
+            return m ? { ...n, x: m.x + dx, y: m.y + dy } : n;
+          }));
+        }
       } else if (g.kind === "plate-resize") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, w: Math.max(MIN_GROUP_W, g.ow + dx), h: Math.max(MIN_GROUP_H, g.oh + dy) } : gr)));
@@ -133,17 +131,14 @@ export function ThoughtsPage() {
       gesture.current = null;
       if (g?.kind === "drag" && g.moved) {
         const n = notes.find((x) => x.id === g.id);
-        if (!n) return;
-        apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
-        // Membership follows the drop: joins the plate it landed in, or leaves.
-        const gid = containingGroup(groups, n);
-        if ((n.groupId ?? null) !== gid) {
-          setNotes((ns) => ns.map((x) => (x.id === n.id ? { ...x, groupId: gid } : x)));
-          apiPatch(`/api/thoughts/${n.id}`, { groupId: gid });
-        }
+        if (n) apiPost("/api/thoughts/positions", { moves: [{ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }] });
       } else if (g?.kind === "plate-move") {
         const gr = groups.find((x) => x.id === g.id);
         if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { x: Math.round(gr.x), y: Math.round(gr.y) });
+        // Persist the member notes that moved with the plate.
+        const ids = new Set(g.members.map((m) => m.id));
+        const moves = notes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }));
+        if (moves.length) apiPost("/api/thoughts/positions", { moves });
       } else if (g?.kind === "plate-resize") {
         const gr = groups.find((x) => x.id === g.id);
         if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { w: Math.round(gr.w), h: Math.round(gr.h) });
@@ -231,6 +226,15 @@ export function ThoughtsPage() {
   };
   const ungroup = async (groupId: string) => { await apiDelete(`/api/thought-groups/${groupId}`); refetch(); };
 
+  // Membership is explicit (via a note's Group menu), not spatial — assigning
+  // never depends on where a note happens to sit. null removes it from a group.
+  const assignGroup = async (id: string, groupId: string | null) => {
+    setGroupMenuFor(null);
+    setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, groupId } : x)));
+    await apiPatch(`/api/thoughts/${id}`, { groupId });
+  };
+  const groupTitleById = (id: string) => groups.find((g) => g.id === id)?.title ?? "group";
+
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
       {/* Toolbar */}
@@ -268,9 +272,12 @@ export function ThoughtsPage() {
       >
         {/* Transformed world layer */}
         <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` }}>
-          {/* Group plates (real rectangles; behind notes). Drag the header to
-              move, the corner to resize; drop a note inside to add it. */}
-          {groups.map((g) => (
+          {/* Group plates (named, movable/resizable rectangles; behind notes).
+              Membership is set from a note's Group menu, not by position; the
+              plate carries its member notes when you drag it. */}
+          {groups.map((g) => {
+            const memberCount = notes.filter((n) => n.groupId === g.id).length;
+            return (
             <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: g.x, top: g.y, width: g.w, height: g.h, zIndex: 0 }}>
               {/* Header (title + controls). Bubbles to the plate for moving;
                   the input/buttons stop propagation for their own actions. */}
@@ -288,7 +295,7 @@ export function ThoughtsPage() {
                       className="w-36 bg-transparent outline-none"
                     />
                   ) : (
-                    <span className="cursor-text" onDoubleClick={() => { setEditingGroupId(g.id); setGroupTitle(g.title); }} title="Double-click to rename">{g.title}</span>
+                    <span className="cursor-text" onDoubleClick={() => { setEditingGroupId(g.id); setGroupTitle(g.title); }} title="Double-click to rename">{g.title}{memberCount ? ` (${memberCount})` : ""}</span>
                   )}
                 </div>
                 <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/plate:opacity-100">
@@ -296,10 +303,13 @@ export function ThoughtsPage() {
                   <button onPointerDown={(e) => e.stopPropagation()} onClick={() => ungroup(g.id)} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" title="Delete group (notes stay)"><X className="h-3 w-3" /></button>
                 </div>
               </div>
+              {memberCount === 0 && (
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/50">Empty group — add notes with a note's ⌘ Group menu</div>
+              )}
               {/* Resize handle */}
               <div onPointerDown={(e) => onPlateResizePointerDown(e, g)} className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize rounded-br-xl border-b-2 border-r-2 border-muted-foreground/40 opacity-0 transition-opacity group-hover/plate:opacity-100" />
             </div>
-          ))}
+          ); })}
 
           {/* Notes */}
           {notes.map((n) => (
@@ -314,7 +324,8 @@ export function ThoughtsPage() {
                   crosses a dead zone (which would drop group-hover and hide it). */}
               <div className="absolute -top-9 right-0 hidden pb-2 group-hover:block">
                 <div className="flex items-center gap-0.5 rounded-md border border-border bg-card p-0.5 shadow-sm">
-                  <IconBtn title="Color" onClick={() => setPaletteFor(paletteFor === n.id ? null : n.id)}><Palette className="h-3.5 w-3.5" /></IconBtn>
+                  <IconBtn title="Color" onClick={() => { setPaletteFor(paletteFor === n.id ? null : n.id); setGroupMenuFor(null); }}><Palette className="h-3.5 w-3.5" /></IconBtn>
+                  <IconBtn title="Group" onClick={() => { setGroupMenuFor(groupMenuFor === n.id ? null : n.id); setPaletteFor(null); }}><Users className="h-3.5 w-3.5" /></IconBtn>
                   <IconBtn title={n.pinned ? "Unpin" : "Pin"} onClick={() => togglePin(n)}>{n.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}</IconBtn>
                   <IconBtn title="Archive" onClick={() => archive(n.id)}><Archive className="h-3.5 w-3.5" /></IconBtn>
                   <IconBtn title="Delete" onClick={() => remove(n.id)}><Trash2 className="h-3.5 w-3.5" /></IconBtn>
@@ -327,6 +338,17 @@ export function ThoughtsPage() {
                   {THOUGHT_COLORS.map((c) => (
                     <button key={c} onClick={() => setColor(n.id, c)} className={`h-4 w-4 rounded-full ${dotClass(c)} ${n.color === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
                   ))}
+                </div>
+              )}
+
+              {/* Group menu popover — explicit add/remove membership */}
+              {groupMenuFor === n.id && (
+                <div className="absolute -top-8 left-0 z-40 w-52 rounded-md border border-border bg-card p-1 text-sm shadow" onPointerDown={(e) => e.stopPropagation()}>
+                  {groups.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">No groups yet — make one with the <span className="font-medium">Group</span> button.</div>}
+                  {groups.map((gr) => (
+                    <button key={gr.id} onClick={() => assignGroup(n.id, gr.id)} className={`block w-full truncate rounded px-2 py-1 text-left hover:bg-accent/60 ${n.groupId === gr.id ? "font-medium text-foreground" : ""}`}>{n.groupId === gr.id ? "✓ " : ""}{gr.title}</button>
+                  ))}
+                  {n.groupId && <button onClick={() => assignGroup(n.id, null)} className="mt-1 block w-full rounded border-t border-border px-2 py-1 text-left text-muted-foreground hover:bg-accent/60">Remove from group</button>}
                 </div>
               )}
 
@@ -351,12 +373,18 @@ export function ThoughtsPage() {
                 </div>
               )}
 
-              {/* Copyable note id (bottom-right, on hover) — for referencing a
-                  specific note to the assistant ("look at th-…"). */}
+              {/* Copyable note id + group chip (bottom, on hover). */}
               {editingId !== n.id && (
-                <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-                  <CopyId id={n.id} />
-                </div>
+                <>
+                  {n.groupId && (
+                    <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                      <Users className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
+                    </div>
+                  )}
+                  <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                    <CopyId id={n.id} />
+                  </div>
+                </>
               )}
             </div>
           ))}
