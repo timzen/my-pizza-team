@@ -280,32 +280,40 @@ export function ThoughtsPage() {
   };
   const ungroup = async (groupId: string) => { await apiDelete(`/api/thought-groups/${groupId}`); refetch(); };
 
-  // Tidy: lay every group's notes out in a grid anchored at the group's
-  // top-left (the plate auto-wraps them), and grid the ungrouped notes in
-  // place. One batched position write.
+  // Tidy: lay every group's notes out in a grid and shrink the plate to fit;
+  // grid the ungrouped notes in place. Groups stay anchored at their current
+  // top-left. One batched note-position write + a geometry update per group.
   const tidy = async () => {
-    const GAP = 20, COL_W = NOTE_W + GAP, ROW_H = 200;
+    const GAP = 20, COL_W = NOTE_W + GAP, ROW_H = 200, PAD = 16, NH = 140;
     const moves: Array<{ id: string; x: number; y: number }> = [];
-    const place = (list: Thought[], originX: number, originY: number, cols: number) => {
-      list.forEach((n, i) => {
-        moves.push({ id: n.id, x: Math.round(originX + (i % cols) * COL_W), y: Math.round(originY + Math.floor(i / cols) * ROW_H) });
-      });
-    };
+    const groupUpdates: Array<{ id: string; x: number; y: number; w: number; h: number }> = [];
     for (const g of groups) {
       const members = notes.filter((n) => n.groupId === g.id);
       if (!members.length) continue;
-      place(members, g.x + 16, g.y + 16, Math.max(1, Math.min(4, Math.ceil(Math.sqrt(members.length)))));
+      const cols = Math.max(1, Math.min(4, Math.ceil(Math.sqrt(members.length))));
+      const originX = g.x + PAD, originY = g.y + PAD;
+      const placed = members.map((n, i) => ({ id: n.id, x: originX + (i % cols) * COL_W, y: originY + Math.floor(i / cols) * ROW_H }));
+      for (const p of placed) moves.push({ id: p.id, x: Math.round(p.x), y: Math.round(p.y) });
+      // Shrink the stored rect to exactly wrap the grid (matches the render's
+      // union padding/height so the plate ends up snug, not oversized).
+      const minX = Math.min(...placed.map((p) => p.x)), minY = Math.min(...placed.map((p) => p.y));
+      const maxX = Math.max(...placed.map((p) => p.x)) + NOTE_W, maxY = Math.max(...placed.map((p) => p.y)) + NH;
+      groupUpdates.push({ id: g.id, x: Math.round(minX - PAD), y: Math.round(minY - PAD), w: Math.round(maxX - minX + PAD * 2), h: Math.round(maxY - minY + PAD * 2) });
     }
     const ungrouped = notes.filter((n) => !n.groupId);
     if (ungrouped.length) {
       const ox = Math.min(...ungrouped.map((n) => n.x));
       const oy = Math.min(...ungrouped.map((n) => n.y));
-      place(ungrouped, ox, oy, Math.max(1, Math.min(6, Math.ceil(Math.sqrt(ungrouped.length)))));
+      const cols = Math.max(1, Math.min(6, Math.ceil(Math.sqrt(ungrouped.length))));
+      ungrouped.forEach((n, i) => moves.push({ id: n.id, x: Math.round(ox + (i % cols) * COL_W), y: Math.round(oy + Math.floor(i / cols) * ROW_H) }));
     }
     if (!moves.length) return;
     const byId = new Map(moves.map((m) => [m.id, m]));
     setNotes((ns) => ns.map((n) => { const m = byId.get(n.id); return m ? { ...n, x: m.x, y: m.y } : n; }));
+    const guById = new Map(groupUpdates.map((u) => [u.id, u]));
+    setGroups((gs) => gs.map((g) => { const u = guById.get(g.id); return u ? { ...g, x: u.x, y: u.y, w: u.w, h: u.h } : g; }));
     await apiPost("/api/thoughts/positions", { moves });
+    for (const u of groupUpdates) apiPatch(`/api/thought-groups/${u.id}`, { x: u.x, y: u.y, w: u.w, h: u.h });
   };
 
   // Membership is explicit (via a note's Group menu), not spatial — assigning
