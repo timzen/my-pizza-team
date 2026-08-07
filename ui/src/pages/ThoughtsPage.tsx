@@ -96,7 +96,11 @@ export function ThoughtsPage() {
 
   // ─── Plate move / resize ───────────────────────────────────────────
   const onPlatePointerDown = (e: React.PointerEvent, g: ThoughtGroup) => {
-    if (e.button !== 0 || editingGroupId === g.id) return;
+    // No editing-mode guard here: the title <input> stops propagation on its
+    // own, so a pointer-down on the header (outside the input) should always
+    // move the plate. (Bailing here let the event fall through to the canvas
+    // and pan everything while a freshly-created group was in rename mode.)
+    if (e.button !== 0) return;
     e.stopPropagation();
     gesture.current = { kind: "plate-move", id: g.id, startX: e.clientX, startY: e.clientY, ox: g.x, oy: g.y };
   };
