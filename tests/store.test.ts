@@ -87,7 +87,7 @@ Deno.test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits 
     assertEquals(store.claimWorkItem(item.id, "m2"), false);
 
     // COMPLETE advances the task to the next (manual) state; frees no new agent work here.
-    const res = store.setWorkItemState(item.id, "COMPLETE", "done it");
+    const res = store.setWorkItemState(item.id, "COMPLETE");
     assertEquals(res.ok, true);
     assertEquals(store.getWorkItem(item.id)!.state, "COMPLETE");
     assertEquals(store.getTask("drive-1")!.status, "review");
@@ -593,3 +593,17 @@ Deno.test("Store: backlog/restore + archive + delete use flat story files (not d
 function existsSyncTest(p: string): boolean {
   try { Deno.statSync(p); return true; } catch { return false; }
 }
+
+Deno.test("Store: setWorkItemState does NOT post a comment (agent owns its comments)", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    store.createStory("nc", "NC", "D", "open", [], [{ title: "T1", description: "D1" }]);
+    const item = store.getNextWorkItem({ id: "a1", directory: undefined })!;
+    store.claimWorkItem(item.id, "a1");
+    // Passing no result — the daemon posts nothing; the agent owns its comments.
+    store.setWorkItemState(item.id, "COMPLETE");
+    assertEquals(store.getComments("nc-1").length, 0);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});

@@ -208,12 +208,13 @@ Deno.test("state=COMPLETE advances to the next state and clears the lease", asyn
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default");
     const wid = workItemFor(store, "s1-1");
     await post(app, `/api/agents/claim/${wid}`, { agentId: "a1" });
-    const body = await (await post(app, `/api/agents/work-items/${wid}/state`, { agentId: "a1", state: "COMPLETE", result: "Done working" })).json();
+    const body = await (await post(app, `/api/agents/work-items/${wid}/state`, { agentId: "a1", state: "COMPLETE" })).json();
     assertEquals(body.success, true);
     assertEquals(body.newStatus, "review");
     assertEquals(body.completed, false);
     assertEquals(store.getTask("s1-1")!.status, "review");
-    assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).some((c) => c.body === "Done working"), true);
+    // The daemon posts no completion comment (the agent owns its comments).
+    assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).length, 0);
     assertEquals(store.getWorkItem(wid)!.state, "COMPLETE");
     assertEquals(store.getAssignment("s1-1"), null);
     assertEquals(store.getMember("a1")?.status, "idle");
@@ -230,7 +231,7 @@ Deno.test("state=COMPLETE in the last state completes the task and admits the ne
     ], "default");
     const wid = workItemFor(store, "s1-1");
     await post(app, `/api/agents/claim/${wid}`, { agentId: "a1" });
-    const body = await (await post(app, `/api/agents/work-items/${wid}/state`, { agentId: "a1", state: "COMPLETE", result: "All done" })).json();
+    const body = await (await post(app, `/api/agents/work-items/${wid}/state`, { agentId: "a1", state: "COMPLETE" })).json();
     assertEquals(body.completed, true);
     assertEquals(store.getTask("s1-1")?.status, "done");
     // CONWIP token freed → T2 admitted with its own READY WorkItem.

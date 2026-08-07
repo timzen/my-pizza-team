@@ -104,7 +104,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/work-items/:workItemId/state", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await c.req.json() as { agentId?: string; state?: string; result?: string };
+    const body = await c.req.json() as { agentId?: string; state?: string };
     if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
     if (body.state !== "COMPLETE" && body.state !== "FAILED") {
       return c.json({ success: false, error: "Field 'state' must be 'COMPLETE' or 'FAILED'" }, 400);
@@ -116,7 +116,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       return c.json({ success: false, error: "WorkItem not held by this agent" }, 403);
     }
 
-    const res = store.setWorkItemState(workItemId, body.state, body.result);
+    const res = store.setWorkItemState(workItemId, body.state);
     store.updateMemberStatus(body.agentId, "idle");
     if (!res.ok) return c.json({ success: false, error: res.error }, 400);
     return c.json({ success: true, newStatus: res.newStatus, completed: res.completed });
