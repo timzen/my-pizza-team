@@ -204,11 +204,13 @@ are authored in the UI/daemon.
 
 The assistant also bridges the **Thoughts** board into work: `list_thought_groups`,
 `list_thoughts` (optionally by `groupId`), and `get_thought` read the user's
-sticky-note workspace (read-only), while `create_task` (Solitary WorkDef) and
+sticky-note workspace, while `create_task` (Solitary WorkDef) and
 `create_schedule` (Scheduled WorkDef on a cron) turn what it finds into work
-that flows to the Inbox. Notes stay decoupled from tasks (no linkedTaskId) —
-the assistant reads and produces; it never mutates the board. This replaced the
-old `read_scratchpad` tool.
+that flows to the Inbox. It can also **write** to the board — `create_thought`
+(capture a follow-up/summary), `edit_thought` (annotate/append), `archive_thought`
+(clear a note it acted on), and `group_thoughts` (organize) — closing the
+thoughts → tasks → inbox → new-thoughts loop. This replaced the old
+`read_scratchpad` tool.
 
 ### Assistant Conversation
 | Route | Method | Purpose |

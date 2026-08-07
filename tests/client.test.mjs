@@ -186,10 +186,14 @@ test("has getPersona method returning systemPrompt", () => {
   assert.ok(clientSrc.includes("systemPrompt: string"));
 });
 
-test("has thought-reading + createWorkDef client methods", () => {
+test("has thought read + write client methods", () => {
   assert.ok(clientSrc.includes("async listThoughts("));
   assert.ok(clientSrc.includes("async getThought("));
   assert.ok(clientSrc.includes("async createWorkDef("));
+  assert.ok(clientSrc.includes("async createThought("));
+  assert.ok(clientSrc.includes("async updateThought("));
+  assert.ok(clientSrc.includes("async archiveThought("));
+  assert.ok(clientSrc.includes("async createThoughtGroup("));
   assert.ok(clientSrc.includes('this.get(`/api/thoughts'));
 });
 

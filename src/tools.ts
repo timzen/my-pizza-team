@@ -10,7 +10,8 @@
 //   - registerAssistantTools: send_message, create_story, edit_story, add_task,
 //                             create_task, create_schedule, list_workflows,
 //                             list_context, queue_request, list_thought_groups,
-//                             list_thoughts, get_thought
+//                             list_thoughts, get_thought, create_thought,
+//                             edit_thought, archive_thought, group_thoughts
 //
 // Note: story/task creation can attach context-library entries via the
 // `context` parameter; list_context surfaces the available entry ids. The
@@ -132,6 +133,10 @@ export function registerAssistantTools(
   registerListThoughtGroups(pi, client);
   registerListThoughts(pi, client);
   registerGetThought(pi, client);
+  registerCreateThought(pi, client);
+  registerEditThought(pi, client);
+  registerArchiveThought(pi, client);
+  registerGroupThoughts(pi, client);
 }
 
 // ─── send_message (assistant chat bubbles) ────────────────────────────
@@ -502,6 +507,132 @@ function registerGetThought(pi: ExtensionAPI, client: DaemonClient): void {
       } catch {
         return { content: [{ type: "text", text: "Failed to read the thought (daemon unreachable)." }] };
       }
+    },
+  });
+}
+
+// ─── Thoughts: write (refine the board) ───────────────────────────────
+
+function registerCreateThought(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "create_thought",
+    label: "Create Thought",
+    description:
+      "Add a sticky note to the user's Thoughts board. Use this to capture a follow-up, a summary of what you did, " +
+      "or a new idea worth keeping — e.g. after turning notes into tasks, drop a note recording what was created.",
+    promptSnippet: "Add a note to the user's Thoughts board",
+    promptGuidelines: [
+      "Use create_thought to leave the user a durable note (a follow-up, a summary, an idea). Markdown is supported (incl. `- [ ]` checklists).",
+      "Optionally pass groupId (from list_thought_groups) to file it into a group.",
+      "Prefer create_task/create_story for actual work; use create_thought for notes/ideas, not executable tasks.",
+    ],
+    parameters: Type.Object({
+      content: Type.String({ description: "The note's markdown content" }),
+      color: Type.Optional(Type.String({ description: "Palette color: yellow|blue|green|pink|purple|orange" })),
+      groupId: Type.Optional(Type.String({ description: "Group to file the note into (from list_thought_groups)" })),
+      pinned: Type.Optional(Type.Boolean({ description: "Pin the note" })),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { content: string; color?: string; groupId?: string; pinned?: boolean };
+      const res = await client.createThought({ ...p, createdBy: "assistant" });
+      if (!res.success) throw new Error(res.error || "Failed to create thought");
+      return {
+        content: [{ type: "text", text: `Added a note to the board (${res.thought?.id}).` }],
+        details: { thoughtId: res.thought?.id },
+      };
+    },
+  });
+}
+
+function registerEditThought(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "edit_thought",
+    label: "Edit Thought",
+    description:
+      "Edit an existing note by id: replace its content, or append to it, and/or change color/pin/group. Use append " +
+      "to annotate a note without discarding what's there (e.g. add '→ promoted to task X').",
+    promptSnippet: "Edit or annotate a note on the board",
+    promptGuidelines: [
+      "Use `append` to add to a note; use `content` to replace it wholesale (only one is needed).",
+      "Pass groupId to move it into a group, or ungroup: true to remove it from its group.",
+    ],
+    parameters: Type.Object({
+      id: Type.String({ description: "The note id (from list_thoughts)" }),
+      content: Type.Optional(Type.String({ description: "Replace the note's content entirely" })),
+      append: Type.Optional(Type.String({ description: "Append this text (added after a blank line)" })),
+      color: Type.Optional(Type.String({ description: "Palette color" })),
+      pinned: Type.Optional(Type.Boolean({ description: "Pin/unpin" })),
+      groupId: Type.Optional(Type.String({ description: "Move into this group" })),
+      ungroup: Type.Optional(Type.Boolean({ description: "Remove from its current group" })),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { id: string; content?: string; append?: string; color?: string; pinned?: boolean; groupId?: string; ungroup?: boolean };
+      const updates: { content?: string; color?: string; pinned?: boolean; groupId?: string | null } = {};
+      if (p.content !== undefined) {
+        updates.content = p.content;
+      } else if (p.append) {
+        const cur = await client.getThought(p.id);
+        if (!cur.success || !cur.thought) throw new Error(`Thought "${p.id}" not found`);
+        updates.content = `${cur.thought.content.trimEnd()}\n\n${p.append}`;
+      }
+      if (p.color !== undefined) updates.color = p.color;
+      if (p.pinned !== undefined) updates.pinned = p.pinned;
+      if (p.ungroup) updates.groupId = null;
+      else if (p.groupId !== undefined) updates.groupId = p.groupId;
+      const res = await client.updateThought(p.id, updates);
+      if (!res.success) throw new Error(res.error || "Failed to edit thought");
+      return { content: [{ type: "text", text: `Updated note ${p.id}.` }], details: { thoughtId: p.id } };
+    },
+  });
+}
+
+function registerArchiveThought(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "archive_thought",
+    label: "Archive Thought",
+    description:
+      "Archive a note (move it off the active board; recoverable). Use this to clear a note you've acted on — e.g. " +
+      "after promoting it to a task — so the board reflects what's still open.",
+    promptSnippet: "Archive a note you've acted on",
+    promptGuidelines: [
+      "Archive a note only after you've captured its intent elsewhere (a task/story) or the user asked to clear it.",
+      "Archiving is reversible; it is not deletion.",
+    ],
+    parameters: Type.Object({
+      id: Type.String({ description: "The note id to archive" }),
+    }),
+    async execute(_toolCallId, params) {
+      const id = (params as { id: string }).id;
+      const res = await client.archiveThought(id);
+      if (!res.success) throw new Error(res.error || "Failed to archive thought");
+      return { content: [{ type: "text", text: `Archived note ${id}.` }], details: { thoughtId: id } };
+    },
+  });
+}
+
+function registerGroupThoughts(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "group_thoughts",
+    label: "Group Thoughts",
+    description:
+      "Create a named group on the board, optionally filing existing notes into it. Use this to help the user " +
+      "organize related thoughts (e.g. 'group everything about Q3 planning').",
+    promptSnippet: "Create a group and file notes into it",
+    promptGuidelines: [
+      "Pass memberIds (note ids from list_thoughts) to file them into the new group; membership is exclusive.",
+    ],
+    parameters: Type.Object({
+      title: Type.String({ description: "Group title" }),
+      memberIds: Type.Optional(Type.Array(Type.String(), { description: "Note ids to file into the group" })),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { title: string; memberIds?: string[] };
+      const res = await client.createThoughtGroup(p);
+      if (!res.success) throw new Error(res.error || "Failed to create group");
+      return {
+        content: [{ type: "text", text: `Created group "${p.title}"${p.memberIds?.length ? ` with ${p.memberIds.length} note(s)` : ""}.` }],
+        details: { groupId: res.group?.id },
+      };
     },
   });
 }

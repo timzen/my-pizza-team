@@ -593,6 +593,28 @@ export class DaemonClient {
     return this.post("/api/work-defs", body);
   }
 
+  // ─── Thoughts: write (the assistant refines the board) ─────────────────
+
+  /** Create a sticky note. `createdBy` attributes it (e.g. "assistant"). */
+  async createThought(body: { content?: string; color?: string; groupId?: string; pinned?: boolean; createdBy?: string }): Promise<{ success: boolean; thought?: Thought; error?: string }> {
+    return this.post("/api/thoughts", body);
+  }
+
+  /** Update a note (partial). `groupId: null` removes it from its group. */
+  async updateThought(id: string, updates: { content?: string; color?: string; pinned?: boolean; groupId?: string | null; status?: "active" | "archived" }): Promise<{ success: boolean; thought?: Thought; error?: string }> {
+    return this.patch(`/api/thoughts/${encodeURIComponent(id)}`, updates);
+  }
+
+  /** Archive a note (moves it off the active board; recoverable). */
+  async archiveThought(id: string): Promise<{ success: boolean; error?: string }> {
+    return this.post(`/api/thoughts/${encodeURIComponent(id)}/archive`, {});
+  }
+
+  /** Create a thought group, optionally seeding it with member note ids. */
+  async createThoughtGroup(body: { title?: string; memberIds?: string[] }): Promise<{ success: boolean; group?: ThoughtGroup; error?: string }> {
+    return this.post("/api/thought-groups", body);
+  }
+
   /**
    * Claim an assistant response turn for processing.
    *

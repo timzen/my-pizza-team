@@ -130,6 +130,7 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`create_schedule`** — Create a recurring scheduled job (Scheduled WorkDef on a cron)
 - **`queue_request`** — Delegate sub-requests
 - **`list_thought_groups`** / **`list_thoughts`** / **`get_thought`** — Read the user's Thoughts board (markdown sticky notes), optionally by group, so the assistant can turn captured ideas into work; read-only
+- **`create_thought`** / **`edit_thought`** / **`archive_thought`** / **`group_thoughts`** — Write to the board: capture a follow-up/summary note, annotate or append to a note, archive a note it has acted on, or organize notes into a group (closes the thoughts → tasks → inbox → new-thoughts loop)
 
 > The context library is **vended by the daemon** where needed (e.g. the assistant's
 > persona system prompt) — agents don't search or CRUD context through tools.
