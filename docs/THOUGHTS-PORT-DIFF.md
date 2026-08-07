@@ -1,5 +1,15 @@
 # Thoughts → MPT port: feature diff & bring-over plan
 
+> **Status (update):** Tiers 1–3 below are **implemented** except #5 (expanded
+> note view + markdown editor shortcuts), which was intentionally skipped. What
+> the MPT port now has: select mode + marquee (`S`), keyboard shortcuts, multi-
+> note drag, minimap (`M`), content clamp, a note ⋯ overflow menu, group
+> tint/opacity, and auto-rotate new-note color — on top of the earlier port
+> (pan/zoom/drag/resize, groups with movable/resizable plates + Tidy, GFM
+> checklists, archive drawer, assistant read/write tools). Tier 4 (events/audit
+> + Agent Runs, paired with scheduled triage) and the cosmetic surface remain
+> deferred/dropped.
+
 Comparison of the standalone **Thoughts** product (`./Thoughts`) against the
 **MPT port** (`my-pizza-team` Thoughts tab). Legend:
 
@@ -84,20 +94,20 @@ The bulk of the original UI (~5–6k lines). Not recommended to bring over.
 
 ## Recommended bring-over plan
 
-**Tier 1 — high value, low cost (real UX gaps):**
-1. **Select-mode toggle** (lasso button + `S` key) so plain drag marquees — this is almost certainly the "lost drag-to-select" (today it needs shift+drag, undiscoverable).
-2. **Core keyboard shortcuts:** `Delete`→archive, `1–6`→recolor, `G`→group selection, `Cmd/Ctrl 0/=/−`→zoom/reset, `Esc`→clear selection.
-3. **Multi-note drag** — dragging any selected note moves the whole selection.
+**Tier 1 — high value, low cost (real UX gaps):** ✅ done
+1. ✅ **Select-mode toggle** (lasso button + `S` key) — plain drag marquees.
+2. ✅ **Core keyboard shortcuts:** `Delete`→archive, `1–6`→recolor, `G`→group, `Cmd/Ctrl 0/=/−`→zoom, `Esc`→clear.
+3. ✅ **Multi-note drag** — dragging any selected note moves the whole selection.
 
 **Tier 2 — meaningful, medium cost:**
-4. **Minimap** (`M` toggle) — orientation on a big board.
-5. **Expanded note view** (`E`/`F`) — a roomy editor for long notes + markdown editor shortcuts.
-6. **Content clamp** — truncate tall notes in-place with a click-to-expand, so the board stays scannable.
+4. ✅ **Minimap** (`M` toggle).
+5. ⬜ **Expanded note view** — *intentionally skipped.*
+6. ✅ **Content clamp** — tall notes truncate with a Show more/less toggle.
 
-**Tier 3 — organization polish:**
-7. **Note overflow (⋯) menu** — fold color/group/pin/archive/delete + copy-id into one tidy menu.
-8. **Group tint / opacity** (`groupColor`, `plateOpacity`) — visually distinguish groups.
-9. **Auto-rotate new-note color.**
+**Tier 3 — organization polish:** ✅ done
+7. ✅ **Note ⋯ overflow menu** — swatches + a menu folding pin/group/copy-id/archive/delete.
+8. ✅ **Group tint / opacity** (`groupColor`, `plateOpacity`).
+9. ✅ **Auto-rotate new-note color.**
 
 **Tier 4 — deferred until there's a consumer:**
 10. **Events/audit** + **Agent Runs ledger** — bring these together with a **scheduled-triage** persona (they exist to give a triage agent memory).
