@@ -85,10 +85,23 @@ Deno.test("Thoughts IO: groups.json round-trips", () => {
   const dir = tempDir();
   try {
     assertEquals(listThoughtGroups(dir), []);
-    writeThoughtGroups(dir, [{ id: "grp-a", title: "Q3 Planning" }, { id: "grp-b", title: "Ideas" }]);
+    writeThoughtGroups(dir, [
+      { id: "grp-a", title: "Q3 Planning", x: 10, y: 20, w: 360, h: 260 },
+      { id: "grp-b", title: "Ideas", x: 0, y: 0, w: 400, h: 300 },
+    ]);
     const groups = listThoughtGroups(dir);
     assertEquals(groups.length, 2);
-    assertEquals(groups[0], { id: "grp-a", title: "Q3 Planning" });
+    assertEquals(groups[0], { id: "grp-a", title: "Q3 Planning", x: 10, y: 20, w: 360, h: 260 });
+  } finally { cleanup(dir); }
+});
+
+Deno.test("Thoughts IO: groups without geometry get defaults", () => {
+  const dir = tempDir();
+  try {
+    // Hand-written/legacy file lacking geometry: defaults fill in.
+    Deno.writeTextFileSync(`${dir}/groups.json`, JSON.stringify([{ id: "grp-x", title: "X" }]));
+    const [g] = listThoughtGroups(dir);
+    assertEquals(g, { id: "grp-x", title: "X", x: 0, y: 0, w: 360, h: 260 });
   } finally { cleanup(dir); }
 });
 

@@ -372,12 +372,21 @@ export interface Thought {
   updatedAt: string;
 }
 
-/** A named group of thoughts (a spatial container). Title only — membership
- * lives on each note's `groupId` (the note file is the source of truth). */
+/** A named group of thoughts (a spatial container rectangle on the canvas).
+ * Membership lives on each note's `groupId` (the note file is the source of
+ * truth); the group owns its own position/size so it can exist while empty and
+ * act as a drop target. */
 export interface ThoughtGroup {
   id: string;
   title: string;
+  x: number;
+  y: number;
+  w: number;
+  h: number;
 }
+
+/** Default plate size for a newly created group. */
+export const DEFAULT_GROUP_SIZE = { w: 360, h: 260 };
 
 /** The fixed note palette (the lighter canvas drops the 16-key superset). */
 export const THOUGHT_COLORS = ["yellow", "blue", "green", "pink", "purple", "orange"] as const;
