@@ -276,9 +276,22 @@ export function ThoughtsPage() {
               Membership is set from a note's Group menu, not by position; the
               plate carries its member notes when you drag it. */}
           {groups.map((g) => {
-            const memberCount = notes.filter((n) => n.groupId === g.id).length;
+            const members = notes.filter((n) => n.groupId === g.id);
+            const memberCount = members.length;
+            // The plate encapsulates its members: render the union of its own
+            // stored rect (the movable/resizable minimum) and the members'
+            // bounding box (+padding), so adding a note grows the plate to wrap it.
+            const pad = 16;
+            let left = g.x, top = g.y, right = g.x + g.w, bottom = g.y + g.h;
+            for (const m of members) {
+              left = Math.min(left, m.x - pad);
+              top = Math.min(top, m.y - pad);
+              right = Math.max(right, m.x + (m.w ?? NOTE_W) + pad);
+              bottom = Math.max(bottom, m.y + (m.h ?? 140) + pad);
+            }
+            const rect = { left, top, width: right - left, height: bottom - top };
             return (
-            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: g.x, top: g.y, width: g.w, height: g.h, zIndex: 0 }}>
+            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 0 }}>
               {/* Header (title + controls). Bubbles to the plate for moving;
                   the input/buttons stop propagation for their own actions. */}
               <div className="absolute -top-7 left-0 right-0 flex items-center justify-between gap-2">
