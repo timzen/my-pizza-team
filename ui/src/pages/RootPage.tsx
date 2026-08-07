@@ -16,20 +16,27 @@ import { RouteTabs } from "@/components/RouteTabs";
 import { Button } from "@/components/ui/button";
 import { InboxPage } from "./InboxPage";
 import { AssistantPage } from "./AssistantPage";
+import { ThoughtsPage } from "./ThoughtsPage";
 import { Plus, Zap, CalendarClock, UserPlus } from "lucide-react";
 
 const TABS = [
-  // "/" is the Inbox tab: active whenever we're not on /assistant.
-  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/assistant" },
+  { path: "/thoughts", label: "Thoughts" },
   { path: "/assistant", label: "Assistant" },
+  // "/" is the Inbox tab: active whenever we're not on another root tab.
+  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/assistant" && pathname !== "/thoughts" },
 ];
 
 export function RootPage() {
   const location = useLocation();
   const isAssistant = location.pathname === "/assistant";
+  const isThoughts = location.pathname === "/thoughts";
+  // The Assistant and Thoughts tabs own a full-height layout (the assistant's
+  // composer stays pinned; the Thoughts canvas fills the area). The Inbox is a
+  // plain list that scrolls with the page.
+  const fillHeight = isAssistant || isThoughts;
 
   return (
-    <div className={`container mx-auto p-6 space-y-4 ${isAssistant ? "flex flex-col h-full min-h-0" : ""}`}>
+    <div className={`container mx-auto p-6 space-y-4 ${fillHeight ? "flex flex-col h-full min-h-0" : ""}`}>
       {/* Quick-create row — the fastest way to get work moving. */}
       <div className="flex flex-wrap items-center gap-2">
         <Button variant="outline" size="sm" render={<Link to="/stories/new" />}>
@@ -51,11 +58,12 @@ export function RootPage() {
           stretch). self-start is ignored in the Inbox's normal block flow. */}
       <div className="self-start"><RouteTabs tabs={TABS} /></div>
 
-      {/* AssistantPage owns its own full-height layout (fills the bounded flex
-          column so its composer stays pinned in view); the Inbox is a plain
-          list that scrolls with the page. */}
+      {/* AssistantPage / ThoughtsPage own their own full-height layout (fill the
+          bounded flex column); the Inbox is a plain list that scrolls. */}
       {isAssistant ? (
         <div className="flex-1 min-h-0"><AssistantPage /></div>
+      ) : isThoughts ? (
+        <div className="flex-1 min-h-0"><ThoughtsPage /></div>
       ) : <InboxPage />}
     </div>
   );

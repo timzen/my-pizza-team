@@ -162,7 +162,7 @@ export function ThoughtsPage() {
     .filter((p): p is NonNullable<typeof p> => p !== null);
 
   return (
-    <div className="relative h-[calc(100vh-3.5rem)] w-full overflow-hidden select-none">
+    <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
       {/* Toolbar */}
       <div className="absolute left-4 top-4 z-30 flex items-center gap-2">
         <button onClick={createNote} className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
