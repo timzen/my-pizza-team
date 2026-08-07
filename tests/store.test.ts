@@ -341,6 +341,73 @@ Deno.test("Store: scheduler ignores readiness when no agent is connected (waits 
   } finally { cleanupDir(teamDir); }
 });
 
+Deno.test("Store: thoughts lifecycle — create, edit, archive, restore, delete", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const t = store.createThought({ content: "first idea" });
+    assertEquals(t.status, "active");
+    assertEquals(t.color, "yellow");
+    assertEquals(t.pinned, false);
+    assertEquals(store.getThought(t.id)!.content, "first idea");
+
+    const edited = store.updateThought(t.id, { content: "refined idea", pinned: true });
+    assertEquals(edited!.content, "refined idea");
+    assertEquals(edited!.pinned, true);
+
+    store.archiveThought(t.id);
+    assertEquals(store.getThought(t.id)!.status, "archived");
+    assertEquals(store.getThoughts("active").length, 0);
+    assertEquals(store.getThoughts("archived").length, 1);
+
+    store.restoreThought(t.id);
+    assertEquals(store.getThought(t.id)!.status, "active");
+
+    assertEquals(store.deleteThought(t.id), true);
+    assertEquals(store.getThought(t.id), null);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: thoughts auto-place below existing content and stack z-index", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const a = store.createThought({ content: "a", x: 0, y: 0, h: 100 });
+    const b = store.createThought({ content: "b" });
+    assertEquals(a.x === 0 && a.y === 0, true);
+    assertEquals(b.y > a.y, true);
+    assertEquals(b.zIndex > a.zIndex, true);
+
+    const moved = store.updateThoughtPositions([{ id: a.id, x: 50, y: 60, w: 240, h: 160 }]);
+    assertEquals(moved.length, 1);
+    const reloaded = store.getThought(a.id)!;
+    assertEquals([reloaded.x, reloaded.y, reloaded.w, reloaded.h], [50, 60, 240, 160]);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: thought groups — membership, rename, ungroup clears members", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const a = store.createThought({ content: "a" });
+    const b = store.createThought({ content: "b" });
+    const group = store.createThoughtGroup({ title: "Q3 Planning", memberIds: [a.id, b.id] });
+    assertEquals(store.getThought(a.id)!.groupId, group.id);
+    assertEquals(store.getThought(b.id)!.groupId, group.id);
+
+    assertEquals(store.updateThoughtGroup(group.id, { title: "Q3" })!.title, "Q3");
+    assertEquals(store.updateThought(a.id, { groupId: "grp-nope" })!.groupId, null);
+
+    assertEquals(store.deleteThoughtGroup(group.id), true);
+    assertEquals(store.getThoughtGroups().length, 0);
+    assertEquals(store.getThought(b.id)!.groupId, null);
+    assertEquals(store.getThoughts("active").length, 2);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
 Deno.test("Store: comments append to JSONL (task ref)", () => {
 
   const teamDir = createTempTeamDir();

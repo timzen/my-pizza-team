@@ -35,6 +35,10 @@ import {
   type WorkDef,
   type WorkDefParent,
   type Schedule,
+  type Thought,
+  type ThoughtStatus,
+  type ThoughtGroup,
+  DEFAULT_THOUGHT_COLOR,
   type Member,
   type HostReadiness,
   type Assignment,
@@ -44,6 +48,7 @@ import { listContextEntries, getContextEntry, saveContextEntry, updateContextEnt
 import { readScratchpad, addTodo, updateTodo, deleteTodo, writeNotes, type TodoItem } from "./store/scratchpad.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
+import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
 import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import * as path from "@std/path";
@@ -2461,6 +2466,155 @@ export class Store {
       if (def.parent?.kind === "schedule" && def.parent.id === id) updateWorkDef(this.teamDir, def.id, { parent: null });
     }
     return deleteSchedule(this.teamDir, id);
+  }
+
+  // ─── Thoughts (markdown sticky notes; personal workspace/outbox) ────
+  //
+  // Files are the source of truth (thoughts/<id>.md + groups.json), read and
+  // written directly like Schedules/standalone WorkDefs — no SQLite index.
+  // Two-state lifecycle (active⇄archived), pinning is an orthogonal flag, and
+  // there are no auto-sweeps: nothing moves a note without an explicit action.
+  // See docs/ARCHITECTURE.md "Thoughts".
+
+  /** All thoughts, optionally filtered by status; sorted by zIndex then id. */
+  getThoughts(status?: string): Thought[] {
+    let all = listThoughts(this.teamDir);
+    if (status === "active" || status === "archived") all = all.filter((t) => t.status === status);
+    return all.sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id));
+  }
+
+  getThought(id: string): Thought | null { return ioGetThought(this.teamDir, id); }
+
+  getThoughtGroups(): ThoughtGroup[] { return listThoughtGroups(this.teamDir); }
+  getThoughtGroup(id: string): ThoughtGroup | null {
+    return this.getThoughtGroups().find((g) => g.id === id) ?? null;
+  }
+
+  /** Mint a collision-free id with the given prefix (`th-`/`grp-`). */
+  private mintId(prefix: string, exists: (id: string) => boolean): string {
+    let id = `${prefix}${Date.now()}`;
+    while (exists(id)) id = `${prefix}${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    return id;
+  }
+
+  /**
+   * Auto-place a new note in free space below existing active content, so an
+   * agent (or a coordinate-less create) never stacks notes at the origin.
+   */
+  private findFreePosition(): { x: number; y: number } {
+    const notes = this.getThoughts("active");
+    if (notes.length === 0) return { x: 0, y: 0 };
+    let maxBottom = 0;
+    for (const n of notes) maxBottom = Math.max(maxBottom, n.y + (n.h ?? 120));
+    return { x: 0, y: maxBottom + 24 };
+  }
+
+  /** Highest zIndex among active notes (new notes land on top). */
+  private topZIndex(): number {
+    return this.getThoughts("active").reduce((max, t) => Math.max(max, t.zIndex), 0);
+  }
+
+  createThought(input: {
+    content?: string; color?: string; x?: number; y?: number; w?: number | null; h?: number | null;
+    zIndex?: number; pinned?: boolean; createdBy?: string; groupId?: string;
+  }): Thought {
+    const now = new Date().toISOString();
+    const pos = (input.x !== undefined && input.y !== undefined)
+      ? { x: input.x, y: input.y }
+      : this.findFreePosition();
+    const t: Thought = {
+      id: this.mintId("th-", (id) => ioGetThought(this.teamDir, id) !== null),
+      content: input.content ?? "",
+      color: input.color || DEFAULT_THOUGHT_COLOR,
+      status: "active",
+      x: pos.x,
+      y: pos.y,
+      w: input.w ?? null,
+      h: input.h ?? null,
+      zIndex: input.zIndex ?? this.topZIndex() + 1,
+      pinned: input.pinned ?? false,
+      groupId: input.groupId && this.getThoughtGroup(input.groupId) ? input.groupId : null,
+      createdBy: input.createdBy || "human",
+      createdAt: now,
+      updatedAt: now,
+    };
+    writeThought(this.teamDir, t);
+    return t;
+  }
+
+  /** Partial update; only provided fields are written. Bumps updatedAt. A
+   * groupId that doesn't resolve is ignored (null clears membership). */
+  updateThought(id: string, updates: {
+    content?: string; color?: string; status?: ThoughtStatus; pinned?: boolean;
+    groupId?: string | null; x?: number; y?: number; w?: number | null; h?: number | null; zIndex?: number;
+  }): Thought | null {
+    const t = ioGetThought(this.teamDir, id);
+    if (!t) return null;
+    if (updates.content !== undefined) t.content = updates.content;
+    if (updates.color !== undefined) t.color = updates.color;
+    if (updates.status !== undefined) t.status = updates.status;
+    if (updates.pinned !== undefined) t.pinned = updates.pinned;
+    if (updates.groupId !== undefined) {
+      t.groupId = updates.groupId && this.getThoughtGroup(updates.groupId) ? updates.groupId : null;
+    }
+    if (updates.x !== undefined) t.x = updates.x;
+    if (updates.y !== undefined) t.y = updates.y;
+    if (updates.w !== undefined) t.w = updates.w;
+    if (updates.h !== undefined) t.h = updates.h;
+    if (updates.zIndex !== undefined) t.zIndex = updates.zIndex;
+    t.updatedAt = new Date().toISOString();
+    writeThought(this.teamDir, t);
+    return t;
+  }
+
+  /** Batch position/size update (one drag gesture). Missing ids are skipped. */
+  updateThoughtPositions(moves: Array<{ id: string; x: number; y: number; w?: number | null; h?: number | null; zIndex?: number }>): Thought[] {
+    const updated: Thought[] = [];
+    for (const m of moves) {
+      const t = this.updateThought(m.id, { x: m.x, y: m.y, w: m.w, h: m.h, zIndex: m.zIndex });
+      if (t) updated.push(t);
+    }
+    return updated;
+  }
+
+  archiveThought(id: string): Thought | null { return this.updateThought(id, { status: "archived" }); }
+  restoreThought(id: string): Thought | null { return this.updateThought(id, { status: "active" }); }
+
+  /** Hard delete (direct — no archive-first guard; it's a personal workspace). */
+  deleteThought(id: string): boolean { return deleteThoughtFile(this.teamDir, id); }
+
+  createThoughtGroup(input: { title?: string; memberIds?: string[] }): ThoughtGroup {
+    const groups = this.getThoughtGroups();
+    const group: ThoughtGroup = {
+      id: this.mintId("grp-", (id) => groups.some((g) => g.id === id)),
+      title: (input.title || "").trim() || "Group",
+    };
+    writeThoughtGroups(this.teamDir, [...groups, group]);
+    // Stamp membership on any provided notes (exclusive: switches groups).
+    for (const memberId of input.memberIds ?? []) {
+      this.updateThought(memberId, { groupId: group.id });
+    }
+    return group;
+  }
+
+  updateThoughtGroup(id: string, updates: { title?: string }): ThoughtGroup | null {
+    const groups = this.getThoughtGroups();
+    const group = groups.find((g) => g.id === id);
+    if (!group) return null;
+    if (updates.title !== undefined) group.title = updates.title.trim() || "Group";
+    writeThoughtGroups(this.teamDir, groups);
+    return group;
+  }
+
+  /** Ungroup: remove the group and clear its members' groupId (notes stay put). */
+  deleteThoughtGroup(id: string): boolean {
+    const groups = this.getThoughtGroups();
+    if (!groups.some((g) => g.id === id)) return false;
+    for (const t of listThoughts(this.teamDir)) {
+      if (t.groupId === id) this.updateThought(t.id, { groupId: null });
+    }
+    writeThoughtGroups(this.teamDir, groups.filter((g) => g.id !== id));
+    return true;
   }
 
   // --- Ref-based comments/attachments ---
