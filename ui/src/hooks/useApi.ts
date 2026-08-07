@@ -70,3 +70,12 @@ export async function apiDelete<T = unknown>(url: string): Promise<T> {
   const res = await fetch(url, { method: "DELETE" });
   return res.json();
 }
+
+export async function apiPatch<T = unknown>(url: string, body: unknown): Promise<T> {
+  const res = await fetch(url, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return res.json();
+}
