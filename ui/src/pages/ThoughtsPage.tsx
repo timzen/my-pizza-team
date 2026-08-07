@@ -61,6 +61,9 @@ export function ThoughtsPage() {
   // marquees regardless, so panning stays available.
   const [selectMode, setSelectMode] = useState(false);
   const [minimapOn, setMinimapOn] = useState(false);
+  // Notes the user expanded past the clamp (tall notes are truncated by default
+  // so the board stays scannable).
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
@@ -530,9 +533,31 @@ export function ThoughtsPage() {
                 </div>
               ) : (
                 <div className="cursor-text p-3" onDoubleClick={() => { setEditingId(n.id); setEditText(n.content); }}>
-                  {n.content.trim()
-                    ? <MarkdownView content={n.content} onToggleTask={(i) => toggleTask(n, i)} />
-                    : <span className="text-sm text-muted-foreground/60">Empty note — double-click to edit</span>}
+                  {n.content.trim() ? (() => {
+                    // Heuristic clamp: long/tall notes are truncated with a
+                    // Show more toggle so the board stays scannable (no per-note
+                    // measuring). Expand is remembered per note for the session.
+                    const tall = n.content.length > 240 || (n.content.match(/\n/g)?.length ?? 0) > 6;
+                    const isExpanded = expanded.has(n.id);
+                    const clamp = tall && !isExpanded;
+                    return (
+                      <>
+                        <div className={clamp ? "relative max-h-56 overflow-hidden" : "relative"}>
+                          <MarkdownView content={n.content} onToggleTask={(i) => toggleTask(n, i)} />
+                          {clamp && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/10 to-transparent dark:from-white/10" />}
+                        </div>
+                        {tall && (
+                          <button
+                            onPointerDown={(e) => e.stopPropagation()}
+                            onClick={() => setExpanded((s) => { const next = new Set(s); if (next.has(n.id)) next.delete(n.id); else next.add(n.id); return next; })}
+                            className="mt-1 text-xs font-medium text-muted-foreground hover:text-foreground"
+                          >
+                            {isExpanded ? "Show less" : "Show more"}
+                          </button>
+                        )}
+                      </>
+                    );
+                  })() : <span className="text-sm text-muted-foreground/60">Empty note — double-click to edit</span>}
                 </div>
               )}
 
