@@ -237,6 +237,23 @@ async function sha256Hex(bytes: Uint8Array): Promise<string> {
 }
 
 /**
+ * Build a helpful error message for a failed GitHub API response. A 403 with an
+ * exhausted rate limit is the common cloud-desktop failure (shared egress IP),
+ * so we distinguish it from other 403s and point at the token remedy.
+ */
+export function githubErrorMessage(res: Response, hadToken?: string): string {
+  if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
+    const resetSec = Number(res.headers.get("x-ratelimit-reset"));
+    const resetAt = Number.isFinite(resetSec) && resetSec > 0 ? new Date(resetSec * 1000).toLocaleTimeString() : "soon";
+    const remedy = hadToken
+      ? "Your token's rate limit is exhausted."
+      : "On a shared-IP cloud desktop the unauthenticated 60/hr limit is easily exhausted. Set GITHUB_TOKEN (a no-scope PAT works) to raise it to 5000/hr — see the README.";
+    return `GitHub API rate limit exceeded (resets around ${resetAt}). ${remedy}`;
+  }
+  return `GitHub API returned HTTP ${res.status}`;
+}
+
+/**
  * Download the latest release binary for this platform and replace the running
  * executable in place. `--check` only reports whether an update is available.
  *
@@ -262,11 +279,18 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   }
 
   console.log("Checking for the latest release…");
-  const apiHeaders = { "Accept": "application/vnd.github+json", "User-Agent": "mpt-cli" };
+  // Authenticate the GitHub API call when a token is available. Unauthenticated
+  // requests are limited to 60/hr *per IP*, which a shared-egress cloud desktop
+  // burns through quickly (→ HTTP 403). A token — even a no-scope PAT, since
+  // reading a public repo's releases needs no permissions — is keyed to the
+  // user and raises the limit to 5000/hr. See README "Upgrading".
+  const token = Deno.env.get("MPT_GITHUB_TOKEN") || Deno.env.get("GITHUB_TOKEN") || Deno.env.get("GH_TOKEN");
+  const apiHeaders: Record<string, string> = { "Accept": "application/vnd.github+json", "User-Agent": "mpt-cli" };
+  if (token) apiHeaders["Authorization"] = `Bearer ${token}`;
   let rel: { tag_name?: string; html_url?: string; assets?: Array<{ name: string; browser_download_url: string }> };
   try {
     const res = await fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases/latest`, { headers: apiHeaders });
-    if (!res.ok) throw new Error(`GitHub API returned HTTP ${res.status}`);
+    if (!res.ok) throw new Error(githubErrorMessage(res, token));
     rel = await res.json();
   } catch (e) {
     console.error(`❌ Could not check for updates: ${(e as Error).message}`);
