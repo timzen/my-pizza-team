@@ -51,6 +51,27 @@ Environment:
   HOST        Bind address (default: 127.0.0.1)
 ```
 
+### Upgrading
+
+`mpt upgrade` checks GitHub for the latest release and replaces the binary in
+place. The version check hits the GitHub API, which limits **unauthenticated**
+requests to **60/hour per IP** — on a shared-egress cloud desktop this is easily
+exhausted, and GitHub then returns `HTTP 403` (rate limit exceeded).
+
+To avoid it, set a GitHub token so the request is authenticated (5,000/hour,
+keyed to your user, not the shared IP):
+
+```bash
+export GITHUB_TOKEN=ghp_xxxx   # or MPT_GITHUB_TOKEN / GH_TOKEN
+```
+
+Reading a **public** repo's releases needs no permissions, so a **no-scope**
+Personal Access Token works. Create one at
+`https://github.com/settings/tokens` (classic, check no scopes) or
+`https://github.com/settings/tokens?type=beta` (fine-grained → *Public
+repositories, read-only*). This is a github.com token — unrelated to any
+internal git host.
+
 ---
 
 ## Configuration
