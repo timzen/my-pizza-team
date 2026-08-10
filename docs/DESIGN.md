@@ -88,6 +88,29 @@ on the story, cron/lastEnqueuedAt on the schedule — lives off the markdown) me
 the daemon never rewrites a `workdef.md` except on an explicit edit. See
 [WORKDEF_UNIFICATION.md](WORKDEF_UNIFICATION.md).
 
+## Task Templates: a Mold, not Work
+
+A **Template** is a reusable mold for a Solitary task — "investigate a ticket",
+"research a package", and other flavors of one-shot work you author again and
+again. It carries the same *authored* fields as a WorkDef (title / goal /
+acceptance criteria / additional context / directory / contextRefs) but is
+deliberately **not** a WorkDef: it has no parent, no runtime state, no WorkItem,
+and no run thread. Creating a task "from" a template copies its fields onto a new
+Solitary WorkDef; the template itself is never executed and never enters the
+queue. It lives under `templates/<id>/template.md` (reusing the WorkDef markdown
+serializer) with files as the source of truth — no SQLite index, like Schedules
+and Thoughts.
+
+*Why:* a template is prompt/authoring convenience, not a unit of work, so folding
+it into the WorkDef model (e.g. a fourth parent kind or a "don't enqueue" flag)
+would leak a non-work concept into the queue's core — the very listing, matching,
+and lifecycle machinery a template must stay out of. Keeping it a separate,
+trivially-CRUDed resource means the WorkItem queue never has to know templates
+exist, while the create form gets a single pre-fill path (`?template=<id>`) that
+is just "seed these fields." It reuses the WorkDef file format because a template
+*is* structurally a parent-less WorkDef — sharing the serializer avoids drift
+without coupling the two concepts.
+
 ## Reaping: MORIBUND, not a Guess
 
 A claim is a lease kept alive by heartbeats. When the reaper sees a silent agent

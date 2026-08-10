@@ -15,7 +15,7 @@ import { apiPost } from "@/hooks/useApi";
 const NAV_ITEMS = [
   // prefixes: routes that count as "within" this section for highlighting
   { path: "/board", label: "Board", prefixes: ["/backlog", "/archived", "/workflows", "/story", "/stories", "/task"] },
-  { path: "/tasks", label: "Tasks", prefixes: [] },
+  { path: "/tasks", label: "Tasks", prefixes: ["/templates"] },
   { path: "/schedule", label: "Schedule", prefixes: ["/work-defs"] },
   { path: "/context", label: "Context", prefixes: [] },
 ];

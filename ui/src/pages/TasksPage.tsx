@@ -8,11 +8,14 @@
  */
 
 import { Link } from "react-router-dom";
+import { useState } from "react";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { Plus, Play, Zap, FolderOpen } from "lucide-react";
+import { TasksTabs } from "@/components/TasksTabs";
+import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
+import { Plus, Play, Zap, FolderOpen, FileText } from "lucide-react";
 
 interface WorkDef {
   id: string;
@@ -26,6 +29,7 @@ interface WorkDef {
 export function TasksPage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });
   const defs = (data?.workDefs || []).filter(d => d.type === "Solitary");
+  const [pickerOpen, setPickerOpen] = useState(false);
 
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
@@ -34,13 +38,14 @@ export function TasksPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold">Tasks</h1>
-          <p className="text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
+      <div className="flex items-center justify-between gap-3">
+        <TasksTabs />
+        <div className="flex items-center gap-2">
+          <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}><FileText className="h-4 w-4 mr-1" />Task from Template</Button>
+          <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
         </div>
-        <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
       </div>
+      <p className="text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
 
       {defs.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
@@ -69,6 +74,8 @@ export function TasksPage() {
           </Card>
         ))}
       </div>
+
+      <TemplatePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
 }
