@@ -24,6 +24,7 @@ import { registerAgentRoutes } from "./routes/agents.ts";
 import { registerWorkRoutes } from "./routes/work.ts";
 import { registerWorkDefRoutes } from "./routes/work-defs.ts";
 import { registerScheduleRoutes } from "./routes/schedules.ts";
+import { registerTemplateRoutes } from "./routes/templates.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
 import { registerContextRoutes } from "./routes/context.ts";
 import { registerThoughtRoutes } from "./routes/thoughts.ts";
@@ -66,6 +67,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerWorkRoutes(ctx);
   registerWorkDefRoutes(ctx);
   registerScheduleRoutes(ctx);
+  registerTemplateRoutes(ctx);
   registerAssistantRoutes(ctx);
   registerContextRoutes(ctx);
   registerThoughtRoutes(ctx);

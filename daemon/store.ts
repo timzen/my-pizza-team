@@ -35,6 +35,7 @@ import {
   type WorkDef,
   type WorkDefParent,
   type Schedule,
+  type Template,
   type Thought,
   type ThoughtStatus,
   type ThoughtGroup,
@@ -48,6 +49,7 @@ import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextSta
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
+import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
 import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
@@ -2442,6 +2444,35 @@ export class Store {
     }
     return deleteSchedule(this.teamDir, id);
   }
+
+  // ─── Task Templates (molds for Solitary tasks; see store/templates.ts) ──
+  //
+  // A Template is a parent-less, runtime-less WorkDef used only to pre-fill a
+  // new Solitary task. It never enqueues and is stored separately from work so
+  // it never enters the WorkItem queue. Files are the source of truth
+  // (templates/<id>/template.md), like Schedules — no SQLite index.
+
+  getTemplates(): Template[] { return listTemplates(this.teamDir); }
+  getTemplate(id: string): Template | null { return getTemplate(this.teamDir, id); }
+  createTemplate(input: {
+    title: string; goal: string; acceptanceCriteria: string;
+    additionalContext?: string; contextRefs?: string[]; directory?: string;
+  }): Template {
+    return saveTemplate(this.teamDir, {
+      ...input,
+      directory: input.directory ? normalizeDirectory(input.directory) : undefined,
+    });
+  }
+  updateTemplateDetails(id: string, updates: {
+    title?: string; goal?: string; acceptanceCriteria?: string;
+    additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
+  }): Template | null {
+    return updateTemplate(this.teamDir, id, {
+      ...updates,
+      directory: updates.directory !== undefined ? (updates.directory ? normalizeDirectory(updates.directory) : null) : undefined,
+    });
+  }
+  deleteTemplate(id: string): boolean { return deleteTemplate(this.teamDir, id); }
 
   // ─── Thoughts (markdown sticky notes; personal workspace/outbox) ────
   //

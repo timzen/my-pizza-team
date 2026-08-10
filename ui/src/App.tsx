@@ -12,6 +12,8 @@ import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { ContextPage } from "./pages/ContextPage";
 import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { TasksPage } from "./pages/TasksPage";
+import { TemplatesPage } from "./pages/TemplatesPage";
+import { TemplateDetailPage } from "./pages/TemplateDetailPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { NewWorkDefPage } from "./pages/NewWorkDefPage";
 import { WorkDefDetailPage } from "./pages/WorkDefDetailPage";
@@ -38,6 +40,8 @@ function App() {
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />
               <Route path="/tasks" element={<TasksPage />} />
+              <Route path="/templates" element={<TemplatesPage />} />
+              <Route path="/templates/:id" element={<TemplateDetailPage />} />
               <Route path="/schedule" element={<SchedulePage />} />
               <Route path="/work-defs/new" element={<NewWorkDefPage />} />
               <Route path="/work-defs/:id" element={<WorkDefDetailPage />} />

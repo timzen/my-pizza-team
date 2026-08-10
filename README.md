@@ -133,6 +133,9 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 │       └── attachments/
 ├── schedules/          # cron parents (fire their child WorkDefs)
 │   └── nightly.json
+├── templates/          # Task Templates: reusable molds for Solitary tasks
+│   └── investigate-ticket/
+│       └── template.md  #   same authored fields as a WorkDef; never enqueues
 ├── archived/
 ├── backlog/
 ├── context/             # Context library: reusable prompt/context markdown entries
@@ -349,6 +352,7 @@ done
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
 | WorkItems | `GET /api/work-items`, `POST /api/work-items/:id/{cancel,force-fail,read}`, `POST /api/work-items/re-enqueue` | The queue: list (Inbox/sidebar) + recovery actions |
 | WorkDefs | `GET/POST/PUT/DELETE /api/work-defs`, `POST /api/work-defs/:id/enqueue` | Standalone Solitary + Scheduled work |
+| Templates | `GET/POST/PUT/DELETE /api/templates` | Reusable molds that pre-fill a new Solitary task (never enqueue) |
 | Hosts | `GET /api/hosts/:hostId`, `POST /api/hosts/:hostId/readiness`, `GET /api/hosts-readiness` | Host config + readiness (a not-ready host holds scheduled work destined for it) |
 | Workflows | `GET /api/workflows/*` | List, view, manage workflows |
 

@@ -165,6 +165,31 @@ export interface WorkDef {
   directory?: string;
 }
 
+/**
+ * A Task Template: a reusable *mold* for a Solitary WorkDef. It carries the same
+ * authored fields as a WorkDef (title / goal / acceptance criteria / additional
+ * context / directory / contextRefs) but has **no parent and no runtime state**
+ * — it never enqueues a WorkItem and never appears in the WorkItem queue. It
+ * exists only to pre-fill a new Solitary task. Stored as
+ * `templates/<id>/template.md`, reusing the WorkDef markdown format (files are
+ * the source of truth, like Schedules/Thoughts — no SQLite index). See
+ * docs/ARCHITECTURE.md "Templates".
+ */
+export interface Template {
+  id: string;
+  title: string;
+  /** What to achieve (pre-fills the new task's Goal). */
+  goal: string;
+  /** How the agent knows it's done (pre-fills Acceptance Criteria). */
+  acceptanceCriteria: string;
+  /** Optional freeform markdown context. */
+  additionalContext?: string;
+  /** Context-library entry ids to pre-select on the new task. */
+  contextRefs?: string[];
+  /** Optional working directory to pre-fill. */
+  directory?: string;
+}
+
 /** A cron enqueuer: fires a WorkItem for each of its child WorkDefs on schedule. */
 export interface Schedule {
   id: string;
@@ -333,6 +358,8 @@ export const WORKFLOWS_DIR = "workflows";
 export const WORKDEFS_DIR = "tasks";
 /** Directory holding cron Schedule files (`schedules/<id>.json`). */
 export const SCHEDULES_DIR = "schedules";
+/** Directory holding Task Templates (`templates/<id>/template.md`; molds for Solitary tasks). */
+export const TEMPLATES_DIR = "templates";
 
 /** Directory holding thought notes (`thoughts/<id>.md`); groups live in `groups.json`. */
 export const THOUGHTS_DIR = "thoughts";

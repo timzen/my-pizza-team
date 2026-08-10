@@ -249,6 +249,36 @@ export interface UpdateWorkDefRequest {
 }
 export interface SaveWorkDefResponse { success: boolean; workDef?: WorkDefView; error?: string }
 
+// --- Task Templates (reusable molds for Solitary tasks; see docs/ARCHITECTURE.md) ---
+export interface TemplateView {
+  id: string;
+  title: string;
+  goal: string;
+  acceptanceCriteria: string;
+  additionalContext?: string;
+  contextRefs?: string[];
+  directory?: string;
+}
+export interface TemplatesResponse { templates: TemplateView[] }
+export interface TemplateResponse { template?: TemplateView; success?: boolean; error?: string }
+export interface SaveTemplateRequest {
+  title: string;
+  goal: string;
+  acceptanceCriteria?: string;
+  additionalContext?: string;
+  contextRefs?: string[];
+  directory?: string;
+}
+export interface UpdateTemplateRequest {
+  title?: string;
+  goal?: string;
+  acceptanceCriteria?: string;
+  additionalContext?: string | null;
+  contextRefs?: string[] | null;
+  directory?: string | null;
+}
+export interface SaveTemplateResponse { success: boolean; template?: TemplateView; error?: string }
+
 // --- Schedules (cron parents) ---
 export interface ScheduleView { id: string; title?: string; cron: string; lastEnqueuedAt?: string }
 export interface SchedulesResponse { schedules: ScheduleView[] }
