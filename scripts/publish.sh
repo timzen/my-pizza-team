@@ -54,8 +54,12 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Update version in deno.json
-sed -i '' "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
+# Update version in deno.json (portable across macOS and Linux)
+if [[ "$(uname)" == "Darwin" ]]; then
+  sed -i '' "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
+else
+  sed -i "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
+fi
 
 # Commit the version bump
 git add deno.json
