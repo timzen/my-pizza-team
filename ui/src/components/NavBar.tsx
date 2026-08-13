@@ -13,10 +13,12 @@ import { apiPost } from "@/hooks/useApi";
 
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
-  // prefixes: routes that count as "within" this section for highlighting
+  // prefixes: routes that count as "within" this section for highlighting.
+  // /work-defs routes are intentionally NOT claimed by any single tab because
+  // they are shared across Tasks (Solitary), Schedule (Scheduled), and Templates.
   { path: "/board", label: "Board", prefixes: ["/backlog", "/archived", "/workflows", "/story", "/stories", "/task"] },
   { path: "/tasks", label: "Tasks", prefixes: ["/templates"] },
-  { path: "/schedule", label: "Schedule", prefixes: ["/work-defs"] },
+  { path: "/schedule", label: "Schedule", prefixes: [] },
   { path: "/context", label: "Context", prefixes: [] },
 ];
 

@@ -26,7 +26,10 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
 
   app.get("/api/work-defs", (c) => {
-    return c.json({ workDefs: store.getWorkDefs().map((d) => view(d, store)) } satisfies WorkDefsResponse);
+    const status = c.req.query("status");
+    // Default to active-only (unlike thoughts which default to all)
+    const filter = status === "archived" ? "archived" : status === "all" ? undefined : "active";
+    return c.json({ workDefs: store.getWorkDefs(filter).map((d) => view(d, store)) } satisfies WorkDefsResponse);
   });
 
   app.get("/api/work-defs/:id", (c) => {
@@ -76,6 +79,20 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const ok = store.deleteWorkDef(c.req.param("id"));
     if (!ok) return c.json({ success: false, error: "WorkDef not found" }, 404);
     return c.json({ success: true });
+  });
+
+  // ── Archive / Restore ─────────────────────────────────────────────
+
+  app.post("/api/work-defs/:id/archive", (c) => {
+    const updated = store.archiveWorkDef(c.req.param("id"));
+    if (!updated) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    return c.json({ success: true, workDef: view(updated, store) });
+  });
+
+  app.post("/api/work-defs/:id/restore", (c) => {
+    const updated = store.restoreWorkDef(c.req.param("id"));
+    if (!updated) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    return c.json({ success: true, workDef: view(updated, store) });
   });
 
   // Enqueue a READY WorkItem for this def (manual trigger / "save then enqueue").

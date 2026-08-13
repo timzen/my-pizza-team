@@ -15,7 +15,7 @@ import { Input } from "@/components/ui/input";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
 import { ContextSelector } from "@/components/board/ContextSelector";
-import { Save, Trash2, Plus, ChevronUp, ChevronDown } from "lucide-react";
+import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 
 interface StoryTask {
@@ -89,6 +89,25 @@ export function StoryDetailPage() {
     else setError(res.error || "Failed to delete");
   };
 
+  /** Archive this story. If not all tasks are done, confirm force-archive. */
+  const handleArchive = async () => {
+    setError("");
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, {});
+    if (res.success) {
+      navigate("/board");
+      return;
+    }
+    // If the error indicates not all tasks are done, offer force-archive
+    if (res.error && res.error.includes("Not all tasks are done")) {
+      if (!confirm("Not all tasks are done. Archive anyway?")) return;
+      const forceRes = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, { force: true });
+      if (forceRes.success) navigate("/board");
+      else setError(forceRes.error || "Failed to archive");
+    } else {
+      setError(res.error || "Failed to archive");
+    }
+  };
+
   /** Toggle paused immediately (like the task page's status moves). */
   const togglePause = async () => {
     const next = !paused;
@@ -130,6 +149,9 @@ export function StoryDetailPage() {
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={handleSave} title="Save changes">
             <Save className="h-4 w-4" />
+          </Button>
+          <Button variant="ghost" size="icon" onClick={handleArchive} title="Archive story">
+            <Archive className="h-4 w-4" />
           </Button>
           <Button
             variant="ghost"

@@ -43,6 +43,7 @@ export function serializeWorkDef(def: WorkDef): string {
   }
   if (def.directory) fm.push(`directory: ${quote(def.directory)}`);
   if (def.contextRefs && def.contextRefs.length > 0) fm.push(`contextRefs: [${def.contextRefs.join(", ")}]`);
+  if (def.status === "archived") fm.push(`status: archived`);
   fm.push("---");
   const body = [
     GOAL_H, "", def.goal.trim(), "",
@@ -64,6 +65,7 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
     title: scalar(fm, "title") || id,
     goal: section(body, GOAL_H, ACCEPT_H),
     acceptanceCriteria: section(body, ACCEPT_H, CONTEXT_H),
+    status: scalar(fm, "status") === "archived" ? "archived" : "active",
   };
   const additional = section(body, CONTEXT_H, null);
   if (additional) def.additionalContext = additional;
@@ -136,6 +138,7 @@ export function saveWorkDef(teamDir: string, input: {
 export function updateWorkDef(teamDir: string, id: string, updates: {
   title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
   additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
+  status?: "active" | "archived";
 }): WorkDef | null {
   const def = getWorkDef(teamDir, id);
   if (!def) return null;
@@ -146,6 +149,7 @@ export function updateWorkDef(teamDir: string, id: string, updates: {
   if (updates.additionalContext !== undefined) def.additionalContext = updates.additionalContext || undefined;
   if (updates.contextRefs !== undefined) def.contextRefs = updates.contextRefs || undefined;
   if (updates.directory !== undefined) def.directory = updates.directory || undefined;
+  if (updates.status !== undefined) def.status = updates.status;
   writeWorkDef(teamDir, def);
   return def;
 }

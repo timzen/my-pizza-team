@@ -1658,10 +1658,11 @@ export class Store {
    * a per-occurrence backlog.
    */
   runScheduler(now: Date = new Date()): void {
-    // Group WorkDefs by their schedule parent.
+    // Group WorkDefs by their schedule parent (skip archived ones).
     const childrenBySchedule = new Map<string, WorkDef[]>();
     for (const def of listWorkDefs(this.teamDir)) {
       if (def.parent?.kind !== "schedule") continue;
+      if (def.status === "archived") continue;
       const arr = childrenBySchedule.get(def.parent.id) || [];
       arr.push(def);
       childrenBySchedule.set(def.parent.id, arr);
@@ -2380,8 +2381,10 @@ export class Store {
 
   // --- WorkDefs + Schedules (see store/workdefs.ts, store/schedules.ts) ---
 
-  getWorkDefs(): WorkDef[] {
-    return listWorkDefs(this.teamDir);
+  getWorkDefs(status?: string): WorkDef[] {
+    let all = listWorkDefs(this.teamDir);
+    if (status === "active" || status === "archived") all = all.filter((d) => (d.status || "active") === status);
+    return all;
   }
 
   getWorkDef(id: string): WorkDef | null {
@@ -2424,6 +2427,16 @@ export class Store {
     const active = this.getActiveWorkItemForRef({ workDefId: id });
     if (active) this.setWorkItemStateRow(active.id, "CANCELED");
     return deleteWorkDef(this.teamDir, id);
+  }
+
+  /** Archive a WorkDef (mark it archived so it no longer appears in active lists). */
+  archiveWorkDef(id: string): WorkDef | null {
+    return updateWorkDef(this.teamDir, id, { status: "archived" });
+  }
+
+  /** Restore an archived WorkDef back to active status. */
+  restoreWorkDef(id: string): WorkDef | null {
+    return updateWorkDef(this.teamDir, id, { status: "active" });
   }
 
   /** Enqueue a READY WorkItem for a WorkDef (unless one is already active). */
