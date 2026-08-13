@@ -1,9 +1,10 @@
 /**
  * daemon/store.ts — SQLite store + JSON file sync (Deno port).
  *
- * Core data layer for the team lead. Uses jsr:@db/sqlite (Deno native FFI)
- * instead of better-sqlite3. Maintains the same schema, CRUD operations,
- * migrations, workflow loading, and JSON file sync as the original.
+ * Core data layer for the team lead. Uses Deno's built-in node:sqlite
+ * (DatabaseSync) — no external FFI .so required. Maintains the same schema,
+ * CRUD operations, migrations, workflow loading, and JSON file sync as the
+ * original.
  *
  * Key invariants:
  * - JSON files are the source of truth for story/task definitions
@@ -13,7 +14,7 @@
  * - The `dirty` flag on tasks tracks what needs flushing to disk
  */
 
-import { Database } from "@db/sqlite";
+import { DatabaseSync } from "node:sqlite";
 import {
   slugify,
   DEFAULT_CONFIG,
@@ -143,7 +144,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
 }
 
 export class Store {
-  private db: Database;
+  private db: DatabaseSync;
   private teamDir: string;
   private config: TeamConfig;
   private workflows: Record<string, WorkflowConfig> = {};
@@ -172,7 +173,7 @@ export class Store {
     this.teamDir = teamDir;
     this.config = config;
     const dbPath = path.join(teamDir, "state.db");
-    this.db = new Database(dbPath, { int64: true });
+    this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.initSchema();
