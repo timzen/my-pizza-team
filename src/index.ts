@@ -444,6 +444,15 @@ async function setupAssistant(
   }
 
   const loop = new AssistantLoop(pi, client);
+
+  // Re-registration callback: when the daemon restarts and signals
+  // `reregister: true` on heartbeat, re-register so the assistant
+  // reappears in the sidebar/chat UI.
+  loop.reregister = async () => {
+    await client.register({ name: "assistant", directory: cwd, metadata: readTmuxMetadata(pi) }).catch(() => {});
+    if (ctx.hasUI) ctx.ui.notify("🤖 Reconnected to daemon (it had restarted).", "info");
+  };
+
   let completedItems = 0;
 
   // Register tools. The `send_message` tool needs the active response turn id so

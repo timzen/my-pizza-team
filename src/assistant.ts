@@ -38,6 +38,13 @@ export class AssistantLoop {
   /** Callback invoked when an item is completed (for widget updates) */
   public onItemComplete: ((itemId: string, summary: string) => void) | null = null;
 
+  /**
+   * Callback to re-register with the daemon when it signals `reregister: true`
+   * (e.g. after a daemon restart). Set by the caller that owns the registration
+   * details (directory, metadata).
+   */
+  public reregister: (() => Promise<void>) | null = null;
+
   constructor(pi: ExtensionAPI, client: DaemonClient) {
     this.pi = pi;
     this.client = client;
@@ -91,9 +98,18 @@ export class AssistantLoop {
   // ─── Heartbeat ─────────────────────────────────────────────────────
 
   private startHeartbeat(): void {
-    this.heartbeatTimer = setInterval(() => {
+    this.heartbeatTimer = setInterval(async () => {
       const status = this.currentItemId ? "working" : "idle";
-      this.client.heartbeat(status).catch(() => {});
+      try {
+        const res = await this.client.heartbeat(status);
+        if (res.reregister) {
+          // The daemon forgot us (restart/upgrade) — re-register to restore
+          // sidebar presence. Mirrors the teammate re-registration pattern.
+          await this.reregister?.();
+        }
+      } catch {
+        // Daemon unreachable — will retry on next heartbeat cycle.
+      }
     }, HEARTBEAT_INTERVAL_MS);
   }
 
