@@ -70,7 +70,7 @@ jobs:
         shell: bash
         run: |
           deno compile \
-            --allow-net --allow-read --allow-write --allow-env --allow-ffi --allow-run \
+            --allow-net --allow-read --allow-write --allow-env --allow-run \
             --include ui/dist/ \
             --target ${{ matrix.deno-target }} \
             --output dist/mpt-${{ matrix.target }} \
