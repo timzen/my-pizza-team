@@ -185,7 +185,10 @@ export function ThoughtsPage() {
           const moves = notes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }));
           if (moves.length) apiPost("/api/thoughts/positions", { moves });
         } else {
-          setSelected(new Set([g.ids[0]])); // a click (no drag) selects just this note
+          // Single-click (no drag) enters edit mode directly.
+          const target = notes.find((n) => n.id === g.ids[0]);
+          if (target) { setEditingId(target.id); setEditText(target.content); }
+          setSelected(new Set());
         }
       } else if (g?.kind === "plate-move") {
         const gr = groups.find((x) => x.id === g.id);
