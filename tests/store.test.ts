@@ -607,3 +607,44 @@ Deno.test("Store: setWorkItemState does NOT post a comment (agent owns its comme
     store.close();
   } finally { cleanupDir(teamDir); }
 });
+
+Deno.test("Store: WorkDef archive + restore lifecycle", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const def = store.createWorkDef({
+      title: "Archivable task", goal: "test goal", acceptanceCriteria: "- done",
+    }, false);
+
+    // Active by default — appears in default listing.
+    assertEquals(store.getWorkDefs().length, 1);
+    assertEquals(store.getWorkDefs("active").length, 1);
+    assertEquals(store.getWorkDefs("archived").length, 0);
+
+    // Archive it.
+    const archived = store.archiveWorkDef(def.id);
+    assertExists(archived);
+    assertEquals(archived.status, "archived");
+
+    // No longer in active list, but in archived list.
+    assertEquals(store.getWorkDefs().length, 1);
+    assertEquals(store.getWorkDefs("active").length, 0);
+    assertEquals(store.getWorkDefs("archived").length, 1);
+
+    // Restore it.
+    const restored = store.restoreWorkDef(def.id);
+    assertExists(restored);
+    assertEquals(restored.status, "active");
+    assertEquals(store.getWorkDefs("active").length, 1);
+    assertEquals(store.getWorkDefs("archived").length, 0);
+
+    // Round-trips from disk after archive.
+    store.archiveWorkDef(def.id);
+    store.loadFromDisk();
+    const reloaded = store.getWorkDef(def.id);
+    assertExists(reloaded);
+    assertEquals(reloaded.status, "archived");
+
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});

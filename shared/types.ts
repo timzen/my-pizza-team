@@ -163,6 +163,8 @@ export interface WorkDef {
   contextRefs?: string[];
   /** Optional working directory (affinity bias; agents cd here). */
   directory?: string;
+  /** Lifecycle status: active (default) or archived. */
+  status?: "active" | "archived";
 }
 
 /**
