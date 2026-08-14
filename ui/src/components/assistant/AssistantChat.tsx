@@ -33,9 +33,8 @@ interface AssistantChatProps {
 }
 
 export function AssistantChat({ stream, viewingId, onViewSession, headerAction }: AssistantChatProps) {
-  const { session, messages, thinking, thoughts, connected, refresh } = stream;
+  const { session, messages, chatAgent, thinking, thoughts, connected, refresh } = stream;
 
-  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents", [], { pollInterval: 10_000 });
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
   const { data: contextData } = useApi<{ entries: ContextEntry[] }>("/api/context", [], { pollInterval: 30_000 });
 
@@ -44,7 +43,9 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
   const [swapping, setSwapping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
 
-  const assistantOnline = (agentsData?.agents || []).some((a) => a.name.includes("assistant") && a.status !== "offline");
+  // The leader answers the chat (there is no separate assistant process), so
+  // presence is simply "is a chat agent designated".
+  const chatOnline = chatAgent !== null;
   const personas = (contextData?.entries || []).filter((e) => e.tags.includes(PERSONA_TAG));
   const activePersonaId = personaData?.personaId ?? null;
   // Viewing history is read-only: sending would land in the *live* session and
@@ -96,8 +97,8 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
         <div className="flex min-w-0 items-center gap-1.5">
           <h2 className="text-sm font-semibold">Assistant</h2>
           <span
-            className={`h-2 w-2 shrink-0 rounded-full ${assistantOnline ? "bg-green-500" : "bg-muted-foreground/40"}`}
-            title={assistantOnline ? "Assistant online" : "Assistant offline"}
+            className={`h-2 w-2 shrink-0 rounded-full ${chatOnline ? "bg-green-500" : "bg-muted-foreground/40"}`}
+            title={chatOnline ? `Answered by ${chatAgent?.name}` : "No leader online to answer"}
           />
           {activePersonaId && (
             <span className="truncate text-xs text-muted-foreground">{personaData?.entry?.title ?? activePersonaId}</span>
@@ -141,9 +142,10 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
           <MessageBubble key={msg.id} message={msg} onReply={setReplyTo} onJumpTo={jumpTo} />
         ))}
         {thinking && !isHistory && <ThinkingBubble thoughts={thoughts} />}
-        {!assistantOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
+        {!chatOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
           <p className="text-center text-xs text-muted-foreground">
-            Assistant is offline — your messages are queued and will be delivered when it's back.
+            No leader is running, so your messages are queued. Start one with{" "}
+            <code className="rounded bg-muted px-1">pi --ppt-lead</code> in your project and they'll be delivered.
           </p>
         )}
       </div>

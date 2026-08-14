@@ -142,10 +142,13 @@ export interface AssistantSession {
 }
 
 // GET /api/assistant/messages?sessionId=
-export interface AssistantMessagesResponse { session: AssistantSession | null; messages: AssistantMessage[]; thinking: boolean }
+// `chatAgent` is the agent that answers (the designated leader), or null if none
+// is online — the chat is answered by the leader, not a dedicated assistant.
+export interface AssistantMessagesResponse { session: AssistantSession | null; messages: AssistantMessage[]; thinking: boolean; chatAgent: { id: string; name: string } | null }
 // POST /api/assistant/messages
 export interface AssistantSendRequest { content: string; replyTo?: string | null; origin?: AssistantOrigin }
-export interface AssistantSendResponse { success: boolean; userMessage?: AssistantMessage; error?: string }
+/** `chatAgent` is the id of the agent that will answer, or null if none is online. */
+export interface AssistantSendResponse { success: boolean; userMessage?: AssistantMessage; chatAgent?: string | null; error?: string }
 export interface AssistantDeleteResponse { success: boolean; error?: string }
 
 // GET /api/assistant/stream (SSE). Each frame is one of these, JSON-encoded.
@@ -159,9 +162,13 @@ export type AssistantStreamEvent =
 
 // --- Assistant agent-facing (the extension mirrors Pi <-> daemon) ---
 
-/** GET /api/assistant/inbox — user messages not yet handed to Pi. */
+/**
+ * GET /api/assistant/inbox?agentId= — user messages not yet handed to Pi.
+ * `chat` is false for any agent that is not the designated chat agent; it gets no
+ * messages and must not mirror its own output.
+ */
 export interface AssistantInboxItem { id: string; content: string; replyTo: string | null; quoted: string | null; origin: AssistantOrigin }
-export interface AssistantInboxResponse { messages: AssistantInboxItem[] }
+export interface AssistantInboxResponse { chat: boolean; messages: AssistantInboxItem[] }
 // POST /api/assistant/inbox/ack — empty `ids` with state 'read' promotes all delivered.
 export interface AssistantAckRequest { ids?: string[]; state: AssistantDelivery }
 export interface AssistantAckResponse { success: boolean; updated?: number; error?: string }

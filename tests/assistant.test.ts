@@ -104,10 +104,12 @@ Deno.test("replyTo quotes the original for the UI and for the agent", async () =
 Deno.test("receipts advance queued → delivered → read and never go backwards", async () => {
   const { app, store, teamDir } = setup();
   try {
+    // The inbox is only served to the designated chat agent (the leader).
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
     const sent = await (await post(app, "/api/assistant/messages", { content: "status?" })).json();
     const id = sent.userMessage.id;
 
-    const inbox = await (await app.request("/api/assistant/inbox")).json();
+    const inbox = await (await app.request("/api/assistant/inbox?agentId=leader")).json();
     assertEquals(inbox.messages.length, 1);
 
     await post(app, "/api/assistant/inbox/ack", { ids: [id], state: "delivered" });
@@ -262,8 +264,8 @@ Deno.test("GET messages?sessionId= reads an earlier session; snapshot is downloa
 Deno.test("resume reopens a session and asks the agent to switch its Pi session", async () => {
   const { app, store, teamDir } = setup();
   try {
-    // An online assistant is needed for the directive to be routable.
-    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", directory: teamDir, hostId: "h1" });
+    // An online leader is needed for the directive to be routable (it is the chat agent).
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
     await post(app, "/api/assistant/messages", { content: "the first chat" });
     await post(app, "/api/assistant/session", { piSessionPath: "/tmp/pi-session-a.jsonl" });
     const first = store.getActiveAssistantSession()!;
@@ -278,7 +280,7 @@ Deno.test("resume reopens a session and asks the agent to switch its Pi session"
 
     // The ask is addressed to the agent itself (session APIs, not keystrokes),
     // so it must NOT be handed to the leader's queue.
-    const selfDirectives = store.getMemberDirectives("assistant");
+    const selfDirectives = store.getMemberDirectives("leader");
     assertEquals(selfDirectives.some((d) => d.action === "resume-session"), true);
     assertEquals(selfDirectives.find((d) => d.action === "resume-session")!.params.piSessionPath, "/tmp/pi-session-a.jsonl");
     assertEquals(store.getLeaderDirectives("h1").some((d) => d.action === "resume-session"), false);
@@ -342,7 +344,7 @@ Deno.test("persona: defaults to none, can be set and cleared", async () => {
 Deno.test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
     await post(app, "/api/assistant/messages", { content: "talking to the default" });
     const before = store.getActiveAssistantSession()!;
 
@@ -359,7 +361,7 @@ Deno.test("persona swap ends the session (snapshotted) instead of wiping the cha
     assertStringIncludes(store.getAssistantMessages(active.id)[0]!.content, "Pizzaiolo");
 
     // The agent is asked to roll its Pi session so its context matches.
-    assertEquals(store.getMemberDirectives("assistant").some((d) => d.action === "new-session"), true);
+    assertEquals(store.getMemberDirectives("leader").some((d) => d.action === "new-session"), true);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -410,4 +412,79 @@ Deno.test("v1 turn-model rows migrate into one ended legacy session", async () =
   } finally {
     try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
   }
+});
+
+// ─── Chat agent designation ──────────────────────────────────────────
+
+Deno.test("the leader is the chat agent; the inbox is gated on designation", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    // No leader online: the message still queues, but nobody is designated.
+    const queued = await (await post(app, "/api/assistant/messages", { content: "anyone?" })).json();
+    assertEquals(queued.chatAgent, null);
+    assertEquals(store.getAssistantInbox().length, 1);
+
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    assertEquals(store.getChatAgent()?.id, "leader");
+
+    // Only the designated agent may pull, and it sees the backlog.
+    const mine = await (await app.request("/api/assistant/inbox?agentId=leader")).json();
+    assertEquals(mine.chat, true);
+    assertEquals(mine.messages.length, 1);
+
+    // Anyone else is told to stay quiet and gets nothing.
+    const other = await (await app.request("/api/assistant/inbox?agentId=teammate-1")).json();
+    assertEquals(other.chat, false);
+    assertEquals(other.messages.length, 0);
+    // A missing agentId must not leak the inbox either.
+    assertEquals((await (await app.request("/api/assistant/inbox")).json()).chat, false);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("designation is sticky, and hands off only when the leader goes offline", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/agents/register", { id: "leader-a", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader-b", name: "leader", directory: teamDir, hostId: "h2" });
+    const first = store.getChatAgent()!.id;
+
+    // A second leader must not steal the conversation mid-flight.
+    assertEquals(store.getChatAgent()!.id, first);
+    assertEquals(store.isChatAgent(first), true);
+    assertEquals(store.isChatAgent(first === "leader-a" ? "leader-b" : "leader-a"), false);
+
+    // When it drops, the other leader takes over so the chat keeps working.
+    store.removeMember(first);
+    const second = store.getChatAgent()!.id;
+    assertEquals(second === first, false);
+    assertEquals(store.isChatAgent(second), true);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("session directives are addressed to the chat agent (the leader)", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/assistant/messages", { content: "first chat" });
+    await post(app, "/api/assistant/sessions/new");
+
+    // The leader realizes these itself via Pi's session APIs, so they must land
+    // on its self-directive queue and not in the tmux-driven leader queue.
+    assertEquals(store.getMemberDirectives("leader").some((d) => d.action === "new-session"), true);
+    assertEquals(store.getLeaderDirectives("h1").some((d) => d.action === "new-session"), false);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("spawning always mints a teammate name (no reserved assistant identity)", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    // `reason: "assistant"` used to mint the singleton name; now it's just a spawn.
+    await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: { reason: "assistant" } });
+    await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: {} });
+    const names = store.getPendingSpawnRequests().map((r) => r.name);
+    assertEquals(names.length, 2);
+    assertEquals(names.includes("assistant"), false);
+    assertEquals(new Set(names).size, 2, "spawn names must be unique");
+  } finally { cleanup(teamDir, store); }
 });

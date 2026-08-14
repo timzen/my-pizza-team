@@ -42,41 +42,20 @@ Deno.test("POST spawn directive generates a unique agent name in params", async 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("assistant spawn is named 'assistant' (daemon owns the reserved identity)", async () => {
+Deno.test("every spawn is a teammate: no reserved assistant identity", async () => {
   const { app, store, teamDir } = setup();
   try {
-    const res = await post(app, "/api/hosts/leader-1/leader/directives", { action: "spawn", params: { reason: "assistant" } });
-    assertEquals(res.status, 201);
-    const body = await res.json();
-    // Not an adjective-noun name — the reserved singleton identity.
-    assertEquals(body.directive.params.name, "assistant");
-    assertEquals(body.directive.params.reason, "assistant");
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("assistant spawn is a singleton: a duplicate coalesces onto the pending spawn", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+    // The chat is answered by the leader (DESIGN.md "One agent to talk to"), so
+    // `reason: "assistant"` no longer mints a reserved singleton name — it is
+    // just an ordinary spawn, and repeats do not coalesce onto each other.
     const first = await (await post(app, "/api/hosts/leader-1/leader/directives", { action: "spawn", params: { reason: "assistant" } })).json();
     const second = await (await post(app, "/api/hosts/leader-1/leader/directives", { action: "spawn", params: { reason: "assistant" } })).json();
-    // Same directive returned — no duplicate emitted.
-    assertEquals(second.directive.id, first.directive.id);
-    // Only one pending assistant spawn exists.
-    const list = await (await app.request("/api/hosts/leader-1/leader/directives")).json();
-    assertEquals(list.directives.length, 1);
-  } finally { cleanup(teamDir, store); }
-});
+    assertEquals(first.directive.params.name === "assistant", false);
+    assertEquals(second.directive.id === first.directive.id, false);
+    assertEquals(second.directive.params.name === first.directive.params.name, false);
 
-Deno.test("assistant spawn coalesces when an assistant is already online", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", hostId: "h1", metadata: {} });
-    const res = await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: { reason: "assistant" } });
-    const body = await res.json();
-    // Represented as already-done — no new pending spawn queued.
-    assertEquals(body.directive.status, "done");
-    const list = await (await app.request("/api/hosts/h1/leader/directives")).json();
-    assertEquals(list.directives.length, 0);
+    const list = await (await app.request("/api/hosts/leader-1/leader/directives")).json();
+    assertEquals(list.directives.length, 2);
   } finally { cleanup(teamDir, store); }
 });
 

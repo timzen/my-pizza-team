@@ -223,10 +223,11 @@ is an ordered list of `user`/`assistant`/`system` messages grouped into
 The UI renders iMessage-style bubbles with real delivery receipts and a thinking
 indicator. See "Assistant chat model" below and docs/ASSISTANT_CHAT_V2.md.
 
-*Why:* the assistant Pi process already holds the real conversation state (its
-context window, its session file). Making the daemon the mirror rather than the
-master is what lets the user chat from the web UI **or** the agent's terminal,
-interrupt mid-answer, and resume an old conversation with its context intact.
+*Why:* the Pi process already holds the real conversation state (its context
+window, its session file). Making the daemon the mirror rather than the master is
+what lets the user chat from the web UI **or** the agent's terminal, interrupt
+mid-answer, and resume an old conversation with its context intact. The agent on
+the other end is the **leader** (see "One Agent to Talk To").
 
 ## Leader Directives
 
@@ -270,11 +271,41 @@ not just the stored messages.
 endpoints. Keeping mechanism in the harness lets the same channel scale to any
 agent and any harness while the daemon stays a coordinator.
 
+## One Agent to Talk To
+
+There is no dedicated "assistant" process. **The leader is the agent you chat
+with.**
+
+A leader already runs on each host to realize tmux spawns and report readiness,
+and nobody types in its session — it is infrastructure. Chat v2's mirror is
+role-agnostic, so pointing it at the leader costs nothing and removes an entire
+concept: no assistant spawn, no reserved singleton name, no `pi-assistant`
+template, no "assistant offline" dead end where the chat simply doesn't work
+until you find a button.
+
+*Why this is safe:* the objection to chatting with the leader would be that you'd
+be sharing your own working session — mixed transcripts, and a persona swap
+rolling a session you had work in. That objection evaporates when the leader's
+session holds no human work: its directive polling is extension timers, not agent
+turns, so the session contains *only* the chat. Sessions-as-conversations
+(snapshots, resume) therefore still holds exactly as designed.
+
+**Designation, not cardinality.** Leaders are per host but a conversation is one
+thing, so the daemon designates one leader as the chat agent, sticky while it stays
+online (`GET /api/assistant/inbox?agentId=` answers `chat: true|false`). A
+non-designated leader neither pulls the inbox nor mirrors its output, which is what
+stops a two-host team from answering every message twice.
+
+**What died with the role:** `queue_request`. Handing a request to "the assistant"
+made sense when that was a different process; now it would be the chat agent
+posting a message to itself and then answering it.
+
 ## Assistant chat model (a mirror of the Pi session)
 
-The assistant chat is a **real chatbot**, not a request/response form. One
-inversion makes all of it work: **the Pi session is the conversation; the daemon
-mirrors it.** (Full design + rationale: docs/ASSISTANT_CHAT_V2.md.)
+The chat is a **real chatbot**, not a request/response form. One inversion makes
+all of it work: **the Pi session is the conversation; the daemon mirrors it.** The
+session belongs to the leader — see "One Agent to Talk To" above. (Full design +
+rationale: docs/ASSISTANT_CHAT_V2.md.)
 
 1. **No turns. Sending never blocks.** `POST /api/assistant/messages` always
    succeeds and appends a `queued` message. The extension pulls queued messages

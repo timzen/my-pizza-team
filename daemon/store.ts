@@ -67,12 +67,12 @@ import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
 /**
- * Reserved singleton identity for the team assistant. The daemon owns member
- * identity (DESIGN.md "the daemon coordinates; harnesses execute") and already
- * keys the assistant chat + `reset-session` routing on this name, so it must be
- * the daemon — not the harness — that assigns it at spawn time.
+ * The role that answers the chat. There is no separate "assistant" agent any
+ * more: a leader already runs per host to realize tmux spawns, its session holds
+ * no human work (nobody types in it), and chat v2's mirror is role-agnostic — so
+ * the leader IS the chat participant. See DESIGN.md "One agent to talk to".
  */
-export const ASSISTANT_MEMBER_NAME = "assistant";
+export const CHAT_ROLE_NAME = "leader";
 
 /**
  * Directive actions an agent realizes itself rather than via its host leader.
@@ -184,6 +184,12 @@ export class Store {
    * members), so after a restart every agent simply re-registers.
    */
   private dismissedIds: Set<string> = new Set();
+
+  /**
+   * The leader currently designated as the chat agent. In memory only: it is
+   * live-connection state, and a restart re-designates as leaders re-register.
+   */
+  private chatAgentId: string | null = null;
 
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
@@ -2199,11 +2205,27 @@ export class Store {
    * path for the assistant; teammates still use that.
    */
   private directAssistantSession(action: string, params: Record<string, unknown>): void {
-    for (const m of this.getMembers()) {
-      if (m.id === ASSISTANT_MEMBER_NAME || m.name.includes(ASSISTANT_MEMBER_NAME)) {
-        this.createLeaderDirectiveForMember(m.id, action, params);
-      }
-    }
+    const agent = this.getChatAgent();
+    if (agent) this.createLeaderDirectiveForMember(agent.id, action, params);
+  }
+
+  /**
+   * The agent that answers the chat: an online leader. Sticky while it stays
+   * online so a multi-host team has one unambiguous chat participant (the first
+   * leader to register wins, and hand-off only happens if it goes offline).
+   */
+  getChatAgent(): Member | null {
+    const leaders = this.getMembers().filter((m) => m.status !== "offline" && m.name.includes(CHAT_ROLE_NAME));
+    if (leaders.length === 0) { this.chatAgentId = null; return null; }
+    const sticky = leaders.find((m) => m.id === this.chatAgentId);
+    if (sticky) return sticky;
+    this.chatAgentId = leaders[0]!.id;
+    return leaders[0]!;
+  }
+
+  /** True when `agentId` is the designated chat agent (only it may pull the inbox). */
+  isChatAgent(agentId: string): boolean {
+    return this.getChatAgent()?.id === agentId;
   }
 
   // --- Leader Directives (things asked of the leader; it realizes them) ---
@@ -2247,17 +2269,11 @@ export class Store {
     const id = `dir-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     const params: Record<string, unknown> = { ...(opts?.params || {}) };
-    if (action === "spawn" && !params.name) {
-      if (params.reason === "assistant") {
-        // Singleton: coalesce onto an existing assistant member or a pending
-        // assistant spawn rather than creating a duplicate.
-        const existing = this.findExistingAssistantSpawn();
-        if (existing) return existing;
-        params.name = ASSISTANT_MEMBER_NAME;
-      } else {
-        params.name = this.generateSpawnName();
-      }
-    }
+    // Identity is daemon-owned (DESIGN.md "the daemon coordinates; harnesses
+    // execute"), so the daemon names spawns rather than letting the harness
+    // invent one. Every spawn is a teammate now: the chat is answered by the
+    // leader, so there is no reserved singleton name to assign.
+    if (action === "spawn" && !params.name) params.name = this.generateSpawnName();
     this.db.prepare(
       "INSERT INTO leader_directives (id, host_id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)"
     ).run(id, hostId, action, opts?.memberId || null, JSON.stringify(params), now, now);
@@ -2328,41 +2344,6 @@ export class Store {
     if (!row) return false;
     this.db.prepare("UPDATE leader_directives SET status = ?, updated_at = ? WHERE id = ?").run(status, Date.now(), id);
     return true;
-  }
-
-  /**
-   * Find an existing assistant "presence" that a new assistant spawn should
-   * coalesce onto: an online assistant member, or an already-pending assistant
-   * spawn directive. Returns the representative directive (a synthetic one for
-   * a live member) or null if none exists. Enforces the assistant singleton at
-   * the point identity is assigned. See createLeaderDirective.
-   */
-  private findExistingAssistantSpawn(): ReturnType<Store["rowToDirective"]> | null {
-    // An assistant is already online — nothing to spawn. Surface a done marker.
-    const member = this.getMember(ASSISTANT_MEMBER_NAME)
-      || this.getMembers().find((m) => m.name === ASSISTANT_MEMBER_NAME || m.name.includes("assistant"));
-    // A pending assistant spawn already exists — reuse it (idempotent retry).
-    const pending = this.db.prepare(
-      "SELECT * FROM leader_directives WHERE action = 'spawn' AND status = 'pending'"
-    ).all() as Array<Record<string, unknown>>;
-    for (const row of pending) {
-      try {
-        const p = JSON.parse((row.params as string) || "{}");
-        if (p.name === ASSISTANT_MEMBER_NAME || p.reason === "assistant") {
-          return this.rowToDirective(row);
-        }
-      } catch { /* ignore */ }
-    }
-    if (member) {
-      // Represent the live assistant as a synthetic completed directive so the
-      // caller gets a stable, non-duplicating response.
-      return this.rowToDirective({
-        id: `dir-assistant-live`, action: "spawn", member_id: null,
-        params: JSON.stringify({ name: ASSISTANT_MEMBER_NAME, reason: "assistant" }),
-        status: "done", created_at: Date.now(),
-      });
-    }
-    return null;
   }
 
   /** Generate a unique teammate name (avoids current members + pending spawn directives). */

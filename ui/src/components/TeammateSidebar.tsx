@@ -3,8 +3,9 @@
  *
  * Two stacked sections, always visible so the team's state is glanceable:
  *
- *  1. **Team** — the connected agents, grouped by role. The leader `[L]` and
- *     assistant `[A]` are singletons; teammates `[Tn]` are the generalist pool.
+ *  1. **Team** — the connected agents, grouped by role. The leader `[L]` is the
+ *     host coordinator *and* the agent you chat with (there is no separate
+ *     assistant); teammates `[Tn]` are the generalist pool.
  *     Each row shows status, name, current work, and its working directory
  *     (the only work-selection signal — no capability badges). Actions: reset
  *     session, dismiss.
@@ -22,11 +23,11 @@ import { Link } from "react-router-dom";
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen, Clock, X, UserPlus, Crown, Bot, User, Ban, AlertTriangle } from "lucide-react";
+import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen, Clock, X, UserPlus, Crown, User, Ban, AlertTriangle } from "lucide-react";
 
 const COLLAPSE_KEY = "mpt.teammateSidebar.collapsed";
 
-type Role = "leader" | "assistant" | "teammate";
+type Role = "leader" | "teammate";
 
 interface Teammate {
   id: string;
@@ -65,12 +66,12 @@ interface SpawnRequest {
   createdAt: string;
 }
 
-/** Classify an agent by name convention (leader / assistant / teammate). */
+/**
+ * Classify an agent by name convention. There is no "assistant" role any more:
+ * the leader is the agent you chat with (see DESIGN.md "One agent to talk to").
+ */
 function roleOf(t: Teammate): Role {
-  const n = t.name.toLowerCase();
-  if (n.includes("leader")) return "leader";
-  if (n.includes("assistant")) return "assistant";
-  return "teammate";
+  return t.name.toLowerCase().includes("leader") ? "leader" : "teammate";
 }
 
 export function TeammateSidebar() {
@@ -238,7 +239,6 @@ export function TeammateSidebar() {
 /** Role icon for the collapsed rail / row prefix. */
 function RoleIcon({ role, className }: { role: Role; className?: string }) {
   if (role === "leader") return <Crown className={className} />;
-  if (role === "assistant") return <Bot className={className} />;
   return <User className={className} />;
 }
 
