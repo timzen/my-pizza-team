@@ -22,9 +22,11 @@ interface SessionMenuProps {
   onView: (sessionId: string | null) => void;
   /** Called after a new chat / resume, so the page can refresh. */
   onChanged: () => void;
+  /** Icon-only buttons, for the narrow dock header. */
+  compact?: boolean;
 }
 
-export function SessionMenu({ viewingId, onView, onChanged }: SessionMenuProps) {
+export function SessionMenu({ viewingId, onView, onChanged, compact }: SessionMenuProps) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
   const { data, refetch } = useApi<{ sessions: AssistantSession[] }>("/api/assistant/sessions", [], { pollInterval: open ? 5000 : undefined });
@@ -59,11 +61,24 @@ export function SessionMenu({ viewingId, onView, onChanged }: SessionMenuProps) 
 
   return (
     <>
-      <Button variant="ghost" size="sm" onClick={newChat} disabled={busy} title="New chat (snapshots the current one first)">
-        <SquarePen className="h-4 w-4 mr-1" />New chat
+      <Button
+        variant="ghost"
+        size={compact ? "icon" : "sm"}
+        className={compact ? "h-8 w-8" : undefined}
+        onClick={newChat}
+        disabled={busy}
+        title="New chat (snapshots the current one first)"
+      >
+        <SquarePen className={compact ? "h-4 w-4" : "h-4 w-4 mr-1"} />{!compact && "New chat"}
       </Button>
-      <Button variant="ghost" size="sm" onClick={() => setOpen(true)} title="Session history">
-        <History className="h-4 w-4 mr-1" />History
+      <Button
+        variant="ghost"
+        size={compact ? "icon" : "sm"}
+        className={compact ? "h-8 w-8" : undefined}
+        onClick={() => setOpen(true)}
+        title="Session history"
+      >
+        <History className={compact ? "h-4 w-4" : "h-4 w-4 mr-1"} />{!compact && "History"}
       </Button>
 
       <Dialog open={open} onOpenChange={setOpen}>

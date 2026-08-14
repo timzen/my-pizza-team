@@ -191,6 +191,29 @@ Lead ↔ teammate communication is **task-level comments**, not a real-time chan
 in `comments.jsonl` per task. Agents load comments when they start work (to see
 feedback or rework instructions), rather than polling a chat stream.
 
+## The Shell Reads Left to Right
+
+The app's three columns are the life of a piece of work, in order:
+
+| Column | Role | What's there |
+| --- | --- | --- |
+| **Left** (`AssistantDock`) | work **starts** | the assistant chat, and New Story / Solitary Task / Scheduled Job |
+| **Middle** (`<main>`) | work is **planned + reviewed** | board, task detail, inbox, thoughts, config |
+| **Right** (`TeammateSidebar`) | work **runs** | the team, the live queue, Spawn Teammate |
+
+*Why:* it gives every surface an obvious home and settles otherwise-arbitrary
+placement arguments. Creating work is *starting*, so quick-create sits with the
+assistant on the left; spawning an agent is *capacity for running work*, so it
+stays on the right with the team — even though both are "new something" buttons.
+
+Both edges are always available (they collapse to icon rails, remembered in
+`localStorage`) because talking to the assistant and watching the queue are things
+you do *while* looking at something else. That's why the chat is a dock rather
+than a page: it stopped being a destination and became an ever-present companion,
+and `/assistant` is now just a redirect that opens it. Below the `lg` breakpoint
+there's no room for columns, so the chat becomes the familiar floating
+corner-button panel instead — same chat, different presentation.
+
 ## Assistant: a Chat Conversation
 
 The assistant is a conversation, not a queue — and the conversation lives in the

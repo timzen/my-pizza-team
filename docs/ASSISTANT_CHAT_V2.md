@@ -28,6 +28,10 @@ model (a mirror of the Pi session)".
 - **Session ids** carry millisecond precision. Ending and starting a session happen
   in the same tick (new chat, persona swap), and second precision collided on the
   primary key.
+- **The chat is a dock, not a page.** Shipped as `/assistant` → redirect + left
+  dock (collapsible, resizable, floating below `lg`), with quick-create moved in
+  beside it. The stream had to move up into the dock so collapsing doesn't drop
+  the SSE connection, which is also what makes the unread badge possible.
 - **Deprecated config** (`assistantTurnTimeoutSeconds`,
   `assistantTurnDebounceSeconds`) is accepted-and-ignored, and removed from
   `DEFAULT_CONFIG`.
@@ -362,11 +366,16 @@ starts a fresh session seeded with this transcript").
 
 ## 7. Web UI
 
-`ui/src/pages/AssistantPage.tsx` (315 lines, does everything) splits into:
+`ui/src/pages/AssistantPage.tsx` (315 lines, does everything) splits into the
+component set below. **Update:** the page itself is gone — the chat became the
+left `AssistantDock`, available from every route (see DESIGN.md "The Shell Reads
+Left to Right"), and `/assistant` is a redirect that opens the dock.
 
 ```
-ui/src/pages/AssistantPage.tsx            — layout, SSE subscription, state
 ui/src/components/assistant/
+  AssistantDock.tsx      — presentation (dock / rail / floating), stream owner, unread, resize
+  AssistantChat.tsx      — the conversation body (presentational; dock owns the stream)
+  AssistantDockProvider.tsx — open state, so /assistant can open the dock as it redirects
   MessageBubble.tsx      — bubble + hover actions (expand, reply, copy, delete)
   BubbleDialog.tsx       — fullscreen markdown view of one bubble
   ThinkingBubble.tsx     — the `…`; click → ThoughtsPanel
@@ -376,6 +385,7 @@ ui/src/components/assistant/
   SessionMenu.tsx        — session list, resume, new chat, snapshot link
   PersonaChips.tsx       — extracted as-is from today's SegmentedTabs usage
 ui/src/hooks/useAssistantStream.ts        — SSE + reconcile poll
+ui/src/hooks/useMediaQuery.ts             — dock vs floating (useSyncExternalStore)
 ```
 
 Behaviour notes:
