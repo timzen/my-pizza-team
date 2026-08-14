@@ -159,21 +159,36 @@ test("has failLeaderDirective for unrealizable directives", () => {
   assert.ok(clientSrc.includes('status: "failed"'));
 });
 
-// ─── Assistant Queue ─────────────────────────────────────────────
+// ─── Assistant Chat (mirror) ─────────────────────────────────────
+//
+// Chat v2 has no turn queue: the client pulls an inbox, acks receipts, and
+// mirrors the agent's output back as bubbles/thoughts.
 
-test("has getNextQueueItem (not getNextAssistantItem)", () => {
-  assert.ok(clientSrc.includes("async getNextQueueItem()"));
-  assert.ok(!clientSrc.includes("async getNextAssistantItem"));
+test("has the chat mirror methods", () => {
+  assert.ok(clientSrc.includes("async getInbox()"));
+  assert.ok(clientSrc.includes("async ackInbox(ids"));
+  assert.ok(clientSrc.includes("async postBubble(content"));
+  assert.ok(clientSrc.includes("async postThought(body"));
+  assert.ok(clientSrc.includes("async reportPiSession(piSessionPath"));
+  assert.ok(clientSrc.includes("async mirrorUserMessage(content"));
 });
 
-test("has claimQueueItem (not claimAssistantItem)", () => {
-  assert.ok(clientSrc.includes("async claimQueueItem(id"));
-  assert.ok(!clientSrc.includes("async claimAssistantItem"));
+test("mirrors terminal input with origin 'tui'", () => {
+  assert.ok(clientSrc.includes('{ content, origin: "tui" }'));
 });
 
-test("has completeQueueItem (not completeAssistantItem)", () => {
-  assert.ok(clientSrc.includes("async completeQueueItem(id"));
-  assert.ok(!clientSrc.includes("async completeAssistantItem"));
+test("no turn-claiming API survives (v1 removed)", () => {
+  assert.ok(!clientSrc.includes("getNextQueueItem"));
+  assert.ok(!clientSrc.includes("claimQueueItem"));
+  assert.ok(!clientSrc.includes("completeQueueItem"));
+  assert.ok(!clientSrc.includes("sayAssistantMessage"));
+  assert.ok(!clientSrc.includes("/api/assistant/next"));
+});
+
+test("polls its own directives for session replacement", () => {
+  assert.ok(clientSrc.includes("async getSelfDirectives()"));
+  assert.ok(clientSrc.includes("async completeSelfDirective(id"));
+  assert.ok(clientSrc.includes("/directives"));
 });
 
 // ─── Context Library ─────────────────────────────────────────────

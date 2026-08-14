@@ -8,7 +8,7 @@ A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration
 
 - **Team Lead Pi** — connects to the daemon, polls its leader directives, manages tmux windows
 - **Teammate Pis** — poll the daemon for tasks, execute autonomously, report back
-- **Assistant Pi** — answers messages in the assistant conversation
+- **Assistant Pi** — chats with you live (web UI *or* its own terminal — same conversation)
 - **You (the Mentor)** — review work via the daemon's web UI, or hop into any teammate's window to pair
 
 ## Install
@@ -49,7 +49,7 @@ pi --ppt-assistant --ppt-daemon=http://localhost:7437
 The extension detects which role to activate:
 
 1. `--ppt-worker` flag → **Teammate** (autonomous agent)
-2. `--ppt-assistant` flag → **Assistant** (conversation responder)
+2. `--ppt-assistant` flag → **Assistant** (live chat mirror)
 3. `--ppt-lead` flag OR `.my-pizza-team/config.json` in cwd → **Leader**
 4. Otherwise → **Inactive** (only `/ppt-help` available)
 
@@ -106,6 +106,17 @@ pi --ppt-worker
 | `/ppt-worker-resume` | Resume autonomous work after pairing |
 | `/ppt-worker-status` | Show current teammate status |
 
+### Assistant
+
+| Command | Description |
+|---------|-------------|
+| `/ppt-assistant-new-session` | Start a fresh chat session (queued by the chat's **New chat** / persona swap) |
+| `/ppt-assistant-resume <file>` | Switch to an earlier chat's Pi session (queued by **Resume**) |
+
+Both are normally driven by the web UI rather than typed: Pi's session APIs exist
+only on command contexts, so the daemon's `new-session`/`resume-session` directives
+are realized by queueing these.
+
 ## LLM Tools
 
 Tools are registered per-role (all proxy to the daemon API):
@@ -122,7 +133,12 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`fail`** — Give up on the current work item: posts a comment and marks the WorkItem `FAILED`, leaving the task stuck for a human to re-enqueue/move/edit
 
 ### Assistant Tools
-- **`send_message`** — Send one chat bubble to the user; called once per bubble to deliver a batched, iMessage-style reply (the only thing the user sees)
+
+> The assistant has **no tool for replying**. It answers in ordinary prose and the
+> extension mirrors it into chat bubbles (splitting on blank lines), so the same
+> reply reads naturally in the tmux pane *and* in the web chat. See
+> [Assistant chat mirror](#assistant-chat-mirror).
+
 - **`create_story`** — Create stories from prompts
 - **`edit_story`** — Edit stories
 - **`add_task`** — Add tasks to stories
@@ -134,6 +150,23 @@ Tools are registered per-role (all proxy to the daemon API):
 
 > The context library is **vended by the daemon** where needed (e.g. the assistant's
 > persona system prompt) — agents don't search or CRUD context through tools.
+
+## Assistant Chat Mirror
+
+The assistant is a **live chat**, not a request/response worker. The Pi session is
+the conversation; the daemon chat is a mirror of it, kept in sync both ways:
+
+| Direction | What happens |
+|-----------|--------------|
+| daemon → Pi | Queued user messages are pulled from `/api/assistant/inbox` and handed to Pi with `sendUserMessage(…, { deliverAs: "steer" })` while a run is live, so you can interrupt mid-answer. Receipts advance `queued` → `delivered` → `read`. |
+| Pi → daemon | The agent's own prose is split on blank lines into chat bubbles (`src/bubbles.ts` — never inside a code fence or list). Reasoning deltas feed an ephemeral "peek behind the `…`" buffer. |
+| terminal → chat | Anything you type in the assistant's tmux pane (the `input` event, slash commands excluded) is mirrored into the web chat, so both surfaces show one conversation. |
+| sessions | `new-session` / `resume-session` are realized in-process with `ctx.newSession()` / `ctx.switchSession()`, and the resulting Pi session path is reported so a chat can be snapshotted and resumed later. |
+
+There is deliberately no polling of "turns", no composer lock, and no
+`send_message` tool. See
+[my-pizza-team/docs/ASSISTANT_CHAT_V2.md](../my-pizza-team/docs/ASSISTANT_CHAT_V2.md).
+
 
 ## Multi-Harness Spawning
 
@@ -176,7 +209,8 @@ src/
 ├── client.ts         DaemonClient: unified HTTP client for daemon API
 ├── leader.ts         Leader: tmux management, spawn polling, slash commands
 ├── teammate.ts       TeammateLoop: autonomous work loop (fresh session per work item)
-├── assistant.ts      AssistantLoop: works chat response turns (streams bubbles via send_message)
+├── assistant.ts      AssistantLoop: mirrors the daemon chat ⇄ this Pi session
+├── bubbles.ts        splitIntoBubbles: assistant prose → chat bubbles
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling
 └── shared/

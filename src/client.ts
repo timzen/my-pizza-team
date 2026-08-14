@@ -83,25 +83,27 @@ export interface TokenUsageResponse {
   error?: string;
 }
 
-/** Response from GET /api/assistant/next */
-export interface AssistantNextResponse {
-  item: { id: string; prompt: string } | null;
+/** Delivery receipt states for a user chat message. */
+export type AssistantDelivery = "queued" | "delivered" | "read";
+
+/** One queued user message from GET /api/assistant/inbox. */
+export interface AssistantInboxItem {
+  id: string;
+  content: string;
+  /** Id of the message this one quotes, if any. */
+  replyTo: string | null;
+  /** Excerpt of the quoted message, so the agent sees what is being answered. */
+  quoted: string | null;
+  origin: "web" | "tui" | "agent" | "system";
 }
 
-/** Response from POST /api/assistant/queue/:id/claim */
-export interface AssistantClaimResponse {
-  success: boolean;
-  error?: string;
+/** Response from GET /api/assistant/inbox */
+export interface AssistantInboxResponse {
+  messages: AssistantInboxItem[];
 }
 
-/** Response from POST /api/assistant/messages/:id/complete */
-export interface AssistantCompleteResponse {
-  success: boolean;
-  error?: string;
-}
-
-/** Response from POST /api/assistant/messages/:id/say */
-export interface AssistantSayResponse {
+/** Response from the chat mirror endpoints (ack / bubbles / thoughts / session). */
+export interface AssistantMirrorResponse {
   success: boolean;
   error?: string;
 }
@@ -545,16 +547,66 @@ export class DaemonClient {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // ASSISTANT QUEUE
+  // ASSISTANT CHAT (mirror between the daemon chat and this Pi session)
   // ═══════════════════════════════════════════════════════════════════
+  //
+  // Chat v2 has no turns: the daemon queues the user's messages, this agent
+  // pulls them and hands them to Pi, and the agent's own prose is mirrored back
+  // as bubbles. See my-pizza-team/docs/ASSISTANT_CHAT_V2.md.
+
+  /** User messages not yet handed to Pi, oldest first. */
+  async getInbox(): Promise<AssistantInboxResponse> {
+    return this.get<AssistantInboxResponse>("/api/assistant/inbox");
+  }
 
   /**
-   * Get next pending item from the assistant queue.
-   *
-   * Returns `{ item: null }` if the queue is empty.
+   * Advance delivery receipts. `delivered` = handed to Pi; `read` = a run that
+   * sees them has started. Calling with no ids and `read` promotes everything
+   * already delivered (what we do on agent_start).
    */
-  async getNextQueueItem(): Promise<AssistantNextResponse> {
-    return this.get<AssistantNextResponse>("/api/assistant/next");
+  async ackInbox(ids: string[], state: AssistantDelivery): Promise<AssistantMirrorResponse> {
+    return this.post<AssistantMirrorResponse>("/api/assistant/inbox/ack", { ids, state });
+  }
+
+  /** Mirror one bubble (one paragraph of the agent's reply) into the chat. */
+  async postBubble(content: string, failed = false): Promise<AssistantMirrorResponse> {
+    return this.post<AssistantMirrorResponse>("/api/assistant/bubbles", { content, failed });
+  }
+
+  /**
+   * Update the ephemeral reasoning peek: append a `chunk`, `clear` the buffer at
+   * the start of a run, and/or toggle the `thinking` (…) indicator.
+   */
+  async postThought(body: { chunk?: string; clear?: boolean; thinking?: boolean }): Promise<AssistantMirrorResponse> {
+    return this.post<AssistantMirrorResponse>("/api/assistant/thoughts", body);
+  }
+
+  /** Report the Pi session file backing the chat, so the user can resume it later. */
+  async reportPiSession(piSessionPath: string): Promise<AssistantMirrorResponse> {
+    return this.post<AssistantMirrorResponse>("/api/assistant/session", { piSessionPath });
+  }
+
+  /**
+   * Mirror a message the user typed in this agent's terminal into the web chat,
+   * so both surfaces show the same conversation.
+   */
+  async mirrorUserMessage(content: string): Promise<AssistantMirrorResponse> {
+    return this.post<AssistantMirrorResponse>("/api/assistant/messages", { content, origin: "tui" });
+  }
+
+  /** Directives this agent must realize itself (session replacement). */
+  async getSelfDirectives(): Promise<{ directives: LeaderDirective[] }> {
+    return this.get<{ directives: LeaderDirective[] }>(
+      `/api/agents/${encodeURIComponent(this.agentId)}/directives`,
+    );
+  }
+
+  /** Mark a self-directive done (or failed). */
+  async completeSelfDirective(id: string, status = "done"): Promise<AssistantMirrorResponse> {
+    return this.put<AssistantMirrorResponse>(
+      `/api/agents/${encodeURIComponent(this.agentId)}/directives/${encodeURIComponent(id)}`,
+      { status },
+    );
   }
 
   /**
@@ -613,46 +665,6 @@ export class DaemonClient {
   /** Create a thought group, optionally seeding it with member note ids. */
   async createThoughtGroup(body: { title?: string; memberIds?: string[] }): Promise<{ success: boolean; group?: ThoughtGroup; error?: string }> {
     return this.post("/api/thought-groups", body);
-  }
-
-  /**
-   * Claim an assistant response turn for processing.
-   *
-   * Marks the turn "processing" (single-flight) and flips its coalesced user
-   * messages to "read" (read receipts).
-   */
-  async claimQueueItem(id: string): Promise<AssistantClaimResponse> {
-    return this.post<AssistantClaimResponse>(
-      `/api/assistant/messages/${encodeURIComponent(id)}/claim`,
-      {}
-    );
-  }
-
-  /**
-   * Append one chat bubble to a processing turn (the `send_message` tool).
-   *
-   * A turn can call this many times to stream several bubbles, iMessage-style;
-   * the web UI polls and shows them progressively.
-   */
-  async sayAssistantMessage(turnId: string, content: string): Promise<AssistantSayResponse> {
-    return this.post<AssistantSayResponse>(
-      `/api/assistant/messages/${encodeURIComponent(turnId)}/say`,
-      { content }
-    );
-  }
-
-  /**
-   * Complete an assistant response turn.
-   *
-   * `result` is only a fallback: the daemon appends it as a single bubble if
-   * the turn produced none via sayAssistantMessage. Normally bubbles are sent
-   * with send_message and this just closes the turn.
-   */
-  async completeQueueItem(id: string, result?: string, failed = false): Promise<AssistantCompleteResponse> {
-    return this.post<AssistantCompleteResponse>(
-      `/api/assistant/messages/${encodeURIComponent(id)}/complete`,
-      { result, status: failed ? "failed" : "done" }
-    );
   }
 
   // ═══════════════════════════════════════════════════════════════════
@@ -732,10 +744,10 @@ export class DaemonClient {
   }
 
   /**
-   * Send a free-form message to the assistant conversation.
+   * Send a free-form message into the assistant conversation (as the user).
    *
-   * Appends a user message and creates the pending assistant turn that the
-   * assistant agent will answer.
+   * Used by the leader's `queue_request` tool. The message is queued for the
+   * assistant exactly like one typed in the web UI.
    */
   async enqueueAssistantRequest(prompt: string): Promise<{ success: boolean; error?: string }> {
     return this.post<{ success: boolean; error?: string }>(

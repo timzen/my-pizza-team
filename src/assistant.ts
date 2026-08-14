@@ -1,42 +1,63 @@
-// Assistant work loop: work response turns in the daemon's chat
+// Assistant mirror: keep the daemon's chat and this Pi session in sync
 //
-// The assistant is a dedicated Pi instance that answers the user in the
-// daemon's assistant chat. It operates as a pure daemon client — no local
-// store, no filesystem state.
+// The assistant is a dedicated Pi instance that talks to the user in the
+// daemon's assistant chat. Chat v2 inverts the old model: the **Pi session is
+// the conversation**, and the daemon is a mirror of it (see
+// my-pizza-team/docs/ASSISTANT_CHAT_V2.md). There are no response turns to
+// claim, no composer lock, and no `send_message` tool — the agent just talks.
 //
-// Lifecycle:
-// 1. Register with daemon as { role: "assistant" } via POST /api/agents/register
-// 2. Poll GET /api/assistant/next for the next response turn (coalesced
-//    unanswered user messages)
-// 3. Claim with POST /api/assistant/messages/:id/claim (marks them read)
-// 4. Execute the request via pi.sendUserMessage() (triggers Pi agent loop). The
-//    agent replies by calling the `send_message` tool once per chat bubble.
-// 5. On agent_end, complete with POST /api/assistant/messages/:id/complete
-// 6. Send heartbeats via POST /api/agents/heartbeat (every 30s)
-// 7. On shutdown, deregister via DELETE /api/agents/:id
+// Two directions:
 //
-// The persistent Pi session retains conversation context across turns, so each
-// turn only needs the latest user message(s) as its prompt.
+//   Inbound  daemon → Pi   Poll GET /api/assistant/inbox for queued user
+//                          messages, hand each to Pi via sendUserMessage()
+//                          (`steer` when mid-run so it lands after the current
+//                          tool batch), then ack `delivered`; ack `read` when a
+//                          run actually starts.
+//
+//   Outbound Pi → daemon   Mirror the agent's own output: assistant prose is
+//                          split on blank lines into chat bubbles, reasoning
+//                          deltas feed the ephemeral "peek behind the …"
+//                          buffer, and messages typed in this agent's terminal
+//                          are mirrored in as user messages (tmux parity).
+//
+// The event wiring lives in index.ts (it owns the `pi.on(...)` registrations);
+// this class owns the state, throttling, and daemon calls.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
+import { splitIntoBubbles } from "./bubbles.js";
 
-const POLL_INTERVAL_MS = 5000;
+const INBOX_POLL_INTERVAL_MS = 1000;
 const HEARTBEAT_INTERVAL_MS = 30000;
+/** Reasoning deltas are coalesced into one POST per window to spare the daemon. */
+const THOUGHT_FLUSH_MS = 250;
 
 export class AssistantLoop {
   private pi: ExtensionAPI;
   private client: DaemonClient;
   private running = false;
-  private currentItemId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
-  /** Active persona's system-prompt text (null = default assistant). */
+  /** Active persona's system-prompt text (null = fall back to Pi's own prompt). */
   private personaContent: string | null = null;
 
-  /** Callback invoked when an item is completed (for widget updates) */
-  public onItemComplete: ((itemId: string, summary: string) => void) | null = null;
+  /** Ids handed to Pi but not yet marked read (promoted when a run starts). */
+  private delivered = new Set<string>();
+  /** True while an agent run is in flight — decides `steer` vs plain delivery. */
+  private agentRunning = false;
+
+  /** Pending reasoning text, flushed on a timer. */
+  private thoughtBuffer = "";
+  private thoughtTimer: ReturnType<typeof setTimeout> | null = null;
+  /** Reasoning text already mirrored this run (deltas arrive as full snapshots). */
+  private thoughtSent = 0;
+
+  /** Bubbles already mirrored for the in-flight assistant message. */
+  private mirroredParagraphs = new Set<string>();
+
+  /** Callback invoked after a reply is mirrored (for widget updates). */
+  public onReplyMirrored: ((bubbles: number) => void) | null = null;
 
   /**
    * Callback to re-register with the daemon when it signals `reregister: true`
@@ -45,25 +66,21 @@ export class AssistantLoop {
    */
   public reregister: (() => Promise<void>) | null = null;
 
+  /**
+   * Callback to realize a session directive (`new-session` / `resume-session`).
+   * Set by index.ts, which owns the command context needed for Pi's session
+   * APIs. Returns the new Pi session path when it can be determined.
+   */
+  public onSessionDirective: ((action: string, params: Record<string, unknown>) => Promise<void>) | null = null;
+
   constructor(pi: ExtensionAPI, client: DaemonClient) {
     this.pi = pi;
     this.client = client;
   }
 
-  /** Whether the assistant is currently working a response turn */
-  get isWorking(): boolean {
-    return this.currentItemId !== null;
-  }
-
-  /** The ID of the response turn currently being worked (null if idle). The
-   *  `send_message` tool targets this turn to append chat bubbles. */
-  get currentItem(): string | null {
-    return this.currentItemId;
-  }
-
   /**
-   * The active persona's system-prompt text, or null for the default assistant.
-   * Read by the `before_agent_start` hook to inject the persona each turn.
+   * The active persona's system-prompt text, or null when unknown.
+   * Read by the `before_agent_start` hook to inject the persona each run.
    */
   get persona(): string | null {
     return this.personaContent;
@@ -73,35 +90,34 @@ export class AssistantLoop {
   private async refreshPersona(): Promise<void> {
     try {
       const res = await this.client.getPersona();
-      // `systemPrompt` is the effective prompt: the selected persona's body, or
-      // the daemon's default assistant persona when none is selected.
+      // `systemPrompt` is the effective prompt: chat framing + the selected
+      // persona's body (or the daemon's default assistant persona).
       this.personaContent = res.systemPrompt || null;
     } catch {
       // Keep the last known persona if the daemon is briefly unreachable.
     }
   }
 
-  /** Start the poll loop and heartbeat */
+  // ─── Lifecycle ─────────────────────────────────────────────────────
+
   async start(): Promise<void> {
     this.running = true;
+    await this.refreshPersona();
     this.startHeartbeat();
     this.pollForWork();
   }
 
-  /** Stop the poll loop and heartbeat */
   stop(): void {
     this.running = false;
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.thoughtTimer) { clearTimeout(this.thoughtTimer); this.thoughtTimer = null; }
   }
-
-  // ─── Heartbeat ─────────────────────────────────────────────────────
 
   private startHeartbeat(): void {
     this.heartbeatTimer = setInterval(async () => {
-      const status = this.currentItemId ? "working" : "idle";
       try {
-        const res = await this.client.heartbeat(status);
+        const res = await this.client.heartbeat(this.agentRunning ? "working" : "idle");
         if (res.reregister) {
           // The daemon forgot us (restart/upgrade) — re-register to restore
           // sidebar presence. Mirrors the teammate re-registration pattern.
@@ -113,97 +129,146 @@ export class AssistantLoop {
     }, HEARTBEAT_INTERVAL_MS);
   }
 
-  // ─── Poll → Claim → Execute ───────────────────────────────────────
+  /** Tell the daemon which Pi session backs this chat (enables resume). */
+  async reportSession(piSessionPath: string | null): Promise<void> {
+    if (!piSessionPath) return;
+    await this.client.reportPiSession(piSessionPath).catch(() => {});
+  }
 
+  // ─── Inbound: daemon → Pi ──────────────────────────────────────────
+
+  /**
+   * Poll the inbox and hand each queued message to Pi. Mid-run messages are
+   * delivered as `steer` so they land after the current tool batch instead of
+   * being dropped or waiting for the whole run to finish — this is what lets the
+   * user interrupt at will (the daemon no longer debounces anything).
+   */
   private async pollForWork(): Promise<void> {
-    if (!this.running || this.currentItemId) {
-      this.schedulePoll();
-      return;
-    }
-
+    if (!this.running) return;
     try {
-      const response = await this.client.getNextQueueItem();
-
-      if (response.item) {
-        const claim = await this.client.claimQueueItem(response.item.id);
-        if (claim.success) {
-          this.currentItemId = response.item.id;
-          this.client.heartbeat("working").catch(() => {});
-          await this.executeItem(response.item);
-        } else {
-          // Already claimed (shouldn't happen for single assistant, but handle gracefully)
-          this.schedulePoll();
-        }
-      } else {
-        // Queue is empty — keep polling
-        this.schedulePoll();
+      const { messages } = await this.client.getInbox();
+      for (const item of messages) {
+        const prompt = item.quoted
+          ? `> ${item.quoted.replace(/\n/g, "\n> ")}\n\n${item.content}`
+          : item.content;
+        this.pi.sendUserMessage(prompt, this.agentRunning ? { deliverAs: "steer" } : undefined);
+        this.delivered.add(item.id);
       }
+      if (messages.length > 0) {
+        await this.client.ackInbox(messages.map((m) => m.id), "delivered").catch(() => {});
+      }
+      // Also pick up session asks (new chat / resume) targeted at this agent.
+      await this.pollSessionDirectives();
     } catch {
-      // Daemon unreachable — retry on next poll
-      this.schedulePoll();
+      // Daemon unreachable — retry on the next tick.
     }
+    this.schedulePoll();
   }
 
   private schedulePoll(): void {
     if (!this.running) return;
-    this.pollTimer = setTimeout(() => this.pollForWork(), POLL_INTERVAL_MS);
+    this.pollTimer = setTimeout(() => this.pollForWork(), INBOX_POLL_INTERVAL_MS);
   }
 
   /**
-   * Execute a queue item by sending the user's message to the Pi agent. The
-   * assistant's role framing comes from its persona (injected as the system
-   * prompt by the before_agent_start hook), so the message is sent verbatim.
-   * The agent_end event handler (registered in index.ts) will call
-   * handleAgentComplete when the agent finishes.
+   * Realize session directives the daemon addressed to us. These can't be
+   * delivered as tmux keystrokes because they need Pi's in-process session APIs
+   * (`ctx.newSession()` / `ctx.switchSession()`).
    */
-  private async executeItem(item: { id: string; prompt: string }): Promise<void> {
-    // Refresh the persona so the before_agent_start hook injects the current one.
+  private async pollSessionDirectives(): Promise<void> {
+    if (!this.onSessionDirective) return;
+    const { directives } = await this.client.getSelfDirectives();
+    for (const directive of directives) {
+      try {
+        await this.onSessionDirective(directive.action, directive.params || {});
+        await this.client.completeSelfDirective(directive.id).catch(() => {});
+      } catch {
+        // A directive we can't realize must leave the queue, or it retries forever.
+        await this.client.completeSelfDirective(directive.id, "failed").catch(() => {});
+      }
+    }
+  }
+
+  // ─── Outbound: Pi → daemon ─────────────────────────────────────────
+
+  /**
+   * A run started: everything already delivered is now genuinely read, and the
+   * reasoning peek buffer belongs to this run.
+   */
+  async handleAgentStart(): Promise<void> {
+    this.agentRunning = true;
+    this.thoughtSent = 0;
+    this.mirroredParagraphs.clear();
     await this.refreshPersona();
-    this.pi.sendUserMessage(item.prompt, { deliverAs: "followUp" });
+    await this.client.postThought({ clear: true, thinking: true }).catch(() => {});
+    if (this.delivered.size > 0) {
+      await this.client.ackInbox([...this.delivered], "read").catch(() => {});
+      this.delivered.clear();
+    }
   }
 
-  // ─── Completion Handlers ───────────────────────────────────────────
-
-  /**
-   * Called by the agent_end handler when the Pi agent finishes processing.
-   * Reports the result back to the daemon and resumes polling.
-   */
-  async handleAgentComplete(lastMessage: string): Promise<void> {
-    if (!this.currentItemId) return;
-
-    const itemId = this.currentItemId;
-    // The reply is normally delivered as bubbles via the send_message tool;
-    // this text is only a fallback the daemon uses if the turn sent none.
-    const fallback = lastMessage;
-
-    try {
-      await this.client.completeQueueItem(itemId, fallback, false);
-    } catch {
-      // If reporting fails, still move on — turn will time out on daemon side
-    }
-
-    this.currentItemId = null;
-    this.client.heartbeat("idle").catch(() => {});
-    this.onItemComplete?.(itemId, fallback);
-    this.schedulePoll();
+  /** The run settled: drop the `…`. The thought buffer is left for peeking. */
+  async handleAgentSettled(): Promise<void> {
+    this.agentRunning = false;
+    this.flushThoughts();
+    await this.client.postThought({ thinking: false }).catch(() => {});
   }
 
   /**
-   * Called if the agent encounters an unrecoverable error.
-   * Marks the item as failed so it doesn't block the queue.
+   * Mirror a reasoning update. Pi streams cumulative snapshots, so only the new
+   * tail is sent; chunks are coalesced on a short timer.
    */
-  async handleAgentError(error: string): Promise<void> {
-    if (!this.currentItemId) return;
+  handleReasoning(fullText: string): void {
+    if (fullText.length <= this.thoughtSent) return;
+    this.thoughtBuffer += fullText.slice(this.thoughtSent);
+    this.thoughtSent = fullText.length;
+    if (this.thoughtTimer) return;
+    this.thoughtTimer = setTimeout(() => {
+      this.thoughtTimer = null;
+      this.flushThoughts();
+    }, THOUGHT_FLUSH_MS);
+  }
 
-    const itemId = this.currentItemId;
-    try {
-      await this.client.completeQueueItem(itemId, error, true);
-    } catch {
-      // Move on regardless
+  private flushThoughts(): void {
+    const chunk = this.thoughtBuffer;
+    this.thoughtBuffer = "";
+    if (!chunk) return;
+    this.client.postThought({ chunk }).catch(() => {});
+  }
+
+  /**
+   * Mirror one assistant message as chat bubbles: its prose is split on blank
+   * lines so a normal markdown reply arrives as a few short messages instead of
+   * one wall of text. Paragraphs already mirrored are skipped, so intermediate
+   * prose (emitted before tool calls) isn't duplicated when the run continues.
+   */
+  async mirrorAssistantText(text: string): Promise<void> {
+    const bubbles = splitIntoBubbles(text);
+    let sent = 0;
+    for (const bubble of bubbles) {
+      if (this.mirroredParagraphs.has(bubble)) continue;
+      this.mirroredParagraphs.add(bubble);
+      const res = await this.client.postBubble(bubble).catch(() => ({ success: false }));
+      if (res.success) sent++;
     }
+    if (sent > 0) this.onReplyMirrored?.(sent);
+  }
 
-    this.currentItemId = null;
-    this.client.heartbeat("idle").catch(() => {});
-    this.schedulePoll();
+  /**
+   * Mirror a message the user typed in this agent's terminal into the web chat.
+   * This is what makes the tmux pane and the web UI the same conversation.
+   */
+  async mirrorTerminalInput(text: string): Promise<void> {
+    const trimmed = text.trim();
+    // Slash commands are harness control, not conversation.
+    if (!trimmed || trimmed.startsWith("/")) return;
+    await this.client.mirrorUserMessage(trimmed).catch(() => {});
+  }
+
+  /** Report an unrecoverable agent error as a failed bubble. */
+  async mirrorError(error: string): Promise<void> {
+    this.agentRunning = false;
+    await this.client.postThought({ thinking: false }).catch(() => {});
+    await this.client.postBubble(error || "The assistant hit an error.", true).catch(() => {});
   }
 }

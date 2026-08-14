@@ -45,16 +45,32 @@ Every task belongs to a teammate; the variable is how much mentoring it needs:
 - **Async** — the lead leaves task comments; the teammate reads them on (re)claim.
 - **Sync (pairing)** — you hop into the teammate's tmux window and work directly.
 
-### 5. The assistant is a chat
-The assistant is a real chat, not a request/response form. It works one response
-*turn* at a time: it polls for a turn (the coalesced batch of unanswered user
-messages), claims it (marking them **read**), runs it in its persistent Pi
-session (which retains context across turns), and replies by calling the
-`send_message` tool once per chat bubble — so a reply arrives as several short
-messages, iMessage-style. The daemon owns the chat model (append-only messages,
-turns, read receipts, composer lock) and the batching guidance
-(`ASSISTANT_CHAT_FRAMING`, injected ahead of every persona); the extension just
-wires `send_message` to the active turn. It also exposes board and memory tools.
+### 5. The assistant is a chat — and the Pi session *is* the chat
+The assistant is a real chatbot, not a request/response form. The inversion that
+makes it feel real: **the Pi session is the conversation and the daemon mirrors
+it**, rather than the daemon queueing work for a worker.
+
+So the extension's assistant role is a mirror, not a loop with a claim protocol:
+it pulls queued user messages and hands them to Pi (`deliverAs: "steer"` while a
+run is live, so the user can interrupt mid-answer), and it mirrors Pi's output the
+other way — the agent's own prose split into chat bubbles, its reasoning into an
+ephemeral peek buffer, and anything typed in its terminal back into the chat as a
+user message.
+
+Two consequences worth stating plainly:
+
+- **The agent just talks.** There is no `send_message` tool. Bubble boundaries are
+  the harness's call (blank lines, fence/list aware) because only the harness sees
+  the raw message stream — but the framing that produces good boundaries stays in
+  the daemon's `ASSISTANT_CHAT_FRAMING`, injected ahead of every persona.
+- **The tmux pane and the web UI are one conversation.** That falls out of the
+  mirror for free, and it's the reason the mirror is worth the inversion.
+
+Session control (`new-session`, `resume-session`) is the one directive class an
+agent realizes *itself*, with Pi's `ctx.newSession()` / `ctx.switchSession()` —
+the daemon still only expresses intent, but the mechanism can't be keystrokes.
+The extension also exposes board and memory tools. Full design:
+[my-pizza-team/docs/ASSISTANT_CHAT_V2.md](../../my-pizza-team/docs/ASSISTANT_CHAT_V2.md).
 
 ### 6. Work selection is capability-based
 A teammate registers a **capability map** (its working `directory` plus any

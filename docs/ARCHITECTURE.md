@@ -19,10 +19,11 @@ The extension operates in one of three roles:
 │  │         • Register LLM tools + slash commands             │
 │  │         • Show status widget                              │
 │  │                                                          │
-│  ├── --ppt-assistant → setupAssistantRole()                 │
+│  ├── --ppt-assistant → setupAssistant()                     │
 │  │         • Register with daemon as "assistant" agent       │
-│  │         • Advertise the `persona` capability             │
-│  │         • Poll assistant turns → claim → execute          │
+│  │         • Mirror daemon chat ⇄ this Pi session            │
+│  │         • Pull inbox → sendUserMessage (steer mid-run)    │
+│  │         • Mirror prose → bubbles, reasoning → thoughts    │
 │  │         • Inject daemon-vended persona as system prompt   │
 │  │                                                          │
 │  ├── --ppt-worker → setupTeammateRole()                     │
@@ -43,7 +44,8 @@ src/
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands, host readiness probe
 ├── teammate.ts           # TeammateLoop: poll → claim → work → set-state (COMPLETE/FAILED) → fresh session loop
-├── assistant.ts          # AssistantLoop: poll turn → claim → stream bubbles → complete
+├── assistant.ts          # AssistantLoop: mirrors the daemon chat ⇄ this Pi session (no turns)
+├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -126,41 +128,62 @@ restart), and the directive poll refuses to dispatch until at least one sync
 has succeeded. This prevents agents from being spawned into the fallback
 session when the daemon was merely unreachable at leader startup.
 
-### Assistant (chat response turns)
+### Assistant (chat mirror)
+
+The assistant does not work a queue. **The Pi session is the conversation and the
+daemon mirrors it** (see my-pizza-team/docs/ASSISTANT_CHAT_V2.md). Two directions
+run concurrently:
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│  AssistantLoop                                           │
-│                                                          │
-│  1. GET  /api/assistant/next   (a response turn, or null │
-│     while one is processing / nothing unanswered / the   │
-│     pre-claim debounce hasn't elapsed)                   │
-│  2. POST /api/assistant/messages/:id/claim               │
-│     └── coalesced user messages flip to `read`           │
-│  3. refresh persona → pi.sendUserMessage(item.prompt)    │
-│  4. agent replies by calling the `send_message` tool,    │
-│     once per chat bubble:                                │
-│        POST /api/assistant/messages/:id/say  (× N)       │
-│     └── bubbles appear in the web UI progressively       │
-│  5. agent_end → POST /api/assistant/messages/:id/complete│
-│     └── `result` is only a fallback if no bubbles sent   │
-│  6. Back to step 1                                       │
-└─────────────────────────────────────────────────────────┘
+┌──────────────────────────── inbound (daemon → Pi) ─────────────────────────┐
+│  1. GET  /api/assistant/inbox        (queued user messages, oldest first)   │
+│  2. pi.sendUserMessage(text, { deliverAs: "steer" } while a run is live)    │
+│     └── quoted replies are prefixed as `> …` so the agent sees the quote    │
+│  3. POST /api/assistant/inbox/ack    { ids, state: "delivered" }            │
+│  4. on agent_start: ack { state: "read" }  (promotes everything delivered)  │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌──────────────────────────── outbound (Pi → daemon) ────────────────────────┐
+│  input (source: "interactive")  → POST /api/assistant/messages origin:tui  │
+│  agent_start                    → POST /api/assistant/thoughts clear+on    │
+│  message_update (thinking part) → POST /api/assistant/thoughts { chunk }   │
+│  message_end (assistant text)   → splitIntoBubbles → POST .../bubbles × N  │
+│  agent_settled                  → POST /api/assistant/thoughts thinking:off│
+│  session_start                  → POST /api/assistant/session { path }     │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Chat model.** The daemon owns a real chat (see its DESIGN.md "Assistant chat
- model"): append-only messages, decoupled from response *turns*. The extension
-never batches or splits text itself — it hands the prompt to Pi, and the agent
-produces the bubbles by calling `send_message` (wired to the active turn id).
-The batching guidance and the `send_message` contract come from the daemon's
-`ASSISTANT_CHAT_FRAMING`, injected ahead of every persona.
+**No `send_message` tool.** The agent replies in ordinary prose; `src/bubbles.ts`
+splits it on blank lines (never inside a code fence or a list; runt paragraphs
+merge into a neighbour, except questions). Because `message_end` fires for
+intermediate messages too, prose emitted *before* tool calls mirrors immediately —
+long answers arrive progressively instead of all at once.
 
-**Persona injection.** The assistant registers with a `persona` capability so the
-web UI knows this build can adopt a persona. It caches the daemon's active
-persona (`GET /api/assistant/persona`, refreshed each turn) and a
-`before_agent_start` hook appends the persona entry's body to the system prompt.
-Swapping a persona in the UI resets the session (via the `reset-session`
-directive), so the next turn starts fresh under the new persona.
+**Terminal parity.** Mirroring the `input` event (`source: "interactive"`, slash
+commands excluded) means a message typed in this agent's tmux pane shows up in the
+web chat as a `tui`-origin user message. It is already in the agent's context, so
+it lands `read` and is never replayed through the inbox.
+
+**Thoughts are ephemeral.** Reasoning is streamed as deltas (Pi sends cumulative
+snapshots, so only the new tail is posted, coalesced on a ~250ms timer) into a
+capped in-memory buffer in the daemon. It backs the "peek behind the `…`"
+affordance and is never persisted.
+
+**Persona injection.** The loop caches the daemon's effective system prompt
+(`GET /api/assistant/persona` — chat framing + the selected persona, or the
+default) and a `before_agent_start` hook appends it. It is refreshed at the start
+of every run, so a persona swap takes effect immediately.
+
+**Session control.** `new-session` and `resume-session` are the only directives an
+agent realizes *itself*: they need Pi's in-process session APIs, which tmux
+keystrokes can't express. The loop polls `GET /api/agents/:id/directives` and, for
+each, queues a slash command — `/ppt-assistant-new-session` or
+`/ppt-assistant-resume <file>` — because `newSession()`/`switchSession()` exist
+only on **command** contexts (the same constraint behind the teammate's
+`/ppt-fresh-session`). Each command reports the replacement session's path from
+inside `withSession` (per pi's "session replacement footguns": captured `pi`/`ctx`
+objects are stale after replacement). That reported path is what makes a chat
+resumable later.
 
 ## Daemon API (consumed by this extension)
 
@@ -212,14 +235,18 @@ that flows to the Inbox. It can also **write** to the board — `create_thought`
 thoughts → tasks → inbox → new-thoughts loop. This replaced the old
 `read_scratchpad` tool.
 
-### Assistant Conversation
+### Assistant Chat (mirror)
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/assistant/next` | GET | Next response turn (coalesced unanswered user messages), or null while one is processing |
-| `/api/assistant/messages/:id/claim` | POST | Claim a turn (marks its user messages `read`) |
-| `/api/assistant/messages/:id/say` | POST | Append one chat bubble to the active turn (the `send_message` tool; call repeatedly to batch) |
-| `/api/assistant/messages/:id/complete` | POST | Close the turn (`result` is a fallback bubble used only if none were sent) |
+| `/api/assistant/inbox` | GET | Queued user messages (with resolved quotes) to hand to Pi |
+| `/api/assistant/inbox/ack` | POST | Advance receipts: `delivered` on hand-off, `read` on `agent_start` |
+| `/api/assistant/bubbles` | POST | Mirror one bubble of the agent's own prose |
+| `/api/assistant/thoughts` | POST | Ephemeral reasoning peek: `{chunk}` / `{clear}` / `{thinking}` |
+| `/api/assistant/session` | POST | Report the Pi session file backing the chat (enables resume) |
+| `/api/assistant/messages` | POST | Mirror terminal-typed input as a user message (`origin: "tui"`) |
 | `/api/assistant/persona` | GET | Effective system prompt (daemon-vended: chat framing + selected persona or default) |
+| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`) |
+| `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed |
 | `/api/thoughts` | GET | Read the user's Thoughts board + groups for the list_thoughts / get_thought tools |
 | `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools |
 
@@ -318,9 +345,9 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)
 7. **`fail` over sentinel parsing** — giving up is the agent composing two primitives (a comment + set the WorkItem `FAILED`), never a magic string in the agent's output
 8. **Permission toggle is file-based** — leverages permission system's runtime config reload
-9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux
+9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux. The two exceptions are `new-session`/`resume-session`, which the *target agent* polls from `/api/agents/:id/directives` and realizes with Pi's session APIs — tmux keystrokes can't express "switch to this exact session file"
 10. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
-11. **Assistant replies as chat bubbles** — the assistant answers by calling the `send_message` tool once per bubble (`.../say`), not by returning one blob. Batching guidance lives in the daemon's `ASSISTANT_CHAT_FRAMING` (injected ahead of every persona), so the extension never splits/batches text itself; it just wires `send_message` to the active turn id and lets the daemon own the chat model.
+11. **The assistant just talks; the harness mirrors it** — there is no `send_message` tool. The agent's own prose is mirrored into chat bubbles by splitting on blank lines (`src/bubbles.ts`), its reasoning feeds an ephemeral peek buffer, and messages typed in its terminal are mirrored back into the chat. Bubble boundaries are the *harness's* call because only the harness sees the raw message stream — but the framing that produces good boundaries (blank lines between points) is the daemon's `ASSISTANT_CHAT_FRAMING`. Routing replies through tool calls (v1) made prose stilted and turned the tmux transcript into a wall of tool calls.
 12. **Fresh session per work item** — after each COMPLETE/FAILED the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate — the daemon/leader `reset-session` directive remains only for manual resets from the UI.
 
 ## Extending

@@ -1,22 +1,21 @@
-// Smoke test for AssistantLoop
+// Source checks for the assistant chat mirror (chat v2)
 // Run with: node tests/assistant.test.mjs
 //
-// Verifies the assistant loop source uses the daemon API correctly
-// and doesn't have any local store/filesystem dependencies.
+// The assistant no longer works a queue of response turns. It mirrors the
+// daemon's chat and this Pi session into each other:
+//   inbound   inbox -> pi.sendUserMessage (steer while running) -> ack receipts
+//   outbound  assistant prose -> bubbles, reasoning -> ephemeral thought peek,
+//             terminal input -> user messages (tmux parity)
+//
+// See my-pizza-team/docs/ASSISTANT_CHAT_V2.md.
 
 import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const src = fs.readFileSync(
-  path.join(import.meta.dirname, "../src/assistant.ts"),
-  "utf-8"
-);
-
-const indexSrc = fs.readFileSync(
-  path.join(import.meta.dirname, "../src/index.ts"),
-  "utf-8"
-);
+const src = fs.readFileSync(path.join(import.meta.dirname, "../src/assistant.ts"), "utf-8");
+const indexSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"), "utf-8");
+const toolsSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/tools.ts"), "utf-8");
 
 let passed = 0;
 let failed = 0;
@@ -40,151 +39,142 @@ test("exports AssistantLoop class", () => {
   assert.ok(src.includes("export class AssistantLoop"));
 });
 
-test("imports only DaemonClient (no Store, no fs)", () => {
-  assert.ok(src.includes('import type { DaemonClient }'));
-  assert.ok(!src.includes("Store"));
+test("has no local store or filesystem state (pure daemon client)", () => {
   assert.ok(!src.includes("node:fs"));
+  assert.ok(!src.includes("Store"));
   assert.ok(!src.includes("better-sqlite3"));
 });
 
-// ─── Daemon API usage ────────────────────────────────────────────
+// ─── The turn model is gone ──────────────────────────────────────
 
-test("polls with getNextQueueItem()", () => {
-  assert.ok(src.includes("this.client.getNextQueueItem()"));
+test("no turn claiming, completing, or single-flight item state", () => {
+  for (const gone of ["claimQueueItem", "completeQueueItem", "getNextQueueItem", "currentItemId", "isWorking"]) {
+    assert.ok(!src.includes(gone), `${gone} should be gone`);
+  }
 });
 
-test("claims with claimQueueItem()", () => {
-  assert.ok(src.includes("this.client.claimQueueItem("));
+test("no send_message tool anywhere (prose is mirrored instead)", () => {
+  assert.ok(!toolsSrc.includes("send_message"));
+  assert.ok(!toolsSrc.includes("sayAssistantMessage"));
+  assert.ok(!indexSrc.includes("getActiveTurnId"));
+  // Tools are registered without a turn-id resolver.
+  assert.ok(indexSrc.includes("registerAssistantTools(pi, client)"));
 });
 
-test("completes with completeQueueItem()", () => {
-  assert.ok(src.includes("this.client.completeQueueItem("));
-});
+// ─── Inbound: daemon -> Pi ───────────────────────────────────────
 
-test("sends heartbeat via client.heartbeat()", () => {
-  assert.ok(src.includes("this.client.heartbeat("));
-});
-
-test("reports both success and failure states", () => {
-  assert.ok(src.includes("completeQueueItem(itemId, fallback, false)"));
-  assert.ok(src.includes("completeQueueItem(itemId, error, true)"));
-});
-
-// ─── Execution ───────────────────────────────────────────────────
-
-test("sends prompt via pi.sendUserMessage", () => {
+test("pulls the inbox and hands messages to Pi", () => {
+  assert.ok(src.includes("this.client.getInbox()"));
   assert.ok(src.includes("this.pi.sendUserMessage("));
 });
 
-test("uses deliverAs: followUp", () => {
-  assert.ok(src.includes('deliverAs: "followUp"'));
+test("mid-run messages are steered, idle ones sent plainly", () => {
+  assert.ok(src.includes('this.agentRunning ? { deliverAs: "steer" } : undefined'));
 });
 
-test("sends the user message verbatim (role framing comes from the persona)", () => {
-  assert.ok(src.includes("sendUserMessage(item.prompt"));
-  assert.ok(!src.includes("You are the team assistant"));
+test("quoted replies are passed to the agent as markdown quotes", () => {
+  assert.ok(src.includes("item.quoted"));
+  assert.ok(src.includes('"\\n> "') || src.includes('> ${item.quoted'));
 });
 
-// ─── Lifecycle methods ───────────────────────────────────────────
-
-test("has start() method", () => {
-  assert.ok(src.includes("async start()"));
+test("acks 'delivered' on hand-off and 'read' when a run starts", () => {
+  assert.ok(src.includes('"delivered"'));
+  assert.ok(src.includes('ackInbox([...this.delivered], "read")'));
 });
 
-test("has stop() method", () => {
-  assert.ok(src.includes("stop(): void"));
+// ─── Outbound: Pi -> daemon ──────────────────────────────────────
+
+test("splits assistant prose into bubbles via the shared splitter", () => {
+  assert.ok(src.includes('from "./bubbles.js"'));
+  assert.ok(src.includes("splitIntoBubbles(text)"));
+  assert.ok(src.includes("this.client.postBubble("));
 });
 
-test("has handleAgentComplete() method", () => {
-  assert.ok(src.includes("async handleAgentComplete("));
+test("does not re-mirror paragraphs already sent this run", () => {
+  assert.ok(src.includes("mirroredParagraphs"));
 });
 
-test("has handleAgentError() method", () => {
-  assert.ok(src.includes("async handleAgentError("));
+test("streams only the new tail of reasoning, throttled", () => {
+  assert.ok(src.includes("thoughtSent"));
+  assert.ok(src.includes("fullText.slice(this.thoughtSent)"));
+  assert.ok(src.includes("THOUGHT_FLUSH_MS"));
 });
 
-test("has onItemComplete callback", () => {
-  assert.ok(src.includes("onItemComplete"));
+test("toggles the thinking indicator around a run", () => {
+  assert.ok(src.includes("postThought({ clear: true, thinking: true })"));
+  assert.ok(src.includes("postThought({ thinking: false })"));
 });
 
-test("has isWorking getter", () => {
-  assert.ok(src.includes("get isWorking()"));
+test("mirrors terminal input but ignores slash commands", () => {
+  assert.ok(src.includes("mirrorTerminalInput"));
+  assert.ok(src.includes('trimmed.startsWith("/")'));
+  assert.ok(src.includes("client.mirrorUserMessage"));
 });
 
-// ─── Integration in index.ts ─────────────────────────────────────
+// ─── Sessions ────────────────────────────────────────────────────
 
-console.log("\nAssistant setup in index.ts:");
+test("reports its Pi session file so chats can be resumed", () => {
+  assert.ok(src.includes("reportSession"));
+  assert.ok(src.includes("client.reportPiSession"));
+});
 
-test("registers with daemon on startup", () => {
+test("realizes session directives it polls for itself", () => {
+  assert.ok(src.includes("getSelfDirectives()"));
+  assert.ok(src.includes("onSessionDirective"));
+  assert.ok(src.includes("completeSelfDirective"));
+});
+
+// ─── Heartbeat / registration ────────────────────────────────────
+
+test("heartbeats with working/idle and re-registers when asked", () => {
+  assert.ok(src.includes("this.client.heartbeat("));
+  assert.ok(src.includes("res.reregister"));
+  assert.ok(src.includes("this.reregister?.()"));
+});
+
+console.log("\nindex.ts assistant wiring:");
+
+test("registers under the reserved singleton name", () => {
   assert.ok(indexSrc.includes('client.register({ name: "assistant"'));
 });
 
-test("deregisters on session_shutdown", () => {
-  assert.ok(indexSrc.includes("client.deregister()"));
+test("injects the persona via before_agent_start", () => {
+  assert.ok(indexSrc.includes('pi.on("before_agent_start"'));
+  assert.ok(indexSrc.includes("loop.persona"));
 });
 
-test("registers assistant tools", () => {
-  assert.ok(indexSrc.includes("registerAssistantTools(pi, client, () => loop.currentItem)"));
+test("mirrors interactive terminal input into the chat", () => {
+  assert.ok(indexSrc.includes('pi.on("input"'));
+  assert.ok(indexSrc.includes('event.source !== "interactive"'));
+  assert.ok(indexSrc.includes("loop.mirrorTerminalInput"));
 });
 
-test("registers the send_message tool wired to the active turn", () => {
-  const toolsSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/tools.ts"), "utf-8");
-  assert.ok(toolsSrc.includes('name: "send_message"'));
-  assert.ok(toolsSrc.includes("getActiveTurnId()"));
-  assert.ok(toolsSrc.includes("sayAssistantMessage("));
+test("mirrors reasoning from message_update and prose from message_end", () => {
+  assert.ok(indexSrc.includes('pi.on("message_update"'));
+  assert.ok(indexSrc.includes("loop.handleReasoning"));
+  assert.ok(indexSrc.includes('pi.on("message_end"'));
+  assert.ok(indexSrc.includes("loop.mirrorAssistantText"));
 });
 
-test("does NOT import Store for assistant", () => {
-  // The assistant setup function itself should not reference Store
-  const startIdx = indexSrc.indexOf("async function setupAssistant");
-  const assistantFn = indexSrc.slice(startIdx);
-  assert.ok(!assistantFn.includes("Store"));
-  assert.ok(!assistantFn.includes("loadFromDisk"));
+test("tracks run boundaries with agent_start / agent_settled", () => {
+  assert.ok(indexSrc.includes('pi.on("agent_start"'));
+  assert.ok(indexSrc.includes("loop.handleAgentStart"));
+  assert.ok(indexSrc.includes('pi.on("agent_settled"'));
+  assert.ok(indexSrc.includes("loop.handleAgentSettled"));
 });
 
-test("does NOT read local config.json for assistant", () => {
-  const startIdx = indexSrc.indexOf("async function setupAssistant");
-  const assistantFn = indexSrc.slice(startIdx);
-  assert.ok(!assistantFn.includes("config.json"));
-  assert.ok(!assistantFn.includes("readFileSync"));
-});
-
-test("listens for agent_end event", () => {
-  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
-  assert.ok(assistantSection.includes('pi.on("agent_end"'));
-});
-
-test("tracks completed items for widget", () => {
-  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
-  assert.ok(assistantSection.includes("completedItems"));
-  assert.ok(assistantSection.includes("onItemComplete"));
-});
-
-// --- Persona ---
-
-test("AssistantLoop exposes a persona getter", () => {
-  assert.ok(src.includes("get persona()"));
-});
-
-test("AssistantLoop refreshes the persona from the daemon", () => {
-  assert.ok(src.includes("getPersona()"));
-  assert.ok(src.includes("refreshPersona"));
-});
-
-test("assistant registers under the reserved singleton name", () => {
-  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
-  // Identity is name-based (no capability model): the assistant registers as
-  // "assistant" with its cwd + opaque tmux metadata.
-  assert.ok(assistantSection.includes('client.register({ name: "assistant"'));
-  assert.ok(assistantSection.includes("directory: cwd"));
-  assert.ok(assistantSection.includes("metadata: readTmuxMetadata(pi)"));
-});
-
-test("assistant injects the persona via before_agent_start", () => {
-  const assistantSection = indexSrc.slice(indexSrc.indexOf("setupAssistant"));
-  assert.ok(assistantSection.includes('pi.on("before_agent_start"'));
-  assert.ok(assistantSection.includes("loop.persona"));
-  assert.ok(assistantSection.includes("systemPrompt"));
+test("realizes session directives through commands (session APIs are command-only)", () => {
+  assert.ok(indexSrc.includes('action === "new-session"'));
+  assert.ok(indexSrc.includes('action === "resume-session"'));
+  // Same pattern as the teammate's /ppt-fresh-session: queue a command, because
+  // newSession/switchSession only exist on command contexts.
+  assert.ok(indexSrc.includes('pi.registerCommand("ppt-assistant-new-session"'));
+  assert.ok(indexSrc.includes('pi.registerCommand("ppt-assistant-resume"'));
+  assert.ok(indexSrc.includes('sendUserMessage("/ppt-assistant-new-session", { deliverAs: "followUp" })'));
+  assert.ok(indexSrc.includes("cmdCtx.newSession({"));
+  assert.ok(indexSrc.includes("cmdCtx.switchSession(file"));
+  // Post-switch work must use the replacement ctx (pi's documented footgun).
+  assert.ok(indexSrc.includes("withSession: reportReplacement"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

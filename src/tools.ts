@@ -7,7 +7,7 @@
 //   - registerLeaderTools: create_story, edit_story, add_task, list_workflows,
 //                          list_context, queue_request, team_status
 //   - registerTeammateTools: upload_attachment
-//   - registerAssistantTools: send_message, create_story, edit_story, add_task,
+//   - registerAssistantTools: create_story, edit_story, add_task,
 //                             create_task, create_schedule, list_workflows,
 //                             list_context, queue_request, list_thought_groups,
 //                             list_thoughts, get_thought, create_thought,
@@ -114,14 +114,13 @@ function registerFailWorkItem(
 
 /**
  * Register tools for the assistant role.
- * Includes story/task management and the assistant queue.
+ *
+ * There is deliberately no "send a message" tool: chat v2 mirrors the agent's
+ * own prose into bubbles, so replying is just replying (see
+ * my-pizza-team/docs/ASSISTANT_CHAT_V2.md §5.4). These tools are for *doing*
+ * things — stories, tasks, schedules, thoughts, context.
  */
-export function registerAssistantTools(
-  pi: ExtensionAPI,
-  client: DaemonClient,
-  getActiveTurnId: () => string | null
-): void {
-  registerSendMessage(pi, client, getActiveTurnId);
+export function registerAssistantTools(pi: ExtensionAPI, client: DaemonClient): void {
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
@@ -137,54 +136,6 @@ export function registerAssistantTools(
   registerEditThought(pi, client);
   registerArchiveThought(pi, client);
   registerGroupThoughts(pi, client);
-}
-
-// ─── send_message (assistant chat bubbles) ────────────────────────────
-
-/**
- * The assistant's primary output: send one chat bubble to the user. Call it
- * multiple times per turn to deliver a batched, iMessage-style reply. Bubbles
- * are appended to the active response turn (resolved via getActiveTurnId) and
- * show up in the web UI progressively as the turn runs. See the daemon's
- * ASSISTANT_CHAT_FRAMING for the batching guidance the assistant follows.
- */
-function registerSendMessage(
-  pi: ExtensionAPI,
-  client: DaemonClient,
-  getActiveTurnId: () => string | null
-): void {
-  pi.registerTool({
-    name: "send_message",
-    label: "Send Message",
-    description:
-      "Send one chat message (a single bubble) to the user in the live chat. This is how you reply — the user only " +
-      "sees content sent via this tool, not your final response text. Call it several times in a row to send several " +
-      "short bubbles instead of one long message, like texting.",
-    promptSnippet: "Send a chat message to the user",
-    promptGuidelines: [
-      "Reply to the user by calling send_message, one call per chat bubble.",
-      "Prefer several short bubbles over one long one: lead with a headline, then one point per bubble, and put any question in its own final bubble.",
-      "Do not rely on your final response text — only send_message content reaches the user.",
-    ],
-    parameters: Type.Object({
-      content: Type.String({ description: "The message text for this single chat bubble (markdown allowed). Keep it short." }),
-    }),
-    async execute(_toolCallId, params) {
-      const turnId = getActiveTurnId();
-      if (!turnId) {
-        return { content: [{ type: "text", text: "No active chat turn — cannot send a message right now." }] };
-      }
-      try {
-        const res = await client.sayAssistantMessage(turnId, (params as { content: string }).content);
-        if (!res.success) {
-          return { content: [{ type: "text", text: `Failed to send message: ${res.error || "unknown error"}` }] };
-        }
-        return { content: [{ type: "text", text: "Sent." }] };
-      } catch {
-        return { content: [{ type: "text", text: "Failed to send message (daemon unreachable)." }] };
-      }
-    },
-  });
 }
 
 // ═══════════════════════════════════════════════════════════════════════

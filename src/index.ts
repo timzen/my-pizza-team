@@ -2,7 +2,7 @@
 //
 // Role detection logic:
 // 1. If --ppt-worker flag → Teammate (autonomous agent)
-// 2. If --ppt-assistant flag → Assistant (queue processor)
+// 2. If --ppt-assistant flag → Assistant (live chat mirror)
 // 3. If --ppt-lead flag OR .my-pizza-team/config.json exists → Leader
 // 4. Otherwise → Inactive (only /ppt-help available)
 //
@@ -453,55 +453,129 @@ async function setupAssistant(
     if (ctx.hasUI) ctx.ui.notify("🤖 Reconnected to daemon (it had restarted).", "info");
   };
 
-  let completedItems = 0;
+  let mirroredBubbles = 0;
+  loop.onReplyMirrored = (bubbles) => {
+    mirroredBubbles += bubbles;
+    if (ctx.hasUI) ctx.ui.setWidget("pi-pizza-team", [`🤖 assistant — ${mirroredBubbles} messages sent`]);
+  };
 
-  // Register tools. The `send_message` tool needs the active response turn id so
-  // it can append chat bubbles to the turn currently being worked.
-  registerAssistantTools(pi, client, () => loop.currentItem);
+  // Tools are for *doing* things; replying is just replying (chat v2 mirrors the
+  // agent's prose into bubbles, so there is no send_message tool).
+  registerAssistantTools(pi, client);
 
-  // Inject the assistant's persona as the system prompt each turn. The persona
-  // text comes from the daemon (a selected context entry, or the daemon's
-  // default assistant persona when none is chosen) and is cached by the loop.
-  // Swapping it in the web UI resets the session so the new persona takes over.
+  // Inject the assistant's persona as the system prompt each run. The persona
+  // text comes from the daemon (chat framing + a selected context entry, or the
+  // daemon's default assistant persona) and is cached by the loop.
   pi.on("before_agent_start", async (event) => {
     const persona = loop.persona;
     if (!persona) return;
     return { systemPrompt: `${event.systemPrompt}\n\n${persona}` };
   });
 
-  loop.onItemComplete = () => {
-    completedItems++;
-    if (ctx.hasUI) {
-      ctx.ui.setWidget("pi-pizza-team", [`🤖 assistant idle — ${completedItems} processed`]);
+  // ─── Mirror: daemon chat ⇄ this Pi session ───────────────────────
+  //
+  // See my-pizza-team/docs/ASSISTANT_CHAT_V2.md §5.2. The rule of thumb: every
+  // handler below only *reports* what Pi did — none of them decide behavior.
+
+  // Report the Pi session file backing this chat so the user can resume it.
+  await loop.reportSession(ctx.sessionManager?.getSessionFile?.() ?? null);
+
+  // Messages typed in this agent's own terminal are part of the same
+  // conversation — mirror them into the web chat (tmux parity).
+  pi.on("input", async (event) => {
+    if (event.source !== "interactive") return;
+    await loop.mirrorTerminalInput(event.text);
+  });
+
+  pi.on("agent_start", async () => {
+    await loop.handleAgentStart();
+  });
+
+  // Reasoning deltas feed the ephemeral "peek behind the …" buffer.
+  pi.on("message_update", (event) => {
+    const message = event.message as { role?: string; content?: Array<{ type: string; thinking?: string }> };
+    if (message?.role !== "assistant") return;
+    for (const part of message.content || []) {
+      if (part.type === "thinking" && typeof part.thinking === "string") loop.handleReasoning(part.thinking);
     }
+  });
+
+  // Each finished assistant message is mirrored as chat bubbles. This fires for
+  // intermediate messages too (prose emitted before tool calls), so long answers
+  // arrive progressively instead of all at once.
+  pi.on("message_end", async (event) => {
+    const message = event.message as { role?: string; content?: Array<{ type: string; text?: string }> };
+    if (message?.role !== "assistant") return;
+    const text = (message.content || [])
+      .filter((p) => p.type === "text" && typeof p.text === "string")
+      .map((p) => p.text as string)
+      .join("\n\n");
+    if (text.trim()) await loop.mirrorAssistantText(text);
+  });
+
+  pi.on("agent_settled", async () => {
+    await loop.handleAgentSettled();
+  });
+
+  // ─── Session directives (new chat / resume) ──────────────────────
+  //
+  // The daemon asks ("new chat", "resume that session"); we realize it with Pi's
+  // session APIs. Two constraints shape this:
+  //
+  //  1. `newSession`/`switchSession` only exist on **command** contexts, so the
+  //     work is done inside registered commands which we queue as user messages
+  //     — the same pattern the teammate uses for /ppt-fresh-session.
+  //  2. Post-switch work must use the `withSession` ctx; captured `pi`/`ctx`
+  //     objects are stale after a session is replaced (pi docs: "Session
+  //     replacement lifecycle and footguns").
+
+  /** Report the replacement session's file so the chat stays resumable. */
+  const reportReplacement = async (replacementCtx: any) => {
+    await client.reportPiSession(replacementCtx.sessionManager?.getSessionFile?.() ?? "").catch(() => {});
   };
 
-  // ─── agent_end: capture results ──────────────────────────────────
-
-  pi.on("agent_end", async (event) => {
-    if (!loop.isWorking) return;
-
-    const messages = event.messages || [];
-    let lastText = "";
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role === "assistant") {
-        for (const part of msg.content) {
-          if (part.type === "text") { lastText = part.text; break; }
-        }
-        if (lastText) break;
-      }
-    }
-
-    await loop.handleAgentComplete(lastText);
+  pi.registerCommand("ppt-assistant-new-session", {
+    description: "Start a fresh assistant chat session (used by the chat's New chat action)",
+    handler: async (_args: unknown, cmdCtx: any) => {
+      await cmdCtx.newSession({
+        parentSession: cmdCtx.sessionManager?.getSessionFile?.(),
+        withSession: reportReplacement,
+      });
+    },
   });
+
+  pi.registerCommand("ppt-assistant-resume", {
+    description: "Resume an earlier assistant chat session: /ppt-assistant-resume <pi-session-file>",
+    handler: async (args: unknown, cmdCtx: any) => {
+      const file = String(args ?? "").trim();
+      if (!file || !fs.existsSync(file)) {
+        cmdCtx.ui?.notify?.(`Cannot resume: no such Pi session file (${file || "none given"})`, "error");
+        return;
+      }
+      await cmdCtx.switchSession(file, { withSession: reportReplacement });
+    },
+  });
+
+  loop.onSessionDirective = async (action, params) => {
+    if (action === "new-session") {
+      pi.sendUserMessage("/ppt-assistant-new-session", { deliverAs: "followUp" });
+      return;
+    }
+    if (action === "resume-session") {
+      const file = typeof params.piSessionPath === "string" ? params.piSessionPath : "";
+      // Nothing to switch to: the daemon still reopens the transcript read-only
+      // and the UI warns that context couldn't be restored.
+      if (!file) throw new Error("resume-session directive carried no piSessionPath");
+      pi.sendUserMessage(`/ppt-assistant-resume ${file}`, { deliverAs: "followUp" });
+    }
+  };
 
   // ─── Start + Widget ──────────────────────────────────────────────
 
   await loop.start();
 
   if (ctx.hasUI) {
-    ctx.ui.setWidget("pi-pizza-team", ["🤖 assistant ready — waiting for requests..."]);
+    ctx.ui.setWidget("pi-pizza-team", ["🤖 assistant ready — chat is live"]);
     ctx.ui.setStatus("pi-pizza-team", "🤖 assistant");
     ctx.ui.notify("🤖 pi-pizza-team assistant active", "info");
   }

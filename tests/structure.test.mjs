@@ -38,6 +38,7 @@ test("src/client.ts exists", () => { if (!exists("src/client.ts")) throw new Err
 test("src/leader.ts exists", () => { if (!exists("src/leader.ts")) throw new Error("missing"); });
 test("src/teammate.ts exists", () => { if (!exists("src/teammate.ts")) throw new Error("missing"); });
 test("src/assistant.ts exists", () => { if (!exists("src/assistant.ts")) throw new Error("missing"); });
+test("src/bubbles.ts exists (assistant prose -> chat bubbles)", () => { if (!exists("src/bubbles.ts")) throw new Error("missing"); });
 test("src/tools.ts exists", () => { if (!exists("src/tools.ts")) throw new Error("missing"); });
 test("src/permissions.ts exists", () => { if (!exists("src/permissions.ts")) throw new Error("missing"); });
 test("src/readiness.ts exists", () => { if (!exists("src/readiness.ts")) throw new Error("missing"); });
