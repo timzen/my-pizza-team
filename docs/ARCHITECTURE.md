@@ -46,7 +46,8 @@ src/
 ├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
-├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link
+├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
+│                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
 └── shared/
     └── types.ts          # Minimal types: WorkflowConfig, DEFAULT_DAEMON_URL, helpers
@@ -324,9 +325,10 @@ Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, read fresh on every too
 File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 - **Created at spawn time** by leader's tmux spawner with `yoloMode: true` + `authorizerChain: ["ppt-autonomous"]`
-- **Toggled dynamically** by `permissions.ts`:
+- **Toggled dynamically** by `permissions.ts` (teammates):
   - Interactive input detected → rewrite with `yoloMode: false` + pause loop
   - `/ppt-worker-resume` → rewrite with `yoloMode: true` + resume loop
+- **The leader (chat agent)** uses `registerChatAgentPermissions`: a web-driven run has nobody at the terminal, so an `ask` hangs the chat with no visible cause (the UI just shows `…`). It flips `yoloMode: true` while the current run was triggered by non-`interactive` input (the mirror's `sendUserMessage`, or RPC) and back to the user's own rules when they type in its pane — the same autonomous/pairing distinction, keyed on *who drove the run*. Because the leader runs in the user's real project it **merges** rather than authoring a permission map (`setYoloMode` preserves every other key) and **restores the file as found** on `session_shutdown`, so a later plain `pi` in that directory isn't silently in yolo mode.
 - **Authorizer chain link** (`ppt-autonomous`, registered by `registerAutonomousAuthorizer`): yoloMode alone cannot approve the permission system's fail-closed asks — as of v24 its bash **wrapper floor** clamps any `allow` (yolo included) back to `ask` for indirection wrappers (`timeout`, `nohup`, `sudo`, `env`, `xargs`, ...). The link answers those asks: `allow` while autonomous, `defer` (normal prompting) while pairing. It resolves the service via the `Symbol.for("@gotgenes/pi-permission-system:service")` globalThis slot (no hard dependency; degrades gracefully when absent), re-registers on every `permissions:ready` broadcast, and writes a `ppt.autonomous_auto_allow` audit entry per auto-allowed ask. The chain owner caps its authority: an allow on the `path`/`external_directory` surfaces downgrades to defer.
 
 ## tmux Integration (leader only)

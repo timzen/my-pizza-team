@@ -223,10 +223,25 @@ See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for detailed data flow and API 
 
 Works with [`@gotgenes/pi-permission-system`](https://www.npmjs.com/package/@gotgenes/pi-permission-system):
 
+**Teammates:**
+
 - **Autonomous mode** — `yoloMode: true`, no permission prompts; a registered `ppt-autonomous` authorizer chain link also auto-approves fail-closed asks that yolo can't (e.g. the bash indirection-wrapper floor on `timeout`/`nohup`/`sudo` commands)
 - **Pairing mode** — `yoloMode: false`, normal permission rules apply (the link defers to you)
 
 The toggle is automatic: when you type in a teammate's window, it switches to pairing mode. Run `/ppt-worker-resume` to return to autonomous.
+
+**The leader (chat agent):** a message sent from the web UI has nobody at the
+terminal, so a permission prompt doesn't just slow things down — it hangs the chat
+with no visible cause (the UI shows `…` forever). The leader therefore turns on
+`yoloMode` while the current run was driven remotely, and reverts to your normal
+rules when *you* type in its pane. Since nobody normally types at the leader, that
+is "yolo whenever it matters" — but the web UI can never silently disarm prompts on
+a session you're sitting in.
+
+Unlike a spawned teammate, the leader runs in your real project, so it does **not**
+author a permission map there: it only flips `yoloMode`, ensures the chain link is
+named, and restores the config file exactly as it found it on shutdown (otherwise a
+plain `pi` in that directory later would silently be in yolo mode).
 
 ## Upgrading from v0.1.0
 

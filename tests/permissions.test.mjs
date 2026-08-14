@@ -91,5 +91,40 @@ test("teammate setup registers the authorizer wired to loop autonomy", () => {
   assert.ok(indexSrc.includes("registerAutonomousAuthorizer(pi, () => loop.isAutonomous)"));
 });
 
+
+// ─── Chat agent (leader) ─────────────────────────────────────────
+//
+// The leader answers the chat, so a web-driven run has nobody at the terminal to
+// answer a permission prompt — an `ask` hangs the conversation invisibly.
+
+test("registerChatAgentPermissions keys off who drove the run", () => {
+  assert.ok(src.includes("export function registerChatAgentPermissions"));
+  // interactive = human present (their rules); anything else = remote (yolo).
+  assert.ok(src.includes('apply(event.source !== "interactive")'));
+});
+
+test("chat agent yolo only flips yoloMode + the chain link (never authors a permission map)", () => {
+  const fn = src.slice(src.indexOf("export function setYoloMode"), src.length);
+  assert.ok(fn.includes("config.yoloMode = yolo"));
+  assert.ok(fn.includes("AUTONOMOUS_AUTHORIZER"));
+  // The leader runs in the user's real project: don't stomp their rules.
+  assert.ok(!fn.includes('"rm -rf *"'));
+  assert.ok(!fn.includes('permission:'));
+  assert.ok(fn.includes("JSON.parse(raw)"), "must merge into the existing config");
+});
+
+test("chat agent restores the config file on shutdown", () => {
+  // Otherwise a plain `pi` in that directory later would silently be in yolo.
+  assert.ok(src.includes("const original = readFileOrNull(configPath)"));
+  assert.ok(src.includes('pi.on("session_shutdown"'));
+  assert.ok(src.includes("fs.rmSync(configPath, { force: true })"));
+});
+
+test("leader wires the chat-agent permissions and the authorizer link", () => {
+  const leaderSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/leader.ts"), "utf-8");
+  assert.ok(leaderSrc.includes("registerChatAgentPermissions(pi, cwd)"));
+  assert.ok(leaderSrc.includes("registerAutonomousAuthorizer(pi, chatPermissions.isRemoteDriven)"));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

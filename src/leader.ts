@@ -319,7 +319,15 @@ export async function setupLeader(
   // agent (see ChatMirror + /api/assistant/inbox).
 
   const { ChatMirror } = await import("./chat.js");
+  const { registerChatAgentPermissions, registerAutonomousAuthorizer } = await import("./permissions.js");
   const chat = new ChatMirror(pi, client);
+
+  // A web-driven run has nobody at the terminal, so a permission prompt would
+  // hang the chat with no visible cause. Turn on yoloMode while the run was
+  // triggered remotely, and register the chain link that answers the fail-closed
+  // asks yolo can't rewrite (the bash indirection-wrapper floor).
+  const chatPermissions = registerChatAgentPermissions(pi, cwd);
+  registerAutonomousAuthorizer(pi, chatPermissions.isRemoteDriven);
 
   // Persona: the daemon vends chat framing + the selected persona (or its
   // default), injected as the system prompt on every run.

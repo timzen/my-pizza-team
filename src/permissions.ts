@@ -6,6 +6,11 @@
 //   - Autonomous (working on task) → yoloMode: true (no prompts)
 //   - Pairing (human hopped in)    → yoloMode: false (normal permissions)
 //
+// The **leader** (the chat agent) needs the same treatment for a different
+// reason: a message sent from the web UI has nobody at the terminal to answer a
+// prompt, so an `ask` doesn't just slow things down — it hangs the chat with no
+// visible cause. See `registerChatAgentPermissions`.
+//
 // yoloMode alone is not enough as of pi-permission-system v24: its fail-closed
 // bash wrapper floor clamps any `allow` (yolo-rewritten included) back to `ask`
 // for indirection wrappers (`timeout`, `nohup`, `sudo`, `env`, `xargs`, ...) —
@@ -150,4 +155,91 @@ export function ensurePermissivePermissionConfig(cwd: string): void {
   const configPath = path.join(cwd, PERMISSION_CONFIG_REL);
   fs.mkdirSync(path.dirname(configPath), { recursive: true });
   updatePermissionConfig(configPath, true);
+}
+
+
+// ═══════════════════════════════════════════════════════════════════════
+// CHAT AGENT (LEADER)
+// ═══════════════════════════════════════════════════════════════════════
+
+/**
+ * Keep the chat agent unblockable.
+ *
+ * The leader answers the chat, and a web-driven run has **no one at the
+ * terminal**: a permission prompt hangs the conversation with no visible cause
+ * (the web UI just shows a `…` forever). So while the current run was triggered
+ * remotely we turn on `yoloMode` and let the `ppt-autonomous` link answer the
+ * fail-closed asks yolo can't.
+ *
+ * It keys off who drove the run rather than being permanently permissive, which
+ * is the same autonomous/pairing distinction teammates use:
+ *   - `interactive` input (you typing in its tmux pane) → your normal permission
+ *     rules, because you are right there and can answer
+ *   - `extension`/`rpc` input (the chat mirror delivering a web message) → yolo
+ *
+ * In practice the leader is infrastructure nobody types in, so this is "yolo
+ * whenever it matters" — but it stops the web UI from silently disarming the
+ * prompts on a session you *are* sitting in.
+ *
+ * Politeness about the user's repo: the leader runs in a real project, so unlike
+ * a spawned teammate we do **not** author a permission map here. We only flip
+ * `yoloMode`, ensure our chain link is named, and restore the file exactly as we
+ * found it on shutdown — otherwise a plain `pi` in that directory later would be
+ * silently in yolo mode.
+ */
+export function registerChatAgentPermissions(
+  pi: ExtensionAPI,
+  cwd: string,
+): { isRemoteDriven: () => boolean } {
+  const configPath = path.join(cwd, PERMISSION_CONFIG_REL);
+  /** The file as we found it (null = it did not exist), restored on shutdown. */
+  const original = readFileOrNull(configPath);
+  let remoteDriven = false;
+
+  const apply = (next: boolean) => {
+    if (next === remoteDriven) return;
+    remoteDriven = next;
+    setYoloMode(configPath, next);
+  };
+
+  pi.on("input", async (event) => {
+    // "interactive" means a human is at this pane and can answer a prompt;
+    // anything else (the mirror's sendUserMessage, RPC) means they are not.
+    apply(event.source !== "interactive");
+    return { action: "continue" as const };
+  });
+
+  pi.on("session_shutdown", async () => {
+    try {
+      if (original === null) fs.rmSync(configPath, { force: true });
+      else fs.writeFileSync(configPath, original);
+    } catch { /* best effort: never block shutdown on this */ }
+  });
+
+  return { isRemoteDriven: () => remoteDriven };
+}
+
+/**
+ * Flip `yoloMode` and ensure our authorizer link is named, preserving every other
+ * key the user (or a previous run) put in the config.
+ */
+export function setYoloMode(configPath: string, yolo: boolean): void {
+  let config: Record<string, unknown> = {};
+  const raw = readFileOrNull(configPath);
+  if (raw) {
+    try { config = JSON.parse(raw) as Record<string, unknown>; } catch { config = {}; }
+  }
+  config.yoloMode = yolo;
+  // The chain link is what answers the fail-closed bash wrapper floor that yolo
+  // cannot rewrite. Naming it while not remote-driven is harmless: it defers.
+  const chain = Array.isArray(config.authorizerChain) ? config.authorizerChain as unknown[] : [];
+  if (!chain.includes(AUTONOMOUS_AUTHORIZER)) chain.push(AUTONOMOUS_AUTHORIZER);
+  config.authorizerChain = chain;
+
+  fs.mkdirSync(path.dirname(configPath), { recursive: true });
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+}
+
+function readFileOrNull(file: string): string | null {
+  try { return fs.readFileSync(file, "utf-8"); } catch { return null; }
 }
