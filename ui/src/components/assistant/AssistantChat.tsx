@@ -48,6 +48,7 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
   const chatOnline = chatAgent !== null;
   const personas = (contextData?.entries || []).filter((e) => e.tags.includes(PERSONA_TAG));
   const activePersonaId = personaData?.personaId ?? null;
+  const personaTitle = activePersonaId ? (personaData?.entry?.title ?? activePersonaId) : null;
   // Viewing history is read-only: sending would land in the *live* session and
   // silently move you out of the transcript you're reading.
   const isHistory = viewingId !== null;
@@ -95,14 +96,15 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
       {/* Header */}
       <div className="flex h-14 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-1.5">
-          <h2 className="text-sm font-semibold">Assistant</h2>
+          {/* The title names *who you are talking to* — the persona when one is
+              chosen, otherwise the generic role. The agent behind it (the leader)
+              is in the status dot's tooltip; putting the org-chart word in a chat
+              window would be accurate and useless. */}
+          <h2 className="truncate text-sm font-semibold">{personaTitle ?? "Assistant"}</h2>
           <span
             className={`h-2 w-2 shrink-0 rounded-full ${chatOnline ? "bg-green-500" : "bg-muted-foreground/40"}`}
             title={chatOnline ? `Answered by ${chatAgent?.name}` : "No leader online to answer"}
           />
-          {activePersonaId && (
-            <span className="truncate text-xs text-muted-foreground">{personaData?.entry?.title ?? activePersonaId}</span>
-          )}
           {!connected && <span className="shrink-0 text-xs text-muted-foreground">· reconnecting…</span>}
         </div>
         <div className="flex shrink-0 items-center">
@@ -141,7 +143,9 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
         {messages.map((msg) => (
           <MessageBubble key={msg.id} message={msg} onReply={setReplyTo} onJumpTo={jumpTo} />
         ))}
-        {thinking && !isHistory && <ThinkingBubble thoughts={thoughts} />}
+        {/* Keep the affordance after the run: the reasoning buffer outlives it,
+            and only rendering while `thinking` made the peek a race. */}
+        {(thinking || thoughts) && !isHistory && <ThinkingBubble thoughts={thoughts} thinking={thinking} />}
         {!chatOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
           <p className="text-center text-xs text-muted-foreground">
             No leader is running, so your messages are queued. Start one with{" "}
