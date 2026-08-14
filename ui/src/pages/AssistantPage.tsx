@@ -1,175 +1,125 @@
 /**
- * AssistantPage — Chat window with the team assistant.
+ * AssistantPage — the live chat with the team assistant.
  *
- * Renders the conversation as message bubbles (you on the right, the assistant
- * on the left, iMessage-style). Sending a message appends it to the chat; the
- * assistant answers in a response "turn" that can stream several bubbles. While
- * a turn is processing (`activeTurn`), a typing indicator shows and the composer
- * is locked. Your messages show read receipts (✓ sent, ✓✓ read once a turn picks
- * them up). Polls /api/assistant/messages for updates.
+ * Chat v2 (docs/ASSISTANT_CHAT_V2.md): the daemon chat mirrors the assistant's Pi
+ * session, so this page is a chat client, not a form.
+ *
+ * - Send whenever you like — the composer never locks and mid-run messages are
+ *   steered into the agent's current run.
+ * - Bubbles, receipts (queued → delivered → read), thoughts, and session changes
+ *   arrive over SSE (`useAssistantStream`), not polling.
+ * - Anything typed in the assistant's tmux pane shows up here too, marked with a
+ *   terminal glyph — it is one conversation on two surfaces.
+ * - Hover a bubble to reply (quote), expand it full screen, or copy it.
+ * - Personas and session history live in the header; nothing is ever deleted.
  */
 
-import { useState, useRef, useEffect } from "react";
-import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
+import { useEffect, useRef, useState } from "react";
+import { useApi, apiPost, apiPut } from "@/hooks/useApi";
+import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { Button } from "@/components/ui/button";
-import { Textarea } from "@/components/ui/textarea";
-import { MarkdownView } from "@/components/ui/markdown-view";
-import { SegmentedTabs } from "@/components/RouteTabs";
-import { Send, SquarePen, UserPlus, Check, CheckCheck, Eraser } from "lucide-react";
-
-interface Message {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  status: "sent" | "read" | "done" | "failed";
-  turnId: string | null;
-  createdAt: string;
-}
-
-interface ActiveTurn {
-  id: string;
-  status: "processing";
-}
-
-interface ContextEntry {
-  id: string;
-  title: string;
-  description: string;
-  tags: string[];
-  content: string;
-}
-
-/** The tag that marks a context entry as a selectable assistant persona. */
-const PERSONA_TAG = "persona";
+import { MessageBubble } from "@/components/assistant/MessageBubble";
+import { ThinkingBubble } from "@/components/assistant/ThinkingBubble";
+import { Composer } from "@/components/assistant/Composer";
+import { PersonaChips } from "@/components/assistant/PersonaChips";
+import { SessionMenu } from "@/components/assistant/SessionMenu";
+import { UserPlus } from "lucide-react";
+import { PERSONA_TAG, type AssistantMessage, type ContextEntry } from "@/lib/assistant-types";
 
 export function AssistantPage() {
-  const { data, refetch } = useApi<{ messages: Message[]; activeTurn: ActiveTurn | null }>("/api/assistant/messages", [], { pollInterval: 2000 });
-  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents", [], { pollInterval: 10_000 });
+  // null = follow the active session; an id = read an earlier one.
+  const [viewingId, setViewingId] = useState<string | null>(null);
+  const { session, messages, thinking, thoughts, connected, refresh } = useAssistantStream(viewingId ?? undefined);
+
+  const { data: agentsData } = useApi<{ agents: Array<{ id: string; name: string; status: string; hostId?: string }> }>("/api/agents", [], { pollInterval: 10_000 });
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
   const { data: contextData } = useApi<{ entries: ContextEntry[] }>("/api/context", [], { pollInterval: 30_000 });
+
   const [draft, setDraft] = useState("");
-  const [sending, setSending] = useState(false);
+  const [replyTo, setReplyTo] = useState<AssistantMessage | null>(null);
   const [swapping, setSwapping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
-  // Throttle typing pings so we don't POST on every keystroke; the daemon only
-  // needs a recent-enough "still typing" signal for the pre-claim debounce.
-  const lastTypingPing = useRef(0);
 
-  const messages = data?.messages || [];
-  const activeTurn = data?.activeTurn || null;
-  // A turn is being worked: show a typing indicator and lock the composer so we
-  // never have to enqueue/order mid-turn messages (see ARCHITECTURE.md).
-  const turnActive = !!activeTurn;
   const agents = agentsData?.agents || [];
-  const onlineAssistant = agents.find(a => a.name.includes("assistant") && a.status !== "offline");
-  const assistantOnline = !!onlineAssistant;
-  // Persona chips show whenever the context library defines personas; swapping
-  // one takes effect on the assistant's next turn (the daemon vends it).
-  const personaCapable = true;
-  const personas = (contextData?.entries || []).filter(e => e.tags.includes(PERSONA_TAG));
+  const assistantOnline = agents.some((a) => a.name.includes("assistant") && a.status !== "offline");
+  const personas = (contextData?.entries || []).filter((e) => e.tags.includes(PERSONA_TAG));
   const activePersonaId = personaData?.personaId ?? null;
+  // Viewing history is read-only: sending would land in the active session and
+  // silently move you out of the transcript you're reading.
+  const isHistory = viewingId !== null;
+
+  // Auto-scroll to the newest message (and when the `…` appears/disappears).
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+  }, [messages.length, thinking]);
+
+  const send = async () => {
+    const content = draft.trim();
+    if (!content || isHistory) return;
+    setDraft("");
+    const quotedId = replyTo?.id ?? null;
+    setReplyTo(null);
+    // Optimism isn't needed: the SSE `message` frame lands in a few ms.
+    await apiPost("/api/assistant/messages", { content, replyTo: quotedId });
+  };
 
   const swapPersona = async (personaId: string | null) => {
     if (swapping || personaId === activePersonaId) return;
     setSwapping(true);
     try {
+      // The daemon ends + snapshots the current session and starts a new one.
       await apiPut("/api/assistant/persona", { personaId });
-      await Promise.all([refetchPersona(), refetch()]);
+      setViewingId(null);
+      await refetchPersona();
+      refresh();
     } finally {
       setSwapping(false);
     }
   };
 
-  // Auto-scroll to the newest message (and when a turn starts/stops typing).
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, turnActive]);
-
-  const send = async () => {
-    const content = draft.trim();
-    if (!content || sending || turnActive) return;
-    setSending(true);
-    setDraft("");
-    try {
-      await apiPost("/api/assistant/messages", { content });
-      await refetch();
-    } finally {
-      setSending(false);
-    }
+  /** Scroll to a quoted original and flash it, so the quote is a real link. */
+  const jumpTo = (id: string) => {
+    const el = document.getElementById(`msg-${id}`);
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-primary/60", "rounded-2xl");
+    setTimeout(() => el.classList.remove("ring-2", "ring-primary/60", "rounded-2xl"), 1200);
   };
-
-  const clearConversation = async () => {
-    if (!confirm("Start a new chat? This clears the conversation and resets the assistant's context.")) return;
-    await apiDelete("/api/assistant/messages");
-    refetch();
-  };
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      if (!turnActive) send();
-    }
-  };
-
-  // Tell the daemon the user is actively composing so it holds off claiming a
-  // turn until they go quiet (pre-claim debounce). Throttled to ~1.5s.
-  const handleChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
-    setDraft(e.target.value);
-    const now = Date.now();
-    if (now - lastTypingPing.current > 1500) {
-      lastTypingPing.current = now;
-      apiPost("/api/assistant/typing", {}).catch(() => {});
-    }
-  };
-
-  // Keystroke pings alone go silent when the user pauses with half-written text
-  // in the box (thinking, re-reading, about to backspace) — and a >debounce
-  // pause would let the assistant claim the turn out from under them. So while
-  // there's an unsent draft (and no active turn), heartbeat every 2s: an unsent
-  // draft means "I'm not done yet."
-  useEffect(() => {
-    if (turnActive || !draft.trim()) return;
-    const ping = () => {
-      lastTypingPing.current = Date.now();
-      apiPost("/api/assistant/typing", {}).catch(() => {});
-    };
-    const id = setInterval(ping, 2000);
-    return () => clearInterval(id);
-  }, [draft, turnActive]);
 
   return (
     <div className="flex flex-col h-full min-h-0 w-full max-w-3xl mx-auto">
       {/* Header */}
       <div className="flex items-center justify-between pb-3 border-b border-border">
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 min-w-0">
           <h1 className="text-2xl font-bold">Assistant</h1>
-          <span className={`h-2 w-2 rounded-full ${assistantOnline ? "bg-green-500" : "bg-muted-foreground/40"}`} title={assistantOnline ? "Assistant online" : "Assistant offline"} />
-          {personaCapable && activePersonaId && (
-            <span className="text-xs text-muted-foreground">· {personaData?.entry?.title ?? activePersonaId}</span>
+          <span
+            className={`h-2 w-2 rounded-full ${assistantOnline ? "bg-green-500" : "bg-muted-foreground/40"}`}
+            title={assistantOnline ? "Assistant online" : "Assistant offline"}
+          />
+          {activePersonaId && (
+            <span className="truncate text-xs text-muted-foreground">· {personaData?.entry?.title ?? activePersonaId}</span>
           )}
+          {!connected && <span className="text-xs text-muted-foreground">· reconnecting…</span>}
         </div>
         <div className="flex items-center gap-2">
-          {messages.length > 0 && (
-            <Button variant="ghost" size="sm" onClick={clearConversation} title="New chat (clears + resets context)">
-              <SquarePen className="h-4 w-4 mr-1" />New chat
-            </Button>
-          )}
+          <SessionMenu viewingId={viewingId} onView={setViewingId} onChanged={refresh} />
           <SpawnAssistantButton disabled={assistantOnline} />
         </div>
       </div>
 
-      {/* Persona picker — only when the assistant can load a persona */}
-      {personaCapable && personas.length > 0 && (
-        <div className="flex items-center gap-2 flex-wrap pt-3">
-          <SegmentedTabs
-            tabs={[
-              { key: null, label: "Default" },
-              ...personas.map(p => ({ key: p.id, label: p.title, title: p.description || p.title })),
-            ]}
-            active={activePersonaId}
-            disabled={swapping}
-            onSelect={swapPersona}
-          />
+      {/* Persona picker */}
+      {!isHistory && (
+        <PersonaChips personas={personas} activePersonaId={activePersonaId} disabled={swapping} onSelect={swapPersona} />
+      )}
+
+      {/* Reading an earlier session */}
+      {isHistory && (
+        <div className="mt-3 flex items-center justify-between rounded-md border border-border bg-muted/40 px-3 py-2 text-xs">
+          <span className="truncate text-muted-foreground">
+            Viewing “{session?.title || viewingId}” — read-only.
+            {session && !session.piSessionPath && " The assistant's context for this session is no longer available."}
+          </span>
+          <Button variant="ghost" size="sm" onClick={() => setViewingId(null)}>Back to live chat</Button>
         </div>
       )}
 
@@ -180,103 +130,29 @@ export function AssistantPage() {
             No messages yet. Say hello to your assistant below.
           </p>
         )}
-        {messages.map(msg => (
-          <MessageBubble key={msg.id} message={msg} />
+        {messages.map((msg) => (
+          <MessageBubble key={msg.id} message={msg} onReply={setReplyTo} onJumpTo={jumpTo} />
         ))}
-        {/* Typing indicator while the assistant works the current turn. */}
-        {turnActive && (
-          <div className="flex justify-start">
-            <div className="max-w-[80%] rounded-2xl rounded-bl-sm bg-muted px-4 py-2 text-sm">
-              <TypingIndicator />
-            </div>
-          </div>
-        )}
-        {!assistantOnline && messages.some(m => m.role === "user" && m.status === "sent") && (
+        {thinking && !isHistory && <ThinkingBubble thoughts={thoughts} />}
+        {!assistantOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
           <p className="text-center text-xs text-muted-foreground">
-            Assistant is offline — spawn one to get a reply.
+            Assistant is offline — your messages are queued and will be delivered when it comes back.
           </p>
         )}
       </div>
 
-      {/* Composer — locked while a turn is being answered */}
-      <div className="flex gap-2 pt-3 border-t border-border">
-        <Textarea
-          placeholder={turnActive ? "Assistant is replying…" : "Message the assistant…  (Enter to send, Shift+Enter for newline)"}
-          value={draft}
-          onChange={handleChange}
-          onKeyDown={handleKeyDown}
-          rows={2}
-          disabled={turnActive}
-          className="flex-1 resize-none"
-        />
-        <div className="flex flex-col gap-2 self-end">
-          <Button
-            variant="outline"
-            size="icon"
-            onClick={() => setDraft("")}
-            disabled={!draft || turnActive}
-            title="Clear textbox"
-          >
-            <Eraser className="h-4 w-4" />
-          </Button>
-          <Button onClick={send} size="icon" disabled={!draft.trim() || sending || turnActive} title="Send">
-            <Send className="h-4 w-4" />
-          </Button>
-        </div>
-      </div>
+      <Composer
+        draft={draft}
+        onDraftChange={setDraft}
+        onSend={send}
+        replyTo={replyTo}
+        onClearReply={() => setReplyTo(null)}
+        enabled={!isHistory}
+        placeholder={isHistory
+          ? "Viewing history — go back to the live chat to send a message"
+          : "Message the assistant…  (Enter to send, Shift+Enter for newline)"}
+      />
     </div>
-  );
-}
-
-/** A single chat bubble — right-aligned for the user, left-aligned for the assistant. */
-function MessageBubble({ message }: { message: Message }) {
-  const isUser = message.role === "user";
-  const failed = !isUser && message.status === "failed";
-
-  return (
-    <div className={`flex flex-col ${isUser ? "items-end" : "items-start"}`}>
-      <div
-        className={[
-          "max-w-[80%] rounded-2xl px-4 py-2 text-sm",
-          isUser
-            ? "bg-primary text-primary-foreground rounded-br-sm"
-            : failed
-              ? "bg-destructive/10 text-destructive rounded-bl-sm"
-              : "bg-muted text-foreground rounded-bl-sm",
-        ].join(" ")}
-      >
-        {isUser ? (
-          <span className="whitespace-pre-wrap break-words">{message.content}</span>
-        ) : failed ? (
-          <span className="whitespace-pre-wrap break-words">{message.content || "The assistant hit an error."}</span>
-        ) : (
-          <MarkdownView content={message.content} />
-        )}
-      </div>
-      {/* Read receipt on the user's own messages: ✓ delivered, ✓✓ read (picked up by a turn). */}
-      {isUser && (
-        <span className="mt-0.5 mr-1 text-muted-foreground" title={message.status === "read" ? "Read" : "Sent"}>
-          {message.status === "read"
-            ? <CheckCheck className="h-3 w-3" />
-            : <Check className="h-3 w-3" />}
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** Animated three-dot "typing" indicator for a pending assistant turn. */
-function TypingIndicator() {
-  return (
-    <span className="inline-flex items-center gap-1 py-1">
-      {[0, 1, 2].map(i => (
-        <span
-          key={i}
-          className="h-2 w-2 rounded-full bg-muted-foreground/60 animate-bounce"
-          style={{ animationDelay: `${i * 0.15}s` }}
-        />
-      ))}
-    </span>
   );
 }
 
@@ -287,7 +163,7 @@ function SpawnAssistantButton({ disabled }: { disabled: boolean }) {
   const handleSpawn = async () => {
     setSpawning(true);
     try {
-      const agentsRes = await fetch("/api/agents").then(r => r.json());
+      const agentsRes = await fetch("/api/agents").then((r) => r.json());
       const hosts = new Set<string>();
       for (const a of agentsRes.agents || []) {
         if (a.hostId && a.status !== "offline") hosts.add(a.hostId);

@@ -101,27 +101,86 @@ export interface ArchiveStoryResponse { success: boolean; synopsis?: string; err
 // GET /api/archived
 export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: string; archivedAt: string; synopsis: string }> }
 
-// --- Assistant Conversation ---
-// User messages: 'sent' (delivered) -> 'read' (coalesced into a turn). Assistant
-// bubbles are appended already-'done' (or 'failed'). `turnId` groups a message
-// under the response turn it belongs to.
-export interface AssistantMessage { id: string; role: "user" | "assistant"; content: string; status: "sent" | "read" | "done" | "failed"; turnId: string | null; createdAt: string }
-/** The active (processing) response turn, or null when idle. Drives the typing indicator + composer lock. */
-export interface AssistantTurn { id: string; status: "processing" }
-export interface AssistantMessagesResponse { messages: AssistantMessage[]; activeTurn: AssistantTurn | null }
-export interface AssistantSendRequest { content: string }
+// --- Assistant Conversation (chat v2) ---
+// The chat mirrors the assistant's Pi session: there are no response turns, the
+// composer never locks, and delivery receipts advance queued -> delivered -> read
+// as the agent picks a message up. See docs/ASSISTANT_CHAT_V2.md.
+
+/** Where a message came from: the web UI, the agent's terminal, the agent, the daemon. */
+export type AssistantOrigin = "web" | "tui" | "agent" | "system";
+/** Receipt states for a user message (null on assistant/system rows). */
+export type AssistantDelivery = "queued" | "delivered" | "read";
+
+export interface AssistantMessage {
+  id: string;
+  sessionId: string;
+  role: "user" | "assistant" | "system";
+  content: string;
+  origin: AssistantOrigin;
+  delivery: AssistantDelivery | null;
+  /** 'ok' | 'failed' — only meaningful for assistant bubbles. */
+  state: string;
+  /** Id of the message this one quotes, if any. */
+  replyTo: string | null;
+  /** Resolved excerpt of `replyTo` for rendering the quote inline. */
+  quoted: { id: string; role: "user" | "assistant" | "system"; content: string } | null;
+  createdAt: string;
+}
+
+/** One continuous conversation, backed by one Pi session and one persona. */
+export interface AssistantSession {
+  id: string;
+  personaId: string | null;
+  personaTitle: string | null;
+  title: string;
+  piSessionPath: string | null;
+  status: "active" | "ended";
+  snapshotPath: string | null;
+  startedAt: string;
+  endedAt: string | null;
+  messageCount: number;
+}
+
+// GET /api/assistant/messages?sessionId=
+export interface AssistantMessagesResponse { session: AssistantSession | null; messages: AssistantMessage[]; thinking: boolean }
+// POST /api/assistant/messages
+export interface AssistantSendRequest { content: string; replyTo?: string | null; origin?: AssistantOrigin }
 export interface AssistantSendResponse { success: boolean; userMessage?: AssistantMessage; error?: string }
-// Typing presence ping (POST /api/assistant/typing, no body) — feeds the pre-claim debounce.
-export interface AssistantTypingResponse { success: boolean }
-// Agent-facing turn processing
-export interface AssistantNextResponse { item: { id: string; prompt: string } | null }
-export interface AssistantClaimResponse { success: boolean; error?: string }
-// Append one chat bubble to the active turn (the `send_message` tool).
-export interface AssistantSayRequest { content: string }
-export interface AssistantSayResponse { success: boolean; message?: AssistantMessage; error?: string }
-export interface AssistantCompleteRequest { result?: string; status?: "done" | "failed" }
-export interface AssistantCompleteResponse { success: boolean; error?: string }
 export interface AssistantDeleteResponse { success: boolean; error?: string }
+
+// GET /api/assistant/stream (SSE). Each frame is one of these, JSON-encoded.
+export type AssistantStreamEvent =
+  | { type: "hello"; thinking: boolean; session: AssistantSession | null }
+  | { type: "message"; message: AssistantMessage }
+  | { type: "message-deleted"; id: string }
+  | { type: "delivery"; id: string; delivery: AssistantDelivery }
+  | { type: "thinking"; active: boolean; chunk?: string }
+  | { type: "session"; session: AssistantSession };
+
+// --- Assistant agent-facing (the extension mirrors Pi <-> daemon) ---
+
+/** GET /api/assistant/inbox — user messages not yet handed to Pi. */
+export interface AssistantInboxItem { id: string; content: string; replyTo: string | null; quoted: string | null; origin: AssistantOrigin }
+export interface AssistantInboxResponse { messages: AssistantInboxItem[] }
+// POST /api/assistant/inbox/ack — empty `ids` with state 'read' promotes all delivered.
+export interface AssistantAckRequest { ids?: string[]; state: AssistantDelivery }
+export interface AssistantAckResponse { success: boolean; updated?: number; error?: string }
+// POST /api/assistant/bubbles — mirror one paragraph of the agent's reply.
+export interface AssistantBubbleRequest { content: string; failed?: boolean }
+export interface AssistantBubbleResponse { success: boolean; message?: AssistantMessage; error?: string }
+// POST /api/assistant/thoughts — ephemeral reasoning peek + the `…` indicator.
+export interface AssistantThoughtRequest { chunk?: string; clear?: boolean; thinking?: boolean }
+// GET /api/assistant/thoughts
+export interface AssistantThoughtsResponse { chunks: string[]; updatedAt: string | null; thinking: boolean }
+// POST /api/assistant/session — the extension reports its live Pi session file.
+export interface AssistantReportSessionRequest { piSessionPath: string }
+export interface AssistantReportSessionResponse { success: boolean; session?: AssistantSession; error?: string }
+
+// --- Assistant sessions ---
+// GET /api/assistant/sessions
+export interface AssistantSessionsResponse { sessions: AssistantSession[] }
+// POST /api/assistant/sessions/new, POST /api/assistant/sessions/:id/resume
+export interface AssistantSessionResponse { success: boolean; session?: AssistantSession; contextRestored?: boolean; error?: string }
 
 // --- Context Library ---
 export interface ContextEntry { id: string; title: string; description: string; tags: string[]; content: string; createdAt: string; updatedAt: string }
@@ -135,11 +194,12 @@ export interface DeleteContextEntryResponse { success: boolean; error?: string }
 // --- Scratch Pad (removed: replaced by the Thoughts board) ---
 
 // --- Assistant Persona ---
+// Swapping a persona ends the current session (snapshotted) and starts a new one.
 // GET /api/assistant/persona
 export interface AssistantPersonaResponse { personaId: string | null; entry: ContextEntry | null; systemPrompt: string }
 // PUT /api/assistant/persona
 export interface SetAssistantPersonaRequest { personaId: string | null }
-export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; entry?: ContextEntry | null; systemPrompt?: string; error?: string }
+export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; entry?: ContextEntry | null; systemPrompt?: string; session?: AssistantSession; error?: string }
 
 // --- Agents API (WorkItem-centric; see refactor plan) ---
 

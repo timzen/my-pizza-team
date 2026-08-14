@@ -160,6 +160,8 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 ├── archived/
 ├── backlog/
 ├── context/             # Context library: reusable prompt/context markdown entries
+├── assistant/
+│   └── sessions/        # Chat transcripts: one markdown snapshot per chat session
 ├── thoughts/            # Thoughts board: markdown sticky notes (thoughts/<id>.md)
 └── groups.json          # Thought groups ([{id, title}]; membership lives on each note)
 ```
@@ -230,6 +232,38 @@ workflows/
 ```
 
 Assign a workflow when creating a story (required).
+
+---
+
+## Assistant Chat
+
+The assistant is a live chatbot, not a form. The web UI (`/assistant`) and the
+assistant's own tmux pane are **two views of one conversation**: the daemon
+mirrors the assistant's Pi session in both directions.
+
+- **Send whenever you like.** The composer never locks. A message sent while the
+  assistant is working is steered into its current run.
+- **Real receipts.** ⧗ queued (nobody has it yet) → ✓ delivered (handed to the
+  assistant) → ✓✓ read (it has started a run that sees it).
+- **Bubbles from prose.** The assistant just writes; each paragraph becomes a
+  bubble (code blocks and lists are never split). Markdown is rendered, and any
+  bubble can be expanded full screen or copied.
+- **Reply to a bubble.** Hover → reply quotes it; the quote is shown in your
+  message and passed to the assistant.
+- **Peek at its thinking.** Click the `…` while it works to read its live
+  reasoning. This is ephemeral — never saved, gone on restart.
+- **Terminal parity.** Type in the assistant's tmux window and it appears in the
+  web chat (marked with a terminal glyph), and vice versa.
+- **Personas.** Any context-library entry tagged `persona` becomes a selectable
+  assistant. Swapping is not destructive — it ends the current chat and starts a
+  new one as that persona.
+- **Sessions: nothing is lost.** "New chat", a persona swap, or resuming another
+  session **snapshots** the current transcript to
+  `.my-pizza-team/assistant/sessions/<id>.md`. **History** lists every session:
+  read it, open its markdown, or **Resume** it — which switches the assistant back
+  to that Pi session so its context comes along too.
+
+See [docs/ASSISTANT_CHAT_V2.md](docs/ASSISTANT_CHAT_V2.md) for the design.
 
 ---
 
@@ -367,7 +401,7 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, work-item state |
-| Assistant | `/api/assistant/*` | Chat conversation (batched replies, read receipts, response turns) |
+| Assistant | `/api/assistant/*` | Live chat: send any time, SSE stream, delivery receipts, quoted replies, thought peek, sessions (snapshot/resume), persona |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
 | Thoughts | `GET/POST /api/thoughts`, `POST /api/thoughts/positions`, `PATCH /api/thoughts/:id`, `POST .../archive\|restore`, `DELETE`, `POST/PATCH/DELETE /api/thought-groups[/:id]` | Markdown sticky-note board (a personal workspace/outbox) |
 | Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |

@@ -22,9 +22,13 @@ export interface TeamConfig {
   teammates?: TeammateConfig;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
-  /** Seconds a claimed assistant response turn may run before it's failed and the composer unlocks (default: 300) */
+  /**
+   * @deprecated Chat v2 removed response turns entirely (no claim, no composer
+   * lock, no debounce) — see docs/ASSISTANT_CHAT_V2.md. Still accepted so
+   * existing config.json files keep loading; ignored by the daemon.
+   */
   assistantTurnTimeoutSeconds?: number;
-  /** Seconds of user quiet (no typing, no new message) required before the assistant may claim a turn (default: 5) */
+  /** @deprecated See `assistantTurnTimeoutSeconds`. Accepted and ignored. */
   assistantTurnDebounceSeconds?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
@@ -344,8 +348,6 @@ export const DEFAULT_CONFIG: TeamConfig = {
   },
   maxTeammates: 4,
   agentTimeoutSeconds: 90,
-  assistantTurnTimeoutSeconds: 300,
-  assistantTurnDebounceSeconds: 5,
   teammates: {},
 };
 
@@ -362,6 +364,13 @@ export const WORKDEFS_DIR = "tasks";
 export const SCHEDULES_DIR = "schedules";
 /** Directory holding Task Templates (`templates/<id>/template.md`; molds for Solitary tasks). */
 export const TEMPLATES_DIR = "templates";
+
+/**
+ * Directory holding assistant-chat artifacts. Session transcripts are markdown
+ * snapshots under `assistant/sessions/<id>.md` (see docs/ASSISTANT_CHAT_V2.md).
+ */
+export const ASSISTANT_DIR = "assistant";
+export const ASSISTANT_SESSIONS_DIR = "sessions";
 
 /** Directory holding thought notes (`thoughts/<id>.md`); groups live in `groups.json`. */
 export const THOUGHTS_DIR = "thoughts";
