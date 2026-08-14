@@ -7,6 +7,18 @@ model (a mirror of the Pi session)".
 
 **Deltas from the plan** (decided during implementation):
 
+- **Reasoning offset is per message, not per run.** `message_update` snapshots are
+  cumulative *per assistant message*; a run with tool calls emits several, each
+  restarting at zero. A per-run high-water mark therefore dropped all reasoning
+  after the first tool call. Reset happens on the `message_end` boundary, before
+  the "has text" guard — messages that are only thinking + tool calls are exactly
+  the ones whose reasoning matters.
+- **The peek outlives the run.** The `…` is replaced by a small "thoughts" chip
+  once the agent settles, because rendering the affordance only while `thinking`
+  made the feature a race against the reply arriving. The panel also fetches
+  `GET /api/assistant/thoughts` on open: SSE only carries chunks emitted while
+  *that tab* was listening, so after a reload the daemon holds the buffer and the
+  panel would otherwise look empty.
 - **§3.4 thought expiry** — no 60s grace timer. The peek buffer is simply cleared
   when the *next* run starts, which gives the same "read it after the reply lands"
   behavior with no timer to reason about.

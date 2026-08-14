@@ -37,7 +37,11 @@ function App() {
   return (
     <BrowserRouter>
       <AssistantDockProvider>
-      <div className="min-h-screen flex flex-col bg-background text-foreground">
+      {/* h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
+          columns and <main> then own their own scrolling. With a content-height
+          shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
+          grows the page instead of scrolling inside the dock. */}
+      <div className="h-dvh overflow-hidden flex flex-col bg-background text-foreground">
         <NavBar />
         <div className="flex flex-1 min-h-0">
           <AssistantDock />
