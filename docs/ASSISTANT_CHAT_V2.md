@@ -28,6 +28,13 @@ model (a mirror of the Pi session)".
 - **Session ids** carry millisecond precision. Ending and starting a session happen
   in the same tick (new chat, persona swap), and second precision collided on the
   primary key.
+- **There is no assistant process.** The dedicated assistant role was retired
+  after the fact: the **leader** answers the chat (DESIGN.md "One Agent to Talk
+  To"). Its session holds no human work, so every assumption in this document
+  still holds — but §5's "the extension's assistant role" is now the leader's chat
+  mirror (`pi-pizza-team/src/chat.ts`), the inbox is gated on a daemon-designated
+  chat agent, and `queue_request` + the spawn button + the `pi-assistant` template
+  are gone.
 - **The chat is a dock, not a page.** Shipped as `/assistant` → redirect + left
   dock (collapsible, resizable, floating below `lg`), with quick-create moved in
   beside it. The stream had to move up into the dock so collapsing doesn't drop

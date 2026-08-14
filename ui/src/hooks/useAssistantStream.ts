@@ -22,6 +22,8 @@ const MAX_THOUGHT_CHUNKS = 400;
 export interface AssistantStreamState {
   session: AssistantSession | null;
   messages: AssistantMessage[];
+  /** The agent that answers (the designated leader), or null if none is online. */
+  chatAgent: { id: string; name: string } | null;
   /** True while the agent is mid-run (drives the `…` bubble). */
   thinking: boolean;
   /** Live reasoning text for the "peek behind the …" panel. */
@@ -39,6 +41,7 @@ export interface AssistantStreamState {
 export function useAssistantStream(sessionId?: string): AssistantStreamState {
   const [session, setSession] = useState<AssistantSession | null>(null);
   const [messages, setMessages] = useState<AssistantMessage[]>([]);
+  const [chatAgent, setChatAgent] = useState<{ id: string; name: string } | null>(null);
   const [thinking, setThinking] = useState(false);
   const [thoughtChunks, setThoughtChunks] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
@@ -61,11 +64,17 @@ export function useAssistantStream(sessionId?: string): AssistantStreamState {
       try {
         const res = await fetch(url);
         if (!res.ok) return;
-        const data = await res.json() as { session: AssistantSession | null; messages: AssistantMessage[]; thinking: boolean };
+        const data = await res.json() as {
+          session: AssistantSession | null;
+          messages: AssistantMessage[];
+          thinking: boolean;
+          chatAgent: { id: string; name: string } | null;
+        };
         if (cancelled) return;
         setSession(data.session);
         setMessages(data.messages || []);
         setThinking(!!data.thinking);
+        setChatAgent(data.chatAgent ?? null);
       } catch {
         // Leave the last known transcript in place; the stream or the next
         // reconcile will catch us up.
@@ -133,5 +142,5 @@ export function useAssistantStream(sessionId?: string): AssistantStreamState {
     return () => source.close();
   }, [refresh]);
 
-  return { session, messages, thinking, thoughts: thoughtChunks.join(""), connected, refresh };
+  return { session, messages, chatAgent, thinking, thoughts: thoughtChunks.join(""), connected, refresh };
 }

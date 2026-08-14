@@ -237,9 +237,12 @@ Assign a workflow when creating a story (required).
 
 ## Assistant Chat
 
-The assistant is a live chatbot, not a form. The web UI and the assistant's own
-tmux pane are **two views of one conversation**: the daemon mirrors the
-assistant's Pi session in both directions.
+The assistant is a live chatbot, not a form — and it is **your leader**. There is
+no separate assistant to start: the leader already runs to manage tmux, so the chat
+just works whenever one is up (`pi --ppt-lead` in your project). The web UI and the
+leader's own tmux pane are **two views of one conversation**: the daemon mirrors
+that Pi session in both directions. See
+[docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
 It lives in the **left dock**, available on every page — collapse it to an icon
 rail (with an unread badge), or drag its inner edge to resize. On narrow screens
@@ -259,16 +262,18 @@ left-to-right: work starts on the left, runs on the right (see
   message and passed to the assistant.
 - **Peek at its thinking.** Click the `…` while it works to read its live
   reasoning. This is ephemeral — never saved, gone on restart.
-- **Terminal parity.** Type in the assistant's tmux window and it appears in the
-  web chat (marked with a terminal glyph), and vice versa.
+- **Multi-machine.** Leaders are per host, so the daemon designates one as the chat
+  agent (sticky while it's online) — a two-host team never answers you twice.
+- **Terminal parity.** Type in the leader's tmux window and it appears in the web
+  chat (marked with a terminal glyph), and vice versa.
 - **Personas.** Any context-library entry tagged `persona` becomes a selectable
   assistant. Swapping is not destructive — it ends the current chat and starts a
   new one as that persona.
 - **Sessions: nothing is lost.** "New chat", a persona swap, or resuming another
   session **snapshots** the current transcript to
   `.my-pizza-team/assistant/sessions/<id>.md`. **History** lists every session:
-  read it, open its markdown, or **Resume** it — which switches the assistant back
-  to that Pi session so its context comes along too.
+  read it, open its markdown, or **Resume** it — which switches the leader back to
+  that Pi session so its context comes along too.
 
 See [docs/ASSISTANT_CHAT_V2.md](docs/ASSISTANT_CHAT_V2.md) for the design.
 

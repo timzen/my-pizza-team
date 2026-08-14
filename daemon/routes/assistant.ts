@@ -74,10 +74,13 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     const sessionId = c.req.query("sessionId") || undefined;
     const session = sessionId ? store.getAssistantSession(sessionId) : store.getActiveAssistantSession();
     if (sessionId && !session) return c.json({ success: false, error: "Session not found" }, 404);
+    const agent = store.getChatAgent();
     return c.json({
       session,
       messages: store.getAssistantMessages(session?.id),
       thinking: store.isAssistantThinking(),
+      // Who answers: the designated leader, or null when none is online.
+      chatAgent: agent ? { id: agent.id, name: agent.name } : null,
     });
   });
 
@@ -93,7 +96,9 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
       replyTo: typeof body.replyTo === "string" ? body.replyTo : null,
       origin: body.origin === "tui" ? "tui" : "web",
     });
-    return c.json({ success: true, userMessage }, 201);
+    // Nothing to spawn: a leader answers the chat, so either one is connected or
+    // the message waits in the queue until one is.
+    return c.json({ success: true, userMessage, chatAgent: store.getChatAgent()?.id ?? null }, 201);
   });
 
   app.delete("/api/assistant/messages/:id", (c) => {
@@ -150,8 +155,17 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
   // The extension pulls queued messages, hands them to Pi, and mirrors the
   // agent's output back. Nothing here decides *what* the agent says.
 
-  /** Queued user messages, oldest first. */
-  app.get("/api/assistant/inbox", (c) => c.json({ messages: store.getAssistantInbox() }));
+  /**
+   * Queued user messages, oldest first — but only for the designated chat agent.
+   * A multi-host team has several leaders; without this gate they would all pull
+   * the same message and answer it in parallel. `chat` tells a non-designated
+   * agent to stay quiet (it also stops mirroring its own output).
+   */
+  app.get("/api/assistant/inbox", (c) => {
+    const agentId = c.req.query("agentId") || "";
+    const isChatAgent = agentId ? store.isChatAgent(agentId) : false;
+    return c.json({ chat: isChatAgent, messages: isChatAgent ? store.getAssistantInbox() : [] });
+  });
 
   /** Advance receipts: 'delivered' (handed to Pi) or 'read' (a run sees them). */
   app.post("/api/assistant/inbox/ack", async (c) => {
