@@ -112,6 +112,17 @@ test("splits assistant prose into bubbles via the shared splitter", () => {
   assert.ok(src.includes("this.client.postBubble("));
 });
 
+test("the reasoning offset resets per message, not per run", () => {
+  // message_update snapshots are cumulative PER MESSAGE. Resetting only at
+  // agent_start dropped every bit of reasoning after the first tool call.
+  const boundary = src.slice(src.indexOf("async handleAssistantMessageEnd"), src.indexOf("async handleAssistantMessageEnd") + 400);
+  assert.ok(boundary.includes("this.thoughtSent = 0"));
+  // Must run before the text guard, or messages that are only thinking + tool
+  // calls (the interesting ones) would never reset it.
+  assert.ok(boundary.indexOf("this.thoughtSent = 0") < boundary.indexOf("!text.trim()"));
+  assert.ok(leaderSrc.includes("await chat.handleAssistantMessageEnd(text)"));
+});
+
 test("does not re-mirror paragraphs already sent this run", () => {
   assert.ok(src.includes("mirroredParagraphs"));
 });
@@ -177,7 +188,7 @@ test("mirrors reasoning from message_update and prose from message_end", () => {
   assert.ok(leaderSrc.includes('pi.on("message_update"'));
   assert.ok(leaderSrc.includes("chat.handleReasoning"));
   assert.ok(leaderSrc.includes('pi.on("message_end"'));
-  assert.ok(leaderSrc.includes("chat.mirrorAssistantText"));
+  assert.ok(leaderSrc.includes("chat.handleAssistantMessageEnd"));
 });
 
 test("tracks run boundaries with agent_start / agent_settled", () => {

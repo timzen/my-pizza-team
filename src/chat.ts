@@ -66,7 +66,15 @@ export class ChatMirror {
   /** Pending reasoning text, flushed on a timer. */
   private thoughtBuffer = "";
   private thoughtTimer: ReturnType<typeof setTimeout> | null = null;
-  /** Reasoning text already mirrored this run (deltas arrive as full snapshots). */
+  /**
+   * How much of the *current message's* reasoning has been mirrored.
+   *
+   * `message_update` carries a cumulative snapshot **per assistant message**, not
+   * per run. A run with tool calls produces several messages, and each one's
+   * thinking restarts at zero — so this must reset per message. Tracking it per
+   * run silently dropped all reasoning after the first tool call (a later, shorter
+   * snapshot never exceeded the high-water mark).
+   */
   private thoughtSent = 0;
 
   /** Bubbles already mirrored for the in-flight assistant message. */
@@ -220,8 +228,8 @@ export class ChatMirror {
   }
 
   /**
-   * Mirror a reasoning update. Pi streams cumulative snapshots, so only the new
-   * tail is sent; chunks are coalesced on a short timer.
+   * Mirror a reasoning update. Pi streams cumulative snapshots per message, so
+   * only the new tail is sent; chunks are coalesced on a short timer.
    */
   handleReasoning(fullText: string): void {
     if (!this.isChatAgent) return;
@@ -243,13 +251,21 @@ export class ChatMirror {
   }
 
   /**
-   * Mirror one assistant message as chat bubbles: its prose is split on blank
-   * lines so a normal markdown reply arrives as a few short messages instead of
-   * one wall of text. Paragraphs already mirrored are skipped, so intermediate
-   * prose (emitted before tool calls) isn't duplicated when the run continues.
+   * Handle one finished assistant message.
+   *
+   * Called for **every** assistant message, including ones that are only thinking
+   * plus tool calls: the per-message reasoning offset has to reset on the message
+   * boundary, and a text-only condition would miss exactly the tool-call messages
+   * whose reasoning matters most.
+   *
+   * Its prose is mirrored as chat bubbles, split on blank lines so a normal
+   * markdown reply arrives as a few short messages instead of one wall of text.
+   * Paragraphs already mirrored are skipped, so intermediate prose (emitted before
+   * tool calls) isn't duplicated when the run continues.
    */
-  async mirrorAssistantText(text: string): Promise<void> {
-    if (!this.isChatAgent) return;
+  async handleAssistantMessageEnd(text: string): Promise<void> {
+    this.thoughtSent = 0;
+    if (!this.isChatAgent || !text.trim()) return;
     const bubbles = splitIntoBubbles(text);
     let sent = 0;
     for (const bubble of bubbles) {

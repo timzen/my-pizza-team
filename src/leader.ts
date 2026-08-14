@@ -359,6 +359,8 @@ export async function setupLeader(
 
   // Each finished assistant message becomes chat bubbles. This fires for
   // intermediate messages too, so prose emitted before tool calls arrives live.
+  // Always call through (even with no text): the mirror resets its per-message
+  // reasoning offset on this boundary.
   pi.on("message_end", async (event) => {
     const message = event.message as { role?: string; content?: Array<{ type: string; text?: string }> };
     if (message?.role !== "assistant") return;
@@ -366,7 +368,7 @@ export async function setupLeader(
       .filter((part) => part.type === "text" && typeof part.text === "string")
       .map((part) => part.text as string)
       .join("\n\n");
-    if (text.trim()) await chat.mirrorAssistantText(text);
+    await chat.handleAssistantMessageEnd(text);
   });
 
   pi.on("agent_settled", async () => { await chat.handleAgentSettled(); });
