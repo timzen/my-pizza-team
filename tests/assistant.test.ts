@@ -1,23 +1,23 @@
 /**
- * tests/assistant.test.ts — Verifies the assistant chat conversation.
+ * tests/assistant.test.ts — Verifies the assistant chat (chat v2).
  *
- * The assistant is an append-only chat of user/assistant messages. Sending a
- * user message just appends it ('sent'). Replies are produced by a response
- * "turn": the agent polls /api/assistant/next, claims it (coalesced user
- * messages flip to 'read'), streams bubbles via .../say, then completes.
+ * The chat mirrors the assistant's Pi session: posting a message always succeeds
+ * (no turns, no composer lock), the agent pulls an inbox and acks receipts
+ * (queued → delivered → read), its prose is mirrored back as bubbles, and
+ * sessions are snapshotted to markdown so they can be resumed. See
+ * docs/ASSISTANT_CHAT_V2.md.
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { DEFAULT_CONFIG, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  // Default debounce off so turn tests aren't time-dependent; debounce tests set it.
-  const config = { ...DEFAULT_CONFIG, assistantTurnDebounceSeconds: 0, ...configOverride };
+  const config = { ...DEFAULT_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir };
@@ -28,282 +28,386 @@ function cleanup(teamDir: string, store: Store) {
   try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
 }
 
-function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
-  return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+function post(app: ReturnType<typeof buildApp>, url: string, body?: unknown) {
+  return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
 }
 
-Deno.test("POST /api/assistant/messages appends a 'sent' user message (no placeholder)", async () => {
+function put(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
+  return app.request(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+}
+
+// ─── Sending ─────────────────────────────────────────────────────────
+
+Deno.test("POST /api/assistant/messages appends a queued user message and opens a session", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/assistant/messages", { content: "Hi there" });
     assertEquals(res.status, 201);
     const body = await res.json();
     assertEquals(body.userMessage.role, "user");
-    assertEquals(body.userMessage.content, "Hi there");
-    assertEquals(body.userMessage.status, "sent");
-    assertEquals(body.assistantMessage, undefined); // no 1:1 placeholder anymore
+    assertEquals(body.userMessage.origin, "web");
+    assertEquals(body.userMessage.delivery, "queued");
 
-    const msgs = store.getAssistantMessages();
-    assertEquals(msgs.length, 1);
-    assertEquals(msgs[0]!.role, "user");
+    // A session is created on demand and named after the first message.
+    const session = store.getActiveAssistantSession();
+    assertExists(session);
+    assertEquals(session.status, "active");
+    assertEquals(session.title, "Hi there");
+    assertEquals(store.getAssistantMessages().length, 1);
   } finally { cleanup(teamDir, store); }
 });
 
 Deno.test("POST requires content", async () => {
   const { app, store, teamDir } = setup();
   try {
-    const res = await post(app, "/api/assistant/messages", {});
-    assertEquals(res.status, 400);
+    assertEquals((await post(app, "/api/assistant/messages", {})).status, 400);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("full turn: send → next → claim (read receipt) → say×N → complete", async () => {
+Deno.test("sending never blocks: many messages queue up while the agent works", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/assistant/messages", { content: "What is 2+2?" });
+    // No turn, no lock: three sends in a row all land, in order.
+    for (const text of ["one", "two", "three"]) {
+      assertEquals((await post(app, "/api/assistant/messages", { content: text })).status, 201);
+    }
+    const inbox = store.getAssistantInbox();
+    assertEquals(inbox.map((m) => m.content), ["one", "two", "three"]);
 
-    // Agent polls for a response turn; prompt is the unanswered user message(s).
-    let res = await app.request("/api/assistant/next");
-    const { item } = await res.json();
-    assertEquals(item.prompt, "What is 2+2?");
-
-    // Claim → processing turn; the user message flips to 'read' (double check).
-    res = await post(app, `/api/assistant/messages/${item.id}/claim`, {});
-    assertEquals((await res.json()).success, true);
-    let listed = await (await app.request("/api/assistant/messages")).json();
-    assertEquals(listed.activeTurn.id, item.id);
-    assertEquals(listed.messages[0].status, "read");
-
-    // No more turns handed out while one is processing (single-flight).
-    res = await app.request("/api/assistant/next");
-    assertEquals((await res.json()).item, null);
-
-    // Stream two chat bubbles into the turn.
-    await post(app, `/api/assistant/messages/${item.id}/say`, { content: "Let me think…" });
-    await post(app, `/api/assistant/messages/${item.id}/say`, { content: "It's 4." });
-
-    // Complete → turn closes, composer unlocks (activeTurn null).
-    res = await post(app, `/api/assistant/messages/${item.id}/complete`, { result: "ignored fallback" });
-    assertEquals((await res.json()).success, true);
-
-    listed = await (await app.request("/api/assistant/messages")).json();
-    assertEquals(listed.activeTurn, null);
-    // user + two assistant bubbles; fallback NOT appended because bubbles exist.
-    assertEquals(listed.messages.length, 3);
-    assertEquals(listed.messages[1].role, "assistant");
-    assertEquals(listed.messages[1].content, "Let me think…");
-    assertEquals(listed.messages[2].content, "It's 4.");
+    // Even mid-run (agent already handed the first message) sending is accepted.
+    store.ackAssistantInbox([inbox[0]!.id], "delivered");
+    assertEquals((await post(app, "/api/assistant/messages", { content: "four" })).status, 201);
+    assertEquals(store.getAssistantInbox().length, 3); // two, three, four
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("complete with no bubbles appends the fallback text as one bubble", async () => {
+Deno.test("replyTo quotes the original for the UI and for the agent", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/assistant/messages", { content: "hello" });
-    const { item } = await (await app.request("/api/assistant/next")).json();
-    await post(app, `/api/assistant/messages/${item.id}/claim`, {});
-    await post(app, `/api/assistant/messages/${item.id}/complete`, { result: "Hi!" });
+    const first = await (await post(app, "/api/assistant/messages", { content: "which stories are blocked?" })).json();
+    await post(app, "/api/assistant/bubbles", { content: "auth-refresh and billing-sync." });
+    const bubble = store.getAssistantMessages().find((m) => m.role === "assistant")!;
 
-    const { messages } = await (await app.request("/api/assistant/messages")).json();
-    assertEquals(messages.length, 2);
-    assertEquals(messages[1].role, "assistant");
-    assertEquals(messages[1].content, "Hi!");
+    const reply = await (await post(app, "/api/assistant/messages", { content: "nudge the reviewers", replyTo: bubble.id })).json();
+    assertEquals(reply.userMessage.replyTo, bubble.id);
+    assertEquals(reply.userMessage.quoted.content, "auth-refresh and billing-sync.");
+
+    // The agent-facing inbox carries the quote so it knows what's being answered.
+    const item = store.getAssistantInbox().find((m) => m.id === reply.userMessage.id)!;
+    assertEquals(item.quoted, "auth-refresh and billing-sync.");
+    assertExists(first.userMessage.id);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("multiple user messages coalesce into one turn", async () => {
+// ─── Inbox + receipts ────────────────────────────────────────────────
+
+Deno.test("receipts advance queued → delivered → read and never go backwards", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/assistant/messages", { content: "one" });
-    await post(app, "/api/assistant/messages", { content: "two" });
-    const { item } = await (await app.request("/api/assistant/next")).json();
-    assertEquals(item.prompt, "one\n\ntwo");
-    // Both flip to read on claim.
-    await post(app, `/api/assistant/messages/${item.id}/claim`, {});
-    const { messages } = await (await app.request("/api/assistant/messages")).json();
-    assertEquals(messages.filter((m: { status: string }) => m.status === "read").length, 2);
+    const sent = await (await post(app, "/api/assistant/messages", { content: "status?" })).json();
+    const id = sent.userMessage.id;
+
+    const inbox = await (await app.request("/api/assistant/inbox")).json();
+    assertEquals(inbox.messages.length, 1);
+
+    await post(app, "/api/assistant/inbox/ack", { ids: [id], state: "delivered" });
+    assertEquals(store.getAssistantMessage(id)!.delivery, "delivered");
+    // Delivered messages leave the inbox — they must not be re-sent to Pi.
+    assertEquals(store.getAssistantInbox().length, 0);
+
+    // No ids + 'read' promotes everything delivered (what agent_start sends).
+    await post(app, "/api/assistant/inbox/ack", { state: "read" });
+    assertEquals(store.getAssistantMessage(id)!.delivery, "read");
+
+    // Regression: a late 'delivered' ack can't un-read a message.
+    await post(app, "/api/assistant/inbox/ack", { ids: [id], state: "delivered" });
+    assertEquals(store.getAssistantMessage(id)!.delivery, "read");
   } finally { cleanup(teamDir, store); }
 });
 
-const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
-
-Deno.test("pre-claim debounce: no turn until the user goes quiet", async () => {
-  // 50ms window so the test stays fast but deterministic.
-  const { app, store, teamDir } = setup({ assistantTurnDebounceSeconds: 0.05 });
-  try {
-    await post(app, "/api/assistant/messages", { content: "still typing…" });
-    // Immediately: within the debounce window → held back.
-    assertEquals((await (await app.request("/api/assistant/next")).json()).item, null);
-    // After the quiet window elapses → offered.
-    await sleep(80);
-    assertEquals((await (await app.request("/api/assistant/next")).json()).item !== null, true);
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("pre-claim debounce: a typing ping re-arms the quiet window", async () => {
-  const { app, store, teamDir } = setup({ assistantTurnDebounceSeconds: 0.05 });
-  try {
-    await post(app, "/api/assistant/messages", { content: "msg1" });
-    // User keeps typing a follow-up: the ping should push the window out even
-    // though the message itself is about to age past the debounce.
-    await sleep(40);
-    await post(app, "/api/assistant/typing", {});
-    // The message is now >50ms old, but the typing ping keeps it held.
-    await sleep(20);
-    assertEquals((await (await app.request("/api/assistant/next")).json()).item, null);
-    // Once typing stops for the full window → offered.
-    await sleep(80);
-    assertEquals((await (await app.request("/api/assistant/next")).json()).item !== null, true);
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("claim rejects a non-pending turn; say/complete reject a non-processing turn", async () => {
+Deno.test("terminal-origin messages are mirrored in as already-read", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await (await post(app, "/api/assistant/messages", { content: "hey" })).json();
-    const { item } = await (await app.request("/api/assistant/next")).json();
-    // Complete before claim → 400
-    let res = await post(app, `/api/assistant/messages/${item.id}/complete`, { result: "x" });
-    assertEquals(res.status, 400);
-    // Say before claim → 400
-    res = await post(app, `/api/assistant/messages/${item.id}/say`, { content: "x" });
-    assertEquals(res.status, 400);
-    // Claim, then double-claim → 409
-    await post(app, `/api/assistant/messages/${item.id}/claim`, {});
-    res = await post(app, `/api/assistant/messages/${item.id}/claim`, {});
-    assertEquals(res.status, 409);
+    // Typed in the agent's tmux pane: it is already in the agent's context, so
+    // it must never be replayed to Pi via the inbox.
+    const res = await post(app, "/api/assistant/messages", { content: "hey from tmux", origin: "tui" });
+    const body = await res.json();
+    assertEquals(body.userMessage.origin, "tui");
+    assertEquals(body.userMessage.delivery, "read");
+    assertEquals(store.getAssistantInbox().length, 0);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("failed completion marks the turn failed and posts a bubble", async () => {
+// ─── Mirroring out ───────────────────────────────────────────────────
+
+Deno.test("bubbles mirror the agent's reply; failures render as failed bubbles", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await (await post(app, "/api/assistant/messages", { content: "boom" })).json();
-    const { item } = await (await app.request("/api/assistant/next")).json();
-    await post(app, `/api/assistant/messages/${item.id}/claim`, {});
-    await post(app, `/api/assistant/messages/${item.id}/complete`, { result: "nope", status: "failed" });
-    const { messages, activeTurn } = await (await app.request("/api/assistant/messages")).json();
-    assertEquals(activeTurn, null);
-    assertEquals(messages[messages.length - 1].status, "failed");
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("DELETE a message and clear the conversation", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    const send = await (await post(app, "/api/assistant/messages", { content: "one" })).json();
-    // Delete the user message (append-only chat: sending created just the one).
-    let res = await app.request(`/api/assistant/messages/${send.userMessage.id}`, { method: "DELETE" });
-    assertEquals(res.status, 200);
-    assertEquals(store.getAssistantMessages().length, 0);
-
-    // Clear everything
-    res = await app.request("/api/assistant/messages", { method: "DELETE" });
-    assertEquals(res.status, 200);
-    assertEquals(store.getAssistantMessages().length, 0);
-
-    // Delete unknown → 404
-    res = await app.request("/api/assistant/messages/nope", { method: "DELETE" });
-    assertEquals(res.status, 404);
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("clearing the conversation asks an online assistant to reset its session", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    // An assistant agent registered on a host.
-    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", hostId: "h1", metadata: { tmuxWindow: "asst" } });
     await post(app, "/api/assistant/messages", { content: "hi" });
+    assertEquals((await post(app, "/api/assistant/bubbles", { content: "Hey!" })).status, 201);
+    await post(app, "/api/assistant/bubbles", { content: "Two stories are blocked." });
+    await post(app, "/api/assistant/bubbles", { content: "boom", failed: true });
 
-    // Clearing enqueues a reset-session intent for the assistant.
-    await app.request("/api/assistant/messages", { method: "DELETE" });
-
-    const res = await app.request("/api/hosts/h1/leader/directives");
-    const { directives } = await res.json();
-    assertEquals(directives.length, 1);
-    assertEquals(directives[0].memberId, "assistant");
-    assertEquals(directives[0].action, "reset-session");
-    void store;
+    const bubbles = store.getAssistantMessages().filter((m) => m.role === "assistant");
+    assertEquals(bubbles.map((b) => b.content), ["Hey!", "Two stories are blocked.", "boom"]);
+    assertEquals(bubbles.map((b) => b.state), ["ok", "ok", "failed"]);
+    assertEquals(bubbles[0]!.origin, "agent");
+    assertEquals((await post(app, "/api/assistant/bubbles", {})).status, 400);
   } finally { cleanup(teamDir, store); }
 });
+
+Deno.test("thoughts are ephemeral, capped, and drive the thinking indicator", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/assistant/messages", { content: "hi" });
+    await post(app, "/api/assistant/thoughts", { clear: true, thinking: true });
+    await post(app, "/api/assistant/thoughts", { chunk: "let me check " });
+    await post(app, "/api/assistant/thoughts", { chunk: "the board" });
+
+    let peek = await (await app.request("/api/assistant/thoughts")).json();
+    assertEquals(peek.thinking, true);
+    assertEquals(peek.chunks.join(""), "let me check the board");
+
+    // The buffer survives the run ending, so you can peek after the reply lands.
+    await post(app, "/api/assistant/thoughts", { thinking: false });
+    peek = await (await app.request("/api/assistant/thoughts")).json();
+    assertEquals(peek.thinking, false);
+    assertEquals(peek.chunks.length, 2);
+
+    // Ring buffer: oldest chunks are dropped rather than growing without bound.
+    for (let i = 0; i < 250; i++) store.appendAssistantThought(`chunk-${i}`);
+    peek = await (await app.request("/api/assistant/thoughts")).json();
+    assertEquals(peek.chunks.length <= 200, true);
+    assertEquals(peek.chunks.at(-1), "chunk-249");
+
+    // Reasoning is never persisted as conversation.
+    assertEquals(store.getAssistantMessages().filter((m) => m.role !== "user").length, 0);
+  } finally { cleanup(teamDir, store); }
+});
+
+// ─── SSE stream ──────────────────────────────────────────────────────
+
+Deno.test("SSE stream pushes a hello frame and then new messages", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const res = await app.request("/api/assistant/stream");
+    assertEquals(res.headers.get("Content-Type"), "text/event-stream");
+    const reader = res.body!.getReader();
+    const decoder = new TextDecoder();
+
+    const hello = decoder.decode((await reader.read()).value);
+    assertStringIncludes(hello, '"type":"hello"');
+
+    await post(app, "/api/assistant/messages", { content: "streamed" });
+    // Posting also opens a session, so a `session` frame may arrive first.
+    let frames = "";
+    while (!frames.includes('"type":"message"')) {
+      frames += decoder.decode((await reader.read()).value);
+    }
+    assertStringIncludes(frames, "streamed");
+
+    await reader.cancel();
+  } finally { cleanup(teamDir, store); }
+});
+
+// ─── Sessions ────────────────────────────────────────────────────────
+
+Deno.test("new chat ends + snapshots the session instead of deleting it", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/assistant/messages", { content: "first conversation" });
+    await post(app, "/api/assistant/bubbles", { content: "Reply in the first conversation." });
+    const first = store.getActiveAssistantSession()!;
+
+    const res = await post(app, "/api/assistant/sessions/new");
+    assertEquals(res.status, 201);
+
+    // The old session is ended, snapshotted, and still listed.
+    const ended = store.getAssistantSession(first.id)!;
+    assertEquals(ended.status, "ended");
+    assertExists(ended.endedAt);
+    const snapshotFile = path.join(teamDir, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, `${first.id}.md`);
+    const snapshot = Deno.readTextFileSync(snapshotFile);
+    assertStringIncludes(snapshot, "first conversation");
+    assertStringIncludes(snapshot, "Reply in the first conversation.");
+
+    // The new session is empty apart from its marker, and history is intact.
+    const active = store.getActiveAssistantSession()!;
+    assertEquals(active.id === first.id, false);
+    assertEquals(store.getAssistantMessages(active.id).map((m) => m.role), ["system"]);
+    assertEquals(store.getAssistantMessages(first.id).length, 2);
+    assertEquals(store.listAssistantSessions().length, 2);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("GET messages?sessionId= reads an earlier session; snapshot is downloadable", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/assistant/messages", { content: "old talk" });
+    const old = store.getActiveAssistantSession()!;
+    await post(app, "/api/assistant/sessions/new");
+    await post(app, "/api/assistant/messages", { content: "new talk" });
+
+    const res = await app.request(`/api/assistant/messages?sessionId=${encodeURIComponent(old.id)}`);
+    const body = await res.json();
+    assertEquals(body.session.id, old.id);
+    assertEquals(body.messages.map((m: { content: string }) => m.content), ["old talk"]);
+
+    assertEquals((await app.request("/api/assistant/messages?sessionId=nope")).status, 404);
+    const md = await (await app.request(`/api/assistant/sessions/${encodeURIComponent(old.id)}/snapshot`)).text();
+    assertStringIncludes(md, "old talk");
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("resume reopens a session and asks the agent to switch its Pi session", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    // An online assistant is needed for the directive to be routable.
+    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/assistant/messages", { content: "the first chat" });
+    await post(app, "/api/assistant/session", { piSessionPath: "/tmp/pi-session-a.jsonl" });
+    const first = store.getActiveAssistantSession()!;
+    assertEquals(first.piSessionPath, "/tmp/pi-session-a.jsonl");
+
+    await post(app, "/api/assistant/sessions/new");
+    const res = await post(app, `/api/assistant/sessions/${encodeURIComponent(first.id)}/resume`);
+    const body = await res.json();
+    assertEquals(body.success, true);
+    assertEquals(body.contextRestored, true);
+    assertEquals(store.getActiveAssistantSession()!.id, first.id);
+
+    // The ask is addressed to the agent itself (session APIs, not keystrokes),
+    // so it must NOT be handed to the leader's queue.
+    const selfDirectives = store.getMemberDirectives("assistant");
+    assertEquals(selfDirectives.some((d) => d.action === "resume-session"), true);
+    assertEquals(selfDirectives.find((d) => d.action === "resume-session")!.params.piSessionPath, "/tmp/pi-session-a.jsonl");
+    assertEquals(store.getLeaderDirectives("h1").some((d) => d.action === "resume-session"), false);
+
+    assertEquals((await post(app, "/api/assistant/sessions/nope/resume")).status, 404);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("resume without a recorded Pi session reports degraded context", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/assistant/messages", { content: "no pi session recorded" });
+    const first = store.getActiveAssistantSession()!;
+    await post(app, "/api/assistant/sessions/new");
+
+    const body = await (await post(app, `/api/assistant/sessions/${encodeURIComponent(first.id)}/resume`)).json();
+    assertEquals(body.success, true);
+    assertEquals(body.contextRestored, false);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("DELETE a message removes it from the transcript", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    const sent = await (await post(app, "/api/assistant/messages", { content: "oops" })).json();
+    assertEquals((await app.request(`/api/assistant/messages/${sent.userMessage.id}`, { method: "DELETE" })).status, 200);
+    assertEquals(store.getAssistantMessages().length, 0);
+    assertEquals((await app.request("/api/assistant/messages/nope", { method: "DELETE" })).status, 404);
+  } finally { cleanup(teamDir, store); }
+});
+
+// ─── Persona ─────────────────────────────────────────────────────────
 
 Deno.test("persona: defaults to none, can be set and cleared", async () => {
   const { app, store, teamDir } = setup();
   try {
-    // No persona initially — the daemon supplies its default system prompt
-    // (chat framing + default persona).
-    let res = await app.request("/api/assistant/persona");
-    let body = await res.json();
+    let body = await (await app.request("/api/assistant/persona")).json();
     assertEquals(body.personaId, null);
-    assertEquals(body.entry, null);
-    assertEquals(typeof body.systemPrompt, "string");
-    assertEquals(body.systemPrompt.length > 0, true);
-    // Chat framing is always present, regardless of persona.
-    assertEquals(body.systemPrompt.includes("live chat"), true);
-    assertEquals(body.systemPrompt.includes("send_message"), true);
-    const defaultPrompt = body.systemPrompt;
+    // Framing is always vended, with the default persona behind it.
+    assertStringIncludes(body.systemPrompt, "You are in a live chat");
+    assertStringIncludes(body.systemPrompt, "team assistant");
 
-    // Create a context entry to use as a persona.
-    store.saveContextEntry({ title: "Pirate", description: "Talk like a pirate", tags: ["persona"], content: "Arr, ye be a pirate." });
+    await post(app, "/api/context", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo.", tags: ["persona"] });
+    const entries = await (await app.request("/api/context")).json();
+    const id = entries.entries[0].id;
 
-    // Setting it returns the resolved entry; the persona body is composed behind
-    // the always-present chat framing.
-    res = await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "pirate" }) });
-    body = await res.json();
-    assertEquals(body.success, true);
-    assertEquals(body.personaId, "pirate");
-    assertEquals(body.entry.title, "Pirate");
-    assertEquals(body.systemPrompt.includes("Arr, ye be a pirate."), true);
-    assertEquals(body.systemPrompt.includes("send_message"), true);
-    assertEquals(store.getAssistantPersonaId(), "pirate");
+    const setRes = await put(app, "/api/assistant/persona", { personaId: id });
+    assertEquals(setRes.status, 200);
+    body = await setRes.json();
+    assertEquals(body.personaId, id);
+    assertStringIncludes(body.systemPrompt, "gruff pizzaiolo");
+    assertStringIncludes(body.systemPrompt, "You are in a live chat");
+    assertEquals(store.getAssistantPersonaId(), id);
 
-    // GET reflects the active persona.
-    res = await app.request("/api/assistant/persona");
-    body = await res.json();
-    assertEquals(body.personaId, "pirate");
-    assertEquals(body.systemPrompt.includes("Arr, ye be a pirate."), true);
-
-    // Clearing (null) removes it and restores the default system prompt.
-    res = await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: null }) });
-    body = await res.json();
+    body = await (await put(app, "/api/assistant/persona", { personaId: null })).json();
     assertEquals(body.personaId, null);
-    assertEquals(body.systemPrompt, defaultPrompt);
-    assertEquals(store.getAssistantPersonaId(), null);
+    assertEquals((await put(app, "/api/assistant/persona", { personaId: "missing" })).status, 404);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("persona: unknown entry is rejected", async () => {
+Deno.test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {
   const { app, store, teamDir } = setup();
   try {
-    const res = await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "does-not-exist" }) });
-    assertEquals(res.status, 404);
+    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/assistant/messages", { content: "talking to the default" });
+    const before = store.getActiveAssistantSession()!;
+
+    await post(app, "/api/context", { title: "Pizzaiolo", content: "Gruff.", tags: ["persona"] });
+    const entries = await (await app.request("/api/context")).json();
+    await put(app, "/api/assistant/persona", { personaId: entries.entries[0].id });
+
+    // Old conversation preserved; a new session opened under the new persona.
+    assertEquals(store.getAssistantSession(before.id)!.status, "ended");
+    assertEquals(store.getAssistantMessages(before.id).length, 1);
+    const active = store.getActiveAssistantSession()!;
+    assertEquals(active.id === before.id, false);
+    assertEquals(active.personaTitle, "Pizzaiolo");
+    assertStringIncludes(store.getAssistantMessages(active.id)[0]!.content, "Pizzaiolo");
+
+    // The agent is asked to roll its Pi session so its context matches.
+    assertEquals(store.getMemberDirectives("assistant").some((d) => d.action === "new-session"), true);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("persona: a deleted entry reports no active persona", async () => {
-  const { app, store, teamDir } = setup();
+// ─── Migration ───────────────────────────────────────────────────────
+
+Deno.test("v1 turn-model rows migrate into one ended legacy session", async () => {
+  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-migrate-" });
+  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   try {
-    store.saveContextEntry({ title: "Temp Persona", tags: ["persona"], content: "x" });
-    await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "temp-persona" }) });
-    store.deleteContextEntry("temp-persona");
+    // Hand-build a v1 database: turn table + status column, no sessions.
+    const { DatabaseSync } = await import("node:sqlite");
+    const db = new DatabaseSync(path.join(teamDir, "state.db"));
+    db.exec(`
+      CREATE TABLE assistant_messages (
+        seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, role TEXT, content TEXT,
+        status TEXT DEFAULT 'done', turn_id TEXT, created_at INTEGER
+      );
+      CREATE TABLE assistant_turns (id TEXT PRIMARY KEY, status TEXT, claimed_at INTEGER, created_at INTEGER);
+      INSERT INTO assistant_messages (id, role, content, status, turn_id, created_at) VALUES
+        ('m1', 'user', 'old question', 'read', 't1', 1000),
+        ('m2', 'assistant', 'old answer', 'done', 't1', 2000),
+        ('m3', 'user', 'never answered', 'sent', NULL, 3000);
+      INSERT INTO assistant_turns (id, status, created_at) VALUES ('t1', 'done', 1000);
+    `);
+    db.close();
 
-    const res = await app.request("/api/assistant/persona");
-    const body = await res.json();
-    assertEquals(body.personaId, null);
-    assertEquals(body.entry, null);
-  } finally { cleanup(teamDir, store); }
-});
+    const store = new Store(teamDir, DEFAULT_CONFIG);
+    try {
+      const sessions = store.listAssistantSessions();
+      assertEquals(sessions.length, 1);
+      assertEquals(sessions[0]!.status, "ended");
+      assertEquals(sessions[0]!.messageCount, 3);
 
-Deno.test("persona: swapping resets an online assistant session", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    await post(app, "/api/agents/register", { id: "assistant", name: "assistant", hostId: "h1", metadata: { tmuxWindow: "asst" } });
-    store.saveContextEntry({ title: "Coach", tags: ["persona"], content: "Be encouraging." });
+      const messages = store.getAssistantMessages(sessions[0]!.id);
+      assertEquals(messages.map((m) => m.content), ["old question", "old answer", "never answered"]);
+      assertEquals(messages[0]!.delivery, "read");
+      assertEquals(messages[1]!.state, "ok");
+      // A stale unanswered message must not be replayed into the new session.
+      assertEquals(messages[2]!.delivery, "read");
+      assertEquals(store.getAssistantInbox().length, 0);
 
-    await app.request("/api/assistant/persona", { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ personaId: "coach" }) });
-
-    const res = await app.request("/api/hosts/h1/leader/directives");
-    const { directives } = await res.json();
-    assertEquals(directives.some((d: { action: string }) => d.action === "reset-session"), true);
-  } finally { cleanup(teamDir, store); }
+      // The transcript is snapshotted so it shows up as browsable history.
+      assertStringIncludes(
+        Deno.readTextFileSync(path.join(teamDir, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, `${sessions[0]!.id}.md`)),
+        "old answer",
+      );
+    } finally { store.close(); }
+  } finally {
+    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  }
 });

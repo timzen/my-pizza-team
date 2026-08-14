@@ -222,6 +222,23 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true });
   });
 
+  // ─── Agent self-directives (realized in-process, not via tmux) ───────
+  //
+  // Session replacement (`new-session`, `resume-session`) has to run inside the
+  // target agent via Pi's session APIs, so the agent polls its own queue rather
+  // than the leader delivering keystrokes. See docs/ASSISTANT_CHAT_V2.md §5.5.
+
+  app.get("/api/agents/:id/directives", (c) => {
+    return c.json({ directives: store.getMemberDirectives(c.req.param("id")) });
+  });
+
+  app.put("/api/agents/:id/directives/:directiveId", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { status?: string };
+    const ok = store.updateLeaderDirective(c.req.param("directiveId"), body.status || "done");
+    if (!ok) return c.json({ success: false, error: "Directive not found" }, 404);
+    return c.json({ success: true });
+  });
+
   // ─── Pending spawn requests (visibility + cancel) ────────────────────
 
   app.get("/api/spawn-requests", (c) => {

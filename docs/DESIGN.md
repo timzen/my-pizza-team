@@ -193,18 +193,17 @@ feedback or rework instructions), rather than polling a chat stream.
 
 ## Assistant: a Chat Conversation
 
-The assistant is a conversation, not a queue. `assistant_messages` is an ordered
-list of `user`/`assistant` messages. Sending a user message
-(`POST /api/assistant/messages`) also creates a `pending` assistant message — the
-*turn* to answer. The assistant agent polls that turn (`GET /api/assistant/next`,
-shape `{ id, prompt }` where `prompt` is the latest user message), claims it
-(→ `processing`), runs it, and completes it (→ `done`/`failed`, filling content).
-The UI renders iMessage-style bubbles with a typing indicator for in-flight turns.
+The assistant is a conversation, not a queue — and the conversation lives in the
+assistant's **Pi session**. The daemon is a *mirror* of it: `assistant_messages`
+is an ordered list of `user`/`assistant`/`system` messages grouped into
+`assistant_sessions`, and the harness keeps the two in sync in both directions.
+The UI renders iMessage-style bubbles with real delivery receipts and a thinking
+indicator. See "Assistant chat model" below and docs/ASSISTANT_CHAT_V2.md.
 
-*Why:* the persistent assistant Pi process already retains conversation context
-across turns, so modeling the data as a conversation (rather than independent
-prompt/result items) is what makes the UI natural; the agent's claim/complete loop
-is unchanged.
+*Why:* the assistant Pi process already holds the real conversation state (its
+context window, its session file). Making the daemon the mirror rather than the
+master is what lets the user chat from the web UI **or** the agent's terminal,
+interrupt mid-answer, and resume an old conversation with its context intact.
 
 ## Leader Directives
 
@@ -248,18 +247,75 @@ not just the stored messages.
 endpoints. Keeping mechanism in the harness lets the same channel scale to any
 agent and any harness while the daemon stays a coordinator.
 
-## Assistant chat model (turns, not message pairs)
+## Assistant chat model (a mirror of the Pi session)
 
-The assistant is a **real chat**, not a request/response form. Two rules make it feel like iMessage/WhatsApp:
+The assistant chat is a **real chatbot**, not a request/response form. One
+inversion makes all of it work: **the Pi session is the conversation; the daemon
+mirrors it.** (Full design + rationale: docs/ASSISTANT_CHAT_V2.md.)
 
-1. **Messages are append-only; replies come from turns.** Sending a user message just appends it (`sent`). It does **not** create a paired assistant placeholder. Replies are produced by a *response turn* — the job of answering the batch of unanswered user messages. The agent polls a turn (`GET /api/assistant/next`), claims it (`.../claim`, which flips the coalesced user messages to `read` — the read receipt), streams any number of chat bubbles via `send_message` (`.../say`), then closes it (`.../complete`).
+1. **No turns. Sending never blocks.** `POST /api/assistant/messages` always
+   succeeds and appends a `queued` message. The extension pulls queued messages
+   (`GET /api/assistant/inbox`) and hands them to Pi with
+   `sendUserMessage(..., { deliverAs: "steer" })` while a run is in flight.
+   Interleaving a mid-answer message is therefore *Pi's* job, not the daemon's —
+   which is why the composer no longer locks and the old pre-claim debounce,
+   typing pings, and stuck-turn reaper are all gone.
 
-   *Why:* the old 1:1 "user message → one assistant placeholder" pairing hard-wired one bubble per message and blocked both batched assistant replies and multi-message user input. Decoupling messages from turns lets the user send N and the assistant send M.
+   *Why:* the v1 turn machine (claim one turn, coalesce messages, lock the
+   composer, debounce to avoid answering mid-thought) was a daemon-side
+   re-implementation of something the harness already does correctly. Deleting it
+   removed the 5s latency floor, the locked composer, and ~200 lines of timing
+   heuristics.
 
-2. **One turn at a time; the composer locks while it runs.** At most one turn is `processing`; `GET /api/assistant/messages` exposes it as `activeTurn`, which drives the typing indicator and disables the composer. Because the user can't send mid-turn, there is no message enqueue or ordering to reason about; whatever is unanswered when a turn is claimed is coalesced into that one turn's prompt. A stuck-turn timeout (`assistantTurnTimeoutSeconds`, default 300s) fails an abandoned turn so the composer can't lock forever.
+2. **Receipts are real, and honest.** A user message moves `queued` (nobody has
+   it yet) → `delivered` (handed to Pi; it may be waiting on the current tool
+   batch) → `read` (a run that sees it has started). The UI shows ⧗ / ✓ / ✓✓.
+   Because `delivered` is distinct from `read`, a mid-run message shows the wait
+   instead of pretending it was seen.
 
-**Pre-claim debounce: don't answer mid-thought.** Before a turn is claimed the daemon waits for the user to go quiet for `assistantTurnDebounceSeconds` (default 5s) — measured from the newest unanswered message *and* the last typing ping. The composer `POST`s `/api/assistant/typing` on keystroke (throttled ~1.5s) **and** on a 2s heartbeat whenever it holds an unsent draft — the heartbeat matters because keystroke pings go silent when the user pauses with half-written text (thinking, re-reading, about to backspace), and a pause longer than the debounce would otherwise let the assistant claim the turn. An unsent draft therefore means "I'm not done yet" and holds the turn indefinitely. The window keys off actual composing activity, not just send time, which is what makes it feel like "answer once I've clearly stopped." Set the config to `0` to disable (e.g. in tests). *Limitation:* with an **empty** composer, silence longer than the debounce is indistinguishable from "done," so a >debounce pause before starting the next message will let the current batch claim.
+3. **The agent just talks.** There is no `send_message` tool. The extension
+   mirrors the agent's own assistant text into bubbles, splitting on blank lines
+   (never inside a code fence or a list; runt paragraphs merge into a neighbour,
+   except questions, which keep their own bubble). Intermediate prose — what it
+   says *before* a tool call — mirrors immediately, so long answers arrive
+   progressively.
 
-**Chat behavior is system-level, not per-persona.** The vended system prompt is always `ASSISTANT_CHAT_FRAMING` (the batching rules + the `send_message` contract) followed by the persona body — or `DEFAULT_ASSISTANT_PERSONA` when none is chosen. So every persona inherits the chat/batching behavior and none has to restate it. `send_message` content is the only thing shown to the user; `complete`'s `result` is just a fallback bubble used if a turn produced none.
+   *Why:* routing every bubble through tool-call JSON made replies stilted, forced
+   a 30-line framing prompt to explain the mechanism, and made the agent's tmux
+   transcript a wall of `Send Message` calls instead of a conversation.
 
-*Why:* keeping the "chat is a chat" framing in one daemon-owned constant means personas are about *voice/role*, not delivery mechanics, and the behavior stays consistent across every persona and harness.
+4. **Both surfaces are the same conversation.** Anything typed in the assistant's
+   own terminal (`input` with `source: "interactive"`) is mirrored into the chat as
+   a user message with `origin: "tui"`, marked with a terminal glyph in the UI.
+   Walk from the browser to the tmux pane mid-conversation and nothing is lost.
+
+5. **Thoughts are ephemeral.** Reasoning deltas stream to a capped in-memory ring
+   buffer in the daemon (never persisted, never snapshotted) and are readable by
+   clicking the `…`. It is a peek, not a record — a restart drops it, and that's
+   the point.
+
+6. **Nothing is destroyed; sessions are the unit of history.** "New chat" and a
+   persona swap *end* the current session — writing
+   `<teamDir>/assistant/sessions/<id>.md` (frontmatter + readable transcript) —
+   and open a new one. Resuming reopens a session and asks the agent to
+   `switchSession()` back to its recorded Pi session file, so in-agent context
+   comes along. Sessions with no recorded file are still readable, just not
+   restorable.
+
+   *Why:* v1's "clear the conversation" was a destructive `DELETE` that also
+   dropped the only copy of the transcript. Personas are about *who you're talking
+   to*; changing that should start a new conversation, not burn the old one.
+
+7. **Chat behavior is system-level, not per-persona.** The vended system prompt is
+   always `ASSISTANT_CHAT_FRAMING` (now ~10 lines: be brief, blank lines separate
+   bubbles, questions get their own paragraph, the user may interrupt) followed by
+   the persona body — or `DEFAULT_ASSISTANT_PERSONA`. Personas stay about
+   voice/role, never delivery mechanics.
+
+8. **Session control is intent, realized in-process.** `new-session` and
+   `resume-session` are leader-directive *actions*, but unlike every other
+   directive they are polled by the target agent itself
+   (`GET /api/agents/:id/directives`) and realized with Pi's `ctx.newSession()` /
+   `ctx.switchSession()`. The daemon still only expresses intent; the mechanism
+   just can't be tmux keystrokes, because "resume this exact session file" isn't
+   expressible as `/new`.
