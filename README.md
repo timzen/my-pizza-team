@@ -237,9 +237,16 @@ Assign a workflow when creating a story (required).
 
 ## Assistant Chat
 
-The assistant is a live chatbot, not a form. The web UI (`/assistant`) and the
-assistant's own tmux pane are **two views of one conversation**: the daemon
-mirrors the assistant's Pi session in both directions.
+The assistant is a live chatbot, not a form. The web UI and the assistant's own
+tmux pane are **two views of one conversation**: the daemon mirrors the
+assistant's Pi session in both directions.
+
+It lives in the **left dock**, available on every page — collapse it to an icon
+rail (with an unread badge), or drag its inner edge to resize. On narrow screens
+it becomes a floating chat button in the bottom-left corner. The dock also holds
+**New Story / Solitary Task / Scheduled Job**, because the shell reads
+left-to-right: work starts on the left, runs on the right (see
+[docs/DESIGN.md](docs/DESIGN.md#the-shell-reads-left-to-right)).
 
 - **Send whenever you like.** The composer never locks. A message sent while the
   assistant is working is steered into its current run.

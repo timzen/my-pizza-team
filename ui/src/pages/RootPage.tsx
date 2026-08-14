@@ -1,70 +1,44 @@
 /**
- * RootPage — The team's home (`/`). Two things live here:
+ * RootPage — The team's home (`/`): Inbox + Thoughts tabs.
  *
- *  1. A quick-create row — the fastest path to enqueue work (new story, a
- *     one-off Solitary task, a Scheduled job) or add a teammate.
- *  2. Inbox + Assistant tabs — review completed work (Inbox) and chat with the
- *     team assistant. The active tab follows the route (`/` = Inbox,
- *     `/assistant` = Assistant) so both stay deep-linkable.
+ * The Inbox reviews completed work; Thoughts is the sticky-note canvas. The
+ * active tab follows the route (`/` = Inbox, `/thoughts` = Thoughts) so both stay
+ * deep-linkable.
  *
- * Foundational setup (Workflows, Context) moved out of the root: Workflows is a
- * Board sub-tab and Context is a top-level nav item.
+ * Two things deliberately live elsewhere now: the **assistant chat** and the
+ * **quick-create buttons** moved into the left `AssistantDock`, so starting work
+ * is possible from any page rather than only from home. Foundational setup also
+ * moved out: Workflows is a Board sub-tab and Context is a top-level nav item.
  */
 
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import { RouteTabs } from "@/components/RouteTabs";
-import { Button } from "@/components/ui/button";
 import { InboxPage } from "./InboxPage";
-import { AssistantPage } from "./AssistantPage";
 import { ThoughtsPage } from "./ThoughtsPage";
-import { Plus, Zap, CalendarClock, UserPlus } from "lucide-react";
 
 const TABS = [
   { path: "/thoughts", label: "Thoughts" },
-  { path: "/assistant", label: "Assistant" },
   // "/" is the Inbox tab: active whenever we're not on another root tab.
-  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/assistant" && pathname !== "/thoughts" },
+  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/thoughts" },
 ];
 
 export function RootPage() {
   const location = useLocation();
-  const isAssistant = location.pathname === "/assistant";
   const isThoughts = location.pathname === "/thoughts";
-  // The Assistant and Thoughts tabs own a full-height layout (the assistant's
-  // composer stays pinned; the Thoughts canvas fills the area). The Inbox is a
-  // plain list that scrolls with the page.
-  const fillHeight = isAssistant || isThoughts;
+  // Thoughts owns a full-height layout (its canvas fills the area); the Inbox is
+  // a plain list that scrolls with the page.
+  const fillHeight = isThoughts;
 
   return (
     <div className={`container mx-auto p-6 space-y-4 ${fillHeight ? "flex flex-col h-full min-h-0" : ""}`}>
-      {/* Quick-create row — the fastest way to get work moving. */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" size="sm" render={<Link to="/stories/new" />}>
-          <Plus className="h-4 w-4 mr-1" /> New Story
-        </Button>
-        <Button variant="outline" size="sm" render={<Link to="/work-defs/new?type=Solitary" />}>
-          <Zap className="h-4 w-4 mr-1" /> Solitary Task
-        </Button>
-        <Button variant="outline" size="sm" render={<Link to="/work-defs/new?type=Scheduled" />}>
-          <CalendarClock className="h-4 w-4 mr-1" /> Scheduled Job
-        </Button>
-        <Button variant="outline" size="sm" render={<Link to="/spawn" />}>
-          <UserPlus className="h-4 w-4 mr-1" /> Spawn Teammate
-        </Button>
-      </div>
-
       {/* Wrap the tab bar so it keeps its content width: as a flex-column child
-          on the Assistant tab it would otherwise stretch full-width (align-items
+          on the Thoughts tab it would otherwise stretch full-width (align-items
           stretch). self-start is ignored in the Inbox's normal block flow. */}
       <div className="self-start"><RouteTabs tabs={TABS} /></div>
 
-      {/* AssistantPage / ThoughtsPage own their own full-height layout (fill the
-          bounded flex column); the Inbox is a plain list that scrolls. */}
-      {isAssistant ? (
-        <div className="flex-1 min-h-0"><AssistantPage /></div>
-      ) : isThoughts ? (
-        <div className="flex-1 min-h-0"><ThoughtsPage /></div>
-      ) : <InboxPage />}
+      {/* ThoughtsPage owns its own full-height layout (fills the bounded flex
+          column); the Inbox is a plain list that scrolls. */}
+      {isThoughts ? <div className="flex-1 min-h-0"><ThoughtsPage /></div> : <InboxPage />}
     </div>
   );
 }

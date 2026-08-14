@@ -1,10 +1,17 @@
 /**
  * App.tsx — Root application component with routing and layout.
+ *
+ * The shell reads left-to-right as the life of a piece of work: the
+ * **AssistantDock** on the left is where work starts (chat + quick-create),
+ * routed pages run in the middle, and the **TeammateSidebar** on the right is
+ * where it executes (team + queue). Both edges collapse to icon rails.
  */
 
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
 import { TeammateSidebar } from "./components/TeammateSidebar";
+import { AssistantDock } from "./components/assistant/AssistantDock";
+import { AssistantDockProvider, OpenAssistantDock } from "./components/assistant/AssistantDockProvider";
 import { RootPage } from "./pages/RootPage";
 import { BoardPage } from "./pages/BoardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
@@ -29,13 +36,16 @@ import { HelpPage } from "./pages/HelpPage";
 function App() {
   return (
     <BrowserRouter>
+      <AssistantDockProvider>
       <div className="min-h-screen flex flex-col bg-background text-foreground">
         <NavBar />
         <div className="flex flex-1 min-h-0">
+          <AssistantDock />
           <main className="flex-1 min-w-0 overflow-y-auto">
             <Routes>
               <Route path="/" element={<RootPage />} />
-              <Route path="/assistant" element={<RootPage />} />
+              {/* The chat lives in the dock now; keep the old URL working. */}
+              <Route path="/assistant" element={<OpenAssistantDock><Navigate to="/" replace /></OpenAssistantDock>} />
               <Route path="/thoughts" element={<RootPage />} />
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />
@@ -62,6 +72,7 @@ function App() {
           <TeammateSidebar />
         </div>
       </div>
+      </AssistantDockProvider>
     </BrowserRouter>
   );
 }
