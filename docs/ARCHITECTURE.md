@@ -18,13 +18,12 @@ The extension operates in one of three roles:
 │  │         • Poll leader directives → tmux                    │
 │  │         • Register LLM tools + slash commands             │
 │  │         • Show status widget                              │
+│  │         • ALSO the chat agent (ChatMirror):               │
+│  │             pull inbox → sendUserMessage (steer mid-run)  │
+│  │             mirror prose → bubbles, reasoning → thoughts  │
+│  │             inject daemon-vended persona as system prompt │
 │  │                                                          │
-│  ├── --ppt-assistant → setupAssistant()                     │
-│  │         • Register with daemon as "assistant" agent       │
-│  │         • Mirror daemon chat ⇄ this Pi session            │
-│  │         • Pull inbox → sendUserMessage (steer mid-run)    │
-│  │         • Mirror prose → bubbles, reasoning → thoughts    │
-│  │         • Inject daemon-vended persona as system prompt   │
+│  ├── --ppt-assistant → retired (notice only)                │
 │  │                                                          │
 │  ├── --ppt-worker → setupTeammateRole()                     │
 │  │         • Register with daemon as "teammate" agent        │
@@ -44,7 +43,7 @@ src/
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands, host readiness probe
 ├── teammate.ts           # TeammateLoop: poll → claim → work → set-state (COMPLETE/FAILED) → fresh session loop
-├── assistant.ts          # AssistantLoop: mirrors the daemon chat ⇄ this Pi session (no turns)
+├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link
@@ -128,15 +127,18 @@ restart), and the directive poll refuses to dispatch until at least one sync
 has succeeded. This prevents agents from being spawned into the fallback
 session when the daemon was merely unreachable at leader startup.
 
-### Assistant (chat mirror)
+### Chat mirror (the leader)
 
-The assistant does not work a queue. **The Pi session is the conversation and the
-daemon mirrors it** (see my-pizza-team/docs/ASSISTANT_CHAT_V2.md). Two directions
+The chat is answered by the **leader** — no dedicated assistant process exists (see
+DESIGN.md §5). It does not work a queue: **the Pi session is the conversation and
+the daemon mirrors it** (see my-pizza-team/docs/ASSISTANT_CHAT_V2.md). Two directions
 run concurrently:
 
 ```
 ┌──────────────────────────── inbound (daemon → Pi) ─────────────────────────┐
-│  1. GET  /api/assistant/inbox        (queued user messages, oldest first)   │
+│  0. the daemon designates ONE leader as the chat agent; the inbox poll      │
+│     answers `chat: true|false` and a non-designated leader stays silent     │
+│  1. GET  /api/assistant/inbox?agentId=  (queued messages, oldest first)     │
 │  2. pi.sendUserMessage(text, { deliverAs: "steer" } while a run is live)    │
 │     └── quoted replies are prefixed as `> …` so the agent sees the quote    │
 │  3. POST /api/assistant/inbox/ack    { ids, state: "delivered" }            │
@@ -177,8 +179,8 @@ of every run, so a persona swap takes effect immediately.
 **Session control.** `new-session` and `resume-session` are the only directives an
 agent realizes *itself*: they need Pi's in-process session APIs, which tmux
 keystrokes can't express. The loop polls `GET /api/agents/:id/directives` and, for
-each, queues a slash command — `/ppt-assistant-new-session` or
-`/ppt-assistant-resume <file>` — because `newSession()`/`switchSession()` exist
+each, queues a slash command — `/ppt-chat-new-session` or
+`/ppt-chat-resume <file>` — because `newSession()`/`switchSession()` exist
 only on **command** contexts (the same constraint behind the teammate's
 `/ppt-fresh-session`). Each command reports the replacement session's path from
 inside `withSession` (per pi's "session replacement footguns": captured `pi`/`ctx`
@@ -235,10 +237,10 @@ that flows to the Inbox. It can also **write** to the board — `create_thought`
 thoughts → tasks → inbox → new-thoughts loop. This replaced the old
 `read_scratchpad` tool.
 
-### Assistant Chat (mirror)
+### Chat (mirror)
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/assistant/inbox` | GET | Queued user messages (with resolved quotes) to hand to Pi |
+| `/api/assistant/inbox?agentId=` | GET | Queued user messages (with resolved quotes) to hand to Pi; `chat: false` means "not the chat agent — stay silent" |
 | `/api/assistant/inbox/ack` | POST | Advance receipts: `delivered` on hand-off, `read` on `agent_start` |
 | `/api/assistant/bubbles` | POST | Mirror one bubble of the agent's own prose |
 | `/api/assistant/thoughts` | POST | Ephemeral reasoning peek: `{chunk}` / `{clear}` / `{thinking}` |
@@ -266,7 +268,7 @@ thoughts → tasks → inbox → new-thoughts loop. This replaced the old
 |------|------|---------|---------|
 | `--ppt-lead` | boolean | false | Run as team leader |
 | `--ppt-worker` | boolean | false | Run as teammate |
-| `--ppt-assistant` | boolean | false | Run as assistant |
+| `--ppt-assistant` | boolean | false | **Retired** — the leader is the chat agent; kept so old spawn commands don't crash on an unknown flag |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto) | Agent name |
 
@@ -331,7 +333,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 - Polls its directive queue via `/api/hosts/:hostId/leader/directives`
 - Creates tmux windows with `pi -a --ppt-worker --ppt-daemon=<url> --ppt-name=<name>`
-- Identity is daemon-owned: the leader names each tmux window (and the `--ppt-name`) after the directive's `params.name`, never inventing one. Teammate spawns carry a generated adjective-noun name; assistant spawns (`reason: "assistant"`) carry the reserved singleton name `assistant` and use the `pi-assistant` template — which differs only in the `--ppt-assistant` **role** flag, still threading `{name}`. This is why the tmux window, registered name, and MPT UI label always match.
+- Identity is daemon-owned: the leader names each tmux window (and the `--ppt-name`) after the directive's `params.name`, never inventing one. Every spawn is a teammate with a generated adjective-noun name — there is no assistant to spawn (the leader is the chat agent), so `reason: "assistant"` is just an ordinary spawn now. This is why the tmux window, registered name, and MPT UI label always match.
 - `-a` (`--approve`) trusts the teammate's project cwd non-interactively, so a spawn into a folder outside a trusted parent (`~/.pi/agent/trust.json`) doesn't block on pi's "Trust project folder?" prompt
 - Writes permissive permission config to teammate's cwd before launching (only applied once the project is trusted, hence `-a`)
 

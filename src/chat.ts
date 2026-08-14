@@ -1,10 +1,17 @@
-// Assistant mirror: keep the daemon's chat and this Pi session in sync
+// Chat mirror: keep the daemon's chat and this Pi session in sync
 //
-// The assistant is a dedicated Pi instance that talks to the user in the
-// daemon's assistant chat. Chat v2 inverts the old model: the **Pi session is
-// the conversation**, and the daemon is a mirror of it (see
-// my-pizza-team/docs/ASSISTANT_CHAT_V2.md). There are no response turns to
-// claim, no composer lock, and no `send_message` tool — the agent just talks.
+// The leader is the agent you talk to. There is no separate "assistant" process:
+// a leader already runs per host to realize tmux spawns, nobody types in its
+// session, and this mirror is role-agnostic — so it doubles as the team's chat
+// participant (see my-pizza-team/docs/ASSISTANT_CHAT_V2.md and DESIGN.md "One
+// agent to talk to").
+//
+// Chat v2 inverts the old model: the **Pi session is the conversation**, and the
+// daemon is a mirror of it. There are no response turns to claim, no composer
+// lock, and no `send_message` tool — the agent just talks.
+//
+// Only the *designated* chat agent mirrors: the daemon answers `chat: true/false`
+// on every inbox poll, so a multi-host team (several leaders) can't double-answer.
 //
 // Two directions:
 //
@@ -28,19 +35,28 @@ import type { DaemonClient } from "./client.js";
 import { splitIntoBubbles } from "./bubbles.js";
 
 const INBOX_POLL_INTERVAL_MS = 1000;
-const HEARTBEAT_INTERVAL_MS = 30000;
 /** Reasoning deltas are coalesced into one POST per window to spare the daemon. */
 const THOUGHT_FLUSH_MS = 250;
 
-export class AssistantLoop {
+export class ChatMirror {
   private pi: ExtensionAPI;
   private client: DaemonClient;
   private running = false;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
-  private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
 
   /** Active persona's system-prompt text (null = fall back to Pi's own prompt). */
   private personaContent: string | null = null;
+
+  /** Whether the daemon has designated us as the chat agent. */
+  private isChatAgent = false;
+
+  /**
+   * True while a session directive is being realized. The replacement session
+   * re-registers under the same name moments later, so the caller skips
+   * deregistration and the member never flickers offline (which would also let
+   * the chat-agent designation hop to another host mid-conversation).
+   */
+  private rollingSession = false;
 
   /** Ids handed to Pi but not yet marked read (promoted when a run starts). */
   private delivered = new Set<string>();
@@ -60,13 +76,6 @@ export class AssistantLoop {
   public onReplyMirrored: ((bubbles: number) => void) | null = null;
 
   /**
-   * Callback to re-register with the daemon when it signals `reregister: true`
-   * (e.g. after a daemon restart). Set by the caller that owns the registration
-   * details (directory, metadata).
-   */
-  public reregister: (() => Promise<void>) | null = null;
-
-  /**
    * Callback to realize a session directive (`new-session` / `resume-session`).
    * Set by index.ts, which owns the command context needed for Pi's session
    * APIs. Returns the new Pi session path when it can be determined.
@@ -76,6 +85,11 @@ export class AssistantLoop {
   constructor(pi: ExtensionAPI, client: DaemonClient) {
     this.pi = pi;
     this.client = client;
+  }
+
+  /** See `rollingSession`: skip deregistration during a chat-driven session roll. */
+  get isRollingSession(): boolean {
+    return this.rollingSession;
   }
 
   /**
@@ -103,30 +117,13 @@ export class AssistantLoop {
   async start(): Promise<void> {
     this.running = true;
     await this.refreshPersona();
-    this.startHeartbeat();
     this.pollForWork();
   }
 
   stop(): void {
     this.running = false;
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
-    if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
     if (this.thoughtTimer) { clearTimeout(this.thoughtTimer); this.thoughtTimer = null; }
-  }
-
-  private startHeartbeat(): void {
-    this.heartbeatTimer = setInterval(async () => {
-      try {
-        const res = await this.client.heartbeat(this.agentRunning ? "working" : "idle");
-        if (res.reregister) {
-          // The daemon forgot us (restart/upgrade) — re-register to restore
-          // sidebar presence. Mirrors the teammate re-registration pattern.
-          await this.reregister?.();
-        }
-      } catch {
-        // Daemon unreachable — will retry on next heartbeat cycle.
-      }
-    }, HEARTBEAT_INTERVAL_MS);
   }
 
   /** Tell the daemon which Pi session backs this chat (enables resume). */
@@ -146,7 +143,9 @@ export class AssistantLoop {
   private async pollForWork(): Promise<void> {
     if (!this.running) return;
     try {
-      const { messages } = await this.client.getInbox();
+      const { chat, messages } = await this.client.getInbox();
+      // A non-designated leader stays silent: it neither pulls nor mirrors.
+      this.isChatAgent = chat;
       for (const item of messages) {
         const prompt = item.quoted
           ? `> ${item.quoted.replace(/\n/g, "\n> ")}\n\n${item.content}`
@@ -180,9 +179,13 @@ export class AssistantLoop {
     const { directives } = await this.client.getSelfDirectives();
     for (const directive of directives) {
       try {
+        // Set before queueing the command: the session can be replaced before the
+        // next await resumes, and session_shutdown must see the flag.
+        this.rollingSession = true;
         await this.onSessionDirective(directive.action, directive.params || {});
         await this.client.completeSelfDirective(directive.id).catch(() => {});
       } catch {
+        this.rollingSession = false;
         // A directive we can't realize must leave the queue, or it retries forever.
         await this.client.completeSelfDirective(directive.id, "failed").catch(() => {});
       }
@@ -197,6 +200,7 @@ export class AssistantLoop {
    */
   async handleAgentStart(): Promise<void> {
     this.agentRunning = true;
+    if (!this.isChatAgent) return;
     this.thoughtSent = 0;
     this.mirroredParagraphs.clear();
     await this.refreshPersona();
@@ -210,6 +214,7 @@ export class AssistantLoop {
   /** The run settled: drop the `…`. The thought buffer is left for peeking. */
   async handleAgentSettled(): Promise<void> {
     this.agentRunning = false;
+    if (!this.isChatAgent) return;
     this.flushThoughts();
     await this.client.postThought({ thinking: false }).catch(() => {});
   }
@@ -219,6 +224,7 @@ export class AssistantLoop {
    * tail is sent; chunks are coalesced on a short timer.
    */
   handleReasoning(fullText: string): void {
+    if (!this.isChatAgent) return;
     if (fullText.length <= this.thoughtSent) return;
     this.thoughtBuffer += fullText.slice(this.thoughtSent);
     this.thoughtSent = fullText.length;
@@ -243,6 +249,7 @@ export class AssistantLoop {
    * prose (emitted before tool calls) isn't duplicated when the run continues.
    */
   async mirrorAssistantText(text: string): Promise<void> {
+    if (!this.isChatAgent) return;
     const bubbles = splitIntoBubbles(text);
     let sent = 0;
     for (const bubble of bubbles) {
@@ -259,6 +266,7 @@ export class AssistantLoop {
    * This is what makes the tmux pane and the web UI the same conversation.
    */
   async mirrorTerminalInput(text: string): Promise<void> {
+    if (!this.isChatAgent) return;
     const trimmed = text.trim();
     // Slash commands are harness control, not conversation.
     if (!trimmed || trimmed.startsWith("/")) return;
@@ -268,6 +276,7 @@ export class AssistantLoop {
   /** Report an unrecoverable agent error as a failed bubble. */
   async mirrorError(error: string): Promise<void> {
     this.agentRunning = false;
+    if (!this.isChatAgent) return;
     await this.client.postThought({ thinking: false }).catch(() => {});
     await this.client.postBubble(error || "The assistant hit an error.", true).catch(() => {});
   }

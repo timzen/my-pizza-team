@@ -5,13 +5,13 @@
 //
 // Three registration functions for role-specific tool sets:
 //   - registerLeaderTools: create_story, edit_story, add_task, list_workflows,
-//                          list_context, queue_request, team_status
+//                          list_context, team_status
 //   - registerTeammateTools: upload_attachment
-//   - registerAssistantTools: create_story, edit_story, add_task,
-//                             create_task, create_schedule, list_workflows,
-//                             list_context, queue_request, list_thought_groups,
-//                             list_thoughts, get_thought, create_thought,
-//                             edit_thought, archive_thought, group_thoughts
+//   - registerLeaderTools: create_story, edit_story, add_task, create_task,
+//                          create_schedule, list_workflows, list_context,
+//                          team_status, list_thought_groups, list_thoughts,
+//                          get_thought, create_thought, edit_thought,
+//                          archive_thought, group_thoughts
 //
 // Note: story/task creation can attach context-library entries via the
 // `context` parameter; list_context surfaces the available entry ids. The
@@ -27,17 +27,32 @@ import type { DaemonClient } from "./client.js";
 // ═══════════════════════════════════════════════════════════════════════
 
 /**
- * Register tools for the leader role.
- * Includes story/task management, assistant queue, and status.
+ * Register tools for the leader — the agent you chat with.
+ *
+ * The leader answers the team chat (see chat.ts), so it gets the full planning
+ * surface: stories, tasks, schedules, thoughts, context, and status.
+ *
+ * There is deliberately no "send a message" tool (chat v2 mirrors the agent's own
+ * prose into bubbles) and no `queue_request`: queueing a request used to hand work
+ * to a separate assistant, but the leader IS that assistant now, so it would just
+ * be posting a message to itself and then answering it.
  */
 export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): void {
   registerCreateStory(pi, client);
   registerEditStory(pi, client);
   registerAddTask(pi, client);
+  registerCreateTask(pi, client);
+  registerCreateSchedule(pi, client);
   registerListWorkflows(pi, client);
   registerListContext(pi, client);
-  registerQueueRequest(pi, client);
   registerTeamStatus(pi, client);
+  registerListThoughtGroups(pi, client);
+  registerListThoughts(pi, client);
+  registerGetThought(pi, client);
+  registerCreateThought(pi, client);
+  registerEditThought(pi, client);
+  registerArchiveThought(pi, client);
+  registerGroupThoughts(pi, client);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -106,36 +121,6 @@ function registerFailWorkItem(
       }
     },
   });
-}
-
-// ═══════════════════════════════════════════════════════════════════════
-// ASSISTANT TOOLS
-// ═══════════════════════════════════════════════════════════════════════
-
-/**
- * Register tools for the assistant role.
- *
- * There is deliberately no "send a message" tool: chat v2 mirrors the agent's
- * own prose into bubbles, so replying is just replying (see
- * my-pizza-team/docs/ASSISTANT_CHAT_V2.md §5.4). These tools are for *doing*
- * things — stories, tasks, schedules, thoughts, context.
- */
-export function registerAssistantTools(pi: ExtensionAPI, client: DaemonClient): void {
-  registerCreateStory(pi, client);
-  registerEditStory(pi, client);
-  registerAddTask(pi, client);
-  registerCreateTask(pi, client);
-  registerCreateSchedule(pi, client);
-  registerListWorkflows(pi, client);
-  registerListContext(pi, client);
-  registerQueueRequest(pi, client);
-  registerListThoughtGroups(pi, client);
-  registerListThoughts(pi, client);
-  registerGetThought(pi, client);
-  registerCreateThought(pi, client);
-  registerEditThought(pi, client);
-  registerArchiveThought(pi, client);
-  registerGroupThoughts(pi, client);
 }
 
 // ═══════════════════════════════════════════════════════════════════════
@@ -262,34 +247,6 @@ function registerAddTask(pi: ExtensionAPI, client: DaemonClient): void {
       return {
         content: [{ type: "text", text: `Added task "${params.title}" to story "${params.storyId}"` }],
         details: { storyId: params.storyId, taskId: result.task?.id },
-      };
-    },
-  });
-}
-
-// ─── queue_request ───────────────────────────────────────────────────
-
-function registerQueueRequest(pi: ExtensionAPI, client: DaemonClient): void {
-  pi.registerTool({
-    name: "queue_request",
-    label: "Queue Assistant Request",
-    description:
-      "Queue a request for the pi-pizza-team assistant to process. The assistant can create stories, " +
-      "add tasks, spawn teammates, curate the context library, or handle any operational request.",
-    promptSnippet: "Queue a request for the team assistant",
-    promptGuidelines: [
-      "Use queue_request when you want to delegate operational work to the assistant.",
-      "The assistant processes requests asynchronously — it will handle them in order.",
-    ],
-    parameters: Type.Object({
-      prompt: Type.String({ description: "Free-form request for the assistant to process" }),
-    }),
-    async execute(_toolCallId, params) {
-      const result = await client.enqueueAssistantRequest(params.prompt);
-      if (!result.success) throw new Error(result.error || "Failed to queue request");
-
-      return {
-        content: [{ type: "text", text: `Queued request for the assistant.` }],
       };
     },
   });

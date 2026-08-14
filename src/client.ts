@@ -99,6 +99,8 @@ export interface AssistantInboxItem {
 
 /** Response from GET /api/assistant/inbox */
 export interface AssistantInboxResponse {
+  /** False when this agent is not the designated chat agent (it must stay silent). */
+  chat: boolean;
   messages: AssistantInboxItem[];
 }
 
@@ -554,9 +556,15 @@ export class DaemonClient {
   // pulls them and hands them to Pi, and the agent's own prose is mirrored back
   // as bubbles. See my-pizza-team/docs/ASSISTANT_CHAT_V2.md.
 
-  /** User messages not yet handed to Pi, oldest first. */
+  /**
+   * User messages not yet handed to Pi, oldest first, plus whether we are the
+   * designated chat agent. The daemon designates one leader so a multi-host team
+   * can't answer the same message twice.
+   */
   async getInbox(): Promise<AssistantInboxResponse> {
-    return this.get<AssistantInboxResponse>("/api/assistant/inbox");
+    return this.get<AssistantInboxResponse>(
+      `/api/assistant/inbox?agentId=${encodeURIComponent(this.agentId)}`,
+    );
   }
 
   /**
@@ -741,19 +749,6 @@ export class DaemonClient {
    */
   async listContext(): Promise<{ entries: ContextEntry[] }> {
     return this.get<{ entries: ContextEntry[] }>("/api/context");
-  }
-
-  /**
-   * Send a free-form message into the assistant conversation (as the user).
-   *
-   * Used by the leader's `queue_request` tool. The message is queued for the
-   * assistant exactly like one typed in the web UI.
-   */
-  async enqueueAssistantRequest(prompt: string): Promise<{ success: boolean; error?: string }> {
-    return this.post<{ success: boolean; error?: string }>(
-      "/api/assistant/messages",
-      { content: prompt }
-    );
   }
 
   // ═══════════════════════════════════════════════════════════════════

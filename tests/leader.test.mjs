@@ -100,8 +100,8 @@ test("spawned agent names come from the daemon with a timestamp fallback", () =>
 
 // ─── Multi-harness support ───────────────────────────────────────
 
-test("has default harness templates for pi and pi-assistant", () => {
-  assert.ok(src.includes('"pi-assistant"'));
+test("has a default harness template for pi (no pi-assistant: the leader is the chat)", () => {
+  assert.ok(!src.includes('"pi-assistant"'));
   assert.ok(src.includes("pi:"));
 });
 
@@ -109,11 +109,11 @@ test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name", () => {
   assert.ok(src.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
 });
 
-test("pi-assistant template uses -a --ppt-assistant and threads {name} (daemon-owned identity)", () => {
-  // The assistant is a distinct role but not a distinct identity: the daemon
-  // assigns the reserved "assistant" name, so the template threads {name}
-  // rather than hardcoding it. This keeps tmux window == registered name.
-  assert.ok(src.includes("pi -a --ppt-assistant --ppt-daemon={url} --ppt-name={name}"));
+test("nothing spawns an assistant any more (the leader is the chat agent)", () => {
+  // The assistant role is retired: no template, and no reason-based routing to
+  // one. Every spawn is a teammate; the chat is answered by this leader.
+  assert.ok(!src.includes("--ppt-assistant"));
+  assert.ok(!src.includes('reason === "assistant"'));
   assert.ok(!src.includes("--ppt-name=assistant"));
 });
 
@@ -121,7 +121,6 @@ test("pi harness templates auto-approve project trust", () => {
   // -a (--approve) lets a spawned teammate trust its cwd non-interactively so
   // it doesn't block on pi's "Trust project folder?" prompt.
   assert.ok(src.includes('pi: "pi -a '));
-  assert.ok(src.includes('"pi-assistant": "pi -a '));
 });
 
 test("spawnAgent resolves template placeholders", () => {

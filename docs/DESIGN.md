@@ -28,7 +28,7 @@ reasoned-about adapter between Pi and the daemon.
 A single extension entry point (`index.ts`) picks a role from flags / config and
 wires only that role's behavior:
 - `--ppt-worker` → **teammate** loop.
-- `--ppt-assistant` → **assistant** loop.
+- `--ppt-assistant` → **retired** (the leader is the chat agent; the flag only warns).
 - `--ppt-lead` (or a `.my-pizza-team/` config in cwd) → **leader**.
 
 ### 3. Autonomous work is a claim/done loop
@@ -45,12 +45,14 @@ Every task belongs to a teammate; the variable is how much mentoring it needs:
 - **Async** — the lead leaves task comments; the teammate reads them on (re)claim.
 - **Sync (pairing)** — you hop into the teammate's tmux window and work directly.
 
-### 5. The assistant is a chat — and the Pi session *is* the chat
-The assistant is a real chatbot, not a request/response form. The inversion that
-makes it feel real: **the Pi session is the conversation and the daemon mirrors
-it**, rather than the daemon queueing work for a worker.
+### 5. The leader is the chat — and its Pi session *is* the conversation
+The chat is a real chatbot, not a request/response form, and **there is no separate
+assistant process**: the leader already runs per host for tmux, nobody types in its
+session, so it doubles as the agent you talk to. The inversion that makes it feel
+real: **the Pi session is the conversation and the daemon mirrors it**, rather than
+the daemon queueing work for a worker.
 
-So the extension's assistant role is a mirror, not a loop with a claim protocol:
+So the leader's chat side is a mirror, not a loop with a claim protocol:
 it pulls queued user messages and hands them to Pi (`deliverAs: "steer"` while a
 run is live, so the user can interrupt mid-answer), and it mirrors Pi's output the
 other way — the agent's own prose split into chat bubbles, its reasoning into an
@@ -65,6 +67,9 @@ Two consequences worth stating plainly:
   the daemon's `ASSISTANT_CHAT_FRAMING`, injected ahead of every persona.
 - **The tmux pane and the web UI are one conversation.** That falls out of the
   mirror for free, and it's the reason the mirror is worth the inversion.
+- **Nothing to spawn.** A chat that requires starting a second agent has an
+  offline dead end; a chat with the agent that's already running does not. Leaders
+  are per host, so the daemon designates one chat agent and the others stay silent.
 
 Session control (`new-session`, `resume-session`) is the one directive class an
 agent realizes *itself*, with Pi's `ctx.newSession()` / `ctx.switchSession()` —

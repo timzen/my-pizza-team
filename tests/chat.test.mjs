@@ -1,8 +1,8 @@
-// Source checks for the assistant chat mirror (chat v2)
-// Run with: node tests/assistant.test.mjs
+// Source checks for the chat mirror (chat v2)
+// Run with: node tests/chat.test.mjs
 //
-// The assistant no longer works a queue of response turns. It mirrors the
-// daemon's chat and this Pi session into each other:
+// The leader is the agent you chat with — there is no separate assistant process.
+// The mirror keeps the daemon's chat and the leader's Pi session in sync:
 //   inbound   inbox -> pi.sendUserMessage (steer while running) -> ack receipts
 //   outbound  assistant prose -> bubbles, reasoning -> ephemeral thought peek,
 //             terminal input -> user messages (tmux parity)
@@ -13,7 +13,8 @@ import * as assert from "node:assert";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
-const src = fs.readFileSync(path.join(import.meta.dirname, "../src/assistant.ts"), "utf-8");
+const src = fs.readFileSync(path.join(import.meta.dirname, "../src/chat.ts"), "utf-8");
+const leaderSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/leader.ts"), "utf-8");
 const indexSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"), "utf-8");
 const toolsSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/tools.ts"), "utf-8");
 
@@ -31,12 +32,12 @@ function test(label, fn) {
   }
 }
 
-console.log("AssistantLoop source checks:");
+console.log("ChatMirror source checks:");
 
 // ─── Class structure ─────────────────────────────────────────────
 
-test("exports AssistantLoop class", () => {
-  assert.ok(src.includes("export class AssistantLoop"));
+test("exports ChatMirror class", () => {
+  assert.ok(src.includes("export class ChatMirror"));
 });
 
 test("has no local store or filesystem state (pure daemon client)", () => {
@@ -57,8 +58,29 @@ test("no send_message tool anywhere (prose is mirrored instead)", () => {
   assert.ok(!toolsSrc.includes("send_message"));
   assert.ok(!toolsSrc.includes("sayAssistantMessage"));
   assert.ok(!indexSrc.includes("getActiveTurnId"));
-  // Tools are registered without a turn-id resolver.
-  assert.ok(indexSrc.includes("registerAssistantTools(pi, client)"));
+});
+
+// ─── One agent to talk to ────────────────────────────────────────
+
+test("the retired --ppt-assistant role does not register a second chat agent", () => {
+  // Two mirroring agents would answer every message twice.
+  assert.ok(!indexSrc.includes("setupAssistant"));
+  assert.ok(indexSrc.includes("RETIRED ASSISTANT ROLE"));
+  assert.ok(indexSrc.includes("is retired"));
+});
+
+test("only the designated chat agent mirrors", () => {
+  assert.ok(src.includes("isChatAgent"));
+  assert.ok(src.includes("const { chat, messages } = await this.client.getInbox()"));
+  // Every outbound path is gated.
+  const gated = src.split("if (!this.isChatAgent) return;").length - 1;
+  assert.ok(gated >= 5, `expected the outbound mirrors to be gated, found ${gated}`);
+});
+
+test("a chat-driven session roll skips deregistration (no offline flicker)", () => {
+  assert.ok(src.includes("rollingSession"));
+  assert.ok(src.includes("get isRollingSession"));
+  assert.ok(leaderSrc.includes("if (chat.isRollingSession) return;"));
 });
 
 // ─── Inbound: daemon -> Pi ───────────────────────────────────────
@@ -126,55 +148,57 @@ test("realizes session directives it polls for itself", () => {
 
 // ─── Heartbeat / registration ────────────────────────────────────
 
-test("heartbeats with working/idle and re-registers when asked", () => {
-  assert.ok(src.includes("this.client.heartbeat("));
-  assert.ok(src.includes("res.reregister"));
-  assert.ok(src.includes("this.reregister?.()"));
+test("the mirror does not heartbeat (the leader owns registration)", () => {
+  // One registration per process: the leader already heartbeats and handles
+  // re-registration, so the mirror must not run a second loop.
+  assert.ok(!src.includes("heartbeat("));
+  assert.ok(leaderSrc.includes("heartbeatTimer"));
 });
 
-console.log("\nindex.ts assistant wiring:");
+console.log("\nleader.ts chat wiring:");
 
-test("registers under the reserved singleton name", () => {
-  assert.ok(indexSrc.includes('client.register({ name: "assistant"'));
+test("the leader registers as the chat agent's identity", () => {
+  assert.ok(leaderSrc.includes('client.register({ name: "leader"'));
+  assert.ok(leaderSrc.includes("new ChatMirror(pi, client)"));
 });
 
 test("injects the persona via before_agent_start", () => {
-  assert.ok(indexSrc.includes('pi.on("before_agent_start"'));
-  assert.ok(indexSrc.includes("loop.persona"));
+  assert.ok(leaderSrc.includes('pi.on("before_agent_start"'));
+  assert.ok(leaderSrc.includes("chat.persona"));
 });
 
 test("mirrors interactive terminal input into the chat", () => {
-  assert.ok(indexSrc.includes('pi.on("input"'));
-  assert.ok(indexSrc.includes('event.source !== "interactive"'));
-  assert.ok(indexSrc.includes("loop.mirrorTerminalInput"));
+  assert.ok(leaderSrc.includes('pi.on("input"'));
+  assert.ok(leaderSrc.includes('event.source !== "interactive"'));
+  assert.ok(leaderSrc.includes("chat.mirrorTerminalInput"));
 });
 
 test("mirrors reasoning from message_update and prose from message_end", () => {
-  assert.ok(indexSrc.includes('pi.on("message_update"'));
-  assert.ok(indexSrc.includes("loop.handleReasoning"));
-  assert.ok(indexSrc.includes('pi.on("message_end"'));
-  assert.ok(indexSrc.includes("loop.mirrorAssistantText"));
+  assert.ok(leaderSrc.includes('pi.on("message_update"'));
+  assert.ok(leaderSrc.includes("chat.handleReasoning"));
+  assert.ok(leaderSrc.includes('pi.on("message_end"'));
+  assert.ok(leaderSrc.includes("chat.mirrorAssistantText"));
 });
 
 test("tracks run boundaries with agent_start / agent_settled", () => {
-  assert.ok(indexSrc.includes('pi.on("agent_start"'));
-  assert.ok(indexSrc.includes("loop.handleAgentStart"));
-  assert.ok(indexSrc.includes('pi.on("agent_settled"'));
-  assert.ok(indexSrc.includes("loop.handleAgentSettled"));
+  assert.ok(leaderSrc.includes('pi.on("agent_start"'));
+  assert.ok(leaderSrc.includes("chat.handleAgentStart"));
+  assert.ok(leaderSrc.includes('pi.on("agent_settled"'));
+  assert.ok(leaderSrc.includes("chat.handleAgentSettled"));
 });
 
 test("realizes session directives through commands (session APIs are command-only)", () => {
-  assert.ok(indexSrc.includes('action === "new-session"'));
-  assert.ok(indexSrc.includes('action === "resume-session"'));
+  assert.ok(leaderSrc.includes('action === "new-session"'));
+  assert.ok(leaderSrc.includes('action === "resume-session"'));
   // Same pattern as the teammate's /ppt-fresh-session: queue a command, because
   // newSession/switchSession only exist on command contexts.
-  assert.ok(indexSrc.includes('pi.registerCommand("ppt-assistant-new-session"'));
-  assert.ok(indexSrc.includes('pi.registerCommand("ppt-assistant-resume"'));
-  assert.ok(indexSrc.includes('sendUserMessage("/ppt-assistant-new-session", { deliverAs: "followUp" })'));
-  assert.ok(indexSrc.includes("cmdCtx.newSession({"));
-  assert.ok(indexSrc.includes("cmdCtx.switchSession(file"));
+  assert.ok(leaderSrc.includes('pi.registerCommand("ppt-chat-new-session"'));
+  assert.ok(leaderSrc.includes('pi.registerCommand("ppt-chat-resume"'));
+  assert.ok(leaderSrc.includes('sendUserMessage("/ppt-chat-new-session", { deliverAs: "followUp" })'));
+  assert.ok(leaderSrc.includes("cmdCtx.newSession({"));
+  assert.ok(leaderSrc.includes("cmdCtx.switchSession(file"));
   // Post-switch work must use the replacement ctx (pi's documented footgun).
-  assert.ok(indexSrc.includes("withSession: reportReplacement"));
+  assert.ok(leaderSrc.includes("withSession: reportReplacement"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

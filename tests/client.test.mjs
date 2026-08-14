@@ -173,6 +173,11 @@ test("has the chat mirror methods", () => {
   assert.ok(clientSrc.includes("async mirrorUserMessage(content"));
 });
 
+test("the inbox poll identifies the agent (only the chat agent may pull)", () => {
+  assert.ok(clientSrc.includes("/api/assistant/inbox?agentId="));
+  assert.ok(clientSrc.includes("chat: boolean"));
+});
+
 test("mirrors terminal input with origin 'tui'", () => {
   assert.ok(clientSrc.includes('{ content, origin: "tui" }'));
 });
@@ -249,8 +254,8 @@ test("has uploadAttachment method", () => {
   assert.ok(clientSrc.includes("async uploadAttachment(workItemId"));
 });
 
-test("has enqueueAssistantRequest method", () => {
-  assert.ok(clientSrc.includes("async enqueueAssistantRequest(prompt"));
+test("no enqueueAssistantRequest (queue_request died with the assistant role)", () => {
+  assert.ok(!clientSrc.includes("enqueueAssistantRequest"));
 });
 
 test("register forwards opaque metadata", () => {

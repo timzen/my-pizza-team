@@ -8,7 +8,7 @@ A [Pi](https://pi.mariozechner.at/) extension for multi-agent task orchestration
 
 - **Team Lead Pi** — connects to the daemon, polls its leader directives, manages tmux windows
 - **Teammate Pis** — poll the daemon for tasks, execute autonomously, report back
-- **Assistant Pi** — chats with you live (web UI *or* its own terminal — same conversation)
+- **Leader Pi** — manages tmux *and* chats with you live (web UI *or* its own terminal — same conversation)
 - **You (the Mentor)** — review work via the daemon's web UI, or hop into any teammate's window to pair
 
 ## Install
@@ -40,8 +40,7 @@ pi --ppt-lead --ppt-daemon=http://localhost:7438
 # Spawn a teammate (usually done by the leader via /ppt-spawn):
 pi --ppt-worker --ppt-daemon=http://localhost:7437 --ppt-name=swift-ripley
 
-# Run the assistant:
-pi --ppt-assistant --ppt-daemon=http://localhost:7437
+# The leader IS the chat agent — nothing extra to run.
 ```
 
 ## Role Detection
@@ -49,7 +48,7 @@ pi --ppt-assistant --ppt-daemon=http://localhost:7437
 The extension detects which role to activate:
 
 1. `--ppt-worker` flag → **Teammate** (autonomous agent)
-2. `--ppt-assistant` flag → **Assistant** (live chat mirror)
+2. *(retired)* `--ppt-assistant` — the leader is the chat agent now; the flag only prints a notice
 3. `--ppt-lead` flag OR `.my-pizza-team/config.json` in cwd → **Leader**
 4. Otherwise → **Inactive** (only `/ppt-help` available)
 
@@ -59,7 +58,7 @@ The extension detects which role to activate:
 |------|------|---------|-------------|
 | `--ppt-lead` | boolean | false | Activate leader role |
 | `--ppt-worker` | boolean | false | Run as teammate |
-| `--ppt-assistant` | boolean | false | Run as assistant |
+| `--ppt-assistant` | boolean | false | **Retired** — the leader answers the chat; kept so old spawn commands don't crash |
 | `--ppt-daemon` | string | `http://localhost:7437` | Daemon URL |
 | `--ppt-name` | string | (auto-generated) | Agent name |
 | `--ppt-tmux-session` | string | (set by leader) | tmux session the agent runs in (reported as metadata) |
@@ -106,12 +105,12 @@ pi --ppt-worker
 | `/ppt-worker-resume` | Resume autonomous work after pairing |
 | `/ppt-worker-status` | Show current teammate status |
 
-### Assistant
+### Chat (leader)
 
 | Command | Description |
 |---------|-------------|
-| `/ppt-assistant-new-session` | Start a fresh chat session (queued by the chat's **New chat** / persona swap) |
-| `/ppt-assistant-resume <file>` | Switch to an earlier chat's Pi session (queued by **Resume**) |
+| `/ppt-chat-new-session` | Start a fresh chat session (queued by the chat's **New chat** / persona swap) |
+| `/ppt-chat-resume <file>` | Switch to an earlier chat's Pi session (queued by **Resume**) |
 
 Both are normally driven by the web UI rather than typed: Pi's session APIs exist
 only on command contexts, so the daemon's `new-session`/`resume-session` directives
@@ -125,19 +124,19 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`create_story`** — Create a new story (id, title, description, directory?, skills?, paused?, workflow?, dependsOn?)
 - **`edit_story`** — Edit an existing story's fields
 - **`add_task`** — Add a task to a story
-- **`queue_request`** — Queue a request for the assistant
 - **`team_status`** — Get current team status summary
 
 ### Teammate Tools
 - **`upload_attachment`** — Upload a file to the current work item
 - **`fail`** — Give up on the current work item: posts a comment and marks the WorkItem `FAILED`, leaving the task stuck for a human to re-enqueue/move/edit
 
-### Assistant Tools
+### Leader Tools (the agent you chat with)
 
-> The assistant has **no tool for replying**. It answers in ordinary prose and the
+> The leader has **no tool for replying**. It answers in ordinary prose and the
 > extension mirrors it into chat bubbles (splitting on blank lines), so the same
 > reply reads naturally in the tmux pane *and* in the web chat. See
-> [Assistant chat mirror](#assistant-chat-mirror).
+> [Chat mirror](#chat-mirror). There is also no `queue_request`: the leader *is*
+> the chat, so it would be messaging itself.
 
 - **`create_story`** — Create stories from prompts
 - **`edit_story`** — Edit stories
@@ -151,10 +150,11 @@ Tools are registered per-role (all proxy to the daemon API):
 > The context library is **vended by the daemon** where needed (e.g. the assistant's
 > persona system prompt) — agents don't search or CRUD context through tools.
 
-## Assistant Chat Mirror
+## Chat Mirror
 
-The assistant is a **live chat**, not a request/response worker. The Pi session is
-the conversation; the daemon chat is a mirror of it, kept in sync both ways:
+The **leader** is the agent you chat with — there is no separate assistant process
+(it already runs per host, and nobody types in its session). The Pi session is the
+conversation; the daemon chat is a mirror of it, kept in sync both ways:
 
 | Direction | What happens |
 |-----------|--------------|
@@ -162,9 +162,10 @@ the conversation; the daemon chat is a mirror of it, kept in sync both ways:
 | Pi → daemon | The agent's own prose is split on blank lines into chat bubbles (`src/bubbles.ts` — never inside a code fence or list). Reasoning deltas feed an ephemeral "peek behind the `…`" buffer. |
 | terminal → chat | Anything you type in the assistant's tmux pane (the `input` event, slash commands excluded) is mirrored into the web chat, so both surfaces show one conversation. |
 | sessions | `new-session` / `resume-session` are realized in-process with `ctx.newSession()` / `ctx.switchSession()`, and the resulting Pi session path is reported so a chat can be snapshotted and resumed later. |
+| designation | Leaders are per host, so the daemon designates one chat agent; the inbox poll answers `chat: true/false` and a non-designated leader stays silent. |
 
-There is deliberately no polling of "turns", no composer lock, and no
-`send_message` tool. See
+There is deliberately no polling of "turns", no composer lock, no `send_message`
+tool, and nothing to spawn. See
 [my-pizza-team/docs/ASSISTANT_CHAT_V2.md](../my-pizza-team/docs/ASSISTANT_CHAT_V2.md).
 
 
@@ -175,13 +176,12 @@ The leader supports spawning agents with different harness types:
 | Harness | Command Template |
 |---------|-----------------|
 | `pi` (default) | `pi --ppt-worker --ppt-daemon={url} --ppt-name={name}` |
-| `pi-assistant` | `pi --ppt-assistant --ppt-daemon={url} --ppt-name={name}` |
 | `claude-code` | `mpt-claude-runner --name={name} --daemon={url} --cwd={cwd}` |
 | `codex` | `mpt-codex-runner --name={name} --daemon={url} --cwd={cwd}` |
 
 Custom templates can be configured via the daemon's `harnessCommands` config field.
 
-The `pi-assistant` template selects the assistant **role** (`--ppt-assistant`) but does *not* choose a name: identity is daemon-owned, so `{name}` is threaded from the directive just like a worker. The daemon assigns the reserved singleton name `assistant` for assistant spawns, which keeps the tmux window, the registered agent name, and the MPT web UI label all consistent.
+Every spawn is a **teammate**: the chat is answered by the leader itself, so there is no assistant to spawn (and no `pi-assistant` template). Identity stays daemon-owned — the daemon generates the name and `{name}` is threaded from the directive, which keeps the tmux window, the registered agent name, and the MPT web UI label consistent.
 
 ## Workflow
 
@@ -209,7 +209,7 @@ src/
 ├── client.ts         DaemonClient: unified HTTP client for daemon API
 ├── leader.ts         Leader: tmux management, spawn polling, slash commands
 ├── teammate.ts       TeammateLoop: autonomous work loop (fresh session per work item)
-├── assistant.ts      AssistantLoop: mirrors the daemon chat ⇄ this Pi session
+├── chat.ts           ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session
 ├── bubbles.ts        splitIntoBubbles: assistant prose → chat bubbles
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling

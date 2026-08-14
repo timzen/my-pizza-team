@@ -31,16 +31,14 @@ console.log("Tools module source checks:");
 
 // ─── Exports ─────────────────────────────────────────────────────
 
-test("exports registerLeaderTools", () => {
+test("exports registerLeaderTools (the chat agent's tool set)", () => {
   assert.ok(src.includes("export function registerLeaderTools("));
+  // The assistant role is gone: the leader answers the chat.
+  assert.ok(!src.includes("registerAssistantTools"));
 });
 
 test("exports registerTeammateTools", () => {
   assert.ok(src.includes("export function registerTeammateTools("));
-});
-
-test("exports registerAssistantTools", () => {
-  assert.ok(src.includes("export function registerAssistantTools("));
 });
 
 test("does NOT export old registerTools function", () => {
@@ -64,9 +62,11 @@ test("has add_task tool (not team_add_task)", () => {
   assert.ok(!src.includes('name: "team_add_task"'));
 });
 
-test("has queue_request tool (not team_queue_request)", () => {
-  assert.ok(src.includes('name: "queue_request"'));
-  assert.ok(!src.includes('name: "team_queue_request"'));
+test("no queue_request tool (the leader is the chat; it would message itself)", () => {
+  // The doc comment explains the removal, so assert on the registration instead.
+  assert.ok(!src.includes('name: "queue_request"'));
+  assert.ok(!src.includes("registerQueueRequest"));
+  assert.ok(!src.includes("enqueueAssistantRequest"));
 });
 
 test("has team_status tool", () => {
@@ -121,53 +121,39 @@ test("registerLeaderTools includes list_workflows and list_context", () => {
 // ─── Teammate tools composition ──────────────────────────────────
 
 test("registerTeammateTools includes upload_attachment", () => {
-  const teammateFn = src.slice(src.indexOf("function registerTeammateTools"), src.indexOf("function registerAssistantTools"));
+  const teammateFn = src.slice(src.indexOf("function registerTeammateTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
   assert.ok(teammateFn.includes("registerUploadAttachment"));
 });
 
 test("registerTeammateTools does NOT include create_story", () => {
-  const teammateFn = src.slice(src.indexOf("function registerTeammateTools"), src.indexOf("function registerAssistantTools"));
+  const teammateFn = src.slice(src.indexOf("function registerTeammateTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
   assert.ok(!teammateFn.includes("registerCreateStory"));
 });
 
 // ─── Assistant tools composition ─────────────────────────────────
 
-test("registerAssistantTools includes create_story", () => {
-  const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
-  assert.ok(assistantFn.includes("registerCreateStory"));
+test("registerLeaderTools carries the full planning surface (it is the chat agent)", () => {
+  const leaderFn = src.slice(
+    src.indexOf("function registerLeaderTools"),
+    src.indexOf("function registerTeammateTools"),
+  );
+  // Board + standalone work
+  for (const fn of ["registerCreateStory", "registerEditStory", "registerAddTask", "registerCreateTask", "registerCreateSchedule"]) {
+    assert.ok(leaderFn.includes(fn), `missing ${fn}`);
+  }
+  // Read-only planning context + status
+  for (const fn of ["registerListWorkflows", "registerListContext", "registerTeamStatus"]) {
+    assert.ok(leaderFn.includes(fn), `missing ${fn}`);
+  }
+  // Thoughts: read + write (the thoughts -> work loop)
+  for (const fn of ["registerListThoughtGroups", "registerListThoughts", "registerGetThought", "registerCreateThought", "registerEditThought", "registerArchiveThought", "registerGroupThoughts"]) {
+    assert.ok(leaderFn.includes(fn), `missing ${fn}`);
+  }
+  // Not the chat agent's job: teammate-only execution tools, and no self-messaging.
+  assert.ok(!leaderFn.includes("registerUploadAttachment"));
+  assert.ok(!leaderFn.includes("registerQueueRequest"));
+  assert.ok(!leaderFn.includes("registerReadScratchpad"));
 });
-
-test("registerAssistantTools includes list_workflows and list_context (read-only planning tools)", () => {
-  const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
-  assert.ok(assistantFn.includes("registerListWorkflows"));
-  assert.ok(assistantFn.includes("registerListContext"));
-});
-
-test("registerAssistantTools includes thought read+write tools + create_task/create_schedule (not read_scratchpad)", () => {
-  const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// TOOL IMPLEMENTATIONS"));
-  assert.ok(assistantFn.includes("registerListThoughts"));
-  assert.ok(assistantFn.includes("registerGetThought"));
-  assert.ok(assistantFn.includes("registerListThoughtGroups"));
-  assert.ok(assistantFn.includes("registerCreateThought"));
-  assert.ok(assistantFn.includes("registerEditThought"));
-  assert.ok(assistantFn.includes("registerArchiveThought"));
-  assert.ok(assistantFn.includes("registerGroupThoughts"));
-  assert.ok(assistantFn.includes("registerCreateTask"));
-  assert.ok(assistantFn.includes("registerCreateSchedule"));
-  assert.ok(!assistantFn.includes("registerReadScratchpad"));
-});
-
-test("registerAssistantTools does NOT include team_status", () => {
-  const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
-  assert.ok(!assistantFn.includes("registerTeamStatus"));
-});
-
-test("registerAssistantTools does NOT include upload_attachment", () => {
-  const assistantFn = src.slice(src.indexOf("function registerAssistantTools"), src.indexOf("// ═══════════════════════════════════════════════════════════════════════\n// TOOL IMPLEMENTATIONS"));
-  assert.ok(!assistantFn.includes("registerUploadAttachment"));
-});
-
-// ─── Daemon API usage ────────────────────────────────────────────
 
 test("create_story calls client.createStory", () => {
   assert.ok(src.includes("client.createStory("));
@@ -204,10 +190,6 @@ test("create_story and add_task accept and forward a context param", () => {
   // Planners attach context-library entries by id to a story or task.
   assert.ok(src.includes("context: params.context"));
   assert.ok(src.includes("params.storyId, params.title, params.description, params.context"));
-});
-
-test("queue_request calls client.enqueueAssistantRequest", () => {
-  assert.ok(src.includes("client.enqueueAssistantRequest("));
 });
 
 test("context tools are gone (daemon vends context, agents don't CRUD it)", () => {

@@ -1,14 +1,21 @@
-// Leader role: tmux management, directive polling, LLM tools
+// Leader role: tmux management, directive polling, LLM tools, and the team chat
 //
-// The leader is the Pi-specific host coordinator. It doesn't own state —
-// the daemon does. The leader's responsibilities are:
+// The leader is the Pi-specific host coordinator *and* the agent you talk to.
+// There is no separate assistant process: the leader already runs per host, its
+// session holds no human work, and chat v2's mirror is role-agnostic — so it
+// doubles as the chat participant (see chat.ts and DESIGN.md "One agent to talk
+// to"). The daemon designates one leader as the chat agent so a multi-host team
+// can't answer twice.
+//
+// It doesn't own state — the daemon does. The leader's responsibilities are:
 //   1. Register with daemon as { role: "leader", harness: "pi", hostId }
 //   2. Poll GET /api/hosts/:hostId/leader/directives every 5s (one queue)
 //   3. Realize each directive locally (spawn via tmux, reset via /new, ...)
 //   4. Mark done: PUT /api/hosts/:hostId/leader/directives/:id { status }
-//   5. Register LLM tools for the lead user
+//   5. Register LLM tools for planning work
 //   6. Provide tmux commands: /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status
 //   7. Show status widget with team progress
+//   8. Mirror the daemon's chat into this Pi session and back (ChatMirror)
 //
 // Multi-harness support:
 //   Spawn requests may specify a harness type. The leader uses command
@@ -39,12 +46,8 @@ interface HarnessTemplates {
 // only applied once the project is trusted anyway.
 const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
   pi: "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-  // The assistant is a distinct role (--ppt-assistant) but NOT a distinct
-  // identity: the daemon owns names and assigns the reserved "assistant" name
-  // for assistant spawns, so we thread {name} through here just like a worker
-  // rather than hardcoding it. This keeps the tmux window, the registered
-  // name, and the web UI label consistent (all "assistant").
-  "pi-assistant": "pi -a --ppt-assistant --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+  // Only teammates are spawned. There is no assistant template: this leader is
+  // the agent the user chats with (see chat.ts).
 };
 
 
@@ -309,6 +312,102 @@ export async function setupLeader(
     },
   });
 
+  // ─── Chat mirror (the leader is the agent you talk to) ─────────────
+  //
+  // Everything below only *reports* what Pi did; the daemon decides nothing about
+  // behavior. The mirror stays quiet unless the daemon designated us as the chat
+  // agent (see ChatMirror + /api/assistant/inbox).
+
+  const { ChatMirror } = await import("./chat.js");
+  const chat = new ChatMirror(pi, client);
+
+  // Persona: the daemon vends chat framing + the selected persona (or its
+  // default), injected as the system prompt on every run.
+  pi.on("before_agent_start", async (event) => {
+    const persona = chat.persona;
+    if (!persona) return;
+    return { systemPrompt: `${event.systemPrompt}\n\n${persona}` };
+  });
+
+  // Report the Pi session backing the chat so a conversation can be resumed.
+  await chat.reportSession(ctx.sessionManager?.getSessionFile?.() ?? null);
+
+  // Anything typed in this window is part of the same conversation.
+  pi.on("input", async (event) => {
+    if (event.source !== "interactive") return;
+    await chat.mirrorTerminalInput(event.text);
+  });
+
+  pi.on("agent_start", async () => { await chat.handleAgentStart(); });
+
+  // Reasoning deltas feed the ephemeral "peek behind the …" buffer.
+  pi.on("message_update", (event) => {
+    const message = event.message as { role?: string; content?: Array<{ type: string; thinking?: string }> };
+    if (message?.role !== "assistant") return;
+    for (const part of message.content || []) {
+      if (part.type === "thinking" && typeof part.thinking === "string") chat.handleReasoning(part.thinking);
+    }
+  });
+
+  // Each finished assistant message becomes chat bubbles. This fires for
+  // intermediate messages too, so prose emitted before tool calls arrives live.
+  pi.on("message_end", async (event) => {
+    const message = event.message as { role?: string; content?: Array<{ type: string; text?: string }> };
+    if (message?.role !== "assistant") return;
+    const text = (message.content || [])
+      .filter((part) => part.type === "text" && typeof part.text === "string")
+      .map((part) => part.text as string)
+      .join("\n\n");
+    if (text.trim()) await chat.mirrorAssistantText(text);
+  });
+
+  pi.on("agent_settled", async () => { await chat.handleAgentSettled(); });
+
+  // Session control: "New chat" / "Resume" from the web UI. newSession() and
+  // switchSession() only exist on COMMAND contexts, so the daemon's directives
+  // are realized by queueing these commands (same pattern as the teammate's
+  // /ppt-fresh-session). Post-switch work must use the withSession ctx — captured
+  // pi/ctx objects are stale after a session is replaced.
+  const reportReplacement = async (replacementCtx: any) => {
+    await client.reportPiSession(replacementCtx.sessionManager?.getSessionFile?.() ?? "").catch(() => {});
+  };
+
+  pi.registerCommand("ppt-chat-new-session", {
+    description: "Start a fresh chat session (queued by the chat's New chat action)",
+    handler: async (_args: unknown, cmdCtx: any) => {
+      await cmdCtx.newSession({
+        parentSession: cmdCtx.sessionManager?.getSessionFile?.(),
+        withSession: reportReplacement,
+      });
+    },
+  });
+
+  pi.registerCommand("ppt-chat-resume", {
+    description: "Resume an earlier chat session: /ppt-chat-resume <pi-session-file>",
+    handler: async (args: unknown, cmdCtx: any) => {
+      const file = String(args ?? "").trim();
+      if (!file || !fs.existsSync(file)) {
+        cmdCtx.ui?.notify?.(`Cannot resume: no such Pi session file (${file || "none given"})`, "error");
+        return;
+      }
+      await cmdCtx.switchSession(file, { withSession: reportReplacement });
+    },
+  });
+
+  chat.onSessionDirective = async (action, params) => {
+    if (action === "new-session") {
+      pi.sendUserMessage("/ppt-chat-new-session", { deliverAs: "followUp" });
+      return;
+    }
+    if (action === "resume-session") {
+      const file = typeof params.piSessionPath === "string" ? params.piSessionPath : "";
+      if (!file) throw new Error("resume-session directive carried no piSessionPath");
+      pi.sendUserMessage(`/ppt-chat-resume ${file}`, { deliverAs: "followUp" });
+    }
+  };
+
+  await chat.start();
+
   // ─── Widget ────────────────────────────────────────────────────────
 
   const updateWidget = async () => {
@@ -333,6 +432,12 @@ export async function setupLeader(
     clearInterval(heartbeatTimer);
     clearInterval(spawnPollTimer);
     clearInterval(widgetInterval);
+    chat.stop();
+    // A chat-driven session roll (New chat / Resume) shuts this session down and
+    // immediately starts another that re-registers under the same name. Skipping
+    // deregistration keeps the leader from flickering offline — and keeps the
+    // chat-agent designation from hopping to another host mid-conversation.
+    if (chat.isRollingSession) return;
     await client.deregister().catch(() => {});
   });
 
@@ -480,11 +585,10 @@ function dispatchDirective(
   if (directive.action === "spawn") {
     const params = directive.params || {};
     // The daemon owns identity: it supplies params.name (a generated
-    // adjective-noun for teammates, or the reserved "assistant" for the
-    // assistant singleton). We only pick the harness *role* here.
+    // adjective-noun). Every spawn is a teammate — the chat is answered by the
+    // leader itself, so there is no assistant to spawn. We only pick the harness.
     const name = (params.name as string) || `agent-${Date.now()}`;
-    let harness = (params.harness as string) || "pi";
-    if (params.reason === "assistant") harness = "pi-assistant";
+    const harness = (params.harness as string) || "pi";
     spawnAgent(name, (params.cwd as string) || ctx.fallbackCwd, {
       session: ctx.session,
       daemonUrl: ctx.daemonUrl,
