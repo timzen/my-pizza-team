@@ -223,6 +223,9 @@ test("index wires requestFreshSession to queue the command as a followUp", () =>
   const wiring = indexSrc.slice(indexSrc.indexOf("loop.requestFreshSession ="));
   assert.ok(wiring.includes('"/ppt-fresh-session"'));
   assert.ok(wiring.includes('deliverAs: "followUp"'));
+  // Without expandPromptTemplates the slash command is delivered as plain text
+  // to the LLM and the command never runs (no session reset).
+  assert.ok(wiring.includes("expandPromptTemplates: true"));
 });
 
 test("self-reset skips deregistration (no offline blip between work items)", () => {

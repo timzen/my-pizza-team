@@ -342,7 +342,12 @@ async function setupTeammate(
 
   loop.requestFreshSession = () => {
     debug(`[ppt-debug] work item finished — queueing /ppt-fresh-session`);
-    pi.sendUserMessage("/ppt-fresh-session", { deliverAs: "followUp" });
+    // expandPromptTemplates must be true: pi.sendUserMessage() defaults to
+    // false, which delivers "/ppt-fresh-session" to the LLM as *literal text*
+    // instead of dispatching the registered extension command. That silently
+    // skipped the reset (teammates would narrate the slash command back at the
+    // lead and keep their stale context) — see DESIGN.md "Fresh session".
+    pi.sendUserMessage("/ppt-fresh-session", { deliverAs: "followUp", expandPromptTemplates: true });
   };
 
   pi.registerCommand("ppt-worker-resume", {

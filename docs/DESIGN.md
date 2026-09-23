@@ -116,7 +116,9 @@ audit entry per auto-allow in the permission review log.
 
 Each work item runs in a fresh Pi session: after done/return the loop queues
 the `ppt-fresh-session` command (session control only exists on command
-contexts), which calls `ctx.newSession()`. Pi tears the old instance down and
+contexts) with `expandPromptTemplates: true` — without that flag pi delivers
+the slash command to the LLM as literal text and no reset happens — which
+calls `ctx.newSession()`. Pi tears the old instance down and
 re-runs `session_start`, so the teammate re-registers under the same identity
 and polls again with an empty context — no bleed between tasks, enforced by
 construction. A scheduled poll remains as a safety net in case the reset
