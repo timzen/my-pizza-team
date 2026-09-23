@@ -259,9 +259,12 @@ async function setupTeammate(
   };
 
   // ─── agent_start: track loop activity ──────────────────────────
+  // Also marks the run that picks up a work prompt as that WorkItem's own run,
+  // so agent_end can tell completion from a foreign run (see teammate.ts).
 
   pi.on("agent_start" as any, async () => {
     debug(`[ppt-debug agent_start] fired. isAutonomous=${loop.isAutonomous} currentTask=${loop.currentTask}`);
+    loop.handleAgentStart();
   });
 
   // ─── agent_end: capture results ──────────────────────────────────
@@ -269,6 +272,9 @@ async function setupTeammate(
   pi.on("agent_end", async (event) => {
     const debugPrefix = `[ppt-debug agent_end]`;
     debug(`${debugPrefix} fired. isAutonomous=${loop.isAutonomous} currentTask=${loop.currentTask}`);
+    // Bookkeeping first (unconditional): no run is in flight anymore, so the
+    // loop is free to claim again.
+    loop.handleAgentEnd();
 
     if (!loop.isAutonomous || !loop.currentTask) {
       debug(`${debugPrefix} skipping — guard failed`);

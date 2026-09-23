@@ -43,6 +43,7 @@ src/
 ├── client.ts             # DaemonClient: unified HTTP client for all daemon API calls
 ├── leader.ts             # Leader role: tmux management, spawn polling, slash commands, host readiness probe
 ├── teammate.ts           # TeammateLoop: poll → claim → work → set-state (COMPLETE/FAILED) → fresh session loop
+│                          #   (claims only between runs; completes only on the work prompt's own run)
 ├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
@@ -65,18 +66,36 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │                                                          │
 │  1. GET  /api/agents/next-work?agentId=X                 │
 │     └── a READY WorkItem (chosen by directory affinity)  │
+│     └── skipped while a Pi run is in flight (run owner-  │
+│         ship: see below)                                 │
 │  2. POST /api/agents/claim/:workItemId  (→ IN_PROGRESS)  │
 │  3. pi.sendUserMessage(claim.prompt)                     │
 │     └── daemon-assembled prompt (state persona + task), │
 │         delivered verbatim; agent cds to the story dir   │
-│  4. agent_end event fires                                │
+│  4. agent_end event fires **for that prompt's own run**  │
 │     └── handleAgentComplete(lastAssistantMessage)        │
+│         ├── foreign run (prompt not started yet) → skip  │
 │         ├── item failed via the `fail` tool → skip       │
 │         └── else POST .../work-items/:id/state COMPLETE  │
 │             └── daemon advances the task mechanically    │
 │  5. Back to step 1                                       │
 └─────────────────────────────────────────────────────────┘
 ```
+
+**Run ownership.** The work prompt is delivered as a `followUp`, which Pi only
+hands over once the agent stops — so an `agent_end` may belong to a *different*
+run (a slash command like `/ppt-fresh-session`, a lead steer, the previous
+item's wrap-up). Completing on such a run marked a just-claimed WorkItem
+COMPLETE before the teammate had read the prompt, and the item appeared in the
+daemon's Inbox as unread completed work while the teammate was visibly still
+working on it. Two guards, both in `TeammateLoop`:
+
+- `agentRunning` (set by `handleAgentStart`, cleared by `handleAgentEnd`, both
+  wired unconditionally in `index.ts`) — the loop never claims mid-run.
+- `awaitingWorkRun` (set just before the prompt is delivered, cleared by the
+  next `agent_start`) — `handleAgentComplete` returns early while it is set, so
+  a foreign `agent_end` neither reports token usage nor completes the item. The
+  item stays IN_PROGRESS and is completed by its own run's `agent_end`.
 
 Rework needs no special path: a human moves the task back into an agent state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new

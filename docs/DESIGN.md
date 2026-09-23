@@ -124,6 +124,15 @@ and polls again with an empty context — no bleed between tasks, enforced by
 construction. A scheduled poll remains as a safety net in case the reset
 fails.
 
+That safety net is also why the loop must know whether a Pi *run* is in flight.
+The work prompt is a `followUp` — Pi delivers it only once the agent stops — so a
+claim made mid-run gets the in-flight run's `agent_end` first, and reading that
+as "the teammate finished" marks a fresh WorkItem COMPLETE the instant it is
+claimed. The loop therefore treats **run ownership** as explicit state: it claims
+only between runs, and only the run that picked up the work prompt may complete
+the item. Everything else is a foreign run and is ignored. See
+docs/ARCHITECTURE.md → "Run ownership".
+
 ### Permission toggling
 | Mode | yoloMode | Authorizer link | Behavior |
 |------|----------|-----------------|----------|

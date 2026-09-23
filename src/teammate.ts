@@ -9,9 +9,19 @@
 // 1. Poll GET /api/agents/next-work → a READY WorkItem (directory affinity)
 // 2. Claim POST /api/agents/claim/:workItemId → lease (→ IN_PROGRESS) + prompt
 // 3. Execute work (deliver the daemon-assembled prompt to the Pi agent)
-// 4. On agent_end, POST .../work-items/:id/state COMPLETE → the daemon advances
-//    the task mechanically. If the agent used the `fail` tool instead, the item
-//    is already FAILED and completion is skipped.
+// 4. On the agent_end **of that prompt's own run**, POST
+//    .../work-items/:id/state COMPLETE → the daemon advances the task
+//    mechanically. If the agent used the `fail` tool instead, the item is
+//    already FAILED and completion is skipped.
+//
+// Run ownership matters: the prompt is delivered as a `followUp`, which Pi only
+// hands over once the agent stops. So an agent_end can belong to some *other*
+// run (a slash command, a lead steer, the previous item's wrap-up). Completing
+// on such a foreign run would mark a just-claimed item COMPLETE before the
+// teammate had even read the prompt — the item would land in the Inbox as
+// unread completed work while the teammate was visibly still working on it. The
+// loop therefore (a) never claims while a run is in flight and (b) ignores
+// agent_end until the run that picked up the work prompt has started.
 // 5. Request a fresh Pi session (context hygiene — each work item starts with
 //    an empty session; see requestFreshSession). The fresh extension instance
 //    re-registers and polls for the next work item.
@@ -39,6 +49,15 @@ export class TeammateLoop {
   private failedWorkItemId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  /** True while a Pi agent run is in flight (agent_start → agent_end). */
+  private agentRunning = false;
+  /**
+   * Set once a work prompt has been handed to Pi but before its run starts.
+   * While set, any agent_end belongs to an earlier, unrelated run and must not
+   * be read as this WorkItem's completion (see the header note on run
+   * ownership).
+   */
+  private awaitingWorkRun = false;
 
   public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
@@ -94,6 +113,21 @@ export class TeammateLoop {
     if (this.currentWorkItemId === workItemId) this.failedWorkItemId = workItemId;
   }
 
+  /**
+   * A Pi agent run started. If we were waiting for our work prompt to be picked
+   * up, this is that run — completing on its agent_end is legitimate.
+   */
+  handleAgentStart(): void {
+    this.agentRunning = true;
+    this.awaitingWorkRun = false;
+  }
+
+  /** A Pi agent run ended. Bookkeeping only — whether it *completes* the current
+   *  WorkItem is decided by handleAgentComplete. Idempotent. */
+  handleAgentEnd(): void {
+    this.agentRunning = false;
+  }
+
   async start(): Promise<void> {
     this.running = true;
     this.startHeartbeat();
@@ -103,6 +137,7 @@ export class TeammateLoop {
   stop(): void {
     this.running = false;
     this.autonomous = false;
+    this.awaitingWorkRun = false;
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
   }
@@ -145,7 +180,10 @@ export class TeammateLoop {
   // ═══════════════════════════════════════════════════════════════════
 
   private async pollForWork(): Promise<void> {
-    if (!this.running || !this.autonomous || this.currentWorkItemId) {
+    // Never claim while a run is in flight: the claimed item's prompt is a
+    // `followUp` (delivered only once the agent stops), so the in-flight run's
+    // agent_end would arrive first and look like this item's completion.
+    if (!this.running || !this.autonomous || this.currentWorkItemId || this.agentRunning) {
       this.schedulePoll();
       return;
     }
@@ -197,8 +235,10 @@ export class TeammateLoop {
     // Post status comment
     await this.client.postComment(workItemId, `[status] Started working on this.`).catch(() => {});
 
-    // Send to Pi agent — this triggers the agent loop
+    // Send to Pi agent — this triggers the agent loop. Until that run starts,
+    // agent_end events are foreign (see the header note on run ownership).
     this.debugLog(`[ppt-debug] Sending prompt to agent (workItem=${workItemId}, prompt length=${message.length})`);
+    this.awaitingWorkRun = true;
     this.pi.sendUserMessage(message, { deliverAs: "followUp" });
   }
 
@@ -227,6 +267,15 @@ export class TeammateLoop {
       return;
     }
 
+    // ─── Foreign run? Not our completion. ────────────────────────────
+    // Our work prompt hasn't been picked up yet, so this agent_end belongs to an
+    // earlier run (slash command, lead steer, previous item's wrap-up).
+    // Completing here would falsely mark a just-claimed item done.
+    if (this.awaitingWorkRun) {
+      this.debugLog(`[ppt-debug] handleAgentComplete: agent_end from a foreign run (work prompt for ${this.currentWorkItemId} not started yet) — ignoring`);
+      return;
+    }
+
     const workItemId = this.currentWorkItemId;
 
     // Report token usage (include the harness-computed cost when we have it).
@@ -244,6 +293,7 @@ export class TeammateLoop {
       this.debugLog(`[ppt-debug] WorkItem ${workItemId} was failed via the fail tool — skipping COMPLETE.`);
       this.failedWorkItemId = null;
       this.currentWorkItemId = null;
+      this.awaitingWorkRun = false;
       this.finishWorkItem();
       return;
     }
@@ -263,6 +313,7 @@ export class TeammateLoop {
     this.debugLog(`[ppt-debug] setWorkItemState response: ${JSON.stringify(doneRes)}`);
     this.lastCompletedWorkItemId = workItemId;
     this.currentWorkItemId = null;
+    this.awaitingWorkRun = false;
 
     if (doneRes?.completed) {
       this.onTaskComplete?.(workItemId, fullMessage);

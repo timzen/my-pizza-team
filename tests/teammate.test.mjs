@@ -238,5 +238,54 @@ test("self-reset skips deregistration (no offline blip between work items)", () 
   assert.ok(returnIdx > -1 && deregisterIdx > -1 && returnIdx < deregisterIdx);
 });
 
+// ─── Run ownership (a foreign agent_end must not complete an item) ───
+//
+// The work prompt is a `followUp`, delivered only once the agent stops. If the
+// loop claimed while a run was in flight, that run's agent_end would complete
+// the just-claimed item instantly — it showed up in the Inbox as unread
+// completed work while the teammate was still working on it.
+
+test("does not claim while an agent run is in flight", () => {
+  const poll = src.slice(src.indexOf("private async pollForWork"));
+  assert.ok(poll.includes("this.agentRunning"));
+  assert.ok(/if \(!this\.running \|\| !this\.autonomous \|\| this\.currentWorkItemId \|\| this\.agentRunning\)/.test(poll));
+});
+
+test("marks the work prompt as awaiting its own run when delivering it", () => {
+  const exec = src.slice(src.indexOf("private async executeTask"));
+  const awaitIdx = exec.indexOf("this.awaitingWorkRun = true");
+  const sendIdx = exec.indexOf("sendUserMessage");
+  // The flag must be set *before* the prompt is handed to Pi, or an agent_end
+  // racing in between would be mistaken for this item's completion.
+  assert.ok(awaitIdx > -1 && sendIdx > -1 && awaitIdx < sendIdx);
+});
+
+test("agent_start claims the run for the pending work prompt", () => {
+  const startHandler = src.slice(src.indexOf("handleAgentStart(): void"));
+  assert.ok(startHandler.includes("this.agentRunning = true"));
+  assert.ok(startHandler.includes("this.awaitingWorkRun = false"));
+});
+
+test("handleAgentComplete ignores agent_end from a foreign run", () => {
+  const completeSection = src.slice(src.indexOf("async handleAgentComplete"));
+  const guardIdx = completeSection.indexOf("if (this.awaitingWorkRun)");
+  const usageIdx = completeSection.indexOf("reportTokenUsage");
+  const stateIdx = completeSection.indexOf("setWorkItemState");
+  // The guard must precede both the usage report and the COMPLETE call, so a
+  // foreign run neither bills nor completes the item.
+  assert.ok(guardIdx > -1);
+  assert.ok(guardIdx < usageIdx && guardIdx < stateIdx);
+});
+
+test("index wires agent_start/agent_end into the loop's run bookkeeping", () => {
+  assert.ok(indexSrc.includes("loop.handleAgentStart()"));
+  const endHandler = indexSrc.slice(indexSrc.indexOf('pi.on("agent_end"'));
+  const bookkeepIdx = endHandler.indexOf("loop.handleAgentEnd()");
+  const guardIdx = endHandler.indexOf("skipping — guard failed");
+  // Bookkeeping is unconditional: it must run before the early-return guard,
+  // otherwise agentRunning would stay true and the loop would stop claiming.
+  assert.ok(bookkeepIdx > -1 && guardIdx > -1 && bookkeepIdx < guardIdx);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);
