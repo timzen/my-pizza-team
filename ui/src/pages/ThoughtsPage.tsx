@@ -13,6 +13,7 @@ import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack,
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
+import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
 
 interface Thought {
   id: string; content: string; color: string; status: "active" | "archived";
@@ -213,18 +214,25 @@ export function ThoughtsPage() {
     return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
   }, [notes, groups, screenToWorldDelta, screenToWorld]);
 
-  // ─── Zoom (wheel, anchored at cursor) ──────────────────────────────
-  const onWheel = (e: React.WheelEvent) => {
-    e.preventDefault();
-    const rect = viewportRef.current?.getBoundingClientRect();
-    if (!rect) return;
-    const cx = e.clientX - rect.left, cy = e.clientY - rect.top;
-    setView((v) => {
-      const next = Math.min(MAX_SCALE, Math.max(MIN_SCALE, v.scale * (e.deltaY < 0 ? 1.1 : 1 / 1.1)));
-      const k = next / v.scale;
-      return { scale: next, tx: cx - (cx - v.tx) * k, ty: cy - (cy - v.ty) * k };
-    });
-  };
+  // ─── Wheel: swipe pans, pinch zooms (anchored at cursor) ───────────
+  // Bound natively rather than via React's `onWheel` because React registers
+  // wheel listeners as passive, where preventDefault() is a no-op — without it
+  // a trackpad pinch zooms the whole browser page instead of the canvas.
+  // Gesture classification and the transform math live in lib/wheelGesture
+  // (pure, unit-tested in tests/wheel-gesture.test.ts).
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      e.preventDefault();
+      const g = wheelGesture(e);
+      const rect = el.getBoundingClientRect();
+      const cursor = { cx: e.clientX - rect.left, cy: e.clientY - rect.top };
+      setView((v) => applyWheelToView(v, g, cursor, { min: MIN_SCALE, max: MAX_SCALE }));
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   // Button zoom: anchor on the viewport center so the view stays put.
   const zoomBy = (factor: number) => {
@@ -444,7 +452,6 @@ export function ThoughtsPage() {
       <div
         ref={viewportRef}
         onPointerDown={onCanvasPointerDown}
-        onWheel={onWheel}
         className={`h-full w-full bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:24px_24px] ${selectMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       >
         {/* Transformed world layer */}
