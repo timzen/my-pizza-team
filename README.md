@@ -101,7 +101,7 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
   // ─── Team ──────────────────────────────────────────────────────
   "tmuxSession": "my-pizza-team",
   "maxTeammates": 4,
-  "minTeammates": 0,                     // Teammates the daemon keeps online (0 = spawn none)
+  "minTeammates": 2,                     // Teammates the daemon keeps online (omit = half of maxTeammates; 0 = spawn none)
   "agentTimeoutSeconds": 90,
 
   // ─── Autosave ─────────────────────────────────────────────────

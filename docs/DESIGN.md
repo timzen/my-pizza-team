@@ -126,7 +126,7 @@ reaping honest and puts the recovery decision with the human.
 ## Team Size: Declared, not Clicked
 
 The team's size is a **number you declare**, not a button you press per teammate.
-`minTeammates` (default 0) is the floor the daemon keeps populated: it counts the
+`minTeammates` is the floor the daemon keeps populated: it counts the
 online generalist pool plus not-yet-realized `spawn` requests, and queues spawn
 directives for whatever is missing — on the same heartbeat tick that reaps a lost
 teammate, when the number changes, and when a leader first connects.
@@ -143,6 +143,17 @@ floor is idempotent, survives restarts (it's config, so it's also the startup
 target), self-heals after a crash, and puts team size in exactly one place — the
 same convergent-state reasoning the rest of the daemon uses (admission enqueues
 from a declared workflow position; it doesn't ask you to press "run next task").
+**Default: half of `maxTeammates`** (rounded down), *derived* while unset rather
+than written to config. A fresh team does something useful out of the box without
+spending the whole cap, and because the default isn't frozen into config.json,
+raising the cap raises it too — until you declare a size (0 included), which
+always wins. "Use default" clears the declaration.
+
+**One-off, directory-homed spawns stay available** alongside the floor. The pool
+spawns generalists in the leader's directory; "put someone in *that* repo" is a
+different question (directory affinity), so the sidebar keeps a Spawn dialog for
+it. Such a teammate counts toward the floor like any other.
+
 The singleton role stays explicit rather than pooled: a leader is per-host
 infrastructure, and it is also the agent you chat with (see "One Agent to Talk To").
 

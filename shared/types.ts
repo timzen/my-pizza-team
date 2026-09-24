@@ -22,9 +22,10 @@ export interface TeamConfig {
   /**
    * Target size of the generalist teammate pool: the daemon keeps at least this
    * many teammates online, spawning replacements (via leader `spawn` directives)
-   * whenever the pool dips below it. Default 0 — no teammates are spawned unless
-   * asked for. Capped by `maxTeammates`. This replaced the per-place "Spawn
-   * teammate" buttons: team size is declared once, not clicked into existence.
+   * whenever the pool dips below it. When unset, defaults to half of
+   * `maxTeammates` (rounded down) — see `resolveMinTeammates`. An explicit value
+   * (including 0) always wins. Capped by `maxTeammates`. Team size is declared
+   * once, not clicked into existence.
    */
   minTeammates?: number;
   teammates?: TeammateConfig;
@@ -355,13 +356,34 @@ export const DEFAULT_CONFIG: TeamConfig = {
     autoCommit: true,
   },
   maxTeammates: 4,
-  minTeammates: 0,
+  // minTeammates is deliberately absent: unset means "half of maxTeammates"
+  // (resolveMinTeammates), so the default tracks the cap instead of freezing it.
   agentTimeoutSeconds: 90,
   teammates: {},
 };
 
 export const TEAM_DIR = ".my-pizza-team";
 export const CONFIG_FILE = "config.json";
+
+/**
+ * The default steady team size when `minTeammates` isn't set: half the
+ * `maxTeammates` cap, rounded down (4 → 2, 1 → 0). Derived rather than stored so
+ * raising the cap raises the default too, until a size is declared explicitly.
+ */
+export function defaultMinTeammates(config: Pick<TeamConfig, "maxTeammates">): number {
+  return Math.floor(Math.max(0, config.maxTeammates ?? 0) / 2);
+}
+
+/**
+ * The effective steady team size: the explicit `minTeammates` (0 included) or,
+ * when unset, `defaultMinTeammates`. Always capped by `maxTeammates` (0/unset
+ * means uncapped).
+ */
+export function resolveMinTeammates(config: Pick<TeamConfig, "maxTeammates" | "minTeammates">): number {
+  const min = config.minTeammates ?? defaultMinTeammates(config);
+  const max = config.maxTeammates ?? 0;
+  return max > 0 ? Math.min(min, max) : min;
+}
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
 export const ARCHIVED_DIR = "archived";

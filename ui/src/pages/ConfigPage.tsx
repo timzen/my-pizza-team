@@ -31,7 +31,8 @@ interface ConfigData {
   workflows: Record<string, { states: string[] }>;
   autosave: { flushIntervalMinutes: number; commitIntervalHours: number; autoCommit: boolean };
   maxTeammates?: number;
-  minTeammates?: number;
+  /** Unset = default (half of maxTeammates); `null` clears an explicit value on save. */
+  minTeammates?: number | null;
   teammates?: TeammateConfig;
   defaultNouns?: string[];
   readinessProbe?: string;
@@ -146,18 +147,24 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
             <Label>Max Teammates</Label>
             <Input type="number" value={config.maxTeammates ?? 4} onChange={(e) => update("maxTeammates", parseInt(e.target.value) || 4)} className="max-w-[120px]" />
             {/* The declared pool size, applied at startup and reconciled
-                continuously. Also editable live in the sidebar's team-size box. */}
+                continuously. Also editable live from the sidebar's team-size
+                dialog. Blank = the default (half of Max Teammates), sent as
+                `null` so saving clears an explicit value. */}
             <Label>Min Teammates</Label>
             <div className="space-y-1">
               <Input
                 type="number"
                 min={0}
-                value={config.minTeammates ?? 0}
-                onChange={(e) => update("minTeammates", Math.max(0, parseInt(e.target.value) || 0))}
-                className="max-w-[120px]"
+                value={config.minTeammates ?? ""}
+                placeholder={`${Math.floor((config.maxTeammates ?? 4) / 2)} (default)`}
+                onChange={(e) => {
+                  const n = parseInt(e.target.value, 10);
+                  update("minTeammates", e.target.value === "" || Number.isNaN(n) ? null : Math.max(0, n));
+                }}
+                className="max-w-[160px]"
               />
               <p className="text-xs text-muted-foreground">
-                Teammates the daemon keeps online (spawning replacements as needed). 0 spawns none.
+                Teammates the daemon keeps online (spawning replacements as needed). Blank = half of Max Teammates; 0 spawns none.
               </p>
             </div>
             <Label>Default Workflow</Label>

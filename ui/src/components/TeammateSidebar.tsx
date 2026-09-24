@@ -14,18 +14,23 @@
  *     (optionally re-enqueuing a fresh attempt). Terminal items are reviewed in
  *     the Inbox, not here.
  *
- * Also surfaces pending spawn requests (/api/spawn-requests) and the team-size
- * box (TeamSizeBox): the pool's size is declared there and the daemon keeps it
- * populated — there is no per-teammate Spawn button. Collapsible to a slim icon
- * rail (choice remembered in localStorage). Polls the daemon.
+ * Also surfaces pending spawn requests (/api/spawn-requests). The header is
+ * deliberately sparse — `Team (n)` plus two icon buttons, then collapse:
+ *  - **Team size** (Users) → TeamSizeDialog: the steady pool size the daemon
+ *    keeps online. An amber dot flags a size the daemon can't realize yet (no
+ *    leader connected).
+ *  - **Spawn** (UserPlus) → SpawnDialog: one teammate in a specific directory.
+ * Collapsible to a slim icon rail (choice remembered in localStorage) that keeps
+ * both buttons. Polls the daemon.
  */
 
 import { useState } from "react";
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { TeamSizeBox } from "@/components/TeamSizeBox";
-import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen, Clock, X, Crown, User, Ban, AlertTriangle } from "lucide-react";
+import { TeamSizeDialog, type TeammatePool } from "@/components/TeamSizeDialog";
+import { SpawnDialog } from "@/components/SpawnDialog";
+import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen, Clock, X, Crown, User, Ban, AlertTriangle, Users, UserPlus } from "lucide-react";
 
 const COLLAPSE_KEY = "mpt.teammateSidebar.collapsed";
 
@@ -82,7 +87,10 @@ export function TeammateSidebar() {
   const { data: queueData, refetch: refetchQueue } = useApi<{ items: WorkItem[]; total: number }>(
     "/api/work-items?state=READY,IN_PROGRESS,MORIBUND", [], { pollInterval: 5000 }
   );
+  const { data: pool, refetch: refetchPool } = useApi<TeammatePool>("/api/teammate-pool", [], { pollInterval: 10_000 });
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === "1");
+  const [sizeOpen, setSizeOpen] = useState(false);
+  const [spawnOpen, setSpawnOpen] = useState(false);
 
   const teammates = data?.agents || [];
   const online = teammates.filter((a) => a.status !== "offline");
@@ -128,16 +136,44 @@ export function TeammateSidebar() {
     refetchQueue();
   };
 
+  // A declared size nothing can realize yet (no leader to act on spawns).
+  const poolBlocked = !!pool && pool.minTeammates > 0 && !pool.leaderPresent;
+  const sizeTitle = pool
+    ? `Team size: ${pool.minTeammates}${pool.isDefault ? " (default)" : ""} · ${pool.online} online${poolBlocked ? " · no leader connected" : ""}`
+    : "Team size";
+
+  const teamButtons = (
+    <>
+      <Button variant="ghost" size="icon" className="relative h-7 w-7" onClick={() => setSizeOpen(true)} title={sizeTitle} aria-label="Set team size">
+        <Users className="h-4 w-4" />
+        {poolBlocked && <span className="absolute top-1 right-1 h-1.5 w-1.5 rounded-full bg-amber-500" />}
+      </Button>
+      <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => setSpawnOpen(true)} title="Spawn a teammate in a directory" aria-label="Spawn teammate">
+        <UserPlus className="h-4 w-4" />
+      </Button>
+    </>
+  );
+
+  // Rendered in both layouts so the buttons work from the collapsed rail too.
+  const dialogs = (
+    <>
+      <TeamSizeDialog open={sizeOpen} onOpenChange={setSizeOpen} pool={pool} onChanged={() => { refetchPool(); refetchSpawns(); }} />
+      <SpawnDialog open={spawnOpen} onOpenChange={setSpawnOpen} onSpawned={() => { refetchSpawns(); refetchPool(); }} />
+    </>
+  );
+
   // ─── Collapsed: slim icon rail ─────────────────────────────────────
   if (collapsed) {
     return (
       <aside className="hidden lg:flex w-14 shrink-0 flex-col items-center border-l border-border bg-muted/30">
+        {dialogs}
         <div className="h-14 flex items-center justify-center border-b border-border w-full shrink-0">
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle} title="Expand teammates">
             <PanelRightOpen className="h-4 w-4" />
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto py-3 flex flex-col items-center gap-2 w-full">
+          {teamButtons}
           {pendingSpawns.length > 0 && (
             <div
               className="relative flex items-center justify-center h-6 w-6 text-muted-foreground"
@@ -173,17 +209,17 @@ export function TeammateSidebar() {
   // ─── Expanded: full rows ───────────────────────────────────────────
   return (
     <aside className="hidden lg:flex w-72 shrink-0 flex-col border-l border-border bg-muted/30">
+      {dialogs}
       <div className="flex items-center justify-between px-4 h-14 border-b border-border shrink-0">
-        <h2 className="text-sm font-semibold">
-          Team <span className="text-muted-foreground font-normal">({online.length})</span>
-        </h2>
         <div className="flex items-center gap-1">
-          {/* Declared pool size — the daemon keeps this many teammates online. */}
-          <TeamSizeBox />
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle} title="Collapse teammates">
-            <PanelRightClose className="h-4 w-4" />
-          </Button>
+          <h2 className="text-sm font-semibold mr-1">
+            Team <span className="text-muted-foreground font-normal">({online.length})</span>
+          </h2>
+          {teamButtons}
         </div>
+        <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle} title="Collapse teammates">
+          <PanelRightClose className="h-4 w-4" />
+        </Button>
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
@@ -213,7 +249,7 @@ export function TeammateSidebar() {
 
         {teammates.length === 0 && (
           <p className="text-xs text-muted-foreground py-4 text-center">
-            No teammates yet. Set the team size above and the daemon will spawn them.
+            No teammates yet. Set the team size (<Users className="inline h-3 w-3" />) or spawn one (<UserPlus className="inline h-3 w-3" />) above.
           </p>
         )}
 
