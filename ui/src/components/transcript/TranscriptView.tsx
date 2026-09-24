@@ -18,7 +18,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import type { TranscriptEntry } from "@/lib/transcript-types";
+import { isRunning, type TranscriptEntry } from "@/lib/transcript-types";
 
 /** Lines shown before a user block / tool result collapses. */
 const USER_PREVIEW_LINES = 6;
@@ -63,16 +63,6 @@ export function TranscriptView({ entries, empty }: { entries: TranscriptEntry[];
   );
 }
 
-/** A run is in flight if the latest run marker is a start. */
-function isRunning(entries: TranscriptEntry[]): boolean {
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const e = entries[i]!;
-    if (e.kind === "run") return e.state === "start";
-    if (e.kind === "session") return false;
-  }
-  return false;
-}
-
 function EntryRow({ entry }: { entry: TranscriptEntry }) {
   switch (entry.kind) {
     case "watch": return <Divider label={`watching from ${clock(entry.at)}`} />;
@@ -103,7 +93,7 @@ function UserBlock({ entry }: { entry: Of<"user"> }) {
       <div className="flex gap-2">
         <span className="select-none text-primary">❯</span>
         <div className="min-w-0 flex-1">
-          {entry.origin === "tui" && <span className="mr-2 text-xs text-muted-foreground">[terminal]</span>}
+          <OriginTag entry={entry} />
           <span className="whitespace-pre-wrap break-words">{shown}</span>
           {lines.length > USER_PREVIEW_LINES && (
             <button type="button" onClick={() => setOpen(!open)} className="block text-xs text-muted-foreground hover:text-foreground">
@@ -114,6 +104,14 @@ function UserBlock({ entry }: { entry: Of<"user"> }) {
       </div>
     </div>
   );
+}
+
+/** `[terminal]` / `[you · queued]` / `[you · steer]` — nothing for the work prompt. */
+function OriginTag({ entry }: { entry: Of<"user"> }) {
+  const who = entry.origin === "tui" ? "terminal" : entry.origin === "web" ? "you" : null;
+  const how = entry.delivery === "followUp" ? "queued" : entry.delivery === "steer" ? "steer" : null;
+  if (!who && !how) return null;
+  return <span className="mr-2 text-xs text-muted-foreground">[{[who, how].filter(Boolean).join(" · ")}]</span>;
 }
 
 function MessageBlock({ entry }: { entry: Of<"message"> }) {

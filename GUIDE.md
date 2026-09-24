@@ -138,6 +138,21 @@ highlighted while you're watching.
 - A teammate nobody is watching doesn't stream anything, so leaving the page
   costs nothing.
 
+### Pairing with a teammate
+
+Watching never interrupts anything. To talk to a teammate, click **Pair**: it
+stops taking new work and won't mark its current item done while you're
+talking, and a message box appears.
+
+- **Enter** queues your message — it lands when the teammate finishes what it's
+  doing right now. **⌘↵** (or **Steer**) cuts in at its next tool step.
+- Your messages show up in the transcript as `[you · queued]` / `[you · steer]`
+  once it has them.
+- When you're done, hand it back: **Resume** (it carries on with its work
+  item), **Complete** (the item is done — its last reply becomes the summary),
+  or **Fail** (the item is marked failed and the task waits for you). If it's
+  mid-step, the release waits for that step to finish.
+
 ### Team size (how teammates get created)
 
 You don't spawn teammates one at a time — you **declare how many you want**. The

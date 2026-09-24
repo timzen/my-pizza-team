@@ -267,6 +267,17 @@ message updates are cumulative), so opening mid-reply or mid-tool still renders
 a coherent picture. The buffer is in-memory: a live view, not a record — the
 WorkItem thread is the record. See docs/TEAMMATE_CHAT.md.
 
+**Pairing is the explicit step that talks to it.** Watching can never interrupt;
+**Pair** pauses the teammate's loop (no new claims, no completion behind your
+back) and opens a composer. The default send *queues* behind the current run;
+steering in mid-run is a deliberate second gesture. Releasing is a decision
+about the held work item — resume, complete, or fail — because "stop talking"
+alone doesn't say whether the work is done. A release waits out a run in
+flight: acting mid-run would read the reply to your last message as the item's
+completion. The daemon holds only the intent (drained exactly-once by the
+teammate's poll); the teammate realizes it, the same split as leader
+directives.
+
 ## Assistant: a Chat Conversation
 
 The assistant is a conversation, not a queue — and the conversation lives in the
