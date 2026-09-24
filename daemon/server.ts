@@ -10,6 +10,7 @@
  *   - agents: agent protocol (register, next-work, claim, release, spawn)
  *   - assistant: queue and knowledge base
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
+ *   - pairing: pair with / message / release a teammate from the web UI
  */
 
 import { Hono } from "hono";
@@ -30,6 +31,7 @@ import { registerAssistantRoutes } from "./routes/assistant.ts";
 import { registerContextRoutes } from "./routes/context.ts";
 import { registerThoughtRoutes } from "./routes/thoughts.ts";
 import { registerTranscriptRoutes } from "./routes/transcripts.ts";
+import { registerPairingRoutes } from "./routes/pairing.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -74,6 +76,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerContextRoutes(ctx);
   registerThoughtRoutes(ctx);
   registerTranscriptRoutes(ctx);
+  registerPairingRoutes(ctx);
 
   return app;
 }

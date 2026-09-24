@@ -66,6 +66,7 @@ import {
 import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
+import { TeammatePairing } from "./store/pairing.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -225,6 +226,8 @@ export class Store {
    * In-memory only; routes use it directly — it has no DB or config coupling.
    */
   readonly transcripts = new TeammateTranscripts();
+  /** Web-UI pairing intent per teammate (docs/TEAMMATE_CHAT.md §4). In-memory. */
+  readonly pairing = new TeammatePairing();
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -1527,6 +1530,7 @@ export class Store {
     this.db.prepare("UPDATE work_items SET member_id = NULL WHERE member_id = ?").run(id);
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
     this.transcripts.forget(id);
+    this.pairing.forget(id);
   }
 
   /**

@@ -54,12 +54,18 @@ Environment:
 ### Upgrading
 
 `mpt upgrade` checks GitHub for the latest release and replaces the binary in
-place. The version check hits the GitHub API, which limits **unauthenticated**
-requests to **60/hour per IP** — on a shared-egress cloud desktop this is easily
+place. It first tries the GitHub API, which limits **unauthenticated** requests
+to **60/hour per IP** — on a shared-egress cloud desktop this is easily
 exhausted, and GitHub then returns `HTTP 403` (rate limit exceeded).
 
-To avoid it, set a GitHub token so the request is authenticated (5,000/hour,
-keyed to your user, not the shared IP):
+When that happens, `mpt upgrade` **automatically falls back** to plain
+`github.com` release links (`/releases/latest` → tagged release → predictable
+`/releases/download/<tag>/<asset>` URLs), which are *not* API rate limited. You
+should see a warning but the upgrade still completes — checksum verification
+included.
+
+Setting a GitHub token skips the fallback entirely by authenticating the API call
+(5,000/hour, keyed to your user, not the shared IP):
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxx   # or MPT_GITHUB_TOKEN / GH_TOKEN
