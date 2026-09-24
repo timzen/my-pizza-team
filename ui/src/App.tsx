@@ -5,6 +5,10 @@
  * **AssistantDock** on the left is where work starts (chat + quick-create),
  * routed pages run in the middle, and the **TeammateSidebar** on the right is
  * where it executes (team + queue). Both edges collapse to icon rails.
+ *
+ * Three full-height columns with aligned h-14 headers. The **NavBar spans only
+ * the center column**: it navigates the center, and the side columns are
+ * independent of it (docs/TEAMMATE_CHAT.md §2).
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
@@ -40,11 +44,14 @@ function App() {
           columns and <main> then own their own scrolling. With a content-height
           shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
           grows the page instead of scrolling inside the dock. */}
-      <div className="h-dvh overflow-hidden flex flex-col bg-background text-foreground">
-        <NavBar />
-        <div className="flex flex-1 min-h-0">
-          <AssistantDock />
-          <main className="flex-1 min-w-0 overflow-y-auto">
+      <div className="h-dvh overflow-hidden flex bg-background text-foreground">
+        <AssistantDock />
+        {/* The center column: its own nav on top, the routed page below.
+            @container so the nav adapts to the room the docks leave, not the
+            viewport width. */}
+        <div className="@container flex flex-1 min-w-0 flex-col">
+          <NavBar />
+          <main className="flex-1 min-h-0 overflow-y-auto">
             <Routes>
               <Route path="/" element={<RootPage />} />
               {/* The chat lives in the dock now; keep the old URL working. */}
@@ -71,8 +78,8 @@ function App() {
               <Route path="/help" element={<HelpPage />} />
             </Routes>
           </main>
-          <TeammateSidebar />
         </div>
+        <TeammateSidebar />
       </div>
       </AssistantDockProvider>
     </BrowserRouter>

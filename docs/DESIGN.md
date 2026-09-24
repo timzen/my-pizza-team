@@ -248,6 +248,13 @@ and `/assistant` is now just a redirect that opens it. Below the `lg` breakpoint
 there's no room for columns, so the chat becomes the familiar floating
 corner-button panel instead — same chat, different presentation.
 
+**The nav belongs to the middle.** The NavBar spans only the center column, not
+the whole window: it only ever changes what's in the middle, and the side columns
+are independent of it. The rule for the middle is *one thing at a time, and
+whatever put it there is highlighted* — a nav tab for pages, a teammate row for a
+teammate's live view (docs/TEAMMATE_CHAT.md). Two things can drive the center
+without confusion as long as exactly one of them shows the selection.
+
 ## Assistant: a Chat Conversation
 
 The assistant is a conversation, not a queue — and the conversation lives in the
