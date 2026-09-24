@@ -313,6 +313,24 @@ async function setupTeammate(
     await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model, costUsd });
   });
 
+  // ─── Live transcript (web UI watch view) ─────────────────────────
+  // Mirrors this session to the daemon only while someone has the teammate's
+  // view open (see transcript.ts). Its own pi.on registrations, separate from
+  // the work loop's, so the two concerns never share a handler.
+  const { TranscriptMirror } = await import("./transcript.js");
+  const transcript = new TranscriptMirror(client);
+  pi.on("input", async (event) => { transcript.onInput(event.text, event.source); });
+  pi.on("agent_start", async () => { transcript.onAgentStart(); });
+  pi.on("agent_end", async () => { transcript.onAgentEnd(); });
+  pi.on("message_start", async (event) => { transcript.onMessageStart(event.message as any); });
+  pi.on("message_update", async (event) => { transcript.onMessageUpdate(event.message as any); });
+  pi.on("message_end", async (event) => { transcript.onMessageEnd(event.message as any); });
+  pi.on("tool_execution_start", async (event) => { transcript.onToolStart(event.toolCallId, event.toolName, event.args); });
+  pi.on("tool_execution_end", async (event) => {
+    transcript.onToolEnd(event.toolCallId, event.toolName, event.result, event.isError);
+  });
+  transcript.start().catch(() => {});
+
   // ─── Commands ────────────────────────────────────────────────────
 
   // Tracking state for widget and status command
@@ -428,6 +446,7 @@ async function setupTeammate(
   pi.on("session_shutdown", async () => {
     clearInterval(widgetInterval);
     loop.stop();
+    transcript.stop();
     // Self-reset between work items: keep the daemon registration alive so
     // the member doesn't flicker offline; the fresh instance re-registers.
     if (resettingForFreshSession) return;

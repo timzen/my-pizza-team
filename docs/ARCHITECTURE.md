@@ -46,6 +46,7 @@ src/
 │                          #   (claims only between runs; completes only on the work prompt's own run)
 ├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
+├── transcript.ts         # TranscriptMirror: teammate's live session → daemon, only while watched in the web UI
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
@@ -146,6 +147,32 @@ it succeeds, re-runs whenever a heartbeat reports `dismissed` (daemon
 restart), and the directive poll refuses to dispatch until at least one sync
 has succeeded. This prevents agents from being spawned into the fallback
 session when the daemon was merely unreachable at leader startup.
+
+### Transcript mirror (teammates; the web UI's watch view)
+
+Each teammate runs a `TranscriptMirror` (`src/transcript.ts`) so the web UI can
+show its session live at `/teammates/:id` (my-pizza-team docs/TEAMMATE_CHAT.md).
+It's **watch-only** — nothing flows into Pi — and **streams only while watched**:
+
+```
+every 2s   GET /api/agents/:id/transcript/watch → { watched }
+while watched, Pi events → coalesced entries → POST /api/agents/:id/transcript (every ~150ms)
+   session_start (mirror start)  → { kind: "session" }             (fresh session per work item)
+   input                         → { kind: "user", origin: tui|extension }
+   agent_start / agent_end       → { kind: "run", state }
+   message_start/update/end      → { kind: "message", key: msg:<instance>:<n>, text, thinking }
+   tool_execution_start / _end   → { kind: "tool", key: tool:<callId>, name, args | state, result }
+```
+
+Keyed entries are upserts on the daemon. `message_update` is cumulative per
+message, so a viewer who arrives mid-reply gets the whole message on the next
+update; a burst of token updates (and a tool's start+end) collapse into one
+pending entry per key before each flush. There's no backfill: an unwatched
+teammate sends nothing, and the view starts where watching started. Tool
+output/args are clipped to previews (the session file has the full thing). The
+POST response carries `watched`, so the mirror stops as soon as the last
+viewer's grace window ends. Its `pi.on` registrations are separate from the
+work loop's.
 
 ### Chat mirror (the leader)
 
@@ -271,6 +298,12 @@ thoughts → tasks → inbox → new-thoughts loop. This replaced the old
 | `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed |
 | `/api/thoughts` | GET | Read the user's Thoughts board + groups for the list_thoughts / get_thought tools |
 | `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools |
+
+### Transcript (teammate watch view)
+| Route | Method | Purpose |
+|-------|--------|---------|
+| `/api/agents/:id/transcript/watch` | GET | `{ watched }` — mirror only while true |
+| `/api/agents/:id/transcript` | POST | A batch of transcript entries (`{ entries }`); response carries `watched` |
 
 ### Spawn / Config
 | Route | Method | Purpose |

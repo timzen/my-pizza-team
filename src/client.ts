@@ -609,6 +609,28 @@ export class DaemonClient {
     );
   }
 
+  // ─── Teammate transcript (watch view; my-pizza-team docs/TEAMMATE_CHAT.md §3) ─
+
+  /** Is anyone watching this agent's live transcript? Mirror only while true. */
+  async isTranscriptWatched(): Promise<boolean> {
+    const res = await this.get<{ watched: boolean }>(
+      `/api/agents/${encodeURIComponent(this.agentId)}/transcript/watch`,
+    );
+    return !!res.watched;
+  }
+
+  /**
+   * Post a batch of transcript entries. The response says whether the agent is
+   * still watched, so the mirror can stop as soon as the viewer's grace runs out.
+   */
+  async postTranscript(entries: Record<string, unknown>[]): Promise<{ watched: boolean }> {
+    const res = await this.post<{ watched: boolean }>(
+      `/api/agents/${encodeURIComponent(this.agentId)}/transcript`,
+      { entries },
+    );
+    return { watched: !!res.watched };
+  }
+
   /** Mark a self-directive done (or failed). */
   async completeSelfDirective(id: string, status = "done"): Promise<AssistantMirrorResponse> {
     return this.put<AssistantMirrorResponse>(

@@ -77,6 +77,16 @@ the daemon still only expresses intent, but the mechanism can't be keystrokes.
 The extension also exposes board and memory tools. Full design:
 [my-pizza-team/docs/ASSISTANT_CHAT_V2.md](../../my-pizza-team/docs/ASSISTANT_CHAT_V2.md).
 
+### 5a. Watching a teammate costs nothing until someone watches
+
+A teammate's live transcript (the web UI's watch view) is mirrored **only while
+a viewer has it open** — the daemon owns the "watched" bit, the extension polls
+it. Most of the time nobody is looking, and streaming every token of every
+teammate to the daemon "just in case" would be pure overhead. The price is no
+backfill (the view starts when you start watching); an on-demand "load earlier"
+can be layered on later from the session file. Entries are keyed upserts, not
+appends, so opening mid-reply or mid-tool still renders coherently.
+
 ### 6. Work selection is capability-based
 A teammate registers a **capability map** (its working `directory` plus any
 `--ppt-skills`). The daemon only offers it stories whose **requirements** it

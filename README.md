@@ -150,6 +150,16 @@ Tools are registered per-role (all proxy to the daemon API):
 > The context library is **vended by the daemon** where needed (e.g. the assistant's
 > persona system prompt) — agents don't search or CRUD context through tools.
 
+## Watching a Teammate
+
+Click a teammate in the web UI's sidebar and its session streams live into the
+center of the page, rendered like the terminal (prompts, prose, tool calls with
+output previews). Each teammate's `TranscriptMirror` forwards its Pi events to the
+daemon **only while someone is watching** — an unwatched teammate sends nothing —
+and there's no backfill: the view starts where you started watching. It's
+watch-only; nothing you do there reaches the teammate. See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#transcript-mirror-teammates-the-web-uis-watch-view).
+
 ## Chat Mirror
 
 The **leader** is the agent you chat with — there is no separate assistant process
@@ -211,6 +221,7 @@ src/
 ├── teammate.ts       TeammateLoop: autonomous work loop (fresh session per work item)
 ├── chat.ts           ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session
 ├── bubbles.ts        splitIntoBubbles: assistant prose → chat bubbles
+├── transcript.ts     TranscriptMirror: teammate session → web UI watch view (only while watched)
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling
 └── shared/
