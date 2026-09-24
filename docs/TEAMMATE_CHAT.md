@@ -4,8 +4,8 @@ Watch a teammate work from the browser, and (optionally) pair with it —
 the way you can talk to the leader in the left dock, but for any teammate, in
 the **center** of the page, rendered **CLI-ish** rather than as chat bubbles.
 
-Status: **Phase A done; Phase B built** (watch-only view). Phases ship (and
-are validated + committed) one at a time.
+Status: **Phases A and B done; Phase C built** (pair + message + release).
+Phases ship (and are validated + committed) one at a time.
 
 ---
 
@@ -87,15 +87,32 @@ link, directory, Pair toggle), then the terminal column. Long `user` blocks
 - **Watch** (default): no composer; nothing reaches the teammate.
 - **Pair**: composer on; teammate enters *pairing mode* (the same pause tmux
   typing triggers): no new claims, and it won't COMPLETE/fresh-session while
-  you're talking.
+  you're talking. Unlike tmux pairing, **permissions stay autonomous** — nobody
+  is at its terminal to answer a prompt.
 - Sending while it's working **queues** (`followUp`, lands after the current
-  run). **Steer now** (⌘↵) is explicit (`steer`, lands at the next tool
-  boundary).
-- **Release**: if it holds a work item — *complete* (summary = last reply),
-  *fail*, or *keep working* autonomously.
+  run). **Steer** (⌘↵) is explicit (`steer`, lands at the next tool
+  boundary). Your messages show in the transcript as `[you · queued]` /
+  `[you · steer]` — their appearance is the delivery receipt.
+- **Release**: *Resume* (it carries on with its item — a nudge starts a run
+  whose end completes it the normal way), *Complete* (summary = its last
+  reply), or *Fail*. With no held item all three just resume. **A release that
+  arrives mid-run waits for the run to end** — otherwise a reply to your
+  message would be read as the item's completion.
 
-Plumbing: `POST /api/agents/:id/messages`, and `pair` / `release` as member
-self-directives (the pattern the leader uses for `new-session`).
+Plumbing (daemon `store/pairing.ts` + `routes/pairing.ts`, extension
+`src/pairing.ts` + `TeammateLoop.releasePairing`): the daemon holds *intent*
+in memory; the teammate polls `GET /api/agents/:id/pairing`, which **drains**
+queued messages and a pending release (exactly-once). Poll cadence is 1s while
+the watch view is open, 5s otherwise. A release is recorded even if the daemon
+restarted and forgot the pairing, so a paused teammate can always be released.
+
+| Route | Who | Purpose |
+| --- | --- | --- |
+| `POST /api/agents/:id/pair` | UI | Open a pairing (teammates only) |
+| `POST /api/agents/:id/messages` | UI | `{ text, mode: "queue" \| "steer" }` — 409 unless paired |
+| `POST /api/agents/:id/release` | UI | `{ action: "resume" \| "complete" \| "fail" }` |
+| `GET /api/agents/:id/pairing/state` | UI | `{ paired, since, pendingRelease }` |
+| `GET /api/agents/:id/pairing` | agent | Drain: `{ paired, release, messages }` |
 
 ## 5. Phases
 
