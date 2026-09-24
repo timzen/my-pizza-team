@@ -414,6 +414,7 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, work-item state |
+| Teammate transcript | `/api/agents/:id/transcript[/stream\|/watch]` | Live, watch-only view of a teammate's session (streams only while someone watches) |
 | Teammate pool | `GET/PUT /api/teammate-pool` | The team's *declared* size (`minTeammates`) — the daemon keeps that many teammates online |
 | Assistant | `/api/assistant/*` | Live chat: send any time, SSE stream, delivery receipts, quoted replies, thought peek, sessions (snapshot/resume), persona |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |

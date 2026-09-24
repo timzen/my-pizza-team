@@ -22,9 +22,16 @@
  *  - **Spawn** (UserPlus) → SpawnDialog: one teammate in a specific directory.
  * Collapsible to a slim icon rail (choice remembered in localStorage) that keeps
  * both buttons. Polls the daemon.
+ *
+ * Clicking a teammate opens its live view in the center (`/teammates/:id`,
+ * TeammatePage); its row stays highlighted while it's open — the sidebar is the
+ * "what's in the center" indicator for that route, the way the nav is for pages
+ * (DESIGN.md "The nav belongs to the middle"). The leader isn't linkable: you
+ * talk to it in the left dock.
  */
 
 import { useState } from "react";
+import { Link, useMatch } from "react-router-dom";
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -91,6 +98,8 @@ export function TeammateSidebar() {
   const [collapsed, setCollapsed] = useState(() => localStorage.getItem(COLLAPSE_KEY) === "1");
   const [sizeOpen, setSizeOpen] = useState(false);
   const [spawnOpen, setSpawnOpen] = useState(false);
+  // Which teammate's view (if any) is in the center.
+  const viewingId = useMatch("/teammates/:id")?.params.id ?? null;
 
   const teammates = data?.agents || [];
   const online = teammates.filter((a) => a.status !== "offline");
@@ -187,10 +196,10 @@ export function TeammateSidebar() {
           )}
           <div className="h-px w-6 bg-border my-1" />
           {online.map((t) => (
-            <TeammateAvatar key={t.id} teammate={t} />
+            <TeammateAvatar key={t.id} teammate={t} selected={t.id === viewingId} />
           ))}
           {offline.map((t) => (
-            <TeammateAvatar key={t.id} teammate={t} />
+            <TeammateAvatar key={t.id} teammate={t} selected={t.id === viewingId} />
           ))}
           {queue.length > 0 && (
             <>
@@ -235,14 +244,14 @@ export function TeammateSidebar() {
         )}
 
         {online.map((t) => (
-          <TeammateRow key={t.id} teammate={t} onDismiss={dismiss} onReset={reset} />
+          <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={dismiss} onReset={reset} />
         ))}
 
         {offline.length > 0 && (
           <div className="pt-2">
             <p className="px-1 pb-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">Offline</p>
             {offline.map((t) => (
-              <TeammateRow key={t.id} teammate={t} onDismiss={dismiss} />
+              <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={dismiss} />
             ))}
           </div>
         )}
@@ -276,18 +285,27 @@ function RoleIcon({ role, className }: { role: Role; className?: string }) {
   return <User className={className} />;
 }
 
-/** A status-colored circle with a role icon (collapsed rail). */
-function TeammateAvatar({ teammate }: { teammate: Teammate }) {
+/** Teammates (not the leader) open their live view in the center. */
+function viewPath(t: Teammate): string | null {
+  return roleOf(t) === "teammate" ? `/teammates/${encodeURIComponent(t.id)}` : null;
+}
+
+/** A status-colored circle with a role icon (collapsed rail). Teammates link to their view. */
+function TeammateAvatar({ teammate, selected }: { teammate: Teammate; selected?: boolean }) {
   const role = roleOf(teammate);
-  const title = `${teammate.name} · ${teammate.status}${teammate.currentWork ? ` · ⚙️ ${teammate.currentWork}` : ""}`;
-  return (
-    <div className="relative" title={title}>
-      <div className={`h-8 w-8 rounded-full flex items-center justify-center bg-background border border-border ${teammate.status === "offline" ? "opacity-50" : ""}`}>
+  const to = viewPath(teammate);
+  const title = `${teammate.name} · ${teammate.status}${teammate.currentWork ? ` · ⚙️ ${teammate.currentWork}` : ""}${to ? " — click to watch" : ""}`;
+  const circle = (
+    <>
+      <div className={`h-8 w-8 rounded-full flex items-center justify-center bg-background border ${selected ? "border-primary ring-2 ring-primary/30" : "border-border"} ${teammate.status === "offline" ? "opacity-50" : ""}`}>
         <RoleIcon role={role} className="h-4 w-4" />
       </div>
       <span className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full ring-2 ring-muted/30 ${DOT[teammate.status] || DOT.offline}`} />
-    </div>
+    </>
   );
+  return to
+    ? <Link to={to} className="relative" title={title}>{circle}</Link>
+    : <div className="relative" title={title}>{circle}</div>;
 }
 
 /** A pending spawn request row with a cancel button (expanded sidebar). */
@@ -321,24 +339,40 @@ function SpawnRequestRow({ request, onCancel }: { request: SpawnRequest; onCance
 
 function TeammateRow({
   teammate,
+  selected,
   onDismiss,
   onReset,
 }: {
   teammate: Teammate;
+  selected?: boolean;
   onDismiss: (id: string) => void;
   onReset?: (t: Teammate) => void;
 }) {
   const role = roleOf(teammate);
   const directory = teammate.directory || null;
   const dirName = directory ? directory.split("/").filter(Boolean).pop() : null;
+  const to = viewPath(teammate);
 
+  // Teammate rows are clickable as a whole via a "stretched link" (the name's
+  // ::after covers the card) so the action buttons can stay real buttons on top
+  // — nesting buttons inside an <a> would be invalid.
   return (
-    <div className={`group rounded-md border border-border bg-background p-2.5 ${teammate.status === "offline" ? "opacity-60" : ""}`}>
+    <div
+      className={`group relative rounded-md border p-2.5 ${
+        selected ? "border-primary bg-accent" : "border-border bg-background"
+      } ${to ? "hover:border-primary/50" : ""} ${teammate.status === "offline" ? "opacity-60" : ""}`}
+    >
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full shrink-0 ${DOT[teammate.status] || DOT.offline}`} title={teammate.status} />
         <RoleIcon role={role} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
-        <span className="font-medium text-sm truncate flex-1">{teammate.name}</span>
-        <div className="flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+        {to ? (
+          <Link to={to} className="font-medium text-sm truncate flex-1 after:absolute after:inset-0 after:content-['']" title="Watch this teammate">
+            {teammate.name}
+          </Link>
+        ) : (
+          <span className="font-medium text-sm truncate flex-1">{teammate.name}</span>
+        )}
+        <div className="relative z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
           {onReset && teammate.hostId && (
             <button onClick={() => onReset(teammate)} className="text-muted-foreground hover:text-foreground p-0.5" title="Reset session (clears context window)">
               <RotateCcw className="h-3.5 w-3.5" />

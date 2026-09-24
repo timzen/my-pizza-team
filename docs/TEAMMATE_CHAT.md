@@ -4,8 +4,8 @@ Watch a teammate work from the browser, and (optionally) pair with it —
 the way you can talk to the leader in the left dock, but for any teammate, in
 the **center** of the page, rendered **CLI-ish** rather than as chat bubbles.
 
-Status: **Phase A in progress.** Phases ship (and are validated + committed)
-one at a time.
+Status: **Phase A done; Phase B built** (watch-only view). Phases ship (and
+are validated + committed) one at a time.
 
 ---
 
@@ -63,13 +63,18 @@ Pi events mirrored (teammate role):
 
 ### 3.2 Daemon
 
-- In-memory **ring buffer per member** (capped by events and bytes), cleared on
-  a `session` event. Kept across viewer disconnects, so navigating away and
-  back doesn't blank the view — a `gap` marker notes when nobody was watching.
-  Lost on daemon restart (acceptable: it's a live view, not a record).
-- `POST /api/agents/:id/transcript` (agent → daemon, batched events)
+- In-memory **ring buffer per member** (500 entries; long strings clipped),
+  *not* cleared on a `session` event — a divider marks it instead, so watching
+  a teammate finish one item and start the next doesn't blank the view. Kept
+  across viewer disconnects, so navigating away and back doesn't blank it
+  either — each new watching period opens with a `watch` marker, which is how
+  gaps show. Lost on daemon restart (acceptable: a live view, not a record).
+- Entries are **keyed upserts** (`msg:…`, `tool:…`): the daemon shallow-merges
+  into the existing entry, keeping its position.
+- `GET  /api/agents/:id/transcript/watch` (agent polls: `{ watched }`)
+- `POST /api/agents/:id/transcript` (agent → daemon, batched entries; response carries `watched`)
 - `GET  /api/agents/:id/transcript` (buffer snapshot)
-- `GET  /api/agents/:id/transcript/stream` (SSE; subscribing = watching)
+- `GET  /api/agents/:id/transcript/stream` (SSE; subscribing = watching; `hello` carries the buffer)
 
 ### 3.3 UI
 

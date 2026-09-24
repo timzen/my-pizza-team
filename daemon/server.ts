@@ -9,6 +9,7 @@
  *   - teammate: legacy teammate protocol (next-task, claim, status, team)
  *   - agents: agent protocol (register, next-work, claim, release, spawn)
  *   - assistant: queue and knowledge base
+ *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  */
 
 import { Hono } from "hono";
@@ -28,6 +29,7 @@ import { registerTemplateRoutes } from "./routes/templates.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
 import { registerContextRoutes } from "./routes/context.ts";
 import { registerThoughtRoutes } from "./routes/thoughts.ts";
+import { registerTranscriptRoutes } from "./routes/transcripts.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -71,6 +73,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerAssistantRoutes(ctx);
   registerContextRoutes(ctx);
   registerThoughtRoutes(ctx);
+  registerTranscriptRoutes(ctx);
 
   return app;
 }

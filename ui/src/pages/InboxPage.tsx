@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { workItemPath } from "@/lib/work-item-link";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Inbox as InboxIcon } from "lucide-react";
 
@@ -39,10 +40,7 @@ const PAGE_SIZE = 20;
  *  Deep-links to the **Thread** tab since the inbox is about a completed run's
  *  outcome, which lives in the comments. */
 function refLink(item: WorkItem): string {
-  const base = item.parent?.kind === "story"
-    ? `/task/${encodeURIComponent(item.parent.id)}/${encodeURIComponent(item.ref.workDefId)}`
-    : `/work-defs/${encodeURIComponent(item.ref.workDefId)}`;
-  return `${base}?tab=thread`;
+  return `${workItemPath(item)}?tab=thread`;
 }
 
 export function InboxPage() {

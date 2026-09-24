@@ -65,6 +65,7 @@ import {
 } from "./store/assistant-chat.ts";
 import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
+import { TeammateTranscripts } from "./store/transcripts.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -219,6 +220,11 @@ export class Store {
    * docs/ASSISTANT_CHAT_V2.md.
    */
   private chat!: AssistantChat;
+  /**
+   * Live teammate transcripts for the watch view (docs/TEAMMATE_CHAT.md §3).
+   * In-memory only; routes use it directly — it has no DB or config coupling.
+   */
+  readonly transcripts = new TeammateTranscripts();
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -1520,6 +1526,7 @@ export class Store {
     this.db.prepare("DELETE FROM assignments WHERE member_id = ?").run(id);
     this.db.prepare("UPDATE work_items SET member_id = NULL WHERE member_id = ?").run(id);
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
+    this.transcripts.forget(id);
   }
 
   /**
