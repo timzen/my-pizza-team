@@ -123,6 +123,29 @@ force-fails them (optionally re-enqueuing).
 Auto-re-enqueuing on a guess risks two agents doing the same work; MORIBUND makes
 reaping honest and puts the recovery decision with the human.
 
+## Team Size: Declared, not Clicked
+
+The team's size is a **number you declare**, not a button you press per teammate.
+`minTeammates` (default 0) is the floor the daemon keeps populated: it counts the
+online generalist pool plus not-yet-realized `spawn` requests, and queues spawn
+directives for whatever is missing — on the same heartbeat tick that reaps a lost
+teammate, when the number changes, and when a leader first connects.
+
+It is deliberately **one-directional**: the daemon spawns up to the floor but
+never dismisses anyone. Ending a teammate stays a human act, so a reconciler can
+never kill work in flight.
+
+*Why:* "spawn a teammate" was the wrong shape for the only question a user
+actually has — *how big is my team?* A button answers it once and then rots: every
+dismissal, crash, or daemon restart made you re-click it in whichever corner of
+the UI happened to have a Spawn control, and the answer lived nowhere. A declared
+floor is idempotent, survives restarts (it's config, so it's also the startup
+target), self-heals after a crash, and puts team size in exactly one place — the
+same convergent-state reasoning the rest of the daemon uses (admission enqueues
+from a declared workflow position; it doesn't ask you to press "run next task").
+The singleton role stays explicit rather than pooled: a leader is per-host
+infrastructure, and it is also the agent you chat with (see "One Agent to Talk To").
+
 ## Workflows
 
 Workflows live as directories under `workflows/` (`workflow.json` + per-state

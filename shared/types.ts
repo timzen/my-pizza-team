@@ -19,6 +19,14 @@ export interface TeamConfig {
   defaultWorkflow: string;
   autosave: AutosaveConfig;
   maxTeammates?: number;
+  /**
+   * Target size of the generalist teammate pool: the daemon keeps at least this
+   * many teammates online, spawning replacements (via leader `spawn` directives)
+   * whenever the pool dips below it. Default 0 — no teammates are spawned unless
+   * asked for. Capped by `maxTeammates`. This replaced the per-place "Spawn
+   * teammate" buttons: team size is declared once, not clicked into existence.
+   */
+  minTeammates?: number;
   teammates?: TeammateConfig;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
@@ -347,6 +355,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
     autoCommit: true,
   },
   maxTeammates: 4,
+  minTeammates: 0,
   agentTimeoutSeconds: 90,
   teammates: {},
 };

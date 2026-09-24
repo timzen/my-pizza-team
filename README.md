@@ -101,6 +101,7 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
   // ─── Team ──────────────────────────────────────────────────────
   "tmuxSession": "my-pizza-team",
   "maxTeammates": 4,
+  "minTeammates": 0,                     // Teammates the daemon keeps online (0 = spawn none)
   "agentTimeoutSeconds": 90,
 
   // ─── Autosave ─────────────────────────────────────────────────
@@ -413,6 +414,7 @@ done
 | Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
 | Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
 | Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, work-item state |
+| Teammate pool | `GET/PUT /api/teammate-pool` | The team's *declared* size (`minTeammates`) — the daemon keeps that many teammates online |
 | Assistant | `/api/assistant/*` | Live chat: send any time, SSE stream, delivery receipts, quoted replies, thought peek, sessions (snapshot/resume), persona |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
 | Thoughts | `GET/POST /api/thoughts`, `POST /api/thoughts/positions`, `PATCH /api/thoughts/:id`, `POST .../archive\|restore`, `DELETE`, `POST/PATCH/DELETE /api/thought-groups[/:id]` | Markdown sticky-note board (a personal workspace/outbox) |

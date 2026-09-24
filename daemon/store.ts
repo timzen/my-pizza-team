@@ -25,6 +25,7 @@ import {
   ACTIVE_WORK_ITEM_STATES,
   STORIES_DIR,
   WORKDEFS_DIR,
+  CONFIG_FILE,
   type Comment,
   type Story,
   type StoryTaskRef,
@@ -80,6 +81,23 @@ export const CHAT_ROLE_NAME = "leader";
  * cannot express. See docs/ASSISTANT_CHAT_V2.md §5.5.
  */
 export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
+
+/**
+ * Reserved singleton identity for a host's leader (the agent that realizes
+ * directives — spawning windows, resetting sessions). Matched by name so a
+ * leader is never mistaken for a pool teammate.
+ */
+export const LEADER_MEMBER_NAME = "leader";
+
+/**
+ * Is this member part of the generalist teammate **pool** (the thing
+ * `minTeammates` sizes)? Roles are a name convention: the leader is a singleton
+ * with a reserved name; everything else is a teammate.
+ */
+export function isPoolTeammate(name: string): boolean {
+  const n = name.toLowerCase();
+  return !n.includes(LEADER_MEMBER_NAME);
+}
 
 /**
  * Internal board-task view: a WorkDef whose parent is a story, joined with its
@@ -150,6 +168,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
     defaultWorkflow: config.defaultWorkflow,
     autosave: config.autosave,
     maxTeammates: config.maxTeammates,
+    minTeammates: config.minTeammates ?? 0,
   };
   if (config.agentTimeoutSeconds !== undefined) out.agentTimeoutSeconds = config.agentTimeoutSeconds;
   if (config.apiToken) out.apiToken = config.apiToken;
@@ -1446,6 +1465,11 @@ export class Store {
       `INSERT OR REPLACE INTO members (id, name, directory, metadata, host_id, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, 'idle', ?)`
     ).run(id, name, directory ? normalizeDirectory(directory) : null, JSON.stringify(metadata || {}), hostId || null, Date.now());
+
+    // A leader arriving (daemon start, host reconnect) is the first moment a
+    // pool spawn can actually be realized — fill the pool now instead of waiting
+    // for the next heartbeat tick.
+    if (hostId && name.toLowerCase().includes(LEADER_MEMBER_NAME)) this.reconcileTeammatePool();
   }
 
   updateMemberStatus(id: string, status: string): void {
@@ -1617,12 +1641,15 @@ export class Store {
       this.commitTimer = setInterval(() => this.commitToGit(), commitMs);
     }
 
-    // Check for offline agents every 30 seconds
+    // Check for offline agents every 30 seconds, then top the teammate pool back
+    // up to `minTeammates` (reaping first means a lost teammate is replaced on
+    // the same tick it goes offline).
     this.heartbeatCheckTimer = setInterval(() => {
       this.reapOfflineAgents();
       // Keep the active chat's markdown snapshot fresh so a crash loses minutes,
       // not the whole conversation (docs/ASSISTANT_CHAT_V2.md §6.1).
       this.refreshAssistantSnapshot();
+      this.reconcileTeammatePool();
     }, 30_000);
 
     // Cron scheduler: enqueue due Scheduled WorkDefs, checked every 30s
@@ -2358,6 +2385,111 @@ export class Store {
       } catch { /* ignore */ }
     }
     return generateTeammateName(existingNames, this.config.teammates);
+  }
+
+  // --- Teammate pool (declared size, not clicked-into-existence) ---
+  //
+  // `minTeammates` is the team's *declared* size: the daemon keeps at least that
+  // many generalist teammates online and reconciles the shortfall itself by
+  // queueing `spawn` directives. A teammate that is dismissed, crashes, or is
+  // reaped offline is therefore replaced automatically. Nothing scales the pool
+  // *down*: the daemon never dismisses a teammate (that stays a human act), so
+  // lowering the number just stops replacements.
+
+  /** Pending `spawn` directives for pool teammates. */
+  private countPendingTeammateSpawns(): number {
+    const rows = this.db.prepare("SELECT params FROM leader_directives WHERE action = 'spawn' AND status = 'pending'").all() as Array<Record<string, unknown>>;
+    let n = 0;
+    for (const row of rows) {
+      try {
+        const p = JSON.parse((row.params as string) || "{}") as { name?: string; reason?: string };
+        // The assistant role was retired (the leader is now the chat agent), but a
+        // team dir upgraded from an older build can still hold such pending rows.
+        if (p.reason === "assistant") continue;
+        n++;
+      } catch { n++; }
+    }
+    return n;
+  }
+
+  /**
+   * Which host should absorb a pool spawn? Only a leader realizes directives, so
+   * a spawn is only useful on a host with an online leader. Null when no leader
+   * is connected — the reconciler then waits rather than piling up directives
+   * nobody will act on.
+   */
+  private pickPoolSpawnHost(): string | null {
+    const leader = this.getMembers().find((m) =>
+      m.status !== "offline" && m.hostId && m.name.toLowerCase().includes(LEADER_MEMBER_NAME)
+    );
+    return leader?.hostId ?? null;
+  }
+
+  /** The pool's live state: what's declared, what's online, what's inbound. */
+  getTeammatePool(): { minTeammates: number; maxTeammates: number; online: number; pending: number; leaderPresent: boolean } {
+    const online = this.getMembers().filter((m) => m.status !== "offline" && isPoolTeammate(m.name)).length;
+    return {
+      minTeammates: this.config.minTeammates ?? 0,
+      maxTeammates: this.config.maxTeammates ?? 0,
+      online,
+      pending: this.countPendingTeammateSpawns(),
+      leaderPresent: this.pickPoolSpawnHost() !== null,
+    };
+  }
+
+  /**
+   * Declare the pool's minimum size: persists it to config.json (so it survives
+   * a restart and is applied at startup) and reconciles immediately. Returns the
+   * clamped value actually stored, or null if `n` isn't a non-negative integer.
+   */
+  setMinTeammates(n: number): number | null {
+    if (!Number.isInteger(n) || n < 0) return null;
+    const max = this.config.maxTeammates ?? 0;
+    const value = max > 0 ? Math.min(n, max) : n;
+    this.config.minTeammates = value;
+    this.saveConfig();
+    this.reconcileTeammatePool();
+    return value;
+  }
+
+  /**
+   * Top the teammate pool back up to `minTeammates`. Counts online teammates
+   * plus not-yet-realized spawn requests (so a slow leader doesn't get a second
+   * batch), caps the target at `maxTeammates`, and needs an online leader to
+   * realize the spawns. Returns how many spawn directives were queued.
+   *
+   * Called on the heartbeat timer (right after offline agents are reaped, so a
+   * lost teammate is replaced within one tick) and whenever the number changes.
+   */
+  reconcileTeammatePool(): number {
+    const min = this.config.minTeammates ?? 0;
+    if (min <= 0) return 0;
+    const max = this.config.maxTeammates ?? 0;
+    const target = max > 0 ? Math.min(min, max) : min;
+
+    const { online, pending } = this.getTeammatePool();
+    const deficit = target - (online + pending);
+    if (deficit <= 0) return 0;
+
+    const hostId = this.pickPoolSpawnHost();
+    if (!hostId) return 0;
+
+    for (let i = 0; i < deficit; i++) {
+      this.createLeaderDirective(hostId, "spawn", { params: { reason: "teammate" } });
+    }
+    return deficit;
+  }
+
+  /**
+   * Persist the mutable parts of the in-memory config to `config.json`. The
+   * single writer, so no caller can accidentally drop a field it didn't know
+   * about (see serializeConfig).
+   */
+  saveConfig(): void {
+    Deno.writeTextFileSync(
+      path.join(this.teamDir, CONFIG_FILE),
+      JSON.stringify(serializeConfig(this.config), null, 2) + "\n",
+    );
   }
 
   // --- WorkDefs + Schedules (see store/workdefs.ts, store/schedules.ts) ---
