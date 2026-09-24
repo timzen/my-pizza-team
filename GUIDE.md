@@ -124,6 +124,20 @@ Each **agent** state can have a markdown **persona** file — role framing the t
 
 Teammates appear in a persistent right-hand column on every page, grouped by role — leader, assistant, and the teammate pool — each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions.
 
+### Watching a teammate
+
+Click a teammate to watch it work, live, in the middle of the page — its prompt,
+its reasoning (folded), what it says, and every tool call with a preview of the
+output, like looking over its shoulder at the terminal. Its row stays
+highlighted while you're watching.
+
+- It's **watch-only**: nothing you do there reaches the teammate.
+- It starts **when you start watching** (a "watching from …" line) — there's no
+  history from before. The work item link in the header has the full prompt and
+  thread.
+- A teammate nobody is watching doesn't stream anything, so leaving the page
+  costs nothing.
+
 ### Team size (how teammates get created)
 
 You don't spawn teammates one at a time — you **declare how many you want**. The

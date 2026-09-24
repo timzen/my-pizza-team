@@ -255,6 +255,18 @@ whatever put it there is highlighted* — a nav tab for pages, a teammate row fo
 teammate's live view (docs/TEAMMATE_CHAT.md). Two things can drive the center
 without confusion as long as exactly one of them shows the selection.
 
+## Watching a Teammate: Live, and Only While Watched
+
+A teammate's page (`/teammates/:id`) is its Pi session rendered like a terminal,
+not chat bubbles — you're looking over its shoulder, not texting it. It streams
+**only while someone has it open**: the SSE subscription registers a viewer, the
+extension polls the resulting "watched" bit, and an unwatched teammate sends
+nothing. Hence **no backfill** — the view starts at "watching from …", and the
+work item's page has the prompt and thread. Entries are keyed upserts (Pi's
+message updates are cumulative), so opening mid-reply or mid-tool still renders
+a coherent picture. The buffer is in-memory: a live view, not a record — the
+WorkItem thread is the record. See docs/TEAMMATE_CHAT.md.
+
 ## Assistant: a Chat Conversation
 
 The assistant is a conversation, not a queue — and the conversation lives in the
