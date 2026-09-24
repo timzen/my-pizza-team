@@ -269,17 +269,16 @@ async function setupTeammate(
 
   // ─── agent_end: capture results ──────────────────────────────────
 
+  // The latest assistant prose from any run — the summary if a web pairing is
+  // released with "complete" while idle (the run that produced it is over).
+  let lastAssistantText = "";
+
   pi.on("agent_end", async (event) => {
     const debugPrefix = `[ppt-debug agent_end]`;
     debug(`${debugPrefix} fired. isAutonomous=${loop.isAutonomous} currentTask=${loop.currentTask}`);
     // Bookkeeping first (unconditional): no run is in flight anymore, so the
     // loop is free to claim again.
     loop.handleAgentEnd();
-
-    if (!loop.isAutonomous || !loop.currentTask) {
-      debug(`${debugPrefix} skipping — guard failed`);
-      return;
-    }
 
     const messages = event.messages || [];
     let lastText = "";
@@ -308,6 +307,21 @@ async function setupTeammate(
       }
     }
 
+    if (lastText) lastAssistantText = lastText;
+
+    // A web-pairing release that arrived mid-run lands now that the run is over
+    // (see TeammateLoop.releasePairing) — and this run is not a completion.
+    if (loop.hasPendingRelease) {
+      debug(`${debugPrefix} applying deferred pairing release`);
+      await loop.applyPendingRelease(lastAssistantText);
+      return;
+    }
+
+    if (!loop.isAutonomous || !loop.currentTask) {
+      debug(`${debugPrefix} skipping — guard failed`);
+      return;
+    }
+
     debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${inputTokens} out=${outputTokens}, cost=${costUsd}, model=${model}`);
 
     await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model, costUsd });
@@ -319,7 +333,7 @@ async function setupTeammate(
   // the work loop's, so the two concerns never share a handler.
   const { TranscriptMirror } = await import("./transcript.js");
   const transcript = new TranscriptMirror(client);
-  pi.on("input", async (event) => { transcript.onInput(event.text, event.source); });
+  pi.on("input", async (event) => { transcript.onInput(event.text, event.source, event.streamingBehavior); });
   pi.on("agent_start", async () => { transcript.onAgentStart(); });
   pi.on("agent_end", async () => { transcript.onAgentEnd(); });
   pi.on("message_start", async (event) => { transcript.onMessageStart(event.message as any); });
@@ -330,6 +344,31 @@ async function setupTeammate(
     transcript.onToolEnd(event.toolCallId, event.toolName, event.result, event.isError);
   });
   transcript.start().catch(() => {});
+
+  // ─── Web pairing (talk to this teammate from the browser) ────────
+  // Pairing pauses the work loop (like typing in this pane, but permissions
+  // stay autonomous — nobody is at this terminal to answer a prompt); messages
+  // are handed to Pi, queued behind a run in flight unless sent as "steer";
+  // release hands the held work item back (see pairing.ts, teammate.ts).
+  const { WebPairing } = await import("./pairing.js");
+  const pairing = new WebPairing(client, {
+    onPair: () => {
+      loop.pause();
+      if (ctx.hasUI) {
+        ctx.ui.setWidget("pi-pizza-team", ["🍕 paired from the web UI — autonomous work paused"]);
+        ctx.ui.notify("🍕 Paired from the web UI — autonomous work paused until released there.", "info");
+      }
+    },
+    onMessage: (text, mode) => {
+      transcript.expectWebInput(text);
+      pi.sendUserMessage(text, loop.isAgentRunning ? { deliverAs: mode === "steer" ? "steer" : "followUp" } : undefined);
+    },
+    onRelease: async (action) => {
+      await loop.releasePairing(action, lastAssistantText);
+      if (ctx.hasUI) ctx.ui.notify(`🍕 Released from web pairing (${action}).`, "info");
+    },
+  }, () => transcript.isWatched);
+  pairing.start();
 
   // ─── Commands ────────────────────────────────────────────────────
 
@@ -447,6 +486,7 @@ async function setupTeammate(
     clearInterval(widgetInterval);
     loop.stop();
     transcript.stop();
+    pairing.stop();
     // Drop our lease; the last agent out restores the directory's config. A
     // fresh-session reset re-acquires in the new instance moments later.
     permissions.release();

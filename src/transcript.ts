@@ -55,6 +55,12 @@ export class TranscriptMirror {
   private instance: string;
   private messageCount = 0;
   private currentMessageKey: string | null = null;
+  /**
+   * Texts handed to Pi from the web composer, awaiting their `input` event.
+   * Pi reports those as source "extension" — the same as the work prompt — so
+   * this is how the view can label them as yours.
+   */
+  private expectedWebInputs: string[] = [];
 
   private pollMs: number;
   private flushMs: number;
@@ -91,9 +97,27 @@ export class TranscriptMirror {
 
   // ─── Pi events → entries ───────────────────────────────────────────
 
-  /** User input: the work prompt (extension) or someone typing in tmux (interactive). */
-  onInput(text: string, source: string): void {
-    this.push({ kind: "user", text: clip(text, MAX_USER_CHARS), origin: source === "interactive" ? "tui" : "extension" });
+  /** A web-composer message is about to be handed to Pi (see expectedWebInputs). */
+  expectWebInput(text: string): void {
+    this.expectedWebInputs.push(text);
+    if (this.expectedWebInputs.length > 20) this.expectedWebInputs.shift();
+  }
+
+  /**
+   * User input: the work prompt (extension), someone typing in tmux
+   * (interactive), or a web-composer message (extension, but expected).
+   * `streamingBehavior` is set when it arrived mid-run (queued / steer).
+   */
+  onInput(text: string, source: string, streamingBehavior?: string): void {
+    let origin = source === "interactive" ? "tui" : "extension";
+    const i = this.expectedWebInputs.indexOf(text);
+    if (origin === "extension" && i !== -1) {
+      this.expectedWebInputs.splice(i, 1);
+      origin = "web";
+    }
+    const entry: Entry = { kind: "user", text: clip(text, MAX_USER_CHARS), origin };
+    if (streamingBehavior === "steer" || streamingBehavior === "followUp") entry.delivery = streamingBehavior;
+    this.push(entry);
   }
 
   onAgentStart(): void {

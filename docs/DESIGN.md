@@ -87,6 +87,16 @@ backfill (the view starts when you start watching); an on-demand "load earlier"
 can be layered on later from the session file. Entries are keyed upserts, not
 appends, so opening mid-reply or mid-tool still renders coherently.
 
+### 5b. Pairing from the web: the daemon holds intent, the teammate realizes it
+
+Web pairing reuses the existing pause (the same one typing in the pane
+triggers), with one difference: permissions stay autonomous, because nobody is
+at the terminal to answer a prompt. The daemon only holds intent (paired flag,
+queued messages, a pending release) and the teammate's poll drains it
+exactly-once — the same split as leader directives. A release is a decision
+about the held work item (resume / complete / fail) and waits out a run in
+flight, so a reply to your message is never mistaken for the item's completion.
+
 ### 6. Work selection is capability-based
 A teammate registers a **capability map** (its working `directory` plus any
 `--ppt-skills`). The daemon only offers it stories whose **requirements** it

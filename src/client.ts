@@ -210,6 +210,16 @@ export interface UploadAttachmentResponse {
  * The `hostId` property is derived from `os.hostname()` by default and
  * used for spawn request scoping (only the host that matches gets spawns).
  */
+/** What to do with the held work item when a web pairing ends. */
+export type PairReleaseAction = "resume" | "complete" | "fail";
+
+/** GET /api/agents/:id/pairing — a teammate's web-pairing intent (drained). */
+export interface PairingPoll {
+  paired: boolean;
+  release: PairReleaseAction | null;
+  messages: Array<{ id: string; text: string; mode: "queue" | "steer"; at: number }>;
+}
+
 export class DaemonClient {
   private baseUrl: string;
   private agentId: string;
@@ -616,6 +626,16 @@ export class DaemonClient {
     return this.get<{ directives: LeaderDirective[] }>(
       `/api/agents/${encodeURIComponent(this.agentId)}/directives`,
     );
+  }
+
+  // ─── Web pairing (my-pizza-team docs/TEAMMATE_CHAT.md §4) ────────────
+
+  /**
+   * Poll this teammate's web-pairing intent. Drains: queued messages and a
+   * pending release are returned exactly once.
+   */
+  async getPairing(): Promise<PairingPoll> {
+    return this.get<PairingPoll>(`/api/agents/${encodeURIComponent(this.agentId)}/pairing`);
   }
 
   // ─── Teammate transcript (watch view; my-pizza-team docs/TEAMMATE_CHAT.md §3) ─

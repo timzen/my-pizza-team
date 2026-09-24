@@ -47,6 +47,7 @@ src/
 ├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
 ├── transcript.ts         # TranscriptMirror: teammate's live session → daemon, only while watched in the web UI
+├── pairing.ts            # WebPairing: polls web-pairing intent (pair / messages / release) for a teammate
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
@@ -173,6 +174,28 @@ output/args are clipped to previews (the session file has the full thing). The
 POST response carries `watched`, so the mirror stops as soon as the last
 viewer's grace window ends. Its `pi.on` registrations are separate from the
 work loop's.
+
+### Web pairing (teammates)
+
+`WebPairing` (`src/pairing.ts`) lets the web UI talk to a teammate
+(my-pizza-team docs/TEAMMATE_CHAT.md §4). It polls `GET /api/agents/:id/pairing`
+(1s while the watch view is open, else 5s), which **drains** the daemon's intent:
+
+```
+paired: true (new)  → loop.pause()            no claims; agent_end won't COMPLETE; permissions stay autonomous
+messages[]          → transcript.expectWebInput(text)  (so the view tags it [you])
+                      pi.sendUserMessage(text, running ? { deliverAs: queue→followUp | steer→steer } : undefined)
+release             → loop.releasePairing(action, lastAssistantText)
+```
+
+`TeammateLoop.releasePairing`: mid-run it only records the action
+(`pendingRelease`) and the `agent_end` handler applies it once the run ends —
+otherwise the reply to your message would be read as the item's completion.
+Then: `complete` → `handleAgentComplete(lastText)` (summary = last reply, COMPLETE,
+fresh session); `fail` → comment + FAILED + fresh session; `resume` → autonomous
+again, and a follow-up nudge starts a run whose `agent_end` completes the item
+normally (`awaitingWorkRun` guards against a foreign run in between). No held
+item → just resume polling.
 
 ### Chat mirror (the leader)
 
@@ -304,6 +327,7 @@ thoughts → tasks → inbox → new-thoughts loop. This replaced the old
 |-------|--------|---------|
 | `/api/agents/:id/transcript/watch` | GET | `{ watched }` — mirror only while true |
 | `/api/agents/:id/transcript` | POST | A batch of transcript entries (`{ entries }`); response carries `watched` |
+| `/api/agents/:id/pairing` | GET | Web-pairing intent, drained: `{ paired, release, messages }` |
 
 ### Spawn / Config
 | Route | Method | Purpose |

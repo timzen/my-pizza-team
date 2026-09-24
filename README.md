@@ -157,7 +157,11 @@ center of the page, rendered like the terminal (prompts, prose, tool calls with
 output previews). Each teammate's `TranscriptMirror` forwards its Pi events to the
 daemon **only while someone is watching** — an unwatched teammate sends nothing —
 and there's no backfill: the view starts where you started watching. It's
-watch-only; nothing you do there reaches the teammate. See
+watch-only until you click **Pair**: that pauses the teammate's autonomous
+loop (like typing in its window, but permissions stay autonomous — nobody is at
+its terminal) and opens a message box. Messages queue behind the current run
+unless you **steer**; **Resume / Complete / Fail** hand it back, applied after
+any run in flight. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#transcript-mirror-teammates-the-web-uis-watch-view).
 
 ## Chat Mirror
@@ -222,6 +226,7 @@ src/
 ├── chat.ts           ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session
 ├── bubbles.ts        splitIntoBubbles: assistant prose → chat bubbles
 ├── transcript.ts     TranscriptMirror: teammate session → web UI watch view (only while watched)
+├── pairing.ts        WebPairing: pair / message / release a teammate from the web UI
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling
 └── shared/

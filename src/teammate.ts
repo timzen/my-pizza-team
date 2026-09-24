@@ -31,10 +31,16 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
+import type { PairReleaseAction } from "./client.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
 const POLL_INTERVAL_MS = 5000;
+/** Sent on "resume" when the teammate is idle, so a run starts that can complete the item. */
+const RESUME_NUDGE =
+  "You're back on autonomous work: carry on with your current work item. When it's done, end with a concise summary of what you accomplished.";
+/** Summary used when "complete" is chosen but the agent never replied with prose. */
+const PAIRED_COMPLETE_FALLBACK = "Marked complete by a human while pairing from the web UI.";
 const HEARTBEAT_INTERVAL_MS = 30000;
 
 export class TeammateLoop {
@@ -58,6 +64,12 @@ export class TeammateLoop {
    * ownership).
    */
   private awaitingWorkRun = false;
+  /**
+   * A web-pairing release that arrived mid-run, applied when that run ends
+   * (applyPendingRelease). Acting mid-run would read the in-flight run — often
+   * a reply to your chat message — as the work item's completion.
+   */
+  private pendingRelease: PairReleaseAction | null = null;
 
   public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
@@ -102,6 +114,72 @@ export class TeammateLoop {
 
   get lastTask(): string | null {
     return this.lastCompletedWorkItemId;
+  }
+
+  /** True while a Pi run is in flight (decides followUp vs immediate delivery). */
+  get isAgentRunning(): boolean {
+    return this.agentRunning;
+  }
+
+  get hasPendingRelease(): boolean {
+    return this.pendingRelease !== null;
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // WEB PAIRING RELEASE (my-pizza-team docs/TEAMMATE_CHAT.md §4)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * End a web pairing and hand the teammate back to autonomous work, deciding
+   * what happens to the work item it holds:
+   *   - `resume`   keep working on it: nudge a new run, whose agent_end
+   *                completes the item the normal way (we're autonomous again)
+   *   - `complete` done — post `lastText` as the summary and set COMPLETE
+   *   - `fail`     post a comment and set FAILED (the task is left stuck for a human)
+   * With no held item, all three just resume polling for work. Mid-run, the
+   * release waits for the run to end (see `pendingRelease`).
+   */
+  async releasePairing(action: PairReleaseAction, lastText: string): Promise<void> {
+    if (this.agentRunning) {
+      this.pendingRelease = action;
+      return;
+    }
+    this.pendingRelease = null;
+    this.autonomous = true;
+    this.setAutonomousPermissions?.(true);
+
+    const workItemId = this.currentWorkItemId;
+    if (!workItemId) {
+      if (this.running) this.pollForWork();
+      return;
+    }
+
+    if (action === "complete") {
+      // Not waiting on a prompt pickup any more — this is a deliberate completion.
+      this.awaitingWorkRun = false;
+      await this.handleAgentComplete(lastText.trim() || PAIRED_COMPLETE_FALLBACK);
+      return;
+    }
+
+    if (action === "fail") {
+      await this.client.postComment(workItemId, `[failed] Marked failed by a human while pairing from the web UI.`).catch(() => {});
+      await this.client.setWorkItemState(workItemId, "FAILED").catch(() => {});
+      this.currentWorkItemId = null;
+      this.awaitingWorkRun = false;
+      this.finishWorkItem();
+      return;
+    }
+
+    // resume: start a run so there's an agent_end to complete on. Until it
+    // starts, any agent_end is foreign (same guard as a fresh work prompt).
+    this.awaitingWorkRun = true;
+    this.pi.sendUserMessage(RESUME_NUDGE, { deliverAs: "followUp" });
+  }
+
+  /** Apply a release deferred by a run in flight. Called from agent_end. */
+  async applyPendingRelease(lastText: string): Promise<void> {
+    const action = this.pendingRelease;
+    if (action) await this.releasePairing(action, lastText);
   }
 
   /**
