@@ -68,7 +68,7 @@ This starts the daemon in the background. It will:
 pi
 ```
 
-Pi auto-detects the `.my-pizza-team/` directory and activates leader mode. Create stories, spawn teammates, and manage your board.
+Pi auto-detects the `.my-pizza-team/` directory and activates leader mode. Create stories, set your team size, and manage your board.
 
 ## 7. Open the UI
 
@@ -80,7 +80,7 @@ Visit **http://localhost:7437/** to see the board, manage stories, configure wor
 
 - **Create a story** — **New Story** on the home page (pick a workflow), or add tasks to it later
 - **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for cron-driven ones
-- **Spawn teammates** — use the Spawn button in the UI or `/ppt-spawn` in Pi (a teammate is biased toward work in its own directory)
+- **Set your team size** — type a minimum into the team-size box at the top of the teammate column (or **Min Teammates** on Config › General) and the daemon keeps that many teammates online. `/ppt-spawn` in Pi still adds a one-off teammate in a specific directory (a teammate is biased toward work in its own directory)
 - **Review results** — completed work lands in the **Inbox** on the home page
 - **Configure workflows** — the Workflows tab (under Board) to customize states and their personas
 - **Read the full docs** — see [README.md](README.md) for configuration and harness guides, or the in-app **Help** for the user guide

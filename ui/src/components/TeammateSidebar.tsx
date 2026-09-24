@@ -14,16 +14,18 @@
  *     (optionally re-enqueuing a fresh attempt). Terminal items are reviewed in
  *     the Inbox, not here.
  *
- * Also surfaces pending spawn requests (/api/spawn-requests). Collapsible to a
- * slim icon rail (choice remembered in localStorage). Polls the daemon.
+ * Also surfaces pending spawn requests (/api/spawn-requests) and the team-size
+ * box (TeamSizeBox): the pool's size is declared there and the daemon keeps it
+ * populated — there is no per-teammate Spawn button. Collapsible to a slim icon
+ * rail (choice remembered in localStorage). Polls the daemon.
  */
 
 import { useState } from "react";
-import { Link } from "react-router-dom";
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen, Clock, X, UserPlus, Crown, User, Ban, AlertTriangle } from "lucide-react";
+import { TeamSizeBox } from "@/components/TeamSizeBox";
+import { Trash2, RotateCcw, FolderOpen, PanelRightClose, PanelRightOpen, Clock, X, Crown, User, Ban, AlertTriangle } from "lucide-react";
 
 const COLLAPSE_KEY = "mpt.teammateSidebar.collapsed";
 
@@ -136,9 +138,6 @@ export function TeammateSidebar() {
           </Button>
         </div>
         <div className="flex-1 overflow-y-auto py-3 flex flex-col items-center gap-2 w-full">
-          <Button variant="outline" size="icon" className="h-8 w-8" title="Spawn teammate" render={<Link to="/spawn" />}>
-            <UserPlus className="h-4 w-4" />
-          </Button>
           {pendingSpawns.length > 0 && (
             <div
               className="relative flex items-center justify-center h-6 w-6 text-muted-foreground"
@@ -179,9 +178,8 @@ export function TeammateSidebar() {
           Team <span className="text-muted-foreground font-normal">({online.length})</span>
         </h2>
         <div className="flex items-center gap-1">
-          <Button variant="outline" size="sm" render={<Link to="/spawn" />}>
-            <UserPlus className="h-4 w-4 mr-1" /> Spawn
-          </Button>
+          {/* Declared pool size — the daemon keeps this many teammates online. */}
+          <TeamSizeBox />
           <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggle} title="Collapse teammates">
             <PanelRightClose className="h-4 w-4" />
           </Button>
@@ -215,7 +213,7 @@ export function TeammateSidebar() {
 
         {teammates.length === 0 && (
           <p className="text-xs text-muted-foreground py-4 text-center">
-            No teammates yet. Spawn one above.
+            No teammates yet. Set the team size above and the daemon will spawn them.
           </p>
         )}
 

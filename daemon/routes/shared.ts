@@ -106,6 +106,15 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       config.port = body.port || config.port;
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
       config.maxTeammates = body.maxTeammates || config.maxTeammates;
+      // 0 is meaningful ("spawn nothing"), so this can't use `||`.
+      if (body.minTeammates !== undefined) {
+        const min = Number(body.minTeammates);
+        if (!Number.isInteger(min) || min < 0) {
+          return c.json({ success: false, error: "minTeammates must be a non-negative integer" }, 400);
+        }
+        const max = config.maxTeammates ?? 0;
+        config.minTeammates = max > 0 ? Math.min(min, max) : min;
+      }
       config.defaultWorkflow = body.defaultWorkflow;
 
       for (const [name, wf] of Object.entries(body.workflows)) {
@@ -127,23 +136,36 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
       if (body.hosts !== undefined) config.hosts = body.hosts;
 
-      const configFile = path.join(teamDir, "config.json");
-      const toWrite: Record<string, unknown> = {
-        port: config.port,
-        tmuxSession: config.tmuxSession,
-        defaultWorkflow: config.defaultWorkflow,
-        autosave: config.autosave,
-        maxTeammates: config.maxTeammates,
-      };
-      if (config.teammates && Object.keys(config.teammates).length > 0) toWrite.teammates = config.teammates;
-      if (config.readinessProbe) toWrite.readinessProbe = config.readinessProbe;
-      if (config.hosts && Object.keys(config.hosts).length > 0) toWrite.hosts = config.hosts;
-      Deno.writeTextFileSync(configFile, JSON.stringify(toWrite, null, 2) + "\n");
+      // Store is the single config writer (it owns serializeConfig, so no field
+      // this route doesn't know about — e.g. apiToken — is silently dropped).
+      store.saveConfig();
+      // A changed pool size takes effect now, not on the next heartbeat tick.
+      store.reconcileTeammatePool();
 
       return c.json({ success: true });
     } catch (e: unknown) {
       return c.json({ success: false, error: (e as Error).message }, 400);
     }
+  });
+
+  // ─── Teammate pool ─────────────────────────────────────────────────
+  //
+  // Team size is *declared*, not clicked: `minTeammates` is the number of
+  // generalist teammates the daemon keeps online, reconciled by spawning
+  // replacements when the pool dips (see Store.reconcileTeammatePool). These two
+  // routes back the sidebar's team-size box; the same value also lives in
+  // config.json, so it is applied at startup.
+
+  app.get("/api/teammate-pool", (c) => c.json(store.getTeammatePool()));
+
+  app.put("/api/teammate-pool", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { minTeammates?: unknown };
+    const min = Number(body.minTeammates);
+    const stored = Number.isFinite(min) ? store.setMinTeammates(min) : null;
+    if (stored === null) {
+      return c.json({ success: false, error: "Field 'minTeammates' must be a non-negative integer" }, 400);
+    }
+    return c.json({ success: true, ...store.getTeammatePool() });
   });
 
   // ─── Hosts ─────────────────────────────────────────────────────────

@@ -59,7 +59,7 @@ The nav bar has four destinations, plus help/config/theme icons:
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
-The **home page** (`/`) has a quick-create row (New Story / Solitary Task / Scheduled Job / Spawn Teammate) over two tabs: **Inbox** and **Assistant**.
+The **home page** (`/`) has a quick-create row (New Story / Solitary Task / Scheduled Job) over two tabs: **Inbox** and **Assistant**.
 
 ### Inbox
 
@@ -124,11 +124,28 @@ Each **agent** state can have a markdown **persona** file — role framing the t
 
 Teammates appear in a persistent right-hand column on every page, grouped by role — leader, assistant, and the teammate pool — each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions.
 
-### Spawning
+### Team size (how teammates get created)
 
-Click **Spawn** to request a teammate:
-- **Host** — which machine starts it
-- **Working Directory** — where it operates (this is its affinity bias)
+You don't spawn teammates one at a time — you **declare how many you want**. The
+box at the top of the teammate column is the minimum size of the teammate pool:
+type `3` and the daemon keeps three teammates online, spawning replacements
+whenever one is dismissed, crashes, or goes silent long enough to be reaped.
+
+- Default is **0** — nothing spawns until you ask for it.
+- The number is saved in `config.json` (also editable as **Min Teammates** on
+  Config › General), so it's the target the daemon applies at startup.
+- It's capped by **Max Teammates**, and it needs a **leader** connected on some
+  host — the leader is what actually starts the processes. Until one connects,
+  the box tells you so and the pool waits.
+- Lowering the number never kills anyone: it just stops replacements. Dismissing
+  a teammate stays your call (but with a non-zero minimum, expect a fresh one to
+  take its place).
+- Teammates spawn in the leader's working directory. To home a teammate in a
+  specific repo, start it there yourself (or run a leader there) — directory
+  affinity then biases that repo's work toward it.
+
+The **leader** isn't part of the pool: it's a per-host singleton — and it's the
+agent the chat talks to.
 
 ### Recovery actions (the Queue section)
 
@@ -193,7 +210,7 @@ Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatte
 
 Visit `/config`:
 
-- **General** — port, session, autosave (flush/commit cadence)
+- **General** — port, session, team size (min/max teammates), autosave (flush/commit cadence)
 - **Teammates** — name generation
 - **Theme** — palette (a client-side preference)
 
@@ -202,7 +219,7 @@ Visit `/config`:
 ## Tips
 
 - **Write testable acceptance criteria** — use RFC 2119 keywords (MUST/SHOULD/MAY). The editor scores them for you.
-- **Home the right teammates** — a teammate started in a repo preferentially picks up that repo's work. Spawn teammates where the work is.
+- **Home the right teammates** — a teammate started in a repo preferentially picks up that repo's work. Run a leader where the work is, since pool teammates spawn in its directory.
 - **Review early** — drain the Inbox; quick feedback loops keep teammates productive.
 - **Use workflow personas** — give each agent state phase-specific role framing.
 - **Use the context library** — store patterns and decisions so every teammate works consistently.

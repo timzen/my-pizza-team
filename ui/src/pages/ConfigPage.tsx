@@ -31,6 +31,7 @@ interface ConfigData {
   workflows: Record<string, { states: string[] }>;
   autosave: { flushIntervalMinutes: number; commitIntervalHours: number; autoCommit: boolean };
   maxTeammates?: number;
+  minTeammates?: number;
   teammates?: TeammateConfig;
   defaultNouns?: string[];
   readinessProbe?: string;
@@ -144,6 +145,21 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
             <Input value={config.tmuxSession} onChange={(e) => update("tmuxSession", e.target.value)} className="max-w-[200px]" />
             <Label>Max Teammates</Label>
             <Input type="number" value={config.maxTeammates ?? 4} onChange={(e) => update("maxTeammates", parseInt(e.target.value) || 4)} className="max-w-[120px]" />
+            {/* The declared pool size, applied at startup and reconciled
+                continuously. Also editable live in the sidebar's team-size box. */}
+            <Label>Min Teammates</Label>
+            <div className="space-y-1">
+              <Input
+                type="number"
+                min={0}
+                value={config.minTeammates ?? 0}
+                onChange={(e) => update("minTeammates", Math.max(0, parseInt(e.target.value) || 0))}
+                className="max-w-[120px]"
+              />
+              <p className="text-xs text-muted-foreground">
+                Teammates the daemon keeps online (spawning replacements as needed). 0 spawns none.
+              </p>
+            </div>
             <Label>Default Workflow</Label>
             <Select value={config.defaultWorkflow} onValueChange={(v) => update("defaultWorkflow", v)}>
               <SelectTrigger className="max-w-[200px]"><SelectValue /></SelectTrigger>
