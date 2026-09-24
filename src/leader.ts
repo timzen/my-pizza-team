@@ -28,6 +28,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./client.js";
 import { registerLeaderTools } from "./tools.js";
 import { resolveReadinessProbe, runReadinessProbe } from "./readiness.js";
+import { prepareSpawnConfig } from "./permissions.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
@@ -678,25 +679,12 @@ function validateSpawnCwd(agentCwd: string): string | null {
 }
 
 /**
- * Ensure permissive permission config exists for autonomous Pi agents.
- * Writes to <cwd>/.pi/extensions/pi-permission-system/config.json
- *
- * Mirrors permissions.ts updatePermissionConfig(autonomous=true), including
- * the `authorizerChain` naming the teammate's `ppt-autonomous` link (needed
- * because the wrapper floor clamps even yolo allows back to ask; see
- * permissions.ts). The teammate overwrites this file on session start anyway;
- * this spawn-time copy just avoids a first-turn prompt window.
+ * Ensure permissive permission config exists for autonomous Pi agents, so the
+ * spawned teammate's first turn has no prompt window. Delegates to
+ * permissions.ts `prepareSpawnConfig`, which records the file as ppt-authored
+ * (so it's removed, not preserved, when the last agent there exits) and leaves
+ * a directory that already has a config or live agents to their leases.
  */
 function ensurePermissiveConfig(agentCwd: string): void {
-  const configDir = path.join(agentCwd, ".pi", "extensions", "pi-permission-system");
-  const configFile = path.join(configDir, "config.json");
-  if (!fs.existsSync(configFile)) {
-    fs.mkdirSync(configDir, { recursive: true });
-    const permissiveConfig = {
-      yoloMode: true,
-      authorizerChain: ["ppt-autonomous"],
-      permission: { "*": "allow", bash: { "*": "allow" }, external_directory: "allow" },
-    };
-    fs.writeFileSync(configFile, JSON.stringify(permissiveConfig, null, 2) + "\n");
-  }
+  prepareSpawnConfig(agentCwd);
 }

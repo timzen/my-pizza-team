@@ -241,6 +241,15 @@ Works with [`@gotgenes/pi-permission-system`](https://www.npmjs.com/package/@got
 
 The toggle is automatic: when you type in a teammate's window, it switches to pairing mode. Run `/ppt-worker-resume` to return to autonomous.
 
+**Agents sharing a directory:** the permission system has one config file per
+directory, and pool teammates spawn in the leader's directory. Each agent
+therefore *leases* the directory, and the config is composed from what the live
+agents need: it's yolo while **any** agent there is autonomous (an unattended
+teammate is never left stuck on a prompt), and the last agent to leave restores
+the file as it was found. The trade-off: pairing with a teammate in a directory
+other autonomous agents share keeps yolo on — spawn it into its own directory if
+you want the normal prompts while pairing.
+
 **The leader (chat agent):** a message sent from the web UI has nobody at the
 terminal, so a permission prompt doesn't just slow things down — it hangs the chat
 with no visible cause (the UI shows `…` forever). The leader therefore turns on
@@ -249,10 +258,12 @@ rules when *you* type in its pane. Since nobody normally types at the leader, th
 is "yolo whenever it matters" — but the web UI can never silently disarm prompts on
 a session you're sitting in.
 
-Unlike a spawned teammate, the leader runs in your real project, so it does **not**
-author a permission map there: it only flips `yoloMode`, ensures the chain link is
-named, and restores the config file exactly as it found it on shutdown (otherwise a
-plain `pi` in that directory later would silently be in yolo mode).
+Unlike a spawned teammate, the leader runs in your real project, so on its own it
+does **not** author a permission map there: it only flips `yoloMode`, ensures the
+chain link is named, and the file is restored exactly as found once the last agent
+leaves (otherwise a plain `pi` in that directory later would silently be in yolo
+mode). When teammates share its directory, their needs win — the leader can't
+delete or un-yolo their config.
 
 ## Upgrading from v0.1.0
 

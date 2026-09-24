@@ -189,7 +189,7 @@ async function setupTeammate(
   cwd: string,
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
-  const { registerPermissionBypass, updatePermissionConfig, registerAutonomousAuthorizer } = await import("./permissions.js");
+  const { registerPermissionBypass, registerAutonomousAuthorizer } = await import("./permissions.js");
   const { registerTeammateTools } = await import("./tools.js");
 
   // Check daemon reachability
@@ -232,8 +232,9 @@ async function setupTeammate(
   // item with a comment when it can't proceed; the loop then skips COMPLETE.
   registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask, (workItemId) => loop.markReturned(workItemId));
 
-  // Permission bypass (auto-pause on interactive input)
-  registerPermissionBypass(
+  // Permission bypass (auto-pause on interactive input). Returns this agent's
+  // lease on the directory's shared permission config (see permissions.ts).
+  const permissions = registerPermissionBypass(
     pi,
     () => loop.isAutonomous,
     () => {
@@ -253,9 +254,8 @@ async function setupTeammate(
   registerAutonomousAuthorizer(pi, () => loop.isAutonomous);
 
   // Wire permission toggler to the loop
-  const configPath = path.join(cwd, ".pi/extensions/pi-permission-system/config.json");
   loop.setAutonomousPermissions = (autonomous: boolean) => {
-    updatePermissionConfig(configPath, autonomous);
+    permissions.setYolo(autonomous);
   };
 
   // ─── agent_start: track loop activity ──────────────────────────
@@ -447,6 +447,9 @@ async function setupTeammate(
     clearInterval(widgetInterval);
     loop.stop();
     transcript.stop();
+    // Drop our lease; the last agent out restores the directory's config. A
+    // fresh-session reset re-acquires in the new instance moments later.
+    permissions.release();
     // Self-reset between work items: keep the daemon registration alive so
     // the member doesn't flicker offline; the fresh instance re-registers.
     if (resettingForFreshSession) return;

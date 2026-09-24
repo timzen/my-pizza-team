@@ -111,6 +111,27 @@ commands), the teammate also registers a `ppt-autonomous` authorizer chain link
 that answers those asks — allow while autonomous, defer while pairing — with an
 audit entry per auto-allow in the permission review log.
 
+**One config per directory, so agents lease it.** The permission system reads a
+single project config per directory — there's no per-process config — and pool
+teammates spawn in the leader's directory, so several agents share one file.
+Each used to write it as if it were the only one there: the leader leaving
+deleted the teammates' config, and typing in the leader's pane (or pairing with
+one teammate) turned yolo off for every agent in the directory. Now each agent
+holds a lease (a sidecar registry next to the config) stating what it needs, and
+the file is *composed* from the live leases:
+
+- **yolo is on while any lease needs it.** An unattended agent stuck on a prompt
+  nobody will answer is the worse failure. The deliberate cost: a human pairing
+  in a directory that autonomous agents share is also in yolo. To pair with the
+  normal prompts, give the teammate its own directory.
+- A teammate lease authors the permissive map; a leader-only directory only gets
+  `yoloMode` + the chain link merged into the user's own rules.
+- **The last one out restores the file** as the first one found it (a
+  spawn-time copy counts as "no file"), so a plain `pi` there later isn't
+  silently in yolo.
+- Leases are liveness-checked by pid (a crash can't pin yolo on), and holders
+  re-assert every 10s, which also self-heals a config deleted underneath them.
+
 ## Interaction Model
 
 ### Teammate work loop
@@ -150,7 +171,8 @@ docs/ARCHITECTURE.md → "Run ownership".
 | Pairing (human hopped in) | `false` | defers | Normal permission rules |
 
 Detection is automatic: interactive input → pairing; `/ppt-worker-resume` →
-autonomous.
+autonomous. In a shared directory the table is per-agent *need*: the file is yolo
+while any agent there needs it (§8).
 
 ## Boundaries
 

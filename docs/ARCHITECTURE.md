@@ -351,7 +351,7 @@ windows.
 **Spawn robustness.** `spawnAgent()` validates the working directory
 (`validateSpawnCwd()`) **before** touching tmux and throws if it's missing or
 not a directory — so an accidental/half-typed cwd can't create an orphan
-window. Writing the permissive Pi config (`ensurePermissiveConfig()`) is treated
+window. Writing the permissive Pi config (`ensurePermissiveConfig()` → `prepareSpawnConfig()`) is treated
 as best-effort: a failure (e.g. a read-only cwd) is caught and logged rather
 than aborting the spawn. When realizing a directive throws, the poll loop marks
 it **failed** via `client.failLeaderDirective()` (PUT status `failed`) instead
@@ -376,11 +376,13 @@ Uses `@gotgenes/pi-permission-system`'s `yoloMode` flag, read fresh on every too
 
 File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
-- **Created at spawn time** by leader's tmux spawner with `yoloMode: true` + `authorizerChain: ["ppt-autonomous"]`
-- **Toggled dynamically** by `permissions.ts` (teammates):
-  - Interactive input detected → rewrite with `yoloMode: false` + pause loop
-  - `/ppt-worker-resume` → rewrite with `yoloMode: true` + resume loop
-- **The leader (chat agent)** uses `registerChatAgentPermissions`: a web-driven run has nobody at the terminal, so an `ask` hangs the chat with no visible cause (the UI just shows `…`). It flips `yoloMode: true` while the current run was triggered by non-`interactive` input (the mirror's `sendUserMessage`, or RPC) and back to the user's own rules when they type in its pane — the same autonomous/pairing distinction, keyed on *who drove the run*. Because the leader runs in the user's real project it **merges** rather than authoring a permission map (`setYoloMode` preserves every other key) and **restores the file as found** on `session_shutdown`, so a later plain `pi` in that directory isn't silently in yolo mode.
+- **Shared by every agent in the directory, so it's leased.** The permission system has no per-process config, and pool teammates spawn in the leader's directory. Each agent holds a `DirectoryPermissions` lease recorded in a sidecar, `<cwd>/.pi/extensions/pi-permission-system/ppt-leases.json` (`{ original, leases: { "<pid>:<nonce>": { pid, role, yolo } } }`, guarded by a `mkdir` lock). On every change the holder prunes dead pids and writes the **composed** config (`composeConfig`):
+  - yolo = any live lease needs it (an unattended agent must never be stuck on a prompt); a teammate lease present → the full `teammateConfig(yolo)` map; leader-only → `mergeYoloMode(original, yolo)` (the user's rules + `yoloMode` + the chain link);
+  - no live leases → restore `original` (the file as the first lease found it; deleted if none) and remove the sidecar.
+  Holders re-assert every 10s (self-heals a config deleted underneath them, e.g. a demo reset) and release on `session_shutdown`. Behavior: `tests/permission-leases.test.mjs`.
+- **Created at spawn time** by the leader's tmux spawner via `prepareSpawnConfig` (`teammateConfig(true)`, only if the directory has no config or leases), recorded as ppt-authored (`original: null`) so it's removed rather than preserved when the last agent leaves.
+- **Teammates** (`registerPermissionBypass` → lease, role `teammate`): autonomous → `yolo: true`; interactive input → `setYolo(false)` + pause loop; `/ppt-worker-resume` → `setYolo(true)` + resume loop.
+- **The leader (chat agent)** uses `registerChatAgentPermissions` (lease, role `leader`): a web-driven run has nobody at the terminal, so an `ask` hangs the chat with no visible cause (the UI just shows `…`). Its lease needs yolo while the current run was triggered by non-`interactive` input (the mirror's `sendUserMessage`, or RPC), and not when the user types in its pane — the same autonomous/pairing distinction, keyed on *who drove the run*. In a leader-only directory that only merges into the user's config and restores it on the way out; in a directory shared with teammates, their leases win, so the leader can no longer delete or un-yolo their config.
 - **Authorizer chain link** (`ppt-autonomous`, registered by `registerAutonomousAuthorizer`): yoloMode alone cannot approve the permission system's fail-closed asks — as of v24 its bash **wrapper floor** clamps any `allow` (yolo included) back to `ask` for indirection wrappers (`timeout`, `nohup`, `sudo`, `env`, `xargs`, ...). The link answers those asks: `allow` while autonomous, `defer` (normal prompting) while pairing. It resolves the service via the `Symbol.for("@gotgenes/pi-permission-system:service")` globalThis slot (no hard dependency; degrades gracefully when absent), re-registers on every `permissions:ready` broadcast, and writes a `ppt.autonomous_auto_allow` audit entry per auto-allowed ask. The chain owner caps its authority: an allow on the `path`/`external_directory` surfaces downgrades to defer.
 
 ## tmux Integration (leader only)

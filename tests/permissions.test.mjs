@@ -83,8 +83,10 @@ test("both config variants name the link in authorizerChain", () => {
   assert.strictEqual(matches.length, 2, `expected 2 authorizerChain entries, got ${matches.length}`);
 });
 
-test("leader's spawn-time config also names the link", () => {
-  assert.ok(leaderSrc.includes('authorizerChain: ["ppt-autonomous"]'));
+test("leader's spawn-time config goes through the lease module (names the link)", () => {
+  // prepareSpawnConfig writes teammateConfig(true), which names the chain link.
+  assert.ok(leaderSrc.includes("prepareSpawnConfig(agentCwd)"));
+  assert.ok(src.includes("teammateConfig(true)"));
 });
 
 test("teammate setup registers the authorizer wired to loop autonomy", () => {
@@ -100,11 +102,12 @@ test("teammate setup registers the authorizer wired to loop autonomy", () => {
 test("registerChatAgentPermissions keys off who drove the run", () => {
   assert.ok(src.includes("export function registerChatAgentPermissions"));
   // interactive = human present (their rules); anything else = remote (yolo).
-  assert.ok(src.includes('apply(event.source !== "interactive")'));
+  assert.ok(src.includes('remoteDriven = event.source !== "interactive"'));
+  assert.ok(src.includes("lease.setYolo(remoteDriven)"));
 });
 
 test("chat agent yolo only flips yoloMode + the chain link (never authors a permission map)", () => {
-  const fn = src.slice(src.indexOf("export function setYoloMode"), src.length);
+  const fn = src.slice(src.indexOf("export function mergeYoloMode"), src.indexOf("export function composeConfig"));
   assert.ok(fn.includes("config.yoloMode = yolo"));
   assert.ok(fn.includes("AUTONOMOUS_AUTHORIZER"));
   // The leader runs in the user's real project: don't stomp their rules.
@@ -113,11 +116,17 @@ test("chat agent yolo only flips yoloMode + the chain link (never authors a perm
   assert.ok(fn.includes("JSON.parse(raw)"), "must merge into the existing config");
 });
 
-test("chat agent restores the config file on shutdown", () => {
+test("chat agent releases its lease on shutdown (last one out restores the file)", () => {
   // Otherwise a plain `pi` in that directory later would silently be in yolo.
-  assert.ok(src.includes("const original = readFileOrNull(configPath)"));
-  assert.ok(src.includes('pi.on("session_shutdown"'));
-  assert.ok(src.includes("fs.rmSync(configPath, { force: true })"));
+  // Restoring is now the lease registry's job (behavior: permission-leases.test.mjs).
+  const fn = src.slice(src.indexOf("export function registerChatAgentPermissions"));
+  assert.ok(fn.includes('pi.on("session_shutdown"'));
+  assert.ok(fn.includes("lease.release()"));
+  assert.ok(src.includes("original: readFileOrNull(this.configPath)"));
+});
+
+test("teammate releases its lease on shutdown", () => {
+  assert.ok(indexSrc.includes("permissions.release()"));
 });
 
 test("leader wires the chat-agent permissions and the authorizer link", () => {

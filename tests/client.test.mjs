@@ -217,6 +217,11 @@ test("has thought read + write client methods", () => {
   assert.ok(clientSrc.includes('this.get(`/api/thoughts'));
 });
 
+test("updateThought's PATCH helper exists (it was called but never defined)", () => {
+  assert.ok(clientSrc.includes("private async patch<T>("));
+  assert.ok(clientSrc.includes('method: "PATCH"'));
+});
+
 test("has read-only listWorkflows and listContext methods", () => {
   assert.ok(clientSrc.includes("async listWorkflows()"));
   assert.ok(clientSrc.includes('this.get<WorkflowSummary[]>("/api/workflows")'));

@@ -296,6 +296,15 @@ export class DaemonClient {
     return res.json() as Promise<T>;
   }
 
+  /** PATCH with JSON body, returns parsed JSON (partial updates, e.g. thoughts) */
+  private async patch<T>(path: string, body: Record<string, any>): Promise<T> {
+    const res = await this.request(path, {
+      method: "PATCH",
+      body: JSON.stringify(body),
+    });
+    return res.json() as Promise<T>;
+  }
+
   /** DELETE, returns parsed JSON */
   private async delete<T>(path: string): Promise<T> {
     const res = await this.request(path, { method: "DELETE" });
