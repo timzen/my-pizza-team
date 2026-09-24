@@ -253,6 +253,93 @@ export function githubErrorMessage(res: Response, hadToken?: string): string {
   return `GitHub API returned HTTP ${res.status}`;
 }
 
+/** Latest release info, however it was resolved (API or HTML redirect). */
+type LatestRelease = {
+  /** Version tag without the leading "v" (e.g. "1.4.2"). */
+  version: string;
+  /** Human-facing release page URL. */
+  htmlUrl: string;
+  /** Resolve an asset's download URL by file name, or null when absent. */
+  assetUrl: (name: string) => string | null;
+};
+
+/**
+ * Extract the version tag from a GitHub release page URL, e.g.
+ * "https://github.com/o/r/releases/tag/v1.2.3" → "1.2.3". Returns null when the
+ * URL isn't a /releases/tag/ URL (e.g. the redirect wasn't followed).
+ */
+export function versionFromReleaseUrl(url: string): string | null {
+  const m = /\/releases\/tag\/([^/?#]+)/.exec(url);
+  if (!m?.[1]) return null;
+  return decodeURIComponent(m[1]).replace(/^v/, "") || null;
+}
+
+/**
+ * Resolve the latest release without the GitHub REST API.
+ *
+ * github.com/<repo>/releases/latest 302-redirects to the tagged release page,
+ * and that host is *not* subject to the api.github.com 60/hr-per-IP limit. Asset
+ * URLs under /releases/download/<tag>/<name> are fully predictable, so we can
+ * upgrade fine without ever listing assets. This is the fallback that keeps
+ * `mpt upgrade` working on shared-IP cloud desktops with no token.
+ */
+async function resolveLatestViaRedirect(): Promise<LatestRelease> {
+  const url = `https://github.com/${RELEASE_REPO}/releases/latest`;
+  const res = await fetch(url, { headers: { "User-Agent": "mpt-cli", "Accept": "text/html" } });
+  // Drain the body so the connection isn't left dangling (Deno warns otherwise).
+  await res.body?.cancel();
+  if (!res.ok) throw new Error(`github.com returned HTTP ${res.status}`);
+  const version = versionFromReleaseUrl(res.url);
+  if (!version) throw new Error("could not determine the latest version from github.com");
+  const tag = `v${version}`;
+  return {
+    version,
+    htmlUrl: `https://github.com/${RELEASE_REPO}/releases/tag/${tag}`,
+    // No asset listing here, so assume the conventional name exists; a wrong
+    // guess surfaces as a download HTTP 404 with the asset name in the message.
+    assetUrl: (name) => `https://github.com/${RELEASE_REPO}/releases/download/${tag}/${encodeURIComponent(name)}`,
+  };
+}
+
+/**
+ * Resolve the latest release, preferring the REST API (authoritative asset list)
+ * and falling back to the unauthenticated-friendly HTML redirect when the API is
+ * unavailable — most often HTTP 403 from an exhausted per-IP rate limit.
+ */
+async function resolveLatestRelease(token?: string): Promise<LatestRelease> {
+  const apiHeaders: Record<string, string> = { "Accept": "application/vnd.github+json", "User-Agent": "mpt-cli" };
+  if (token) apiHeaders["Authorization"] = `Bearer ${token}`;
+  try {
+    const res = await fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases/latest`, { headers: apiHeaders });
+    if (!res.ok) {
+      await res.body?.cancel();
+      throw new Error(githubErrorMessage(res, token));
+    }
+    const rel = await res.json() as {
+      tag_name?: string;
+      html_url?: string;
+      assets?: Array<{ name: string; browser_download_url: string }>;
+    };
+    const version = String(rel.tag_name || "").replace(/^v/, "");
+    if (!version) throw new Error("latest release has no version tag");
+    const assets = rel.assets || [];
+    return {
+      version,
+      htmlUrl: rel.html_url || `https://github.com/${RELEASE_REPO}/releases/tag/v${version}`,
+      assetUrl: (name) => assets.find((a) => a.name === name)?.browser_download_url ?? null,
+    };
+  } catch (e) {
+    const why = (e as Error).message;
+    const fallback = await resolveLatestViaRedirect().catch((e2) => {
+      // Both paths failed — report the API reason, which is the actionable one.
+      throw new Error(`${why} (github.com fallback also failed: ${(e2 as Error).message})`);
+    });
+    console.log(`   ⚠️  GitHub API unavailable (${why})`);
+    console.log("      Falling back to github.com release links.");
+    return fallback;
+  }
+}
+
 /**
  * Download the latest release binary for this platform and replace the running
  * executable in place. `--check` only reports whether an update is available.
@@ -285,20 +372,15 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   // reading a public repo's releases needs no permissions — is keyed to the
   // user and raises the limit to 5000/hr. See README "Upgrading".
   const token = Deno.env.get("MPT_GITHUB_TOKEN") || Deno.env.get("GITHUB_TOKEN") || Deno.env.get("GH_TOKEN");
-  const apiHeaders: Record<string, string> = { "Accept": "application/vnd.github+json", "User-Agent": "mpt-cli" };
-  if (token) apiHeaders["Authorization"] = `Bearer ${token}`;
-  let rel: { tag_name?: string; html_url?: string; assets?: Array<{ name: string; browser_download_url: string }> };
+  let rel: LatestRelease;
   try {
-    const res = await fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases/latest`, { headers: apiHeaders });
-    if (!res.ok) throw new Error(githubErrorMessage(res, token));
-    rel = await res.json();
+    rel = await resolveLatestRelease(token);
   } catch (e) {
     console.error(`❌ Could not check for updates: ${(e as Error).message}`);
     Deno.exit(1);
   }
 
-  const latest = String(rel.tag_name || "").replace(/^v/, "");
-  if (!latest) { console.error("❌ Latest release has no version tag."); Deno.exit(1); }
+  const latest = rel.version;
 
   if (!isNewerVersion(latest, VERSION)) {
     console.log(`✅ Already up to date (v${VERSION}${latest !== VERSION ? `; latest release is v${latest}` : ""}).`);
@@ -307,13 +389,13 @@ async function cmdUpgrade(args: string[]): Promise<void> {
 
   console.log(`⬆️  Update available: v${VERSION} → v${latest}`);
   if (checkOnly) {
-    if (rel.html_url) console.log(`   ${rel.html_url}`);
+    console.log(`   ${rel.htmlUrl}`);
     console.log(`   Run "mpt upgrade" to install.`);
     return;
   }
 
-  const assetObj = (rel.assets || []).find((a) => a.name === asset);
-  if (!assetObj) {
+  const assetDownloadUrl = rel.assetUrl(asset);
+  if (!assetDownloadUrl) {
     console.error(`❌ Release v${latest} has no asset named "${asset}".`);
     Deno.exit(1);
   }
@@ -321,8 +403,8 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   console.log(`Downloading ${asset}…`);
   let bytes: Uint8Array;
   try {
-    const dl = await fetch(assetObj.browser_download_url, { headers: { "User-Agent": "mpt-cli" } });
-    if (!dl.ok) throw new Error(`HTTP ${dl.status}`);
+    const dl = await fetch(assetDownloadUrl, { headers: { "User-Agent": "mpt-cli" } });
+    if (!dl.ok) throw new Error(`HTTP ${dl.status} for ${asset}`);
     bytes = new Uint8Array(await dl.arrayBuffer());
   } catch (e) {
     console.error(`❌ Download failed: ${(e as Error).message}`);
@@ -330,10 +412,12 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   }
 
   // Verify against checksums.sha256 when the release publishes it.
-  const sumAsset = (rel.assets || []).find((a) => a.name === "checksums.sha256");
-  if (sumAsset) {
+  const sumsUrl = rel.assetUrl("checksums.sha256");
+  if (sumsUrl) {
     try {
-      const sums = await (await fetch(sumAsset.browser_download_url, { headers: { "User-Agent": "mpt-cli" } })).text();
+      const sumsRes = await fetch(sumsUrl, { headers: { "User-Agent": "mpt-cli" } });
+      if (!sumsRes.ok) throw new Error(`HTTP ${sumsRes.status}`);
+      const sums = await sumsRes.text();
       const want = sums.split("\n").map((l) => l.trim()).find((l) => l.endsWith(asset))?.split(/\s+/)[0];
       if (want) {
         const got = await sha256Hex(bytes);

@@ -28,15 +28,22 @@
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-/** Where a user entry came from (Pi's InputSource, collapsed). */
-export type TranscriptInputOrigin = "tui" | "extension";
+/**
+ * Where a user entry came from: typed in the tmux pane (`tui`), sent from the
+ * web UI while pairing (`web`), or anything else the extension delivered — in
+ * practice the work prompt (`extension`).
+ */
+export type TranscriptInputOrigin = "tui" | "web" | "extension";
 
 /** The part of an entry the agent supplies (plus an optional upsert `key`). */
 export type TranscriptEntryBody =
   /** A fresh Pi session started (teammates take one per work item). */
   | { kind: "session" }
-  /** User input: the work prompt (`extension`) or typing in the tmux pane (`tui`). */
-  | { kind: "user"; text: string; origin: TranscriptInputOrigin }
+  /**
+   * User input. `delivery` is Pi's streamingBehavior when it arrived mid-run:
+   * `followUp` (queued behind the current run) or `steer` (next tool step).
+   */
+  | { kind: "user"; text: string; origin: TranscriptInputOrigin; delivery?: "steer" | "followUp" }
   /** An agent run started/ended — drives the "working…" cursor. */
   | { kind: "run"; state: "start" | "end" }
   /** An assistant message; `text`/`thinking` are the full content so far. */
