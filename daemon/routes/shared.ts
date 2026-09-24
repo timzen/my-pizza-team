@@ -107,7 +107,10 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
       config.maxTeammates = body.maxTeammates || config.maxTeammates;
       // 0 is meaningful ("spawn nothing"), so this can't use `||`.
-      if (body.minTeammates !== undefined) {
+      // `null` clears it back to the default (half of maxTeammates).
+      if (body.minTeammates === null) {
+        delete config.minTeammates;
+      } else if (body.minTeammates !== undefined) {
         const min = Number(body.minTeammates);
         if (!Number.isInteger(min) || min < 0) {
           return c.json({ success: false, error: "minTeammates must be a non-negative integer" }, 400);
@@ -158,10 +161,17 @@ export function registerSharedRoutes(ctx: RouteContext): void {
 
   app.get("/api/teammate-pool", (c) => c.json(store.getTeammatePool()));
 
+  // `{ minTeammates: null }` clears the declaration → back to the default
+  // (half of maxTeammates).
   app.put("/api/teammate-pool", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { minTeammates?: unknown };
-    const min = Number(body.minTeammates);
-    const stored = Number.isFinite(min) ? store.setMinTeammates(min) : null;
+    let stored: number | null;
+    if (body.minTeammates === null) {
+      stored = store.setMinTeammates(null);
+    } else {
+      const min = Number(body.minTeammates);
+      stored = body.minTeammates !== undefined && Number.isFinite(min) ? store.setMinTeammates(min) : null;
+    }
     if (stored === null) {
       return c.json({ success: false, error: "Field 'minTeammates' must be a non-negative integer" }, 400);
     }

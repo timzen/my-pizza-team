@@ -26,6 +26,7 @@ import {
   STORIES_DIR,
   WORKDEFS_DIR,
   CONFIG_FILE,
+  resolveMinTeammates,
   type Comment,
   type Story,
   type StoryTaskRef,
@@ -168,8 +169,10 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
     defaultWorkflow: config.defaultWorkflow,
     autosave: config.autosave,
     maxTeammates: config.maxTeammates,
-    minTeammates: config.minTeammates ?? 0,
   };
+  // Only persist an *explicit* size: unset means "half of maxTeammates", and
+  // writing the derived value would freeze it (see resolveMinTeammates).
+  if (config.minTeammates !== undefined) out.minTeammates = config.minTeammates;
   if (config.agentTimeoutSeconds !== undefined) out.agentTimeoutSeconds = config.agentTimeoutSeconds;
   if (config.apiToken) out.apiToken = config.apiToken;
   if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
@@ -2426,10 +2429,12 @@ export class Store {
   }
 
   /** The pool's live state: what's declared, what's online, what's inbound. */
-  getTeammatePool(): { minTeammates: number; maxTeammates: number; online: number; pending: number; leaderPresent: boolean } {
+  getTeammatePool(): { minTeammates: number; isDefault: boolean; maxTeammates: number; online: number; pending: number; leaderPresent: boolean } {
     const online = this.getMembers().filter((m) => m.status !== "offline" && isPoolTeammate(m.name)).length;
     return {
-      minTeammates: this.config.minTeammates ?? 0,
+      minTeammates: resolveMinTeammates(this.config),
+      // True while no size has been declared (the value tracks maxTeammates / 2).
+      isDefault: this.config.minTeammates === undefined,
       maxTeammates: this.config.maxTeammates ?? 0,
       online,
       pending: this.countPendingTeammateSpawns(),
@@ -2441,15 +2446,20 @@ export class Store {
    * Declare the pool's minimum size: persists it to config.json (so it survives
    * a restart and is applied at startup) and reconciles immediately. Returns the
    * clamped value actually stored, or null if `n` isn't a non-negative integer.
+   * Passing `null` clears the declaration, reverting to the default (half of
+   * maxTeammates) and returning that effective value.
    */
-  setMinTeammates(n: number): number | null {
-    if (!Number.isInteger(n) || n < 0) return null;
-    const max = this.config.maxTeammates ?? 0;
-    const value = max > 0 ? Math.min(n, max) : n;
-    this.config.minTeammates = value;
+  setMinTeammates(n: number | null): number | null {
+    if (n === null) {
+      delete this.config.minTeammates;
+    } else {
+      if (!Number.isInteger(n) || n < 0) return null;
+      const max = this.config.maxTeammates ?? 0;
+      this.config.minTeammates = max > 0 ? Math.min(n, max) : n;
+    }
     this.saveConfig();
     this.reconcileTeammatePool();
-    return value;
+    return resolveMinTeammates(this.config);
   }
 
   /**
@@ -2462,10 +2472,8 @@ export class Store {
    * lost teammate is replaced within one tick) and whenever the number changes.
    */
   reconcileTeammatePool(): number {
-    const min = this.config.minTeammates ?? 0;
-    if (min <= 0) return 0;
-    const max = this.config.maxTeammates ?? 0;
-    const target = max > 0 ? Math.min(min, max) : min;
+    const target = resolveMinTeammates(this.config);
+    if (target <= 0) return 0;
 
     const { online, pending } = this.getTeammatePool();
     const deficit = target - (online + pending);

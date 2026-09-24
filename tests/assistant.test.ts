@@ -476,7 +476,8 @@ Deno.test("session directives are addressed to the chat agent (the leader)", asy
 });
 
 Deno.test("spawning always mints a teammate name (no reserved assistant identity)", async () => {
-  const { app, store, teamDir } = setup();
+  // Pool pinned to 0 so registering the leader doesn't auto-queue pool spawns.
+  const { app, store, teamDir } = setup({ minTeammates: 0 });
   try {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
     // `reason: "assistant"` used to mint the singleton name; now it's just a spawn.

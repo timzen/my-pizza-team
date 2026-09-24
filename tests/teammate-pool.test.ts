@@ -3,18 +3,24 @@
  *
  * Team size is declared, not clicked: the daemon keeps at least `minTeammates`
  * generalist teammates online by queueing `spawn` directives for the shortfall.
- * Covers the reconciler's accounting (online + pending, role exclusions, the
- * maxTeammates cap, no-leader hold) and the GET/PUT /api/teammate-pool routes.
+ * Covers the default (half of maxTeammates when unset), the reconciler's
+ * accounting (online + pending, role exclusions, the maxTeammates cap,
+ * no-leader hold) and the GET/PUT /api/teammate-pool routes.
  */
 
 import { assertEquals } from "@std/assert";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { DEFAULT_CONFIG, resolveMinTeammates, type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
-/** Fresh store + app with an isolated config (routes mutate it, so never share). */
+/**
+ * Fresh store + app with an isolated config (routes mutate it, so never share).
+ * Pins `minTeammates: 0` unless overridden so each test starts from an empty
+ * pool; the default-size tests pass `minTeammates: undefined` explicitly.
+ */
 function setup(overrides: Partial<TeamConfig> = {}) {
+  overrides = { minTeammates: 0, ...overrides };
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-pool-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(DEFAULT_CONFIG), ...overrides };
@@ -46,11 +52,51 @@ async function pendingSpawns(app: ReturnType<typeof buildApp>): Promise<unknown[
   return body.requests as unknown[];
 }
 
-Deno.test("default is zero: the daemon spawns nothing on its own", async () => {
+Deno.test("unset: the default is half of maxTeammates (rounded down)", async () => {
+  const { app, store, teamDir } = setup({ minTeammates: undefined, maxTeammates: 4 });
+  try {
+    await registerLeader(app);
+    const pool = store.getTeammatePool();
+    assertEquals(pool.minTeammates, 2);
+    assertEquals(pool.isDefault, true);
+    assertEquals((await pendingSpawns(app)).length, 2);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("the default tracks maxTeammates and rounds down", () => {
+  assertEquals(resolveMinTeammates({ maxTeammates: 5 }), 2);
+  assertEquals(resolveMinTeammates({ maxTeammates: 1 }), 0);
+  assertEquals(resolveMinTeammates({ maxTeammates: 0 }), 0);
+  assertEquals(resolveMinTeammates({ maxTeammates: 6, minTeammates: 0 }), 0); // explicit 0 wins
+  assertEquals(resolveMinTeammates({ maxTeammates: 2, minTeammates: 5 }), 2); // capped
+});
+
+Deno.test("the derived default is not written to config.json", () => {
+  const { store, teamDir } = setup({ minTeammates: undefined });
+  try {
+    store.saveConfig();
+    const onDisk = JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json")));
+    assertEquals("minTeammates" in onDisk, false);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("PUT null clears the declaration back to the default", async () => {
+  const { app, store, teamDir } = setup({ maxTeammates: 4 });
+  try {
+    assertEquals(store.getTeammatePool().minTeammates, 0);
+    const body = await (await put(app, "/api/teammate-pool", { minTeammates: null })).json();
+    assertEquals(body.success, true);
+    assertEquals(body.minTeammates, 2);
+    assertEquals(body.isDefault, true);
+  } finally { cleanup(teamDir, store); }
+});
+
+Deno.test("explicit zero: the daemon spawns nothing on its own", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
     assertEquals(store.getTeammatePool().minTeammates, 0);
+    assertEquals(store.getTeammatePool().isDefault, false);
     assertEquals(store.reconcileTeammatePool(), 0);
     assertEquals((await pendingSpawns(app)).length, 0);
   } finally { cleanup(teamDir, store); }

@@ -127,22 +127,33 @@ Teammates appear in a persistent right-hand column on every page, grouped by rol
 ### Team size (how teammates get created)
 
 You don't spawn teammates one at a time — you **declare how many you want**. The
-box at the top of the teammate column is the minimum size of the teammate pool:
-type `3` and the daemon keeps three teammates online, spawning replacements
-whenever one is dismissed, crashes, or goes silent long enough to be reaped.
+team header (`Team (n)`) has two icons beside it:
 
-- Default is **0** — nothing spawns until you ask for it.
+- **Team size** (people icon) — the steady size of the teammate pool: set `3`
+  and the daemon keeps three teammates online, spawning replacements whenever one
+  is dismissed, crashes, or goes silent long enough to be reaped. An amber dot on
+  the icon means no leader is connected, so nothing can spawn yet.
+- **Spawn** (person-plus icon) — start one teammate in a specific directory (see
+  below).
+
+Details:
+
+- Default is **half of Max Teammates** (rounded down — 2 with the default max
+  of 4). Set **0** to spawn nothing; **Use default** in the dialog clears your
+  value back to the default.
 - The number is saved in `config.json` (also editable as **Min Teammates** on
-  Config › General), so it's the target the daemon applies at startup.
+  Config › General — leave it blank for the default), so it's the target the
+  daemon applies at startup.
 - It's capped by **Max Teammates**, and it needs a **leader** connected on some
   host — the leader is what actually starts the processes. Until one connects,
   the box tells you so and the pool waits.
 - Lowering the number never kills anyone: it just stops replacements. Dismissing
   a teammate stays your call (but with a non-zero minimum, expect a fresh one to
   take its place).
-- Teammates spawn in the leader's working directory. To home a teammate in a
-  specific repo, start it there yourself (or run a leader there) — directory
-  affinity then biases that repo's work toward it.
+- Pool teammates spawn in the leader's working directory. To home a teammate in
+  a specific repo, use **Spawn** and pick the directory — directory affinity then
+  biases that repo's work toward it. It counts toward the team size like any
+  other teammate.
 
 The **leader** isn't part of the pool: it's a per-host singleton — and it's the
 agent the chat talks to.
@@ -219,7 +230,7 @@ Visit `/config`:
 ## Tips
 
 - **Write testable acceptance criteria** — use RFC 2119 keywords (MUST/SHOULD/MAY). The editor scores them for you.
-- **Home the right teammates** — a teammate started in a repo preferentially picks up that repo's work. Run a leader where the work is, since pool teammates spawn in its directory.
+- **Home the right teammates** — a teammate started in a repo preferentially picks up that repo's work. Use **Spawn** to put one where the work is (pool teammates spawn in the leader's directory).
 - **Review early** — drain the Inbox; quick feedback loops keep teammates productive.
 - **Use workflow personas** — give each agent state phase-specific role framing.
 - **Use the context library** — store patterns and decisions so every teammate works consistently.
