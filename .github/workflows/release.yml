@@ -8,6 +8,8 @@
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
 #   - My Pizza Team.dmg (macOS menu bar app, arm64 only — lipo breaks Deno V8)
+#                       BEST-EFFORT: if this job fails (disk pressure, notary
+#                       flakiness) the release still publishes without the DMG.
 
 name: Release
 
@@ -102,10 +104,15 @@ jobs:
           name: mpt-${{ matrix.target }}
           path: dist/mpt-${{ matrix.target }}*
 
+  # The macOS menu bar app is the most fragile part of the release (runner disk
+  # pressure, Apple notary service flakiness). It is explicitly best-effort: a
+  # failure here must not block the release of the other artifacts. See the
+  # `release` job's `if:` gate — it only requires `build` and `windows-app`.
   macos-app:
     name: Build macOS Menu Bar App
     runs-on: macos-latest
     needs: build
+    continue-on-error: true
     env:
       HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
 
@@ -254,6 +261,9 @@ jobs:
           echo "✅ DMG created"
 
       - name: Notarize the DMG
+        # Notary outages/timeouts are common; a signed-but-unnotarized DMG is
+        # still usable (with a Gatekeeper prompt), so don't fail the job for it.
+        continue-on-error: true
         if: env.HAS_SIGNING_CERT == 'true'
         env:
           APPLE_ID: ${{ secrets.APPLE_ID }}
@@ -276,6 +286,7 @@ jobs:
         with:
           name: macos-app-arm64
           path: dist/My-Pizza-Team-macos-arm64.dmg
+          if-no-files-found: warn
 
   windows-app:
     name: Package Windows Tray App
@@ -312,6 +323,9 @@ jobs:
   release:
     name: Create Release
     needs: [build, macos-app, windows-app]
+    # Run even when macos-app failed or was skipped — the DMG is simply omitted
+    # from the release. The binaries and Windows app are required.
+    if: always() && needs.build.result == 'success' && needs.windows-app.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
@@ -330,9 +344,11 @@ jobs:
           for dir in artifacts/mpt-*/; do
             cp "$dir"* release/
           done
-          # Copy macOS arm64 .app dmg
-          if [ -d artifacts/macos-app-arm64 ]; then
+          # Copy macOS arm64 .app dmg (best-effort job — may be absent)
+          if [ -d artifacts/macos-app-arm64 ] && [ -n "$(ls -A artifacts/macos-app-arm64)" ]; then
             cp artifacts/macos-app-arm64/* release/
+          else
+            echo "::warning::macOS menu bar app (.dmg) missing from this release — the Build macOS Menu Bar App job produced no artifact."
           fi
           # Copy Windows app zip
           if [ -d artifacts/windows-app ]; then
@@ -349,5 +365,6 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
+          fail_on_unmatched_files: false
           files: |
             release/*

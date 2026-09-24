@@ -9,7 +9,8 @@
     "jsr:@std/internal@^1.0.14": "1.0.14",
     "jsr:@std/path@1": "1.1.6",
     "jsr:@std/path@^1.1.5": "1.1.6",
-    "jsr:@std/testing@1": "1.0.20"
+    "jsr:@std/testing@1": "1.0.20",
+    "jsr:@std/yaml@*": "1.1.2"
   },
   "jsr": {
     "@hono/hono@4.13.1": {
@@ -43,6 +44,9 @@
         "jsr:@std/assert@^1.0.19",
         "jsr:@std/internal@^1.0.14"
       ]
+    },
+    "@std/yaml@1.1.2": {
+      "integrity": "de612653c036749ba2044165e316f52412b0f0698afffb7ee80b5331d6d2abae"
     }
   },
   "workspace": {
