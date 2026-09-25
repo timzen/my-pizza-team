@@ -1,8 +1,9 @@
 /**
  * QueuePage — The **Queue** tab on the home page (`/queue`): work in flight.
  *
- * Sits between Thoughts and Inbox (`Thoughts | Queue | Inbox`) because it's the
- * middle of a piece of work's life: the Inbox reviews *finished* WorkItems;
+ * Sits before the Inbox (`Queue | Inbox`) because it's the middle of a piece of
+ * work's life (ideas start earlier, on the Thoughts nav page): the Inbox
+ * reviews *finished* WorkItems;
  * this shows the non-terminal ones, grouped by what they need from you:
  *
  *   - **At risk** (MORIBUND) — its teammate went silent mid-work; nothing retries

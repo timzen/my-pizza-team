@@ -59,7 +59,7 @@ The nav bar has four destinations, plus pause / **usage** / help / config / them
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
-The **home page** (`/`) has three tabs — **Thoughts | Queue | Inbox** — the life of a piece of work, left to right: ideas, work in flight, finished work. (Quick-create — the **+** beside the queue summary — and the assistant live in the left dock, on every page.)
+The **home page** (`/`) has two tabs — **Queue | Inbox** — work in flight, then finished work. Ideas start earlier, on **Thoughts** (first in the top nav). (Quick-create — the **+** beside the queue summary — and the assistant live in the left dock, on every page.)
 
 ### Queue
 
@@ -246,7 +246,7 @@ Tag a context entry with **`persona`** to make it a swappable assistant persona.
 
 ## Thoughts
 
-A personal workspace — the **Thoughts** tab on the home page (beside Queue and Inbox). An infinite canvas of markdown sticky notes you can pan, zoom, drag, and group.
+A personal workspace — **Thoughts** in the top nav (`/thoughts`). An infinite canvas of markdown sticky notes you can pan, zoom, drag, and group.
 
 - **Notes are all the same size** on the canvas, so the board scans as a board; a long note shows its start and fades out.
 - **Open a note** to read or write it in full: **double-click** it, click the **⤢** icon in its corner (on hover), or select it and press **Enter**. The large view opens in Preview (Edit for a new or empty note — double-click the text or hit **Edit** to write). Its header has everything else: **color**, pin, group, copy id, archive, delete. Closing it any way (Esc, Done, clicking outside, ⌘↵) **saves** — there's no way to lose an edit.

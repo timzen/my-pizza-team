@@ -1,5 +1,6 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
+ * The links, left to right: Thoughts (ideas), Board, Tasks, Schedule, Context.
  * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
  * help, config, theme.
  *
@@ -21,6 +22,7 @@ import { apiPost, useApi } from "@/hooks/useApi";
 
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
+  { path: "/thoughts", label: "Thoughts", prefixes: [] },
   // prefixes: routes that count as "within" this section for highlighting.
   // /work-defs routes are intentionally NOT claimed by any single tab because
   // they are shared across Tasks (Solitary), Schedule (Scheduled), and Templates.

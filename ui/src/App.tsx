@@ -13,6 +13,7 @@ import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
 import { RootPage } from "./pages/RootPage";
+import { ThoughtsPage } from "./pages/ThoughtsPage";
 import { BoardPage } from "./pages/BoardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
@@ -54,7 +55,7 @@ function App() {
               <Route path="/" element={<RootPage />} />
               {/* The chat lives in the dock now; keep the old URL working. */}
               <Route path="/assistant" element={<OpenAssistantTab><Navigate to="/" replace /></OpenAssistantTab>} />
-              <Route path="/thoughts" element={<RootPage />} />
+              <Route path="/thoughts" element={<ThoughtsRoute />} />
               <Route path="/queue" element={<RootPage />} />
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />
@@ -84,6 +85,19 @@ function App() {
       </div>
       </SideDockProvider>
     </BrowserRouter>
+  );
+}
+
+/**
+ * `/thoughts` — a top-level nav page. The canvas owns a full-height layout, so
+ * the wrapper is bounded to <main>'s height (h-full) instead of scrolling with
+ * the page like the list pages do.
+ */
+function ThoughtsRoute() {
+  return (
+    <div className="container mx-auto h-full min-h-0 p-6">
+      <ThoughtsPage />
+    </div>
   );
 }
 
