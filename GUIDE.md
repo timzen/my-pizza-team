@@ -122,7 +122,7 @@ Each **agent** state can have a markdown **persona** file — role framing the t
 
 ## Teammates
 
-Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the leader and the teammate pool, each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when something needs you (at-risk work, or a team size that can't be met). The collapsed dock shows everyone as avatars plus the queue count.
+Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when something needs you (at-risk work, or a team size that can't be met). The collapsed dock shows everyone as avatars plus the queue count.
 
 ### Watching a teammate
 

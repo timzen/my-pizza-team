@@ -258,7 +258,12 @@ tabs, or a status chip in the nav that opens it.
 
 The dock collapses to an icon rail (remembered in `localStorage`) with both
 tabs' essentials: the chat (unread badge), quick-create, team size / spawn,
-agent avatars (teammates link to their live view), and the queue count. Below
+teammate avatars (linking to their live view), and the queue count.
+
+The **Team tab is teammates only.** The leader is the agent behind the Assistant
+tab — its online dot is there — so listing and counting it on Team as well was
+one agent shown twice. It still shows up on Team the one way that matters: a
+team size that can't be met because no leader is connected gets the amber dot. Below
 the `lg` breakpoint there's no room for a column, so the dock becomes a floating
 corner-button panel — same tabs, different presentation.
 
