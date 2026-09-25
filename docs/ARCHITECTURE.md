@@ -259,7 +259,9 @@ of every run, so a persona swap takes effect immediately.
 agent realizes *itself*: they need Pi's in-process session APIs, which tmux
 keystrokes can't express. The loop polls `GET /api/agents/:id/directives` and, for
 each, queues a slash command — `/ppt-chat-new-session` or
-`/ppt-chat-resume <file>` — because `newSession()`/`switchSession()` exist
+`/ppt-chat-resume <file>` — with `expandPromptTemplates: true` (pi's
+`sendUserMessage()` defaults it to `false`, which delivers the slash command to
+the LLM as plain text so it never runs) — because `newSession()`/`switchSession()` exist
 only on **command** contexts (the same constraint behind the teammate's
 `/ppt-fresh-session`). Each command reports the replacement session's path from
 inside `withSession` (per pi's "session replacement footguns": captured `pi`/`ctx`

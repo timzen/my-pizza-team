@@ -423,15 +423,20 @@ export async function setupLeader(
     },
   });
 
+  // expandPromptTemplates must be true: pi.sendUserMessage() defaults to false,
+  // which hands the slash command to the LLM as *literal text* instead of
+  // dispatching the registered command — the session never rolls and the
+  // assistant narrates the command back (same bug as the teammate's
+  // /ppt-fresh-session; see DESIGN.md "Fresh session").
   chat.onSessionDirective = async (action, params) => {
     if (action === "new-session") {
-      pi.sendUserMessage("/ppt-chat-new-session", { deliverAs: "followUp" });
+      pi.sendUserMessage("/ppt-chat-new-session", { deliverAs: "followUp", expandPromptTemplates: true });
       return;
     }
     if (action === "resume-session") {
       const file = typeof params.piSessionPath === "string" ? params.piSessionPath : "";
       if (!file) throw new Error("resume-session directive carried no piSessionPath");
-      pi.sendUserMessage(`/ppt-chat-resume ${file}`, { deliverAs: "followUp" });
+      pi.sendUserMessage(`/ppt-chat-resume ${file}`, { deliverAs: "followUp", expandPromptTemplates: true });
     }
   };
 

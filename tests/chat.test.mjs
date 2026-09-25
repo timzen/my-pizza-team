@@ -205,7 +205,10 @@ test("realizes session directives through commands (session APIs are command-onl
   // newSession/switchSession only exist on command contexts.
   assert.ok(leaderSrc.includes('pi.registerCommand("ppt-chat-new-session"'));
   assert.ok(leaderSrc.includes('pi.registerCommand("ppt-chat-resume"'));
-  assert.ok(leaderSrc.includes('sendUserMessage("/ppt-chat-new-session", { deliverAs: "followUp" })'));
+  assert.ok(leaderSrc.includes('sendUserMessage("/ppt-chat-new-session", { deliverAs: "followUp", expandPromptTemplates: true })'));
+  // Without expandPromptTemplates pi hands the slash command to the LLM as
+  // plain text and the command never runs (no new session / resume).
+  assert.ok(leaderSrc.includes('sendUserMessage(`/ppt-chat-resume ${file}`, { deliverAs: "followUp", expandPromptTemplates: true })'));
   assert.ok(leaderSrc.includes("cmdCtx.newSession({"));
   assert.ok(leaderSrc.includes("cmdCtx.switchSession(file"));
   // Post-switch work must use the replacement ctx (pi's documented footgun).
