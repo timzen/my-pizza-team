@@ -233,7 +233,7 @@ a time.
 
 | Column | What's there |
 | --- | --- |
-| **Dock** (`SideDock`) — two tabs | **Assistant**: the chat with the leader. **Team**: the teammates (team size, spawn). Under both: the queue summary strip, then New Story / Solitary Task / Scheduled Job |
+| **Dock** (`SideDock`) — a header, then two tabs | Header (dock-level, above the tabs): `+` (New Story / Solitary Task / Scheduled Job) then the queue summary. Tabs: **Assistant** (the chat with the leader) and **Team** (the teammates; team size, spawn) |
 | **Center** (nav + `<main>`) | board, tasks, schedule, context, task detail, inbox, thoughts, a teammate's live view, config |
 
 *Why a dock, not a page:* talking to the assistant and watching the team are
@@ -254,9 +254,15 @@ collapsed.
 **The queue: a summary in the dock, the list in the center.** What needs to be
 always visible about work in flight is the *summary*, not the list — "2
 waiting · 1 at risk" answers "is anything stuck, does anything need me?". So
-a strip pinned to the bottom of the dock, under both tabs, carries the counts
-(at risk in amber: the one state that needs a human) and previews the list on
-hover. The list itself, with its recovery actions, is a center view — the
+the dock's **header row** carries it — 56px, aligned with (and tinted like)
+the nav, above the tabs because it belongs to both: the counts (at risk in
+amber: the one state that needs a human), a hover preview of the list, and a
+link to the full view. The `+` start-work menu sits immediately left of it:
+`+ │ Queue …` reads as "add work to the queue", which is what creating work
+does. Putting both at the top (they started at the bottom) left the chat
+composer flush at the bottom, like every chat app, and each tab's own actions
+(chat sessions; team size + spawn) moved into the tab row, so neither tab needs
+a toolbar of its own. The list itself, with its recovery actions, is a center view — the
 **Queue** tab on the home page, between Thoughts and Inbox, because that's
 where it sits in a piece of work's life (ideas → in flight → finished). It
 dropped off the Team tab: in-progress items are already on the teammate rows,

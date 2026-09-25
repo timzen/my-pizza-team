@@ -11,13 +11,24 @@
  * the tab badges soften: unread replies on Assistant, online count and an
  * attention dot (a team size it can't meet) on Team.
  *
- * Under both tabs, pinned to the bottom: the **queue summary** strip (work in
- * flight — counts, a hover preview, a link to the Queue tab on the home page;
- * components/queue/QueueSummary) and **Start work** (quick-create).
+ * Layout, top to bottom:
+ *
+ *   [+] │ ⏱ Queue  1 at risk · 2 waiting            [⇤]   ← 56px, aligned with the nav
+ *   [💬 Assistant ●] [👥 Team 2]        (tab's actions)   ← tab row
+ *   … the active tab …
+ *
+ * The header row is dock-level (it belongs to both tabs, hence above them):
+ * the `+` start-work menu sits right before the **queue summary**
+ * (components/queue/QueueSummary — counts, a hover preview, a link to the Queue
+ * tab on the home page), so `+ │ Queue` reads as "add work to the queue". It's
+ * tinted like the nav so the top of the app reads as one band. The tab row also
+ * carries the active tab's actions (chat sessions; team size + spawn), so each
+ * tab needs no toolbar of its own and the chat composer sits flush at the
+ * bottom.
  *
  * Three presentations, one dock:
  *  - `lg+` expanded — a resizable column (drag the inner edge, 300–560px, width
- *    remembered in localStorage) with a tab bar.
+ *    remembered in localStorage).
  *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), quick-create,
  *    the team buttons, teammate avatars (linking to their live view), and the
  *    queue count (linking to the Queue tab; amber when anything is at risk).
@@ -42,6 +53,9 @@ import { TeamPanel } from "@/components/team/TeamPanel";
 import { TeammateAvatar, TeamButtons } from "@/components/team/TeamParts";
 import { TeamSizeDialog } from "@/components/TeamSizeDialog";
 import { QueueSummary } from "@/components/queue/QueueSummary";
+import { SessionMenu } from "@/components/assistant/SessionMenu";
+import { NewWorkMenu } from "./NewWorkMenu";
+import { START_WORK } from "@/lib/start-work";
 import { useQueue } from "@/hooks/useQueue";
 import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
@@ -49,7 +63,7 @@ import { useTeamData } from "@/hooks/useTeamData";
 import { useSideDock, type SideDockTab } from "@/hooks/useSideDock";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import {
-  MessageSquare, PanelLeftClose, PanelLeftOpen, Plus, Zap, CalendarClock, X, Clock, Users,
+  MessageSquare, PanelLeftClose, PanelLeftOpen, X, Clock, Users,
 } from "lucide-react";
 
 const WIDTH_KEY = "mpt.assistantDock.width";
@@ -88,18 +102,41 @@ export function SideDock() {
     </>
   );
 
-  const tabBar = (
-    <div className="flex h-14 shrink-0 items-center justify-between gap-1 border-b border-border px-2">
+  // Leader presence on the Assistant tab: who answers, or why nobody will.
+  const chatOnline = stream.chatAgent !== null;
+  const chatDot = !stream.connected ? "bg-amber-500" : chatOnline ? "bg-green-500" : "bg-muted-foreground/40";
+  const chatDotTitle = !stream.connected ? "Reconnecting…" : chatOnline ? `Answered by ${stream.chatAgent?.name}` : "No leader online to answer";
+
+  // Row 1 (dock-level, 56px, aligned with the nav): + │ Queue summary │ collapse.
+  const header = (
+    <div className="flex h-14 shrink-0 items-center gap-2 border-b border-border bg-muted px-2">
+      <NewWorkMenu />
+      <div className="h-6 w-px shrink-0 bg-border" />
+      <QueueSummary queue={queue} />
+      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setDockOpen(false)} title={isDesktop ? "Collapse" : "Close"}>
+        {isDesktop ? <PanelLeftClose className="h-4 w-4" /> : <X className="h-4 w-4" />}
+      </Button>
+    </div>
+  );
+
+  // Row 2: the tabs, plus the active tab's own actions on the right.
+  const tabRow = (
+    <div className="flex h-11 shrink-0 items-center justify-between gap-1 border-b border-border px-2">
       <div className="flex items-center gap-1 rounded-lg bg-muted p-0.5" role="tablist">
-        <TabButton active={tab === "assistant"} onClick={() => openTab("assistant")} icon={MessageSquare} label="Assistant" badge={unread} />
+        <TabButton
+          active={tab === "assistant"} onClick={() => openTab("assistant")} icon={MessageSquare} label="Assistant"
+          badge={unread} dot={chatDot} dotTitle={chatDotTitle}
+        />
         <TabButton
           active={tab === "team"} onClick={() => openTab("team")} icon={Users} label="Team"
           count={team.online.length} attention={team.needsAttention}
         />
       </div>
-      <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDockOpen(false)} title={isDesktop ? "Collapse" : "Close"}>
-        {isDesktop ? <PanelLeftClose className="h-4 w-4" /> : <X className="h-4 w-4" />}
-      </Button>
+      <div className="flex shrink-0 items-center">
+        {tab === "assistant"
+          ? <SessionMenu viewingId={viewingId} onView={setViewingId} onChanged={stream.refresh} compact />
+          : <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} />}
+      </div>
     </div>
   );
 
@@ -109,7 +146,7 @@ export function SideDock() {
         <AssistantChat stream={stream} viewingId={viewingId} onViewSession={setViewingId} />
       </div>
       <div className={tab === "team" ? "h-full" : "hidden"}>
-        <TeamPanel team={team} sizeTitle={sizeTitle} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} />
+        <TeamPanel team={team} />
       </div>
     </div>
   );
@@ -121,9 +158,9 @@ export function SideDock() {
         {dialogs}
         {open && (
           <div className="fixed bottom-20 left-4 z-40 flex h-[70vh] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl">
-            {tabBar}
+            {header}
+            {tabRow}
             {body}
-            <QueueSummary queue={queue} />
           </div>
         )}
         <button
@@ -201,10 +238,9 @@ export function SideDock() {
   return (
     <aside className="relative flex shrink-0 flex-col border-r border-border bg-muted/30" style={{ width }}>
       {dialogs}
-      {tabBar}
+      {header}
+      {tabRow}
       {body}
-      <QueueSummary queue={queue} />
-      <StartWorkBar />
       {/* Drag the inner edge to resize — a chat at 300px is cramped for code. */}
       <div
         onPointerDown={startResize}
@@ -217,7 +253,7 @@ export function SideDock() {
 
 /** One tab of the dock's segmented tab bar, with its live badge. */
 function TabButton({
-  active, onClick, icon: Icon, label, badge = 0, count, attention,
+  active, onClick, icon: Icon, label, badge = 0, count, attention, dot, dotTitle,
 }: {
   active: boolean;
   onClick: () => void;
@@ -229,6 +265,9 @@ function TabButton({
   count?: number;
   /** An amber dot: something here wants a human. */
   attention?: boolean;
+  /** A status dot class after the label (e.g. the leader's presence). */
+  dot?: string;
+  dotTitle?: string;
 }) {
   return (
     <button
@@ -242,38 +281,11 @@ function TabButton({
     >
       <Icon className="h-3.5 w-3.5" />
       {label}
+      {dot && <span className={`h-1.5 w-1.5 rounded-full ${dot}`} title={dotTitle} />}
       {count !== undefined && <span className="text-xs font-normal text-muted-foreground">{count}</span>}
       {attention && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="Needs attention" />}
       <UnreadBadge count={badge} />
     </button>
-  );
-}
-
-// ─── Start work ──────────────────────────────────────────────────────
-
-/**
- * The quick-create row: creating work is how work *starts*, so it's on every
- * page, under both tabs. Spawning a teammate is deliberately absent — an agent
- * is capacity for running work, and it lives with the team (the Team tab).
- */
-const START_WORK = [
-  { to: "/stories/new", label: "New Story", icon: Plus },
-  { to: "/work-defs/new?type=Solitary", label: "Solitary Task", icon: Zap },
-  { to: "/work-defs/new?type=Scheduled", label: "Scheduled Job", icon: CalendarClock },
-];
-
-function StartWorkBar() {
-  return (
-    <div className="shrink-0 border-t border-border p-2">
-      <p className="px-1 pb-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">Start work</p>
-      <div className="flex flex-wrap gap-1">
-        {START_WORK.map((item) => (
-          <Button key={item.to} variant="outline" size="sm" className="h-7 px-2 text-xs" render={<Link to={item.to} />}>
-            <item.icon className="mr-1 h-3.5 w-3.5" />{item.label.replace("New ", "")}
-          </Button>
-        ))}
-      </div>
-    </div>
   );
 }
 

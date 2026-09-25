@@ -4,7 +4,6 @@
  * What used to be the right-hand TeammateSidebar, now a tab beside the
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center"):
  *
- *  - a toolbar: online count, then the team-size and spawn buttons
  *  - the teammates — the teammates (not the leader: it's the Assistant tab), each
  *    with status, current work, and working directory. Teammates open their live
  *    view in the center (`/teammates/:id`) and stay highlighted while it's
@@ -14,40 +13,23 @@
  * and the Queue tab on the home page.
  *
  * Presentational over `useTeamData` (owned by the dock, so badges stay live on
- * the other tab); the dialogs are the dock's too, so the rail can open them.
+ * the other tab). The team-size and spawn buttons live in the dock's tab row
+ * (right side, while this tab is active), and their dialogs are the dock's too,
+ * so the rail can open them.
  */
 
 import { useMatch } from "react-router-dom";
 import type { TeamData } from "@/hooks/useTeamData";
-import { SpawnRequestRow, TeamButtons, TeammateRow } from "./TeamParts";
+import { SpawnRequestRow, TeammateRow } from "./TeamParts";
 import { UserPlus, Users } from "lucide-react";
 
-export function TeamPanel({
-  team,
-  sizeTitle,
-  onSize,
-  onSpawn,
-}: {
-  team: TeamData;
-  sizeTitle: string;
-  onSize: () => void;
-  onSpawn: () => void;
-}) {
+export function TeamPanel({ team }: { team: TeamData }) {
   // Which teammate's view (if any) is in the center.
   const viewingId = useMatch("/teammates/:id")?.params.id ?? null;
   const { teammates, online, offline, pendingSpawns } = team;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <div className="flex h-10 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
-        <span className="text-xs text-muted-foreground">
-          {online.length} online{pendingSpawns.length > 0 ? ` · ${pendingSpawns.length} starting` : ""}
-        </span>
-        <div className="flex items-center">
-          <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={onSize} onSpawn={onSpawn} />
-        </div>
-      </div>
-
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
         {pendingSpawns.length > 0 && (
           <div className="pb-1">

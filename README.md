@@ -252,11 +252,12 @@ that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
 It lives in the **left dock**, available on every page, as the **Assistant** tab
-beside the **Team** tab (agents + live queue) — collapse the dock to an icon rail
+beside the **Team** tab (the teammates) — collapse the dock to an icon rail
 (with an unread badge), or drag its inner edge to resize. On narrow screens it
-becomes a floating button in the bottom-left corner. The dock also holds **New
-Story / Solitary Task / Scheduled Job**, under both tabs (see
-[docs/DESIGN.md](docs/DESIGN.md#the-shell-a-dock-and-a-center)).
+becomes a floating button in the bottom-left corner. Above both tabs, the dock's
+header row holds a **+** (New Story / Solitary Task / Scheduled Job) and the
+**queue summary** (counts, hover to preview, click for the Queue tab) — see
+[docs/DESIGN.md](docs/DESIGN.md#the-shell-a-dock-and-a-center).
 
 - **Send whenever you like.** The composer never locks. A message sent while the
   assistant is working is steered into its current run.
