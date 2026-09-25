@@ -263,8 +263,9 @@ does. Putting both at the top (they started at the bottom) left the chat
 composer flush at the bottom, like every chat app, and each tab's own actions
 (chat sessions; team size + spawn) moved into the tab row, so neither tab needs
 a toolbar of its own. The list itself, with its recovery actions, is a center view — the
-**Queue** tab on the home page, between Thoughts and Inbox, because that's
-where it sits in a piece of work's life (ideas → in flight → finished). It
+**Queue** tab on the home page, before the Inbox, because that's
+where it sits in a piece of work's life (in flight → finished; ideas start
+earlier, on Thoughts, now a top-level nav page of its own). It
 dropped off the Team tab: in-progress items are already on the teammate rows,
 and the strip covers the rest from either tab. (Considered: a nav chip with a
 popover — always visible even with the dock collapsed, but a popover is a poor

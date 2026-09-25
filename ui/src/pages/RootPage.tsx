@@ -1,49 +1,37 @@
 /**
- * RootPage — The team's home (`/`): `Thoughts | Queue | Inbox` tabs.
+ * RootPage — The team's home (`/`): `Queue | Inbox` tabs.
  *
- * Left to right, the life of a piece of work: Thoughts is the sticky-note
- * canvas (ideas), the Queue is work in flight (QueuePage — also summarized in
- * the dock's strip), and the Inbox reviews finished work. The active tab
- * follows the route (`/thoughts`, `/queue`, `/` = Inbox) so all three stay
- * deep-linkable.
+ * Left to right, the life of a piece of work: the Queue is work in flight
+ * (QueuePage — also summarized in the dock's strip), and the Inbox reviews
+ * finished work. The active tab follows the route (`/queue`, `/` = Inbox) so
+ * both stay deep-linkable.
  *
- * Two things deliberately live elsewhere now: the **assistant chat** and the
+ * Several things deliberately live elsewhere now: the **assistant chat** and the
  * **quick-create buttons** moved into the left `SideDock`, so starting work
- * is possible from any page rather than only from home. Foundational setup also
- * moved out: Workflows is a Board sub-tab and Context is a top-level nav item.
+ * is possible from any page rather than only from home. **Thoughts** (the idea
+ * canvas) is a top-level nav item (ThoughtsRoute in App.tsx). Foundational setup
+ * also moved out: Workflows is a Board sub-tab and Context is a top-level nav item.
  */
 
 import { useLocation } from "react-router-dom";
 import { RouteTabs } from "@/components/RouteTabs";
 import { InboxPage } from "./InboxPage";
-import { ThoughtsPage } from "./ThoughtsPage";
 import { QueuePage } from "./QueuePage";
 
 const TABS = [
-  { path: "/thoughts", label: "Thoughts" },
   { path: "/queue", label: "Queue" },
   // "/" is the Inbox tab: active whenever we're not on another root tab.
-  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/thoughts" && pathname !== "/queue" },
+  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/queue" },
 ];
 
 export function RootPage() {
   const location = useLocation();
-  const isThoughts = location.pathname === "/thoughts";
   const isQueue = location.pathname === "/queue";
-  // Thoughts owns a full-height layout (its canvas fills the area); the Inbox is
-  // a plain list that scrolls with the page.
-  const fillHeight = isThoughts;
 
   return (
-    <div className={`container mx-auto p-6 space-y-4 ${fillHeight ? "flex flex-col h-full min-h-0" : ""}`}>
-      {/* Wrap the tab bar so it keeps its content width: as a flex-column child
-          on the Thoughts tab it would otherwise stretch full-width (align-items
-          stretch). self-start is ignored in the Inbox's normal block flow. */}
-      <div className="self-start"><RouteTabs tabs={TABS} /></div>
-
-      {/* ThoughtsPage owns its own full-height layout (fills the bounded flex
-          column); the Inbox is a plain list that scrolls. */}
-      {isThoughts ? <div className="flex-1 min-h-0"><ThoughtsPage /></div> : isQueue ? <QueuePage /> : <InboxPage />}
+    <div className="container mx-auto p-6 space-y-4">
+      <RouteTabs tabs={TABS} />
+      {isQueue ? <QueuePage /> : <InboxPage />}
     </div>
   );
 }
