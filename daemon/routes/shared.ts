@@ -15,7 +15,7 @@ import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
 export function registerSharedRoutes(ctx: RouteContext): void {
-  const { app, store, config, teamDir, setPaused, startedAt } = ctx;
+  const { app, store, config, teamDir, setPaused, isPaused, startedAt } = ctx;
 
   // ─── Health ────────────────────────────────────────────────────────
 
@@ -74,6 +74,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     const members = store.getMembers();
     return c.json({
       running: true,
+      // Task distribution paused (control/pause)? The UI needs it to render the
+      // pause toggle's real state and to explain why queued work isn't moving.
+      paused: isPaused(),
       stories: { total: stories.length, open: stories.filter(s => s.status === "open").length, done: stories.filter(s => s.status === "done").length },
       tasks: { total: totalTasks, byStatus: allTasks },
       members: { total: members.length, working: members.filter(m => m.status === "working").length, idle: members.filter(m => m.status === "idle").length },

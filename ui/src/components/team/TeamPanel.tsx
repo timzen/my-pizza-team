@@ -5,13 +5,13 @@
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center"):
  *
  *  - a toolbar: online count, then the team-size and spawn buttons
- *  - **Team** — the teammates (not the leader: it's the Assistant tab), each
+ *  - the teammates — the teammates (not the leader: it's the Assistant tab), each
  *    with status, current work, and working directory. Teammates open their live
  *    view in the center (`/teammates/:id`) and stay highlighted while it's
  *    there. Pending spawn requests and offline agents are listed too.
- *  - **Queue** — non-terminal WorkItems with recovery actions. It lives here
- *    for now; where an always-visible queue belongs is an open question
- *    (docs/ARCHITECTURE.md, SideDock).
+ *
+ * The work queue isn't here: it's the dock's summary strip (under both tabs)
+ * and the Queue tab on the home page.
  *
  * Presentational over `useTeamData` (owned by the dock, so badges stay live on
  * the other tab); the dialogs are the dock's too, so the rail can open them.
@@ -19,7 +19,7 @@
 
 import { useMatch } from "react-router-dom";
 import type { TeamData } from "@/hooks/useTeamData";
-import { QueueRow, SpawnRequestRow, TeamButtons, TeammateRow } from "./TeamParts";
+import { SpawnRequestRow, TeamButtons, TeammateRow } from "./TeamParts";
 import { UserPlus, Users } from "lucide-react";
 
 export function TeamPanel({
@@ -35,7 +35,7 @@ export function TeamPanel({
 }) {
   // Which teammate's view (if any) is in the center.
   const viewingId = useMatch("/teammates/:id")?.params.id ?? null;
-  const { teammates, online, offline, pendingSpawns, queue } = team;
+  const { teammates, online, offline, pendingSpawns } = team;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -79,16 +79,6 @@ export function TeamPanel({
           </p>
         )}
 
-        {/* Live queue: non-terminal WorkItems + recovery actions. */}
-        <div className="mt-1 border-t border-border pt-3">
-          <p className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
-            Queue ({queue.length})
-          </p>
-          {queue.length === 0 && <p className="px-1 text-xs text-muted-foreground">Nothing queued or in flight.</p>}
-          {queue.map((wi) => (
-            <QueueRow key={wi.id} item={wi} onCancel={team.cancelItem} onForceFail={team.forceFail} />
-          ))}
-        </div>
       </div>
     </div>
   );

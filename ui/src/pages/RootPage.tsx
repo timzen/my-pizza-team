@@ -1,8 +1,10 @@
 /**
- * RootPage — The team's home (`/`): Inbox + Thoughts tabs.
+ * RootPage — The team's home (`/`): `Thoughts | Queue | Inbox` tabs.
  *
- * The Inbox reviews completed work; Thoughts is the sticky-note canvas. The
- * active tab follows the route (`/` = Inbox, `/thoughts` = Thoughts) so both stay
+ * Left to right, the life of a piece of work: Thoughts is the sticky-note
+ * canvas (ideas), the Queue is work in flight (QueuePage — also summarized in
+ * the dock's strip), and the Inbox reviews finished work. The active tab
+ * follows the route (`/thoughts`, `/queue`, `/` = Inbox) so all three stay
  * deep-linkable.
  *
  * Two things deliberately live elsewhere now: the **assistant chat** and the
@@ -15,16 +17,19 @@ import { useLocation } from "react-router-dom";
 import { RouteTabs } from "@/components/RouteTabs";
 import { InboxPage } from "./InboxPage";
 import { ThoughtsPage } from "./ThoughtsPage";
+import { QueuePage } from "./QueuePage";
 
 const TABS = [
   { path: "/thoughts", label: "Thoughts" },
+  { path: "/queue", label: "Queue" },
   // "/" is the Inbox tab: active whenever we're not on another root tab.
-  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/thoughts" },
+  { path: "/", label: "Inbox", isActive: (pathname: string) => pathname !== "/thoughts" && pathname !== "/queue" },
 ];
 
 export function RootPage() {
   const location = useLocation();
   const isThoughts = location.pathname === "/thoughts";
+  const isQueue = location.pathname === "/queue";
   // Thoughts owns a full-height layout (its canvas fills the area); the Inbox is
   // a plain list that scrolls with the page.
   const fillHeight = isThoughts;
@@ -38,7 +43,7 @@ export function RootPage() {
 
       {/* ThoughtsPage owns its own full-height layout (fills the bounded flex
           column); the Inbox is a plain list that scrolls. */}
-      {isThoughts ? <div className="flex-1 min-h-0"><ThoughtsPage /></div> : <InboxPage />}
+      {isThoughts ? <div className="flex-1 min-h-0"><ThoughtsPage /></div> : isQueue ? <QueuePage /> : <InboxPage />}
     </div>
   );
 }

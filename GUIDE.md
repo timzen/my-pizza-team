@@ -59,7 +59,17 @@ The nav bar has four destinations, plus help/config/theme icons:
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
-The **home page** (`/`) has a quick-create row (New Story / Solitary Task / Scheduled Job) over two tabs: **Inbox** and **Assistant**.
+The **home page** (`/`) has three tabs — **Thoughts | Queue | Inbox** — the life of a piece of work, left to right: ideas, work in flight, finished work. (Quick-create and the assistant live in the left dock, on every page.)
+
+### Queue
+
+The Queue is work **in flight** — every WorkItem that hasn't finished — grouped by what it needs from you:
+
+- **At risk** (MORIBUND, amber) — its teammate went silent mid-work. Nothing retries it automatically: **Force-fail** it, or **Re-enqueue** a fresh attempt.
+- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy).
+- **Working** (IN_PROGRESS) — which teammate has it (click through to watch it) and for how long.
+
+You don't have to open the tab to keep an eye on it: the **queue strip** at the bottom of the left dock (above Start work, under both tabs) always shows the counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview every item and its status; click it to open the Queue tab. With the dock collapsed, the rail's ⏱ badge (amber when anything is at risk) does the same.
 
 ### Inbox
 
@@ -122,7 +132,7 @@ Each **agent** state can have a markdown **persona** file — role framing the t
 
 ## Teammates
 
-Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when something needs you (at-risk work, or a team size that can't be met). The collapsed dock shows everyone as avatars plus the queue count.
+Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing status, current work, and its working directory. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when a team size can't be met (at-risk work shows in the queue strip instead). The collapsed dock shows everyone as avatars.
 
 ### Watching a teammate
 
@@ -187,7 +197,7 @@ Details:
 The **leader** isn't part of the pool: it's a per-host singleton — and it's the
 agent the chat talks to.
 
-### Recovery actions (the Queue section)
+### Recovery actions (the Queue tab)
 
 - **Cancel** a `READY` item you don't want run.
 - **Force-fail** a `MORIBUND` item (a teammate that went silent), optionally **re-enqueuing** a fresh attempt.

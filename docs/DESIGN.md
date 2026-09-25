@@ -233,7 +233,7 @@ a time.
 
 | Column | What's there |
 | --- | --- |
-| **Dock** (`SideDock`) — two tabs | **Assistant**: the chat with the leader. **Team**: the agents (team size, spawn) and the live queue. Under both: New Story / Solitary Task / Scheduled Job |
+| **Dock** (`SideDock`) — two tabs | **Assistant**: the chat with the leader. **Team**: the teammates (team size, spawn). Under both: the queue summary strip, then New Story / Solitary Task / Scheduled Job |
 | **Center** (nav + `<main>`) | board, tasks, schedule, context, task detail, inbox, thoughts, a teammate's live view, config |
 
 *Why a dock, not a page:* talking to the assistant and watching the team are
@@ -246,19 +246,29 @@ second, right-hand sidebar. Two always-open columns squeezed the center — the
 thing you're actually working on — and in practice you look at one of them at a
 time. Tabs trade simultaneous visibility for the width; the **tab badges** win
 most of it back: unread replies on Assistant, the online count and an amber
-attention dot (at-risk work, a pool that can't spawn) on Team. Both tab bodies
+attention dot (a team size it can't meet) on Team. Both tab bodies
 stay mounted, so a half-typed chat message survives a peek at the team, and the
 data behind the badges is owned by the dock so it stays live on either tab or
 collapsed.
 
-*Where the queue lives* is still open: it should arguably always be visible,
-and for now it sits at the bottom of the Team tab (the collapsed rail shows its
-count). Candidates: a persistent strip at the bottom of the dock under both
-tabs, or a status chip in the nav that opens it.
+**The queue: a summary in the dock, the list in the center.** What needs to be
+always visible about work in flight is the *summary*, not the list — "2
+waiting · 1 at risk" answers "is anything stuck, does anything need me?". So
+a strip pinned to the bottom of the dock, under both tabs, carries the counts
+(at risk in amber: the one state that needs a human) and previews the list on
+hover. The list itself, with its recovery actions, is a center view — the
+**Queue** tab on the home page, between Thoughts and Inbox, because that's
+where it sits in a piece of work's life (ideas → in flight → finished). It
+dropped off the Team tab: in-progress items are already on the teammate rows,
+and the strip covers the rest from either tab. (Considered: a nav chip with a
+popover — always visible even with the dock collapsed, but a popover is a poor
+place to act on several items, and the nav navigates the center; the collapsed
+rail's ⏱ badge covers that case instead.)
 
 The dock collapses to an icon rail (remembered in `localStorage`) with both
 tabs' essentials: the chat (unread badge), quick-create, team size / spawn,
-teammate avatars (linking to their live view), and the queue count.
+teammate avatars (linking to their live view), and the queue count (linking to
+the Queue tab, amber when anything is at risk).
 
 The **Team tab is teammates only.** The leader is the agent behind the Assistant
 tab — its online dot is there — so listing and counting it on Team as well was

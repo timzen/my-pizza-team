@@ -54,6 +54,7 @@ function App() {
               {/* The chat lives in the dock now; keep the old URL working. */}
               <Route path="/assistant" element={<OpenAssistantTab><Navigate to="/" replace /></OpenAssistantTab>} />
               <Route path="/thoughts" element={<RootPage />} />
+              <Route path="/queue" element={<RootPage />} />
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />
               <Route path="/tasks" element={<TasksPage />} />
