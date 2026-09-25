@@ -6,13 +6,19 @@
  * Owned by the SideDock rather than the Team panel so the data (and the badges
  * derived from it — online count, queue size, "needs attention") stay live
  * while you're on the Assistant tab or the dock is collapsed.
+ *
+ * **Teammates only — the leader is left out.** The leader is the agent behind
+ * the Assistant tab (its presence is the status dot there), so listing and
+ * counting it on the Team tab too was double-booking one agent. It still
+ * matters to the team indirectly: `poolBlocked` is "no leader to spawn".
  */
 
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import type { TeammatePool } from "@/components/TeamSizeDialog";
-import type { QueueItem, SpawnRequest, Teammate } from "@/lib/team";
+import { roleOf, type QueueItem, type SpawnRequest, type Teammate } from "@/lib/team";
 
 export interface TeamData {
+  /** Pool teammates (never the leader). */
   teammates: Teammate[];
   online: Teammate[];
   offline: Teammate[];
@@ -40,7 +46,7 @@ export function useTeamData(): TeamData {
   );
   const { data: pool, refetch: refetchPool } = useApi<TeammatePool>("/api/teammate-pool", [], { pollInterval: 10_000 });
 
-  const teammates = data?.agents || [];
+  const teammates = (data?.agents || []).filter((a) => roleOf(a) === "teammate");
   const queue = queueData?.items || [];
   const poolBlocked = !!pool && pool.minTeammates > 0 && !pool.leaderPresent;
 

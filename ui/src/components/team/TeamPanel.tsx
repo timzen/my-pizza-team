@@ -5,8 +5,8 @@
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center"):
  *
  *  - a toolbar: online count, then the team-size and spawn buttons
- *  - **Team** — agents grouped as leader `[L]` / teammates `[Tn]`, each with
- *    status, current work, and working directory. Teammates open their live
+ *  - **Team** — the teammates (not the leader: it's the Assistant tab), each
+ *    with status, current work, and working directory. Teammates open their live
  *    view in the center (`/teammates/:id`) and stay highlighted while it's
  *    there. Pending spawn requests and offline agents are listed too.
  *  - **Queue** — non-terminal WorkItems with recovery actions. It lives here
