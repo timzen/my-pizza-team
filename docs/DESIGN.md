@@ -322,6 +322,39 @@ can't feed back into the target and flicker. Resizing starts from the plate as
 from the smaller stored size made the corner lag the pointer until the drag
 caught up — the plate felt stuck, then jumped.
 
+## Usage: a Ledger of Every Run
+
+Token usage is a **ledger**, one row per agent run, and rows are **never
+deleted**. It used to live and die with its story: archiving, backlogging, or
+deleting a story removed its usage rows, so finished work — the bulk of what the
+team spent — silently vanished from any history. Spend happened; archiving the
+story doesn't un-spend it. Each row snapshots the title of what it was for, so it
+stays legible after its ref is gone.
+
+**Every run is counted, labelled by kind** — `work` (a teammate's own run on a
+WorkItem, billed to it), `pairing`, `chat` (the leader), `other` (a teammate's
+foreign run: never billed to the item). Only work-item completions used to be
+reported, which left out the assistant chat entirely. **Cache tokens count**:
+with prompt caching most input is cache reads/writes, and reporting only Pi's
+uncached `input` made a real Opus run look like 3 input tokens. Cost was always
+right (it's Pi's own cache-aware total), so the dashboard leads with dollars and
+shows the token breakdown on hover.
+
+Days are the **user's** days: the browser sends its UTC offset and the daemon
+buckets by local date, so a late-night session doesn't spill into tomorrow.
+
+**The ledger is files; SQLite is a cache.** Each run is appended as one JSON
+line to `usage/YYYY-MM.jsonl` in the team dir, so it's committed with the
+stories, tasks, and config — the same "the team dir is the record" rule the
+rest of the daemon follows. `state.db` is gitignored, and usage used to live
+only there, so it didn't travel with the repo and a lost DB lost it. JSON Lines
+(not one JSON document, not markdown) because the ledger is append-only: every
+run is a one-line diff, a merge rarely conflicts, and it's `jq`-able. Monthly
+files keep any one file small. On boot the table is rebuilt from the files; the
+first boot on this version migrates the old DB rows and the `tokenUsage` that
+board tasks had mirrored into `task.json` — for archived stories, the only
+copy — deduplicated.
+
 ## Watching a Teammate: Live, and Only While Watched
 
 A teammate's page (`/teammates/:id`) is its Pi session rendered like a terminal,
