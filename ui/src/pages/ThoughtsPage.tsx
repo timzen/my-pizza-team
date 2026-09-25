@@ -33,6 +33,8 @@ interface Thought {
 interface ThoughtGroup { id: string; title: string; x: number; y: number; w: number; h: number; groupColor: string | null; plateOpacity: "subtle" | "medium" | "solid"; }
 interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
+/** localStorage key for the minimap on/off choice (default on). */
+const MINIMAP_KEY = "mpt.thoughts.minimap";
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 const MIN_GROUP_W = 180;
@@ -70,7 +72,14 @@ export function ThoughtsPage() {
   // of panning (toggled by the toolbar lasso or the `S` key). Shift+drag always
   // marquees regardless, so panning stays available.
   const [selectMode, setSelectMode] = useState(false);
-  const [minimapOn, setMinimapOn] = useState(false);
+  // Minimap: on by default, and the choice sticks (M / the Map button).
+  const [minimapOn, setMinimapOnState] = useState(() => localStorage.getItem(MINIMAP_KEY) !== "0");
+  const toggleMinimap = useCallback(() => {
+    setMinimapOnState((on) => {
+      try { localStorage.setItem(MINIMAP_KEY, on ? "0" : "1"); } catch { /* private mode */ }
+      return !on;
+    });
+  }, []);
   // While a note drag is under way: the notes being dragged (their plates stop
   // wrapping them, so a member can be dragged out) and the plate the drop would
   // land in ("canvas" = open canvas, which removes members from their group).
@@ -435,7 +444,7 @@ export function ThoughtsPage() {
       if (e.metaKey || e.ctrlKey || e.altKey) return;
 
       if (e.key === "s" || e.key === "S") { setSelectMode((m) => !m); return; }
-      if (e.key === "m" || e.key === "M") { setMinimapOn((m) => !m); return; }
+      if (e.key === "m" || e.key === "M") { toggleMinimap(); return; }
       // Selection-scoped.
       if (!selected.size) return;
       // Enter opens the (single) selected note, like double-clicking it.
@@ -447,7 +456,7 @@ export function ThoughtsPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup, openNote]);
+  }, [openId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup, openNote, toggleMinimap]);
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
@@ -465,7 +474,7 @@ export function ThoughtsPage() {
         <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${selectMode ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
           <BoxSelect className="h-4 w-4" /> Select{selected.size ? ` (${selected.size})` : ""}
         </button>
-        <button onClick={() => setMinimapOn((m) => !m)} title="Minimap (M)" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${minimapOn ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
+        <button onClick={toggleMinimap} title="Minimap (M)" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${minimapOn ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
           <MapIcon className="h-4 w-4" /> Map
         </button>
         <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
