@@ -7,9 +7,9 @@
  * bubble being quoted.
  *
  * Renders as the SideDock's Assistant tab (~300–560px), so it stays vertical
- * and tight: a slim toolbar (who you're talking to + sessions) under the dock's
- * tab bar, persona chips that scroll, 90%-width bubbles, and the composer
- * pinned to the bottom.
+ * and tight: persona chips that scroll, 90%-width bubbles, and the composer
+ * pinned to the bottom. It has no toolbar of its own: the dock's tab row shows
+ * the leader's presence (a dot on the tab) and the session menu.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -19,7 +19,6 @@ import { MessageBubble } from "./MessageBubble";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { Composer } from "./Composer";
 import { PersonaChips } from "./PersonaChips";
-import { SessionMenu } from "./SessionMenu";
 import type { AssistantStreamState } from "@/hooks/useAssistantStream";
 import { PERSONA_TAG, type AssistantMessage, type ContextEntry } from "@/lib/assistant-types";
 
@@ -32,7 +31,7 @@ interface AssistantChatProps {
 }
 
 export function AssistantChat({ stream, viewingId, onViewSession }: AssistantChatProps) {
-  const { session, messages, chatAgent, thinking, thoughts, connected, refresh } = stream;
+  const { session, messages, chatAgent, thinking, thoughts, refresh } = stream;
 
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
   const { data: contextData } = useApi<{ entries: ContextEntry[] }>("/api/context", [], { pollInterval: 30_000 });
@@ -47,7 +46,6 @@ export function AssistantChat({ stream, viewingId, onViewSession }: AssistantCha
   const chatOnline = chatAgent !== null;
   const personas = (contextData?.entries || []).filter((e) => e.tags.includes(PERSONA_TAG));
   const activePersonaId = personaData?.personaId ?? null;
-  const personaTitle = activePersonaId ? (personaData?.entry?.title ?? activePersonaId) : null;
   // Viewing history is read-only: sending would land in the *live* session and
   // silently move you out of the transcript you're reading.
   const isHistory = viewingId !== null;
@@ -92,25 +90,6 @@ export function AssistantChat({ stream, viewingId, onViewSession }: AssistantCha
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Toolbar (the dock's tab bar sits above it) */}
-      <div className="flex h-10 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
-        <div className="flex min-w-0 items-center gap-1.5">
-          {/* The title names *who you are talking to* — the persona when one is
-              chosen, otherwise the generic role. The agent behind it (the leader)
-              is in the status dot's tooltip; putting the org-chart word in a chat
-              window would be accurate and useless. */}
-          <h2 className="truncate text-sm font-semibold">{personaTitle ?? "Assistant"}</h2>
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${chatOnline ? "bg-green-500" : "bg-muted-foreground/40"}`}
-            title={chatOnline ? `Answered by ${chatAgent?.name}` : "No leader online to answer"}
-          />
-          {!connected && <span className="shrink-0 text-xs text-muted-foreground">· reconnecting…</span>}
-        </div>
-        <div className="flex shrink-0 items-center">
-          <SessionMenu viewingId={viewingId} onView={onViewSession} onChanged={refresh} compact />
-        </div>
-      </div>
-
       {/* Persona picker — hidden while reading history (it would swap the live chat) */}
       {!isHistory && personas.length > 0 && (
         <div className="shrink-0 overflow-x-auto px-3">

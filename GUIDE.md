@@ -59,7 +59,7 @@ The nav bar has four destinations, plus help/config/theme icons:
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
-The **home page** (`/`) has three tabs — **Thoughts | Queue | Inbox** — the life of a piece of work, left to right: ideas, work in flight, finished work. (Quick-create and the assistant live in the left dock, on every page.)
+The **home page** (`/`) has three tabs — **Thoughts | Queue | Inbox** — the life of a piece of work, left to right: ideas, work in flight, finished work. (Quick-create — the **+** beside the queue summary — and the assistant live in the left dock, on every page.)
 
 ### Queue
 
@@ -69,7 +69,7 @@ The Queue is work **in flight** — every WorkItem that hasn't finished — grou
 - **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy).
 - **Working** (IN_PROGRESS) — which teammate has it (click through to watch it) and for how long.
 
-You don't have to open the tab to keep an eye on it: the **queue strip** at the bottom of the left dock (above Start work, under both tabs) always shows the counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview every item and its status; click it to open the Queue tab. With the dock collapsed, the rail's ⏱ badge (amber when anything is at risk) does the same.
+You don't have to open the tab to keep an eye on it: the **queue summary** at the top of the left dock (the row beside the nav bar, above both tabs) always shows the counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview every item and its status; click it to open the Queue tab. With the dock collapsed, the rail's ⏱ badge (amber when anything is at risk) does the same.
 
 ### Inbox
 
@@ -83,7 +83,7 @@ The board (`/board`) shows active stories as horizontal swimlanes with task card
 
 ### Creating a Story
 
-Use **New Story** (from the home quick-create row, or `/stories/new`):
+Use **New Story** (from the dock's **+** menu, or `/stories/new`):
 
 1. **ID** — a URL-safe identifier
 2. **Workflow** — which workflow governs this story's tasks
@@ -166,7 +166,7 @@ talking, and a message box appears.
 ### Team size (how teammates get created)
 
 You don't spawn teammates one at a time — you **declare how many you want**. The
-Team tab's toolbar has two icons:
+Team tab's row (right of the tabs, while Team is showing) has two icons:
 
 - **Team size** (people icon) — the steady size of the teammate pool: set `3`
   and the daemon keeps three teammates online, spawning replacements whenever one
