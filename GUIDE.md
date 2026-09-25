@@ -253,7 +253,7 @@ A personal workspace — the **Thoughts** tab on the home page (beside Queue and
 - **Capture** — hit **+ Note**; it opens straight into the editor. Checklists (`- [ ] task`) render as checkboxes you can tick on the canvas or in the large view.
 - **Group by dragging** — drag a note **onto a group** to add it: once it's about half over (or your pointer is), the group highlights and **grows to wrap it**, showing where it'll land before you let go. Drag a member **off every group** to take it out (its border goes dashed while it's leaving).
 - **Resize a group** with the grip on its bottom-right corner (a group always wraps its notes, so it won't shrink past them). Dragging a selection moves them all. Moving a group carries its notes; moving a group over loose notes doesn't absorb them — only a drop changes membership.
-- **Organize** — pin the important ones, **Tidy** to grid-arrange, archive what's done. Select mode (`S`) or shift+drag marquee-selects; `Delete` archives, `1–6` recolor the selection, `G` groups it, `M` toggles the minimap.
+- **Organize** — pin the important ones, **Tidy** to grid-arrange, archive what's done. Select mode (`S`) or shift+drag marquee-selects; `Delete` archives, `1–6` recolor the selection, `G` groups it, `M` toggles the minimap (shown by default; your choice is remembered).
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
 Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatter) — easy to hand-edit or grep; groups are in `groups.json`.
