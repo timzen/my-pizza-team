@@ -10,7 +10,7 @@
  *
  * Nothing scales *down*: lowering the number just stops replacements (dismissing
  * a teammate stays a human act). Backed by PUT /api/teammate-pool; the pool
- * state is owned by the TeammateSidebar (which also uses it for the header
+ * state is owned by the SideDock (useTeamData; it also drives the header
  * warning dot) and passed in.
  */
 

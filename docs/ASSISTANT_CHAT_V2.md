@@ -387,8 +387,11 @@ starts a fresh session seeded with this transcript").
 
 `ui/src/pages/AssistantPage.tsx` (315 lines, does everything) splits into the
 component set below. **Update:** the page itself is gone — the chat became the
-left `AssistantDock`, available from every route (see DESIGN.md "The Shell Reads
-Left to Right"), and `/assistant` is a redirect that opens the dock.
+left `AssistantDock`, available from every route, and `/assistant` is a
+redirect that opens the dock. **Update 2:** that dock is now the **Assistant**
+tab of `components/dock/SideDock.tsx` (beside a Team tab; DESIGN.md "The Shell:
+a Dock and a Center") — `AssistantDock`/`AssistantDockProvider` below became
+`SideDock`/`SideDockProvider`.
 
 ```
 ui/src/components/assistant/

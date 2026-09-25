@@ -6,7 +6,7 @@
  * deep-linkable.
  *
  * Two things deliberately live elsewhere now: the **assistant chat** and the
- * **quick-create buttons** moved into the left `AssistantDock`, so starting work
+ * **quick-create buttons** moved into the left `SideDock`, so starting work
  * is possible from any page rather than only from home. Foundational setup also
  * moved out: Workflows is a Board sub-tab and Context is a top-level nav item.
  */

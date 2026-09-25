@@ -251,12 +251,12 @@ leader's own tmux pane are **two views of one conversation**: the daemon mirrors
 that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
-It lives in the **left dock**, available on every page — collapse it to an icon
-rail (with an unread badge), or drag its inner edge to resize. On narrow screens
-it becomes a floating chat button in the bottom-left corner. The dock also holds
-**New Story / Solitary Task / Scheduled Job**, because the shell reads
-left-to-right: work starts on the left, runs on the right (see
-[docs/DESIGN.md](docs/DESIGN.md#the-shell-reads-left-to-right)).
+It lives in the **left dock**, available on every page, as the **Assistant** tab
+beside the **Team** tab (agents + live queue) — collapse the dock to an icon rail
+(with an unread badge), or drag its inner edge to resize. On narrow screens it
+becomes a floating button in the bottom-left corner. The dock also holds **New
+Story / Solitary Task / Scheduled Job**, under both tabs (see
+[docs/DESIGN.md](docs/DESIGN.md#the-shell-a-dock-and-a-center)).
 
 - **Send whenever you like.** The composer never locks. A message sent while the
   assistant is working is steered into its current run.

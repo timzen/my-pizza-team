@@ -225,32 +225,46 @@ Lead ↔ teammate communication is **task-level comments**, not a real-time chan
 in `comments.jsonl` per task. Agents load comments when they start work (to see
 feedback or rework instructions), rather than polling a chat stream.
 
-## The Shell Reads Left to Right
+## The Shell: a Dock and a Center
 
-The app's three columns are the life of a piece of work, in order:
+The app is two columns: a **dock** on the left for the things you keep an eye
+on *while* looking at something else, and a **center** that shows one thing at
+a time.
 
-| Column | Role | What's there |
-| --- | --- | --- |
-| **Left** (`AssistantDock`) | work **starts** | the assistant chat, and New Story / Solitary Task / Scheduled Job |
-| **Middle** (`<main>`) | work is **planned + reviewed** | board, task detail, inbox, thoughts, config |
-| **Right** (`TeammateSidebar`) | work **runs** | the team, the live queue, Spawn Teammate |
+| Column | What's there |
+| --- | --- |
+| **Dock** (`SideDock`) — two tabs | **Assistant**: the chat with the leader. **Team**: the agents (team size, spawn) and the live queue. Under both: New Story / Solitary Task / Scheduled Job |
+| **Center** (nav + `<main>`) | board, tasks, schedule, context, task detail, inbox, thoughts, a teammate's live view, config |
 
-*Why:* it gives every surface an obvious home and settles otherwise-arbitrary
-placement arguments. Creating work is *starting*, so quick-create sits with the
-assistant on the left; spawning an agent is *capacity for running work*, so it
-stays on the right with the team — even though both are "new something" buttons.
+*Why a dock, not a page:* talking to the assistant and watching the team are
+things you do alongside whatever's in the center. The chat stopped being a
+destination and became an ever-present companion (`/assistant` is just a
+redirect that opens its tab).
 
-Both edges are always available (they collapse to icon rails, remembered in
-`localStorage`) because talking to the assistant and watching the queue are things
-you do *while* looking at something else. That's why the chat is a dock rather
-than a page: it stopped being a destination and became an ever-present companion,
-and `/assistant` is now just a redirect that opens it. Below the `lg` breakpoint
-there's no room for columns, so the chat becomes the familiar floating
-corner-button panel instead — same chat, different presentation.
+*Why one dock with tabs, not a sidebar on each side:* the team used to be a
+second, right-hand sidebar. Two always-open columns squeezed the center — the
+thing you're actually working on — and in practice you look at one of them at a
+time. Tabs trade simultaneous visibility for the width; the **tab badges** win
+most of it back: unread replies on Assistant, the online count and an amber
+attention dot (at-risk work, a pool that can't spawn) on Team. Both tab bodies
+stay mounted, so a half-typed chat message survives a peek at the team, and the
+data behind the badges is owned by the dock so it stays live on either tab or
+collapsed.
+
+*Where the queue lives* is still open: it should arguably always be visible,
+and for now it sits at the bottom of the Team tab (the collapsed rail shows its
+count). Candidates: a persistent strip at the bottom of the dock under both
+tabs, or a status chip in the nav that opens it.
+
+The dock collapses to an icon rail (remembered in `localStorage`) with both
+tabs' essentials: the chat (unread badge), quick-create, team size / spawn,
+agent avatars (teammates link to their live view), and the queue count. Below
+the `lg` breakpoint there's no room for a column, so the dock becomes a floating
+corner-button panel — same tabs, different presentation.
 
 **The nav belongs to the middle.** The NavBar spans only the center column, not
-the whole window: it only ever changes what's in the middle, and the side columns
-are independent of it. The rule for the middle is *one thing at a time, and
+the whole window: it only ever changes what's in the middle, and the dock is
+independent of it. The rule for the middle is *one thing at a time, and
 whatever put it there is highlighted* — a nav tab for pages, a teammate row for a
 teammate's live view (docs/TEAMMATE_CHAT.md). Two things can drive the center
 without confusion as long as exactly one of them shows the selection.

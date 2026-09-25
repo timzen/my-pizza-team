@@ -1,21 +1,17 @@
 /**
  * App.tsx — Root application component with routing and layout.
  *
- * The shell reads left-to-right as the life of a piece of work: the
- * **AssistantDock** on the left is where work starts (chat + quick-create),
- * routed pages run in the middle, and the **TeammateSidebar** on the right is
- * where it executes (team + queue). Both edges collapse to icon rails.
- *
- * Three full-height columns with aligned h-14 headers. The **NavBar spans only
- * the center column**: it navigates the center, and the side columns are
- * independent of it (docs/TEAMMATE_CHAT.md §2).
+ * Two full-height columns with aligned h-14 headers: the **SideDock** on the
+ * left (tabs: the Assistant chat, and the Team — agents + live queue — plus
+ * quick-create; collapses to an icon rail) and the center (nav + routed page).
+ * The **NavBar spans only the center column**: it navigates the center, and the
+ * dock is independent of it (DESIGN.md "The Shell: a Dock and a Center").
  */
 
 import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { NavBar } from "./components/NavBar";
-import { TeammateSidebar } from "./components/TeammateSidebar";
-import { AssistantDock } from "./components/assistant/AssistantDock";
-import { AssistantDockProvider, OpenAssistantDock } from "./components/assistant/AssistantDockProvider";
+import { SideDock } from "./components/dock/SideDock";
+import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
 import { RootPage } from "./pages/RootPage";
 import { BoardPage } from "./pages/BoardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
@@ -40,13 +36,13 @@ import { TeammatePage } from "./pages/TeammatePage";
 function App() {
   return (
     <BrowserRouter>
-      <AssistantDockProvider>
+      <SideDockProvider>
       {/* h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
           columns and <main> then own their own scrolling. With a content-height
           shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
           grows the page instead of scrolling inside the dock. */}
       <div className="h-dvh overflow-hidden flex bg-background text-foreground">
-        <AssistantDock />
+        <SideDock />
         {/* The center column: its own nav on top, the routed page below.
             @container so the nav adapts to the room the docks leave, not the
             viewport width. */}
@@ -56,7 +52,7 @@ function App() {
             <Routes>
               <Route path="/" element={<RootPage />} />
               {/* The chat lives in the dock now; keep the old URL working. */}
-              <Route path="/assistant" element={<OpenAssistantDock><Navigate to="/" replace /></OpenAssistantDock>} />
+              <Route path="/assistant" element={<OpenAssistantTab><Navigate to="/" replace /></OpenAssistantTab>} />
               <Route path="/thoughts" element={<RootPage />} />
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />
@@ -82,9 +78,8 @@ function App() {
             </Routes>
           </main>
         </div>
-        <TeammateSidebar />
       </div>
-      </AssistantDockProvider>
+      </SideDockProvider>
     </BrowserRouter>
   );
 }

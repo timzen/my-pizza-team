@@ -26,9 +26,10 @@ driving multiple teammates at once, replacing the leader's chat dock.
 The center column shows **one thing**, and whatever put it there is
 highlighted: a nav tab for pages, a teammate row for `/teammates/:id`. To make
 that ownership legible, the **NavBar spans only the center column** — the
-three columns (assistant dock · center · teammate sidebar) are each full
-height, with aligned `h-14` headers. The nav stops pretending to own the side
-columns, which are independent.
+columns (originally assistant dock · center · teammate sidebar; since merged
+into one tabbed dock · center, DESIGN.md "The Shell: a Dock and a Center") are
+each full height, with aligned `h-14` headers. The nav stops pretending to own
+the side columns, which are independent.
 
 The center can get narrow (both docks open on a laptop), so the nav degrades:
 the "Pizza Team" wordmark hides first, then the links scroll horizontally

@@ -6,9 +6,10 @@
  * unread count. This component owns only *composing* state — the draft and the
  * bubble being quoted.
  *
- * Renders inside a ~320–560px dock, so it stays vertical and tight: persona
- * chips scroll, bubbles go to 90% width, and the composer is pinned to the
- * bottom.
+ * Renders as the SideDock's Assistant tab (~300–560px), so it stays vertical
+ * and tight: a slim toolbar (who you're talking to + sessions) under the dock's
+ * tab bar, persona chips that scroll, 90%-width bubbles, and the composer
+ * pinned to the bottom.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -28,11 +29,9 @@ interface AssistantChatProps {
   /** The session being viewed (null = follow the live one). */
   viewingId: string | null;
   onViewSession: (sessionId: string | null) => void;
-  /** Rendered at the far right of the header (the dock's collapse/close button). */
-  headerAction?: React.ReactNode;
 }
 
-export function AssistantChat({ stream, viewingId, onViewSession, headerAction }: AssistantChatProps) {
+export function AssistantChat({ stream, viewingId, onViewSession }: AssistantChatProps) {
   const { session, messages, chatAgent, thinking, thoughts, connected, refresh } = stream;
 
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
@@ -93,8 +92,8 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
 
   return (
     <div className="flex h-full min-h-0 flex-col">
-      {/* Header */}
-      <div className="flex h-14 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
+      {/* Toolbar (the dock's tab bar sits above it) */}
+      <div className="flex h-10 shrink-0 items-center justify-between gap-1 border-b border-border px-3">
         <div className="flex min-w-0 items-center gap-1.5">
           {/* The title names *who you are talking to* — the persona when one is
               chosen, otherwise the generic role. The agent behind it (the leader)
@@ -109,7 +108,6 @@ export function AssistantChat({ stream, viewingId, onViewSession, headerAction }
         </div>
         <div className="flex shrink-0 items-center">
           <SessionMenu viewingId={viewingId} onView={onViewSession} onChanged={refresh} compact />
-          {headerAction}
         </div>
       </div>
 
