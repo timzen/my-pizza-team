@@ -4,19 +4,23 @@
  *
  * The shell is two columns now: this dock, and the center (nav + page). The
  * dock holds both things you keep an eye on *while* looking at something else —
- * the chat with the leader, and the team working (agents + live queue) — and
+ * the chat with the leader, and the team working — and
  * the center shows one thing at a time (DESIGN.md "The Shell: a Dock and a
  * Center"). The team used to be a second sidebar on the right; merging it here
  * gives the center the width, at the cost of seeing one tab at a time — which
  * the tab badges soften: unread replies on Assistant, online count and an
- * attention dot (at-risk work, a pool that can't spawn) on Team.
+ * attention dot (a team size it can't meet) on Team.
+ *
+ * Under both tabs, pinned to the bottom: the **queue summary** strip (work in
+ * flight — counts, a hover preview, a link to the Queue tab on the home page;
+ * components/queue/QueueSummary) and **Start work** (quick-create).
  *
  * Three presentations, one dock:
  *  - `lg+` expanded — a resizable column (drag the inner edge, 300–560px, width
  *    remembered in localStorage) with a tab bar.
  *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), quick-create,
- *    the team buttons, agent avatars (teammates link to their live view), and
- *    the queue count.
+ *    the team buttons, teammate avatars (linking to their live view), and the
+ *    queue count (linking to the Queue tab; amber when anything is at risk).
  *  - below `lg` — a floating corner button that pops the dock open in place,
  *    tabs included.
  *
@@ -24,7 +28,7 @@
  * rendering both and hiding one would mount the chat twice (duplicate `msg-*`
  * ids, two scroll containers, double polling).
  *
- * The chat stream and the team data are owned here, not in the tabs, so
+ * The chat stream, the team data, and the queue are owned here, not in the tabs, so
  * collapsing or switching tabs never drops the SSE connection or the badges.
  * Both tab bodies stay mounted (the inactive one hidden) so a half-typed chat
  * message survives a peek at the team.
@@ -37,6 +41,8 @@ import { AssistantChat } from "@/components/assistant/AssistantChat";
 import { TeamPanel } from "@/components/team/TeamPanel";
 import { TeammateAvatar, TeamButtons } from "@/components/team/TeamParts";
 import { TeamSizeDialog } from "@/components/TeamSizeDialog";
+import { QueueSummary } from "@/components/queue/QueueSummary";
+import { useQueue } from "@/hooks/useQueue";
 import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useTeamData } from "@/hooks/useTeamData";
@@ -57,6 +63,7 @@ export function SideDock() {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const stream = useAssistantStream(viewingId ?? undefined);
   const team = useTeamData();
+  const queue = useQueue();
   const [width, startResize] = useDockWidth();
   const isDesktop = useMediaQuery(LG_QUERY);
   const [sizeOpen, setSizeOpen] = useState(false);
@@ -116,6 +123,7 @@ export function SideDock() {
           <div className="fixed bottom-20 left-4 z-40 flex h-[70vh] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl">
             {tabBar}
             {body}
+            <QueueSummary queue={queue} />
           </div>
         )}
         <button
@@ -170,16 +178,19 @@ export function SideDock() {
           {[...team.online, ...team.offline].map((t) => (
             <TeammateAvatar key={t.id} teammate={t} selected={t.id === viewingTeammate} />
           ))}
-          {team.queue.length > 0 && (
-            <button
-              type="button"
-              onClick={() => openTab("team")}
+          {queue.counts.total > 0 && (
+            <Link
+              to="/queue"
               className="relative mt-1 flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-              title={`${team.queue.length} item${team.queue.length === 1 ? "" : "s"} in the queue`}
+              title={`Queue: ${[
+                queue.counts.atRisk && `${queue.counts.atRisk} at risk`,
+                queue.counts.waiting && `${queue.counts.waiting} waiting`,
+                queue.counts.working && `${queue.counts.working} working`,
+              ].filter(Boolean).join(" · ")}`}
             >
               <Clock className="h-4 w-4" />
-              <CountBadge count={team.queue.length} className={team.needsAttention ? "bg-amber-500" : "bg-primary"} />
-            </button>
+              <CountBadge count={queue.counts.total} className={queue.counts.atRisk > 0 ? "bg-amber-500" : "bg-primary"} />
+            </Link>
           )}
         </div>
       </aside>
@@ -192,6 +203,7 @@ export function SideDock() {
       {dialogs}
       {tabBar}
       {body}
+      <QueueSummary queue={queue} />
       <StartWorkBar />
       {/* Drag the inner edge to resize — a chat at 300px is cramped for code. */}
       <div

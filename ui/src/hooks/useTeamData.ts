@@ -4,7 +4,7 @@
  * plus the actions on them.
  *
  * Owned by the SideDock rather than the Team panel so the data (and the badges
- * derived from it — online count, queue size, "needs attention") stay live
+ * derived from it — online count, "needs attention") stay live
  * while you're on the Assistant tab or the dock is collapsed.
  *
  * **Teammates only — the leader is left out.** The leader is the agent behind
@@ -15,7 +15,7 @@
 
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import type { TeammatePool } from "@/components/TeamSizeDialog";
-import { roleOf, type QueueItem, type SpawnRequest, type Teammate } from "@/lib/team";
+import { roleOf, type SpawnRequest, type Teammate } from "@/lib/team";
 
 export interface TeamData {
   /** Pool teammates (never the leader). */
@@ -23,17 +23,14 @@ export interface TeamData {
   online: Teammate[];
   offline: Teammate[];
   pendingSpawns: SpawnRequest[];
-  queue: QueueItem[];
   pool: TeammatePool | null;
   /** A declared size nothing can realize yet (no leader to act on spawns). */
   poolBlocked: boolean;
-  /** Something wants a human: an at-risk (MORIBUND) item or a blocked pool. */
+  /** The team wants a human: a declared size it can't meet (at-risk work is the queue strip's job). */
   needsAttention: boolean;
   dismiss: (id: string) => Promise<void>;
   reset: (t: Teammate) => Promise<void>;
   cancelSpawn: (id: string) => Promise<void>;
-  cancelItem: (id: string) => Promise<void>;
-  forceFail: (id: string, reEnqueue: boolean) => Promise<void>;
   refetchPool: () => void;
   refetchSpawns: () => void;
 }
@@ -41,13 +38,9 @@ export interface TeamData {
 export function useTeamData(): TeamData {
   const { data, refetch } = useApi<{ agents: Teammate[] }>("/api/agents", [], { pollInterval: 10_000 });
   const { data: spawnData, refetch: refetchSpawns } = useApi<{ requests: SpawnRequest[] }>("/api/spawn-requests", [], { pollInterval: 10_000 });
-  const { data: queueData, refetch: refetchQueue } = useApi<{ items: QueueItem[]; total: number }>(
-    "/api/work-items?state=READY,IN_PROGRESS,MORIBUND", [], { pollInterval: 5000 },
-  );
   const { data: pool, refetch: refetchPool } = useApi<TeammatePool>("/api/teammate-pool", [], { pollInterval: 10_000 });
 
   const teammates = (data?.agents || []).filter((a) => roleOf(a) === "teammate");
-  const queue = queueData?.items || [];
   const poolBlocked = !!pool && pool.minTeammates > 0 && !pool.leaderPresent;
 
   return {
@@ -55,10 +48,9 @@ export function useTeamData(): TeamData {
     online: teammates.filter((a) => a.status !== "offline"),
     offline: teammates.filter((a) => a.status === "offline"),
     pendingSpawns: spawnData?.requests || [],
-    queue,
     pool,
     poolBlocked,
-    needsAttention: poolBlocked || queue.some((q) => q.state === "MORIBUND"),
+    needsAttention: poolBlocked,
 
     // `?dismiss=true` tombstones the id so the agent actually shuts down (a plain
     // DELETE would just remove it, and the agent would re-register on its next
@@ -76,15 +68,6 @@ export function useTeamData(): TeamData {
     cancelSpawn: async (id) => {
       await apiDelete(`/api/spawn-requests/${encodeURIComponent(id)}`);
       refetchSpawns();
-    },
-    // Queue recovery actions (see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
-    cancelItem: async (id) => {
-      await apiPost(`/api/work-items/${encodeURIComponent(id)}/cancel`, {});
-      refetchQueue();
-    },
-    forceFail: async (id, reEnqueue) => {
-      await apiPost(`/api/work-items/${encodeURIComponent(id)}/force-fail`, { reEnqueue });
-      refetchQueue();
     },
     refetchPool,
     refetchSpawns,

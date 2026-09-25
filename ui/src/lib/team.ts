@@ -1,7 +1,7 @@
 /**
  * lib/team.ts — Types and small helpers shared by the Team tab's pieces
- * (hooks/useTeamData, components/team/*): who's on the team, what's queued,
- * and how an agent is classified and linked.
+ * (hooks/useTeamData, components/team/*): who's on the team, and how an agent
+ * is classified and linked. (The work queue's types are lib/queue.ts.)
  */
 
 export type Role = "leader" | "teammate";
@@ -15,17 +15,6 @@ export interface Teammate {
   /** taskId of the WorkItem this agent currently holds, if any. */
   currentWork?: string | null;
   lastHeartbeat: number;
-}
-
-export type QueueItemState = "READY" | "IN_PROGRESS" | "MORIBUND";
-
-/** A non-terminal WorkItem (terminal ones are reviewed in the Inbox). */
-export interface QueueItem {
-  id: string;
-  title: string;
-  state: QueueItemState;
-  memberId?: string | null;
-  directory?: string | null;
 }
 
 /** A pending spawn request the leader hasn't realized/acked yet. */

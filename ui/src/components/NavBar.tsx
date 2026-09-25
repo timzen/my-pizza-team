@@ -12,11 +12,10 @@
  * link highlights for those routes (and story/task detail) too.
  */
 
-import { useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
 import { Pizza, Settings, Pause, Play, HelpCircle } from "lucide-react";
-import { apiPost } from "@/hooks/useApi";
+import { apiPost, useApi } from "@/hooks/useApi";
 
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS = [
@@ -87,14 +86,19 @@ export function NavBar() {
   );
 }
 
-/** Toggle button for pausing/resuming task distribution */
+/**
+ * Toggle button for pausing/resuming task distribution. Reflects the daemon's
+ * real state (`/api/status` → `paused`): it used to assume "running" on every
+ * page load, so a paused daemon showed a pause button that paused nothing.
+ */
 function PauseButton() {
-  const [paused, setPaused] = useState(false);
+  const { data, refetch } = useApi<{ paused?: boolean }>("/api/status", [], { pollInterval: 30_000 });
+  const paused = !!data?.paused;
 
   const toggle = async () => {
     const endpoint = paused ? "/api/control/resume" : "/api/control/pause";
     await apiPost(endpoint, {});
-    setPaused(!paused);
+    refetch();
   };
 
   return (

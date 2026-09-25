@@ -1,9 +1,8 @@
 /**
  * TeamParts — The rows and avatars the Team tab and the dock's collapsed rail
  * are built from: an agent row (status, current work, directory; reset /
- * dismiss; teammates link to their live view), an avatar for the rail, a
- * pending-spawn row, and a queue row with recovery actions (cancel a READY
- * item; force-fail a MORIBUND one, optionally re-enqueuing).
+ * dismiss; teammates link to their live view), an avatar for the rail, and a
+ * pending-spawn row. (Queue rows live on the Queue tab — pages/QueuePage.)
  *
  * Moved out of the old right-hand TeammateSidebar when the team joined the
  * assistant in the left SideDock (DESIGN.md "The Shell: a Dock and a Center").
@@ -12,8 +11,8 @@
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Ban, AlertTriangle, Users, UserPlus } from "lucide-react";
-import { STATUS_DOT, dirName, roleOf, viewPath, type QueueItem, type Role, type SpawnRequest, type Teammate } from "@/lib/team";
+import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Users, UserPlus } from "lucide-react";
+import { STATUS_DOT, dirName, roleOf, viewPath, type Role, type SpawnRequest, type Teammate } from "@/lib/team";
 
 /**
  * The two team-level actions: set the steady team size, spawn one teammate in a
@@ -155,54 +154,6 @@ export function TeammateRow({
           </Badge>
         </div>
       )}
-    </div>
-  );
-}
-
-const QUEUE_CHIP: Record<string, { label: string; cls: string }> = {
-  READY: { label: "queued", cls: "text-muted-foreground" },
-  IN_PROGRESS: { label: "working", cls: "text-green-600 border-green-500/50" },
-  MORIBUND: { label: "at risk", cls: "text-amber-600 border-amber-500/50" },
-};
-
-/** A non-terminal WorkItem with state-appropriate recovery actions. */
-export function QueueRow({
-  item,
-  onCancel,
-  onForceFail,
-}: {
-  item: QueueItem;
-  onCancel: (id: string) => void;
-  onForceFail: (id: string, reEnqueue: boolean) => void;
-}) {
-  const chip = QUEUE_CHIP[item.state] || QUEUE_CHIP.READY!;
-  return (
-    <div className="group rounded-md border border-border bg-background p-2.5 mb-2">
-      <div className="flex items-center gap-2">
-        {item.state === "MORIBUND" && <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-500" />}
-        <span className="text-sm truncate flex-1" title={item.title}>{item.title}</span>
-        <Badge variant="outline" className={`text-[10px] px-1 py-0 shrink-0 ${chip.cls}`}>{chip.label}</Badge>
-      </div>
-      {item.memberId && (
-        <p className="text-[11px] text-muted-foreground mt-1 truncate">held by {item.memberId}</p>
-      )}
-      <div className="flex items-center gap-1 mt-1.5 opacity-0 group-hover:opacity-100 transition-opacity">
-        {item.state === "READY" && (
-          <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => onCancel(item.id)} title="Cancel this queued item">
-            <Ban className="h-3 w-3 mr-1" />Cancel
-          </Button>
-        )}
-        {item.state === "MORIBUND" && (
-          <>
-            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => onForceFail(item.id, false)} title="Force this abandoned item to FAILED">
-              <X className="h-3 w-3 mr-1" />Force-fail
-            </Button>
-            <Button variant="ghost" size="sm" className="h-6 px-1.5 text-xs" onClick={() => onForceFail(item.id, true)} title="Force-fail and enqueue a fresh attempt">
-              <RotateCcw className="h-3 w-3 mr-1" />Re-enqueue
-            </Button>
-          </>
-        )}
-      </div>
     </div>
   );
 }
