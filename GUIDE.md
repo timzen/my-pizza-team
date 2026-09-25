@@ -122,7 +122,7 @@ Each **agent** state can have a markdown **persona** file — role framing the t
 
 ## Teammates
 
-Teammates appear in a persistent right-hand column on every page, grouped by role — leader, assistant, and the teammate pool — each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions.
+Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the leader and the teammate pool, each showing status, current work, and its working directory. Below them, a **Queue** section lists non-terminal WorkItems with recovery actions. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when something needs you (at-risk work, or a team size that can't be met). The collapsed dock shows everyone as avatars plus the queue count.
 
 ### Watching a teammate
 
@@ -156,7 +156,7 @@ talking, and a message box appears.
 ### Team size (how teammates get created)
 
 You don't spawn teammates one at a time — you **declare how many you want**. The
-team header (`Team (n)`) has two icons beside it:
+Team tab's toolbar has two icons:
 
 - **Team size** (people icon) — the steady size of the teammate pool: set `3`
   and the daemon keeps three teammates online, spawning replacements whenever one
