@@ -290,6 +290,38 @@ whatever put it there is highlighted* — a nav tab for pages, a teammate row fo
 teammate's live view (docs/TEAMMATE_CHAT.md). Two things can drive the center
 without confusion as long as exactly one of them shows the selection.
 
+## Thoughts: Uniform Cards, Opened to Read
+
+The Thoughts canvas is a board, so its notes are **all one size**. Variable-size
+notes (and a "show more" clamp on tall ones) made the canvas a collage you had
+to read rather than scan, and made tidy grids and group plates ragged. A card
+shows the start of a note and fades out; the note itself opens in a large
+**view/edit dialog** — double-click, the hover ⤢ icon (discoverable, and works
+without a double-click), or Enter on a selection. The per-note controls that
+crowded a hover toolbar (color swatches, pin, group, archive, delete) moved into
+that dialog's header: they're things you do *to a note you're looking at*, not
+to a card you're skimming past. Every way of closing it saves — a thought is
+never lost to a missed button.
+
+**Group membership is drag-and-drop.** Dropping a note on a plate adds it;
+dropping a member on open canvas removes it — the plate under the pointer
+highlights as you go. It's still *explicit*: only a drop changes membership,
+never a position (moving a plate over loose notes doesn't absorb them), which
+keeps the old rule that membership never depends on where a note happens to
+sit. While a note is being dragged, its plate stops wrapping it; otherwise a
+member dragged toward the edge would stretch its own plate along with it and
+could never leave. The rules are pure geometry (`ui/src/lib/thoughtGeometry.ts`)
+with their own tests.
+
+The drop gets an affordance before it happens: once the note is about half
+over a plate — its center inside, or the pointer, so it works wherever you
+grabbed it — the plate highlights and **grows to wrap it** (the rect it'll
+settle at after the drop). The target test ignores that growth, so the preview
+can't feed back into the target and flicker. Resizing starts from the plate as
+*drawn*: its stored rect is only a minimum (members stretch it), and resizing
+from the smaller stored size made the corner lag the pointer until the drag
+caught up — the plate felt stuck, then jumped.
+
 ## Watching a Teammate: Live, and Only While Watched
 
 A teammate's page (`/teammates/:id`) is its Pi session rendered like a terminal,

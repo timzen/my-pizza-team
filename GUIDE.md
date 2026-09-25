@@ -246,10 +246,14 @@ Tag a context entry with **`persona`** to make it a swappable assistant persona.
 
 ## Thoughts
 
-A personal workspace — the **Thoughts** tab on the home page (alongside Inbox and Assistant). An infinite canvas of markdown sticky notes you can pan, zoom, drag, color, pin, and group.
+A personal workspace — the **Thoughts** tab on the home page (beside Queue and Inbox). An infinite canvas of markdown sticky notes you can pan, zoom, drag, and group.
 
-- **Capture** — hit **+ Note** and write markdown; checklists (`- [ ] task`) render as checkboxes you can tick right on the note.
-- **Organize** — drag notes around, group related ones (they get a labeled, tintable plate), pin the important ones, **Tidy** to grid-arrange, archive what's done. Select mode (`S`) or shift+drag marquee-selects; `Delete` archives, `1–6` recolor, `G` groups, `M` toggles the minimap.
+- **Notes are all the same size** on the canvas, so the board scans as a board; a long note shows its start and fades out.
+- **Open a note** to read or write it in full: **double-click** it, click the **⤢** icon in its corner (on hover), or select it and press **Enter**. The large view opens in Preview (Edit for a new or empty note — double-click the text or hit **Edit** to write). Its header has everything else: **color**, pin, group, copy id, archive, delete. Closing it any way (Esc, Done, clicking outside, ⌘↵) **saves** — there's no way to lose an edit.
+- **Capture** — hit **+ Note**; it opens straight into the editor. Checklists (`- [ ] task`) render as checkboxes you can tick on the canvas or in the large view.
+- **Group by dragging** — drag a note **onto a group** to add it: once it's about half over (or your pointer is), the group highlights and **grows to wrap it**, showing where it'll land before you let go. Drag a member **off every group** to take it out (its border goes dashed while it's leaving).
+- **Resize a group** with the grip on its bottom-right corner (a group always wraps its notes, so it won't shrink past them). Dragging a selection moves them all. Moving a group carries its notes; moving a group over loose notes doesn't absorb them — only a drop changes membership.
+- **Organize** — pin the important ones, **Tidy** to grid-arrange, archive what's done. Select mode (`S`) or shift+drag marquee-selects; `Delete` archives, `1–6` recolor the selection, `G` groups it, `M` toggles the minimap.
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
 Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatter) — easy to hand-edit or grep; groups are in `groups.json`.

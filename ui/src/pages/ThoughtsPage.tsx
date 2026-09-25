@@ -3,17 +3,27 @@
  *
  * A personal workspace/outbox that feeds the assistant. Pan/zoom canvas, drag
  * to arrange, create/edit/color/pin notes, group them, and archive/restore.
+ *
+ * Notes are **all one size** on the canvas (lib/thoughtGeometry): click to
+ * select, **double-click (or the hover ⤢ icon) to open** the large view/edit dialog
+ * (components/thoughts/NoteDialog), which is also where color, pin, group,
+ * archive, and delete live. **Drag a note onto a group plate** to add it;
+ * drag a member off every plate to remove it (the drop is the only thing that
+ * changes membership — position alone never does).
  * Deliberately excludes the standalone Thoughts product's cosmetic surface
  * (100+ backgrounds, skins, palettes). Talks to /api/thoughts. Two-state
  * lifecycle (active⇄archived); direct delete. See docs/ARCHITECTURE.md.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Pin, PinOff, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon, MoreHorizontal } from "lucide-react";
+import { Plus, Minus, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon, Maximize2 } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { NoteDialog } from "@/components/thoughts/NoteDialog";
 import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
+import { NOTE_W, NOTE_H, dropTarget, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
+import { toggleTaskMarker } from "@/lib/taskMarkers";
 
 interface Thought {
   id: string; content: string; color: string; status: "active" | "archived";
@@ -23,7 +33,6 @@ interface Thought {
 interface ThoughtGroup { id: string; title: string; x: number; y: number; w: number; h: number; groupColor: string | null; plateOpacity: "subtle" | "medium" | "solid"; }
 interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
-const NOTE_W = 220;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 const MIN_GROUP_W = 180;
@@ -38,15 +47,6 @@ function nextRotatedColor(notes: Thought[]): string {
   return THOUGHT_COLORS[(idx >= 0 ? idx + 1 : 0) % THOUGHT_COLORS.length];
 }
 
-/** Flip the index-th `- [ ]`↔`- [x]` task marker (source order) in markdown. */
-function toggleTaskMarker(content: string, index: number): string {
-  let i = -1;
-  return content.replace(/(^[ \t]*[-*+] \[)([ xX])(\])/gm, (m, pre, mark, post) => {
-    i++;
-    return i === index ? `${pre}${mark === " " ? "x" : " "}${post}` : m;
-  });
-}
-
 export function ThoughtsPage() {
   const { data, refetch } = useApi<ThoughtsData>("/api/thoughts?status=active");
   const { data: archivedData, refetch: refetchArchived } = useApi<ThoughtsData>("/api/thoughts?status=archived");
@@ -57,9 +57,9 @@ export function ThoughtsPage() {
   if (data && data !== seed) { setSeed(data); setNotes(data.thoughts); setGroups(data.groups); }
 
   const [view, setView] = useState({ tx: 40, ty: 40, scale: 1 });
-  const [editingId, setEditingId] = useState<string | null>(null);
-  const [editText, setEditText] = useState("");
-  const [noteMenuFor, setNoteMenuFor] = useState<string | null>(null);
+  // The note open in the large view/edit dialog (and whether to start in Edit).
+  const [openId, setOpenId] = useState<string | null>(null);
+  const [openEditing, setOpenEditing] = useState(false);
   const [platePaintFor, setPlatePaintFor] = useState<string | null>(null);
   const [editingGroupId, setEditingGroupId] = useState<string | null>(null);
   const [groupTitle, setGroupTitle] = useState("");
@@ -71,16 +71,18 @@ export function ThoughtsPage() {
   // marquees regardless, so panning stays available.
   const [selectMode, setSelectMode] = useState(false);
   const [minimapOn, setMinimapOn] = useState(false);
-  // Notes the user expanded past the clamp (tall notes are truncated by default
-  // so the board stays scannable).
-  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  // While a note drag is under way: the notes being dragged (their plates stop
+  // wrapping them, so a member can be dragged out) and the plate the drop would
+  // land in ("canvas" = open canvas, which removes members from their group).
+  const [dragIds, setDragIds] = useState<ReadonlySet<string>>(new Set());
+  const [dropHover, setDropHover] = useState<string | "canvas" | null>(null);
 
   const viewportRef = useRef<HTMLDivElement>(null);
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
   // Held in a ref so the window move/up listeners always see fresh values.
   const gesture = useRef<
     | { kind: "pan"; startX: number; startY: number; tx: number; ty: number; moved: boolean }
-    | { kind: "drag"; ids: string[]; startX: number; startY: number; starts: Array<{ id: string; x: number; y: number }>; moved: boolean }
+    | { kind: "drag"; ids: string[]; lead: string; startX: number; startY: number; starts: Array<{ id: string; x: number; y: number }>; moved: boolean }
     | { kind: "plate-move"; id: string; startX: number; startY: number; ox: number; oy: number; members: Array<{ id: string; x: number; y: number }> }
     | { kind: "plate-resize"; id: string; startX: number; startY: number; ow: number; oh: number }
     | { kind: "marquee"; startWX: number; startWY: number; curWX: number; curWY: number; additive: boolean; base: Set<string> }
@@ -100,7 +102,7 @@ export function ThoughtsPage() {
   // ─── Pan / marquee (drag on empty canvas) ─────────────────────────
   const onCanvasPointerDown = (e: React.PointerEvent) => {
     if (e.button !== 0) return;
-    setNoteMenuFor(null); setPlatePaintFor(null);
+    setPlatePaintFor(null);
     if (selectMode || e.shiftKey) {
       // Marquee select. Shift is additive (keep the current selection as a base).
       const { wx, wy } = screenToWorld(e.clientX, e.clientY);
@@ -113,7 +115,7 @@ export function ThoughtsPage() {
 
   // ─── Note drag / select ────────────────────────────────────────────
   const onNotePointerDown = (e: React.PointerEvent, note: Thought) => {
-    if (e.button !== 0 || editingId === note.id) return;
+    if (e.button !== 0) return;
     e.stopPropagation();
     if (e.shiftKey) {
       // Shift-click toggles the note in the selection (no drag).
@@ -124,7 +126,7 @@ export function ThoughtsPage() {
     // otherwise just this note (a click without movement selects it alone).
     const ids = selected.has(note.id) && selected.size > 1 ? [...selected] : [note.id];
     const starts = notes.filter((n) => ids.includes(n.id)).map((n) => ({ id: n.id, x: n.x, y: n.y }));
-    gesture.current = { kind: "drag", ids, startX: e.clientX, startY: e.clientY, starts, moved: false };
+    gesture.current = { kind: "drag", ids, lead: note.id, startX: e.clientX, startY: e.clientY, starts, moved: false };
   };
 
   // ─── Plate move / resize ───────────────────────────────────────────
@@ -142,7 +144,15 @@ export function ThoughtsPage() {
   const onPlateResizePointerDown = (e: React.PointerEvent, g: ThoughtGroup) => {
     if (e.button !== 0) return;
     e.stopPropagation();
-    gesture.current = { kind: "plate-resize", id: g.id, startX: e.clientX, startY: e.clientY, ow: g.w, oh: g.h };
+    // Resize from the plate as *drawn*, not its stored rect. The stored rect is
+    // only a minimum — members can stretch the plate past it — and the handle
+    // sits at the drawn corner. Starting from the smaller stored size meant the
+    // first stretch of every drag did nothing visible (the plate felt stuck,
+    // then jumped). Adopting the drawn rect makes the corner follow the pointer.
+    const r = plateRect(g, notes);
+    const drawn = { x: r.left, y: r.top, w: r.right - r.left, h: r.bottom - r.top };
+    setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, ...drawn } : gr)));
+    gesture.current = { kind: "plate-resize", id: g.id, startX: e.clientX, startY: e.clientY, ow: drawn.w, oh: drawn.h };
   };
 
   useEffect(() => {
@@ -155,8 +165,19 @@ export function ThoughtsPage() {
         setView((v) => ({ ...v, tx: g.tx + dxs, ty: g.ty + dys }));
       } else if (g.kind === "drag") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
-        if (Math.abs(dx) > 2 || Math.abs(dy) > 2) g.moved = true;
+        if (!g.moved && (Math.abs(dx) > 2 || Math.abs(dy) > 2)) { g.moved = true; setDragIds(new Set(g.ids)); }
         setNotes((ns) => ns.map((n) => { const s = g.starts.find((ss) => ss.id === n.id); return s ? { ...n, x: s.x + dx, y: s.y + dy } : n; }));
+        if (g.moved) {
+          // Where would a drop land? That plate highlights and grows around the
+          // note (the drop preview), or "leaving" when a member is over open
+          // canvas. The pointer *or* the grabbed note's center counts, so a
+          // note half over a plate targets it wherever you grabbed it.
+          const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+          const s = g.starts.find((ss) => ss.id === g.lead);
+          const lead = s ? noteCenter({ x: s.x + dx, y: s.y + dy }) : { x: wx, y: wy };
+          const target = dropTarget([{ x: wx, y: wy }, lead], groups, notes, new Set(g.ids));
+          setDropHover(target ?? "canvas");
+        }
       } else if (g.kind === "plate-move") {
         const { dx, dy } = screenToWorldDelta(e.clientX - g.startX, e.clientY - g.startY);
         setGroups((gs) => gs.map((gr) => (gr.id === g.id ? { ...gr, x: g.ox + dx, y: g.oy + dy } : gr)));
@@ -175,7 +196,7 @@ export function ThoughtsPage() {
         setMarquee({ x0: g.startWX, y0: g.startWY, x1: wx, y1: wy });
       }
     };
-    const onUp = () => {
+    const onUp = (e: PointerEvent) => {
       const g = gesture.current;
       gesture.current = null;
       if (g?.kind === "pan") {
@@ -183,14 +204,26 @@ export function ThoughtsPage() {
       } else if (g?.kind === "drag") {
         if (g.moved) {
           const ids = new Set(g.ids);
-          const moves = notes.filter((n) => ids.has(n.id)).map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }));
+          const dragged = notes.filter((n) => ids.has(n.id));
+          const moves = dragged.map((n) => ({ id: n.id, x: Math.round(n.x), y: Math.round(n.y) }));
           if (moves.length) apiPost("/api/thoughts/positions", { moves });
+          // Drag-and-drop membership: the drop (under the pointer) decides —
+          // onto a plate joins it, onto open canvas leaves the group.
+          const { wx, wy } = screenToWorld(e.clientX, e.clientY);
+          const leadNote = dragged.find((n) => n.id === g.lead);
+          const points = leadNote ? [{ x: wx, y: wy }, noteCenter(leadNote)] : [{ x: wx, y: wy }];
+          const changes = membershipChanges(dropTarget(points, groups, notes, ids), dragged);
+          if (changes.length) {
+            const byId = new Map(changes.map((c) => [c.id, c.groupId]));
+            setNotes((ns) => ns.map((n) => (byId.has(n.id) ? { ...n, groupId: byId.get(n.id)! } : n)));
+            for (const c of changes) apiPatch(`/api/thoughts/${c.id}`, { groupId: c.groupId });
+          }
         } else {
-          // Single-click (no drag) enters edit mode directly.
-          const target = notes.find((n) => n.id === g.ids[0]);
-          if (target) { setEditingId(target.id); setEditText(target.content); }
-          setSelected(new Set());
+          // A click (no drag) selects the note; double-click opens it.
+          setSelected(new Set(g.ids.slice(0, 1)));
         }
+        setDragIds(new Set());
+        setDropHover(null);
       } else if (g?.kind === "plate-move") {
         const gr = groups.find((x) => x.id === g.id);
         if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { x: Math.round(gr.x), y: Math.round(gr.y) });
@@ -199,12 +232,13 @@ export function ThoughtsPage() {
         if (moves.length) apiPost("/api/thoughts/positions", { moves });
       } else if (g?.kind === "plate-resize") {
         const gr = groups.find((x) => x.id === g.id);
-        if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { w: Math.round(gr.w), h: Math.round(gr.h) });
+        // x/y too: resizing adopts the drawn rect (see onPlateResizePointerDown).
+        if (gr) apiPatch(`/api/thought-groups/${gr.id}`, { x: Math.round(gr.x), y: Math.round(gr.y), w: Math.round(gr.w), h: Math.round(gr.h) });
       } else if (g?.kind === "marquee") {
         const x0 = Math.min(g.startWX, g.curWX), x1 = Math.max(g.startWX, g.curWX);
         const y0 = Math.min(g.startWY, g.curWY), y1 = Math.max(g.startWY, g.curWY);
         // Select notes whose rect intersects the marquee.
-        const hit = notes.filter((n) => n.x < x1 && n.x + (n.w ?? NOTE_W) > x0 && n.y < y1 && n.y + (n.h ?? 140) > y0).map((n) => n.id);
+        const hit = notes.filter((n) => n.x < x1 && n.x + NOTE_W > x0 && n.y < y1 && n.y + NOTE_H > y0).map((n) => n.id);
         setSelected(g.additive ? new Set([...g.base, ...hit]) : new Set(hit));
         setMarquee(null);
       }
@@ -213,6 +247,9 @@ export function ThoughtsPage() {
     window.addEventListener("pointerup", onUp);
     return () => { window.removeEventListener("pointermove", onMove); window.removeEventListener("pointerup", onUp); };
   }, [notes, groups, screenToWorldDelta, screenToWorld]);
+
+  // Open a note in the large view/edit dialog.
+  const openNote = useCallback((id: string, editing = false) => { setOpenId(id); setOpenEditing(editing); }, []);
 
   // ─── Wheel: swipe pans, pinch zooms (anchored at cursor) ───────────
   // Bound natively rather than via React's `onWheel` because React registers
@@ -251,22 +288,21 @@ export function ThoughtsPage() {
     const rect = viewportRef.current?.getBoundingClientRect();
     const cx = rect ? (rect.width / 2 - view.tx) / view.scale : 0;
     const cy = rect ? (rect.height / 2 - view.ty) / view.scale : 0;
-    const res = await apiPost<{ thought: Thought }>("/api/thoughts", { content: "", color: nextRotatedColor(notes), x: Math.round(cx), y: Math.round(cy) });
+    const res = await apiPost<{ thought: Thought }>("/api/thoughts", { content: "", color: nextRotatedColor(notes), x: Math.round(cx - NOTE_W / 2), y: Math.round(cy - NOTE_H / 2) });
     await refetch();
-    if (res.thought) { setEditingId(res.thought.id); setEditText(""); }
+    if (res.thought) openNote(res.thought.id, true);
   };
-  const saveEdit = async (id: string) => {
-    await apiPatch(`/api/thoughts/${id}`, { content: editText });
-    setEditingId(null);
-    refetch();
+  const saveContent = async (id: string, content: string) => {
+    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, content } : n)));
+    await apiPatch(`/api/thoughts/${id}`, { content });
   };
   const setColor = async (id: string, color: string) => {
     setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, color } : n)));
     await apiPatch(`/api/thoughts/${id}`, { color });
   };
-  const togglePin = async (n: Thought) => {
-    setNotes((ns) => ns.map((x) => (x.id === n.id ? { ...x, pinned: !x.pinned } : x)));
-    await apiPatch(`/api/thoughts/${n.id}`, { pinned: !n.pinned });
+  const setPinned = async (id: string, pinned: boolean) => {
+    setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, pinned } : x)));
+    await apiPatch(`/api/thoughts/${id}`, { pinned });
   };
   const archive = async (id: string) => { await apiPost(`/api/thoughts/${id}/archive`, {}); refetch(); refetchArchived(); };
   const restore = async (id: string) => { await apiPost(`/api/thoughts/${id}/restore`, {}); refetch(); refetchArchived(); };
@@ -288,7 +324,7 @@ export function ThoughtsPage() {
   };
 
   // Toggle a checklist item inside a note (rewrites the markdown, persists).
-  const toggleTask = async (n: Thought, index: number) => {
+  const toggleTask = async (n: Pick<Thought, "id" | "content">, index: number) => {
     const content = toggleTaskMarker(n.content, index);
     if (content === n.content) return;
     setNotes((ns) => ns.map((x) => (x.id === n.id ? { ...x, content } : x)));
@@ -304,8 +340,8 @@ export function ThoughtsPage() {
       const pad = 28;
       const minX = Math.min(...sel.map((n) => n.x)) - pad;
       const minY = Math.min(...sel.map((n) => n.y)) - pad;
-      const maxX = Math.max(...sel.map((n) => n.x + (n.w ?? NOTE_W))) + pad;
-      const maxY = Math.max(...sel.map((n) => n.y + (n.h ?? 140))) + pad;
+      const maxX = Math.max(...sel.map((n) => n.x + NOTE_W)) + pad;
+      const maxY = Math.max(...sel.map((n) => n.y + NOTE_H)) + pad;
       x = Math.round(minX); y = Math.round(minY); w = Math.round(maxX - minX); h = Math.round(maxY - minY);
     } else {
       // Empty group: place centered in the current viewport.
@@ -343,7 +379,7 @@ export function ThoughtsPage() {
   // grid the ungrouped notes in place. Groups stay anchored at their current
   // top-left. One batched note-position write + a geometry update per group.
   const tidy = async () => {
-    const GAP = 20, COL_W = NOTE_W + GAP, ROW_H = 200, PAD = 16, NH = 140;
+    const GAP = 20, COL_W = NOTE_W + GAP, ROW_H = NOTE_H + GAP, PAD = 16, NH = NOTE_H;
     const moves: Array<{ id: string; x: number; y: number }> = [];
     const groupUpdates: Array<{ id: string; x: number; y: number; w: number; h: number }> = [];
     for (const g of groups) {
@@ -375,10 +411,10 @@ export function ThoughtsPage() {
     for (const u of groupUpdates) apiPatch(`/api/thought-groups/${u.id}`, { x: u.x, y: u.y, w: u.w, h: u.h });
   };
 
-  // Membership is explicit (via a note's Group menu), not spatial — assigning
-  // never depends on where a note happens to sit. null removes it from a group.
+  // Membership is explicit — a drop on a plate (see the drag handler) or the
+  // dialog's Group picker — never inferred from where a note happens to sit.
+  // null removes it from a group.
   const assignGroup = async (id: string, groupId: string | null) => {
-    setNoteMenuFor(null);
     setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, groupId } : x)));
     await apiPatch(`/api/thoughts/${id}`, { groupId });
   };
@@ -389,9 +425,9 @@ export function ThoughtsPage() {
     const onKey = (e: KeyboardEvent) => {
       // Never hijack keys while typing in a note/title editor.
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (editingId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA") return;
+      if (openId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
-      if (e.key === "Escape") { setSelected(new Set()); setNoteMenuFor(null); setPlatePaintFor(null); return; }
+      if (e.key === "Escape") { setSelected(new Set()); setPlatePaintFor(null); return; }
       // Zoom (with modifier).
       if ((e.metaKey || e.ctrlKey) && e.key === "0") { e.preventDefault(); setView({ tx: 40, ty: 40, scale: 1 }); return; }
       if ((e.metaKey || e.ctrlKey) && (e.key === "=" || e.key === "+")) { e.preventDefault(); zoomBy(1.2); return; }
@@ -402,6 +438,8 @@ export function ThoughtsPage() {
       if (e.key === "m" || e.key === "M") { setMinimapOn((m) => !m); return; }
       // Selection-scoped.
       if (!selected.size) return;
+      // Enter opens the (single) selected note, like double-clicking it.
+      if (e.key === "Enter" && selected.size === 1) { e.preventDefault(); openNote([...selected][0]!); return; }
       if (e.key === "Delete" || e.key === "Backspace") { e.preventDefault(); archiveSelected(); return; }
       if (e.key === "g" || e.key === "G") { newGroup(); return; }
       const n = Number(e.key);
@@ -409,7 +447,7 @@ export function ThoughtsPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [editingId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup]);
+  }, [openId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup, openNote]);
 
   return (
     <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
@@ -460,22 +498,17 @@ export function ThoughtsPage() {
               Membership is set from a note's Group menu, not by position; the
               plate carries its member notes when you drag it. */}
           {groups.map((g) => {
-            const members = notes.filter((n) => n.groupId === g.id);
-            const memberCount = members.length;
-            // The plate encapsulates its members: render the union of its own
-            // stored rect (the movable/resizable minimum) and the members'
-            // bounding box (+padding), so adding a note grows the plate to wrap it.
-            const pad = 16;
-            let left = g.x, top = g.y, right = g.x + g.w, bottom = g.y + g.h;
-            for (const m of members) {
-              left = Math.min(left, m.x - pad);
-              top = Math.min(top, m.y - pad);
-              right = Math.max(right, m.x + (m.w ?? NOTE_W) + pad);
-              bottom = Math.max(bottom, m.y + (m.h ?? 140) + pad);
-            }
+            const memberCount = notes.filter((n) => n.groupId === g.id && !dragIds.has(n.id)).length;
+            // The plate wraps its members — minus any being dragged, so a
+            // member can be dragged out (lib/thoughtGeometry).
+            // Drop feedback: this plate would receive the dragged note(s), so it
+            // highlights and grows around them now — you see the group take the
+            // note before you let go (previewRect).
+            const isDropTarget = dropHover === g.id;
+            const { left, top, right, bottom } = isDropTarget ? previewRect(g, notes, dragIds) : plateRect(g, notes, dragIds);
             const rect = { left, top, width: right - left, height: bottom - top };
             return (
-            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className="group/plate absolute cursor-move rounded-xl border-2 border-dashed border-muted-foreground/30 bg-muted/20" style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 0, ...plateTintStyle(g.groupColor, g.plateOpacity) }}>
+            <div key={g.id} onPointerDown={(e) => onPlatePointerDown(e, g)} className={`group/plate absolute cursor-move rounded-xl border-2 border-dashed bg-muted/20 ${dragIds.size ? "transition-[left,top,width,height,background-color,border-color] duration-150" : "transition-colors"} ${isDropTarget ? "border-primary bg-primary/10" : "border-muted-foreground/30"}`} style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 0, ...plateTintStyle(g.groupColor, g.plateOpacity) }}>
               {/* Header (title + controls). Bubbles to the plate for moving;
                   the input/buttons stop propagation for their own actions. */}
               <div className="absolute -top-7 left-0 right-0 flex items-center justify-between gap-2">
@@ -512,107 +545,74 @@ export function ThoughtsPage() {
                 </div>
               )}
               {memberCount === 0 && (
-                <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/50">Empty group — add notes with a note's ⌘ Group menu</div>
+                <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/50">Empty group — drag notes here</div>
               )}
-              {/* Resize handle */}
-              <div onPointerDown={(e) => onPlateResizePointerDown(e, g)} className="absolute bottom-0 right-0 h-4 w-4 cursor-se-resize rounded-br-xl border-b-2 border-r-2 border-muted-foreground/40 opacity-0 transition-opacity group-hover/plate:opacity-100" />
+              {/* Resize handle: a 28px hit box straddling the corner (easy to
+                  grab), with a visible grip that's always faintly there and
+                  firms up on hover. */}
+              <div
+                onPointerDown={(e) => onPlateResizePointerDown(e, g)}
+                className="group/grip absolute -bottom-3 -right-3 z-10 flex h-8 w-8 cursor-se-resize items-center justify-center"
+                title="Drag to resize the group"
+              >
+                <span className="flex h-5 w-5 items-center justify-center rounded-md border border-border bg-background text-muted-foreground shadow-sm transition-colors group-hover/plate:border-muted-foreground/50 group-hover/plate:text-foreground group-hover/grip:border-primary group-hover/grip:text-primary">
+                  <svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden>
+                    <path d="M10.5 3.5 3.5 10.5M10.5 7 7 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+                  </svg>
+                </span>
+              </div>
             </div>
           ); })}
 
-          {/* Notes */}
-          {notes.map((n) => (
+          {/* Notes — all one size (lib/thoughtGeometry). Click selects,
+              double-click opens the large view/edit dialog, drag moves (and
+              drops onto / off of group plates). */}
+          {notes.map((n) => {
+            const dragging = dragIds.has(n.id);
+            // Dragging a member over open canvas: it'll leave its group on drop.
+            const leaving = dragging && dropHover === "canvas" && n.groupId !== null;
+            return (
             <div
               key={n.id}
               onPointerDown={(e) => onNotePointerDown(e, n)}
-              className={`group absolute rounded-lg border shadow-sm ${noteClass(n.color)} ${n.pinned ? "ring-2 ring-offset-1 ring-amber-400/70" : ""} ${selected.has(n.id) ? "outline outline-2 outline-primary outline-offset-2" : ""}`}
-              style={{ left: n.x, top: n.y, width: n.w ?? NOTE_W, minHeight: 80, zIndex: (n.zIndex || 1) + 1 }}
+              onDoubleClick={() => openNote(n.id)}
+              className={`group absolute flex flex-col overflow-hidden rounded-lg border shadow-sm ${noteClass(n.color)} ${n.pinned ? "ring-2 ring-offset-1 ring-amber-400/70" : ""} ${selected.has(n.id) ? "outline outline-2 outline-primary outline-offset-2" : ""} ${dragging ? "cursor-grabbing opacity-90 shadow-lg" : "cursor-pointer"} ${leaving ? "border-dashed" : ""}`}
+              style={{ left: n.x, top: n.y, width: NOTE_W, height: NOTE_H, zIndex: dragging ? 60 : (n.zIndex || 1) + 1 }}
+              title="Double-click to open"
+              data-note-id={n.id}
             >
-              {/* Hover toolbar: quick color swatches + a ⋯ overflow menu. */}
-              <div className="absolute -top-9 right-0 hidden pb-2 group-hover:block">
-                <div className="flex items-center gap-1 rounded-md border border-border bg-card px-1 py-0.5 shadow-sm" onPointerDown={(e) => e.stopPropagation()}>
-                  {THOUGHT_COLORS.map((c) => (
-                    <button key={c} onClick={() => setColor(n.id, c)} className={`h-3.5 w-3.5 rounded-full ${dotClass(c)} ${n.color === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
-                  ))}
-                  <div className="mx-0.5 h-4 w-px bg-border" />
-                  <button title="More" onClick={() => setNoteMenuFor(noteMenuFor === n.id ? null : n.id)} className="rounded p-1 text-muted-foreground hover:bg-accent/60 hover:text-foreground"><MoreHorizontal className="h-3.5 w-3.5" /></button>
-                </div>
+              {/* Body — clipped to the card with a soft fade (the full note is
+                  one double-click away). Checklists stay clickable here. */}
+              <div className="min-h-0 flex-1 overflow-hidden p-3 [mask-image:linear-gradient(to_bottom,black_75%,transparent)]">
+                {n.content.trim()
+                  ? <MarkdownView content={n.content} className="text-[13px] [&_p]:mb-1" onToggleTask={(i) => toggleTask(n, i)} />
+                  : <span className="text-sm text-muted-foreground/60">Empty note — double-click to write</span>}
               </div>
 
-              {/* ⋯ overflow menu — pin, group, copy id, archive, delete. */}
-              {noteMenuFor === n.id && (
-                <div className="absolute -top-8 right-0 z-40 w-48 rounded-md border border-border bg-card p-1 text-sm shadow" onPointerDown={(e) => e.stopPropagation()}>
-                  <button onClick={() => { togglePin(n); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60">{n.pinned ? <PinOff className="h-3.5 w-3.5" /> : <Pin className="h-3.5 w-3.5" />}{n.pinned ? "Unpin" : "Pin"}</button>
-                  <div className="my-1 border-t border-border" />
-                  <div className="px-2 py-0.5 text-[10px] uppercase tracking-wide text-muted-foreground">Group</div>
-                  {groups.length === 0 && <div className="px-2 py-1 text-xs text-muted-foreground">No groups yet</div>}
-                  {groups.map((gr) => (
-                    <button key={gr.id} onClick={() => assignGroup(n.id, gr.id)} className={`block w-full truncate rounded px-2 py-1 text-left hover:bg-accent/60 ${n.groupId === gr.id ? "font-medium text-foreground" : ""}`}>{n.groupId === gr.id ? "✓ " : ""}{gr.title}</button>
-                  ))}
-                  {n.groupId && <button onClick={() => assignGroup(n.id, null)} className="block w-full rounded px-2 py-1 text-left text-muted-foreground hover:bg-accent/60">Remove from group</button>}
-                  <div className="my-1 border-t border-border" />
-                  <button onClick={() => { archive(n.id); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left hover:bg-accent/60"><Archive className="h-3.5 w-3.5" />Archive</button>
-                  <button onClick={() => { remove(n.id); setNoteMenuFor(null); }} className="flex w-full items-center gap-2 rounded px-2 py-1 text-left text-red-600 hover:bg-accent/60"><Trash2 className="h-3.5 w-3.5" />Delete</button>
-                </div>
-              )}
-
-              {/* Body */}
-              {editingId === n.id ? (
-                <div className="p-2" onPointerDown={(e) => e.stopPropagation()}>
-                  <textarea
-                    autoFocus
-                    value={editText}
-                    onChange={(e) => setEditText(e.target.value)}
-                    onBlur={() => saveEdit(n.id)}
-                    onKeyDown={(e) => { if (e.key === "Escape") setEditingId(null); if ((e.metaKey || e.ctrlKey) && e.key === "Enter") saveEdit(n.id); }}
-                    className="h-32 w-full resize-none bg-transparent text-sm outline-none"
-                    placeholder="Write a thought… (markdown)"
-                  />
-                </div>
-              ) : (
-                <div className="cursor-text p-3" onDoubleClick={() => { setEditingId(n.id); setEditText(n.content); }}>
-                  {n.content.trim() ? (() => {
-                    // Heuristic clamp: long/tall notes are truncated with a
-                    // Show more toggle so the board stays scannable (no per-note
-                    // measuring). Expand is remembered per note for the session.
-                    const tall = n.content.length > 240 || (n.content.match(/\n/g)?.length ?? 0) > 6;
-                    const isExpanded = expanded.has(n.id);
-                    const clamp = tall && !isExpanded;
-                    return (
-                      <>
-                        <div className={clamp ? "relative max-h-56 overflow-hidden" : "relative"}>
-                          <MarkdownView content={n.content} onToggleTask={(i) => toggleTask(n, i)} />
-                          {clamp && <div className="pointer-events-none absolute inset-x-0 bottom-0 h-8 bg-gradient-to-t from-black/10 to-transparent dark:from-white/10" />}
-                        </div>
-                        {tall && (
-                          <button
-                            onPointerDown={(e) => e.stopPropagation()}
-                            onClick={() => setExpanded((s) => { const next = new Set(s); if (next.has(n.id)) next.delete(n.id); else next.add(n.id); return next; })}
-                            className="mt-1 text-xs font-medium text-muted-foreground hover:text-foreground"
-                          >
-                            {isExpanded ? "Show less" : "Show more"}
-                          </button>
-                        )}
-                      </>
-                    );
-                  })() : <span className="text-sm text-muted-foreground/60">Empty note — double-click to edit</span>}
-                </div>
-              )}
+              {/* Expand (top-right, on hover): the discoverable / touch-friendly
+                  twin of double-click. */}
+              <button
+                type="button"
+                onPointerDown={(e) => e.stopPropagation()}
+                onClick={(e) => { e.stopPropagation(); openNote(n.id); }}
+                className="absolute right-1 top-1 rounded bg-background/70 p-1 text-muted-foreground opacity-0 transition-opacity hover:bg-background hover:text-foreground group-hover:opacity-100 focus-visible:opacity-100"
+                title="Open"
+                aria-label="Open note"
+              >
+                <Maximize2 className="h-3.5 w-3.5" />
+              </button>
 
               {/* Group membership chip (bottom-left) + copyable note id (bottom-right), on hover. */}
-              {editingId !== n.id && (
-                <>
-                  {n.groupId && (
-                    <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
-                      <SquareStack className="h-2.5 w-2.5" /> {groupTitleById(n.groupId)}
-                    </div>
-                  )}
-                  <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
-                    <CopyId id={n.id} />
-                  </div>
-                </>
+              {n.groupId && (
+                <div className="pointer-events-none absolute bottom-1 left-1.5 flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 text-[10px] text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100">
+                  <SquareStack className="h-2.5 w-2.5" /> {leaving ? "leaving group" : groupTitleById(n.groupId)}
+                </div>
               )}
+              <div className="absolute bottom-1 right-1.5 opacity-0 transition-opacity group-hover:opacity-100">
+                <CopyId id={n.id} />
+              </div>
             </div>
-          ))}
+          ); })}
 
           {/* Marquee selection rectangle (shift+drag on empty canvas) */}
           {marquee && (
@@ -630,6 +630,22 @@ export function ThoughtsPage() {
         const vpW = r?.width ?? 800, vpH = r?.height ?? 600;
         setView((v) => ({ ...v, tx: vpW / 2 - wx * v.scale, ty: vpH / 2 - wy * v.scale }));
       }} />}
+
+      {/* The large view/edit experience (double-click a note). */}
+      <NoteDialog
+        note={notes.find((n) => n.id === openId) ?? null}
+        groups={groups}
+        startEditing={openEditing}
+        onClose={() => setOpenId(null)}
+        onSave={saveContent}
+        onColor={setColor}
+        onPin={setPinned}
+        onGroup={assignGroup}
+        onArchive={archive}
+        onDelete={remove}
+        onToggleTask={saveContent}
+        idChip={openId ? <CopyId id={openId} /> : null}
+      />
 
       {/* Archived drawer */}
       {showArchived && (
@@ -700,7 +716,7 @@ function Minimap({ notes, view, viewportRef, onRecenter }: {
   let minX = vwx0, minY = vwy0, maxX = vwx1, maxY = vwy1;
   for (const n of notes) {
     minX = Math.min(minX, n.x); minY = Math.min(minY, n.y);
-    maxX = Math.max(maxX, n.x + (n.w ?? NOTE_W)); maxY = Math.max(maxY, n.y + (n.h ?? 140));
+    maxX = Math.max(maxX, n.x + NOTE_W); maxY = Math.max(maxY, n.y + NOTE_H);
   }
   minX -= PAD; minY -= PAD; maxX += PAD; maxY += PAD;
   const extW = Math.max(1, maxX - minX), extH = Math.max(1, maxY - minY);
@@ -722,7 +738,7 @@ function Minimap({ notes, view, viewportRef, onRecenter }: {
       title="Minimap — click to jump"
     >
       {notes.map((n) => (
-        <div key={n.id} className="absolute rounded-[1px] bg-muted-foreground/50" style={{ left: mx(n.x), top: my(n.y), width: Math.max(2, (n.w ?? NOTE_W) * s), height: Math.max(2, (n.h ?? 140) * s) }} />
+        <div key={n.id} className="absolute rounded-[1px] bg-muted-foreground/50" style={{ left: mx(n.x), top: my(n.y), width: Math.max(2, NOTE_W * s), height: Math.max(2, NOTE_H * s) }} />
       ))}
       {/* Viewport rectangle */}
       <div className="absolute border border-primary bg-primary/10" style={{ left: mx(vwx0), top: my(vwy0), width: (vwx1 - vwx0) * s, height: (vwy1 - vwy0) * s }} />
