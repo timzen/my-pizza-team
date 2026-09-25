@@ -121,6 +121,16 @@ export class TeammateLoop {
     return this.agentRunning;
   }
 
+  /**
+   * Is the run that just ended this WorkItem's own run? (We hold an item and
+   * its prompt was picked up.) Decides whether a run's usage is billed to the
+   * item as `work` — a foreign run (a slash command, the previous item's
+   * wrap-up) must not be.
+   */
+  get ownsCurrentRun(): boolean {
+    return this.currentWorkItemId !== null && !this.awaitingWorkRun;
+  }
+
   get hasPendingRelease(): boolean {
     return this.pendingRelease !== null;
   }
@@ -332,13 +342,7 @@ export class TeammateLoop {
    * the item mid-turn (the `fail` tool), completion is skipped: the item is
    * already FAILED and the task is left stuck for a human.
    */
-  async handleAgentComplete(lastMessage: string, tokenUsage?: {
-    inputTokens: number;
-    outputTokens: number;
-    model: string;
-    /** Real cost from the harness (pi's cache-aware total). Preferred over the daemon's estimate. */
-    costUsd?: number;
-  }): Promise<void> {
+  async handleAgentComplete(lastMessage: string): Promise<void> {
     this.debugLog(`[ppt-debug] handleAgentComplete called. currentWorkItemId=${this.currentWorkItemId}, msgLen=${lastMessage.length}`);
     if (!this.currentWorkItemId) {
       this.debugLog(`[ppt-debug] handleAgentComplete: no currentWorkItemId, returning early`);
@@ -356,15 +360,8 @@ export class TeammateLoop {
 
     const workItemId = this.currentWorkItemId;
 
-    // Report token usage (include the harness-computed cost when we have it).
-    if (tokenUsage && (tokenUsage.inputTokens > 0 || tokenUsage.outputTokens > 0)) {
-      await this.client.reportTokenUsage(workItemId, {
-        inputTokens: tokenUsage.inputTokens,
-        outputTokens: tokenUsage.outputTokens,
-        model: tokenUsage.model,
-        costUsd: tokenUsage.costUsd,
-      }).catch(() => {});
-    }
+    // (Usage is reported for every run by the agent_end handler in index.ts —
+    // see usage.ts — not here, so pairing and non-work runs are counted too.)
 
     // ─── Failed mid-turn? The item is already FAILED (task left stuck). ───
     if (this.failedWorkItemId === workItemId) {

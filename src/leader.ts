@@ -29,6 +29,7 @@ import type { DaemonClient } from "./client.js";
 import { registerLeaderTools } from "./tools.js";
 import { resolveReadinessProbe, runReadinessProbe } from "./readiness.js";
 import { prepareSpawnConfig } from "./permissions.js";
+import { summarizeRun, hasUsage } from "./usage.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
@@ -373,6 +374,23 @@ export async function setupLeader(
   });
 
   pi.on("agent_settled", async () => { await chat.handleAgentSettled(); });
+
+  // Usage ledger: the leader's runs are the chat (web or its own pane), so
+  // they're reported as `chat` — the part of the spend that used to go
+  // uncounted (usage.ts; my-pizza-team daemon/routes/usage.ts).
+  pi.on("agent_end", async (event) => {
+    const usage = summarizeRun((event as { messages?: unknown[] }).messages as any);
+    if (!hasUsage(usage)) return;
+    await client.reportUsage({
+      inputTokens: usage.inputTokens,
+      outputTokens: usage.outputTokens,
+      cacheReadTokens: usage.cacheReadTokens,
+      cacheWriteTokens: usage.cacheWriteTokens,
+      model: usage.model,
+      costUsd: usage.costUsd,
+      kind: "chat",
+    }).catch(() => {});
+  });
 
   // Session control: "New chat" / "Resume" from the web UI. newSession() and
   // switchSession() only exist on COMMAND contexts, so the daemon's directives

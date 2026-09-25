@@ -97,6 +97,15 @@ exactly-once — the same split as leader directives. A release is a decision
 about the held work item (resume / complete / fail) and waits out a run in
 flight, so a reply to your message is never mistaken for the item's completion.
 
+### 5c. Every run's usage is reported, cache tokens included
+
+The daemon keeps a usage ledger for its dashboard, so the harness reports
+**every** agent run on `agent_end` (not just work-item completions): a
+teammate's own work run, runs while pairing, foreign runs, and the leader's
+chat, each labelled. Pi's `usage.input` is only uncached input; the cache
+read/write counts are reported too, or token figures are off by orders of
+magnitude under prompt caching. Cost is Pi's own cache-aware total.
+
 ### 6. Work selection is capability-based
 A teammate registers a **capability map** (its working `directory` plus any
 `--ppt-skills`). The daemon only offers it stories whose **requirements** it

@@ -12,6 +12,10 @@ const src = fs.readFileSync(
   path.join(import.meta.dirname, "../src/teammate.ts"),
   "utf-8"
 );
+const indexSrc = fs.readFileSync(
+  path.join(import.meta.dirname, "../src/index.ts"),
+  "utf-8"
+);
 
 let passed = 0;
 let failed = 0;
@@ -161,8 +165,14 @@ test("pause sends pairing heartbeat", () => {
 
 // ─── Token usage reporting ───────────────────────────────────────
 
-test("reports token usage via reportTokenUsage", () => {
-  assert.ok(src.includes("this.client.reportTokenUsage("));
+test("every run's usage is reported from agent_end (not only work completions)", () => {
+  const endHandler = indexSrc.slice(indexSrc.indexOf('pi.on("agent_end"'));
+  assert.ok(endHandler.includes("client.reportUsage("));
+  // Kind is decided from loop state: pairing / this item's own run / other.
+  assert.ok(endHandler.includes('!loop.isAutonomous ? "pairing" : loop.ownsCurrentRun ? "work" : "other"'));
+  // Reported before completion/release can change that state.
+  assert.ok(endHandler.indexOf("client.reportUsage(") < endHandler.indexOf("loop.handleAgentComplete("));
+  assert.ok(endHandler.indexOf("client.reportUsage(") < endHandler.indexOf("loop.applyPendingRelease("));
 });
 
 // ─── Prompt from claim ───────────────────────────────────────────
@@ -209,10 +219,6 @@ test("both completion and return paths finish via finishWorkItem", () => {
 
 // The wiring lives in index.ts: a command owns ctx.newSession() (session
 // control only exists on command contexts) and the loop queues it.
-const indexSrc = fs.readFileSync(
-  path.join(import.meta.dirname, "../src/index.ts"),
-  "utf-8"
-);
 
 test("index registers ppt-fresh-session command that calls newSession", () => {
   const cmd = indexSrc.slice(indexSrc.indexOf('registerCommand("ppt-fresh-session"'));
@@ -269,12 +275,13 @@ test("agent_start claims the run for the pending work prompt", () => {
 test("handleAgentComplete ignores agent_end from a foreign run", () => {
   const completeSection = src.slice(src.indexOf("async handleAgentComplete"));
   const guardIdx = completeSection.indexOf("if (this.awaitingWorkRun)");
-  const usageIdx = completeSection.indexOf("reportTokenUsage");
   const stateIdx = completeSection.indexOf("setWorkItemState");
-  // The guard must precede both the usage report and the COMPLETE call, so a
-  // foreign run neither bills nor completes the item.
+  // The guard must precede the COMPLETE call, so a foreign run doesn't
+  // complete the item. (Billing: a foreign run isn't `ownsCurrentRun`, so its
+  // usage is reported as `other`, not on the item.)
   assert.ok(guardIdx > -1);
-  assert.ok(guardIdx < usageIdx && guardIdx < stateIdx);
+  assert.ok(guardIdx < stateIdx);
+  assert.ok(src.includes("return this.currentWorkItemId !== null && !this.awaitingWorkRun;"));
 });
 
 test("index wires agent_start/agent_end into the loop's run bookkeeping", () => {

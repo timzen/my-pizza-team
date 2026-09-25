@@ -485,12 +485,27 @@ export class DaemonClient {
   // ═══════════════════════════════════════════════════════════════════
 
   /**
-   * Report token usage for a work item.
-   *
-   * Records input/output token counts and model name. When `costUsd` is
-   * supplied (pi's real, cache-aware cost — the number its powerline footer
-   * shows), the daemon stores it verbatim; otherwise the daemon falls back to a
-   * rough estimate from the model + token counts.
+   * Report one agent run's usage to the daemon's ledger (any kind of run).
+   * `workItemId` attaches it to that item's WorkDef (per-task cost rollups).
+   * Supersedes reportTokenUsage, which only covered work-item runs.
+   */
+  async reportUsage(usage: {
+    inputTokens: number;
+    outputTokens: number;
+    cacheReadTokens: number;
+    cacheWriteTokens: number;
+    model: string;
+    costUsd: number;
+    kind: "work" | "pairing" | "chat" | "other";
+    workItemId?: string;
+  }): Promise<{ success: boolean }> {
+    return this.post<{ success: boolean }>(`/api/agents/${encodeURIComponent(this.agentId)}/usage`, usage);
+  }
+
+  /**
+   * Legacy: token usage for a work item only (input/output + pi's cost; the
+   * daemon estimates when `costUsd` is absent). Kept for older daemons —
+   * current harnesses use reportUsage for every run.
    */
   async reportTokenUsage(workItemId: string, usage: {
     inputTokens: number;

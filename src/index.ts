@@ -20,6 +20,7 @@ import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
 import { DaemonClient } from "./client.js";
+import { summarizeRun, hasUsage } from "./usage.js";
 
 export default function (pi: ExtensionAPI) {
   // ─── Flag Registration ─────────────────────────────────────────────
@@ -280,31 +281,27 @@ async function setupTeammate(
     // loop is free to claim again.
     loop.handleAgentEnd();
 
-    const messages = event.messages || [];
-    let lastText = "";
-    let inputTokens = 0;
-    let outputTokens = 0;
-    let costUsd = 0;
-    let model = "unknown";
+    const usage = summarizeRun(event.messages as any);
+    const lastText = usage.lastText;
 
-    for (let i = messages.length - 1; i >= 0; i--) {
-      const msg = messages[i];
-      if (msg.role === "assistant") {
-        if (msg.usage) {
-          inputTokens += msg.usage.input || 0;
-          outputTokens += msg.usage.output || 0;
-          // pi computes the real, provider- + cache-aware cost per message
-          // (the same number its powerline footer shows). Prefer it over
-          // MPT's rough estimate.
-          costUsd += msg.usage.cost?.total || 0;
-        }
-        if (msg.model && model === "unknown") model = msg.model;
-        if (!lastText) {
-          for (const part of msg.content) {
-            if (part.type === "text") { lastText = part.text; break; }
-          }
-        }
-      }
+    // Every run goes in the usage ledger, labelled by what it was (usage.ts):
+    // this item's own run → `work` (billed to the item); a run while a human
+    // pairs → `pairing` (still on the held item, if any); anything else (a
+    // slash command, the previous item's wrap-up) → `other`, never billed to
+    // the item. Decided before release/completion below changes the state.
+    if (hasUsage(usage)) {
+      const kind = !loop.isAutonomous ? "pairing" : loop.ownsCurrentRun ? "work" : "other";
+      const workItemId = kind === "other" ? undefined : loop.currentTask ?? undefined;
+      await client.reportUsage({
+        inputTokens: usage.inputTokens,
+        outputTokens: usage.outputTokens,
+        cacheReadTokens: usage.cacheReadTokens,
+        cacheWriteTokens: usage.cacheWriteTokens,
+        model: usage.model,
+        costUsd: usage.costUsd,
+        kind,
+        workItemId,
+      }).catch(() => {});
     }
 
     if (lastText) lastAssistantText = lastText;
@@ -322,9 +319,9 @@ async function setupTeammate(
       return;
     }
 
-    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${inputTokens} out=${outputTokens}, cost=${costUsd}, model=${model}`);
+    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${usage.inputTokens} out=${usage.outputTokens} cacheR=${usage.cacheReadTokens} cacheW=${usage.cacheWriteTokens}, cost=${usage.costUsd}, model=${usage.model}`);
 
-    await loop.handleAgentComplete(lastText, { inputTokens, outputTokens, model, costUsd });
+    await loop.handleAgentComplete(lastText);
   });
 
   // ─── Live transcript (web UI watch view) ─────────────────────────

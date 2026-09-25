@@ -48,6 +48,7 @@ src/
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
 ├── transcript.ts         # TranscriptMirror: teammate's live session → daemon, only while watched in the web UI
 ├── pairing.ts            # WebPairing: polls web-pairing intent (pair / messages / release) for a teammate
+├── usage.ts              # summarizeRun: a run's tokens (incl. cache read/write), cost, model, last prose
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
@@ -96,8 +97,16 @@ working on it. Two guards, both in `TeammateLoop`:
   wired unconditionally in `index.ts`) — the loop never claims mid-run.
 - `awaitingWorkRun` (set just before the prompt is delivered, cleared by the
   next `agent_start`) — `handleAgentComplete` returns early while it is set, so
-  a foreign `agent_end` neither reports token usage nor completes the item. The
-  item stays IN_PROGRESS and is completed by its own run's `agent_end`.
+  a foreign `agent_end` doesn't complete the item (and its usage is reported as
+  `other`, not billed to the item — `ownsCurrentRun`). The item stays
+  IN_PROGRESS and is completed by its own run's `agent_end`.
+
+**Usage reporting (every run).** Each `agent_end` — teammate and leader — sums
+the run with `summarizeRun` (`src/usage.ts`: input, output, **cache read/write**,
+Pi's cost) and posts it to `POST /api/agents/:id/usage` with a kind: a
+teammate's own work run → `work` (+ `workItemId`); a run while paused/pairing →
+`pairing` (+ the held item); a foreign run → `other`; the leader → `chat`. The
+kind is decided before completion/release changes loop state.
 
 Rework needs no special path: a human moves the task back into an agent state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new
@@ -269,7 +278,8 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/agents/next-work?agentId=X` | GET | Poll for a `READY` WorkItem (directory affinity) |
 | `/api/agents/claim/:workItemId` | POST | Lease the WorkItem (→ IN_PROGRESS) + get the daemon prompt |
 | `/api/agents/work-items/:workItemId/state` | POST | Set COMPLETE (advance task) or FAILED (leave stuck) |
-| `/api/agents/work-items/:workItemId/token-usage` | POST | Report token usage + the harness's real `costUsd` (pi's cache-aware total; daemon estimates only if omitted) |
+| `/api/agents/:id/usage` | POST | Report one run's usage (tokens incl. cache, Pi's cost, model, kind, optional `workItemId`) — every run, teammate and leader |
+| `/api/agents/work-items/:workItemId/token-usage` | POST | Legacy work-item-only usage (`reportTokenUsage`; kept for older daemons) |
 | `/api/agents/work-items/:workItemId/attachments` | POST | Upload an attachment (resolved to the ref) |
 
 ### Task Routes
