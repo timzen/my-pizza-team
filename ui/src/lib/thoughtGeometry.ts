@@ -13,6 +13,9 @@
  * to that group; dropping a member outside every plate removes it. Membership
  * is still never *inferred* from position — only a drop (an explicit gesture)
  * changes it, so moving a plate over loose notes doesn't absorb them.
+ *
+ * Also the minimap's group chips: their order (`groupsByNoteCount`) and the
+ * jump that centers a group in the view (`centerViewOn`).
  */
 
 export const NOTE_W = 220;
@@ -104,4 +107,33 @@ export function membershipChanges(
   return draggedNotes
     .filter((n) => n.groupId !== target)
     .map((n) => ({ id: n.id, groupId: target }));
+}
+
+/**
+ * The minimap's group chips, in display order: most notes first (the biggest
+ * clusters are the likeliest places to jump to). Ties break by title, then id,
+ * so the row doesn't reshuffle between renders. Empty groups are kept (at the
+ * end) — they're still places on the board.
+ */
+export function groupsByNoteCount<P extends PlateLike & { title: string }>(
+  plates: P[],
+  notes: NoteLike[],
+): Array<{ plate: P; count: number }> {
+  const counts = new Map<string, number>();
+  for (const n of notes) if (n.groupId) counts.set(n.groupId, (counts.get(n.groupId) ?? 0) + 1);
+  return plates
+    .map((plate) => ({ plate, count: counts.get(plate.id) ?? 0 }))
+    .sort((a, b) =>
+      b.count - a.count ||
+      a.plate.title.localeCompare(b.plate.title) ||
+      a.plate.id.localeCompare(b.plate.id));
+}
+
+/**
+ * The view translation that centers world rect `r` in a `vpW × vpH` viewport
+ * at the current `scale` (zoom is left alone — a jump moves, it doesn't zoom).
+ */
+export function centerViewOn(r: Rect, vpW: number, vpH: number, scale: number): { tx: number; ty: number } {
+  const cx = (r.left + r.right) / 2, cy = (r.top + r.bottom) / 2;
+  return { tx: vpW / 2 - cx * scale, ty: vpH / 2 - cy * scale };
 }

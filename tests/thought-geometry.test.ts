@@ -3,11 +3,14 @@
  * membership rules (ui/src/lib/thoughtGeometry.ts): plates wrap their members,
  * a dragged member doesn't stretch its own plate, drops target the plate under
  * the pointer (topmost wins), and only real membership changes are emitted.
+ * Also the minimap's group chips: their ordering and the jump-to-center math.
  */
 
 import { assertEquals } from "@std/assert";
 import {
+  centerViewOn,
   dropTarget,
+  groupsByNoteCount,
   membershipChanges,
   NOTE_H,
   NOTE_W,
@@ -87,4 +90,33 @@ Deno.test("previewRect: the plate grows to wrap notes hovering over it", () => {
   });
   // ...but not for notes that aren't being dragged.
   assertEquals(previewRect(plate, [note], new Set()), { left: 0, top: 0, right: 300, bottom: 200 });
+});
+
+Deno.test("groupsByNoteCount: most notes first; ties by title; empty groups last", () => {
+  const plates = [
+    { id: "a", title: "Zed", x: 0, y: 0, w: 1, h: 1 },
+    { id: "b", title: "Beta", x: 0, y: 0, w: 1, h: 1 },
+    { id: "c", title: "Alpha", x: 0, y: 0, w: 1, h: 1 },
+    { id: "d", title: "Empty", x: 0, y: 0, w: 1, h: 1 },
+  ];
+  const notes = [
+    { id: "n1", x: 0, y: 0, groupId: "a" },
+    { id: "n2", x: 0, y: 0, groupId: "a" },
+    { id: "n3", x: 0, y: 0, groupId: "a" },
+    { id: "n4", x: 0, y: 0, groupId: "b" },
+    { id: "n5", x: 0, y: 0, groupId: "c" },
+    { id: "n6", x: 0, y: 0, groupId: null },
+  ];
+  assertEquals(
+    groupsByNoteCount(plates, notes).map(({ plate, count }) => [plate.title, count]),
+    [["Zed", 3], ["Alpha", 1], ["Beta", 1], ["Empty", 0]],
+  );
+});
+
+Deno.test("centerViewOn: the rect's center lands in the viewport's center", () => {
+  const r = { left: 100, top: 200, right: 300, bottom: 400 }; // center (200, 300)
+  const { tx, ty } = centerViewOn(r, 800, 600, 2);
+  // screen = world * scale + t
+  assertEquals(200 * 2 + tx, 400);
+  assertEquals(300 * 2 + ty, 300);
 });

@@ -10,6 +10,8 @@
  * archive, and delete live. **Drag a note onto a group plate** to add it;
  * drag a member off every plate to remove it (the drop is the only thing that
  * changes membership — position alone never does).
+ * With the minimap on, a row of **group chips** runs along the bottom (most
+ * notes first); clicking one centers that group in the view.
  * Deliberately excludes the standalone Thoughts product's cosmetic surface
  * (100+ backgrounds, skins, palettes). Talks to /api/thoughts. Two-state
  * lifecycle (active⇄archived); direct delete. See docs/ARCHITECTURE.md.
@@ -22,7 +24,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { NoteDialog } from "@/components/thoughts/NoteDialog";
 import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
-import { NOTE_W, NOTE_H, dropTarget, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
+import { NOTE_W, NOTE_H, centerViewOn, dropTarget, groupsByNoteCount, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
 
 interface Thought {
@@ -35,6 +37,8 @@ interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
 /** localStorage key for the minimap on/off choice (default on). */
 const MINIMAP_KEY = "mpt.thoughts.minimap";
+/** Minimap size (px); the group-chip row starts just right of it. */
+const MINIMAP_W = 192, MINIMAP_H = 128;
 const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 const MIN_GROUP_W = 180;
@@ -87,6 +91,19 @@ export function ThoughtsPage() {
   const [dropHover, setDropHover] = useState<string | "canvas" | null>(null);
 
   const viewportRef = useRef<HTMLDivElement>(null);
+  // The viewport's size, as state: render code (the minimap's viewport box)
+  // must not read the ref during render, and a ResizeObserver also keeps it
+  // right when the window or docks resize without the view changing.
+  const [vpSize, setVpSize] = useState({ w: 800, h: 600 });
+  useEffect(() => {
+    const el = viewportRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver(([entry]) => {
+      if (entry) setVpSize({ w: entry.contentRect.width, h: entry.contentRect.height });
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
   // Held in a ref so the window move/up listeners always see fresh values.
   const gesture = useRef<
@@ -281,7 +298,9 @@ export function ThoughtsPage() {
   }, []);
 
   // Button zoom: anchor on the viewport center so the view stays put.
-  const zoomBy = (factor: number) => {
+  // useCallback (like the other keyboard-shortcut actions below) so the
+  // keydown effect doesn't re-subscribe on every render.
+  const zoomBy = useCallback((factor: number) => {
     const rect = viewportRef.current?.getBoundingClientRect();
     const cx = rect ? rect.width / 2 : 0, cy = rect ? rect.height / 2 : 0;
     setView((v) => {
@@ -289,7 +308,7 @@ export function ThoughtsPage() {
       const k = next / v.scale;
       return { scale: next, tx: cx - (cx - v.tx) * k, ty: cy - (cy - v.ty) * k };
     });
-  };
+  }, []);
 
   // ─── Mutations ─────────────────────────────────────────────────────
   const createNote = async () => {
@@ -318,19 +337,19 @@ export function ThoughtsPage() {
   const remove = async (id: string) => { await apiDelete(`/api/thoughts/${id}`); refetch(); refetchArchived(); };
 
   // ─── Selection-scoped actions (keyboard + multi-select) ───────────────
-  const archiveSelected = async () => {
+  const archiveSelected = useCallback(async () => {
     const ids = [...selected];
     if (!ids.length) return;
     setSelected(new Set());
     await Promise.all(ids.map((id) => apiPost(`/api/thoughts/${id}/archive`, {}).catch(() => {})));
     refetch(); refetchArchived();
-  };
-  const colorSelected = async (color: string) => {
+  }, [selected, refetch, refetchArchived]);
+  const colorSelected = useCallback(async (color: string) => {
     const ids = [...selected];
     if (!ids.length) return;
     setNotes((ns) => ns.map((n) => (selected.has(n.id) ? { ...n, color } : n)));
     await Promise.all(ids.map((id) => apiPatch(`/api/thoughts/${id}`, { color }).catch(() => {})));
-  };
+  }, [selected]);
 
   // Toggle a checklist item inside a note (rewrites the markdown, persists).
   const toggleTask = async (n: Pick<Thought, "id" | "content">, index: number) => {
@@ -340,7 +359,7 @@ export function ThoughtsPage() {
     await apiPatch(`/api/thoughts/${n.id}`, { content });
   };
 
-  const newGroup = async () => {
+  const newGroup = useCallback(async () => {
     const memberIds = [...selected];
     let x: number, y: number, w: number | undefined, h: number | undefined;
     if (memberIds.length) {
@@ -362,7 +381,7 @@ export function ThoughtsPage() {
     setSelected(new Set());
     await refetch();
     if (res.group) { setEditingGroupId(res.group.id); setGroupTitle(res.group.title); }
-  };
+  }, [selected, notes, view, refetch]);
   const saveGroupTitle = async (id: string) => {
     const title = groupTitle.trim() || "New Group";
     setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, title } : g)));
@@ -634,10 +653,17 @@ export function ThoughtsPage() {
       </div>
 
       {/* Minimap (bottom-left; M toggles) */}
-      {minimapOn && <Minimap notes={notes} view={view} viewportRef={viewportRef} onRecenter={(wx, wy) => {
+      {minimapOn && <Minimap notes={notes} view={view} vpW={vpSize.w} vpH={vpSize.h} onRecenter={(wx, wy) => {
         const r = viewportRef.current?.getBoundingClientRect();
         const vpW = r?.width ?? 800, vpH = r?.height ?? 600;
         setView((v) => ({ ...v, tx: vpW / 2 - wx * v.scale, ty: vpH / 2 - wy * v.scale }));
+      }} />}
+
+      {/* Group chips beside the minimap (shown with it): click to center a group. */}
+      {minimapOn && groups.length > 0 && <GroupChips groups={groups} notes={notes} onJump={(g) => {
+        const r = viewportRef.current?.getBoundingClientRect();
+        const vpW = r?.width ?? 800, vpH = r?.height ?? 600;
+        setView((v) => ({ ...v, ...centerViewOn(plateRect(g, notes), vpW, vpH, v.scale) }));
       }} />}
 
       {/* The large view/edit experience (double-click a note). */}
@@ -709,15 +735,15 @@ function CopyId({ id }: { id: string }) {
 
 /** A small orientation minimap (bottom-left): note dots + the current viewport
  *  rectangle over the board's extent. Click/drag to recenter the view. */
-function Minimap({ notes, view, viewportRef, onRecenter }: {
+function Minimap({ notes, view, vpW, vpH, onRecenter }: {
   notes: Thought[];
   view: { tx: number; ty: number; scale: number };
-  viewportRef: React.RefObject<HTMLDivElement | null>;
+  /** The canvas viewport's size (px), tracked by the page. */
+  vpW: number;
+  vpH: number;
   onRecenter: (wx: number, wy: number) => void;
 }) {
-  const MMW = 192, MMH = 128, PAD = 40;
-  const r = viewportRef.current?.getBoundingClientRect();
-  const vpW = r?.width ?? 800, vpH = r?.height ?? 600;
+  const MMW = MINIMAP_W, MMH = MINIMAP_H, PAD = 40;
   // Current viewport in world coords.
   const vwx0 = (0 - view.tx) / view.scale, vwy0 = (0 - view.ty) / view.scale;
   const vwx1 = (vpW - view.tx) / view.scale, vwy1 = (vpH - view.ty) / view.scale;
@@ -751,6 +777,40 @@ function Minimap({ notes, view, viewportRef, onRecenter }: {
       ))}
       {/* Viewport rectangle */}
       <div className="absolute border border-primary bg-primary/10" style={{ left: mx(vwx0), top: my(vwy0), width: (vwx1 - vwx0) * s, height: (vwy1 - vwy0) * s }} />
+    </div>
+  );
+}
+
+/**
+ * Group chips (bottom, beside the minimap and shown with it): one per group,
+ * most notes first (`groupsByNoteCount`). Clicking one centers that group's
+ * plate in the view at the current zoom. The row scrolls horizontally rather
+ * than wrapping, so it never grows up over the canvas.
+ */
+function GroupChips({ groups, notes, onJump }: {
+  groups: ThoughtGroup[];
+  notes: Thought[];
+  onJump: (g: ThoughtGroup) => void;
+}) {
+  return (
+    <div
+      className="pointer-events-none absolute bottom-4 right-4 z-30 flex items-end gap-1.5 overflow-x-auto [scrollbar-width:none]"
+      // 16px (left-4) + the minimap + an 8px gap. The row spans the canvas
+      // width, so only the chips take pointer events — the gaps stay canvas.
+      style={{ left: 16 + MINIMAP_W + 8 }}
+    >
+      {groupsByNoteCount(groups, notes).map(({ plate: g, count }) => (
+        <button
+          key={g.id}
+          onClick={() => onJump(g)}
+          title={`Jump to ${g.title}`}
+          className="pointer-events-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card/90 px-2.5 py-1 text-xs shadow-sm hover:bg-accent"
+        >
+          <span className={`h-2 w-2 rounded-full ${g.groupColor ? dotClass(g.groupColor) : "bg-muted-foreground/40"}`} />
+          {g.title}
+          <span className="text-muted-foreground">{count}</span>
+        </button>
+      ))}
     </div>
   );
 }
