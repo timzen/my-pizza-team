@@ -11,6 +11,7 @@
  *   - assistant: queue and knowledge base
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  *   - pairing: pair with / message / release a teammate from the web UI
+ *   - usage: token-usage reports for any run + the Usage dashboard's rollups
  */
 
 import { Hono } from "hono";
@@ -32,6 +33,7 @@ import { registerContextRoutes } from "./routes/context.ts";
 import { registerThoughtRoutes } from "./routes/thoughts.ts";
 import { registerTranscriptRoutes } from "./routes/transcripts.ts";
 import { registerPairingRoutes } from "./routes/pairing.ts";
+import { registerUsageRoutes } from "./routes/usage.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -77,6 +79,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerThoughtRoutes(ctx);
   registerTranscriptRoutes(ctx);
   registerPairingRoutes(ctx);
+  registerUsageRoutes(ctx);
 
   return app;
 }

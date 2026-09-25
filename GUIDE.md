@@ -52,7 +52,7 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 
 ## Navigation
 
-The nav bar has four destinations, plus help/config/theme icons:
+The nav bar has four destinations, plus pause / **usage** / help / config / theme icons:
 
 - **Board** — story swimlanes; sub-tabs for Backlog, Archive, and Workflows.
 - **Tasks** — standalone Solitary WorkDefs.
@@ -257,6 +257,20 @@ A personal workspace — the **Thoughts** tab on the home page (beside Queue and
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
 Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatter) — easy to hand-edit or grep; groups are in `groups.json`.
+
+---
+
+## Usage
+
+The chart icon in the nav opens **Usage** — what the team is spending, in tokens and dollars:
+
+- **Tiles** — today, the last 7 and 30 days, the past year, and the peak day.
+- **The grid** — one square per day for the past year, darker for busier days (shade by **Tokens** or **Cost**). **Hover** a day for its tokens (input, output, cache read, cache write), cost, number of runs, and how it split between teammate work, the assistant chat, and pairing. **Click** it to list that day's runs, most expensive first.
+- **Where it went** — the year's cost split by kind.
+
+Every agent run is counted: teammates' work items, their runs while you pair with them, and the assistant chat. Tokens include **cached** input (with prompt caching, most of it), and the cost is the harness's own figure. History is kept even after its story is archived or deleted. (Usage recorded before this dashboard existed only covered teammate work, without cache tokens.)
+
+The ledger is saved **in the team directory**, committed with your stories and config: `usage/YYYY-MM.jsonl`, one JSON line per run — easy to `grep` or `jq`, and it travels with the repo. (The daemon's SQLite database is just a cache of it, rebuilt on startup.)
 
 ---
 

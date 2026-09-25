@@ -400,6 +400,12 @@ export const TEMPLATES_DIR = "templates";
  * Directory holding assistant-chat artifacts. Session transcripts are markdown
  * snapshots under `assistant/sessions/<id>.md` (see docs/ASSISTANT_CHAT_V2.md).
  */
+/**
+ * The token-usage ledger: `usage/YYYY-MM.jsonl`, one JSON line per agent run
+ * (daemon/store/usage.ts). Files are the source of truth — committed with the
+ * rest of the team dir — and SQLite is a cache rebuilt from them on boot.
+ */
+export const USAGE_DIR = "usage";
 export const ASSISTANT_DIR = "assistant";
 export const ASSISTANT_SESSIONS_DIR = "sessions";
 

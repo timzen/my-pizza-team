@@ -67,6 +67,7 @@ import { isCronDue } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
+import { migrateUsageColumns, recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -240,6 +241,9 @@ export class Store {
     // Persona titles come from the context library, which the Store owns.
     this.chat = new AssistantChat(this.db, teamDir, (id) => this.getContextEntry(id)?.title ?? null);
     this.chat.migrateLegacyMessages();
+    // Usage: the `usage/*.jsonl` files are the source of truth; rebuild the
+    // SQLite cache from them (migrating the pre-files ledger on first boot).
+    syncUsageLedger(this.db, teamDir);
     this.resetConnectionsForBoot();
     this.loadWorkflows();
   }
@@ -463,6 +467,9 @@ export class Store {
     `);
 
     // Migration: add columns if they don't exist (for existing databases)
+    // The token-usage ledger grew cache/kind/member/title columns (store/usage.ts).
+    migrateUsageColumns(this.db);
+
     const storyColumns = this.db.prepare("PRAGMA table_info(stories)").all() as Array<Record<string, unknown>>;
     if (!storyColumns.some((col) => col.name === "workflow")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
@@ -1435,12 +1442,32 @@ export class Store {
 
   // --- Token Usage ---
 
-  addTokenUsage(taskId: string, inputTokens: number, outputTokens: number, model: string, costUsd: number): void {
-    const now = Date.now();
-    this.db.prepare(
-      "INSERT INTO token_usage (task_id, input_tokens, output_tokens, model, cost_usd, recorded_at) VALUES (?, ?, ?, ?, ?, ?)"
-    ).run(taskId, inputTokens, outputTokens, model, costUsd, now);
+  /**
+   * Record a run's usage against a ref (a board task / WorkDef id). `extra`
+   * carries the ledger's newer fields — cache tokens, kind, member, title
+   * (store/usage.ts). Board tasks also flip `dirty` so task.json picks it up.
+   */
+  addTokenUsage(
+    taskId: string, inputTokens: number, outputTokens: number, model: string, costUsd: number,
+    extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd"> = {},
+  ): void {
+    recordUsage(this.db, { ...extra, refId: taskId, inputTokens, outputTokens, model, costUsd }, this.teamDir);
     this.db.prepare("UPDATE tasks SET dirty = 1 WHERE id = ?").run(taskId);
+  }
+
+  /** Record a run's usage that isn't for any ref (the leader's chat, a teammate between items). */
+  recordRunUsage(entry: UsageEntry): void {
+    recordUsage(this.db, entry, this.teamDir);
+  }
+
+  /** Usage per local day since `sinceMs` (the Usage dashboard's grid). */
+  getDailyUsage(opts: { sinceMs: number; tzOffsetMin: number }): UsageDay[] {
+    return dailyUsage(this.db, opts);
+  }
+
+  /** Every run on one local day, most expensive first. */
+  getUsageRunsOnDay(opts: { date: string; tzOffsetMin: number }): UsageRun[] {
+    return runsOnDay(this.db, opts);
   }
 
   getTokenUsage(taskId: string): Array<{ inputTokens: number; outputTokens: number; model: string; costUsd: number; at: string }> {
@@ -1857,12 +1884,16 @@ export class Store {
     return lines.join("\n");
   }
 
-  /** Remove all task-related data from SQLite (assignments, comments, token_usage, task row) */
+  /**
+   * Remove a task's live data from SQLite (assignments, comments, task row).
+   * Token usage is deliberately kept: it's a ledger of spend that happened, and
+   * archiving/backlogging a story used to erase it from all history
+   * (store/usage.ts).
+   */
   private removeTaskData(taskId: string): void {
     this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM comments WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM comments_loaded WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM token_usage WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
   }
 
@@ -2836,9 +2867,14 @@ export class Store {
 
   // Token usage on the ref (works for any WorkDef; token_usage is keyed by the
   // WorkDef id). Board tasks also flip the tasks `dirty` flag for git sync.
-  addTokenUsageForRef(ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number): void {
+  addTokenUsageForRef(
+    ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number,
+    extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd" | "title"> = {},
+  ): void {
     if (!this.refDir(ref)) return;
-    this.addTokenUsage(ref.workDefId, inputTokens, outputTokens, model, costUsd);
+    // Snapshot the title: the ledger outlives the ref (archive/delete).
+    const title = this.getWorkDef(ref.workDefId)?.title ?? null;
+    this.addTokenUsage(ref.workDefId, inputTokens, outputTokens, model, costUsd, { ...extra, title });
   }
 
   getTokenUsageSummaryForRef(ref: WorkItemRef): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {

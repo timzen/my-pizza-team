@@ -170,6 +170,8 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 ├── assistant/
 │   └── sessions/        # Chat transcripts: one markdown snapshot per chat session
 ├── thoughts/            # Thoughts board: markdown sticky notes (thoughts/<id>.md)
+├── usage/               # Token-usage ledger: one JSON line per agent run, a file per month
+│   └── 2026-09.jsonl    #   {at, kind, refId, title, memberId, model, tokens…, costUsd}
 └── groups.json          # Thought groups ([{id, title}]; membership lives on each note)
 ```
 
@@ -423,6 +425,7 @@ done
 | Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, work-item state |
 | Teammate transcript | `/api/agents/:id/transcript[/stream\|/watch]` | Live, watch-only view of a teammate's session (streams only while someone watches) |
 | Teammate pairing | `POST /api/agents/:id/pair\|messages\|release`, `GET .../pairing[/state]` | Pause a teammate and talk to it from the browser; release it (resume / complete / fail its item) |
+| Usage | `POST /api/agents/:id/usage`, `GET /api/usage/daily`, `GET /api/usage/day` | Token + cost ledger for every agent run (work, chat, pairing); the Usage dashboard's per-day rollups |
 | Teammate pool | `GET/PUT /api/teammate-pool` | The team's *declared* size (`minTeammates`) — the daemon keeps that many teammates online |
 | Assistant | `/api/assistant/*` | Live chat: send any time, SSE stream, delivery receipts, quoted replies, thought peek, sessions (snapshot/resume), persona |
 | Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |

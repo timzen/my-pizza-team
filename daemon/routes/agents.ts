@@ -127,15 +127,24 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.post("/api/agents/work-items/:workItemId/token-usage", async (c) => {
     const item = store.getWorkItem(c.req.param("workItemId"));
     if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
-    const body = await c.req.json() as { inputTokens?: number; outputTokens?: number; model?: string; costUsd?: number };
+    const body = await c.req.json() as {
+      inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; model?: string; costUsd?: number;
+    };
     if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
       return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
     }
+    // Newer harnesses report every run via POST /api/agents/:id/usage instead
+    // (routes/usage.ts); this stays for older ones, recorded as `work`.
     // Prefer the harness-reported cost (accurate + cache-aware); fall back to a
     // rough estimate only when the harness doesn't supply one. Recorded on the
     // ref, so it works for board tasks AND standalone (Solitary/Scheduled) work.
     const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
-    store.addTokenUsageForRef(item.ref, body.inputTokens, body.outputTokens, body.model, costUsd);
+    store.addTokenUsageForRef(item.ref, body.inputTokens, body.outputTokens, body.model, costUsd, {
+      cacheReadTokens: body.cacheReadTokens ?? 0,
+      cacheWriteTokens: body.cacheWriteTokens ?? 0,
+      kind: "work",
+      memberId: item.memberId ?? null,
+    });
     return c.json({ success: true });
   });
 

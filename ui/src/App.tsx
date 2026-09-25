@@ -32,6 +32,7 @@ import { ConfigPage } from "./pages/ConfigPage";
 import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { HelpPage } from "./pages/HelpPage";
 import { TeammatePage } from "./pages/TeammatePage";
+import { UsagePage } from "./pages/UsagePage";
 
 function App() {
   return (
@@ -76,6 +77,7 @@ function App() {
               <Route path="/help" element={<HelpPage />} />
               {/* A teammate's live view, opened from the sidebar (docs/TEAMMATE_CHAT.md). */}
               <Route path="/teammates/:id" element={<TeammatePage />} />
+              <Route path="/usage" element={<UsagePage />} />
             </Routes>
           </main>
         </div>

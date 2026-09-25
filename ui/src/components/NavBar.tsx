@@ -1,5 +1,7 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
+ * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
+ * help, config, theme.
  *
  * Spans only the center column (between the assistant dock and the teammate
  * sidebar), because it only navigates the center (docs/TEAMMATE_CHAT.md §2).
@@ -14,7 +16,7 @@
 
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, Pause, Play, HelpCircle } from "lucide-react";
+import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn } from "lucide-react";
 import { apiPost, useApi } from "@/hooks/useApi";
 
 /** Primary nav items always visible in the bar */
@@ -57,6 +59,18 @@ export function NavBar() {
         {/* Pause/play, help, config gear, theme toggle */}
         <div className="flex shrink-0 items-center @2xl:gap-1">
           <PauseButton />
+          {/* Usage dashboard (tokens + cost per day). */}
+          <Link
+            to="/usage"
+            className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
+              location.pathname === "/usage"
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+            }`}
+            title="Usage"
+          >
+            <ChartColumn className="h-4 w-4" />
+          </Link>
           <Link
             to="/help"
             className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
