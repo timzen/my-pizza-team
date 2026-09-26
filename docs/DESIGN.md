@@ -419,18 +419,17 @@ and `status`. Two rules hold:
    deliver.
 3. **The daemon owns identity, so it assigns spawn names.** A `spawn` directive
    always carries a `params.name` chosen by the daemon — a generated
-   adjective-noun for a teammate, or the reserved singleton name `assistant`
-   for an assistant spawn (`reason: "assistant"`). The harness must not invent
-   or hardcode names: it names the tmux window and `--ppt-name` after
-   `params.name`, keeping the window, the registered member, and the UI label
-   consistent. Because the assistant is a singleton (the chat and
-   `reset-session` routing are keyed on the `assistant` name), a duplicate
-   assistant spawn — one already online, or a pending assistant spawn — is
-   coalesced onto the existing request instead of emitting a second directive.
+   adjective-noun. The harness must not invent or hardcode names: it names the
+   tmux window and `--ppt-name` after `params.name`, keeping the window, the
+   registered member, and the UI label consistent.
 
-Clearing the assistant conversation (`DELETE /api/assistant/messages`) enqueues a
-`reset-session` directive for the assistant, so its in-agent context is dropped —
-not just the stored messages.
+Starting a fresh chat or resuming an earlier one rolls the agent's Pi session to
+match, so in-agent context follows the conversation rather than just the stored
+messages. The daemon expresses that as intent (`new-session`, `resume-session`)
+and never as mechanism — the extension realizes it with `ctx.newSession()` /
+`ctx.switchSession()`. These two are **self-handled**: unlike `spawn`, the agent
+acts on its own session rather than the leader driving tmux on its behalf.
+(Teammates are still rolled with `reset-session`, which maps to Pi's `/new`.)
 
 *Why:* one concept, one queue, one poll — new asks are new *actions*, not new
 endpoints. Keeping mechanism in the harness lets the same channel scale to any

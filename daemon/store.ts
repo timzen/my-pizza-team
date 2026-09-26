@@ -2324,27 +2324,19 @@ export class Store {
   }
 
   /**
-   * Create a leader directive for a host. For the `spawn` action a name is
-   * assigned into params (unless one was supplied):
+   * Create a leader directive for a host. For the `spawn` action a unique
+   * generated adjective-noun name is assigned into params (unless one was
+   * supplied).
    *
-   *   - `reason: "assistant"` spawns get the reserved singleton name
-   *     `"assistant"`. Identity is daemon-owned state (DESIGN.md "the daemon
-   *     coordinates; harnesses execute") — the daemon already keys the
-   *     assistant chat + `reset-session` routing on this name, so it must be
-   *     the one to assign it rather than letting the harness hardcode it. The
-   *     assistant is a singleton, so a duplicate spawn (an assistant already
-   *     online, or a pending assistant spawn) is coalesced into the existing
-   *     request instead of emitting a second directive.
-   *   - all other spawns get a unique generated adjective-noun name.
+   * Identity is daemon-owned state (DESIGN.md "the daemon coordinates; harnesses
+   * execute"), so the daemon names spawns rather than letting the harness invent
+   * one. Every spawn is a teammate: the chat is answered by the leader, so there
+   * is no reserved singleton name and no coalescing.
    */
   createLeaderDirective(hostId: string, action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): ReturnType<Store["rowToDirective"]> {
     const id = `dir-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     const params: Record<string, unknown> = { ...(opts?.params || {}) };
-    // Identity is daemon-owned (DESIGN.md "the daemon coordinates; harnesses
-    // execute"), so the daemon names spawns rather than letting the harness
-    // invent one. Every spawn is a teammate now: the chat is answered by the
-    // leader, so there is no reserved singleton name to assign.
     if (action === "spawn" && !params.name) params.name = this.generateSpawnName();
     this.db.prepare(
       "INSERT INTO leader_directives (id, host_id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)"
