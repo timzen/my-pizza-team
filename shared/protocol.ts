@@ -31,8 +31,10 @@ import type { WorkflowConfig } from "./types.ts";
  *       POST /api/readiness, and is a team-level fact. P1c-3.
  *   4 — Host routing removed: register no longer takes hostId, and
  *       GET /api/hosts/:hostId is gone (use GET /api/config). P1c-2.
+ *   5 — GET /api/assistant/inbox no longer returns `chat`: with one leader there
+ *       is no chat-agent designation to report. P1c-4.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 /**
  * The lowest agent-protocol version this daemon still serves. Raise it in the
@@ -44,7 +46,7 @@ export const PROTOCOL_VERSION = 4;
  * cron pile-ups. Refusing at registration turns both into a message telling the
  * user to restart the agent.
  */
-export const MIN_PROTOCOL_VERSION = 4;
+export const MIN_PROTOCOL_VERSION = 5;
 
 /** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
 export type HarnessKind = "pi" | (string & {});

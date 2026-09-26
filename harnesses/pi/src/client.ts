@@ -31,7 +31,7 @@ import type { WorkflowConfig } from "./shared/types.js";
  * not, and Node does not remap './x.js' to './x.ts' the way Pi's loader does).
  * That property is what makes client.ts testable today and movable in P1c-8.
  */
-export const PROTOCOL_VERSION = 4;
+export const PROTOCOL_VERSION = 5;
 
 // ─── Error Type ──────────────────────────────────────────────────────
 
@@ -119,8 +119,6 @@ export interface AssistantInboxItem {
 
 /** Response from GET /api/assistant/inbox */
 export interface AssistantInboxResponse {
-  /** False when this agent is not the designated chat agent (it must stay silent). */
-  chat: boolean;
   messages: AssistantInboxItem[];
 }
 

@@ -10,8 +10,10 @@
 // daemon is a mirror of it. There are no response turns to claim, no composer
 // lock, and no `send_message` tool — the agent just talks.
 //
-// Only the *designated* chat agent mirrors: the daemon answers `chat: true/false`
-// on every inbox poll, so a multi-host team (several leaders) can't double-answer.
+// The mirror runs only in the leader, which is the agent that answers the chat.
+// It used to gate itself on a `chat: true/false` flag the daemon returned on every
+// inbox poll, because a multi-host team ran several leaders and they would
+// otherwise double-answer. With one leader (P1c-4) there is nothing to gate on.
 //
 // Two directions:
 //
@@ -48,7 +50,6 @@ export class ChatMirror {
   private personaContent: string | null = null;
 
   /** Whether the daemon has designated us as the chat agent. */
-  private isChatAgent = false;
 
   /**
    * True while a session directive is being realized. The replacement session
@@ -151,9 +152,7 @@ export class ChatMirror {
   private async pollForWork(): Promise<void> {
     if (!this.running) return;
     try {
-      const { chat, messages } = await this.client.getInbox();
-      // A non-designated leader stays silent: it neither pulls nor mirrors.
-      this.isChatAgent = chat;
+      const { messages } = await this.client.getInbox();
       for (const item of messages) {
         const prompt = item.quoted
           ? `> ${item.quoted.replace(/\n/g, "\n> ")}\n\n${item.content}`
@@ -208,7 +207,6 @@ export class ChatMirror {
    */
   async handleAgentStart(): Promise<void> {
     this.agentRunning = true;
-    if (!this.isChatAgent) return;
     this.thoughtSent = 0;
     this.mirroredParagraphs.clear();
     await this.refreshPersona();
@@ -222,7 +220,6 @@ export class ChatMirror {
   /** The run settled: drop the `…`. The thought buffer is left for peeking. */
   async handleAgentSettled(): Promise<void> {
     this.agentRunning = false;
-    if (!this.isChatAgent) return;
     this.flushThoughts();
     await this.client.postThought({ thinking: false }).catch(() => {});
   }
@@ -232,7 +229,6 @@ export class ChatMirror {
    * only the new tail is sent; chunks are coalesced on a short timer.
    */
   handleReasoning(fullText: string): void {
-    if (!this.isChatAgent) return;
     if (fullText.length <= this.thoughtSent) return;
     this.thoughtBuffer += fullText.slice(this.thoughtSent);
     this.thoughtSent = fullText.length;
@@ -265,7 +261,7 @@ export class ChatMirror {
    */
   async handleAssistantMessageEnd(text: string): Promise<void> {
     this.thoughtSent = 0;
-    if (!this.isChatAgent || !text.trim()) return;
+    if (!text.trim()) return;
     const bubbles = splitIntoBubbles(text);
     let sent = 0;
     for (const bubble of bubbles) {
@@ -282,7 +278,6 @@ export class ChatMirror {
    * This is what makes the tmux pane and the web UI the same conversation.
    */
   async mirrorTerminalInput(text: string): Promise<void> {
-    if (!this.isChatAgent) return;
     const trimmed = text.trim();
     // Slash commands are harness control, not conversation.
     if (!trimmed || trimmed.startsWith("/")) return;
@@ -292,7 +287,6 @@ export class ChatMirror {
   /** Report an unrecoverable agent error as a failed bubble. */
   async mirrorError(error: string): Promise<void> {
     this.agentRunning = false;
-    if (!this.isChatAgent) return;
     await this.client.postThought({ thinking: false }).catch(() => {});
     await this.client.postBubble(error || "The assistant hit an error.", true).catch(() => {});
   }

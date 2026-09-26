@@ -454,11 +454,13 @@ session holds no human work: its directive polling is extension timers, not agen
 turns, so the session contains *only* the chat. Sessions-as-conversations
 (snapshots, resume) therefore still holds exactly as designed.
 
-**Designation, not cardinality.** Leaders are per host but a conversation is one
-thing, so the daemon designates one leader as the chat agent, sticky while it stays
-online (`GET /api/assistant/inbox?agentId=` answers `chat: true|false`). A
-non-designated leader neither pulls the inbox nor mirrors its output, which is what
-stops a two-host team from answering every message twice.
+**Cardinality, not designation.** This used to need arranging: leaders were per
+host, so the daemon *designated* one as the chat agent and kept it sticky
+(`GET /api/assistant/inbox?agentId=` answered `chat: true|false`), which is what
+stopped a two-host team answering every message twice. Dropping multi-host (§ "One
+host, one leader") removed the problem rather than the workaround: there is one
+leader, so `agentId` is only an identity check on who may drain the queue — a
+teammate that polls gets nothing, since draining it would lose the message.
 
 **What died with the role:** `queue_request`. Handing a request to "the assistant"
 made sense when that was a different process; now it would be the chat agent

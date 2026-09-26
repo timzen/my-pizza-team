@@ -74,13 +74,13 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     const sessionId = c.req.query("sessionId") || undefined;
     const session = sessionId ? store.getAssistantSession(sessionId) : store.getActiveAssistantSession();
     if (sessionId && !session) return c.json({ success: false, error: "Session not found" }, 404);
-    const agent = store.getChatAgent();
+    const leader = store.getLeader();
     return c.json({
       session,
       messages: store.getAssistantMessages(session?.id),
       thinking: store.isAssistantThinking(),
-      // Who answers: the designated leader, or null when none is online.
-      chatAgent: agent ? { id: agent.id, name: agent.name } : null,
+      // Who answers: the leader, or null when none is online.
+      chatAgent: leader ? { id: leader.id, name: leader.name } : null,
     });
   });
 
@@ -98,7 +98,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     });
     // Nothing to spawn: a leader answers the chat, so either one is connected or
     // the message waits in the queue until one is.
-    return c.json({ success: true, userMessage, chatAgent: store.getChatAgent()?.id ?? null }, 201);
+    return c.json({ success: true, userMessage, chatAgent: store.getLeader()?.id ?? null }, 201);
   });
 
   app.delete("/api/assistant/messages/:id", (c) => {
@@ -156,15 +156,19 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
   // agent's output back. Nothing here decides *what* the agent says.
 
   /**
-   * Queued user messages, oldest first — but only for the designated chat agent.
-   * A multi-host team has several leaders; without this gate they would all pull
-   * the same message and answer it in parallel. `chat` tells a non-designated
-   * agent to stay quiet (it also stops mirroring its own output).
+   * Queued user messages, oldest first — for the leader, which is the agent that
+   * answers the chat. A teammate that polls gets nothing: the chat is not its
+   * conversation, and draining the queue would lose the message.
+   *
+   * This used to also return `chat: true|false` so a *non-designated* leader knew
+   * to stay quiet. With one leader (P1c-4) there is no such thing, so the flag is
+   * gone and the extension mirrors unconditionally — it only runs the mirror in the
+   * leader anyway.
    */
   app.get("/api/assistant/inbox", (c) => {
     const agentId = c.req.query("agentId") || "";
-    const isChatAgent = agentId ? store.isChatAgent(agentId) : false;
-    return c.json({ chat: isChatAgent, messages: isChatAgent ? store.getAssistantInbox() : [] });
+    const isLeader = agentId ? store.isLeader(agentId) : false;
+    return c.json({ messages: isLeader ? store.getAssistantInbox() : [] });
   });
 
   /** Advance receipts: 'delivered' (handed to Pi) or 'read' (a run sees them). */

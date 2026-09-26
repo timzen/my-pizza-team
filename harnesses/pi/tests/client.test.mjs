@@ -189,9 +189,11 @@ test("has the chat mirror methods", () => {
   assert.ok(clientSrc.includes("async mirrorUserMessage(content"));
 });
 
-test("the inbox poll identifies the agent (only the chat agent may pull)", () => {
+test("the inbox poll identifies the agent (only the leader may pull)", () => {
+  // The daemon gates on identity rather than reporting a designation, so the
+  // agentId is still sent but the `chat` flag is gone (P1c-4).
   assert.ok(clientSrc.includes("/api/assistant/inbox?agentId="));
-  assert.ok(clientSrc.includes("chat: boolean"));
+  assert.ok(!clientSrc.includes("chat: boolean"), "the designation flag should be gone");
 });
 
 test("mirrors terminal input with origin 'tui'", () => {

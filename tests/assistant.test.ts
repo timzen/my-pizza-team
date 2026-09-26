@@ -419,49 +419,28 @@ Deno.test("v1 turn-model rows migrate into one ended legacy session", async () =
 Deno.test("the leader is the chat agent; the inbox is gated on designation", async () => {
   const { app, store, teamDir } = setup();
   try {
-    // No leader online: the message still queues, but nobody is designated.
+    // No leader online: the message still queues, and waits for one.
     const queued = await (await post(app, "/api/assistant/messages", { content: "anyone?" })).json();
     assertEquals(queued.chatAgent, null);
     assertEquals(store.getAssistantInbox().length, 1);
 
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
-    assertEquals(store.getChatAgent()?.id, "leader");
+    assertEquals(store.getLeader()?.id, "leader");
 
-    // Only the designated agent may pull, and it sees the backlog.
+    // The leader pulls, and sees the backlog that accrued before it connected.
     const mine = await (await app.request("/api/assistant/inbox?agentId=leader")).json();
-    assertEquals(mine.chat, true);
     assertEquals(mine.messages.length, 1);
 
-    // Anyone else is told to stay quiet and gets nothing.
+    // A teammate gets nothing: the chat is not its conversation, and draining the
+    // queue would lose the message.
     const other = await (await app.request("/api/assistant/inbox?agentId=teammate-1")).json();
-    assertEquals(other.chat, false);
     assertEquals(other.messages.length, 0);
     // A missing agentId must not leak the inbox either.
-    assertEquals((await (await app.request("/api/assistant/inbox")).json()).chat, false);
+    assertEquals((await (await app.request("/api/assistant/inbox")).json()).messages.length, 0);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("designation is sticky, and hands off only when the leader goes offline", async () => {
-  const { app, store, teamDir } = setup();
-  try {
-    await post(app, "/api/agents/register", { id: "leader-a", name: "leader", directory: teamDir });
-    await post(app, "/api/agents/register", { id: "leader-b", name: "leader", directory: teamDir });
-    const first = store.getChatAgent()!.id;
-
-    // A second leader must not steal the conversation mid-flight.
-    assertEquals(store.getChatAgent()!.id, first);
-    assertEquals(store.isChatAgent(first), true);
-    assertEquals(store.isChatAgent(first === "leader-a" ? "leader-b" : "leader-a"), false);
-
-    // When it drops, the other leader takes over so the chat keeps working.
-    store.removeMember(first);
-    const second = store.getChatAgent()!.id;
-    assertEquals(second === first, false);
-    assertEquals(store.isChatAgent(second), true);
-  } finally { cleanup(teamDir, store); }
-});
-
-Deno.test("session directives are addressed to the chat agent (the leader)", async () => {
+Deno.test("session directives are addressed to the leader", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });

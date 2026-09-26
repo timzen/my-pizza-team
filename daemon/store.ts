@@ -72,14 +72,6 @@ import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
 /**
- * The role that answers the chat. There is no separate "assistant" agent any
- * more: a leader already runs per host to realize tmux spawns, its session holds
- * no human work (nobody types in it), and chat v2's mirror is role-agnostic — so
- * the leader IS the chat participant. See DESIGN.md "One agent to talk to".
- */
-export const CHAT_ROLE_NAME = "leader";
-
-/**
  * Directive actions an agent realizes itself rather than via its host leader.
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
  * cannot express. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
@@ -87,9 +79,14 @@ export const CHAT_ROLE_NAME = "leader";
 export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
 
 /**
- * Reserved singleton identity for a host's leader (the agent that realizes
- * directives — spawning windows, resetting sessions). Matched by name so a
- * leader is never mistaken for a pool teammate.
+ * Reserved singleton identity for the leader: the agent that realizes directives
+ * (spawning windows, resetting sessions) *and* answers the chat. Matched by name
+ * so a leader is never mistaken for a pool teammate.
+ *
+ * There is no separate "assistant" agent: the leader's session holds no human work
+ * (nobody types in it) and chat v2's mirror is role-agnostic, so the leader is the
+ * chat participant. See DESIGN.md "One Agent to Talk To". This replaced a second
+ * constant, CHAT_ROLE_NAME, that held the same value for the same reason.
  */
 export const LEADER_MEMBER_NAME = "leader";
 
@@ -208,12 +205,6 @@ export class Store {
    * members), so after a restart every agent simply re-registers.
    */
   private dismissedIds: Set<string> = new Set();
-
-  /**
-   * The leader currently designated as the chat agent. In memory only: it is
-   * live-connection state, and a restart re-designates as leaders re-register.
-   */
-  private chatAgentId: string | null = null;
 
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
@@ -2288,27 +2279,26 @@ export class Store {
    * path for the assistant; teammates still use that.
    */
   private directAssistantSession(action: string, params: Record<string, unknown>): void {
-    const agent = this.getChatAgent();
+    const agent = this.getLeader();
     if (agent) this.createLeaderDirectiveForMember(agent.id, action, params);
   }
 
   /**
-   * The agent that answers the chat: an online leader. Sticky while it stays
-   * online so a multi-host team has one unambiguous chat participant (the first
-   * leader to register wins, and hand-off only happens if it goes offline).
+   * The online leader, which is the agent that answers the chat.
+   *
+   * This used to *designate* one leader as the chat agent and keep that choice
+   * sticky, because a multi-host team ran several leaders and they would otherwise
+   * all pull the same message and answer it in parallel. With one leader (P1c)
+   * there is nothing to designate — which is DESIGN.md's "One Agent to Talk To"
+   * becoming literally true rather than arranged.
    */
-  getChatAgent(): Member | null {
-    const leaders = this.getMembers().filter((m) => m.status !== "offline" && m.name.includes(CHAT_ROLE_NAME));
-    if (leaders.length === 0) { this.chatAgentId = null; return null; }
-    const sticky = leaders.find((m) => m.id === this.chatAgentId);
-    if (sticky) return sticky;
-    this.chatAgentId = leaders[0]!.id;
-    return leaders[0]!;
+  getLeader(): Member | null {
+    return this.getMembers().find((m) => m.status !== "offline" && m.name.includes(LEADER_MEMBER_NAME)) ?? null;
   }
 
-  /** True when `agentId` is the designated chat agent (only it may pull the inbox). */
-  isChatAgent(agentId: string): boolean {
-    return this.getChatAgent()?.id === agentId;
+  /** True when `agentId` is the leader — only it may drain the chat inbox. */
+  isLeader(agentId: string): boolean {
+    return this.getLeader()?.id === agentId;
   }
 
   // --- Leader Directives (things asked of the leader; it realizes them) ---

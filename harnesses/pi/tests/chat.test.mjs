@@ -69,12 +69,11 @@ test("the retired --ppt-assistant role does not register a second chat agent", (
   assert.ok(indexSrc.includes("is retired"));
 });
 
-test("only the designated chat agent mirrors", () => {
-  assert.ok(src.includes("isChatAgent"));
-  assert.ok(src.includes("const { chat, messages } = await this.client.getInbox()"));
-  // Every outbound path is gated.
-  const gated = src.split("if (!this.isChatAgent) return;").length - 1;
-  assert.ok(gated >= 5, `expected the outbound mirrors to be gated, found ${gated}`);
+test("mirrors unconditionally — there is no chat-agent designation to check", () => {
+  // The mirror runs only in the leader, and with one leader (P1c-4) there is no
+  // designation, so the daemon stopped returning `chat` and the gating is gone.
+  assert.ok(!src.includes("isChatAgent"), "the designation gate should be gone");
+  assert.ok(src.includes("const { messages } = await this.client.getInbox()"));
 });
 
 test("a chat-driven session roll skips deregistration (no offline flicker)", () => {
