@@ -61,8 +61,13 @@ else
   sed -i "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
 fi
 
+# Propagate to the Pi extension's manifest. The daemon and the extension are one
+# protocol (BATTERIES_INCLUDED.md §1.2) and must carry one version; deno.json is
+# the source and harnesses/pi/package.json is a generated copy.
+deno task sync-version
+
 # Commit the version bump
-git add deno.json
+git add deno.json harnesses/pi/package.json
 git commit -m "chore: bump version to ${NEW_VERSION}"
 
 # Create and push the tag
