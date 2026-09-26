@@ -62,9 +62,14 @@ compile_target() {
   local output="$DIST_DIR/mpt-${name}"
 
   echo "🔨 Compiling mpt-${name} (target: ${target})..."
+  # Embed the web UI and the Pi extension. Only the extension's manifest and src/
+  # are carried: node_modules/ is 455M of devDependencies for type-checking, and
+  # nothing there is needed at runtime (Pi supplies every package it imports).
   deno compile \
     $DENO_PERMISSIONS \
     --include ui/dist/ \
+    --include harnesses/pi/package.json \
+    --include harnesses/pi/src/ \
     --target "$target" \
     --output "$output" \
     "$ENTRY_POINT"

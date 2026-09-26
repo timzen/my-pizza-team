@@ -12,7 +12,7 @@
     "test:ext": "cd harnesses/pi && npm test",
     "ui:dev": "cd ui && npm run dev",
     "ui:build": "cd ui && npm run build",
-    "compile": "cd ui && npm run build && cd .. && deno compile --allow-net --allow-read --allow-write --allow-env --allow-run --include ui/dist/ --output mpt main.ts",
+    "compile": "cd ui && npm run build && cd .. && deno compile --allow-net --allow-read --allow-write --allow-env --allow-run --include ui/dist/ --include harnesses/pi/package.json --include harnesses/pi/src/ --output mpt main.ts",
     "compile:all": "./scripts/build.sh",
     "compile:darwin-arm64": "./scripts/build.sh darwin-arm64",
     "compile:darwin-x64": "./scripts/build.sh darwin-x64",

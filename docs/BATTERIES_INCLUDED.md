@@ -466,6 +466,12 @@ Investigated and settled:
   managed directory to a *stable* location (`~/.my-pizza-team/pi-extension/`): a
   per-team path would mint one package identity per team. It also creates the
   double-registration hazard Phase 2 must handle.
+- **`pi install <path>` records the path relative to the settings file** and dedupes
+  by resolved path, including across spellings (verified against an isolated
+  `PI_CODING_AGENT_DIR`). So the managed directory appears in settings as
+  `"../../.my-pizza-team/pi-extension"`, re-registering is already idempotent, and
+  anything comparing registrations must resolve entries rather than string-match
+  them (P2-4, P2-6).
 - **The permission system is already optional.** `permissions.ts:65-68` resolves
   it through a `Symbol.for("@gotgenes/pi-permission-system:service")` slot on
   `globalThis` — "no hard dependency; degrades gracefully when absent"
