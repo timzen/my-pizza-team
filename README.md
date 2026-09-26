@@ -359,6 +359,17 @@ It ships with the daemon and shares its version, so the two halves cannot drift 
 
 The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → set-state → repeat.
 
+### Checking your setup
+
+```bash
+mpt doctor
+```
+
+Reports Pi, tmux, the extension's registration and version, the permission system,
+the team directory, Pi's project trust, the daemon, the leader, and the service —
+with the command that fixes each problem. Read-only, so it is also the dry-run for
+`mpt setup`.
+
 ### Other harnesses
 
 **Pi is the only fully supported harness today.** An MCP bridge

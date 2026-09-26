@@ -9,6 +9,7 @@ import { TEAM_DIR } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 import { install, uninstall, detectInstalledService } from "./service.ts";
+import { evaluate, gather, report } from "./doctor.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { startDaemonInProcess } from "./start-daemon.ts";
 // Single source of truth for the version: the package manifest. Bundled into
@@ -505,7 +506,29 @@ Examples:
   mpt install           # Install as launchd/systemd service
   mpt uninstall         # Remove service
   mpt upgrade           # Self-update to the latest release
+  mpt doctor            # Check prerequisites and print a fix for each problem
 `);
+}
+
+/**
+ * `mpt doctor` — check the prerequisites and print one fix per problem.
+ *
+ * Read-only: it changes nothing, which also makes it the honest dry-run for
+ * `mpt setup`. Exits non-zero when something is actually broken (warnings don't
+ * fail, or the exit code would be useless).
+ */
+async function cmdDoctor(): Promise<void> {
+  const teamDir = getTeamDir();
+  const port = getPort();
+  const facts = await gather({
+    teamDir,
+    // Trust is asked about the *project* folder, which is the team dir's parent.
+    projectDir: path.dirname(teamDir),
+    daemonVersion: VERSION,
+    daemonUrl: `http://localhost:${port}`,
+    serviceInstalled: detectInstalledService() !== null,
+  });
+  Deno.exit(report(evaluate(facts)));
 }
 
 // --- Exported main ---
@@ -543,6 +566,9 @@ export async function main(): Promise<void> {
       break;
     case "upgrade":
       await cmdUpgrade(args.slice(1));
+      break;
+    case "doctor":
+      await cmdDoctor();
       break;
     case "--help":
     case "-h":
