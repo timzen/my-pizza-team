@@ -58,8 +58,12 @@ test("src/shared/protocol.ts removed", () => notExists("src/shared/protocol.ts")
 
 // Package.json checks
 const pkg = JSON.parse(fs.readFileSync(path.join(root, "package.json"), "utf-8"));
-test("version is 0.2.0", () => {
-  if (pkg.version !== "0.2.0") throw new Error(`version is ${pkg.version}`);
+// Deliberately not pinned to a literal: since the monorepo merge the version is
+// generated from the repo root's deno.json (scripts/sync-version.ts), and the
+// daemon-side tests/version.test.ts asserts the two agree. Pinning it here would
+// just break on every release.
+test("version is semver", () => {
+  if (!/^\d+\.\d+\.\d+$/.test(pkg.version)) throw new Error(`version is ${pkg.version}`);
 });
 test("no better-sqlite3 dependency", () => {
   if (pkg.dependencies?.["better-sqlite3"]) throw new Error("still has better-sqlite3");
