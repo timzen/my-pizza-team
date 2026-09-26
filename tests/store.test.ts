@@ -305,7 +305,7 @@ Deno.test("Store: scheduler holds a due job when the target host is not ready, t
 
     // Host reports not-ready (e.g. expired credentials) → the due job is held,
     // not enqueued, and the schedule is flagged so it keeps retrying.
-    store.setHostReadiness("hostA", false, "mwinit credentials expired");
+    store.setTeamReadiness(false, "mwinit credentials expired");
     store.runScheduler(new Date());
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 0);
     assertEquals(store.getSchedule(sched.id)!.heldForReadiness, true);
@@ -315,7 +315,7 @@ Deno.test("Store: scheduler holds a due job when the target host is not ready, t
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 0);
 
     // Host recovers → the held job fires exactly once and the flag clears.
-    store.setHostReadiness("hostA", true);
+    store.setTeamReadiness(true);
     store.runScheduler(new Date(Date.now() + 120_000));
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
     assertEquals(store.getSchedule(sched.id)!.heldForReadiness, undefined);

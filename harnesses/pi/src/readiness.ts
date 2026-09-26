@@ -6,12 +6,14 @@
 // claimed WorkItem fails. Instead of piling up failed scheduled runs overnight,
 // the teammate runs a small user-supplied command each heartbeat; a non-zero
 // exit means "not ready", which it reports to the daemon. The daemon then holds
-// scheduled enqueues destined for this agent until it recovers (see the daemon's
+// scheduled enqueues until it recovers (see the daemon's
 // docs/ARCHITECTURE.md "Scheduler readiness gating").
 //
-// The probe is a *machine/host* concern (which host's credentials are valid),
-// not a team concern, so it's configured per-process via the `--ppt-readiness-probe`
-// flag or the `PPT_READINESS_PROBE` env var — never in the shared team config.
+// The probe is a *machine* concern (are this box's credentials valid), so it's
+// configured per-process via the `--ppt-readiness-probe` flag or the
+// `PPT_READINESS_PROBE` env var rather than in the shared team config. The daemon
+// stores the result as one team-level fact (POST /api/readiness): multi-host was
+// removed in P1c, so there is one machine and one leader reporting for it.
 // The contract is deliberately minimal: run a command via the shell, exit 0 =
 // ready, non-zero = not ready. Stdout (trimmed, first line) becomes the reason
 // shown in the UI. No probe configured → always ready (fully backward compatible).

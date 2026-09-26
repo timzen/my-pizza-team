@@ -27,18 +27,22 @@ import type { WorkflowConfig } from "./types.ts";
  *   1 — WorkItem-centric agent protocol, per-host leader directives.
  *   2 — Leader directives moved from /api/hosts/:hostId/leader/directives to
  *       /api/leader/directives (one leader, so no host key). P1c-1.
+ *   3 — Readiness moved from POST /api/hosts/:hostId/readiness to
+ *       POST /api/readiness, and is a team-level fact. P1c-3.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 /**
  * The lowest agent-protocol version this daemon still serves. Raise it in the
  * same commit that removes the compatibility it covers.
  *
- * Raised to 2 with P1c-1: a v1 extension polls a directive path that no longer
- * exists, and would sit there silently spawning nobody. Refusing it at
- * registration turns that into a message telling the user to restart the agent.
+ * Raised in step with each P1c break. A v1 extension polls a directive path that
+ * no longer exists and would sit there silently spawning nobody; a v2 one reports
+ * readiness to a path that 404s, silently losing the gating that stops overnight
+ * cron pile-ups. Refusing at registration turns both into a message telling the
+ * user to restart the agent.
  */
-export const MIN_PROTOCOL_VERSION = 2;
+export const MIN_PROTOCOL_VERSION = 3;
 
 /** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
 export type HarnessKind = "pi" | (string & {});

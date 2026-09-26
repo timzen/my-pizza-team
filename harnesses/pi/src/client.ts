@@ -32,7 +32,7 @@ import type { WorkflowConfig } from "./shared/types.js";
  * not, and Node does not remap './x.js' to './x.ts' the way Pi's loader does).
  * That property is what makes client.ts testable today and movable in P1c-8.
  */
-export const PROTOCOL_VERSION = 2;
+export const PROTOCOL_VERSION = 3;
 
 // ─── Error Type ──────────────────────────────────────────────────────
 
@@ -451,9 +451,9 @@ export class DaemonClient {
    *
    * Never throws — safe for background intervals.
    */
-  async reportHostReadiness(ready: boolean, reason?: string): Promise<void> {
+  async reportReadiness(ready: boolean, reason?: string): Promise<void> {
     try {
-      await this.post(`/api/hosts/${encodeURIComponent(this.hostId)}/readiness`, { ready, reason });
+      await this.post("/api/readiness", { ready, reason });
     } catch {
       // Non-fatal — the daemon may be temporarily unreachable; retried next tick.
     }

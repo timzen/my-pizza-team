@@ -327,16 +327,20 @@ export interface Member {
 }
 
 /**
- * A host's current readiness, reported by that host's leader from an optional
- * probe (e.g. "are the shared credentials on this box valid?"). Readiness is a
- * host-level fact, not a per-teammate one — everything on a host shares the same
- * credential/VPN/network state. The daemon holds scheduled enqueues destined for
- * a not-ready host until it recovers. See docs/ARCHITECTURE.md "Scheduler
- * readiness gating". Ephemeral connection state (not persisted across restarts):
- * an unknown host is treated as ready.
+ * The team's current readiness, from an optional probe (e.g. "are the shared
+ * credentials on this box valid?").
+ *
+ * Motivating case (docs/ARCHITECTURE.md "Scheduler readiness gating"): when
+ * credentials expire on a cloud desktop, every claimed WorkItem fails, so an
+ * overnight cron would pile up FAILED runs. A not-ready team *holds* scheduled
+ * enqueues instead, and the held Schedule re-fires exactly once on recovery.
+ *
+ * Team-level, not per-host: multi-host was removed in P1c (BATTERIES_INCLUDED.md
+ * §3.3), and credential/VPN/network state is a property of the machine the team
+ * runs on. Ephemeral connection state, not persisted across restarts — with no
+ * report yet, the team is treated as ready.
  */
-export interface HostReadiness {
-  hostId: string;
+export interface TeamReadiness {
   ready: boolean;
   /** Human-readable reason when not ready (e.g. "mwinit credentials expired"). */
   reason?: string;

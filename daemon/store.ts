@@ -45,7 +45,7 @@ import {
   DEFAULT_THOUGHT_COLOR,
   DEFAULT_GROUP_SIZE,
   type Member,
-  type HostReadiness,
+  type TeamReadiness,
   type Assignment,
 } from "../shared/types.ts";
 import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
@@ -196,12 +196,12 @@ export class Store {
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
   /**
-   * Host readiness reported by each host's leader (see HostReadiness). Held in
-   * memory only: like member connections, it's live state that a freshly-booted
-   * daemon has no knowledge of — an unknown host is treated as ready until its
-   * leader reports otherwise (within a heartbeat).
+   * The team's readiness, reported by the leader's probe (see TeamReadiness).
+   * Held in memory only: like member connections, it's live state a freshly-booted
+   * daemon has no knowledge of — with no report yet the team is treated as ready
+   * until the leader says otherwise (within a heartbeat).
    */
-  private hostReadiness: Map<string, HostReadiness> = new Map();
+  private teamReadiness: TeamReadiness | undefined;
   /**
    * Ids explicitly dismissed by a human (tombstones). A dismissed id's next
    * heartbeat is told to shut down; an unknown-but-not-dismissed id is told to
@@ -1741,66 +1741,45 @@ export class Store {
     if (this.schedulerTimer) clearInterval(this.schedulerTimer);
   }
 
-  // --- Host readiness (see HostReadiness) ---
+  // --- Team readiness (see TeamReadiness) ---
 
-  /** Record a host's readiness (reported by that host's leader). */
-  setHostReadiness(hostId: string, ready: boolean, reason?: string): void {
-    this.hostReadiness.set(hostId, { hostId, ready, reason: ready ? undefined : reason, at: Date.now() });
+  /** Record the team's readiness (reported by the leader's probe). */
+  setTeamReadiness(ready: boolean, reason?: string): void {
+    this.teamReadiness = { ready, reason: ready ? undefined : reason, at: Date.now() };
   }
 
-  /** A host's last-reported readiness, or undefined if it has never reported. */
-  getHostReadiness(hostId: string): HostReadiness | undefined {
-    return this.hostReadiness.get(hostId);
+  /** The last-reported readiness, or undefined if nothing has reported yet. */
+  getTeamReadiness(): TeamReadiness | undefined {
+    return this.teamReadiness;
   }
 
-  /** All reported host-readiness records (for /health and the UI). */
-  getAllHostReadiness(): HostReadiness[] {
-    return [...this.hostReadiness.values()];
-  }
-
-  /** A host with no report yet is treated as ready (backward compatible). */
-  private isHostReady(hostId?: string): boolean {
-    if (!hostId) return true;
-    const r = this.hostReadiness.get(hostId);
-    return r ? r.ready : true;
+  /** With no report yet, the team is treated as ready. */
+  private isTeamReady(): boolean {
+    return this.teamReadiness ? this.teamReadiness.ready : true;
   }
 
   /**
-   * Would enqueuing a scheduled WorkDef with directory `defDir` land on a host
-   * that is currently *ready*? Used to gate the cron scheduler so a host whose
-   * leader reported not-ready (e.g. expired credentials) doesn't cause an
-   * overnight pile-up of failed scheduled runs.
+   * Should the cron scheduler enqueue right now?
    *
-   * Readiness is a host-level fact, but which host runs a scheduled item is
-   * decided by directory affinity, so we roll the affinity tiers (mirroring
-   * `getNextWorkItem`) up to the set of hosts that could run it:
-   *   - no directory on the def → any online host
-   *   - some online agent shares the def's directory → that agent's host(s) (tier 1)
-   *   - otherwise → any online host (tier 3 fallback)
+   * Gating exists so a machine that is connected but *unable* (e.g. expired
+   * credentials) doesn't turn an overnight cron into a pile of FAILED runs. Two
+   * conditions, both deliberate:
    *
-   * We only *hold* the enqueue when there is at least one would-be host online
-   * and every such host is not-ready. If no would-be host is online at all, we
-   * allow the enqueue (preserving the pre-existing behavior where the queue just
-   * waits for an agent to connect — readiness gating is about connected-but-
-   * unable hosts, not absent ones).
+   *   - **No agents online → allow.** That is not a readiness problem; the queue
+   *     has always simply waited for an agent to connect. Readiness gating is
+   *     about connected-but-unable, not absent.
+   *   - **Otherwise → the team's last report**, defaulting to ready.
+   *
+   * This used to roll directory-affinity tiers up to the set of *hosts* that could
+   * run an item and hold only when every one of them was not-ready. With one host
+   * (P1c) readiness is a single team-level fact, so the rollup is gone — the
+   * observable behaviour is unchanged, because the rollup always resolved to the
+   * one host anyway.
    */
-  private canScheduleForDirectory(defDir?: string): boolean {
-    const norm = defDir ? normalizeDirectory(defDir) : undefined;
-    const online = this.getMembers().filter((m) => m.status !== "offline");
-    if (online.length === 0) return true; // no connected agents — not a readiness problem
-
-    let takers: Member[];
-    if (!norm) {
-      takers = online;
-    } else if (online.some((m) => m.directory && normalizeDirectory(m.directory) === norm)) {
-      takers = online.filter((m) => m.directory && normalizeDirectory(m.directory) === norm);
-    } else {
-      takers = online; // tier-3 fallback: no online agent owns this dir
-    }
-    if (takers.length === 0) return true;
-    // The hosts those agents run on. Allow if any such host is ready.
-    const hostIds = new Set(takers.map((m) => m.hostId));
-    return [...hostIds].some((h) => this.isHostReady(h));
+  private canScheduleNow(): boolean {
+    const anyOnline = this.getMembers().some((m) => m.status !== "offline");
+    if (!anyOnline) return true;
+    return this.isTeamReady();
   }
 
   /**
@@ -1833,7 +1812,7 @@ export class Store {
       let anyHeld = false;
       for (const def of childrenBySchedule.get(sched.id) || []) {
         if (this.getActiveWorkItemForRef({ workDefId: def.id })) continue;
-        if (!this.canScheduleForDirectory(def.directory)) { anyHeld = true; continue; }
+        if (!this.canScheduleNow()) { anyHeld = true; continue; }
         this.enqueueFor(def.id);
       }
 

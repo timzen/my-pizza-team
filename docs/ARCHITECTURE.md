@@ -119,8 +119,21 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
   team. `harness` is open-ended so a Tier 0 harness (§3.2) can self-report without
   versioning the handshake twice.
 
-- **Scheduler readiness gating** — Credentials/VPN/network are a whole-*host* fact, so readiness is a host property, not a per-teammate or per-directory one. Each host's **leader** (the per-host singleton) runs an optional probe and reports the result via `POST /api/hosts/:hostId/readiness`; the daemon holds it in memory (ephemeral connection state, like members — an unknown host is treated as ready). The cron scheduler consults it: a due scheduled child is **held** (not enqueued) when *every* host that could run it (directory affinity rolled up to `hostId`) is not-ready, so a wedged cloud desktop (e.g. expired `mwinit`) stops piling up FAILED scheduled runs overnight. Holding sets `heldForReadiness` on the Schedule and *doesn't* advance the cron cursor via that path, so when the host recovers the scheduler fires the held job **exactly once** (missed occurrences collapse into a single catch-up run — no thundering herd). This gates *only* the cron scheduler: Solitary/board work is human-initiated and still runs (and may fail visibly). Absent (offline) hosts are not gated — readiness is about connected-but-unable hosts; the queue waits for a connection as before.
-- **Thoughts: a lighter canvas, files as source of truth** — Thoughts is a markdown sticky-note board ported (deliberately trimmed) from a standalone product that was itself an older MPT fork. It's a personal *workspace/outbox*, decoupled from the task system: the assistant *reads* notes to draft tasks/stories/schedules (Phase 2), but a note carries no task foreign key. Storage mirrors WorkDefs — `thoughts/<id>.md` (frontmatter + markdown body, filename is the id) is the source of truth, read/written directly with no SQLite index (like Schedules). The lifecycle is intentionally simpler than the source product: two states (`active⇄archived`), pinning as an orthogonal flag (not a state), direct delete, and **no auto-sweeps** — nothing moves a note without an explicit action. Group membership lives on each note's `groupId` (set explicitly from the note's Group menu), and each group owns a rectangle (`x/y/w/h` in `groups.json`, plus `groupColor`/`plateOpacity` for its tint) so it can be named, positioned, resized, tinted, and carry its member notes when moved. The port drops the source product's cosmetic surface (100+ backgrounds/skins/palettes) — spatial canvas, not customization, is the value. Thoughts replaced the scratch-pad entirely (its daemon API, store, and UI were removed); the assistant reads the board via `list_thoughts`/`get_thought`/`list_thought_groups` and turns notes into work with `create_task`/`create_schedule`/`create_story`.
+- **Scheduler readiness gating** — Credentials/VPN/network are a property of the
+  machine the team runs on, so readiness is one **team-level** fact (it was
+  per-host until P1c-3; multi-host is gone — docs/BATTERIES_INCLUDED.md §3.3). The
+  leader runs an optional probe and reports via `POST /api/readiness`; the daemon
+  holds it in memory (ephemeral connection state, like members — nothing reported
+  yet means ready). The cron scheduler consults it: a due scheduled child is
+  **held** rather than enqueued while the team is not-ready, so a wedged cloud
+  desktop (e.g. expired `mwinit`) stops piling up FAILED scheduled runs overnight.
+  Holding sets `heldForReadiness` on the Schedule and *doesn't* advance the cron
+  cursor, so on recovery the held job fires **exactly once** (missed occurrences
+  collapse into a single catch-up run — no thundering herd). Gating applies only
+  when at least one agent is online: with none connected the queue simply waits, as
+  it always has — readiness is about connected-but-*unable*, not absent. This gates
+  *only* the cron scheduler; Solitary/board work is human-initiated and still runs
+  (and may fail visibly).
 
 ## API Routes
 
@@ -197,8 +210,8 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/agents/:id/pairing` | Agent poll — drains `{ paired, release, messages }` |
 | PUT | `/api/teammate-pool` | Set the pool's minimum size (`{ minTeammates }`, non-negative integer, clamped to `maxTeammates`; `null` clears it back to the default) — persists to config.json and reconciles immediately |
 | GET | `/api/hosts/:hostId` | Get host-specific config (directories, tmuxSession) + last-reported `readiness` |
-| POST | `/api/hosts/:hostId/readiness` | Report a host's readiness (`{ ready, reason? }`) — the host's leader runs a probe; a not-ready host holds scheduled work destined for it |
-| GET | `/api/hosts-readiness` | List all reported host-readiness records (`{ hosts }`) |
+| POST | `/api/readiness` | Report the team's readiness (`{ ready, reason? }`) — the leader runs a probe; a not-ready team holds scheduled work |
+| GET | `/api/readiness` | The last-reported team readiness (`{ readiness }`, null if nothing has reported) |
 | POST | `/api/control/pause` | Pause task distribution |
 | POST | `/api/control/resume` | Resume task distribution |
 | POST | `/api/agents/register` | Register an agent (working `directory`, opaque `metadata`, `hostId`, and the version handshake `protocolVersion`/`harness`/`harnessVersion`). Refuses a `protocolVersion` this daemon can't serve with 409 |

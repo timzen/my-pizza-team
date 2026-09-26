@@ -277,11 +277,12 @@ test("passes tmux session/window to spawned agents", () => {
   assert.ok(src.includes(".replace(/\\{window\\}/g,"));
 });
 
-test("runs the host readiness probe and reports it to the daemon", () => {
-  // The leader is the per-host singleton, so it owns the host readiness probe.
+test("runs the readiness probe and reports it to the daemon", () => {
+  // The leader is the singleton, so it owns the machine's readiness probe and
+  // reports one team-level result (P1c-3).
   assert.ok(src.includes("resolveReadinessProbe"));
   assert.ok(src.includes("runReadinessProbe"));
-  assert.ok(src.includes("client.reportHostReadiness("));
+  assert.ok(src.includes("client.reportReadiness("));
   // Probe is resolved from the leader flag (falls back to env in readiness.ts).
   assert.ok(src.includes('pi.getFlag("ppt-readiness-probe")'));
 });

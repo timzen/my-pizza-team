@@ -55,7 +55,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       leaderPresent: members.some((m) => m.name === "leader" && m.status !== "offline"),
       // Hosts whose leader reported not-ready (e.g. expired credentials). While a
       // host is not ready, scheduled work destined for it is held (not failed).
-      hostsNotReady: store.getAllHostReadiness().filter((h) => !h.ready),
+      notReady: store.getTeamReadiness()?.ready === false ? store.getTeamReadiness() : null,
     });
   });
 
@@ -190,25 +190,30 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       hostId,
       tmuxSession: hostConfig?.tmuxSession || config.tmuxSession,
       readinessProbe: hostConfig?.readinessProbe || config.readinessProbe || null,
-      readiness: store.getHostReadiness(hostId) ?? null,
+      readiness: store.getTeamReadiness() ?? null,
     });
   });
 
-  // Report a host's readiness (its leader runs a probe — e.g. "are the shared
-  // credentials on this box valid?"). A not-ready host holds scheduled enqueues
-  // that would land on it until it recovers. See docs/ARCHITECTURE.md.
-  app.post("/api/hosts/:hostId/readiness", async (c) => {
-    const hostId = c.req.param("hostId");
+  // ─── Readiness ─────────────────────────────────────────────────────
+  //
+  // The leader runs an optional probe — e.g. "are the shared credentials on this
+  // box valid?" — and reports the result. A not-ready team *holds* scheduled
+  // enqueues rather than failing them, and the held Schedule re-fires exactly once
+  // on recovery. Team-level since P1c-3: multi-host is gone, and credential/VPN
+  // state belongs to the machine the team runs on. See docs/ARCHITECTURE.md
+  // "Scheduler readiness gating".
+
+  app.post("/api/readiness", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { ready?: boolean; reason?: string };
     if (typeof body.ready !== "boolean") {
       return c.json({ success: false, error: "Field 'ready' (boolean) is required" }, 400);
     }
-    store.setHostReadiness(hostId, body.ready, body.reason);
+    store.setTeamReadiness(body.ready, body.reason);
     return c.json({ success: true });
   });
 
-  app.get("/api/hosts-readiness", (c) => {
-    return c.json({ hosts: store.getAllHostReadiness() });
+  app.get("/api/readiness", (c) => {
+    return c.json({ readiness: store.getTeamReadiness() ?? null });
   });
 
   // ─── Workflows ─────────────────────────────────────────────────────

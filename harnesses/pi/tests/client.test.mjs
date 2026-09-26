@@ -332,10 +332,12 @@ test("imports nothing beyond node:os and ./shared/types", () => {
   );
 });
 
-test("reports host readiness to the daemon", () => {
-  assert.ok(clientSrc.includes("reportHostReadiness"));
-  assert.ok(clientSrc.includes("/readiness"));
-  assert.ok(clientSrc.includes("this.hostId"));
+test("reports team readiness to the daemon", () => {
+  // Team-level since P1c-3: one machine, one leader reporting for it, so the path
+  // is /api/readiness with no host segment.
+  assert.ok(clientSrc.includes("reportReadiness"));
+  assert.ok(clientSrc.includes('"/api/readiness"'));
+  assert.ok(!clientSrc.includes("reportHostReadiness"), "the host-scoped name should be gone");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

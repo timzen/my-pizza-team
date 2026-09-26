@@ -184,7 +184,7 @@ export async function setupLeader(
       : resolveReadinessProbe((pi.getFlag("ppt-readiness-probe") as string) || "");
     if (probeConfig) {
       const result = await runReadinessProbe(probeConfig);
-      await client.reportHostReadiness(result.ready, result.reason);
+      await client.reportReadiness(result.ready, result.reason);
       if (ctx.hasUI) {
         ctx.ui.setStatus("pi-pizza-team-readiness", result.ready ? "" : `🚫 host not ready: ${result.reason || ""}`);
       }
