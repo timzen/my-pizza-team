@@ -1,7 +1,9 @@
 /**
  * shared/types.ts — Shared type definitions and utilities used across daemon, CLI, and UI.
  *
- * Ported from pi-pizza-team/src/shared/types.ts for Deno runtime.
+ * Originally ported from the standalone pi-pizza-team extension for the Deno
+ * runtime. That extension now lives in this repo at harnesses/pi/, and P1c-7 folds
+ * its remaining local type copy into this file.
  */
 
 /** Standard API response envelope. */

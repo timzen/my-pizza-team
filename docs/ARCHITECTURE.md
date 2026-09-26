@@ -275,11 +275,11 @@ The compiled `mpt` binary requires three entitlements when signed with hardened 
 
 Without these, the binary crashes immediately with "Failed to reserve virtual memory for CodeRange" or "code signature not valid for use in process".
 
-The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension is a
-**pure HTTP client** with zero server-side code. It owns no state — all data
-lives in this daemon.
+The Pi extension lives in this repo at `harnesses/pi/` (merged from the standalone
+pi-pizza-team repo in P1a-1) and is a **pure HTTP client** with zero server-side
+code. It owns no state — all data lives in this daemon.
 
-Extension structure:
+Extension structure (`harnesses/pi/src/`):
 ```
 src/
 ├── index.ts       — Role detection, flag registration, wiring
@@ -290,5 +290,5 @@ src/
 ├── bubbles.ts     — splits assistant prose into chat bubbles (fence/list aware)
 ├── tools.ts       — LLM tool registration (role-specific)
 ├── permissions.ts — Dynamic yoloMode toggling
-└── shared/types.ts — Minimal types (WorkflowConfig, constants)
+└── shared/types.ts — Minimal types (WorkflowConfig, constants); P1c-7 folds these into shared/
 ```

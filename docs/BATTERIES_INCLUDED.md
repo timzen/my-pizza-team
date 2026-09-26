@@ -244,8 +244,14 @@ type-check in place.
 - Update `AGENTS.md` ("four separate projects" → two) and mpt-demo-team's
   scripts, including the broken `run-e2e-kiro.sh`.
 - The extension stays publishable as a Pi package from this repo (its
-  `package.json` with the `pi-package` keyword moves with it), so
-  `pi install git:…` keeps working standalone.
+  `package.json` with the `pi-package` keyword moves with it). **But install is by
+  path, not git URL:** Pi's git sources are whole repositories and it has no
+  subdirectory support, so `pi install git:…/my-pizza-team` cannot reach
+  `harnesses/pi` — and the monorepo root has no `package.json` at all, being a Deno
+  repo. `pi install ./harnesses/pi` works from a clone (Pi loads local packages
+  from the path without copying), and npm publishing would restore a one-line
+  install. Phase 2 makes the question moot by carrying the extension inside the
+  binary. README and QUICKSTART say so rather than offering a command that fails.
 
 Deletions that come free here: `work-defs.ts:124` notes the task-scoped
 attachment routes are "kept for compat" with mpt-mcp-server, so

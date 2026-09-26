@@ -54,12 +54,25 @@ my-pizza-team/
 │   └── routes/               # Route modules
 ├── ui/                       # React frontend
 ├── shared/                   # Types, protocol, utilities
-└── tests/                    # Tests (deno test --allow-all tests/)
+├── harnesses/
+│   └── pi/                   # The Pi extension (its own package.json; npm test)
+├── scripts/                  # build, publish, sync-version
+└── tests/                    # Tests (deno task test)
 ```
+
+The extension under `harnesses/pi/` is a Node/npm package inside a Deno repo, so it
+has its own `tsconfig.json`, `package.json`, and suites. Run them from the root with
+`deno task typecheck:ext` and `deno task test:ext`. Its version is generated from
+`deno.json` — never edit it by hand (`deno task sync-version`).
 
 ## Reference
 
-Original code can be found at
+The extension used to live in its own repo. It was merged into `harnesses/pi/`
+(task P1a-1); that repo is archived at the tag `archive/pi-pizza-team`. Its
+pre-merge history is in this repo too — `git subtree add` records no rename, so
+browse it from the merge-point tag using the original paths:
 
-- git: https://github.com/timzen/pi-pizza-team.git
-- local: /Users/timvance/Workspace/pi-pizza-team
+```bash
+git log premerge/pi-pizza-team -- src/client.ts
+git show premerge/pi-pizza-team:src/leader.ts
+```

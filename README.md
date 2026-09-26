@@ -349,11 +349,13 @@ agent. See [docs/DESIGN.md](docs/DESIGN.md).
 
 ### Pi (Native Extension)
 
-The [pi-pizza-team](https://github.com/timzen/pi-pizza-team) extension provides native leader + teammate integration:
+The Pi extension in this repo (`harnesses/pi/`) provides native leader + teammate integration. Install it by path from a clone:
 
 ```bash
-pi install git:github.com/timzen/pi-pizza-team
+pi install ./harnesses/pi
 ```
+
+It ships with the daemon and shares its version, so the two halves cannot drift apart. (Pi's git sources are whole repositories, so there is no git-URL install for a subdirectory; `mpt setup` will make this step unnecessary — see [docs/BATTERIES_INCLUDED.md](docs/BATTERIES_INCLUDED.md).)
 
 The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → set-state → repeat.
 

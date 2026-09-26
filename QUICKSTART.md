@@ -35,11 +35,23 @@ Install [Pi](https://pi.mariozechner.at/), the coding agent harness:
 npm install -g @earendil-works/pi-coding-agent
 ```
 
-## 3. Install the pi-pizza-team extension
+## 3. Install the Pi extension
+
+The extension lives in this repo under `harnesses/pi/`. Install it by path from a
+clone:
 
 ```bash
-pi install git:github.com/timzen/pi-pizza-team
+git clone https://github.com/timzen/my-pizza-team.git
+pi install ./my-pizza-team/harnesses/pi
 ```
+
+Pi loads a local package from its path without copying, so a `git pull` is enough
+to update it.
+
+> Installing straight from a git URL isn't available for this extension: Pi's git
+> sources are whole repositories, and the extension is a subdirectory here. `mpt
+> setup` will remove this step entirely by carrying the extension inside the binary
+> — see `docs/BATTERIES_INCLUDED.md`.
 
 This adds the leader/teammate integration that connects Pi to the daemon.
 
