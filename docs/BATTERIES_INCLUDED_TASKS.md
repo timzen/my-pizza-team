@@ -382,7 +382,29 @@ DESIGN.md's per-host leader paragraph).
 
 ---
 
-## Phase 2 — `mpt` carries the extension; `mpt setup`
+## Phase 2 — `mpt` carries the extension; `mpt setup` — **DONE**
+
+Findings from executing it, recorded because they changed the design:
+
+- **`pi install <path>` records the path relative to the settings file** and dedupes
+  by resolved path (verified against an isolated `PI_CODING_AGENT_DIR`). So the
+  managed directory appears as `"../../.my-pizza-team/pi-extension"`; every
+  comparison resolves entries first, because string matching would miss every
+  conflict — the exact hazard P2-4 exists to prevent.
+- **A development checkout wins.** If `…/harnesses/pi` is registered, setup removes
+  its *own* registration rather than replacing the checkout. Silently replacing code
+  someone is editing would make their edits stop taking effect with no indication
+  why.
+- **`mpt upgrade` must rewrite the extension from the *new* binary**, via a hidden
+  `write-extension-internal` command. The running process still holds the old
+  embedded copy, so an in-process write would install the version being replaced.
+- **Uninstall does not restore what setup removed**, and says so. Restoring would
+  re-create the broken state setup fixed (a dead path, or the archived standalone
+  repo); the entries are named with the command to re-add one.
+- **Only the manifest and `src/` are embedded.** `harnesses/pi/` wholesale would
+  carry 455M of type-checking devDependencies.
+
+
 
 ### P2-1 — Embed the extension
 
