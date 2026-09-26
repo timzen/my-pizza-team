@@ -56,6 +56,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // Hosts whose leader reported not-ready (e.g. expired credentials). While a
       // host is not ready, scheduled work destined for it is held (not failed).
       notReady: store.getTeamReadiness()?.ready === false ? store.getTeamReadiness() : null,
+      // Which path realizes spawns (P3-1), so `mpt doctor` can say rather than the
+      // user discovering that nothing spawns.
+      spawning: store.getSpawnCapability(),
     });
   });
 

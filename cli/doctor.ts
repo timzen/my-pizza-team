@@ -71,6 +71,8 @@ export interface DoctorFacts {
   projectTrusted: boolean;
   daemonRunning: boolean;
   leaderConnected: boolean | null;
+  /** Which path realizes spawns, as reported by the running daemon. */
+  spawning: { canSpawn: boolean; reason?: string; fix?: string } | null;
   serviceInstalled: boolean;
   githubTokenSet: boolean;
 }
@@ -201,14 +203,35 @@ export function evaluate(f: DoctorFacts): Check[] {
     checks.push({ name: "Daemon", status: "warn", detail: "not running", fix: "mpt start" });
   } else {
     checks.push({ name: "Daemon", status: "ok", detail: `running (v${f.daemonVersion})` });
+    // What a missing leader costs depends on who spawns. With daemon-driven spawning
+    // (P3-1) teammates still start without one; only the chat is unanswered. Saying
+    // "nothing will spawn" next to "spawning: daemon-driven" would be self-contradicting.
+    const daemonSpawns = f.spawning?.canSpawn === true;
     checks.push(
       f.leaderConnected
         ? { name: "Leader", status: "ok", detail: "connected" }
         : {
           name: "Leader",
           status: "warn",
-          detail: "no leader connected — nothing will spawn teammates or answer the chat",
-          fix: "run `pi` in this folder (the leader is the agent you chat with)",
+          detail: daemonSpawns
+            ? "no leader connected — the chat is unanswered (teammates still spawn, daemon-driven)"
+            : "no leader connected — nothing will spawn teammates or answer the chat",
+          fix: "mpt lead (the leader is the agent you chat with)",
+        },
+    );
+  }
+
+  // Which path spawns teammates. Both work; knowing which is live turns "nothing
+  // spawned" from a mystery into a fact.
+  if (f.daemonRunning && f.spawning) {
+    checks.push(
+      f.spawning.canSpawn
+        ? { name: "Spawning", status: "ok", detail: "daemon-driven (it can reach tmux)" }
+        : {
+          name: "Spawning",
+          status: "warn",
+          detail: `leader-driven — the daemon can't reach tmux: ${f.spawning.reason ?? "unknown"}`,
+          fix: f.spawning.fix ?? "start the daemon from a shell that has tmux",
         },
     );
   }
@@ -319,6 +342,14 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
 
   let daemonRunning = false;
   let leaderConnected: boolean | null = null;
+  let spawning: DoctorFacts["spawning"] = null;
+  try {
+    const health = await fetch(`${opts.daemonUrl}/health`, { signal: AbortSignal.timeout(1500) });
+    if (health.ok) {
+      const body = await health.json() as { spawning?: { canSpawn: boolean; reason?: string; fix?: string } };
+      spawning = body.spawning ?? null;
+    }
+  } catch { /* covered by the daemon check below */ }
   try {
     const res = await fetch(`${opts.daemonUrl}/api/agents`, { signal: AbortSignal.timeout(1500) });
     daemonRunning = res.ok;
@@ -349,6 +380,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     projectTrusted: isProjectTrusted(opts.projectDir, agentDir),
     daemonRunning,
     leaderConnected,
+    spawning,
     serviceInstalled: opts.serviceInstalled,
     githubTokenSet: Boolean(Deno.env.get("GITHUB_TOKEN")),
   };

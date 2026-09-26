@@ -109,6 +109,26 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **Declared team size, not spawn clicks** — The team's size is a *number you declare* (`minTeammates`, default 0), not a button you press per teammate. `Store.reconcileTeammatePool()` keeps at least that many generalist teammates online: it counts online pool members (the `leader`/`assistant` singletons are excluded by name) **plus** not-yet-realized `spawn` directives (so a slow leader never gets a second batch), clamps the target to `maxTeammates`, and queues `spawn` directives for the shortfall. It runs on the heartbeat timer immediately **after** the offline reaper — so a dismissed, crashed, or reaped teammate is replaced on the same tick — plus whenever the number changes or a leader registers (a leader is the first moment a spawn can actually be realized; with none connected the pool waits instead of piling up directives nobody will act on). Reconciliation is one-directional: the daemon never dismisses a teammate, so lowering the number only stops replacements. The value lives in `config.json`, which makes it the startup target too.
 - **Pages over modals** — The board is for glancing and light triage (drag a card to another column to move it). Clicking a card never opens an editor; the `details →` link opens the task page, and all reading/editing/creating lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`) — deep-linkable, roomy, and browser-back friendly. The only surviving modal is the FileViewer (a lightbox-style artifact/attachment viewer). This keeps destructive/edit actions off the high-traffic board surface. Cards carry no state badge (the column names the state) — only the substatus chip; drops only accept cards from the same story (the drag MIME type carries the story id). Each swimlane can hide the implicit todo/done bucket columns (persisted per story in `localStorage`); hidden buckets show their task counts in the story header.
 - **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
+- **The daemon realizes spawns** — `spawn` and `dismiss` become tmux windows in the
+  *daemon* rather than in the leader (docs/BATTERIES_INCLUDED.md §3.1, P3-1). Two
+  things follow: adding a harness is a config entry (`harnesses.<name>.teammate`)
+  rather than an extension release, and a teammate can start with **no leader
+  connected** — previously impossible, since only the leader realized directives.
+  `reset-session` is deliberately *not* taken over: it types `/new`, a Pi slash
+  command, and moving it here would mean the daemon knowing each harness's commands —
+  the coupling this removes.
+  **The leader path is kept as a fallback.** The daemon can only drive tmux if it can
+  reach it, which is a property of how it was launched — under launchd/systemd it may
+  have no `tmux` on PATH. It probes once at startup (`probeSpawnCapability`), reports
+  the result on `/health`, and when it can't spawn, directives stay `pending` for the
+  leader exactly as before. `mpt doctor` names which path is live, so this is a visible
+  fact rather than spawns quietly not happening.
+  A directive that can't be realized is marked **`failed` with its reason** rather than
+  left pending: a pending directive would be retried every 2s, spawning nothing and
+  saying nothing. Failures surface in the Team tab beside pending spawns, because a
+  failure the leader used to report is now the daemon's, and unreported it looks
+  exactly like a team that never grew.
+
 - **Upgrading both halves** — `mpt upgrade` replaces the binary *and* rewrites the
   managed Pi extension, because the two are one protocol (docs/BATTERIES_INCLUDED.md
   §1.2) and moving only one is the skew this plan exists to remove. The rewrite is

@@ -20,13 +20,13 @@
 
 import { useMatch } from "react-router-dom";
 import type { TeamData } from "@/hooks/useTeamData";
-import { SpawnRequestRow, TeammateRow } from "./TeamParts";
+import { FailedSpawnRow, SpawnRequestRow, TeammateRow } from "./TeamParts";
 import { UserPlus, Users } from "lucide-react";
 
 export function TeamPanel({ team }: { team: TeamData }) {
   // Which teammate's view (if any) is in the center.
   const viewingId = useMatch("/teammates/:id")?.params.id ?? null;
-  const { teammates, online, offline, pendingSpawns, skewed } = team;
+  const { teammates, online, offline, pendingSpawns, failedSpawns, skewed } = team;
   const skewReasonFor = (id: string) => skewed.find((s) => s.teammate.id === id)?.reason;
 
   return (
@@ -55,6 +55,15 @@ export function TeamPanel({ team }: { team: TeamData }) {
             >
               Restart {skewed.length === 1 ? "it" : `all ${skewed.length}`} (rolls the session, clearing context)
             </button>
+          </div>
+        )}
+
+        {failedSpawns.length > 0 && (
+          <div className="pb-1">
+            <p className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-destructive">
+              Failed spawns ({failedSpawns.length})
+            </p>
+            {failedSpawns.map((f) => <FailedSpawnRow key={f.id} failure={f} onDismiss={team.cancelSpawn} />)}
           </div>
         )}
 

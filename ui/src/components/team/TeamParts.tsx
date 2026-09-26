@@ -12,7 +12,7 @@ import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Users, UserPlus, AlertTriangle } from "lucide-react";
-import { STATUS_DOT, dirName, roleOf, viewPath, type Role, type SpawnRequest, type Teammate } from "@/lib/team";
+import { STATUS_DOT, dirName, roleOf, viewPath, type FailedSpawn, type Role, type SpawnRequest, type Teammate } from "@/lib/team";
 
 /**
  * The two team-level actions: set the steady team size, spawn one teammate in a
@@ -67,6 +67,40 @@ export function TeammateAvatar({ teammate, selected }: { teammate: Teammate; sel
 }
 
 /** A pending spawn request row with a cancel button (expanded sidebar). */
+/**
+ * A spawn the daemon attempted and couldn't finish.
+ *
+ * Shows the reason, because the alternative is a team that is quietly one short with
+ * nothing to explain why. Dismissing removes the record, not a teammate.
+ */
+export function FailedSpawnRow({ failure, onDismiss }: { failure: FailedSpawn; onDismiss: (id: string) => void }) {
+  const dir = dirName(failure.cwd);
+  return (
+    <div className="group rounded-md border border-destructive/50 bg-destructive/5 p-2.5">
+      <div className="flex items-center gap-2">
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+        <span className="truncate text-sm font-medium">{failure.name || "(unnamed)"}</span>
+        <button
+          onClick={() => onDismiss(failure.id)}
+          className="p-0.5 text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100"
+          title="Dismiss this failure"
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <p className="mt-1 text-[11px] text-destructive">{failure.error || "spawn failed"}</p>
+      {(dir || failure.cwd) && (
+        <div className="mt-1.5 flex flex-wrap items-center gap-1">
+          <Badge variant="secondary" className="flex max-w-full items-center gap-1 font-mono text-[10px]" title={failure.cwd ?? undefined}>
+            <FolderOpen className="h-2.5 w-2.5 shrink-0" />
+            <span className="truncate">{dir || failure.cwd}</span>
+          </Badge>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function SpawnRequestRow({ request, onCancel }: { request: SpawnRequest; onCancel: (id: string) => void }) {
   const dir = dirName(request.cwd);
   return (

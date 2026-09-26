@@ -52,6 +52,7 @@ function healthy(over: Partial<DoctorFacts> = {}): DoctorFacts {
     projectTrusted: true,
     daemonRunning: true,
     leaderConnected: true,
+    spawning: { canSpawn: true },
     serviceInstalled: true,
     githubTokenSet: true,
     ...over,
@@ -221,10 +222,37 @@ Deno.test("a stopped daemon warns, and the leader check is skipped", () => {
   assertEquals(checks.some((c) => c.name === "Leader"), false);
 });
 
-Deno.test("a running daemon with no leader warns that chat and spawning are dead", () => {
-  const check = find(evaluate(healthy({ leaderConnected: false })), "Leader");
-  assertEquals(check.status, "warn");
-  assertStringIncludes(check.detail, "chat");
+Deno.test("what a missing leader costs depends on who spawns", () => {
+  // Saying "nothing will spawn teammates" beside "Spawning: daemon-driven" would be
+  // self-contradicting — and it was, until this was made conditional.
+  const daemonSpawns = find(evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: true } })), "Leader");
+  assertEquals(daemonSpawns.status, "warn");
+  assertStringIncludes(daemonSpawns.detail, "teammates still spawn");
+
+  const leaderSpawns = find(
+    evaluate(healthy({ leaderConnected: false, spawning: { canSpawn: false, reason: "no tmux", fix: "install tmux" } })),
+    "Leader",
+  );
+  assertStringIncludes(leaderSpawns.detail, "nothing will spawn");
+});
+
+Deno.test("the spawning path is reported, and a daemon that can't reach tmux warns", () => {
+  // Both paths work — the leader realizes directives when the daemon can't. Saying
+  // which is live turns "nothing spawned" from a mystery into a fact.
+  assertEquals(find(evaluate(healthy()), "Spawning").status, "ok");
+
+  const fallback = find(
+    evaluate(healthy({ spawning: { canSpawn: false, reason: "tmux is not on this process's PATH", fix: "install tmux" } })),
+    "Spawning",
+  );
+  assertEquals(fallback.status, "warn");
+  assertStringIncludes(fallback.detail, "leader-driven");
+  assertStringIncludes(fallback.fix!, "tmux");
+});
+
+Deno.test("no spawning check when the daemon isn't running to report it", () => {
+  const checks = evaluate(healthy({ daemonRunning: false, leaderConnected: null, spawning: null }));
+  assertEquals(checks.some((c) => c.name === "Spawning"), false);
 });
 
 Deno.test("an uninstalled service and an unset token are not problems", () => {

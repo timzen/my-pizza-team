@@ -59,6 +59,21 @@ export interface SpawnRequest {
   createdAt: string;
 }
 
+/**
+ * A spawn the daemon tried and could not complete.
+ *
+ * Failures used to be the leader's to report. Since the daemon realizes spawns
+ * (P3-1) they are its own, and an unreported one looks exactly like a team that
+ * never grew — so they get a row of their own with the reason.
+ */
+export interface FailedSpawn {
+  id: string;
+  name: string | null;
+  cwd: string | null;
+  error: string | null;
+  at: string;
+}
+
 /** Status dot colors. */
 export const STATUS_DOT: Record<string, string> = {
   idle: "bg-muted-foreground/50",

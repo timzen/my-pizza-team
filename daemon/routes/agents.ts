@@ -308,7 +308,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // ─── Pending spawn requests (visibility + cancel) ────────────────────
 
   app.get("/api/spawn-requests", (c) => {
-    return c.json({ requests: store.getPendingSpawnRequests() });
+    return c.json({
+      requests: store.getPendingSpawnRequests(),
+      // Failures used to be the leader's to report; the daemon owns them now, and an
+      // unreported failure looks exactly like a team that never grew (P3-1).
+      failed: store.getFailedSpawnRequests(),
+    });
   });
 
   app.delete("/api/spawn-requests/:id", (c) => {

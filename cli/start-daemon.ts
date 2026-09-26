@@ -14,6 +14,7 @@ import {
   type DaemonContext,
 } from "../daemon/lifecycle.ts";
 import { resolveToken, validateBindSafety } from "../daemon/auth.ts";
+import { probeSpawnCapability, realizePending } from "../daemon/spawner.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -81,11 +82,52 @@ export async function startDaemonInProcess(
   const ctx: DaemonContext = { store, server, teamDir, pidFile };
   registerSignalHandlers(ctx);
 
+  // ─── Spawn realization (P3-1) ──────────────────────────────────────
+  //
+  // The daemon turns `spawn`/`dismiss` directives into tmux windows itself, so a
+  // harness is a config entry rather than extension code, and so a teammate can be
+  // started with no leader connected. Probed once: whether this process can reach tmux
+  // is a property of how it was launched, and under launchd/systemd it may have no
+  // tmux on PATH. When it can't, directives stay pending and the leader realizes them
+  // exactly as before — the path `mpt doctor` reports.
+  // `store` is null only in health-only mode, which has no team to spawn into.
+  const spawnCapability = store ? probeSpawnCapability(store.getConfig()) : { canSpawn: false as const, reason: "no team directory", fix: "run `mpt setup`" };
+  store?.setSpawnCapability(spawnCapability);
+
+  let spawnTimer: ReturnType<typeof setInterval> | undefined;
+  if (store && spawnCapability.canSpawn) {
+    console.log("   Spawning: daemon-driven (tmux reachable)");
+    const realize = () => {
+      try {
+        const { failed } = realizePending(store, {
+          config: store.getConfig(),
+          daemonUrl: `http://localhost:${port}`,
+          fallbackCwd: path.dirname(teamDir),
+        });
+        for (const f of failed) console.error(`⚠️  Spawn ${f.id} failed: ${f.error}`);
+      } catch (e) {
+        // Never let a spawn problem take the daemon down with it.
+        console.error(`⚠️  Spawn pass failed: ${(e as Error).message}`);
+      }
+    };
+    // 2s: a directive is usually realized before anyone notices, and faster than the
+    // leader's 5s poll it replaces.
+    spawnTimer = setInterval(realize, 2000);
+    realize();
+  } else if (!spawnCapability.canSpawn) {
+    console.log(`   Spawning: leader-driven — ${spawnCapability.reason}`);
+    console.log(`     ${spawnCapability.fix}`);
+  }
+
   console.log(`🍕 my-pizza-team daemon listening on http://localhost:${port}`);
   console.log(`   PID: ${Deno.pid} (${pidFile})`);
   console.log(`   Team dir: ${teamDir}`);
   console.log(`   Press Ctrl+C to stop.`);
 
   // Keep alive — wait for server to close
-  await server.finished;
+  try {
+    await server.finished;
+  } finally {
+    if (spawnTimer !== undefined) clearInterval(spawnTimer);
+  }
 }

@@ -427,7 +427,8 @@ export class Store {
         action TEXT NOT NULL,      -- 'spawn' | 'reset-session' | ...
         member_id TEXT,            -- target agent for actions on an existing member
         params TEXT DEFAULT '{}',  -- action params (e.g. spawn name/cwd/storyId/reason)
-        status TEXT DEFAULT 'pending', -- 'pending' | 'done'
+        status TEXT DEFAULT 'pending', -- 'pending' | 'done' | 'failed'
+        error TEXT,                -- why it failed, so a failure has somewhere visible to live
         created_at INTEGER,
         updated_at INTEGER
       );
@@ -558,6 +559,11 @@ export class Store {
     const directiveColumns = this.db.prepare("PRAGMA table_info(leader_directives)").all() as Array<Record<string, unknown>>;
     if (directiveColumns.some((col) => col.name === "host_id")) {
       this.db.exec("ALTER TABLE leader_directives DROP COLUMN host_id");
+    }
+    // The daemon realizes spawns itself now (P3-1), so a failure needs a home that a
+    // human sees rather than a log line nobody reads.
+    if (!directiveColumns.some((col) => col.name === "error")) {
+      this.db.exec("ALTER TABLE leader_directives ADD COLUMN error TEXT");
     }
   }
 
@@ -1725,6 +1731,28 @@ export class Store {
     if (this.schedulerTimer) clearInterval(this.schedulerTimer);
   }
 
+  /** The team's config, as resolved at startup. */
+  getConfig(): TeamConfig {
+    return this.config;
+  }
+
+  /**
+   * Whether this daemon process realizes spawns itself, or leaves them to the leader.
+   *
+   * Held in memory and reported via /health so `mpt doctor` can say which path is
+   * live. Otherwise "the daemon can't reach tmux" would present as spawns simply not
+   * happening — the class of silent failure this plan exists to remove.
+   */
+  private spawnCapability: { canSpawn: boolean; reason?: string; fix?: string } = { canSpawn: false, reason: "not probed" };
+
+  setSpawnCapability(capability: { canSpawn: boolean; reason?: string; fix?: string }): void {
+    this.spawnCapability = capability;
+  }
+
+  getSpawnCapability(): { canSpawn: boolean; reason?: string; fix?: string } {
+    return this.spawnCapability;
+  }
+
   // --- Team readiness (see TeamReadiness) ---
 
   /** Record the team's readiness (reported by the leader's probe). */
@@ -2400,11 +2428,35 @@ export class Store {
   }
 
   /** Update a directive's status (e.g. 'done'). Returns false if not found. */
-  updateLeaderDirective(id: string, status: string): boolean {
+  updateLeaderDirective(id: string, status: string, error?: string): boolean {
     const row = this.db.prepare("SELECT id FROM leader_directives WHERE id = ?").get(id);
     if (!row) return false;
-    this.db.prepare("UPDATE leader_directives SET status = ?, updated_at = ? WHERE id = ?").run(status, Date.now(), id);
+    this.db.prepare("UPDATE leader_directives SET status = ?, error = ?, updated_at = ? WHERE id = ?")
+      .run(status, error ?? null, Date.now(), id);
     return true;
+  }
+
+  /**
+   * Spawn directives that failed, newest first, with the reason.
+   *
+   * Surfaced in the UI beside pending spawns. Before the daemon realized spawns, a
+   * failure was the leader's to report; now it is the daemon's, and an unreported
+   * failure would look exactly like a team that simply never grew.
+   */
+  getFailedSpawnRequests(): Array<{ id: string; name: string | null; cwd: string | null; error: string | null; at: string }> {
+    const rows = this.db.prepare(
+      "SELECT id, params, error, updated_at FROM leader_directives WHERE action = 'spawn' AND status = 'failed' ORDER BY updated_at DESC",
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map((row) => {
+      const params = row.params && (row.params as string) !== "{}" ? JSON.parse(row.params as string) : {};
+      return {
+        id: row.id as string,
+        name: (params.name as string) ?? null,
+        cwd: (params.cwd as string) ?? null,
+        error: (row.error as string) ?? null,
+        at: new Date(row.updated_at as number).toISOString(),
+      };
+    });
   }
 
   /** Generate a unique teammate name (avoids current members + pending spawn directives). */

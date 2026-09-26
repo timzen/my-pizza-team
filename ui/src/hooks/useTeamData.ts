@@ -15,7 +15,7 @@
 
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import type { TeammatePool } from "@/components/TeamSizeDialog";
-import { harnessSkew, roleOf, type SpawnRequest, type Teammate } from "@/lib/team";
+import { harnessSkew, roleOf, type FailedSpawn, type SpawnRequest, type Teammate } from "@/lib/team";
 
 export interface TeamData {
   /** Pool teammates (never the leader). */
@@ -23,6 +23,8 @@ export interface TeamData {
   online: Teammate[];
   offline: Teammate[];
   pendingSpawns: SpawnRequest[];
+  /** Spawns the daemon tried and couldn't complete, newest first. */
+  failedSpawns: FailedSpawn[];
   pool: TeammatePool | null;
   /** A declared size nothing can realize yet (no leader to act on spawns). */
   poolBlocked: boolean;
@@ -53,7 +55,7 @@ export interface TeamData {
 
 export function useTeamData(): TeamData {
   const { data, refetch } = useApi<{ agents: Teammate[]; daemonVersion?: string }>("/api/agents", [], { pollInterval: 10_000 });
-  const { data: spawnData, refetch: refetchSpawns } = useApi<{ requests: SpawnRequest[] }>("/api/spawn-requests", [], { pollInterval: 10_000 });
+  const { data: spawnData, refetch: refetchSpawns } = useApi<{ requests: SpawnRequest[]; failed: FailedSpawn[] }>("/api/spawn-requests", [], { pollInterval: 10_000 });
   const { data: pool, refetch: refetchPool } = useApi<TeammatePool>("/api/teammate-pool", [], { pollInterval: 10_000 });
 
   const teammates = (data?.agents || []).filter((a) => roleOf(a) === "teammate");
@@ -73,9 +75,12 @@ export function useTeamData(): TeamData {
     online: teammates.filter((a) => a.status !== "offline"),
     offline: teammates.filter((a) => a.status === "offline"),
     pendingSpawns: spawnData?.requests || [],
+    failedSpawns: spawnData?.failed || [],
     pool,
     poolBlocked,
-    needsAttention: poolBlocked,
+    // A failed spawn wants a human as much as an unmet size does: the team is short
+    // and will stay short until someone looks.
+    needsAttention: poolBlocked || (spawnData?.failed?.length ?? 0) > 0,
     daemonVersion: data?.daemonVersion,
     skewed,
 
