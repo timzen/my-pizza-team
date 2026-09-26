@@ -1,0 +1,35 @@
+// Type-checks the extension's sources.
+//
+// Pi strips types at load and the test suites are .mjs, so without this nothing
+// validates this package at all — see docs/BATTERIES_INCLUDED_TASKS.md P0-1.
+// Type-check only: Pi loads the TypeScript from disk, so a build would be
+// unused output.
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "lib": ["ES2022"],
+
+    // The sources are ESM (sibling imports use './client.js' specifiers), but
+    // package.json deliberately has no "type" field: that field changes how Node
+    // interprets the package at runtime, and Pi supplies its own loader. Bundler
+    // resolution checks the files as the ESM they are, and resolves
+    // './client.js' to client.ts, without asserting anything about Node.
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+
+    "noEmit": true,
+
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "forceConsistentCasingInFileNames": true,
+
+    // Keeps `import type` explicit, which is what makes every Pi import
+    // type-only — and so keeps this package free of runtime coupling to Pi.
+    "verbatimModuleSyntax": true,
+
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["src/**/*.ts"]
+}

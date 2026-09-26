@@ -106,18 +106,18 @@ function registerFailWorkItem(
     async execute(_toolCallId, params) {
       const workItemId = getCurrentWorkItemId();
       if (!workItemId) {
-        return { content: [{ type: "text", text: "No work item is currently claimed — nothing to fail." }] };
+        return { content: [{ type: "text", text: "No work item is currently claimed — nothing to fail." }], details: undefined };
       }
       try {
         await client.postComment(workItemId, `[failed] ${(params as { comment: string }).comment}`).catch(() => {});
         const res = await client.setWorkItemState(workItemId, "FAILED");
         if (!res.success) {
-          return { content: [{ type: "text", text: `Failed to mark the work item failed: ${res.error || "unknown error"}` }] };
+          return { content: [{ type: "text", text: `Failed to mark the work item failed: ${res.error || "unknown error"}` }], details: undefined };
         }
         onWorkItemFailed?.(workItemId);
-        return { content: [{ type: "text", text: `Work item ${workItemId} marked failed with your comment. Stop working on it.` }] };
+        return { content: [{ type: "text", text: `Work item ${workItemId} marked failed with your comment. Stop working on it.` }], details: undefined };
       } catch {
-        return { content: [{ type: "text", text: "Failed to mark the work item failed (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to mark the work item failed (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -339,13 +339,13 @@ function registerListThoughtGroups(pi: ExtensionAPI, client: DaemonClient): void
     async execute(_toolCallId, _params) {
       try {
         const { groups } = await client.listThoughts();
-        if (groups.length === 0) return { content: [{ type: "text", text: "No thought groups." }] };
+        if (groups.length === 0) return { content: [{ type: "text", text: "No thought groups." }], details: undefined };
         return {
           content: [{ type: "text", text: `Thought groups:\n${groups.map((g) => `- ${g.title} (${g.id})`).join("\n")}` }],
           details: { groups },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to list thought groups (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to list thought groups (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -374,7 +374,7 @@ function registerListThoughts(pi: ExtensionAPI, client: DaemonClient): void {
         const { thoughts, groups } = await client.listThoughts(p.includeArchived ? undefined : "active");
         let notes = thoughts;
         if (p.groupId) notes = notes.filter((t) => t.groupId === p.groupId);
-        if (notes.length === 0) return { content: [{ type: "text", text: p.groupId ? "No notes in that group." : "No thoughts on the board." }] };
+        if (notes.length === 0) return { content: [{ type: "text", text: p.groupId ? "No notes in that group." : "No thoughts on the board." }], details: undefined };
         const titleOf = (id: string | null) => groups.find((g) => g.id === id)?.title;
         const fmt = (t: typeof notes[number]) => {
           const g = t.groupId ? ` [${titleOf(t.groupId) ?? t.groupId}]` : "";
@@ -386,7 +386,7 @@ function registerListThoughts(pi: ExtensionAPI, client: DaemonClient): void {
           details: { count: notes.length, ids: notes.map((t) => t.id) },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to read thoughts (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to read thoughts (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -406,14 +406,14 @@ function registerGetThought(pi: ExtensionAPI, client: DaemonClient): void {
       const id = (params as { id: string }).id;
       try {
         const res = await client.getThought(id);
-        if (!res.success || !res.thought) return { content: [{ type: "text", text: `Thought "${id}" not found.` }] };
+        if (!res.success || !res.thought) return { content: [{ type: "text", text: `Thought "${id}" not found.` }], details: undefined };
         const t = res.thought;
         return {
           content: [{ type: "text", text: `# ${t.id}${t.pinned ? " 📌" : ""}\nstatus: ${t.status}\n\n${t.content.trim() || "(empty)"}` }],
           details: { thought: t },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to read the thought (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to read the thought (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -564,7 +564,7 @@ function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
       try {
         const workflows = await client.listWorkflows();
         if (workflows.length === 0) {
-          return { content: [{ type: "text", text: "No workflows found." }] };
+          return { content: [{ type: "text", text: "No workflows found." }], details: undefined };
         }
         const lines = workflows.map((w) =>
           `- ${w.name}${w.isDefault ? " (default)" : ""} — ${w.stateCount} states (${w.agentCount} agent, ${w.manualCount} manual)`
@@ -574,7 +574,7 @@ function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
           details: { workflows },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to list workflows (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to list workflows (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -599,7 +599,7 @@ function registerListContext(pi: ExtensionAPI, client: DaemonClient): void {
       try {
         const { entries } = await client.listContext();
         if (entries.length === 0) {
-          return { content: [{ type: "text", text: "The context library is empty." }] };
+          return { content: [{ type: "text", text: "The context library is empty." }], details: undefined };
         }
         const lines = entries.map((e) => {
           const tags = e.tags.length > 0 ? ` [${e.tags.join(", ")}]` : "";
@@ -611,7 +611,7 @@ function registerListContext(pi: ExtensionAPI, client: DaemonClient): void {
           details: { entries: entries.map((e) => ({ id: e.id, title: e.title, tags: e.tags })) },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to list context entries (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to list context entries (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -623,6 +623,9 @@ function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
     name: "team_status",
     label: "Team Status",
+    description:
+      "Get a snapshot of the team: how many stories are open or done, the task count by state, and how many " +
+      "members are working versus idle. Use it for a quick overview before deciding what to pick up.",
     promptSnippet: "Check the current team status",
     promptGuidelines: [
       "Use team_status to get a quick overview of the team's progress.",
@@ -645,7 +648,7 @@ function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
           details: { status },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to fetch team status (daemon unreachable)." }] };
+        return { content: [{ type: "text", text: "Failed to fetch team status (daemon unreachable)." }], details: undefined };
       }
     },
   });
@@ -677,18 +680,18 @@ function registerUploadAttachment(
     }),
     async execute(_toolCallId, params) {
       const workItemId = getCurrentWorkItemId();
-      if (!workItemId) return { content: [{ type: "text", text: "No work item is currently claimed — nothing to attach to." }] };
+      if (!workItemId) return { content: [{ type: "text", text: "No work item is currently claimed — nothing to attach to." }], details: undefined };
 
       let fileContent: string;
       if (params.filePath) {
         if (!fs.existsSync(params.filePath)) {
-          return { content: [{ type: "text", text: `File not found: ${params.filePath}` }] };
+          return { content: [{ type: "text", text: `File not found: ${params.filePath}` }], details: undefined };
         }
         fileContent = fs.readFileSync(params.filePath, "utf-8");
       } else if (params.content) {
         fileContent = params.content;
       } else {
-        return { content: [{ type: "text", text: "Provide either 'content' or 'filePath'." }] };
+        return { content: [{ type: "text", text: "Provide either 'content' or 'filePath'." }], details: undefined };
       }
 
       const uploadRes = await client.uploadAttachment(workItemId, params.filename, fileContent);
@@ -697,7 +700,7 @@ function registerUploadAttachment(
       const msgBody = params.message || `Attached ${params.filename} for review.`;
       await client.postComment(workItemId, msgBody, [{ name: params.filename, size: fileContent.length, type: uploadRes.type || "other" }]);
 
-      return { content: [{ type: "text", text: `Uploaded ${params.filename} (${fileContent.length} bytes) and posted message.` }] };
+      return { content: [{ type: "text", text: `Uploaded ${params.filename} (${fileContent.length} bytes) and posted message.` }], details: undefined };
     },
   });
 }

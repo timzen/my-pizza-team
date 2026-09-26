@@ -11,11 +11,21 @@
       "./src/index.ts"
     ]
   },
+  "//dependencies": "Deliberately empty. Pi supplies every package the extension imports (see peerDependencies), so `mpt setup` can install the extension by writing files out, with no npm install step — BATTERIES_INCLUDED.md P2-1.",
   "dependencies": {},
   "peerDependencies": {
     "@earendil-works/pi-coding-agent": "*",
     "@earendil-works/pi-tui": "*",
     "typebox": "*"
   },
-  "devDependencies": {}
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "node --test tests/*.mjs"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "^0.87.1",
+    "@types/node": "^22.20.4",
+    "typebox": "^1.3.34",
+    "typescript": "^5.9.3"
+  }
 }

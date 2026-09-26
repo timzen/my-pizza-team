@@ -593,7 +593,16 @@ function spawnAgent(
   // Resolve the command template. Teammates are generalists biased by their
   // working directory (the spawn cwd) — there are no work-mode/skill args.
   const workArgs = "";
+  // `harnessTemplates` is an index signature, so both the lookup and the `pi`
+  // fallback can be absent — a config that defines templates but omits the one
+  // being spawned would otherwise crash here, surfacing as a teammate that
+  // never appears. Fail with the reason instead.
   const template = harnessTemplates[harness] || harnessTemplates.pi;
+  if (!template) {
+    throw new Error(
+      `No spawn command template for harness "${harness}" (and no "pi" fallback). Add one to the team config.`,
+    );
+  }
   const cmd = template
     .replace(/\{name\}/g, shellSafe(name))
     .replace(/\{url\}/g, shellSafe(daemonUrl))
