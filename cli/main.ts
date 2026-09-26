@@ -5,11 +5,24 @@
  * (root main.ts) and runs directly under `deno run cli/main.ts`.
  */
 
-import { TEAM_DIR } from "../shared/types.ts";
+import { DEFAULT_CONFIG, TEAM_DIR } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 import { install, uninstall, detectInstalledService } from "./service.ts";
 import { evaluate, gather, report } from "./doctor.ts";
+import { managedExtensionDir, resolveExtensionSourceDir, writeExtension } from "./extension.ts";
+import { piAgentDir, readPiSettings } from "./pi-config.ts";
+import {
+  applyPackageChanges,
+  isNoOp,
+  manifestPath,
+  planSetup,
+  readManifest,
+  trustProject,
+  writeManifest,
+  writePiSettingsFile,
+  type SetupPlan,
+} from "./setup.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { startDaemonInProcess } from "./start-daemon.ts";
 // Single source of truth for the version: the package manifest. Bundled into
@@ -507,7 +520,216 @@ Examples:
   mpt uninstall         # Remove service
   mpt upgrade           # Self-update to the latest release
   mpt doctor            # Check prerequisites and print a fix for each problem
+  mpt setup             # Install the Pi extension + prepare this folder (idempotent)
+  mpt setup --dry-run   # Show what setup would change, without changing it
+  mpt setup --uninstall # Undo what setup did (keeps the team directory)
 `);
+}
+
+/** Render a plan so the user sees every change before it happens. */
+function describePlan(plan: SetupPlan): void {
+  for (const note of plan.respected) console.log(`   ·  ${note}`);
+  if (plan.respected.length > 0 && plan.actions.length > 0) console.log();
+  for (const action of plan.actions) {
+    switch (action.kind) {
+      case "write-extension":
+        console.log(`   →  write the bundled Pi extension to ${action.targetDir}`);
+        break;
+      case "register-extension":
+        console.log(`   →  register it with Pi (${action.targetDir})`);
+        break;
+      case "unregister":
+        console.log(`   →  unregister ${action.resolvedPath}  (${action.because})`);
+        break;
+      case "create-team-dir":
+        console.log(`   →  create the team directory ${action.teamDir}`);
+        break;
+      case "trust-project":
+        console.log(`   →  mark ${action.projectDir} trusted by Pi`);
+        break;
+    }
+  }
+}
+
+/**
+ * `mpt setup` — make this machine ready to run a team. Idempotent.
+ *
+ * Installs the extension by *writing* the copy carried in this binary, which is what
+ * keeps the daemon and the extension from drifting apart (§1.2). Every change is
+ * printed first, and recorded so `--uninstall` can undo exactly what was done —
+ * this edits the user's own Pi configuration, so guessing later is not acceptable.
+ */
+async function cmdSetup(args: string[]): Promise<void> {
+  if (args.includes("--uninstall")) return cmdSetupUninstall(args);
+
+  const dryRun = args.includes("--dry-run") || args.includes("-n");
+  const teamDir = getTeamDir();
+  const projectDir = path.dirname(teamDir);
+  const agentDir = piAgentDir();
+  const managedDir = managedExtensionDir();
+  const sourceDir = resolveExtensionSourceDir();
+
+  const facts = await gather({
+    teamDir,
+    projectDir,
+    daemonVersion: VERSION,
+    daemonUrl: `http://localhost:${getPort()}`,
+    serviceInstalled: detectInstalledService() !== null,
+  });
+
+  const plan = planSetup({
+    registrations: facts.registrations,
+    managedDir,
+    settingsReadable: facts.settingsReadable,
+    bundledExtensionAvailable: sourceDir !== null,
+    teamDirConfigured: facts.teamDirExists,
+    projectTrusted: facts.projectTrusted,
+    teamDir,
+    projectDir,
+  });
+
+  if (plan.blockers.length > 0) {
+    console.error("❌ Cannot set up:");
+    for (const b of plan.blockers) console.error(`   ${b}`);
+    Deno.exit(1);
+  }
+
+  if (isNoOp(plan)) {
+    console.log("✅ Already set up — nothing to change.");
+    for (const note of plan.respected) console.log(`   ·  ${note}`);
+    console.log("\n   Run `mpt doctor` to check the details.");
+    return;
+  }
+
+  console.log(dryRun ? "Would make these changes:\n" : "Setting up:\n");
+  describePlan(plan);
+  if (dryRun) {
+    console.log("\nNothing was changed (--dry-run).");
+    return;
+  }
+  console.log();
+
+  // Collect package-list edits and apply them in one write.
+  const toRemove = plan.actions.filter((a) => a.kind === "unregister").map((a) => a.source);
+  const toAdd = plan.actions.some((a) => a.kind === "register-extension") ? managedDir : undefined;
+
+  for (const action of plan.actions) {
+    if (action.kind === "write-extension") {
+      const { version } = writeExtension(sourceDir!, action.targetDir);
+      console.log(`✅ Extension written to ${action.targetDir} (v${version ?? "unknown"})`);
+    }
+    if (action.kind === "create-team-dir") {
+      Deno.mkdirSync(action.teamDir, { recursive: true });
+      const configFile = path.join(action.teamDir, "config.json");
+      // Never overwrite: a half-initialised team dir may already hold real data.
+      if (!existsSync(configFile)) {
+        Deno.writeTextFileSync(configFile, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
+      }
+      console.log(`✅ Team directory ready at ${action.teamDir}`);
+    }
+    if (action.kind === "trust-project") {
+      trustProject(agentDir, action.projectDir);
+      console.log(`✅ ${action.projectDir} is trusted by Pi`);
+    }
+  }
+
+  let addedPackages: string[] = [];
+  let removedPackages: string[] = [];
+  if (toRemove.length > 0 || toAdd) {
+    const { raw, removed, added } = applyPackageChanges(readPiSettings(agentDir), {
+      remove: toRemove,
+      addLocalPath: toAdd,
+      agentDir,
+    });
+    writePiSettingsFile(agentDir, raw);
+    addedPackages = added;
+    removedPackages = removed;
+    for (const r of removed) console.log(`✅ Unregistered ${r}`);
+    for (const a of added) console.log(`✅ Registered ${a} with Pi`);
+  }
+
+  // Record what changed, merged with any previous run's record.
+  const previous = readManifest(manifestPath(path.dirname(managedDir)));
+  writeManifest(manifestPath(path.dirname(managedDir)), {
+    at: new Date().toISOString(),
+    version: VERSION,
+    agentDir,
+    addedPackages: [...new Set([...(previous?.addedPackages ?? []), ...addedPackages])],
+    removedPackages: [...new Set([...(previous?.removedPackages ?? []), ...removedPackages])],
+    managedDir: existsSync(managedDir) ? managedDir : null,
+    trustedProjects: [...new Set([
+      ...(previous?.trustedProjects ?? []),
+      ...plan.actions.filter((a) => a.kind === "trust-project").map((a) => a.projectDir),
+    ])],
+  });
+
+  console.log("\nNext: `mpt start` to run the daemon, then `pi` in this folder to start the leader.");
+  console.log("      `mpt doctor` re-checks everything.");
+}
+
+/**
+ * `mpt setup --uninstall` — undo what setup did, and nothing else.
+ *
+ * Driven entirely by the recorded manifest. Without it, uninstall would have to
+ * guess which registrations were ours, and guessing at someone else's settings file
+ * is how you delete an entry they added themselves.
+ *
+ * Two things are deliberately *not* undone, and both are reported rather than done
+ * silently:
+ *
+ *   - **Project trust.** Revoking it would break other tools using the same folder.
+ *   - **Registrations setup removed.** Restoring them would re-create the broken
+ *     state setup was fixing — a path that no longer exists, or the archived
+ *     standalone repo. So they are named, and re-adding is left to the user, who is
+ *     the only one who knows whether they still want them.
+ */
+function cmdSetupUninstall(args: string[]): void {
+  const dryRun = args.includes("--dry-run") || args.includes("-n");
+  const managedDir = managedExtensionDir();
+  const file = manifestPath(path.dirname(managedDir));
+  const manifest = readManifest(file);
+
+  if (!manifest) {
+    console.log("Nothing to undo: no setup manifest found.");
+    console.log(`   (looked in ${file})`);
+    return;
+  }
+
+  console.log(dryRun ? "Would undo:\n" : "Undoing setup:\n");
+  for (const entry of manifest.addedPackages) console.log(`   →  unregister ${entry} from Pi`);
+  if (manifest.managedDir && existsSync(manifest.managedDir)) {
+    console.log(`   →  remove ${manifest.managedDir}`);
+  }
+  if (manifest.trustedProjects.length > 0) {
+    console.log(`   ·  leaving project trust in place (${manifest.trustedProjects.join(", ")}) — other tools may rely on it`);
+  }
+  if (manifest.removedPackages.length > 0) {
+    // Named rather than restored: putting these back would re-create the state setup
+    // was fixing. Said out loud so the choice is the user's.
+    console.log("   ·  not restoring these registrations that setup removed:");
+    for (const entry of manifest.removedPackages) console.log(`        ${entry}`);
+    console.log("      (re-add with `pi install <path>` if you still want one)");
+  }
+  if (dryRun) {
+    console.log("\nNothing was changed (--dry-run).");
+    return;
+  }
+  console.log();
+
+  if (manifest.addedPackages.length > 0) {
+    const { raw, removed } = applyPackageChanges(readPiSettings(manifest.agentDir), {
+      remove: manifest.addedPackages,
+      agentDir: manifest.agentDir,
+    });
+    writePiSettingsFile(manifest.agentDir, raw);
+    for (const r of removed) console.log(`✅ Unregistered ${r}`);
+  }
+  if (manifest.managedDir && existsSync(manifest.managedDir)) {
+    Deno.removeSync(manifest.managedDir, { recursive: true });
+    console.log(`✅ Removed ${manifest.managedDir}`);
+  }
+  Deno.removeSync(file);
+  console.log("\nDone. The team directory and its data were left alone.");
 }
 
 /**
@@ -569,6 +791,9 @@ export async function main(): Promise<void> {
       break;
     case "doctor":
       await cmdDoctor();
+      break;
+    case "setup":
+      await cmdSetup(args.slice(1));
       break;
     case "--help":
     case "-h":

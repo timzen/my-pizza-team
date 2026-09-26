@@ -359,6 +359,24 @@ It ships with the daemon and shares its version, so the two halves cannot drift 
 
 The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → set-state → repeat.
 
+### Setup
+
+```bash
+mpt setup             # install the Pi extension + prepare this folder (idempotent)
+mpt setup --dry-run   # show what it would change, without changing it
+mpt setup --uninstall # undo it (the team directory and its data are left alone)
+```
+
+`setup` writes the Pi extension carried inside the `mpt` binary to
+`~/.my-pizza-team/pi-extension/` and registers it with Pi, creates the team
+directory, and marks the folder trusted. Because the extension ships with the
+daemon, the two halves share a version and cannot drift apart.
+
+It prints every change before making it, and records them so `--uninstall` undoes
+exactly what it did. Two things it will not do: replace a development checkout of
+the extension (if one is registered, setup steps aside and says so), and revoke
+project trust on uninstall (other tools may rely on it).
+
 ### Checking your setup
 
 ```bash
