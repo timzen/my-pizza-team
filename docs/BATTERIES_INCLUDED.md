@@ -405,6 +405,49 @@ probe move out of `leader.ts` and into the daemon, and harness templates become
 team config. `mpt lead` is the first real exercise of that code — a natural Tier 0
 dry run with the harness that already works.
 
+### Phase 5 — End-to-end coverage
+
+Runs **before** Phase 4, so the harness protects what exists before a second harness
+starts changing the spawn path.
+
+The case for it is not "we lack integration tests" in the abstract. It is that
+Phases 2 and 3 were verified by *driving them by hand* — setup's plan/apply/
+idempotence, the dev-checkout step-aside, the uninstall round-trip, `mpt lead`'s
+window handling, daemon-driven spawning with no leader — and **none of those checks
+left a test behind**. They found real bugs and are currently unrepeatable.
+
+Evidence for what to cover, from the three things that escaped the unit tests while
+Phase 3 was built:
+
+| Escaped | Caught by |
+| --- | --- |
+| A stray `zsh` window beside the leader | A CLI-level test against real tmux. `spawnWindow` was correct in isolation; `cmdLead` composed it wrongly. |
+| tmux tests silently skipping (no `--allow-run`) | Not integration — a guard asserting a skip happened for the *expected* reason. Already added. |
+| `mpt doctor` claiming "nothing will spawn teammates" beside "Spawning: daemon-driven" | Not integration — a **coherence property** over `evaluate()`: no two checks may contradict. |
+
+So one of three needed integration; the cheapest task here (`P5-4`) catches the
+subtlest class.
+
+**What this deliberately cannot cover:** agent behaviour. There is no LLM in the
+loop, so these test *mpt's* mechanics — windows, settings files, directives, exit
+codes. Whether a teammate does good work stays mpt-demo-team's `run-e2e.sh`, run by
+hand.
+
+- **`P5-1`** a sandbox harness: isolated `MPT_HOME` + `PI_CODING_AGENT_DIR` + team
+  directory + a uniquely named tmux session, running the real CLI as a subprocess,
+  with teardown guaranteed. Everything else builds on it.
+- **`P5-2`** CLI lifecycle: `setup` on a fresh machine, with a legacy registration,
+  with a dev checkout, re-run; `doctor` exit codes; `uninstall` round-trip preserving
+  unrelated user settings.
+- **`P5-3`** tmux lifecycle: `mpt lead` creates *exactly one* window, a re-run
+  attaches rather than duplicating, a daemon-driven spawn produces a window with no
+  leader connected, and a bad cwd surfaces as `failed` with its reason.
+- **`P5-4`** coherence properties over `doctor`'s `evaluate()`, and the
+  skipped-for-the-right-reason guard generalised.
+- **`P5-5`** split `deno task test` (fast) from `test:e2e` (slow). The suite already
+  went 3s → 12s once the real-tmux tests started running, and spawn tests need
+  multi-second waits; mixing them means the fast suite stops being run casually.
+
 ### Phase 4 — A second harness
 
 With §3.1 done, this is config plus a spawn template, not a new integration. Pick
@@ -423,6 +466,7 @@ whether Tier 1's tool surface is worth building for it.
 | 1c. Drop multi-host + extract runtime | medium | Large net deletion; the harness seam becomes explicit |
 | 2. Embedded extension + `setup`/`doctor` | medium | Setup is one command; upgrades keep both halves in step |
 | 3. `mpt lead` + daemon-owned tmux | medium | One entry point; Tier 0 exists |
+| 5. End-to-end coverage | medium | The manual checks that found bugs become repeatable, before Phase 4 changes the spawn path |
 | 4. Second harness | small per harness | Multi-harness support, incrementally |
 
 After Phase 2, setup is: install `mpt`, run `mpt setup` in your project, then

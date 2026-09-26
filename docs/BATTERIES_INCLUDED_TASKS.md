@@ -520,6 +520,61 @@ though only Pi uses it.
 
 ---
 
+## Phase 5 — End-to-end coverage
+
+Runs before Phase 4. Rationale and scope in BATTERIES_INCLUDED.md §Phase 5; the short
+version is that Phases 2–3 were verified by hand and those checks left no test behind.
+
+Cannot cover agent behaviour — no LLM in the loop. These test mpt's mechanics.
+
+### P5-1 — Sandbox harness
+
+A helper that gives each test an isolated `MPT_HOME`, `PI_CODING_AGENT_DIR`, team
+directory, and a uniquely named tmux session; runs the real CLI as a subprocess; and
+tears everything down even on failure. Tests must never touch real configuration —
+that has been the rule all along and should be enforced by construction, not care.
+
+**Acceptance:** a deliberately failing test still leaves no tmux session and no temp
+directory behind.
+
+### P5-2 — CLI lifecycle
+
+`setup` on a fresh machine, with a legacy registration, with a dev checkout
+registered, and re-run for idempotence; `doctor`'s exit codes (non-zero only for real
+breakage); `uninstall` restoring the package list while preserving unrelated settings
+and leaving team data alone.
+
+**Acceptance:** each case asserts the resulting `settings.json` and directory state,
+not just the exit code.
+
+### P5-3 — tmux lifecycle
+
+`mpt lead` creates **exactly one** window (the stray-window bug), a re-run attaches
+rather than duplicating, a daemon-driven spawn produces a window with **no leader
+connected**, and a spawn with a bad cwd is marked `failed` with its reason.
+
+**Acceptance:** skipped only when tmux is genuinely absent, with the P5-4 guard
+proving the skip wasn't for permissions.
+
+### P5-4 — Coherence properties
+
+A property test over `doctor`'s `evaluate()`: across arbitrary fact combinations, no
+two checks may contradict (the "nothing will spawn" vs "Spawning: daemon-driven"
+case), every non-ok check names a fix, and the exit code follows only failures.
+Generalise the "did this skip for the expected reason" guard.
+
+**Acceptance:** the contradiction case fails when the conditional wording is reverted.
+
+### P5-5 — Split fast from slow
+
+`deno task test` stays fast; `deno task test:e2e` runs the slow, tmux- and
+subprocess-driven suites. Both in CI; only the fast one is expected in the inner loop.
+
+**Acceptance:** the fast suite returns to a few seconds.
+
+**Phase 5 DoD:** every manual verification from Phases 2–3 exists as a test; the fast
+suite is quick again; no test touches real configuration.
+
 ## Phase 4 — A second harness
 
 ### P4-1 — Pick a harness and add a Tier 0 template
