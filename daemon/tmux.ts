@@ -52,6 +52,20 @@ export function tmuxAvailable(exec: TmuxExec = realTmux): boolean {
 }
 
 /**
+ * Why tmux couldn't be reached, when it couldn't.
+ *
+ * Distinguishes "not installed" from "not allowed to look", because the two need
+ * different answers and look identical otherwise. This existed as a bug for one
+ * commit: the integration tests gated on `tmuxAvailable()` and silently skipped under
+ * a test task without `--allow-run` — reporting green while testing nothing.
+ */
+export function tmuxUnavailableReason(exec: TmuxExec = realTmux): "none" | "not-installed" | "not-permitted" {
+  const res = exec(["-V"]);
+  if (res.ok) return "none";
+  return /PermissionDenied|Requires run access|--allow-run/i.test(res.stderr) ? "not-permitted" : "not-installed";
+}
+
+/**
  * Quote a string for a POSIX shell.
  *
  * Needed only for text typed *into* a shell via `send-keys`. Single quotes protect

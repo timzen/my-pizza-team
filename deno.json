@@ -4,7 +4,7 @@
     "dev": "deno run --env --allow-net --allow-read --allow-write --allow-env --allow-run --watch daemon/main.ts",
     "start": "deno run --env --allow-net --allow-read --allow-write --allow-env --allow-run daemon/main.ts",
     "mpt": "deno run --env --allow-net --allow-read --allow-write --allow-env --allow-run cli/main.ts",
-    "test": "deno test --allow-net --allow-read --allow-write --allow-env tests/",
+    "test": "deno test --allow-net --allow-read --allow-write --allow-env --allow-run tests/",
     "check": "deno check daemon/ cli/ shared/ tests/",
     "sync-version": "deno run --allow-read --allow-write scripts/sync-version.ts",
     "sync-shared": "deno run --allow-read --allow-write scripts/sync-shared.ts",

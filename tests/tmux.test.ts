@@ -29,6 +29,7 @@ import {
   spawnWindow,
   type TmuxExec,
   tmuxAvailable,
+  tmuxUnavailableReason,
   unresolvedPlaceholders,
   windowExists,
 } from "../daemon/tmux.ts";
@@ -219,6 +220,18 @@ Deno.test("a cwd placeholder is quoted so a spaced path survives the shell", () 
 // ─── Against a real tmux server ──────────────────────────────────────
 
 const TMUX = tmuxAvailable();
+
+Deno.test("the integration tests skip only because tmux is absent, never because of permissions", () => {
+  // Guards against the reason this file once reported green while testing nothing:
+  // the suite ran without --allow-run, `tmuxAvailable()` caught the permission
+  // error, and the real-tmux tests quietly vanished.
+  const reason = tmuxUnavailableReason();
+  assertEquals(
+    reason === "not-permitted",
+    false,
+    "tmux could not be probed for lack of run permission — add --allow-run to the test task",
+  );
+});
 
 Deno.test({
   name: "end to end against a real tmux server",
