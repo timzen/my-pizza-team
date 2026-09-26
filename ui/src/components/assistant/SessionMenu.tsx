@@ -4,7 +4,7 @@
  * Chat v2 never deletes a conversation. Ending one (new chat, persona swap,
  * resume of another) snapshots it to `<teamDir>/assistant/sessions/<id>.md`, and
  * resuming switches the agent's Pi session back to it so in-agent context comes
- * along (docs/ASSISTANT_CHAT_V2.md §6). Sessions without a recorded Pi session
+ * along (docs/history/ASSISTANT_CHAT_V2.md §6). Sessions without a recorded Pi session
  * file can still be read, but not truly resumed — the list says so.
  */
 

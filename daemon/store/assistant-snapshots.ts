@@ -9,7 +9,7 @@
  *
  * Snapshots are also refreshed opportunistically while a session is active so a
  * crash can't lose the transcript. Reasoning ("thoughts") is deliberately NOT
- * included — it is ephemeral peek-only state (see docs/ASSISTANT_CHAT_V2.md §3.4).
+ * included — it is ephemeral peek-only state (see docs/history/ASSISTANT_CHAT_V2.md §3.4).
  *
  * Pure IO over a team directory — no database, no shared state.
  */

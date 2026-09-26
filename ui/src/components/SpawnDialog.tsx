@@ -5,7 +5,7 @@
  * directory; this is the escape hatch for "I want someone living in *that*
  * repo". The directory is the pi process's cwd and the teammate's only
  * work-selection signal — the daemon biases it toward WorkItems homed there
- * (directory affinity; see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
+ * (directory affinity; see docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
  *
  * Sends a `spawn` leader directive to the chosen host. A one-off teammate still
  * counts toward the steady size (it's a pool teammate), so it can satisfy the

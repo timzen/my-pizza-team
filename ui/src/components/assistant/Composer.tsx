@@ -3,7 +3,7 @@
  *
  * Chat v2 removed the composer lock, the typing pings, and the pre-claim
  * debounce: the user may send at any time, and mid-run messages are steered into
- * the agent's current run by the extension (docs/ASSISTANT_CHAT_V2.md §5.1).
+ * the agent's current run by the extension (docs/history/ASSISTANT_CHAT_V2.md §5.1).
  * Enter sends, Shift+Enter is a newline, Escape clears a pending quote.
  */
 

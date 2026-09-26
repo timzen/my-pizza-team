@@ -1,7 +1,7 @@
 # WorkDef Unification
 
 **Status:** in progress
-**Supersedes the split introduced in** `FRONTIER_ENGINEER_REFACTOR_PLAN.md` (Task vs WorkDef).
+**Supersedes the split introduced in** `history/FRONTIER_ENGINEER_REFACTOR_PLAN.md` (Task vs WorkDef).
 
 ## Motivation
 

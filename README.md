@@ -285,7 +285,7 @@ header row holds a **+** (New Story / Solitary Task / Scheduled Job) and the
   read it, open its markdown, or **Resume** it — which switches the leader back to
   that Pi session so its context comes along too.
 
-See [docs/ASSISTANT_CHAT_V2.md](docs/ASSISTANT_CHAT_V2.md) for the design.
+See [docs/history/ASSISTANT_CHAT_V2.md](docs/history/ASSISTANT_CHAT_V2.md) for the design.
 
 ---
 
@@ -294,7 +294,7 @@ See [docs/ASSISTANT_CHAT_V2.md](docs/ASSISTANT_CHAT_V2.md) for the design.
 Agents work the **WorkItem queue** — the single unit of agent execution — in a
 poll → claim → work → set-state loop. Workers never move tasks; the daemon
 reacts to a terminal WorkItem state (COMPLETE advances the task, FAILED leaves
-it stuck for a human). See [docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md](docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
+it stuck for a human). See [docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md](docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
 
 ```
 1. POST /api/agents/register              → register with daemon

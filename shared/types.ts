@@ -33,7 +33,7 @@ export interface TeamConfig {
   agentTimeoutSeconds?: number;
   /**
    * @deprecated Chat v2 removed response turns entirely (no claim, no composer
-   * lock, no debounce) — see docs/ASSISTANT_CHAT_V2.md. Still accepted so
+   * lock, no debounce) — see docs/history/ASSISTANT_CHAT_V2.md. Still accepted so
    * existing config.json files keep loading; ignored by the daemon.
    */
   assistantTurnTimeoutSeconds?: number;
@@ -95,7 +95,7 @@ export const DONE_STATE = "done";
 
 /**
  * The unit of agent execution: a single, dumb, terminal-only attempt to do some
- * work (see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md). A WorkItem points at its
+ * work (see docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md). A WorkItem points at its
  * work via a polymorphic `ref` (a story task, or a standalone WorkDef) and only
  * ever moves toward a terminal state. All rich detail (goal, comments, results)
  * lives on the ref, never here.
@@ -398,7 +398,7 @@ export const TEMPLATES_DIR = "templates";
 
 /**
  * Directory holding assistant-chat artifacts. Session transcripts are markdown
- * snapshots under `assistant/sessions/<id>.md` (see docs/ASSISTANT_CHAT_V2.md).
+ * snapshots under `assistant/sessions/<id>.md` (see docs/history/ASSISTANT_CHAT_V2.md).
  */
 /**
  * The token-usage ledger: `usage/YYYY-MM.jsonl`, one JSON line per agent run

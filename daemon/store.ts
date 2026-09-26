@@ -82,7 +82,7 @@ export const CHAT_ROLE_NAME = "leader";
 /**
  * Directive actions an agent realizes itself rather than via its host leader.
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
- * cannot express. See docs/ASSISTANT_CHAT_V2.md §5.5.
+ * cannot express. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
  */
 export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
 
@@ -219,7 +219,7 @@ export class Store {
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
    * SSE). Delegated wholesale to store/assistant-chat.ts — see
-   * docs/ASSISTANT_CHAT_V2.md.
+   * docs/history/ASSISTANT_CHAT_V2.md.
    */
   private chat!: AssistantChat;
   /**
@@ -417,7 +417,7 @@ export class Store {
       -- A chat session: one continuous conversation, backed by one Pi session.
       -- Ending a session snapshots it to assistant/sessions/<id>.md; nothing is
       -- ever deleted, which is what makes resume possible. At most one session is
-      -- 'active'. See docs/ASSISTANT_CHAT_V2.md §3.1.
+      -- 'active'. See docs/history/ASSISTANT_CHAT_V2.md §3.1.
       CREATE TABLE IF NOT EXISTS assistant_sessions (
         id TEXT PRIMARY KEY,
         persona_id TEXT,         -- context-entry id, NULL for the default assistant
@@ -449,7 +449,7 @@ export class Store {
 
       -- The WorkItem queue: the unit of agent execution. A dumb, terminal-only
       -- attempt pointing at its work via a polymorphic ref (task or workdef).
-      -- See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+      -- See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
       CREATE TABLE IF NOT EXISTS work_items (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -497,7 +497,7 @@ export class Store {
 
     // Assistant chat v2 migration: sessions + real delivery receipts replaced the
     // v1 turn model. Columns are added before `migrateLegacyMessages()` folds
-    // existing rows into a `legacy-*` session (docs/ASSISTANT_CHAT_V2.md §10).
+    // existing rows into a `legacy-*` session (docs/history/ASSISTANT_CHAT_V2.md §10).
     const asstColumns = this.db.prepare("PRAGMA table_info(assistant_messages)").all() as Array<Record<string, unknown>>;
     const hasAsstColumn = (name: string) => asstColumns.some((col) => col.name === name);
     if (!hasAsstColumn("turn_id")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN turn_id TEXT");
@@ -1050,7 +1050,7 @@ export class Store {
   // A WorkItem is the unit of agent execution: a dumb, terminal-only attempt
   // pointing at a story task or a WorkDef. It drives the task: a COMPLETE item
   // advances its task, a FAILED/CANCELED one leaves the task stuck for a human.
-  // See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+  // See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
 
   private rowToWorkItem(row: Record<string, unknown>): WorkItem {
     const ref: WorkItemRef = { workDefId: (row.work_def_id ?? row.task_id) as string };
@@ -1688,7 +1688,7 @@ export class Store {
     this.heartbeatCheckTimer = setInterval(() => {
       this.reapOfflineAgents();
       // Keep the active chat's markdown snapshot fresh so a crash loses minutes,
-      // not the whole conversation (docs/ASSISTANT_CHAT_V2.md §6.1).
+      // not the whole conversation (docs/history/ASSISTANT_CHAT_V2.md §6.1).
       this.refreshAssistantSnapshot();
       this.reconcileTeammatePool();
     }, 30_000);
@@ -2114,7 +2114,7 @@ export class Store {
   // Delegated to store/assistant-chat.ts. The daemon mirrors the agent's Pi
   // session: user messages are queued for the extension to hand to Pi, and the
   // agent's own prose is mirrored back as bubbles. There are no response turns
-  // and the composer never locks. See docs/ASSISTANT_CHAT_V2.md.
+  // and the composer never locks. See docs/history/ASSISTANT_CHAT_V2.md.
 
   /** Subscribe to chat events for the SSE stream. Returns an unsubscribe fn. */
   subscribeAssistantEvents(fn: (event: AssistantEvent) => void): () => void {
@@ -2273,7 +2273,7 @@ export class Store {
    * Ask any online assistant to act on its Pi session. The daemon expresses
    * intent (`new-session`, `resume-session`) and never the mechanism — the
    * extension realizes it with `ctx.newSession()` / `ctx.switchSession()`
-   * (docs/ASSISTANT_CHAT_V2.md §5.5). Replaces the old `reset-session` keystroke
+   * (docs/history/ASSISTANT_CHAT_V2.md §5.5). Replaces the old `reset-session` keystroke
    * path for the assistant; teammates still use that.
    */
   private directAssistantSession(action: string, params: Record<string, unknown>): void {
@@ -2366,7 +2366,7 @@ export class Store {
    * executed *inside* the target agent (`ctx.newSession()` / `ctx.switchSession()`),
    * so the agent polls those itself via `getMemberDirectives`. Without this
    * filter the leader would consume and complete them, and the agent would never
-   * see them. See docs/ASSISTANT_CHAT_V2.md §5.5.
+   * see them. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
    */
   getLeaderDirectives(hostId: string): Array<ReturnType<Store["rowToDirective"]>> {
     const rows = this.db.prepare("SELECT * FROM leader_directives WHERE host_id = ? AND status = 'pending' ORDER BY created_at ASC").all(hostId) as Array<Record<string, unknown>>;

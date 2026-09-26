@@ -5,7 +5,7 @@
  * `/api/assistant/stream` delivers new bubbles, delivery receipts, reasoning
  * chunks (the payload behind the `…`), and session changes. Polling at 2s made
  * the typing indicator and the thought peek useless (see
- * docs/ASSISTANT_CHAT_V2.md §4.5).
+ * docs/history/ASSISTANT_CHAT_V2.md §4.5).
  *
  * A slow reconciliation fetch of `/api/assistant/messages` runs alongside it, so
  * a dropped frame or a reconnect can never leave the transcript wrong.

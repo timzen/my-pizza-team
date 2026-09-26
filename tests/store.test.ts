@@ -1,7 +1,7 @@
 /**
  * tests/store.test.ts — Verifies the SQLite store: CRUD, the WorkItem queue and
  * its terminal-only lifecycle, directory-affinity matching, WorkDefs, cron, and
- * JSON file sync. See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+ * JSON file sync. See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
  */
 
 import { assertEquals, assertExists } from "@std/assert";

@@ -104,7 +104,7 @@ export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: s
 // --- Assistant Conversation (chat v2) ---
 // The chat mirrors the assistant's Pi session: there are no response turns, the
 // composer never locks, and delivery receipts advance queued -> delivered -> read
-// as the agent picks a message up. See docs/ASSISTANT_CHAT_V2.md.
+// as the agent picks a message up. See docs/history/ASSISTANT_CHAT_V2.md.
 
 /** Where a message came from: the web UI, the agent's terminal, the agent, the daemon. */
 export type AssistantOrigin = "web" | "tui" | "agent" | "system";

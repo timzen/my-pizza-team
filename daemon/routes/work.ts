@@ -2,7 +2,7 @@
  * daemon/routes/work.ts — WorkItem queue routes (the legible record of what
  * will / is / did happen). Powers the Inbox and the sidebar, plus the recovery
  * actions: cancel (READY), force-fail (MORIBUND), re-enqueue (by ref), and
- * read/unread. See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+ * read/unread. See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
  */
 
 import type { RouteContext } from "./types.ts";

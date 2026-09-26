@@ -1,7 +1,7 @@
 /**
  * daemon/routes/assistant.ts — Assistant chat, sessions, and persona routes.
  *
- * Chat v2 (see docs/ASSISTANT_CHAT_V2.md): the assistant chat is a mirror of the
+ * Chat v2 (see docs/history/ASSISTANT_CHAT_V2.md): the assistant chat is a mirror of the
  * agent's Pi session, not a request/response queue. There are no response turns
  * — posting a message always succeeds, delivery receipts advance as the agent
  * picks it up, and the agent's own prose is mirrored back as bubbles (including

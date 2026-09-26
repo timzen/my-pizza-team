@@ -5,7 +5,7 @@
  * receipts, the agent-facing inbox, the ephemeral "thoughts" peek buffer, and
  * the SSE event stream. The Store delegates its assistant methods here.
  *
- * The model (see docs/ASSISTANT_CHAT_V2.md):
+ * The model (see docs/history/ASSISTANT_CHAT_V2.md):
  *
  * - **The Pi session is the conversation; this is a mirror of it.** The user's
  *   messages are queued here and pulled by the extension, which hands them to
@@ -495,7 +495,7 @@ export class AssistantChat {
    * Fold v1 rows (turn-based chat) into a single ended `legacy-*` session so no
    * history is lost, mapping the old `status` column onto the new `delivery` /
    * `state` split. Idempotent: only runs while unassigned rows exist.
-   * See docs/ASSISTANT_CHAT_V2.md §10.
+   * See docs/history/ASSISTANT_CHAT_V2.md §10.
    */
   migrateLegacyMessages(): void {
     const orphan = this.db.prepare("SELECT COUNT(*) AS n FROM assistant_messages WHERE session_id IS NULL OR session_id = ''").get() as { n: number };

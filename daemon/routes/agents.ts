@@ -6,7 +6,7 @@
  * A WorkItem is the single unit of agent execution; its polymorphic ref points
  * at a story task or a WorkDef. The daemon owns the prompt and reacts to a
  * terminal WorkItem state (COMPLETE advances a task; FAILED leaves it stuck).
- * See docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+ * See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
  *
  * Also includes leader directives + spawn request endpoints.
  */
@@ -235,7 +235,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   //
   // Session replacement (`new-session`, `resume-session`) has to run inside the
   // target agent via Pi's session APIs, so the agent polls its own queue rather
-  // than the leader delivering keystrokes. See docs/ASSISTANT_CHAT_V2.md §5.5.
+  // than the leader delivering keystrokes. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
 
   app.get("/api/agents/:id/directives", (c) => {
     return c.json({ directives: store.getMemberDirectives(c.req.param("id")) });

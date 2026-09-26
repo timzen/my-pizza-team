@@ -386,7 +386,7 @@ assistant's **Pi session**. The daemon is a *mirror* of it: `assistant_messages`
 is an ordered list of `user`/`assistant`/`system` messages grouped into
 `assistant_sessions`, and the harness keeps the two in sync in both directions.
 The UI renders iMessage-style bubbles with real delivery receipts and a thinking
-indicator. See "Assistant chat model" below and docs/ASSISTANT_CHAT_V2.md.
+indicator. See "Assistant chat model" below and docs/history/ASSISTANT_CHAT_V2.md.
 
 *Why:* the Pi process already holds the real conversation state (its context
 window, its session file). Making the daemon the mirror rather than the master is
@@ -470,7 +470,7 @@ posting a message to itself and then answering it.
 The chat is a **real chatbot**, not a request/response form. One inversion makes
 all of it work: **the Pi session is the conversation; the daemon mirrors it.** The
 session belongs to the leader — see "One Agent to Talk To" above. (Full design +
-rationale: docs/ASSISTANT_CHAT_V2.md.)
+rationale: docs/history/ASSISTANT_CHAT_V2.md.)
 
 1. **No turns. Sending never blocks.** `POST /api/assistant/messages` always
    succeeds and appends a `queued` message. The extension pulls queued messages

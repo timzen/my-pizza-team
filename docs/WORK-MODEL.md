@@ -3,7 +3,7 @@
 > **Superseded in part (Frontier Refactor).** The agent-facing mechanics here —
 > task `substatus`, the `claim`/`done`/`return` protocol, and `assigned-story`
 > work modes — have been replaced by the **WorkItem queue**: see
-> [FRONTIER_ENGINEER_REFACTOR_PLAN.md](FRONTIER_ENGINEER_REFACTOR_PLAN.md) and
+> [history/FRONTIER_ENGINEER_REFACTOR_PLAN.md](history/FRONTIER_ENGINEER_REFACTOR_PLAN.md) and
 > DESIGN.md ("The WorkItem: the Unit of Agent Execution"). Still current: the
 > workflow shape (ordered agent/manual states between the `todo`/`done` buckets),
 > CONWIP admission (WIP=1 per story), state personas, and "workers never move

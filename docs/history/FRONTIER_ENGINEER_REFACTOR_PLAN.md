@@ -1,8 +1,9 @@
 # Frontier Refactor — Implementation Plan
 
-Companion to [FRONTIER_ENGINEER_REFACTOR.md](FRONTIER_ENGINEER_REFACTOR.md). That
-doc states the intent; this one is the grounded implementation plan after tracing
-the real code across the daemon, UI, and the pi-pizza-team harness.
+Companion to `FRONTIER_ENGINEER_REFACTOR.md` (not in the repo — it is a private
+working document, excluded by `docs/.gitignore`). That doc states the intent;
+this one is the grounded implementation plan after tracing the real code across
+the daemon, UI, and the pi-pizza-team harness.
 
 > **Revision 2** — updated after Tim's first review. Decisions he made are folded
 > into the model below and logged under **Resolved Decisions**. New questions that

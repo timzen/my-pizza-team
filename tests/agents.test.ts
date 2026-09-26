@@ -1,6 +1,6 @@
 /**
  * tests/agents.test.ts — Verifies /api/agents/* (the WorkItem-centric contract)
- * plus the WorkItem queue lifecycle (see docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
+ * plus the WorkItem queue lifecycle (see docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
  *
  * - Admission (CONWIP) pulls one task per story from todo and enqueues a READY WorkItem
  * - Agents register (with a directory), poll next-work, claim, and set COMPLETE/FAILED

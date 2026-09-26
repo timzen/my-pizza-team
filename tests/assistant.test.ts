@@ -5,7 +5,7 @@
  * (no turns, no composer lock), the agent pulls an inbox and acks receipts
  * (queued → delivered → read), its prose is mirrored back as bubbles, and
  * sessions are snapshotted to markdown so they can be resumed. See
- * docs/ASSISTANT_CHAT_V2.md.
+ * docs/history/ASSISTANT_CHAT_V2.md.
  */
 
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
