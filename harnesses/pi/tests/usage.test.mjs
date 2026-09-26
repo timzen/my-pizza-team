@@ -3,10 +3,10 @@
 //
 // Every agent run's usage is reported to the daemon's ledger; this checks the
 // arithmetic — above all that cache tokens are counted (they were dropped, so a
-// real Opus run showed "3 input tokens"). See src/usage.ts.
+// real Opus run showed "3 input tokens"). See src/runtime/usage.ts.
 
 import * as assert from "node:assert";
-import { summarizeRun, hasUsage } from "../src/usage.ts";
+import { summarizeRun, hasUsage } from "../src/runtime/usage.ts";
 
 let passed = 0;
 let failed = 0;

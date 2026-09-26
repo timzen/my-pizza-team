@@ -288,26 +288,50 @@ affinity rollup in `canScheduleForDirectory`, the three `/api/hosts*` routes plu
 `/api/hosts-readiness`, the `SpawnDialog` host picker, and the whole chat-agent
 designation path. Re-key readiness to the team.
 
-**Extract:** `harnesses/pi/src/shared/types.ts` starts importing from `shared/`;
-then the Pi-free modules move to `agent-runtime/`.
+**Extract:** the shared constants get one home in `shared/` and the extension's
+copy is generated from it; then the Pi-free modules move to
+`harnesses/pi/src/runtime/`.
 
-| Pi-free → `agent-runtime/` | | Pi-coupled → stays in `harnesses/pi/` | |
+**Not a top-level `agent-runtime/`, and this is a correction to the original
+plan.** That was designed for the sidecar model — a per-harness process importing a
+shared TypeScript runtime. §3.1 rejects exactly that by moving the supervisor into
+the daemon, and the tiers then leave no second consumer: a Tier 0 harness runs *no*
+in-process code, Tier 1 calls MCP tools, and Tier 2 is Pi alone. A shared module
+with one importer is just a module in the wrong place, and hoisting it out of the
+package would break the self-containment `mpt setup` needs (P2-3 writes the
+extension to a managed directory, where a relative import escaping the package
+would not resolve).
+
+What the split is actually worth is narrower but real: an enforced seam between
+protocol and Pi, and modules that stay standalone-testable. If a second consumer
+ever appears, hoisting `runtime/` is mechanical.
+
+| Pi-free → `harnesses/pi/src/runtime/` | | Pi-coupled → stays at `src/` | |
 | --- | --- | --- | --- |
 | `client.ts` | 841 | `leader.ts` | 713 |
 | `transcript.ts` | 265 | `tools.ts` | 703 |
 | `bubbles.ts` | 129 | `index.ts` | 496 |
 | `pairing.ts` | 96 | `permissions.ts` | 438 |
 | `usage.ts` | 66 | `teammate.ts` | 412 |
-| `readiness.ts` | 64 | `chat.ts` | 299 |
-| **total** | **1,461** | **total** | **3,094** |
+| **total** | **1,420** | `chat.ts` | 299 |
+| | | `readiness.ts` | 66 |
+| | | **total** | **3,160** |
 
-`client.ts` — the entire protocol client — already has zero Pi imports. The seam
-exists; this phase just makes it explicit.
+`client.ts` — the entire protocol client — ended up with **zero imports at all**
+after P1c-2 removed its last `node:` builtin and P1c-7 its last relative import.
+The seam existed; this phase makes it explicit and enforced.
 
-**Constraint:** `agent-runtime/` must import cleanly under both Deno (daemon,
-tests) and Pi's Node type-stripping loader. So: zero dependencies, no `Deno.*`,
-no `node:*` — `fetch` and types only. `client.ts` already qualifies; add a purity
-check so it stays that way.
+`readiness.ts` deliberately stays put: it shells out via `node:child_process`, and
+P3-2 moves the probe into the daemon anyway, so relocating it would be churn that
+gets undone.
+
+**Constraint:** `runtime/` must import nothing external and hold no relative
+*value* imports — `fetch` and inline types only. The second half is the subtle one:
+Node resolves `'./x.js'` literally while only Pi's loader remaps it to `'./x.ts'`,
+so a type-only import is erased but a value import breaks standalone loading. That
+property is what makes these modules testable, and adding one value import to
+`client.ts` broke the behavioural suite during P1b. `tests/runtime-purity.test.ts`
+enforces all of it, and each guard was verified to fail when violated.
 
 Bundle here, since the protocol is already breaking: **delete** the chat v1
 migration (`store.ts:412-413` DEPRECATED columns, `assistant-chat.ts:495`

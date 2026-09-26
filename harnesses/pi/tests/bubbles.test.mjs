@@ -3,10 +3,10 @@
 //
 // This is the one piece of chat v2 where the harness makes an editorial decision
 // (where one bubble ends and the next begins), so it is tested for real behavior
-// rather than by source inspection. See src/bubbles.ts.
+// rather than by source inspection. See src/runtime/bubbles.ts.
 
 import * as assert from "node:assert";
-import { splitIntoBubbles } from "../src/bubbles.ts";
+import { splitIntoBubbles } from "../src/runtime/bubbles.ts";
 
 let passed = 0;
 let failed = 0;

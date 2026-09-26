@@ -20,7 +20,7 @@
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { DaemonClient } from "./client.js";
+import type { DaemonClient } from "./runtime/client.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // LEADER TOOLS

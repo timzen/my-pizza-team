@@ -3,10 +3,10 @@
 //
 // The mirror forwards this teammate's Pi events to the daemon only while
 // someone is watching, coalescing streaming updates per key. See
-// src/transcript.ts and my-pizza-team docs/TEAMMATE_CHAT.md §3.
+// src/runtime/transcript.ts and my-pizza-team docs/TEAMMATE_CHAT.md §3.
 
 import * as assert from "node:assert";
-import { TranscriptMirror, splitContent, resultText, clipArgs } from "../src/transcript.ts";
+import { TranscriptMirror, splitContent, resultText, clipArgs } from "../src/runtime/transcript.ts";
 
 let passed = 0;
 let failed = 0;

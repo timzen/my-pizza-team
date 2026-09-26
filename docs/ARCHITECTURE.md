@@ -306,16 +306,26 @@ The Pi extension lives in this repo at `harnesses/pi/` (merged from the standalo
 pi-pizza-team repo in P1a-1) and is a **pure HTTP client** with zero server-side
 code. It owns no state — all data lives in this daemon.
 
-Extension structure (`harnesses/pi/src/`):
+Extension structure (`harnesses/pi/src/`). The split is the seam
+docs/BATTERIES_INCLUDED.md §3.1 rests on: `runtime/` implements the daemon
+*protocol*, everything beside it is what only Pi can do.
 ```
 src/
 ├── index.ts       — Role detection, flag registration, wiring
-├── client.ts      — DaemonClient: unified HTTP client for all API calls
 ├── leader.ts      — Tmux management, directive polling, slash commands, and the chat mirror
 ├── teammate.ts    — TeammateLoop: poll → claim → execute → release
 ├── chat.ts        — ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (inbox → steer, prose → bubbles)
-├── bubbles.ts     — splits assistant prose into chat bubbles (fence/list aware)
 ├── tools.ts       — LLM tool registration (role-specific)
 ├── permissions.ts — Dynamic yoloMode toggling
+├── readiness.ts   — The machine's readiness probe (P3-2 moves this into the daemon)
+├── runtime/       — Harness-agnostic: no external imports, no relative value
+│   │                imports, no mention of Pi. Enforced by
+│   │                tests/runtime-purity.test.ts, which is also what keeps these
+│   │                modules loadable (and so testable) under plain Node.
+│   ├── client.ts     — DaemonClient: unified HTTP client for all API calls
+│   ├── transcript.ts — TranscriptMirror: streams a teammate's session while watched
+│   ├── bubbles.ts    — splits assistant prose into chat bubbles (fence/list aware)
+│   ├── pairing.ts    — WebPairing: pause/message/release from the browser
+│   └── usage.ts      — summarises a run's token usage
 └── shared/types.ts — GENERATED from the root shared/types.ts by `deno task sync-shared` (team dir names, default daemon URL)
 ```

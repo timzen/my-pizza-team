@@ -116,9 +116,9 @@ which catches no behavioural regression *and* breaks on file moves. Only
 module had none.
 
 Narrow by design: `client.ts` only, being the largest module crossing into
-`agent-runtime/` and the most testable (pure `fetch`). It imports just `node:os`
-plus one `import type`, so it loads standalone under type stripping — no Pi
-needed.
+`runtime/` and the most testable (pure `fetch`). At the time it imported just
+`node:os` plus one `import type`, so it loaded standalone under type stripping — no
+Pi needed. P1c-2 and P1c-7 later removed both, leaving it import-free.
 
 15 tests against a real `node:http` server: trailing-slash normalisation, bearer
 token, content-type, `DaemonError` message/status and non-JSON fallback,
@@ -324,37 +324,59 @@ extension imports from `shared/`.
 
 **Acceptance:** one definition of each protocol type in the tree.
 
-### P1c-8 — Extract `agent-runtime/`
+### P1c-8 — Split the Pi-free core into `harnesses/pi/src/runtime/`
 
-Move the Pi-free modules out of `harnesses/pi/src/`:
+Move the modules that implement the daemon *protocol* rather than anything about
+Pi:
 
 | Module | Lines |
 | --- | --- |
-| `client.ts` | 841 |
+| `client.ts` | 864 |
 | `transcript.ts` | 265 |
 | `bubbles.ts` | 129 |
 | `pairing.ts` | 96 |
 | `usage.ts` | 66 |
-| `readiness.ts` | 64 |
-| **total** | **1,461** |
+| **total** | **1,420** |
 
-`client.ts` already has zero Pi imports. What stays is Pi-coupled: `leader.ts`
-(713), `tools.ts` (703), `index.ts` (496), `permissions.ts` (438),
-`teammate.ts` (412), `chat.ts` (299).
+What stays at `src/` is Pi-coupled: `leader.ts` (713), `tools.ts` (703),
+`index.ts` (496), `permissions.ts` (438), `teammate.ts` (412), `chat.ts` (299) —
+plus `readiness.ts` (66), which shells out via `node:child_process` and which
+**P3-2 moves into the daemon anyway**, so relocating it now would be churn.
 
-**Acceptance:** `npm run typecheck` and both test suites green; the extension
-starts and a teammate completes a task.
+**Not a top-level `agent-runtime/` — a correction to the original plan.** That was
+designed for the sidecar model: a per-harness process importing a shared TypeScript
+runtime. §3.1 rejects exactly that by moving the supervisor into the daemon, and
+the tiers leave no second consumer — Tier 0 runs no in-process code, Tier 1 calls
+MCP tools, Tier 2 is Pi alone. Hoisting it out of the package would also break the
+self-containment P2-3 needs, since `mpt setup` writes the extension to a managed
+directory where a relative import escaping the package would not resolve.
+
+The value that survives is narrower but real: an enforced seam, and modules that
+stay standalone-testable. If a second consumer appears, hoisting is mechanical.
+
+**Acceptance:** `npm run typecheck` and both suites green; the extension starts and
+a teammate completes a task.
 
 ### P1c-9 — Enforce runtime purity
 
-`agent-runtime/` must import under both Deno and Pi's Node type-stripping loader:
-no dependencies, no `Deno.*`, no `node:*` — `fetch` and types only. Add a check
-to CI so it can't regress.
+`runtime/` must import nothing external and hold no relative *value* imports —
+`fetch` and inline types only.
 
-**Acceptance:** the check fails on a deliberately-added `node:fs` import.
+The second half is the subtle one, and it is why the first half is not enough: Node
+resolves `'./x.js'` literally while only Pi's loader remaps it to `'./x.ts'`, so a
+type-only import is erased but a value import breaks standalone loading. That
+property is what makes these modules testable at all — adding one value import to
+`client.ts` broke the behavioural suite during P1b.
 
-**Phase 1c DoD:** all suites green; `agent-runtime/` type-checks under both
-runtimes; ARCHITECTURE.md and DESIGN.md updated for one-host/one-leader (the
+`tests/runtime-purity.test.ts` checks four things: the directory is populated (a
+green check on an empty directory proves nothing), no external imports, no relative
+value imports, and no mention of Pi's API. Each guard was verified to fail when
+violated.
+
+**Acceptance:** the checks fail on a deliberately-added `node:fs` import, a
+relative value import, and an `ExtensionAPI` reference.
+
+**Phase 1c DoD:** all suites green; `runtime/` purity enforced; ARCHITECTURE.md and DESIGN.md updated for one-host/one-leader (the
 "Scheduler readiness gating" note, the chat-agent designation note, and
 DESIGN.md's per-host leader paragraph).
 

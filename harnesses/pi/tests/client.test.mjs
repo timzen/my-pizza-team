@@ -10,7 +10,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 const clientSrc = fs.readFileSync(
-  path.join(import.meta.dirname, "../src/client.ts"),
+  path.join(import.meta.dirname, "../src/runtime/client.ts"),
   "utf-8"
 );
 

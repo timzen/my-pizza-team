@@ -19,8 +19,8 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
-import { DaemonClient } from "./client.js";
-import { summarizeRun, hasUsage } from "./usage.js";
+import { DaemonClient } from "./runtime/client.js";
+import { summarizeRun, hasUsage } from "./runtime/usage.js";
 
 /**
  * This extension's build version, read from its own package.json.
@@ -351,7 +351,7 @@ async function setupTeammate(
   // Mirrors this session to the daemon only while someone has the teammate's
   // view open (see transcript.ts). Its own pi.on registrations, separate from
   // the work loop's, so the two concerns never share a handler.
-  const { TranscriptMirror } = await import("./transcript.js");
+  const { TranscriptMirror } = await import("./runtime/transcript.js");
   const transcript = new TranscriptMirror(client);
   pi.on("input", async (event) => { transcript.onInput(event.text, event.source, event.streamingBehavior); });
   pi.on("agent_start", async () => { transcript.onAgentStart(); });
@@ -370,7 +370,7 @@ async function setupTeammate(
   // stay autonomous — nobody is at this terminal to answer a prompt); messages
   // are handed to Pi, queued behind a run in flight unless sent as "steer";
   // release hands the held work item back (see pairing.ts, teammate.ts).
-  const { WebPairing } = await import("./pairing.js");
+  const { WebPairing } = await import("./runtime/pairing.js");
   const pairing = new WebPairing(client, {
     onPair: () => {
       loop.pause();

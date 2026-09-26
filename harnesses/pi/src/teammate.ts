@@ -30,8 +30,8 @@
 // do. This makes it compatible with any workflow configuration.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient } from "./client.js";
-import type { PairReleaseAction } from "./client.js";
+import type { DaemonClient } from "./runtime/client.js";
+import type { PairReleaseAction } from "./runtime/client.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 

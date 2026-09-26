@@ -25,11 +25,11 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient } from "./client.js";
+import type { DaemonClient } from "./runtime/client.js";
 import { registerLeaderTools } from "./tools.js";
 import { resolveReadinessProbe, runReadinessProbe } from "./readiness.js";
 import { prepareSpawnConfig } from "./permissions.js";
-import { summarizeRun, hasUsage } from "./usage.js";
+import { summarizeRun, hasUsage } from "./runtime/usage.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;

@@ -33,8 +33,8 @@
 // this class owns the state, throttling, and daemon calls.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient } from "./client.js";
-import { splitIntoBubbles } from "./bubbles.js";
+import type { DaemonClient } from "./runtime/client.js";
+import { splitIntoBubbles } from "./runtime/bubbles.js";
 
 const INBOX_POLL_INTERVAL_MS = 1000;
 /** Reasoning deltas are coalesced into one POST per window to spare the daemon. */

@@ -4,13 +4,13 @@
 // Covers the pairing poll (pair → messages → release, in order), the release
 // semantics on a real TeammateLoop with fake Pi + daemon (complete / fail /
 // resume, and deferral while a run is in flight), and how web-sent messages are
-// tagged in the transcript. See src/pairing.ts, src/teammate.ts, and
+// tagged in the transcript. See src/runtime/pairing.ts, src/teammate.ts, and
 // my-pizza-team docs/TEAMMATE_CHAT.md §4.
 
 import * as assert from "node:assert";
-import { WebPairing } from "../src/pairing.ts";
+import { WebPairing } from "../src/runtime/pairing.ts";
 import { TeammateLoop } from "../src/teammate.ts";
-import { TranscriptMirror } from "../src/transcript.ts";
+import { TranscriptMirror } from "../src/runtime/transcript.ts";
 
 let passed = 0;
 let failed = 0;

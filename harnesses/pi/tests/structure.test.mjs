@@ -34,12 +34,12 @@ console.log("Extension structure:");
 
 // Expected files
 test("src/index.ts exists", () => { if (!exists("src/index.ts")) throw new Error("missing"); });
-test("src/client.ts exists", () => { if (!exists("src/client.ts")) throw new Error("missing"); });
+test("src/runtime/client.ts exists", () => { if (!exists("src/runtime/client.ts")) throw new Error("missing"); });
 test("src/leader.ts exists", () => { if (!exists("src/leader.ts")) throw new Error("missing"); });
 test("src/teammate.ts exists", () => { if (!exists("src/teammate.ts")) throw new Error("missing"); });
 test("src/chat.ts exists (the chat mirror, used by the leader)", () => { if (!exists("src/chat.ts")) throw new Error("missing"); });
 test("src/assistant.ts is gone (the leader is the chat agent)", () => notExists("src/assistant.ts"));
-test("src/bubbles.ts exists (assistant prose -> chat bubbles)", () => { if (!exists("src/bubbles.ts")) throw new Error("missing"); });
+test("src/runtime/bubbles.ts exists (assistant prose -> chat bubbles)", () => { if (!exists("src/runtime/bubbles.ts")) throw new Error("missing"); });
 test("src/tools.ts exists", () => { if (!exists("src/tools.ts")) throw new Error("missing"); });
 test("src/permissions.ts exists", () => { if (!exists("src/permissions.ts")) throw new Error("missing"); });
 test("src/readiness.ts exists", () => { if (!exists("src/readiness.ts")) throw new Error("missing"); });

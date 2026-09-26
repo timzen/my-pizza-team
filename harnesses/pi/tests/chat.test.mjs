@@ -106,7 +106,7 @@ test("acks 'delivered' on hand-off and 'read' when a run starts", () => {
 // ─── Outbound: Pi -> daemon ──────────────────────────────────────
 
 test("splits assistant prose into bubbles via the shared splitter", () => {
-  assert.ok(src.includes('from "./bubbles.js"'));
+  assert.ok(src.includes('from "./runtime/bubbles.js"'));
   assert.ok(src.includes("splitIntoBubbles(text)"));
   assert.ok(src.includes("this.client.postBubble("));
 });
