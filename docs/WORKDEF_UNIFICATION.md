@@ -82,9 +82,10 @@ operations live under `/api/work-defs/:id`; Story-parent operations live under
 - **Harness contract unchanged** — agents use `/api/agents/*` (ref-resolved).
 
 Dropped as redundant: `/api/tasks/:id/comment(s)` (identical ref file as the
-work-defs route). Kept for back-compat: `/api/tasks/:id/attachments*` and
-`/api/tasks/:id/token-usage` are still served because **mpt-mcp-server** calls
-them; the web UI no longer does. `token_usage.task_id` dropped its FK to
+work-defs route). `/api/tasks/:id/attachments*` and `/api/tasks/:id/token-usage`
+were kept for back-compat while **mpt-mcp-server** called them; that harness is
+retired, so they were removed too (BATTERIES_INCLUDED.md §1.3, P1a-5). Every
+ref-scoped concern now has exactly one route family. `token_usage.task_id` dropped its FK to
 `tasks(id)` so usage can be recorded on standalone WorkDefs (they have no tasks
 row) — this also fixed the same latent gap on the agent token-usage path.
 

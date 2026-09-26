@@ -76,7 +76,7 @@ export interface CommentsResponse {
   }>;
 }
 
-/** Response from POST /api/tasks/:id/token-usage */
+/** Response from POST /api/agents/work-items/:id/token-usage */
 export interface TokenUsageResponse {
   success: boolean;
   costUsd?: number;
@@ -192,7 +192,7 @@ export interface CreateTaskResponse {
   error?: string;
 }
 
-/** Response from POST /api/tasks/:id/attachments */
+/** Response from POST /api/agents/work-items/:id/attachments */
 export interface UploadAttachmentResponse {
   success: boolean;
   type?: string;

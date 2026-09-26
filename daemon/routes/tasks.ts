@@ -1,20 +1,18 @@
 /**
- * daemon/routes/tasks.ts — Task CRUD, move, comments, attachments, and token usage routes.
+ * daemon/routes/tasks.ts — Task CRUD, move, and reorder routes.
  *
- * Used by the web UI for task management (edit, delete, move status),
- * and by teammates/agents for posting comments and uploading attachments.
+ * Used by the web UI for task management (edit, delete, move status, reorder).
+ * Attachments, comments, and token usage are ref-scoped and live on the WorkDef —
+ * see `routes/work-defs.ts` and the note at the bottom of this file.
  */
 
 import type { RouteContext } from "./types.ts";
 import { TODO_STATE } from "../../shared/types.ts";
-import { estimateTokenCost } from "../token-cost.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse, UpdateTaskRequest, UpdateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse,
-  TokenUsageRequest, TokenUsageResponse,
   ReorderTasksRequest, ReorderTasksResponse,
 } from "../../shared/protocol.ts";
-import * as path from "@std/path";
 
 export function registerTaskRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -79,85 +77,14 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     return c.json({ success: true } satisfies MoveTaskResponse);
   });
 
-  // ─── Comments ──────────────────────────────────────────────────────
+  // ─── Comments, attachments, token usage ───────────────────────────
   //
-  // Task comments are ref-scoped and live on the WorkDef, so the canonical
-  // routes are `/api/work-defs/:id/comment(s)` (used by the web UI) and
-  // `/api/agents/comments/:workItemId` (used by harnesses). The old
-  // `/api/tasks/:taskId/comment(s)` duplicates were removed — they resolved to
-  // the same comments.jsonl on the same ref. See docs/WORKDEF_UNIFICATION.md.
+  // All three are ref-scoped and live on the WorkDef, so the canonical routes are
+  // `/api/work-defs/:id/*` (used by the web UI) and `/api/agents/*` (used by
+  // harnesses). The `/api/tasks/:taskId/*` duplicates resolved to the same files
+  // on the same ref. The comment pair went first; attachments and token-usage
+  // outlived them only because mpt-mcp-server still called them, and that harness
+  // is retired (BATTERIES_INCLUDED.md §1.3, task P1a-5).
+  // See docs/WORKDEF_UNIFICATION.md.
 
-  // ─── Attachments ───────────────────────────────────────────────────
-
-  app.post("/api/tasks/:taskId/attachments", async (c) => {
-    const taskId = c.req.param("taskId");
-    const task = store.getTask(taskId);
-    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
-
-    const body = await c.req.json() as { name: string; content: string; encoding?: string };
-    if (!body.name || !body.content) return c.json({ success: false, error: "Fields 'name' and 'content' are required" }, 400);
-
-    let data: string | Uint8Array = body.content;
-    if (body.encoding === "base64") {
-      const binaryString = atob(body.content);
-      const bytes = new Uint8Array(binaryString.length);
-      for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
-      data = bytes;
-    }
-
-    const storedName = store.saveAttachment(taskId, body.name, data);
-    if (!storedName) return c.json({ success: false, error: "Failed to save attachment" }, 500);
-
-    const ext = body.name.split(".").pop()?.toLowerCase() || "";
-    const typeMap: Record<string, string> = { diff: "diff", patch: "diff", md: "markdown", txt: "text", json: "json", png: "image", jpg: "image", jpeg: "image" };
-    return c.json({ success: true, storedName, type: typeMap[ext] || "other", size: body.content.length });
-  });
-
-  app.get("/api/tasks/:taskId/attachments", (c) => {
-    const taskId = c.req.param("taskId");
-    if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` }, 404);
-    return c.json({ attachments: store.getAttachments(taskId) });
-  });
-
-  app.get("/api/tasks/:taskId/attachments/:filename", (c) => {
-    const taskId = c.req.param("taskId");
-    const filename = c.req.param("filename");
-    const task = store.getTask(taskId);
-    if (!task) return c.json({ error: "Task not found", taskId }, 404);
-    const filePath = store.getAttachmentPath(taskId, filename);
-    if (!filePath) return c.json({ error: "Attachment not found", taskId, filename, taskDir: task.dirPath }, 404);
-
-    const content = Deno.readFileSync(filePath);
-    const ext = filename.split(".").pop()?.toLowerCase() || "";
-    const mimeTypes: Record<string, string> = {
-      diff: "text/x-diff", patch: "text/x-diff", md: "text/markdown",
-      txt: "text/plain", json: "application/json",
-      png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg",
-      gif: "image/gif", webp: "image/webp", svg: "image/svg+xml",
-    };
-    return new Response(content, { headers: { "Content-Type": mimeTypes[ext] || "application/octet-stream" } });
-  });
-
-  app.delete("/api/tasks/:taskId/attachments/:filename", (c) => {
-    const taskId = c.req.param("taskId");
-    const filename = c.req.param("filename");
-    const deleted = store.deleteAttachment(taskId, filename);
-    if (!deleted) return c.json({ success: false, error: "Attachment not found" }, 404);
-    return c.json({ success: true });
-  });
-
-  // ─── Token Usage ───────────────────────────────────────────────────
-
-  app.post("/api/tasks/:taskId/token-usage", async (c) => {
-    const taskId = c.req.param("taskId");
-    const body = (await c.req.json()) as TokenUsageRequest & { costUsd?: number };
-    if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
-      return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" } satisfies TokenUsageResponse, 400);
-    }
-    if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies TokenUsageResponse, 404);
-    // Prefer the harness-reported cost; estimate only as a fallback.
-    const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
-    store.addTokenUsage(taskId, body.inputTokens, body.outputTokens, body.model, costUsd);
-    return c.json({ success: true, costUsd } satisfies TokenUsageResponse);
-  });
 }

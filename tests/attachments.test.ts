@@ -1,7 +1,14 @@
 /**
  * tests/attachments.test.ts — Tests for the file attachment endpoints.
  *
- * Verifies POST /api/tasks/:id/attachments, GET list, and GET download.
+ * Verifies POST /api/work-defs/:id/attachments, GET list, and GET download.
+ *
+ * These were written against the board-only `/api/work-defs/:id/attachments` pair,
+ * which was retired with mpt-mcp-server (its only remaining client) in P1a-5. The
+ * ref-scoped WorkDef routes are the canonical ones and work for any WorkDef —
+ * board, Solitary, or Scheduled — so the edge cases are ported here rather than
+ * dropped: 404 on an unknown ref, 400 without a name, the addedAt/storedName
+ * relationship, and newest-first ordering.
  */
 
 import { assertEquals } from "@std/assert";
@@ -17,8 +24,8 @@ const { app, store } = createApp(testDir);
 store!.createStory("attach-story", "Test story", "desc", "open", [], [{ title: "Test task", description: "A task" }]);
 const taskId = "attach-story-1";
 
-Deno.test("POST /api/tasks/:id/attachments uploads a file", async () => {
-  const res = await app.request(`/api/tasks/${taskId}/attachments`, {
+Deno.test("POST /api/work-defs/:id/attachments uploads a file", async () => {
+  const res = await app.request(`/api/work-defs/${taskId}/attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: "changes.diff", content: "--- a/file\n+++ b/file\n@@ -1 +1 @@\n-old\n+new\n" }),
@@ -31,8 +38,8 @@ Deno.test("POST /api/tasks/:id/attachments uploads a file", async () => {
   assertEquals(data.size > 0, true);
 });
 
-Deno.test("POST /api/tasks/:id/attachments returns 404 for bad task", async () => {
-  const res = await app.request("/api/tasks/nonexistent/attachments", {
+Deno.test("POST /api/work-defs/:id/attachments returns 404 for bad task", async () => {
+  const res = await app.request("/api/work-defs/nonexistent/attachments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: "file.txt", content: "hello" }),
@@ -40,8 +47,8 @@ Deno.test("POST /api/tasks/:id/attachments returns 404 for bad task", async () =
   assertEquals(res.status, 404);
 });
 
-Deno.test("POST /api/tasks/:id/attachments returns 400 without name", async () => {
-  const res = await app.request(`/api/tasks/${taskId}/attachments`, {
+Deno.test("POST /api/work-defs/:id/attachments returns 400 without name", async () => {
+  const res = await app.request(`/api/work-defs/${taskId}/attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ content: "hello" }),
@@ -49,18 +56,18 @@ Deno.test("POST /api/tasks/:id/attachments returns 400 without name", async () =
   assertEquals(res.status, 400);
 });
 
-Deno.test("GET /api/tasks/:id/attachments lists uploaded files", async () => {
-  const res = await app.request(`/api/tasks/${taskId}/attachments`);
+Deno.test("GET /api/work-defs/:id/attachments lists uploaded files", async () => {
+  const res = await app.request(`/api/work-defs/${taskId}/attachments`);
   assertEquals(res.status, 200);
   const data = await res.json() as { attachments: Array<{ name: string; storedName: string; size: number; addedAt: number }> };
   assertEquals(data.attachments.length >= 1, true);
   assertEquals(data.attachments[0]!.name.includes("changes"), true);
 });
 
-Deno.test("GET /api/tasks/:id/attachments includes addedAt and sorts newest first", async () => {
+Deno.test("GET /api/work-defs/:id/attachments includes addedAt and sorts newest first", async () => {
   // Upload a second file with the same display name — the timestamps are how
   // the UI tells same-named uploads apart.
-  const upload = await app.request(`/api/tasks/${taskId}/attachments`, {
+  const upload = await app.request(`/api/work-defs/${taskId}/attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ name: "changes.diff", content: "second upload" }),
@@ -68,7 +75,7 @@ Deno.test("GET /api/tasks/:id/attachments includes addedAt and sorts newest firs
   assertEquals(upload.status, 200);
   await upload.body?.cancel();
 
-  const res = await app.request(`/api/tasks/${taskId}/attachments`);
+  const res = await app.request(`/api/work-defs/${taskId}/attachments`);
   const data = await res.json() as { attachments: Array<{ storedName: string; addedAt: number }> };
   assertEquals(data.attachments.length >= 2, true);
   for (const att of data.attachments) {
@@ -82,22 +89,22 @@ Deno.test("GET /api/tasks/:id/attachments includes addedAt and sorts newest firs
   }
 });
 
-Deno.test("GET /api/tasks/:id/attachments/:filename downloads the file", async () => {
+Deno.test("GET /api/work-defs/:id/attachments/:filename downloads the file", async () => {
   // Get the stored name of the original upload (list is newest first, so
   // the first upload is last).
-  const listRes = await app.request(`/api/tasks/${taskId}/attachments`);
+  const listRes = await app.request(`/api/work-defs/${taskId}/attachments`);
   const listData = await listRes.json() as { attachments: Array<{ storedName: string }> };
   const storedName = listData.attachments[listData.attachments.length - 1]!.storedName;
 
-  const res = await app.request(`/api/tasks/${taskId}/attachments/${storedName}`);
+  const res = await app.request(`/api/work-defs/${taskId}/attachments/${storedName}`);
   assertEquals(res.status, 200);
   const content = await res.text();
   assertEquals(content.includes("-old"), true);
   assertEquals(content.includes("+new"), true);
 });
 
-Deno.test("GET /api/tasks/:id/attachments/:filename returns 404 for missing", async () => {
-  const res = await app.request(`/api/tasks/${taskId}/attachments/nonexistent.txt`);
+Deno.test("GET /api/work-defs/:id/attachments/:filename returns 404 for missing", async () => {
+  const res = await app.request(`/api/work-defs/${taskId}/attachments/nonexistent.txt`);
   assertEquals(res.status, 404);
 });
 

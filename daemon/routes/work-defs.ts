@@ -119,9 +119,9 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   });
 
   // ── Attachments (on the ref) ─────────────────────────────────────────
-  // These work for ANY WorkDef (board / Solitary / Scheduled), unlike the
-  // board-only /api/tasks/:taskId/attachments routes. The web UI uses these;
-  // the mpt-mcp-server still uses the task-scoped ones (kept for compat).
+  // The canonical attachment routes: they work for ANY WorkDef (board /
+  // Solitary / Scheduled). The board-only /api/tasks/:taskId/attachments
+  // duplicates were removed in P1a-5 with their last client, mpt-mcp-server.
 
   const MIME_TYPES: Record<string, string> = {
     diff: "text/x-diff", patch: "text/x-diff", md: "text/markdown",
