@@ -207,7 +207,7 @@ export class AssistantChat {
   /** Open a new active session. Any previously active session must already be ended. */
   startSession(personaId: string | null): AssistantSession {
     const now = Date.now();
-    const id = sessionId(now, personaId);
+    const id = this.uniqueSessionId(now, personaId);
     const title = this.personaTitle(personaId ?? "");
     this.db.prepare(
       "INSERT INTO assistant_sessions (id, persona_id, persona_title, title, status, started_at, message_count) VALUES (?, ?, ?, '', 'active', ?, 0)",
@@ -215,6 +215,26 @@ export class AssistantChat {
     const session = this.getSession(id)!;
     this.emit({ type: "session", session });
     return session;
+  }
+
+  /**
+   * A session id not already taken, disambiguating with `-2`, `-3`, … on collision.
+   *
+   * Ids are minted from the clock and are user-visible (they name the snapshot file
+   * `assistant/sessions/<id>.md`), so they stay readable rather than becoming
+   * random. But millisecond precision alone is not enough: "new chat" and a persona
+   * swap both *end and start* a session in the same tick, so two sessions can share
+   * a millisecond and the id is a PRIMARY KEY. That collision surfaced as a 500
+   * from POST /api/assistant/sessions/new and no new session — intermittently, and
+   * more often under load.
+   */
+  private uniqueSessionId(now: number, personaId: string | null): string {
+    const base = sessionId(now, personaId);
+    if (!this.getSession(base)) return base;
+    for (let n = 2; ; n++) {
+      const candidate = `${base}-${n}`;
+      if (!this.getSession(candidate)) return candidate;
+    }
   }
 
   /**

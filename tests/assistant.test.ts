@@ -433,6 +433,37 @@ Deno.test("the leader is the chat agent; the inbox is gated on designation", asy
   } finally { cleanup(teamDir, store); }
 });
 
+Deno.test("two sessions minted in the same millisecond both survive", async () => {
+  // Ending and starting happen in the same tick for "new chat" and persona swaps,
+  // and the id is derived from the clock *and* is the PRIMARY KEY. When both landed
+  // in one millisecond the insert threw, surfacing as a 500 from
+  // /api/assistant/sessions/new and no new session at all — intermittent, and more
+  // likely under load, which is how the suite caught it.
+  const { app, store, teamDir } = setup();
+  try {
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
+
+    // Pin the clock so every session lands in the same millisecond.
+    const realNow = Date.now;
+    const frozen = realNow();
+    try {
+      Date.now = () => frozen;
+      await post(app, "/api/assistant/messages", { content: "first" });
+      for (let i = 0; i < 3; i++) {
+        const res = await post(app, "/api/assistant/sessions/new");
+        assertEquals(res.status, 201, `roll ${i + 1} should succeed, not collide`);
+      }
+    } finally {
+      Date.now = realNow;
+    }
+
+    const sessions = store.listAssistantSessions();
+    assertEquals(sessions.length, 4, "each roll should have produced a distinct session");
+    assertEquals(new Set(sessions.map((s) => s.id)).size, 4, "session ids must be unique");
+    assertEquals(sessions.filter((s) => s.status === "active").length, 1, "exactly one stays active");
+  } finally { cleanup(teamDir, store); }
+});
+
 Deno.test("session directives are addressed to the leader", async () => {
   const { app, store, teamDir } = setup();
   try {
