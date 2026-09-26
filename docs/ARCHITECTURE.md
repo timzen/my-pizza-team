@@ -108,6 +108,19 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **Declared team size, not spawn clicks** — The team's size is a *number you declare* (`minTeammates`, default 0), not a button you press per teammate. `Store.reconcileTeammatePool()` keeps at least that many generalist teammates online: it counts online pool members (the `leader`/`assistant` singletons are excluded by name) **plus** not-yet-realized `spawn` directives (so a slow leader never gets a second batch), clamps the target to `maxTeammates`, and queues `spawn` directives for the shortfall. It runs on the heartbeat timer immediately **after** the offline reaper — so a dismissed, crashed, or reaped teammate is replaced on the same tick — plus whenever the number changes or a leader registers (a leader is the first moment a spawn can actually be realized; with none connected the pool waits instead of piling up directives nobody will act on). Reconciliation is one-directional: the daemon never dismisses a teammate, so lowering the number only stops replacements. The value lives in `config.json`, which makes it the startup target too.
 - **Pages over modals** — The board is for glancing and light triage (drag a card to another column to move it). Clicking a card never opens an editor; the `details →` link opens the task page, and all reading/editing/creating lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`) — deep-linkable, roomy, and browser-back friendly. The only surviving modal is the FileViewer (a lightbox-style artifact/attachment viewer). This keeps destructive/edit actions off the high-traffic board surface. Cards carry no state badge (the column names the state) — only the substatus chip; drops only accept cards from the same story (the drag MIME type carries the story id). Each swimlane can hide the implicit todo/done bucket columns (persisted per story in `localStorage`); hidden buckets show their task counts in the story header.
 - **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
+- **Upgrading both halves** — `mpt upgrade` replaces the binary *and* rewrites the
+  managed Pi extension, because the two are one protocol (docs/BATTERIES_INCLUDED.md
+  §1.2) and moving only one is the skew this plan exists to remove. The rewrite is
+  performed by invoking the **newly installed** binary
+  (`mpt write-extension-internal`, hidden): the running process still carries the
+  old embedded copy, so writing in-process would install the version being replaced.
+  Only a directory that already exists is refreshed — someone on a registered
+  development checkout, or who never ran `mpt setup`, must not have a managed install
+  created behind their back. No re-registration is needed, since Pi loads a local
+  package from its path without copying. Running agents keep the old code until their
+  Pi restarts, which the version handshake surfaces and the Team tab's banner offers
+  to fix.
+
 - **Version handshake** — The daemon and a harness are one protocol shipped as two
   artifacts, and when they drifted nothing noticed: an old extension kept running
   while streaming no transcript and recording no usage (docs/BATTERIES_INCLUDED.md

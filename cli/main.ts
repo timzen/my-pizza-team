@@ -471,6 +471,28 @@ async function cmdUpgrade(args: string[]): Promise<void> {
 
   console.log(`✅ Upgraded to v${latest}.`);
 
+  // Move the *other half* with the binary. The daemon and the extension are one
+  // protocol (§1.2); upgrading only the binary is exactly the skew this plan
+  // exists to remove. Run through the new executable, because this process still
+  // holds the old embedded copy.
+  //
+  // Pi loads a local package from its path without copying, so rewriting the
+  // directory is the whole job — no re-registration. Running agents keep the old
+  // code until their Pi restarts, which the version handshake makes visible.
+  if (existsSync(managedExtensionDir())) {
+    try {
+      const out = new Deno.Command(execPath, { args: ["write-extension-internal"], stdout: "inherit", stderr: "inherit" })
+        .outputSync();
+      if (!out.success) {
+        console.warn("   ⚠️  Could not refresh the Pi extension — run `mpt setup` to finish.");
+      } else {
+        console.log("   Restart running agents to pick it up (`mpt doctor` shows which are behind).");
+      }
+    } catch (e) {
+      console.warn(`   ⚠️  Could not refresh the Pi extension (${(e as Error).message}) — run \`mpt setup\` to finish.`);
+    }
+  }
+
   // If a service manages the daemon, restart it (in-place binary replace leaves
   // the old process running until restarted). The service launches a specific
   // absolute path, so warn if we upgraded a different copy.
@@ -524,6 +546,31 @@ Examples:
   mpt setup --dry-run   # Show what setup would change, without changing it
   mpt setup --uninstall # Undo what setup did (keeps the team directory)
 `);
+}
+
+/**
+ * Rewrite the managed extension from *this* binary's bundled copy.
+ *
+ * Invoked by `mpt upgrade` on the newly-installed binary, not in-process: the
+ * running process carries the **old** embedded extension, so writing it here would
+ * install the version being replaced. Hidden, because it is an implementation
+ * detail of upgrade rather than something to run by hand (`mpt setup` is that).
+ *
+ * Only refreshes a directory that already exists. Someone who never ran setup, or
+ * who works from a registered development checkout, has no managed install — and
+ * upgrade must not create one behind their back.
+ */
+function cmdWriteExtensionInternal(): void {
+  const managedDir = managedExtensionDir();
+  if (!existsSync(managedDir)) return;
+
+  const sourceDir = resolveExtensionSourceDir();
+  if (!sourceDir) {
+    console.error("⚠️  Could not locate the bundled extension; run `mpt setup` to reinstall it.");
+    Deno.exit(1);
+  }
+  const { version } = writeExtension(sourceDir, managedDir);
+  console.log(`✅ Pi extension updated to v${version ?? "unknown"} at ${managedDir}`);
 }
 
 /** Render a plan so the user sees every change before it happens. */
@@ -794,6 +841,11 @@ export async function main(): Promise<void> {
       break;
     case "setup":
       await cmdSetup(args.slice(1));
+      break;
+    // Hidden: `mpt upgrade` invokes this on the freshly-installed binary so the
+    // extension written out is the new one, not the one being replaced.
+    case "write-extension-internal":
+      cmdWriteExtensionInternal();
       break;
     case "--help":
     case "-h":

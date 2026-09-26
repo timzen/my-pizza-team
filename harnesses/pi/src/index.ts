@@ -213,7 +213,8 @@ async function setupTeammate(
   cwd: string,
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
-  const { registerPermissionBypass, registerAutonomousAuthorizer } = await import("./permissions.js");
+  const { registerPermissionBypass, registerAutonomousAuthorizer, isPermissionSystemLoaded, PERMISSION_SYSTEM_INSTALL } =
+    await import("./permissions.js");
   const { registerTeammateTools } = await import("./tools.js");
 
   // Check daemon reachability
@@ -255,6 +256,18 @@ async function setupTeammate(
   // Register tools. The `fail` tool lets the agent give up on a claimed work
   // item with a comment when it can't proceed; the loop then skips COMPLETE.
   registerTeammateTools(pi, client, () => loop.currentTask || loop.lastTask, (workItemId) => loop.markReturned(workItemId));
+
+  // Warn loudly when the permission system is absent (P2-8). The extension works
+  // without it, but an autonomous teammate then stalls on the first permission
+  // prompt with nothing to explain why — a hung agent instead of a missing package.
+  // Said once, at start, where someone will see it.
+  if (!isPermissionSystemLoaded()) {
+    const message = "🍕 @gotgenes/pi-permission-system is not installed — this teammate will stop " +
+      `on permission prompts instead of working autonomously.\n   Install it: ${PERMISSION_SYSTEM_INSTALL}`;
+    if (ctx.hasUI) ctx.ui.notify(message, "warning");
+    else console.warn(message);
+    debug("permission system absent — autonomous runs will prompt");
+  }
 
   // Permission bypass (auto-pause on interactive input). Returns this agent's
   // lease on the directory's shared permission config (see permissions.ts).

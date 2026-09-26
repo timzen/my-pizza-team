@@ -65,3 +65,20 @@ Deno.test("a reported protocol version alone is enough to clear an agent", () =>
   const skew = harnessSkew(agent({ harness: "claude", harnessVersion: undefined }), "0.17.2");
   assertEquals(skew, null);
 });
+
+// ─── The remedy (P2-9) ───────────────────────────────────────────────
+
+Deno.test("only skewed agents are selected for a restart", () => {
+  // Resetting a healthy agent would throw away its context window for nothing, so
+  // the restart-all affordance must act on the skewed set and not "everyone".
+  const daemonVersion = "0.17.2";
+  const team = [
+    agent({ id: "a", name: "current", harnessVersion: "0.17.2" }),
+    agent({ id: "b", name: "behind", harnessVersion: "0.16.0" }),
+    agent({ id: "c", name: "pre-handshake", protocolVersion: undefined, harnessVersion: undefined }),
+    agent({ id: "d", name: "offline-and-behind", status: "offline", harnessVersion: "0.16.0" }),
+  ];
+
+  const selected = team.filter((t) => harnessSkew(t, daemonVersion)?.skewed).map((t) => t.id);
+  assertEquals(selected, ["b", "c"], "current and offline agents must be left alone");
+});

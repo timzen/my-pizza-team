@@ -38,6 +38,14 @@ export interface TeamData {
   skewed: Array<{ teammate: Teammate; reason: string }>;
   dismiss: (id: string) => Promise<void>;
   reset: (t: Teammate) => Promise<void>;
+  /**
+   * Roll every skewed agent's session so it picks up a newer extension.
+   *
+   * After `mpt upgrade` the extension on disk is new but running agents still hold
+   * the old code, so the skew banner appears and nothing clears it on its own. This
+   * is that remedy (P2-9). Returns how many were asked.
+   */
+  restartSkewed: () => Promise<number>;
   cancelSpawn: (id: string) => Promise<void>;
   refetchPool: () => void;
   refetchSpawns: () => void;
@@ -82,6 +90,14 @@ export function useTeamData(): TeamData {
     // directive the leader realizes as Pi's `/new` in the teammate's window.
     reset: async (t) => {
       await apiPost("/api/leader/directives", { action: "reset-session", memberId: t.id });
+    },
+    // Only the skewed ones: resetting a healthy agent would throw away its context
+    // window for nothing.
+    restartSkewed: async () => {
+      for (const { teammate } of skewed) {
+        await apiPost("/api/leader/directives", { action: "reset-session", memberId: teammate.id });
+      }
+      return skewed.length;
     },
     cancelSpawn: async (id) => {
       await apiDelete(`/api/spawn-requests/${encodeURIComponent(id)}`);

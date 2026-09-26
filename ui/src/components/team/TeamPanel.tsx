@@ -45,6 +45,16 @@ export function TeamPanel({ team }: { team: TeamData }) {
             <ul className="mt-1 space-y-0.5 text-muted-foreground">
               {skewed.map((s) => <li key={s.teammate.id}>{s.reason}</li>)}
             </ul>
+            {/*
+              Restarting is the only fix, and doing it one row at a time is the kind
+              of chore people skip — so the banner carries the action.
+            */}
+            <button
+              onClick={() => void team.restartSkewed()}
+              className="mt-1.5 text-[11px] font-medium text-amber-600 underline hover:no-underline dark:text-amber-400"
+            >
+              Restart {skewed.length === 1 ? "it" : `all ${skewed.length}`} (rolls the session, clearing context)
+            </button>
           </div>
         )}
 

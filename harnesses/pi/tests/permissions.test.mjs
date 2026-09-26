@@ -135,5 +135,22 @@ test("leader wires the chat-agent permissions and the authorizer link", () => {
   assert.ok(leaderSrc.includes("registerAutonomousAuthorizer(pi, chatPermissions.isRemoteDriven)"));
 });
 
+
+// ─── Absent permission system (P2-8) ─────────────────────────────────
+
+test("exposes a check for whether the permission system is loaded", () => {
+  // The extension already degrades gracefully without it, but silently: an
+  // autonomous teammate then stalls on the first prompt and looks hung rather than
+  // under-configured. The check is what lets the caller say so.
+  assert.ok(src.includes("export function isPermissionSystemLoaded"));
+  assert.ok(src.includes("PERMISSIONS_SERVICE_KEY"));
+});
+
+test("the install command lives beside the check so the message can't drift", () => {
+  assert.ok(src.includes("export const PERMISSION_SYSTEM_INSTALL"));
+  assert.ok(src.includes("npm:@gotgenes/pi-permission-system"));
+});
+
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

@@ -67,6 +67,25 @@ export const AUTONOMOUS_AUTHORIZER = "ppt-autonomous";
  */
 const PERMISSIONS_SERVICE_KEY = Symbol.for("@gotgenes/pi-permission-system:service");
 
+/**
+ * Is the permission system actually loaded?
+ *
+ * The extension degrades gracefully without it — but *silently*, which is the
+ * problem. An autonomous teammate then stops on the first permission prompt and
+ * simply sits there: no work completes, nothing explains why, and the symptom looks
+ * like a hung agent rather than a missing package. That is precisely the
+ * diagnostic-free failure docs/BATTERIES_INCLUDED.md §1.1 is about, so callers warn
+ * (P2-8). mpt does *not* auto-install it: coupling setup to a third party's
+ * publishing would mean their bad release breaks our setup.
+ */
+export function isPermissionSystemLoaded(): boolean {
+  // deno-lint-ignore no-explicit-any
+  return Boolean((globalThis as any)[PERMISSIONS_SERVICE_KEY]);
+}
+
+/** The install command, kept beside the check so the message can't drift from it. */
+export const PERMISSION_SYSTEM_INSTALL = "pi install npm:@gotgenes/pi-permission-system";
+
 /** Minimal untyped view of the cross-extension PermissionsService. */
 interface PermissionsServiceLike {
   registerAuthorizer?: (
