@@ -280,14 +280,12 @@ test("passes tmux session/window to spawned agents", () => {
   assert.ok(src.includes(".replace(/\\{window\\}/g,"));
 });
 
-test("runs the readiness probe and reports it to the daemon", () => {
-  // The leader is the singleton, so it owns the machine's readiness probe and
-  // reports one team-level result (P1c-3).
-  assert.ok(src.includes("resolveReadinessProbe"));
-  assert.ok(src.includes("runReadinessProbe"));
-  assert.ok(src.includes("client.reportReadiness("));
-  // Probe is resolved from the leader flag (falls back to env in readiness.ts).
-  assert.ok(src.includes('pi.getFlag("ppt-readiness-probe")'));
+test("the readiness probe is the daemon's job, not the leader's", () => {
+  // Moved in P3-2. While it lived here, a machine too wedged for the leader to start
+  // was reported as healthy (nothing reported means ready) and work kept being
+  // scheduled into it.
+  assert.ok(!src.includes("runReadinessProbe"), "the leader should no longer probe");
+  assert.ok(!src.includes("reportReadiness"), "nor report readiness");
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

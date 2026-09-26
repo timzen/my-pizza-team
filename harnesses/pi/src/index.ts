@@ -80,20 +80,10 @@ export default function (pi: ExtensionAPI) {
     default: "",
   });
 
-  // Leader-only: a host-level readiness probe. The leader runs this command each
-  // heartbeat; exit 0 = ready, non-zero = not ready (stdout's first line is the
-  // reason). A not-ready host makes the daemon hold scheduled work destined for
-  // it instead of failing it (e.g. while cloud-desktop credentials are expired).
-  // Falls back to the PPT_READINESS_PROBE env var. See docs/ARCHITECTURE.md.
-  pi.registerFlag("ppt-readiness-probe", {
-    description: "Leader host-readiness probe command (exit 0 = ready). Also PPT_READINESS_PROBE env var.",
-    type: "string",
-    default: "",
-  });
-
   // Set by the leader when spawning an agent, so the agent can report its own
   // tmux window/session back to the daemon as opaque metadata (used to deliver
-  // control intents like session reset).
+  // control intents like session reset). `mpt lead` passes them to the leader too,
+  // so the daemon can address its window.
   pi.registerFlag("ppt-tmux-window", { description: "tmux window name (set by leader on spawn)", type: "string", default: "" });
   pi.registerFlag("ppt-tmux-session", { description: "tmux session name (set by leader on spawn)", type: "string", default: "" });
 

@@ -15,6 +15,7 @@ import {
 } from "../daemon/lifecycle.ts";
 import { resolveToken, validateBindSafety } from "../daemon/auth.ts";
 import { probeSpawnCapability, realizePending } from "../daemon/spawner.ts";
+import { startReadinessLoop } from "../daemon/readiness.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 
@@ -119,6 +120,15 @@ export async function startDaemonInProcess(
     console.log(`     ${spawnCapability.fix}`);
   }
 
+  // ─── Readiness probe (P3-2) ────────────────────────────────────────
+  //
+  // Run here rather than by an agent. While the leader reported it, a machine too
+  // wedged for the leader to start was treated as *healthy* — nothing reported means
+  // ready — and work kept being scheduled into it. The daemon is running whenever it
+  // matters, so it can answer with zero agents connected.
+  const stopReadiness = store ? startReadinessLoop(store) : null;
+  if (stopReadiness) console.log("   Readiness: daemon-probed");
+
   console.log(`🍕 my-pizza-team daemon listening on http://localhost:${port}`);
   console.log(`   PID: ${Deno.pid} (${pidFile})`);
   console.log(`   Team dir: ${teamDir}`);
@@ -129,5 +139,6 @@ export async function startDaemonInProcess(
     await server.finished;
   } finally {
     if (spawnTimer !== undefined) clearInterval(spawnTimer);
+    stopReadiness?.();
   }
 }

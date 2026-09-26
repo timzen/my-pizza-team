@@ -160,9 +160,17 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **Scheduler readiness gating** — Credentials/VPN/network are a property of the
   machine the team runs on, so readiness is one **team-level** fact (it was
   per-host until P1c-3; multi-host is gone — docs/BATTERIES_INCLUDED.md §3.3). The
-  leader runs an optional probe and reports via `POST /api/readiness`; the daemon
-  holds it in memory (ephemeral connection state, like members — nothing reported
-  yet means ready). The cron scheduler consults it: a due scheduled child is
+  **daemon** runs the optional probe (`readinessProbe` in team config) on an interval
+  and holds the result in memory (ephemeral connection state, like members — nothing
+  reported yet means ready). `POST /api/readiness` remains, so a harness can report
+  too.
+  The probe used to be the leader's (P3-2 moved it), and moving it fixed an inversion
+  that was exactly backwards: an unreported team counts as ready — it must, since a
+  freshly booted daemon knows nothing — so a machine too wedged for the leader to even
+  *start* was treated as **healthy**, and the scheduler kept feeding work into it. The
+  daemon is running whenever it matters, so it answers with zero agents connected. An
+  unrunnable probe is "not ready" rather than "ready", for the same reason: a probe
+  confirms the machine can work, and one that cannot launch confirms nothing. The cron scheduler consults it: a due scheduled child is
   **held** rather than enqueued while the team is not-ready, so a wedged cloud
   desktop (e.g. expired `mwinit`) stops piling up FAILED scheduled runs overnight.
   Holding sets `heldForReadiness` on the Schedule and *doesn't* advance the cron

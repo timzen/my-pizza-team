@@ -9,7 +9,7 @@ in throwaway sandboxes (`MPT_HOME` + `PI_CODING_AGENT_DIR`); your real
 `~/.pi/agent/settings.json`, your team directories, and your data were never
 touched.
 
-Status of this guide: **Phases 0, 1a, 1b, 1c, 2 complete.** Phases 3–4 pending.
+Status of this guide: **Phases 0, 1a, 1b, 1c, 2 and 3 complete.** Phases 5 and 4 pending.
 
 ---
 
@@ -124,6 +124,15 @@ uncommitted pivot preserved on branch `wip/mcp-tmux-tools`.
 
 - **`mpt doctor` is the dry-run for everything.** It is read-only and prints the
   command that fixes each problem. Start there whenever something seems off.
+- **`mpt lead` starts the leader for you** — it opens a tmux window in the project
+  folder and attaches. Running it again attaches to the existing leader rather than
+  starting a second one.
+- **The daemon spawns teammates now, not the leader.** So a teammate can start with no
+  leader connected, and adding a harness is a config entry (`harnesses.<name>.teammate`)
+  rather than an extension release. If the daemon can't reach tmux — likely when it runs
+  as a launchd/systemd service, which may have no `tmux` on `PATH` — it falls back to
+  the leader realizing spawns, exactly as before. `mpt doctor` says which path is live,
+  and a spawn that fails now shows in the Team tab with its reason instead of vanishing.
 - **`mpt upgrade` now moves both halves** — it replaces the binary *and* rewrites the
   managed extension (by re-invoking the new binary, since the old process still
   carries the old embedded copy). Running agents still need restarting; the Team tab
@@ -140,15 +149,30 @@ uncommitted pivot preserved on branch `wip/mcp-tmux-tools`.
 
 ---
 
-## 5. Still to come (Phases 3–4)
+## 4b. One config change, if you use a readiness probe
+
+The probe moved from the leader to the daemon (P3-2), so:
+
+- `--ppt-readiness-probe` and `PPT_READINESS_PROBE` **are gone.** The extension no
+  longer probes.
+- Set `readinessProbe` in your team's `config.json` instead (the daemon reads it, and
+  the Config page edits it).
+
+If you never used one, nothing changes — the common case, and "no probe" still means
+"always ready".
+
+Worth knowing *why* it moved: while an agent reported readiness, an unreported team
+counted as ready — it has to, since a freshly booted daemon knows nothing — so a
+machine too wedged for the leader to even start was treated as **healthy** and work
+kept being scheduled into it. The daemon runs whenever it matters, so it now answers
+with zero agents connected.
+
+## 5. Still to come (Phases 5 and 4)
 
 Listed so you know what is *not* yet true:
 
-- **Phase 3** — `mpt lead` to start the leader for you, and tmux moving out of the
-  extension into the daemon (§3.1's supervisor inversion). After this, harness spawn
-  templates become team config rather than extension constants, and the readiness
-  probe runs daemon-side — which also fixes a latent inversion, since today a box too
-  wedged for the leader to start is reported as healthy.
+- **Phase 5** — end-to-end coverage: the checks that were verified by hand during
+  Phases 2–3 become repeatable tests, before Phase 4 changes the spawn path.
 - **Phase 4** — a second harness at Tier 0.
 
 This file gets updated as those land.
