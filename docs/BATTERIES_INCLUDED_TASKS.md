@@ -18,79 +18,131 @@ a safety-critical order, though phases are sequenced for reviewability.
 
 ---
 
-## Phase 0 — Safety net and desk-clearing
+## Phase 0 — Safety net and desk-clearing — **DONE**
 
 No behavior change. Goal: a type-check exists before anything moves.
 
-### P0-1 — Type-check the extension
+### P0-1 — Type-check the extension ✅ `50f8a4d`
 
 The blocker: `pi-pizza-team` has no `tsconfig.json` and no `scripts` field, so
 nothing validates 4,555 lines of TypeScript. `P1c` rewires every import in that
 package; this is the safety net for it.
 
-- Add `pi-pizza-team/tsconfig.json`: `strict`, `noEmit`, `moduleResolution`
-  suited to Pi's loader, `allowImportingTsExtensions` (the source imports
-  `./shared/types.ts` with the extension).
-- Types come from `@earendil-works/pi-coding-agent` and `typebox`. Every Pi
-  import in the package is `import type`, so a `devDependencies` entry is enough
-  — do **not** add a runtime dependency.
-- Add `scripts`: `"typecheck": "tsc --noEmit"` and
-  `"test": "node --test tests/*.mjs"`.
+- Add `pi-pizza-team/tsconfig.json`: `strict`, `noEmit`, `noUncheckedIndexedAccess`,
+  `verbatimModuleSyntax`.
+- **`module: ESNext` + `moduleResolution: Bundler`**, not NodeNext. The sources
+  import siblings as `./client.js`, but `package.json` has no `"type"` field and
+  should not gain one — that field changes how Node interprets the package, and Pi
+  supplies its own loader. Bundler resolution checks the files as the ESM they are
+  and resolves `./client.js` to `client.ts` without asserting anything about Node.
+  (`allowImportingTsExtensions` is *not* needed: the specifiers are `.js`.)
+- Types come from `devDependencies` only. Every Pi import is `import type`, so
+  there is no runtime coupling and `dependencies` stays empty.
+- Add `scripts.typecheck` and `scripts.test`.
 
-**Acceptance:** `npm run typecheck` exits 0. `npm test` reports 286 passing
-assertions across 13 files. (Note `node --test tests/*.ts` silently reports 0
-tests — the wrong glob is why this was never noticed.)
+**Acceptance:** `npm run typecheck` exits 0; `npm test` passes. (Note
+`node --test tests/*.ts` silently reports 0 tests — the wrong glob is why this gap
+went unnoticed.)
 
-### P0-2 — Extend `deno task check` to `tests/`
+**Found 11 errors, three of them real defects:** a latent crash in `spawnAgent`
+(`harnessTemplates[harness] || harnessTemplates.pi` is `string | undefined`, so a
+config missing the requested template crashed mid-spawn, surfacing as a teammate
+that never appears); `team_status` registered with no `description`, masked by an
+adjacent error; and `getInitialState`/`getDoneState` indexing `states` as
+`string[]` while the daemon now sends `WorkflowState[]`. The last is live evidence
+for §1.2 — the two `WorkflowConfig` definitions have **already structurally
+diverged**, which `P1c-7` inherits. Both functions were dead and were deleted.
 
-`check` covers only `daemon/main.ts`, `daemon/server.ts`, `daemon/store.ts`,
-`cli/main.ts`. `tests/` is 4,595 unchecked lines.
+### P0-2 — Extend `deno task check` ✅ `1867f15`
 
-**Acceptance:** `deno task check` includes `tests/` and exits 0.
+`check` named four entrypoints, so coverage depended on what they imported;
+`tests/` (4,595 lines) was never checked. Now checks `daemon/ cli/ shared/ tests/`
+wholesale. Was already clean.
 
-### P0-3 — Archive shipped plans
+### P0-3 — Archive shipped plans ✅ `b9a717c`
 
-Roughly 1,235 of 2,665 lines in `docs/` are historical. Move to `docs/history/`
-with a one-line index explaining each is retained for rationale, not currency:
+Moved to `docs/history/` with an index, and repointed 43 inbound references across
+23 files:
 
 | File | Lines | Why |
 | --- | --- | --- |
 | `ASSISTANT_CHAT_V2.md` | 508 | "Status: **implemented**" |
 | `FRONTIER_ENGINEER_REFACTOR_PLAN.md` | 410 | superseded by `WORKDEF_UNIFICATION.md` |
-| `FRONTIER_ENGINEER_REFACTOR.md` | 132 | intent doc for the above |
 | `THOUGHTS-PORT-DIFF.md` | 115 | a bring-over plan |
 
-Repoint inbound references — `ARCHITECTURE.md` and `WORK-MODEL.md` both link
-into these, and `store.ts` cites `docs/ASSISTANT_CHAT_V2.md §10`.
+**Correction:** `FRONTIER_ENGINEER_REFACTOR.md` (132 lines) was listed here in
+error and was **not** moved. It is deliberately private — `docs/.gitignore`
+excludes it and it cites a file under `~/Downloads`. The `git mv` failing is how
+this was caught. Its one tracked inbound link now says the companion is private
+instead of pointing at an unresolvable path.
 
-**Acceptance:** no broken relative links (`grep -ro '](\w*\.md' docs/` resolves);
-`docs/` root holds only living docs.
+**Acceptance met:** every relative link in `docs/` and every `docs/` path cited
+from code resolves. (The one remaining broken link lives *inside* the private
+doc.)
 
-### P0-4 — Execute and delete `TODO.md`
+### P0-4 — Execute and delete `TODO.md` ✅ `a228007`
 
-93 lines of curated stale docs and comments, each with a quoted anchor. Fix them,
-then delete the file.
+Two of its four items were real and are fixed: `createLeaderDirective`'s JSDoc
+documented a `reason: "assistant"` singleton-naming and coalescing branch that its
+own body contradicts and no code implements; and `DESIGN.md` repeated it, plus a
+paragraph that was doubly stale (`DELETE /api/assistant/messages` no longer exists
+in bulk form, and chat-session control is now the self-handled
+`new-session`/`resume-session`, not `reset-session`).
 
-**Acceptance:** `TODO.md` gone; no remaining prose describing the retired
-assistant role.
+**The other two were already fixed by later commits** — `TODO.md` had itself gone
+stale. `GUIDE.md`'s home-page text now reads "two tabs — Queue | Inbox"; personas
+"on the Assistant tab" is *correct* because the **dock** has Assistant and Team
+tabs; and both team-size and Spawn controls exist as described (`TeamSizeBox` was
+renamed `TeamSizeDialog`).
 
-### P0-5 — Fix the stale `server.ts` header
+### P0-5 — Fix the stale `server.ts` header ✅ `ba407b0`
 
-Its route-module list claims `teammate: legacy teammate protocol (next-task,
-claim, status, team)`. There is no `registerTeammateRoutes` and no `next-task`
-route anywhere.
+Listed 8 modules against 14 registered, including a `teammate: legacy teammate
+protocol (next-task, ...)` module that does not exist. "assistant: queue and
+knowledge base" was stale on both halves. Now lists all 14 with purposes taken
+from each module's own header.
 
-**Acceptance:** every module named in the header comment exists.
+### P0-6 — Drop the unused `pi-tui` peerDependency ✅ `c27857f`
 
-### P0-6 — Drop the unused `pi-tui` peerDependency
+Declared but never imported anywhere. Each remaining peer now maps to real
+imports: `pi-coding-agent` (6, all `import type`) and `typebox` (1, runtime).
 
-`@earendil-works/pi-tui` is declared but never imported. (`typebox` is real —
-`tools.ts` imports `Type`.)
+### P0-7 — Behavioural tests for `client.ts` ✅ `5eb7bc3`
 
-**Acceptance:** each remaining peerDependency appears in an import.
+Added because `P0-1` surfaced a test-quality problem that raises `P1c-8`'s risk:
+**9 of 13 test files assert on source text** (`readFileSync` + `src.includes`),
+which catches no behavioural regression *and* breaks on file moves. Only
+`bubbles`, `pairing`, `transcript`, and `usage` execute code — so every Pi-coupled
+module had none.
 
-**Phase 0 DoD:** `deno task test` (261 tests) green, `deno task check` green,
-`npm run typecheck` green in the extension, `docs/` navigable.
+Narrow by design: `client.ts` only, being the largest module crossing into
+`agent-runtime/` and the most testable (pure `fetch`). It imports just `node:os`
+plus one `import type`, so it loads standalone under type stripping — no Pi
+needed.
+
+15 tests against a real `node:http` server: trailing-slash normalisation, bearer
+token, content-type, `DaemonError` message/status and non-JSON fallback,
+`checkHealth`/`heartbeat` staying quiet on transport failure, the agent-protocol
+paths and payloads, URL encoding, usage reporting, and — pinned deliberately —
+**the leader-directive channel**, so `P1c-1`'s collapse to `/api/leader/*` fails a
+test rather than silently 404-ing forever.
+
+`npm test` passes `--experimental-strip-types` to work on Pi's minimum Node
+(22.19); `engines` records that floor.
+
+**Phase 0 DoD: met.** `deno task test` 261 green, `deno task check` green,
+`npm run typecheck` green, `npm test` 28 green (314 assertions), `docs/`
+navigable.
+
+### Carried forward out of Phase 0
+
+- **`P1c-8` is riskier than first written.** The modules it moves have only
+  source-text tests, which will break on the move by construction while catching
+  no regression. `structure.test.mjs` asserts `src/shared/types.ts` exists, which
+  `P1c-7` deletes. Budget for rewriting those suites, not just relocating them.
+- **`WorkflowConfig` has already diverged** between the two copies (`string[]` vs
+  `WorkflowState[]`). `P1c-7` must reconcile a real difference, not just delete a
+  duplicate.
 
 ---
 
@@ -443,7 +495,7 @@ was hand-maintained.
 
 ```
 P0  ──▶ P1a ──▶ P1b ──▶ P1c ──▶ P2 ──▶ P3 ──▶ P4
-        │               ▲
+(done)  │               ▲
         └─ P1a-5 needs P1a-2 (delete unblocks route removal)
                         └─ HARD GATE: handshake before protocol break
 ```
