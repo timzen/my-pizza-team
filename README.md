@@ -380,6 +380,18 @@ exactly what it did. Two things it will not do: replace a development checkout o
 the extension (if one is registered, setup steps aside and says so), and revoke
 project trust on uninstall (other tools may rely on it).
 
+### Starting the leader
+
+```bash
+mpt lead              # start it in tmux and attach
+mpt lead --no-attach  # start it without taking over the terminal
+```
+
+The leader is the agent you chat with, and it realizes the daemon's spawn asks — a
+team without one has nobody answering and no way to grow. `mpt lead` opens a tmux
+window in the project directory and runs the harness's configured `leader` command;
+running it again attaches to the existing leader rather than starting a second one.
+
 ### Checking your setup
 
 ```bash

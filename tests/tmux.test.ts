@@ -182,7 +182,7 @@ Deno.test("killWindow reports whether the window was there", () => {
 // ─── Templates ───────────────────────────────────────────────────────
 
 Deno.test("a template fills every placeholder, quoting the cwd", () => {
-  const rendered = renderTemplate(DEFAULT_HARNESS_TEMPLATES.pi!, {
+  const rendered = renderTemplate(DEFAULT_HARNESS_TEMPLATES.pi!.teammate, {
     name: "swift-ripley",
     url: "http://localhost:7437",
     cwd: "/Users/t/My Project",

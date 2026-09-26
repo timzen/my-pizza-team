@@ -54,6 +54,16 @@ const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
 
 
 
+/** This leader's tmux location, when it was told (see `mpt lead`). */
+function readLeaderTmuxMetadata(pi: ExtensionAPI): Record<string, unknown> {
+  const metadata: Record<string, unknown> = {};
+  const window = ((pi.getFlag("ppt-tmux-window") as string) || "").trim();
+  const session = ((pi.getFlag("ppt-tmux-session") as string) || "").trim();
+  if (window) metadata.tmuxWindow = window;
+  if (session) metadata.tmuxSession = session;
+  return metadata;
+}
+
 // ─── Shell safety ────────────────────────────────────────────────────
 
 /** Sanitize a string for safe use in shell commands */
@@ -94,7 +104,15 @@ export async function setupLeader(
    * unreachable so callers can retry later.
    */
   async function syncDaemonConfig(): Promise<void> {
-    const regRes = await client.register({ name: "leader", directory: cwd });
+    // Report where this leader lives in tmux. The daemon relays metadata verbatim
+    // and uses it to address the right window — which is how a directive aimed at the
+    // leader (and, from P3-1, a daemon-driven spawn) finds it. `mpt lead` passes these
+    // flags; a hand-started `pi` simply reports nothing, as before.
+    const regRes = await client.register({
+      name: "leader",
+      directory: cwd,
+      metadata: readLeaderTmuxMetadata(pi),
+    });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
 
     // The readiness probe, and a tmuxSession fallback if register didn't carry

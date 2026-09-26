@@ -36,7 +36,7 @@ export interface TeamConfig {
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
   /**
-   * Spawn command templates by harness name.
+   * Start-command templates by harness name.
    *
    * The daemon fills a template and types it into a fresh tmux window
    * (docs/BATTERIES_INCLUDED.md §3.1). Living in team config rather than in
@@ -49,7 +49,7 @@ export interface TeamConfig {
    *
    * Unset means the built-in defaults (`DEFAULT_HARNESS_TEMPLATES`).
    */
-  harnesses?: Record<string, string>;
+  harnesses?: Record<string, HarnessTemplates>;
   /** Which harness to spawn when none is named. Defaults to "pi". */
   defaultHarness?: string;
   /**
@@ -394,18 +394,41 @@ export const DEFAULT_DAEMON_URL = "http://localhost:7437";
 export const CONFIG_FILE = "config.json";
 
 /**
- * Built-in spawn templates, used when `TeamConfig.harnesses` is unset.
+ * How to start each role under one harness.
  *
- * `-a` (--approve) matters: without it a teammate spawned into a folder outside a
- * trusted parent blocks on Pi's "Trust project folder?" prompt, and the permissive
- * config written into the cwd is only applied once the project is trusted anyway.
- *
- * Only teammates are spawned. There is no leader template — the leader is the agent
- * you chat with, and `mpt lead` starts it (P3-3).
+ * Separated by role because they are not interchangeable, and because a Tier 0
+ * harness may be able to do useful work as a teammate while being unable to host the
+ * chat — leading needs an in-process adapter (Tier 2), so `leader` is optional.
  */
-export const DEFAULT_HARNESS_TEMPLATES: Record<string, string> = {
-  pi: "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+export interface HarnessTemplates {
+  /** Command to start a teammate (an autonomous worker). */
+  teammate: string;
+  /** Command to start the leader, for a harness that can host the chat. */
+  leader?: string;
+}
+
+/**
+ * Built-in templates, used when `TeamConfig.harnesses` is unset.
+ *
+ * `-a` (--approve) matters on the teammate: without it a teammate spawned into a
+ * folder outside a trusted parent blocks on Pi's "Trust project folder?" prompt, and
+ * the permissive config written into the cwd is only applied once the project is
+ * trusted anyway. The leader is started by `mpt lead` in a folder the user chose, so
+ * `mpt setup` has already trusted it.
+ *
+ * Both pass their tmux location so the agent reports it at registration, which is
+ * how the daemon addresses the right window later (spawn, dismiss, reset-session).
+ */
+export const DEFAULT_HARNESS_TEMPLATES: Record<string, HarnessTemplates> = {
+  pi: {
+    teammate:
+      "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+    leader: "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+  },
 };
+
+/** The tmux window name the leader runs in. Fixed, since there is exactly one. */
+export const LEADER_WINDOW = "leader";
 
 /** The harness spawned when nothing says otherwise. */
 export const DEFAULT_HARNESS = "pi";

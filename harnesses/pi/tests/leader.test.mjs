@@ -45,8 +45,11 @@ test("imports registerLeaderTools", () => {
 
 // ─── Daemon registration ─────────────────────────────────────────
 
-test("registers with daemon on startup", () => {
-  assert.ok(src.includes('client.register({ name: "leader", directory: cwd })'));
+test("registers with daemon on startup, reporting its tmux location", () => {
+  // The metadata is how the daemon addresses the right window for a directive aimed
+  // at the leader — and, from P3-1, for a daemon-driven spawn.
+  assert.ok(src.includes('name: "leader"'));
+  assert.ok(src.includes("readLeaderTmuxMetadata(pi)"));
 });
 
 test("deregisters on session_shutdown", () => {

@@ -168,7 +168,7 @@ test("the mirror does not heartbeat (the leader owns registration)", () => {
 console.log("\nleader.ts chat wiring:");
 
 test("the leader registers as the chat agent's identity", () => {
-  assert.ok(leaderSrc.includes('client.register({ name: "leader"'));
+  assert.ok(leaderSrc.includes('name: "leader"'));
   assert.ok(leaderSrc.includes("new ChatMirror(pi, client)"));
 });
 

@@ -5,11 +5,20 @@
  * (root main.ts) and runs directly under `deno run cli/main.ts`.
  */
 
-import { DEFAULT_CONFIG, TEAM_DIR } from "../shared/types.ts";
+import { DEFAULT_CONFIG, DEFAULT_HARNESS, DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, TEAM_DIR } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 import { install, uninstall, detectInstalledService } from "./service.ts";
 import { evaluate, gather, report } from "./doctor.ts";
+import {
+  listWindows,
+  realTmux,
+  renderTemplate,
+  selectWindow,
+  spawnWindow,
+  tmuxAvailable,
+  unresolvedPlaceholders,
+} from "../daemon/tmux.ts";
 import { managedExtensionDir, resolveExtensionSourceDir, writeExtension } from "./extension.ts";
 import { piAgentDir, readPiSettings } from "./pi-config.ts";
 import {
@@ -545,7 +554,123 @@ Examples:
   mpt setup             # Install the Pi extension + prepare this folder (idempotent)
   mpt setup --dry-run   # Show what setup would change, without changing it
   mpt setup --uninstall # Undo what setup did (keeps the team directory)
+  mpt lead              # Start the leader in tmux and attach to it
+  mpt lead --no-attach  # Start it without taking over the terminal
 `);
+}
+
+/** Read the team's config, falling back to defaults for anything unset. */
+function readTeamConfig(teamDir: string): typeof DEFAULT_CONFIG & Record<string, unknown> {
+  const file = path.join(teamDir, "config.json");
+  if (!existsSync(file)) return { ...DEFAULT_CONFIG };
+  try {
+    return { ...DEFAULT_CONFIG, ...JSON.parse(Deno.readTextFileSync(file)) };
+  } catch {
+    console.warn(`⚠️  Could not parse ${file} — using defaults.`);
+    return { ...DEFAULT_CONFIG };
+  }
+}
+
+/**
+ * `mpt lead` — start the leader in tmux and attach to it.
+ *
+ * The leader is the agent you chat with, and it also realizes the daemon's spawn
+ * asks, so a team with no leader has no way to grow and nobody answering
+ * (docs/BATTERIES_INCLUDED.md "One Agent to Talk To"). Starting it was the last step
+ * still done by hand.
+ *
+ * This is also the first consumer of the daemon's tmux module (P3-1), deliberately in
+ * the easy case: a foreground command with the user's own environment, so it exercises
+ * the code without the service-environment questions that moving *spawn* realization
+ * raises.
+ */
+async function cmdLead(args: string[]): Promise<void> {
+  const teamDir = getTeamDir();
+  const projectDir = path.dirname(teamDir);
+  const port = getPort();
+  const daemonUrl = `http://localhost:${port}`;
+  const config = readTeamConfig(teamDir);
+  const session = (config.tmuxSession as string) || "mpt";
+  const harnessName = (config.defaultHarness as string) || DEFAULT_HARNESS;
+
+  if (!tmuxAvailable()) {
+    console.error("❌ tmux is not available — the leader runs in a tmux window.");
+    console.error("   Install it (e.g. `brew install tmux`), then run `mpt doctor`.");
+    Deno.exit(1);
+  }
+
+  const templates = (config.harnesses as Record<string, { leader?: string }> | undefined) ??
+    DEFAULT_HARNESS_TEMPLATES;
+  const template = templates[harnessName]?.leader;
+  if (!template) {
+    console.error(`❌ No leader command configured for harness "${harnessName}".`);
+    console.error(`   Leading needs an in-process adapter; only some harnesses can do it.`);
+    console.error(`   Set harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
+    Deno.exit(1);
+  }
+
+  const command = renderTemplate(template, {
+    name: LEADER_WINDOW,
+    url: daemonUrl,
+    cwd: projectDir,
+    session,
+    window: LEADER_WINDOW,
+  });
+  const unresolved = unresolvedPlaceholders(command);
+  if (unresolved.length > 0) {
+    console.error(`❌ The leader template has unknown placeholders: ${unresolved.join(", ")}`);
+    console.error(`   Check harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
+    Deno.exit(1);
+  }
+
+  // A stopped daemon isn't fatal — the extension retries — but say so, because an
+  // agent that can't reach the daemon looks broken rather than early.
+  let daemonUp = false;
+  try {
+    daemonUp = (await fetch(`${daemonUrl}/health`, { signal: AbortSignal.timeout(1500) })).ok;
+  } catch { /* not running */ }
+  if (!daemonUp) console.log(`⚠️  Daemon not reachable at ${daemonUrl} — start it with \`mpt start\` (the leader will retry).`);
+
+  try {
+    // Deliberately *not* calling ensureSession first: spawnWindow reuses a freshly
+    // created session's initial window instead of leaving it stranded beside ours, and
+    // it can only tell the session is fresh if it creates it. listWindows already
+    // returns [] for a session that doesn't exist yet.
+    if (listWindows(session).includes(LEADER_WINDOW)) {
+      // Already running: attach to it rather than starting a second one. Two leaders
+      // would both answer the chat.
+      console.log(`Leader already running in ${session}:${LEADER_WINDOW} — attaching.`);
+    } else {
+      spawnWindow({ session, window: LEADER_WINDOW, cwd: projectDir, command });
+      console.log(`✅ Leader started in ${session}:${LEADER_WINDOW} (${projectDir})`);
+    }
+  } catch (e) {
+    console.error(`❌ Could not start the leader: ${(e as Error).message}`);
+    Deno.exit(1);
+  }
+
+  if (args.includes("--no-attach")) {
+    console.log(`   Attach with: tmux attach -t ${session}`);
+    return;
+  }
+
+  // Inside tmux already, attaching would nest; switch the client instead.
+  if (Deno.env.get("TMUX")) {
+    selectWindow(session, LEADER_WINDOW);
+    console.log(`   Switched to ${session}:${LEADER_WINDOW}.`);
+    return;
+  }
+
+  // Hand the terminal over. `attach` needs a tty, so it inherits ours.
+  const attach = new Deno.Command("tmux", {
+    args: ["attach", "-t", `${session}:${LEADER_WINDOW}`],
+    stdin: "inherit",
+    stdout: "inherit",
+    stderr: "inherit",
+  }).outputSync();
+  if (!attach.success) {
+    console.log(`   Could not attach automatically. Run: tmux attach -t ${session}`);
+  }
 }
 
 /**
@@ -841,6 +966,9 @@ export async function main(): Promise<void> {
       break;
     case "setup":
       await cmdSetup(args.slice(1));
+      break;
+    case "lead":
+      await cmdLead(args.slice(1));
       break;
     // Hidden: `mpt upgrade` invokes this on the freshly-installed binary so the
     // extension written out is the new one, not the one being replaced.
