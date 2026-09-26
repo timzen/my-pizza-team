@@ -2,13 +2,20 @@
  * daemon/server.ts — HTTP API server for the team lead (Deno port).
  *
  * Serves the REST API for teammates and the lead. Built with Hono on Deno.serve().
- * Routes are organized into modules by persona/concern:
+ * Routes are organized into modules by concern:
  *   - shared: health, status, config, control, hosts, workflows
  *   - stories: story CRUD, archive, backlog
  *   - tasks: task CRUD, move, comments, attachments, token usage
- *   - teammate: legacy teammate protocol (next-task, claim, status, team)
+ *   - work-defs: WorkDef CRUD + enqueue (Solitary one-shots and Scheduled children)
+ *   - work: the WorkItem queue — Inbox/sidebar reads plus the recovery actions
+ *     (cancel, force-fail, re-enqueue)
+ *   - schedules: Schedule (cron parent) CRUD
+ *   - templates: Task Template CRUD — reusable molds for Solitary tasks
  *   - agents: agent protocol (register, next-work, claim, release, spawn)
- *   - assistant: queue and knowledge base
+ *   - assistant: chat v2 — conversation, SSE stream, agent mirror surface,
+ *     session lifecycle, and the persona
+ *   - thoughts: Thoughts board CRUD, batch positions, and groups
+ *   - context: the context library of reusable prompt/context entries
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  *   - pairing: pair with / message / release a teammate from the web UI
  *   - usage: token-usage reports for any run + the Usage dashboard's rollups
