@@ -361,6 +361,9 @@ The leader Pi instance manages tmux, spawns teammates, and provides slash comman
 
 ### Setup
 
+> Already running an older mpt? See [docs/UPGRADING.md](docs/UPGRADING.md) —
+> the agent protocol changed, so running agents need a restart.
+
 ```bash
 mpt setup             # install the Pi extension + prepare this folder (idempotent)
 mpt setup --dry-run   # show what it would change, without changing it

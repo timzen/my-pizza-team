@@ -8,8 +8,10 @@ the unused multi-host machinery. Setup becomes `mpt setup`, upgrades can't leave
 the two halves out of step, and a non-Pi harness becomes a config entry instead
 of a second integration.
 
-Status: **proposal** — nothing here is built yet. Each phase stands on its own
-and ships separately.
+Status: **Phases 0, 1a, 1b, 1c and 2 are built**; Phases 3–4 remain. Each phase
+stands on its own and ships separately. The numbered task list with acceptance
+checks is [BATTERIES_INCLUDED_TASKS.md](BATTERIES_INCLUDED_TASKS.md); the actions a
+human still has to take are [UPGRADING.md](UPGRADING.md).
 
 ---
 
