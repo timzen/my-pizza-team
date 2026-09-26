@@ -25,6 +25,20 @@ Deno.test("the extension manifest matches deno.json's version", async () => {
   );
 });
 
+Deno.test("the extension's generated shared constants are in step", async () => {
+  // harnesses/pi/src/shared/types.ts is generated from shared/types.ts. Using the
+  // generator's own `render()` rather than reimplementing it here is the point: a
+  // test that rendered independently could disagree with the generator, which is
+  // the drift this task exists to remove.
+  const { render, SOURCE, TARGET } = await import("../scripts/sync-shared.ts");
+  const expected = render(await Deno.readTextFile(SOURCE));
+  assertEquals(
+    await Deno.readTextFile(TARGET),
+    expected,
+    "harnesses/pi/src/shared/types.ts is stale — run `deno task sync-shared`",
+  );
+});
+
 Deno.test("the extension declares no runtime dependencies", async () => {
   // P2-1 embeds the extension in the binary and writes it out at setup time with
   // no `npm install` step. That only works while Pi supplies everything the

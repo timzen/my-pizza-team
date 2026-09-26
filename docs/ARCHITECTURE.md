@@ -317,5 +317,5 @@ src/
 ├── bubbles.ts     — splits assistant prose into chat bubbles (fence/list aware)
 ├── tools.ts       — LLM tool registration (role-specific)
 ├── permissions.ts — Dynamic yoloMode toggling
-└── shared/types.ts — Minimal types (WorkflowConfig, constants); P1c-7 folds these into shared/
+└── shared/types.ts — GENERATED from the root shared/types.ts by `deno task sync-shared` (team dir names, default daemon URL)
 ```

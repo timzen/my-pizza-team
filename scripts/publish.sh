@@ -65,9 +65,11 @@ fi
 # protocol (BATTERIES_INCLUDED.md §1.2) and must carry one version; deno.json is
 # the source and harnesses/pi/package.json is a generated copy.
 deno task sync-version
+# Regenerate the extension's shared constants from shared/types.ts (P1c-7).
+deno task sync-shared
 
 # Commit the version bump
-git add deno.json harnesses/pi/package.json
+git add deno.json harnesses/pi/package.json harnesses/pi/src/shared/types.ts
 git commit -m "chore: bump version to ${NEW_VERSION}"
 
 # Create and push the tag

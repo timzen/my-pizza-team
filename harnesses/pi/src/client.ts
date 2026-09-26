@@ -14,7 +14,6 @@
 //
 // See /docs/ARCHITECTURE.md for the full route list and data flow.
 
-import type { WorkflowConfig } from "./shared/types.js";
 
 // ─── Protocol version ────────────────────────────────────────────────
 
@@ -53,7 +52,10 @@ export interface AgentRegisterResponse {
   success: boolean;
   config?: {
     defaultWorkflow: string;
-    workflows: Record<string, WorkflowConfig>;
+    // Opaque: the extension relays workflow config and never inspects it. Typing
+    // it here meant carrying a second WorkflowConfig definition, which had already
+    // drifted from the daemon's (`states: string[]` vs `WorkflowState[]`) — P1c-7.
+    workflows: Record<string, unknown>;
     tmuxSession: string;
   };
   error?: string;
@@ -193,7 +195,8 @@ export interface StatusResponse {
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
   defaultWorkflow: string;
-  workflows: Record<string, { states: string[]; transitions: Record<string, Record<string, string>> }>;
+  /** Opaque: relayed, never inspected (see AgentRegisterResponse). */
+  workflows: Record<string, unknown>;
 }
 
 /** Response from POST /api/stories */
@@ -227,7 +230,7 @@ export interface UploadAttachmentResponse {
  * integration's build version (reported in the registration handshake).
  *
  * Deliberately free of imports: no dependencies, no node: builtins, and no
- * relative *value* imports — `fetch` and types only. That is what lets it load
+ * relative imports at all — `fetch` and inline types only. That is what lets it load
  * standalone under Node's type stripping (a type-only import is erased; Node does
  * not remap './x.js' to './x.ts' the way Pi's loader does), which in turn is what
  * makes it testable and what P1c-9 enforces once it becomes agent-runtime/.

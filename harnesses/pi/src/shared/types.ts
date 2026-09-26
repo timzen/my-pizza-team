@@ -1,24 +1,14 @@
-// Shared types for the pi-pizza-team extension
+// GENERATED FILE — do not edit.
 //
-// This is a minimal subset — the daemon owns the full type definitions.
-// The extension only needs enough to configure itself and understand
-// workflow shapes received from the daemon API.
+// Written by scripts/sync-shared.ts from the repo root's shared/types.ts, which is
+// the single definition of these values. Edit them there and run
+// `deno task sync-shared`; `deno task test` fails if the two drift
+// (docs/BATTERIES_INCLUDED.md §1.2, P1c-7).
+//
+// Generated rather than imported because the extension is a self-contained
+// package: `mpt setup` writes it to a managed directory outside this repo, so a
+// relative import into shared/ would not resolve there.
 
-/** Workflow configuration (received from daemon) */
-export interface WorkflowConfig {
-  states: string[];
-  transitions: Record<string, Record<string, TransitionPermission>>;
-  initialState?: string;
-  doneState?: string;
-  instructions?: Record<string, string>;
-}
-
-export type TransitionPermission = "any" | "teammate" | "lead";
-
-/** Team directory names (current and legacy) */
 export const TEAM_DIR = ".my-pizza-team";
 export const LEGACY_TEAM_DIR = ".pi-pizza-team";
-
-/** Default daemon URL */
 export const DEFAULT_DAEMON_URL = "http://localhost:7437";
-

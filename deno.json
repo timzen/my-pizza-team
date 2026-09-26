@@ -7,6 +7,7 @@
     "test": "deno test --allow-net --allow-read --allow-write --allow-env tests/",
     "check": "deno check daemon/ cli/ shared/ tests/",
     "sync-version": "deno run --allow-read --allow-write scripts/sync-version.ts",
+    "sync-shared": "deno run --allow-read --allow-write scripts/sync-shared.ts",
     "typecheck:ext": "cd harnesses/pi && npm run typecheck",
     "test:ext": "cd harnesses/pi && npm test",
     "ui:dev": "cd ui && npm run dev",

@@ -54,16 +54,12 @@ test("constructor takes daemonUrl, agentId, options", () => {
 });
 
 test("has no imports at all — not even node: builtins", () => {
-  // Host routing is gone (P1c-2), which removed the last reason for node:os. The
-  // module is now import-free, which is what lets it load standalone under type
-  // stripping and what P1c-9 enforces once it becomes agent-runtime/.
+  // Host routing removed the last need for node:os (P1c-2), and dropping the
+  // pass-through WorkflowConfig removed the last relative import (P1c-7). Being
+  // import-free is what lets this module load standalone under type stripping, and
+  // is what P1c-9 enforces once it becomes agent-runtime/.
   const specifiers = [...clientSrc.matchAll(/^import .+ from ["']([^"']+)["']/gm)].map((m) => m[1]);
-  const runtime = specifiers.filter((sp) => !/^import type /.test(sp));
-  assert.deepStrictEqual(
-    specifiers.filter((sp) => sp !== "./shared/types.js"),
-    [],
-    `client.ts should import nothing but the type-only ./shared/types.js; got: ${runtime.join(", ")}`,
-  );
+  assert.deepStrictEqual(specifiers, [], `client.ts should import nothing; got: ${specifiers.join(", ")}`);
 });
 
 test("has authToken for future Phase 2 auth", () => {
@@ -326,20 +322,6 @@ test("does not import hono", () => {
   assert.ok(!clientSrc.includes("hono"));
 });
 
-test("imports nothing beyond node:os and ./shared/types", () => {
-  // Asserts the *specifiers*, not a count, so adding an import from an allowed
-  // module doesn't fail while a new dependency does. This is the seed of P1c-9's
-  // purity check: client.ts becomes agent-runtime/ and must import no
-  // dependencies and no node: builtins (the node:os use for hostname() is the one
-  // thing that has to be injected at that point).
-  const allowed = new Set(["node:os", "./shared/types.js"]);
-  const specifiers = [...clientSrc.matchAll(/^import .+ from ["']([^"']+)["']/gm)].map((m) => m[1]);
-  const disallowed = specifiers.filter((sp) => !allowed.has(sp));
-  assert.ok(
-    disallowed.length === 0,
-    `client.ts must stay dependency-free; unexpected imports: ${disallowed.join(", ")}`,
-  );
-});
 
 test("reports team readiness to the daemon", () => {
   // Team-level since P1c-3: one machine, one leader reporting for it, so the path

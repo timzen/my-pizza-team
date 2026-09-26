@@ -360,7 +360,20 @@ export const DEFAULT_CONFIG: TeamConfig = {
   teammates: {},
 };
 
+// ─── Shared constants ────────────────────────────────────────────────
+//
+// Canonical home for the handful of values both the daemon and a harness need.
+// harnesses/pi/src/shared/types.ts is *generated* from these by
+// `deno task sync-shared`, so there is one definition rather than two that drift
+// (docs/BATTERIES_INCLUDED.md §1.2, P1c-7).
+
+/** Team directory name. */
 export const TEAM_DIR = ".my-pizza-team";
+/** Team directory name before the rename; still recognised when discovering one. */
+export const LEGACY_TEAM_DIR = ".pi-pizza-team";
+/** Where a harness looks for the daemon when nothing else says otherwise. */
+export const DEFAULT_DAEMON_URL = "http://localhost:7437";
+
 export const CONFIG_FILE = "config.json";
 
 /**
