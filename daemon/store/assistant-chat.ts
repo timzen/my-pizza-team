@@ -491,37 +491,6 @@ export class AssistantChat {
 
   // ─── Migration ────────────────────────────────────────────────────
 
-  /**
-   * Fold v1 rows (turn-based chat) into a single ended `legacy-*` session so no
-   * history is lost, mapping the old `status` column onto the new `delivery` /
-   * `state` split. Idempotent: only runs while unassigned rows exist.
-   * See docs/history/ASSISTANT_CHAT_V2.md §10.
-   */
-  migrateLegacyMessages(): void {
-    const orphan = this.db.prepare("SELECT COUNT(*) AS n FROM assistant_messages WHERE session_id IS NULL OR session_id = ''").get() as { n: number };
-    if (!orphan.n) return;
-
-    const first = this.db.prepare("SELECT created_at FROM assistant_messages ORDER BY seq ASC LIMIT 1").get() as Record<string, unknown> | undefined;
-    const startedAt = (first?.created_at as number) ?? Date.now();
-    const id = `legacy-${new Date(startedAt).toISOString().replace(/[:.]/g, "-").slice(0, 19)}`;
-    this.db.prepare(
-      "INSERT OR IGNORE INTO assistant_sessions (id, persona_id, persona_title, title, status, started_at, ended_at, message_count) VALUES (?, NULL, NULL, 'Earlier conversation', 'ended', ?, ?, 0)",
-    ).run(id, startedAt, Date.now());
-    this.db.prepare("UPDATE assistant_messages SET session_id = ? WHERE session_id IS NULL OR session_id = ''").run(id);
-    // Old `status` column: user 'sent'|'read', assistant 'done'|'failed'.
-    this.db.exec("UPDATE assistant_messages SET origin = CASE WHEN role = 'user' THEN 'web' ELSE 'agent' END WHERE origin IS NULL OR origin = ''");
-    this.db.exec("UPDATE assistant_messages SET delivery = CASE status WHEN 'sent' THEN 'queued' WHEN 'read' THEN 'read' ELSE NULL END WHERE role = 'user' AND delivery IS NULL");
-    this.db.exec("UPDATE assistant_messages SET state = CASE status WHEN 'failed' THEN 'failed' ELSE 'ok' END WHERE state IS NULL OR state = ''");
-    const count = this.db.prepare("SELECT COUNT(*) AS n FROM assistant_messages WHERE session_id = ?").get(id) as { n: number };
-    this.db.prepare("UPDATE assistant_sessions SET message_count = ? WHERE id = ?").run(count.n, id);
-
-    // Legacy queued messages must not be replayed to the agent — that session is over.
-    this.db.prepare("UPDATE assistant_messages SET delivery = 'read' WHERE session_id = ? AND delivery = 'queued'").run(id);
-
-    const session = this.getSession(id);
-    if (session) this.snapshot(session);
-    console.log(`ℹ️  Migrated ${count.n} assistant message(s) into session "${id}" (see ${snapshotPath(this.teamDir, id)}).`);
-  }
 }
 
 /**

@@ -367,11 +367,14 @@ Deno.test("persona swap ends the session (snapshotted) instead of wiping the cha
 
 // ─── Migration ───────────────────────────────────────────────────────
 
-Deno.test("v1 turn-model rows migrate into one ended legacy session", async () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-migrate-" });
+Deno.test("vestiges of the v1 turn model are dropped, not carried", async () => {
+  // The v1 → v2 migration is gone (P1c-5): no deployment ever carried v1 data, so
+  // folding it into a `legacy-*` session was dead code. What remains is cleanup —
+  // a database created back then still has the turn table and columns, and opening
+  // it should leave none of them behind.
+  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-v1-vestige-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   try {
-    // Hand-build a v1 database: turn table + status column, no sessions.
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(path.join(teamDir, "state.db"));
     db.exec(`
@@ -380,41 +383,31 @@ Deno.test("v1 turn-model rows migrate into one ended legacy session", async () =
         status TEXT DEFAULT 'done', turn_id TEXT, created_at INTEGER
       );
       CREATE TABLE assistant_turns (id TEXT PRIMARY KEY, status TEXT, claimed_at INTEGER, created_at INTEGER);
-      INSERT INTO assistant_messages (id, role, content, status, turn_id, created_at) VALUES
-        ('m1', 'user', 'old question', 'read', 't1', 1000),
-        ('m2', 'assistant', 'old answer', 'done', 't1', 2000),
-        ('m3', 'user', 'never answered', 'sent', NULL, 3000);
-      INSERT INTO assistant_turns (id, status, created_at) VALUES ('t1', 'done', 1000);
     `);
     db.close();
 
-    const store = new Store(teamDir, DEFAULT_CONFIG);
+    // Opening the Store runs the migrations; inspect the file afterwards rather
+    // than reaching into its private connection.
+    new Store(teamDir, DEFAULT_CONFIG).close();
+
+    const check = new DatabaseSync(path.join(teamDir, "state.db"));
     try {
-      const sessions = store.listAssistantSessions();
-      assertEquals(sessions.length, 1);
-      assertEquals(sessions[0]!.status, "ended");
-      assertEquals(sessions[0]!.messageCount, 3);
-
-      const messages = store.getAssistantMessages(sessions[0]!.id);
-      assertEquals(messages.map((m) => m.content), ["old question", "old answer", "never answered"]);
-      assertEquals(messages[0]!.delivery, "read");
-      assertEquals(messages[1]!.state, "ok");
-      // A stale unanswered message must not be replayed into the new session.
-      assertEquals(messages[2]!.delivery, "read");
-      assertEquals(store.getAssistantInbox().length, 0);
-
-      // The transcript is snapshotted so it shows up as browsable history.
-      assertStringIncludes(
-        Deno.readTextFileSync(path.join(teamDir, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, `${sessions[0]!.id}.md`)),
-        "old answer",
-      );
-    } finally { store.close(); }
+      const columns = (check.prepare("PRAGMA table_info(assistant_messages)").all() as Array<{ name: string }>)
+        .map((c) => c.name);
+      assertEquals(columns.includes("turn_id"), false, "turn_id should be dropped");
+      assertEquals(columns.includes("status"), false, "the v1 status column should be dropped");
+      // And the v2 columns are present, so the table is usable.
+      for (const col of ["session_id", "origin", "delivery", "state", "reply_to"]) {
+        assertEquals(columns.includes(col), true, `${col} should exist`);
+      }
+      const tables = (check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>)
+        .map((t) => t.name);
+      assertEquals(tables.includes("assistant_turns"), false, "the v1 turn table should be dropped");
+    } finally { check.close(); }
   } finally {
     try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
   }
 });
-
-// ─── Chat agent designation ──────────────────────────────────────────
 
 Deno.test("the leader is the chat agent; the inbox is gated on designation", async () => {
   const { app, store, teamDir } = setup();

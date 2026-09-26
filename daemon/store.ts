@@ -230,7 +230,6 @@ export class Store {
     this.initSchema();
     // Persona titles come from the context library, which the Store owns.
     this.chat = new AssistantChat(this.db, teamDir, (id) => this.getContextEntry(id)?.title ?? null);
-    this.chat.migrateLegacyMessages();
     // Usage: the `usage/*.jsonl` files are the source of truth; rebuild the
     // SQLite cache from them (migrating the pre-files ledger on first boot).
     syncUsageLedger(this.db, teamDir);
@@ -401,8 +400,6 @@ export class Store {
         delivery TEXT,           -- user rows: 'queued'|'delivered'|'read' (receipts)
         state TEXT DEFAULT 'ok', -- assistant rows: 'ok'|'failed'
         reply_to TEXT,           -- id of the message this one quotes
-        status TEXT,             -- DEPRECATED (v1 turn model); read only by the migration
-        turn_id TEXT,            -- DEPRECATED (v1 turn model)
         created_at INTEGER
       );
 
@@ -488,20 +485,20 @@ export class Store {
       this.db.exec("ALTER TABLE stories ADD COLUMN directory TEXT");
     }
 
-    // Assistant chat v2 migration: sessions + real delivery receipts replaced the
-    // v1 turn model. Columns are added before `migrateLegacyMessages()` folds
-    // existing rows into a `legacy-*` session (docs/history/ASSISTANT_CHAT_V2.md §10).
+    // Assistant chat: sessions + real delivery receipts. These columns are added
+    // for databases created before them; the v1 turn model they replaced is gone
+    // entirely (P1c-5 — no deployment ever carried v1 data).
     const asstColumns = this.db.prepare("PRAGMA table_info(assistant_messages)").all() as Array<Record<string, unknown>>;
     const hasAsstColumn = (name: string) => asstColumns.some((col) => col.name === name);
-    if (!hasAsstColumn("turn_id")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN turn_id TEXT");
     if (!hasAsstColumn("session_id")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN session_id TEXT");
     if (!hasAsstColumn("origin")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN origin TEXT");
     if (!hasAsstColumn("delivery")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN delivery TEXT");
     if (!hasAsstColumn("state")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN state TEXT DEFAULT 'ok'");
     if (!hasAsstColumn("reply_to")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN reply_to TEXT");
-    // The v1 turn table is gone; its rows carried no history worth keeping (the
-    // messages did), so drop it outright.
+    // Vestiges of the v1 turn model, dropped rather than carried.
     this.db.exec("DROP TABLE IF EXISTS assistant_turns");
+    if (hasAsstColumn("turn_id")) this.db.exec("ALTER TABLE assistant_messages DROP COLUMN turn_id");
+    if (hasAsstColumn("status")) this.db.exec("ALTER TABLE assistant_messages DROP COLUMN status");
 
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
     if (!taskColumns.some((col) => col.name === "last_read_at")) {
