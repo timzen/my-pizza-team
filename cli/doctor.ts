@@ -32,6 +32,7 @@ import {
   type ExtensionRegistration,
 } from "./pi-config.ts";
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
+import { tmuxAvailable } from "../daemon/tmux.ts";
 
 /** The Pi release this build was tested against. See §7 — advisory, not a gate. */
 export const TESTED_PI_VERSION = "0.87.1";
@@ -301,14 +302,6 @@ async function probeVersion(cmd: string, args: string[] = ["--version"]): Promis
   }
 }
 
-async function commandExists(cmd: string): Promise<boolean> {
-  try {
-    const out = await new Deno.Command(cmd, { args: ["-V"], stdout: "null", stderr: "null" }).output();
-    return out.success;
-  } catch {
-    return false;
-  }
-}
 
 export interface GatherOptions {
   teamDir: string;
@@ -341,7 +334,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
 
   return {
     piVersion: await probeVersion("pi"),
-    tmuxPresent: await commandExists("tmux"),
+    tmuxPresent: tmuxAvailable(),
     daemonVersion: opts.daemonVersion,
     bundledExtensionVersion: sourceDir ? readExtensionVersion(sourceDir) : null,
     registrations: findExtensionRegistrations(settings, { managedDir, agentDir }),

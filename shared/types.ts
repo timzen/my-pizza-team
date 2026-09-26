@@ -36,6 +36,23 @@ export interface TeamConfig {
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
   /**
+   * Spawn command templates by harness name.
+   *
+   * The daemon fills a template and types it into a fresh tmux window
+   * (docs/BATTERIES_INCLUDED.md §3.1). Living in team config rather than in
+   * extension code is the point: adding a harness becomes a config change instead of
+   * an extension release, which is what makes Tier 0 support possible at all (§3.2).
+   *
+   * Placeholders: `{name}` (daemon-assigned agent name), `{url}` (daemon URL),
+   * `{cwd}` (working directory, shell-quoted on substitution), `{session}` and
+   * `{window}` (its tmux location).
+   *
+   * Unset means the built-in defaults (`DEFAULT_HARNESS_TEMPLATES`).
+   */
+  harnesses?: Record<string, string>;
+  /** Which harness to spawn when none is named. Defaults to "pi". */
+  defaultHarness?: string;
+  /**
    * Readiness probe command. The leader runs this on each heartbeat; exit 0 =
    * ready, non-zero = not ready (stdout's first line = reason). A not-ready team
    * holds scheduled enqueues instead of failing them. See docs/ARCHITECTURE.md
@@ -375,6 +392,23 @@ export const LEGACY_TEAM_DIR = ".pi-pizza-team";
 export const DEFAULT_DAEMON_URL = "http://localhost:7437";
 
 export const CONFIG_FILE = "config.json";
+
+/**
+ * Built-in spawn templates, used when `TeamConfig.harnesses` is unset.
+ *
+ * `-a` (--approve) matters: without it a teammate spawned into a folder outside a
+ * trusted parent blocks on Pi's "Trust project folder?" prompt, and the permissive
+ * config written into the cwd is only applied once the project is trusted anyway.
+ *
+ * Only teammates are spawned. There is no leader template — the leader is the agent
+ * you chat with, and `mpt lead` starts it (P3-3).
+ */
+export const DEFAULT_HARNESS_TEMPLATES: Record<string, string> = {
+  pi: "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+};
+
+/** The harness spawned when nothing says otherwise. */
+export const DEFAULT_HARNESS = "pi";
 
 /**
  * The default steady team size when `minTeammates` isn't set: half the
