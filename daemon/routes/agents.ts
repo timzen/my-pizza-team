@@ -25,7 +25,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/register", async (c) => {
     const body = await c.req.json() as {
-      id?: string; name?: string; hostId?: string;
+      id?: string; name?: string;
       directory?: string;
       metadata?: Record<string, unknown>;
       protocolVersion?: number;
@@ -74,18 +74,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     // The harness may attach opaque metadata (e.g. its tmux window) it later
     // uses to realize control intents. The daemon stores it verbatim.
-    store.registerMember(body.id, body.name, body.directory, body.metadata || {}, body.hostId, {
+    store.registerMember(body.id, body.name, body.directory, body.metadata || {}, {
       protocolVersion: body.protocolVersion,
       harness: body.harness,
       harnessVersion: body.harnessVersion,
     });
 
-    const hostConfig = body.hostId ? config.hosts?.[body.hostId] : undefined;
-    const tmuxSession = hostConfig?.tmuxSession || config.tmuxSession;
-
     return c.json({
       success: true,
-      config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession },
+      config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession: config.tmuxSession },
       protocolVersion: PROTOCOL_VERSION,
       daemonVersion: denoConfig.version,
     });
@@ -242,7 +239,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);
         return {
-          id: m.id, name: m.name, directory: m.directory, hostId: m.hostId, status: m.status,
+          id: m.id, name: m.name, directory: m.directory, status: m.status,
           currentWork: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat,
           // Version handshake (P1b), so the UI can flag an agent whose extension
           // is behind the daemon — §1.2's silent-skew failure made visible.

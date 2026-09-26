@@ -105,7 +105,7 @@ Deno.test("receipts advance queued → delivered → read and never go backwards
   const { app, store, teamDir } = setup();
   try {
     // The inbox is only served to the designated chat agent (the leader).
-    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     const sent = await (await post(app, "/api/assistant/messages", { content: "status?" })).json();
     const id = sent.userMessage.id;
 
@@ -265,7 +265,7 @@ Deno.test("resume reopens a session and asks the agent to switch its Pi session"
   const { app, store, teamDir } = setup();
   try {
     // An online leader is needed for the directive to be routable (it is the chat agent).
-    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     await post(app, "/api/assistant/messages", { content: "the first chat" });
     await post(app, "/api/assistant/session", { piSessionPath: "/tmp/pi-session-a.jsonl" });
     const first = store.getActiveAssistantSession()!;
@@ -344,7 +344,7 @@ Deno.test("persona: defaults to none, can be set and cleared", async () => {
 Deno.test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     await post(app, "/api/assistant/messages", { content: "talking to the default" });
     const before = store.getActiveAssistantSession()!;
 
@@ -424,7 +424,7 @@ Deno.test("the leader is the chat agent; the inbox is gated on designation", asy
     assertEquals(queued.chatAgent, null);
     assertEquals(store.getAssistantInbox().length, 1);
 
-    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     assertEquals(store.getChatAgent()?.id, "leader");
 
     // Only the designated agent may pull, and it sees the backlog.
@@ -444,8 +444,8 @@ Deno.test("the leader is the chat agent; the inbox is gated on designation", asy
 Deno.test("designation is sticky, and hands off only when the leader goes offline", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/agents/register", { id: "leader-a", name: "leader", directory: teamDir, hostId: "h1" });
-    await post(app, "/api/agents/register", { id: "leader-b", name: "leader", directory: teamDir, hostId: "h2" });
+    await post(app, "/api/agents/register", { id: "leader-a", name: "leader", directory: teamDir });
+    await post(app, "/api/agents/register", { id: "leader-b", name: "leader", directory: teamDir });
     const first = store.getChatAgent()!.id;
 
     // A second leader must not steal the conversation mid-flight.
@@ -464,7 +464,7 @@ Deno.test("designation is sticky, and hands off only when the leader goes offlin
 Deno.test("session directives are addressed to the chat agent (the leader)", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     await post(app, "/api/assistant/messages", { content: "first chat" });
     await post(app, "/api/assistant/sessions/new");
 
@@ -479,7 +479,7 @@ Deno.test("spawning always mints a teammate name (no reserved assistant identity
   // Pool pinned to 0 so registering the leader doesn't auto-queue pool spawns.
   const { app, store, teamDir } = setup({ minTeammates: 0 });
   try {
-    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     // `reason: "assistant"` used to mint the singleton name; now it's just a spawn.
     await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "assistant" } });
     await post(app, "/api/leader/directives", { action: "spawn", params: {} });

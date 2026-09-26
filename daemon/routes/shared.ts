@@ -1,5 +1,5 @@
 /**
- * daemon/routes/shared.ts — Health, status, config, control, hosts, and workflow routes.
+ * daemon/routes/shared.ts — Health, status, config, control, readiness, and workflow routes.
  *
  * These routes are used by all consumers: the web UI, leader tools,
  * and agents. Provides system-level endpoints for monitoring, config
@@ -140,7 +140,6 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
       if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
-      if (body.hosts !== undefined) config.hosts = body.hosts;
 
       // Store is the single config writer (it owns serializeConfig, so no field
       // this route doesn't know about — e.g. apiToken — is silently dropped).
@@ -179,19 +178,6 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       return c.json({ success: false, error: "Field 'minTeammates' must be a non-negative integer" }, 400);
     }
     return c.json({ success: true, ...store.getTeammatePool() });
-  });
-
-  // ─── Hosts ─────────────────────────────────────────────────────────
-
-  app.get("/api/hosts/:hostId", (c) => {
-    const hostId = c.req.param("hostId");
-    const hostConfig = config.hosts?.[hostId];
-    return c.json({
-      hostId,
-      tmuxSession: hostConfig?.tmuxSession || config.tmuxSession,
-      readinessProbe: hostConfig?.readinessProbe || config.readinessProbe || null,
-      readiness: store.getTeamReadiness() ?? null,
-    });
   });
 
   // ─── Readiness ─────────────────────────────────────────────────────

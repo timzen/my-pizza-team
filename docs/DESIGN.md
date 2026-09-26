@@ -154,7 +154,7 @@ spawns generalists in the leader's directory; "put someone in *that* repo" is a
 different question (directory affinity), so the sidebar keeps a Spawn dialog for
 it. Such a teammate counts toward the floor like any other.
 
-The singleton role stays explicit rather than pooled: a leader is per-host
+The singleton role stays explicit rather than pooled: the one leader is
 infrastructure, and it is also the agent you chat with (see "One Agent to Talk To").
 
 ## Workflows
@@ -396,13 +396,13 @@ the other end is the **leader** (see "One Agent to Talk To").
 
 ## Leader Directives
 
-The daemon asks a leader to act on agents out-of-band through one per-host queue —
+The daemon asks the leader to act on agents out-of-band through one queue —
 "an ask to the leader to do something about an agent":
 
 ```
-GET  /api/hosts/:hostId/leader/directives      # the leader's to-do queue (one poll)
-POST /api/hosts/:hostId/leader/directives      # { action, memberId?, params? }
-PUT  /api/hosts/:hostId/leader/directives/:id  # { status }  (mark done)
+GET  /api/leader/directives      # the leader's to-do queue (one poll)
+POST /api/leader/directives      # { action, memberId?, params? }
+PUT  /api/leader/directives/:id  # { status }  (mark done)
 ```
 
 A directive has an `action` (`spawn`, `reset-session`, …), an optional `memberId`
@@ -440,8 +440,8 @@ agent and any harness while the daemon stays a coordinator.
 There is no dedicated "assistant" process. **The leader is the agent you chat
 with.**
 
-A leader already runs on each host to realize tmux spawns and report readiness,
-and nobody types in its session — it is infrastructure. Chat v2's mirror is
+A leader already runs to realize tmux spawns and report readiness, and nobody
+types in its session — it is infrastructure. Chat v2's mirror is
 role-agnostic, so pointing it at the leader costs nothing and removes an entire
 concept: no assistant spawn, no reserved singleton name, no `pi-assistant`
 template, no "assistant offline" dead end where the chat simply doesn't work

@@ -8,7 +8,7 @@
 // can't answer twice.
 //
 // It doesn't own state — the daemon does. The leader's responsibilities are:
-//   1. Register with daemon as { role: "leader", harness: "pi", hostId }
+//   1. Register with daemon as { name: "leader", harness: "pi", + handshake }
 //   2. Poll GET /api/leader/directives every 5s (one queue)
 //   3. Realize each directive locally (spawn via tmux, reset via /new, ...)
 //   4. Mark done: PUT /api/leader/directives/:id { status }
@@ -97,28 +97,22 @@ export async function setupLeader(
     const regRes = await client.register({ name: "leader", directory: cwd });
     if (regRes.config?.tmuxSession) tmuxSession = regRes.config.tmuxSession;
 
-    // Fall back to host-specific config if register didn't provide tmuxSession
-    if (!regRes.config?.tmuxSession) {
-      try {
-        const hostConfig = await client.getHostConfig();
-        if (hostConfig.tmuxSession) tmuxSession = hostConfig.tmuxSession;
-      } catch {
-        // Use defaults
-      }
-    }
-
-    // Resolve readiness probe: flag > host-specific > default from daemon config.
-    // The flag is the highest-priority override (local dev, testing); daemon
-    // config is the canonical source for normal usage (set via the UI).
+    // The readiness probe, and a tmuxSession fallback if register didn't carry
+    // one, both come from the team config. One read serves both (there is no
+    // per-host config since P1c-2).
+    //
+    // Probe precedence: flag > daemon config. The flag is the local override for
+    // dev and testing; daemon config is canonical for normal use (set via the UI).
     const flagProbe = ((pi.getFlag("ppt-readiness-probe") as string) || "").trim();
-    if (flagProbe) {
-      resolvedProbeCommand = flagProbe;
-    } else {
+    if (flagProbe) resolvedProbeCommand = flagProbe;
+
+    if (!regRes.config?.tmuxSession || !flagProbe) {
       try {
-        const hostConfig = await client.getHostConfig();
-        resolvedProbeCommand = (hostConfig.readinessProbe as string) || null;
+        const teamConfig = await client.getConfig();
+        if (!regRes.config?.tmuxSession && teamConfig.tmuxSession) tmuxSession = teamConfig.tmuxSession;
+        if (!flagProbe) resolvedProbeCommand = (teamConfig.readinessProbe as string) || null;
       } catch {
-        // Use whatever we had before
+        // Daemon unreachable: keep whatever we had (retried next heartbeat).
       }
     }
 
@@ -157,13 +151,12 @@ export async function setupLeader(
   // longer knows us (heartbeat reports dismissed), re-register so tmuxSession
   // and friends reflect the daemon's config instead of the hardcoded default.
   //
-  // The leader is the per-host singleton, so it also owns the optional host
-  // readiness probe: a host-level check (e.g. "are the shared credentials on
-  // this box valid?") whose result the daemon uses to hold scheduled work
-  // destined for this host instead of failing it. Configured via the UI
-  // (config.readinessProbe or config.hosts[hostId].readinessProbe), the
-  // --ppt-readiness-probe flag, or the PPT_READINESS_PROBE env var; when
-  // unset, the host is always considered ready. See docs/ARCHITECTURE.md.
+  // The leader is the singleton, so it also owns the optional readiness probe: a
+  // machine-level check (e.g. "are the shared credentials on this box valid?")
+  // whose result the daemon uses to hold scheduled work instead of failing it.
+  // Configured via the UI (config.readinessProbe), the --ppt-readiness-probe flag,
+  // or the PPT_READINESS_PROBE env var; when unset the team is always considered
+  // ready. See docs/ARCHITECTURE.md "Scheduler readiness gating".
   const HEARTBEAT_INTERVAL_MS = 30_000;
   const heartbeatTick = async () => {
     if (!configSynced) {

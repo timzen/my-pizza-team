@@ -131,8 +131,8 @@ Deno.test("online teammates count toward the minimum; the leader does not", asyn
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
-    await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley", hostId: "h1" });
-    await post(app, "/api/agents/register", { id: "t2", name: "calm-hopper", hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley" });
+    await post(app, "/api/agents/register", { id: "t2", name: "calm-hopper" });
 
     const pool = store.getTeammatePool();
     assertEquals(pool.online, 2); // both teammates — the leader is a singleton, not pool
@@ -169,7 +169,7 @@ Deno.test("a teammate that goes offline is replaced on the next reconcile", asyn
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
-    await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley", hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley" });
     store.setMinTeammates(1);
     assertEquals((await pendingSpawns(app)).length, 0); // already satisfied
 
@@ -204,7 +204,7 @@ Deno.test("GET /api/teammate-pool reports the live pool", async () => {
   const { app, store, teamDir } = setup({ maxTeammates: 4 });
   try {
     await registerLeader(app);
-    await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley", hostId: "h1" });
+    await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley" });
     store.setMinTeammates(2);
 
     const body = await (await app.request("/api/teammate-pool")).json();

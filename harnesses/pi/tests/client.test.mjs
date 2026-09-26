@@ -53,8 +53,17 @@ test("constructor takes daemonUrl, agentId, options", () => {
   }
 });
 
-test("has hostId property derived from os.hostname()", () => {
-  assert.ok(clientSrc.includes("this.hostId = options?.hostId || os.hostname()"));
+test("has no imports at all — not even node: builtins", () => {
+  // Host routing is gone (P1c-2), which removed the last reason for node:os. The
+  // module is now import-free, which is what lets it load standalone under type
+  // stripping and what P1c-9 enforces once it becomes agent-runtime/.
+  const specifiers = [...clientSrc.matchAll(/^import .+ from ["']([^"']+)["']/gm)].map((m) => m[1]);
+  const runtime = specifiers.filter((sp) => !/^import type /.test(sp));
+  assert.deepStrictEqual(
+    specifiers.filter((sp) => sp !== "./shared/types.js"),
+    [],
+    `client.ts should import nothing but the type-only ./shared/types.js; got: ${runtime.join(", ")}`,
+  );
 });
 
 test("has authToken for future Phase 2 auth", () => {
@@ -90,10 +99,9 @@ test("has register method with opts object", () => {
   assert.ok(clientSrc.includes("async register(opts:"));
 });
 
-test("register sends id, name, hostId, directory, metadata", () => {
+test("register sends id, name, directory, metadata", () => {
   assert.ok(clientSrc.includes("id: this.agentId"));
   assert.ok(clientSrc.includes("name: opts.name"));
-  assert.ok(clientSrc.includes("hostId: this.hostId"));
   assert.ok(clientSrc.includes("directory: opts.directory"));
   assert.ok(clientSrc.includes("metadata: opts.metadata"));
 });
@@ -152,9 +160,8 @@ test("uses /api/agents/comments/ routes (not /api/tasks/.../messages)", () => {
 
 // ─── Spawn Requests ──────────────────────────────────────────────
 
-test("has getLeaderDirectives (uses this.hostId)", () => {
+test("has getLeaderDirectives", () => {
   assert.ok(clientSrc.includes("async getLeaderDirectives()"));
-  assert.ok(clientSrc.includes("this.hostId"));
   assert.ok(clientSrc.includes("/leader/directives"));
 });
 

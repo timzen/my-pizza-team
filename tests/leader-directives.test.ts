@@ -91,7 +91,7 @@ Deno.test("reset-session directive resolves target member metadata", async () =>
   const { app, store, teamDir } = setup();
   try {
     // Register an agent with opaque metadata (leader's tmux window).
-    await post(app, "/api/agents/register", { id: "a1", name: "neo", hostId: "h1", metadata: { tmuxWindow: "win1" } });
+    await post(app, "/api/agents/register", { id: "a1", name: "neo", metadata: { tmuxWindow: "win1" } });
     // Create a reset directive targeting that member.
     const res = await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a1" });
     assertEquals(res.status, 201);
@@ -132,7 +132,7 @@ Deno.test("GET /api/spawn-requests lists pending spawns with name and cwd", asyn
     await post(app, "/api/leader/directives", { action: "spawn", params: { name: "cool-chekov", cwd: "/Volumes" } });
     await post(app, "/api/leader/directives", { action: "spawn", params: { name: "bold-riker", cwd: "/tmp/x" } });
     // A non-spawn directive must not appear.
-    await post(app, "/api/agents/register", { id: "a1", name: "neo", hostId: "h1", metadata: {} });
+    await post(app, "/api/agents/register", { id: "a1", name: "neo", metadata: {} });
     await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a1" });
 
     const res = await app.request("/api/spawn-requests");

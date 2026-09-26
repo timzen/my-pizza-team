@@ -14,7 +14,6 @@
 //
 // See /docs/ARCHITECTURE.md for the full route list and data flow.
 
-import * as os from "node:os";
 import type { WorkflowConfig } from "./shared/types.js";
 
 // ─── Protocol version ────────────────────────────────────────────────
@@ -32,7 +31,7 @@ import type { WorkflowConfig } from "./shared/types.js";
  * not, and Node does not remap './x.js' to './x.ts' the way Pi's loader does).
  * That property is what makes client.ts testable today and movable in P1c-8.
  */
-export const PROTOCOL_VERSION = 3;
+export const PROTOCOL_VERSION = 4;
 
 // ─── Error Type ──────────────────────────────────────────────────────
 
@@ -225,11 +224,15 @@ export interface UploadAttachmentResponse {
 /**
  * Unified HTTP client for the my-pizza-team daemon.
  *
- * Constructor takes the daemon URL, an agent ID (unique per Pi instance),
- * and an optional auth token (reserved for future multi-user auth).
+ * Constructor takes the daemon URL, an agent ID (unique per Pi instance), and
+ * options: an auth token (reserved for future multi-user auth) and this
+ * integration's build version (reported in the registration handshake).
  *
- * The `hostId` property is derived from `os.hostname()` by default and
- * used for spawn request scoping (only the host that matches gets spawns).
+ * Deliberately free of imports: no dependencies, no node: builtins, and no
+ * relative *value* imports — `fetch` and types only. That is what lets it load
+ * standalone under Node's type stripping (a type-only import is erased; Node does
+ * not remap './x.js' to './x.ts' the way Pi's loader does), which in turn is what
+ * makes it testable and what P1c-9 enforces once it becomes agent-runtime/.
  */
 /** What to do with the held work item when a web pairing ends. */
 export type PairReleaseAction = "resume" | "complete" | "fail";
@@ -246,21 +249,17 @@ export class DaemonClient {
   private agentId: string;
   private authToken: string | undefined;
 
-  /** Host identifier for spawn request scoping (defaults to os.hostname()) */
-  public readonly hostId: string;
-
   /** This integration's own build version, reported at registration. */
   private harnessVersion: string | undefined;
 
   constructor(
     daemonUrl: string,
     agentId: string,
-    options?: { authToken?: string; hostId?: string; harnessVersion?: string },
+    options?: { authToken?: string; harnessVersion?: string },
   ) {
     this.baseUrl = daemonUrl.replace(/\/$/, "");
     this.agentId = agentId;
     this.authToken = options?.authToken;
-    this.hostId = options?.hostId || os.hostname();
     this.harnessVersion = options?.harnessVersion;
   }
 
@@ -381,8 +380,8 @@ export class DaemonClient {
   /**
    * Register this agent with the daemon.
    *
-   * Called once at startup. Provides the agent's name, working directory,
-   * hostId (for multi-host spawn routing), and its working directory.
+   * Called once at startup. Provides the agent's name and working directory
+   * (which drives directory-affinity matching), plus the version handshake.
    *
    * Returns workflow config and host-specific settings.
    */
@@ -396,7 +395,6 @@ export class DaemonClient {
     return this.post<AgentRegisterResponse>("/api/agents/register", {
       id: this.agentId,
       name: opts.name,
-      hostId: this.hostId,
       directory: opts.directory,
       metadata: opts.metadata,
       // Version handshake: the daemon gates on protocolVersion and reports the
@@ -862,12 +860,4 @@ export class DaemonClient {
     return this.get<any>("/api/config");
   }
 
-  /**
-   * Get host-specific configuration (tmuxSession).
-   *
-   * Used by the leader to get its host's settings from the daemon.
-   */
-  async getHostConfig(): Promise<any> {
-    return this.get<any>(`/api/hosts/${encodeURIComponent(this.hostId)}`);
-  }
 }

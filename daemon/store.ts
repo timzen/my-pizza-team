@@ -179,7 +179,6 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.agentTimeoutSeconds !== undefined) out.agentTimeoutSeconds = config.agentTimeoutSeconds;
   if (config.apiToken) out.apiToken = config.apiToken;
   if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
-  if (config.hosts && Object.keys(config.hosts).length > 0) out.hosts = config.hosts;
   if (config.readinessProbe) out.readinessProbe = config.readinessProbe;
   return out;
 }
@@ -381,7 +380,6 @@ export class Store {
         work_mode TEXT DEFAULT 'eager-helper',
         assigned_story_id TEXT,
         metadata TEXT DEFAULT '{}',   -- opaque harness-owned data (daemon never interprets it)
-        host_id TEXT,
         protocol_version INTEGER,     -- agent-protocol version the harness speaks (null = pre-handshake)
         harness TEXT,                 -- which harness this agent runs under (e.g. 'pi')
         harness_version TEXT,         -- the harness integration's build version (informational)
@@ -535,9 +533,6 @@ export class Store {
     }
 
     const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
-    if (!memberColumns.some((col) => col.name === "host_id")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN host_id TEXT");
-    }
     if (!memberColumns.some((col) => col.name === "capabilities")) {
       this.db.exec("ALTER TABLE members ADD COLUMN capabilities TEXT DEFAULT '{}'");
     }
@@ -564,6 +559,10 @@ export class Store {
     }
     if (!memberColumns.some((col) => col.name === "harness_version")) {
       this.db.exec("ALTER TABLE members ADD COLUMN harness_version TEXT");
+    }
+    // Host routing removed (P1c-2): one machine, so there is nothing to route.
+    if (memberColumns.some((col) => col.name === "host_id")) {
+      this.db.exec("ALTER TABLE members DROP COLUMN host_id");
     }
 
     // One leader, so the directive queue is no longer keyed by host (P1c-1). The
@@ -1518,20 +1517,18 @@ export class Store {
     name: string,
     directory?: string,
     metadata: Record<string, unknown> = {},
-    hostId?: string,
     handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string },
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
     this.db.prepare(
-      `INSERT OR REPLACE INTO members (id, name, directory, metadata, host_id, protocol_version, harness, harness_version, status, last_heartbeat)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
+      `INSERT OR REPLACE INTO members (id, name, directory, metadata, protocol_version, harness, harness_version, status, last_heartbeat)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
     ).run(
       id,
       name,
       directory ? normalizeDirectory(directory) : null,
       JSON.stringify(metadata || {}),
-      hostId || null,
       handshake?.protocolVersion ?? null,
       handshake?.harness || null,
       handshake?.harnessVersion || null,
@@ -1541,7 +1538,7 @@ export class Store {
     // A leader arriving (daemon start, host reconnect) is the first moment a
     // pool spawn can actually be realized — fill the pool now instead of waiting
     // for the next heartbeat tick.
-    if (hostId && name.toLowerCase().includes(LEADER_MEMBER_NAME)) this.reconcileTeammatePool();
+    if (name.toLowerCase().includes(LEADER_MEMBER_NAME)) this.reconcileTeammatePool();
   }
 
   updateMemberStatus(id: string, status: string): void {
@@ -1568,7 +1565,6 @@ export class Store {
       name: row.name as string,
       directory: (row.directory as string) || undefined,
       metadata: row.metadata && (row.metadata as string) !== "{}" ? JSON.parse(row.metadata as string) : {},
-      hostId: (row.host_id as string) || undefined,
       protocolVersion: (row.protocol_version as number) ?? undefined,
       harness: (row.harness as string) || undefined,
       harnessVersion: (row.harness_version as string) || undefined,
@@ -2464,16 +2460,17 @@ export class Store {
   }
 
   /**
-   * Which host should absorb a pool spawn? Only a leader realizes directives, so
-   * a spawn is only useful on a host with an online leader. Null when no leader
-   * is connected — the reconciler then waits rather than piling up directives
-   * nobody will act on.
+   * Is a leader connected? Only a leader realizes directives, so without one the
+   * reconciler waits rather than piling up spawns nobody will act on.
+   *
+   * This was `pickPoolSpawnHost()`, returning the host a spawn should land on —
+   * but it only ever found *the* leader and returned its host, which is why P1c
+   * could drop multi-host without changing behaviour (BATTERIES_INCLUDED.md §1.4).
    */
-  private pickPoolSpawnHost(): string | null {
-    const leader = this.getMembers().find((m) =>
-      m.status !== "offline" && m.hostId && m.name.toLowerCase().includes(LEADER_MEMBER_NAME)
+  private isLeaderOnline(): boolean {
+    return this.getMembers().some((m) =>
+      m.status !== "offline" && m.name.toLowerCase().includes(LEADER_MEMBER_NAME)
     );
-    return leader?.hostId ?? null;
   }
 
   /** The pool's live state: what's declared, what's online, what's inbound. */
@@ -2486,7 +2483,7 @@ export class Store {
       maxTeammates: this.config.maxTeammates ?? 0,
       online,
       pending: this.countPendingTeammateSpawns(),
-      leaderPresent: this.pickPoolSpawnHost() !== null,
+      leaderPresent: this.isLeaderOnline(),
     };
   }
 
@@ -2528,7 +2525,7 @@ export class Store {
     if (deficit <= 0) return 0;
 
     // Only a leader realizes directives, so a spawn is pointless without one.
-    if (!this.pickPoolSpawnHost()) return 0;
+    if (!this.isLeaderOnline()) return 0;
 
     for (let i = 0; i < deficit; i++) {
       this.createLeaderDirective("spawn", { params: { reason: "teammate" } });

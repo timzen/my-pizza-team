@@ -43,22 +43,12 @@ export interface TeamConfig {
   assistantTurnDebounceSeconds?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
-  /** Per-host configuration (keyed by host ID) */
-  hosts?: Record<string, HostConfig>;
   /**
-   * Default host readiness probe command. The leader runs this on each heartbeat;
-   * exit 0 = ready, non-zero = not ready (stdout's first line = reason). A not-ready
-   * host holds scheduled work destined for it instead of failing it. Per-host
-   * overrides live at `hosts[hostId].readinessProbe`. See docs/ARCHITECTURE.md.
+   * Readiness probe command. The leader runs this on each heartbeat; exit 0 =
+   * ready, non-zero = not ready (stdout's first line = reason). A not-ready team
+   * holds scheduled enqueues instead of failing them. See docs/ARCHITECTURE.md
+   * "Scheduler readiness gating".
    */
-  readinessProbe?: string;
-}
-
-/** Per-host configuration for multi-machine setups */
-export interface HostConfig {
-  /** tmux session name for this host (overrides top-level tmuxSession) */
-  tmuxSession?: string;
-  /** Host readiness probe command (overrides top-level readinessProbe for this host) */
   readinessProbe?: string;
 }
 
@@ -310,7 +300,6 @@ export interface Member {
    * it — it exists so the harness can realize control intents (see agent commands).
    */
   metadata?: Record<string, unknown>;
-  hostId?: string;
   /**
    * The agent-protocol version this agent's harness reported at registration.
    * `undefined` means a pre-handshake harness — accepted, but surfaced in the UI

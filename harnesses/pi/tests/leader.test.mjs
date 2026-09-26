@@ -54,7 +54,7 @@ test("deregisters on session_shutdown", () => {
 });
 
 test("gets host config from daemon", () => {
-  assert.ok(src.includes("client.getHostConfig()"));
+  assert.ok(src.includes("client.getConfig()"));
 });
 
 test("gets daemon config for harness templates", () => {

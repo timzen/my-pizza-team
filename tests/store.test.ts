@@ -296,7 +296,7 @@ Deno.test("Store: scheduler holds a due job when the target host is not ready, t
   try {
     const store = new Store(teamDir, DEFAULT_CONFIG);
     // An agent on hostA works /repo/a; the scheduled job targets /repo/a.
-    store.registerMember("ag-a", "ag-a", "/repo/a", {}, "hostA");
+    store.registerMember("ag-a", "ag-a", "/repo/a", {});
     const sched = store.createSchedule({ title: "Every minute", cron: "* * * * *" });
     store.createWorkDef(
       { title: "Every minute", goal: "g", acceptanceCriteria: "a", directory: "/repo/a", parent: { kind: "schedule", id: sched.id } },

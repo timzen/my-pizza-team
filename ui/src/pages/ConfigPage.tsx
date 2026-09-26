@@ -36,7 +36,6 @@ interface ConfigData {
   teammates?: TeammateConfig;
   defaultNouns?: string[];
   readinessProbe?: string;
-  hosts?: Record<string, { tmuxSession?: string; readinessProbe?: string }>;
 }
 
 type Tab = "general" | "teammates" | "theme";

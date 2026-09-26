@@ -58,19 +58,18 @@ async function withServer(handler, fn) {
 }
 
 const client = (url, opts) =>
-  new DaemonClient(url, "agent-1", { hostId: "host-1", harnessVersion: "9.9.9", ...opts });
+  new DaemonClient(url, "agent-1", { harnessVersion: "9.9.9", ...opts });
 
 // ─── Construction ────────────────────────────────────────────────────
 
 test("strips a trailing slash so paths don't double up", () => {
-  assert.equal(new DaemonClient("http://d:7437/", "a", { hostId: "h" }).url, "http://d:7437");
-  assert.equal(new DaemonClient("http://d:7437", "a", { hostId: "h" }).url, "http://d:7437");
+  assert.equal(new DaemonClient("http://d:7437/", "a").url, "http://d:7437");
+  assert.equal(new DaemonClient("http://d:7437", "a").url, "http://d:7437");
 });
 
-test("exposes the agent id and host id it was built with", () => {
-  const c = new DaemonClient("http://d", "swift-ripley", { hostId: "box-2" });
+test("exposes the agent id it was built with", () => {
+  const c = new DaemonClient("http://d", "swift-ripley");
   assert.equal(c.id, "swift-ripley");
-  assert.equal(c.hostId, "box-2");
 });
 
 // ─── Headers ─────────────────────────────────────────────────────────
@@ -154,7 +153,6 @@ test("register posts identity, host, directory, and the version handshake", asyn
     assert.deepEqual(c.body, {
       id: "agent-1",
       name: "swift-ripley",
-      hostId: "host-1",
       directory: "/repo",
       metadata: { window: "w3" },
       // The handshake (P1b). Without these the daemon treats the agent as
@@ -170,7 +168,7 @@ test("register omits harnessVersion when it could not be read", async () => {
   // readHarnessVersion() returns undefined on an unreadable manifest rather than
   // stopping the agent starting, so the field must simply be absent.
   await withServer(null, async (url, calls) => {
-    const c = new DaemonClient(url, "agent-1", { hostId: "host-1" });
+    const c = new DaemonClient(url, "agent-1");
     await c.register({ name: "swift-ripley" });
     assert.equal("harnessVersion" in calls[0].body, false);
     assert.equal(calls[0].body.protocolVersion, PROTOCOL_VERSION);

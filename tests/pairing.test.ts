@@ -67,7 +67,7 @@ const json = (body: unknown) => ({ method: "POST", headers: { "Content-Type": "a
 Deno.test("routes: pair / message / release round-trip through the agent poll", async () => {
   const { app, store, teamDir } = setup();
   try {
-    await app.request("/api/agents/register", json({ id: "t1", name: "swift-ripley", hostId: "h1" }));
+    await app.request("/api/agents/register", json({ id: "t1", name: "swift-ripley" }));
 
     assertEquals((await app.request("/api/agents/t1/messages", json({ text: "hi" }))).status, 409);
     assertEquals((await app.request("/api/agents/t1/pair", { method: "POST" })).status, 200);
@@ -96,7 +96,7 @@ Deno.test("routes: only connected teammates can be paired", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await app.request("/api/agents/ghost/pair", { method: "POST" })).status, 404);
-    await app.request("/api/agents/register", json({ id: "leader", name: "leader", hostId: "h1" }));
+    await app.request("/api/agents/register", json({ id: "leader", name: "leader" }));
     assertEquals((await app.request("/api/agents/leader/pair", { method: "POST" })).status, 400);
   } finally {
     store.close();

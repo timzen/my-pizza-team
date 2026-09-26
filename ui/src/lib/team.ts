@@ -10,7 +10,6 @@ export interface Teammate {
   id: string;
   name: string;
   directory?: string | null;
-  hostId?: string;
   status: string;
   /** taskId of the WorkItem this agent currently holds, if any. */
   currentWork?: string | null;

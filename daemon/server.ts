@@ -3,7 +3,7 @@
  *
  * Serves the REST API for teammates and the lead. Built with Hono on Deno.serve().
  * Routes are organized into modules by concern:
- *   - shared: health, status, config, control, hosts, workflows
+ *   - shared: health, status, config, control, readiness, workflows
  *   - stories: story CRUD, archive, backlog
  *   - tasks: task CRUD, move, comments, attachments, token usage
  *   - work-defs: WorkDef CRUD + enqueue (Solitary one-shots and Scheduled children)
