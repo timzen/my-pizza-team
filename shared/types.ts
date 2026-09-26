@@ -33,14 +33,6 @@ export interface TeamConfig {
   teammates?: TeammateConfig;
   /** Seconds without heartbeat before an agent is marked offline (default: 90) */
   agentTimeoutSeconds?: number;
-  /**
-   * @deprecated Chat v2 removed response turns entirely (no claim, no composer
-   * lock, no debounce) — see docs/history/ASSISTANT_CHAT_V2.md. Still accepted so
-   * existing config.json files keep loading; ignored by the daemon.
-   */
-  assistantTurnTimeoutSeconds?: number;
-  /** @deprecated See `assistantTurnTimeoutSeconds`. Accepted and ignored. */
-  assistantTurnDebounceSeconds?: number;
   /** API token for authentication (optional; required when binding non-localhost) */
   apiToken?: string;
   /**
