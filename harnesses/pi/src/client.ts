@@ -32,7 +32,7 @@ import type { WorkflowConfig } from "./shared/types.js";
  * not, and Node does not remap './x.js' to './x.ts' the way Pi's loader does).
  * That property is what makes client.ts testable today and movable in P1c-8.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 // ─── Error Type ──────────────────────────────────────────────────────
 
@@ -178,12 +178,12 @@ export interface LeaderDirective {
   createdAt: string;
 }
 
-/** Response from GET /api/hosts/:hostId/leader/directives */
+/** Response from GET /api/leader/directives */
 export interface LeaderDirectivesResponse {
   directives: LeaderDirective[];
 }
 
-/** Response from POST /api/hosts/:hostId/leader/directives */
+/** Response from POST /api/leader/directives */
 export interface CreateLeaderDirectiveResponse {
   success: boolean;
   directive?: LeaderDirective;
@@ -580,18 +580,16 @@ export class DaemonClient {
    * target member's opaque metadata (e.g. tmux window) so the leader can act.
    */
   async getLeaderDirectives(): Promise<LeaderDirectivesResponse> {
-    return this.get<LeaderDirectivesResponse>(
-      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives`
-    );
+    return this.get<LeaderDirectivesResponse>("/api/leader/directives");
   }
 
   /**
-   * Create a leader directive for this host (e.g. a `spawn`). For `spawn` the
-   * daemon generates a unique agent name into the returned directive's params.
+   * Create a leader directive (e.g. a `spawn`). For `spawn` the daemon generates a
+   * unique agent name into the returned directive's params.
    */
   async createLeaderDirective(action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): Promise<CreateLeaderDirectiveResponse> {
     return this.post<CreateLeaderDirectiveResponse>(
-      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives`,
+      "/api/leader/directives",
       { action, memberId: opts?.memberId, params: opts?.params }
     );
   }
@@ -599,7 +597,7 @@ export class DaemonClient {
   /** Mark a directive complete once the leader has realized it. */
   async completeLeaderDirective(id: string): Promise<{ success: boolean }> {
     return this.put<{ success: boolean }>(
-      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives/${encodeURIComponent(id)}`,
+      `/api/leader/directives/${encodeURIComponent(id)}`,
       { status: "done" }
     );
   }
@@ -611,7 +609,7 @@ export class DaemonClient {
    */
   async failLeaderDirective(id: string): Promise<{ success: boolean }> {
     return this.put<{ success: boolean }>(
-      `/api/hosts/${encodeURIComponent(this.hostId)}/leader/directives/${encodeURIComponent(id)}`,
+      `/api/leader/directives/${encodeURIComponent(id)}`,
       { status: "failed" }
     );
   }

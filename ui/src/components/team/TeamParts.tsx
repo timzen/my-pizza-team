@@ -139,7 +139,7 @@ export function TeammateRow({
           <span className="font-medium text-sm truncate flex-1">{teammate.name}</span>
         )}
         <div className="relative z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {onReset && teammate.hostId && (
+          {onReset && (
             <button onClick={() => onReset(teammate)} className="text-muted-foreground hover:text-foreground p-0.5" title="Reset session (clears context window)">
               <RotateCcw className="h-3.5 w-3.5" />
             </button>

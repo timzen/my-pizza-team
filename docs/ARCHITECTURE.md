@@ -175,9 +175,9 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/thought-groups` | Create a group (`{title, memberIds?}`) |
 | PATCH | `/api/thought-groups/:id` | Rename a group |
 | DELETE | `/api/thought-groups/:id` | Ungroup: remove the group, clear members' `groupId` (notes stay) |
-| POST | `/api/hosts/:hostId/leader/directives` | Create a leader directive (spawn, reset-session, ...). Self-handled actions (`new-session`, `resume-session`) are filtered out of the leader's queue — the target agent polls those itself. For `spawn`, the daemon assigns `params.name` if absent: a generated adjective-noun for teammates, or the reserved singleton name `assistant` for `reason: "assistant"` (a duplicate assistant spawn is coalesced onto the existing member/pending spawn, not duplicated) |
-| GET | `/api/hosts/:hostId/leader/directives` | Poll pending directives for a host (single leader queue) |
-| PUT | `/api/hosts/:hostId/leader/directives/:id` | Update a directive's status (e.g. `done`) |
+| POST | `/api/leader/directives` | Create a leader directive (spawn, reset-session, ...). Self-handled actions (`new-session`, `resume-session`) are filtered out of the leader's queue — the target agent polls those itself. For `spawn`, the daemon assigns a generated adjective-noun `params.name` if absent |
+| GET | `/api/leader/directives` | Poll pending directives (the one leader queue) |
+| PUT | `/api/leader/directives/:id` | Update a directive's status (e.g. `done`) |
 | GET | `/api/spawn-requests` | List pending `spawn` directives across all hosts (name, cwd, hostId, createdAt) — surfaces stuck spawns in the UI |
 | DELETE | `/api/spawn-requests/:id` | Cancel a pending spawn request (marks it `cancelled` so the leader stops retrying) |
 | GET | `/api/workflows` | List workflow summaries (name, stateCount, agentCount, manualCount, isDefault) |

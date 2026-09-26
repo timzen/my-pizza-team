@@ -9,9 +9,9 @@
 //
 // It doesn't own state — the daemon does. The leader's responsibilities are:
 //   1. Register with daemon as { role: "leader", harness: "pi", hostId }
-//   2. Poll GET /api/hosts/:hostId/leader/directives every 5s (one queue)
+//   2. Poll GET /api/leader/directives every 5s (one queue)
 //   3. Realize each directive locally (spawn via tmux, reset via /new, ...)
-//   4. Mark done: PUT /api/hosts/:hostId/leader/directives/:id { status }
+//   4. Mark done: PUT /api/leader/directives/:id { status }
 //   5. Register LLM tools for planning work
 //   6. Provide tmux commands: /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status
 //   7. Show status widget with team progress

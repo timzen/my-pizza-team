@@ -25,14 +25,20 @@ import type { WorkflowConfig } from "./types.ts";
  *
  * History:
  *   1 — WorkItem-centric agent protocol, per-host leader directives.
+ *   2 — Leader directives moved from /api/hosts/:hostId/leader/directives to
+ *       /api/leader/directives (one leader, so no host key). P1c-1.
  */
-export const PROTOCOL_VERSION = 1;
+export const PROTOCOL_VERSION = 2;
 
 /**
  * The lowest agent-protocol version this daemon still serves. Raise it in the
  * same commit that removes the compatibility it covers.
+ *
+ * Raised to 2 with P1c-1: a v1 extension polls a directive path that no longer
+ * exists, and would sit there silently spawning nobody. Refusing it at
+ * registration turns that into a message telling the user to restart the agent.
  */
-export const MIN_PROTOCOL_VERSION = 1;
+export const MIN_PROTOCOL_VERSION = 2;
 
 /** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
 export type HarnessKind = "pi" | (string & {});
@@ -397,7 +403,7 @@ export interface SaveTemplateResponse { success: boolean; template?: TemplateVie
 // --- Schedules (cron parents) ---
 export interface ScheduleView { id: string; title?: string; cron: string; lastEnqueuedAt?: string }
 export interface SchedulesResponse { schedules: ScheduleView[] }
-// --- Leader Directives (the single daemon->leader work queue, per host) ---
+// --- Leader Directives (the single daemon->leader work queue) ---
 
 /** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */
 export interface LeaderDirective {
@@ -413,13 +419,13 @@ export interface LeaderDirective {
   createdAt: string;
 }
 
-// GET /api/hosts/:hostId/leader/directives
+// GET /api/leader/directives
 export interface LeaderDirectivesResponse { directives: LeaderDirective[] }
 
-// POST /api/hosts/:hostId/leader/directives
+// POST /api/leader/directives
 export interface CreateLeaderDirectiveRequest { action: string; memberId?: string; params?: Record<string, unknown> }
 export interface CreateLeaderDirectiveResponse { success: boolean; directive?: LeaderDirective; error?: string }
 
-// PUT /api/hosts/:hostId/leader/directives/:id
+// PUT /api/leader/directives/:id
 export interface UpdateLeaderDirectiveRequest { status: string }
 export interface UpdateLeaderDirectiveResponse { success: boolean; error?: string }

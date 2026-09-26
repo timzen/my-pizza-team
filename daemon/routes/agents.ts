@@ -264,21 +264,26 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true });
   });
 
-  // ─── Leader Directives (one queue of asks per host) ──────────────────
+  // ─── Leader Directives (the one queue of asks for the leader) ────────
+  //
+  // Not keyed by host: there is exactly one leader (BATTERIES_INCLUDED.md §3.3).
+  // These were /api/hosts/:hostId/leader/directives until P1c-1 — a breaking
+  // change, which is why PROTOCOL_VERSION moved with it. An extension speaking v1
+  // is refused at registration rather than left polling a 404 forever and never
+  // spawning anyone.
 
-  app.post("/api/hosts/:hostId/leader/directives", async (c) => {
-    const hostId = c.req.param("hostId");
+  app.post("/api/leader/directives", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { action?: string; memberId?: string; params?: Record<string, unknown> };
     if (!body.action || typeof body.action !== "string") return c.json({ success: false, error: "Field 'action' is required" }, 400);
-    const directive = store.createLeaderDirective(hostId, body.action, { memberId: body.memberId, params: body.params });
+    const directive = store.createLeaderDirective(body.action, { memberId: body.memberId, params: body.params });
     return c.json({ success: true, directive }, 201);
   });
 
-  app.get("/api/hosts/:hostId/leader/directives", (c) => {
-    return c.json({ directives: store.getLeaderDirectives(c.req.param("hostId")) });
+  app.get("/api/leader/directives", (c) => {
+    return c.json({ directives: store.getLeaderDirectives() });
   });
 
-  app.put("/api/hosts/:hostId/leader/directives/:id", async (c) => {
+  app.put("/api/leader/directives/:id", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { status?: string };
     if (!body.status || typeof body.status !== "string") return c.json({ success: false, error: "Field 'status' is required" }, 400);
     const ok = store.updateLeaderDirective(c.req.param("id"), body.status);

@@ -81,8 +81,7 @@ export function useTeamData(): TeamData {
     // Reset a teammate's session (clears its context window) via a leader
     // directive the leader realizes as Pi's `/new` in the teammate's window.
     reset: async (t) => {
-      if (!t.hostId) return;
-      await apiPost(`/api/hosts/${encodeURIComponent(t.hostId)}/leader/directives`, { action: "reset-session", memberId: t.id });
+      await apiPost("/api/leader/directives", { action: "reset-session", memberId: t.id });
     },
     cancelSpawn: async (id) => {
       await apiDelete(`/api/spawn-requests/${encodeURIComponent(id)}`);

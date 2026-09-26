@@ -205,11 +205,12 @@ test("ids are URL-encoded, so a slash in one can't forge a path", async () => {
 
 // ─── Leader directives (the daemon -> leader channel) ────────────────
 //
-// P1c-1 collapses these from /api/hosts/:hostId/leader/* to /api/leader/*.
-// Pinning them here means that change shows up as a failing test rather than a
-// leader that silently polls a 404 and never spawns anyone.
+// Collapsed from /api/hosts/:hostId/leader/* to /api/leader/* in P1c-1 — one
+// leader, so no host key. Pinning these paths is what made that change show up as
+// a failing assertion instead of a leader silently polling a 404 and never
+// spawning anyone, so they stay pinned.
 
-test("leader directives are polled, created, completed, and failed on the host route", async () => {
+test("leader directives are polled, created, completed, and failed on the leader route", async () => {
   await withServer(null, async (url, calls) => {
     const c = client(url);
     await c.getLeaderDirectives();
@@ -220,10 +221,10 @@ test("leader directives are polled, created, completed, and failed on the host r
     assert.deepEqual(
       calls.map((x) => `${x.method} ${x.url}`),
       [
-        "GET /api/hosts/host-1/leader/directives",
-        "POST /api/hosts/host-1/leader/directives",
-        "PUT /api/hosts/host-1/leader/directives/dir-1",
-        "PUT /api/hosts/host-1/leader/directives/dir-2",
+        "GET /api/leader/directives",
+        "POST /api/leader/directives",
+        "PUT /api/leader/directives/dir-1",
+        "PUT /api/leader/directives/dir-2",
       ],
     );
     // `memberId: undefined` is dropped by JSON.stringify, so it never goes over

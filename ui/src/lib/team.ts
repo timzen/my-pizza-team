@@ -55,7 +55,6 @@ export function harnessSkew(
 /** A pending spawn request the leader hasn't realized/acked yet. */
 export interface SpawnRequest {
   id: string;
-  hostId: string;
   name: string | null;
   cwd: string | null;
   createdAt: string;

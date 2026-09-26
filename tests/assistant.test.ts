@@ -283,7 +283,7 @@ Deno.test("resume reopens a session and asks the agent to switch its Pi session"
     const selfDirectives = store.getMemberDirectives("leader");
     assertEquals(selfDirectives.some((d) => d.action === "resume-session"), true);
     assertEquals(selfDirectives.find((d) => d.action === "resume-session")!.params.piSessionPath, "/tmp/pi-session-a.jsonl");
-    assertEquals(store.getLeaderDirectives("h1").some((d) => d.action === "resume-session"), false);
+    assertEquals(store.getLeaderDirectives().some((d) => d.action === "resume-session"), false);
 
     assertEquals((await post(app, "/api/assistant/sessions/nope/resume")).status, 404);
   } finally { cleanup(teamDir, store); }
@@ -471,7 +471,7 @@ Deno.test("session directives are addressed to the chat agent (the leader)", asy
     // The leader realizes these itself via Pi's session APIs, so they must land
     // on its self-directive queue and not in the tmux-driven leader queue.
     assertEquals(store.getMemberDirectives("leader").some((d) => d.action === "new-session"), true);
-    assertEquals(store.getLeaderDirectives("h1").some((d) => d.action === "new-session"), false);
+    assertEquals(store.getLeaderDirectives().some((d) => d.action === "new-session"), false);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -481,8 +481,8 @@ Deno.test("spawning always mints a teammate name (no reserved assistant identity
   try {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir, hostId: "h1" });
     // `reason: "assistant"` used to mint the singleton name; now it's just a spawn.
-    await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: { reason: "assistant" } });
-    await post(app, "/api/hosts/h1/leader/directives", { action: "spawn", params: {} });
+    await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "assistant" } });
+    await post(app, "/api/leader/directives", { action: "spawn", params: {} });
     const names = store.getPendingSpawnRequests().map((r) => r.name);
     assertEquals(names.length, 2);
     assertEquals(names.includes("assistant"), false);

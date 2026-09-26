@@ -434,9 +434,10 @@ export class Store {
         message_count INTEGER DEFAULT 0
       );
 
+      -- One queue of asks from the daemon to the leader. Not keyed by host: there
+      -- is exactly one leader (docs/BATTERIES_INCLUDED.md §3.3, P1c-1).
       CREATE TABLE IF NOT EXISTS leader_directives (
         id TEXT PRIMARY KEY,
-        host_id TEXT NOT NULL,
         action TEXT NOT NULL,      -- 'spawn' | 'reset-session' | ...
         member_id TEXT,            -- target agent for actions on an existing member
         params TEXT DEFAULT '{}',  -- action params (e.g. spawn name/cwd/storyId/reason)
@@ -563,6 +564,13 @@ export class Store {
     }
     if (!memberColumns.some((col) => col.name === "harness_version")) {
       this.db.exec("ALTER TABLE members ADD COLUMN harness_version TEXT");
+    }
+
+    // One leader, so the directive queue is no longer keyed by host (P1c-1). The
+    // column was NOT NULL, so it has to go rather than simply being ignored.
+    const directiveColumns = this.db.prepare("PRAGMA table_info(leader_directives)").all() as Array<Record<string, unknown>>;
+    if (directiveColumns.some((col) => col.name === "host_id")) {
+      this.db.exec("ALTER TABLE leader_directives DROP COLUMN host_id");
     }
   }
 
@@ -2361,22 +2369,22 @@ export class Store {
    * one. Every spawn is a teammate: the chat is answered by the leader, so there
    * is no reserved singleton name and no coalescing.
    */
-  createLeaderDirective(hostId: string, action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): ReturnType<Store["rowToDirective"]> {
+  createLeaderDirective(action: string, opts?: { memberId?: string; params?: Record<string, unknown> }): ReturnType<Store["rowToDirective"]> {
     const id = `dir-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     const params: Record<string, unknown> = { ...(opts?.params || {}) };
     if (action === "spawn" && !params.name) params.name = this.generateSpawnName();
     this.db.prepare(
-      "INSERT INTO leader_directives (id, host_id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'pending', ?, ?)"
-    ).run(id, hostId, action, opts?.memberId || null, JSON.stringify(params), now, now);
+      "INSERT INTO leader_directives (id, action, member_id, params, status, created_at, updated_at) VALUES (?, ?, ?, ?, 'pending', ?, ?)"
+    ).run(id, action, opts?.memberId || null, JSON.stringify(params), now, now);
     return this.rowToDirective(this.db.prepare("SELECT * FROM leader_directives WHERE id = ?").get(id) as Record<string, unknown>);
   }
 
-  /** Create a directive targeting an existing member (routes to its host). Null if unknown/host-less. */
+  /** Create a directive targeting an existing member. Null if the member is unknown. */
   createLeaderDirectiveForMember(memberId: string, action: string, params?: Record<string, unknown>): ReturnType<Store["rowToDirective"]> | null {
     const member = this.getMember(memberId);
-    if (!member || !member.hostId) return null;
-    return this.createLeaderDirective(member.hostId, action, { memberId, params });
+    if (!member) return null;
+    return this.createLeaderDirective(action, { memberId, params });
   }
 
   /**
@@ -2388,8 +2396,8 @@ export class Store {
    * filter the leader would consume and complete them, and the agent would never
    * see them. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
    */
-  getLeaderDirectives(hostId: string): Array<ReturnType<Store["rowToDirective"]>> {
-    const rows = this.db.prepare("SELECT * FROM leader_directives WHERE host_id = ? AND status = 'pending' ORDER BY created_at ASC").all(hostId) as Array<Record<string, unknown>>;
+  getLeaderDirectives(): Array<ReturnType<Store["rowToDirective"]>> {
+    const rows = this.db.prepare("SELECT * FROM leader_directives WHERE status = 'pending' ORDER BY created_at ASC").all() as Array<Record<string, unknown>>;
     return rows.map((r) => this.rowToDirective(r)).filter((d) => !SELF_HANDLED_ACTIONS.has(d.action));
   }
 
@@ -2408,16 +2416,15 @@ export class Store {
    * acked completion) is visible and can be cancelled, rather than silently
    * driving the leader to retry forever.
    */
-  getPendingSpawnRequests(): Array<{ id: string; hostId: string; name: string | null; cwd: string | null; createdAt: string }> {
+  getPendingSpawnRequests(): Array<{ id: string; name: string | null; cwd: string | null; createdAt: string }> {
     const rows = this.db.prepare(
-      "SELECT id, host_id, params, created_at FROM leader_directives WHERE action = 'spawn' AND status = 'pending' ORDER BY created_at ASC"
+      "SELECT id, params, created_at FROM leader_directives WHERE action = 'spawn' AND status = 'pending' ORDER BY created_at ASC"
     ).all() as Array<Record<string, unknown>>;
     return rows.map((row) => {
       let params: Record<string, unknown> = {};
       try { params = JSON.parse((row.params as string) || "{}"); } catch { /* ignore */ }
       return {
         id: row.id as string,
-        hostId: row.host_id as string,
         name: typeof params.name === "string" ? params.name : null,
         cwd: typeof params.cwd === "string" ? params.cwd : null,
         createdAt: new Date(row.created_at as number).toISOString(),
@@ -2541,11 +2548,11 @@ export class Store {
     const deficit = target - (online + pending);
     if (deficit <= 0) return 0;
 
-    const hostId = this.pickPoolSpawnHost();
-    if (!hostId) return 0;
+    // Only a leader realizes directives, so a spawn is pointless without one.
+    if (!this.pickPoolSpawnHost()) return 0;
 
     for (let i = 0; i < deficit; i++) {
-      this.createLeaderDirective(hostId, "spawn", { params: { reason: "teammate" } });
+      this.createLeaderDirective("spawn", { params: { reason: "teammate" } });
     }
     return deficit;
   }
