@@ -357,31 +357,23 @@ pi install git:github.com/timzen/pi-pizza-team
 
 The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → set-state → repeat.
 
-### Claude Code (MCP Server)
+### Other harnesses
 
-Use the [mpt-mcp-server](https://github.com/timzen/mpt-mcp-server) as an MCP bridge:
+**Pi is the only fully supported harness today.** An MCP bridge
+(`mpt-mcp-server`) was tried and retired — see
+[docs/BATTERIES_INCLUDED.md](docs/BATTERIES_INCLUDED.md) §1.3. The short version:
+an MCP server can only expose *tools*, and tools are passive. The model calls one
+if and when it decides to, so nothing in MCP can poll for a directive and make an
+agent act on it, mirror a transcript, or auto-approve a permission prompt. Pi
+works because its extension runs a supervisory loop alongside the agent.
 
-```json
-{
-  "mcpServers": {
-    "mpt": {
-      "command": "node",
-      "args": ["/path/to/mpt-mcp-server/src/index.mjs"],
-      "env": {
-        "MPT_DAEMON_URL": "http://localhost:7437",
-        "MPT_AGENT_ID": "claude-1",
-        "MPT_ROLE": "teammate"
-      }
-    }
-  }
-}
-```
+Broader harness support is planned, with the supervisor moving into `mpt` itself
+so any CLI agent can be driven from a tmux window. Until then, a harness can speak
+the HTTP protocol directly — see below.
 
-The MCP server exposes tools: `get_next_work`, `claim_task`, `release_task`, `post_comment`, `upload_attachment`.
+### Any CLI agent (HTTP protocol)
 
-### Codex (Shell Wrapper)
-
-A shell-based runner that polls for work and executes via Codex CLI:
+The agent protocol is plain HTTP, so a shell loop is enough to join the team:
 
 ```bash
 #!/bin/bash

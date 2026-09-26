@@ -195,7 +195,7 @@ comments → state guidance → transition instructions for leaving the previous
 state and entering the working state), assembled by
 `buildTaskPrompt` in the daemon. The response otherwise carries only minimal
 structured `task` metadata (`id`/`storyId`/`status`) for harness bookkeeping.
-Harnesses (pi-pizza-team, mpt-mcp-server, …) deliver the prompt verbatim rather
+Harnesses (the Pi extension, any future wrapper) deliver the prompt verbatim rather
 than re-assembling their own.
 
 *Why:* the prompt is mostly workflow knowledge, which the daemon already owns

@@ -57,9 +57,11 @@ now fully dead, in two distinct ways — and the second one is the lesson.
 **It drifted a protocol generation behind.** It still calls endpoints the daemon
 no longer has: `/api/assistant/notes` and `/api/assistant/notes/search` (so its
 memory tools are inert), `/api/agents/release/:taskId`, and
-`/api/spawn-requests/:id/ack` (only `DELETE /api/spawn-requests/:id` exists).
-mpt-demo-team's `run-e2e-kiro.sh` invokes `src/runners/kiro/runner.mjs`, deleted
-in `fbba4ac`. Nothing in that repo runs.
+`/api/spawn-requests/:id/ack` (only `DELETE /api/spawn-requests/:id` exists). Its
+runner loop is built on the pre-WorkItem task protocol — `claimTask`,
+`releaseTask(id, summary)` with the daemon deciding the resulting status — where
+the daemon now expects `claimWorkItem` and an explicit terminal
+`setWorkItemState(id, "COMPLETE" | "FAILED")`.
 
 **More fundamentally, an MCP server can only expose tools.** Compare what the Pi
 extension actually does beyond tools: directive polling, `readiness.ts`,
@@ -69,10 +71,23 @@ the model calls a tool if and when it decides to. Nothing in MCP can poll for a
 directive and make the agent act on it, mirror a transcript, or auto-approve a
 permission prompt.
 
-So "Pi works, the others are flaky" is really: **Pi is the only harness with a
-host process running the loop.** Repairing the MCP server's URLs would not have
-changed that. It is deleted (tagged `archive/mpt-mcp-server`), and §2.1 explains
-what replaces it.
+That repo proves the point rather than merely suffering from it. Because MCP alone
+wasn't enough, it grew a **sidecar supervisor**: `runners/shared/loop.mjs` (287
+lines — register → poll → claim → execute → release, with heartbeats, dismissal,
+and graceful shutdown) plus an adapter interface
+(`{ name, supportsMcp, execute, loadConfig }`) and three implementations for
+Claude, Codex, and Kiro. The Kiro adapter is Tier 0 in miniature: a persistent
+agent in a visible tmux window, nudged along by `send-keys` follow-ups while it
+coordinates over MCP tools. The design was right; its *location* was wrong — a
+per-harness sidecar, in the MCP repo, duplicating tmux handling the Pi extension
+already did.
+
+So "Pi works, the others are flaky" is really: **Pi is the only harness whose
+supervisor was maintained.** §3.1 moves that loop into `mpt`, where one
+implementation serves every harness. The repo is deleted and tagged
+`archive/mpt-mcp-server`; its code is reference only, since the daemon calls
+target a dead protocol, token accounting scrapes harness stdout, and its tmux
+layer is superseded by `leader.ts`.
 
 ### 1.4 Multi-host was never used, and it taxes everything
 
@@ -124,11 +139,11 @@ probe into `mpt` changes what a harness *is*:
 - **The extension shrinks to what only Pi can do:** in-process transcript
   mirroring, permission leases, chat bubbles, `/new` session control.
 
-This is Tier 0 below, and it was already prototyped once: the deleted
-`runners/kiro/runner.mjs` was a Node process driving `kiro-cli` in tmux. The idea
-was right; it lived in the MCP repo, so it inherited MCP's passive framing and
-died with it. Rebuilt inside `mpt`, it isn't a sidecar — it's just what the
-daemon does.
+This is Tier 0 below, and it was prototyped once already: the retired
+`mpt-mcp-server` grew a sidecar runner that drove `kiro-cli` in tmux (§1.3). The
+idea was right; it lived in the MCP repo, so it inherited MCP's passive framing,
+duplicated tmux handling, and rotted against the protocol. Rebuilt inside `mpt` it
+isn't a sidecar — it's just what the daemon does, once, for every harness.
 
 ### 3.2 Harness support is tiered, not all-or-nothing
 

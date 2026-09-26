@@ -184,4 +184,4 @@ Applies to `mpt-demo-team` fixtures and `~/TimVancePizzaTeam`.
 - WIP token count > 1; per-workflow config
 - Directory-scoped serialization across stories
 - Per-state capability requirements (specialist states)
-- mpt-mcp-server adaptation to the done/return protocol
+- Non-Pi harness adaptation to the done/return protocol (see BATTERIES_INCLUDED.md §3.2)

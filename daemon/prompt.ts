@@ -2,8 +2,8 @@
  * daemon/prompt.ts — Assembles the full task prompt: the message an agent
  * receives when it claims a task.
  *
- * This lives in the daemon (not the harness) so every adapter — pi-pizza-team,
- * mpt-mcp-server, future wrappers — delivers one identical, canonical prompt
+ * This lives in the daemon (not the harness) so every adapter — the Pi extension,
+ * future wrappers — delivers one identical, canonical prompt
  * verbatim. Keeping it here also means prompt wording/order changes in a single,
  * testable place instead of drifting across harnesses.
  *
