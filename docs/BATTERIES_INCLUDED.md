@@ -208,6 +208,8 @@ surfaces as a teammate mysteriously failing to start.
 5. Fix `server.ts:9`, which documents a route module that doesn't exist
    ("teammate: legacy teammate protocol (next-task, claim, status, team)"). There
    is no `registerTeammateRoutes` and no `next-task` route.
+6. Drop the `@earendil-works/pi-tui` peerDependency — declared but never
+   imported. (`typebox` is real: `tools.ts:22`.)
 
 Explicitly **not** in scope: `daemon/store.ts` (2,936 lines) is the one real
 hotspot, but splitting it while also moving repos and breaking the protocol is
@@ -286,10 +288,11 @@ tests) and Pi's Node type-stripping loader. So: zero dependencies, no `Deno.*`,
 no `node:*` — `fetch` and types only. `client.ts` already qualifies; add a purity
 check so it stays that way.
 
-Bundle here, since the protocol is already breaking: the chat v1 migration
-(`store.ts:412-413` DEPRECATED columns, `assistant-chat.ts:495`
+Bundle here, since the protocol is already breaking: **delete** the chat v1
+migration (`store.ts:412-413` DEPRECATED columns, `assistant-chat.ts:495`
 `migrateLegacyMessages()`) and the deprecated config fields at
-`shared/types.ts:35-40` ("accepted and ignored"). Open question in §6.
+`shared/types.ts:35-40` ("accepted and ignored"). No v1 data exists to migrate
+(§7).
 
 ### Phase 2 — `mpt` carries the extension; `mpt setup`
 
@@ -302,16 +305,37 @@ extension's source the same way.
   2. Writes the embedded extension to a managed, versioned directory
      (`~/.my-pizza-team/pi-extension/`) and registers that path in Pi's package
      list, replacing any older pi-pizza-team entry so there's exactly one.
+     **Conflicting registrations must be resolved, not ignored.** Pi identifies
+     local packages by *resolved absolute path*, so a managed directory and a dev
+     checkout are two distinct package identities: registering both loads the
+     extension **twice** — duplicate tools and commands, two directive pollers,
+     two heartbeats per agent. Setup removes the other entry or refuses to
+     proceed, and it must also clear the pre-1a `pi-pizza-team` path.
   3. Creates the team dir (as `mpt start` does today) and offers `mpt install`
      for the service.
   4. Prints the next step (`mpt lead`).
 - **`mpt doctor`** — the same checks, read-only, printing one fix per problem: Pi
-  installed and a supported version; tmux; extension version vs. the daemon's;
+  installed and at or above `TESTED_PI_VERSION` (a **warning**, not a gate — §7);
+  tmux; extension version vs. the daemon's; exactly one extension registration;
   the permission system; team dir exists and the folder is trusted; daemon
   running, leader connected, service installed; `GITHUB_TOKEN` (a hint only).
 - **`mpt upgrade`** rewrites the managed extension directory after replacing the
-  binary, so both halves move together. Running agents pick it up on their next
-  Pi restart, and the 1b handshake shows which ones haven't yet.
+  binary, so both halves move together. Because Pi loads a local package from its
+  path without copying (§7), the rewrite alone is enough — no re-registration, no
+  `npm install` (the extension has no `dependencies`, and its peerDeps are
+  Pi-supplied). Running agents pick it up on their next Pi restart.
+- **Restart teammates from the UI.** After an upgrade, agents keep the old
+  extension until their Pi restarts, so the 1b handshake flags them — and the UI
+  offers a per-member `reset-session` directive to roll the team. Without this,
+  `mpt upgrade` trades silent skew for visible skew with no remedy. Cheap after
+  1c: one leader, and the directive channel already carries `spawn`-shaped
+  actions.
+- **Warn when the permission system is missing.** The extension already degrades
+  gracefully without `@gotgenes/pi-permission-system` (§7), but silently. `doctor`
+  prints the install command, and the extension warns loudly at teammate start
+  when the service slot is empty *and* yolo was requested — turning §1.1's worst
+  symptom into a message. Setup does **not** auto-install it; that would couple
+  `mpt setup` to a third party's publishing.
 - **`mpt setup --uninstall`** removes the managed extension and its Pi package
   entry, restoring Pi's settings as found. Because setup edits the user's Pi
   configuration, it records a manifest of what it changed.
@@ -359,38 +383,56 @@ After Phase 2, setup is: install `mpt`, run `mpt setup` in your project, then
 
 ## 6. Open questions
 
-- **Does `pi install <path>` re-read from disk at agent start, or snapshot at
-  install time?** If it snapshots, Phase 2's `mpt upgrade` rewriting the managed
-  directory won't roll agents even after a restart, and setup has to re-register
-  the path on every upgrade. This needs answering before Phase 2 is designed.
-- **The permission-system dependency.** Keep depending on
-  `@gotgenes/pi-permission-system` and install it in `mpt setup`, or make the
-  extension degrade explicitly — warn loudly at teammate start that autonomous
-  runs will prompt? Bundling a third-party install means setup can break when
-  someone else publishes. Leaning toward: explicit degradation, with `doctor`
-  offering the command rather than silently installing.
-- **Restarting a running team after `mpt upgrade`.** Agents keep the old
-  extension until their Pi restarts, so an upgrade trades silent skew for visible
-  skew with no remedy. Should the daemon offer a per-member `reset-session`-style
-  directive so the UI can roll the whole team? Small, and it completes the
-  upgrade story.
-- **Does any real user have chat v1 data?** If not, Phase 1c drops
-  `migrateLegacyMessages()` and the deprecated columns outright rather than
-  carrying them.
-- **Where does the managed extension live?** Under `~/.my-pizza-team/` (one copy
-  per machine, shared by every team) vs. inside the team dir (per team,
-  committed?). Home is the natural fit: the extension is per-machine tooling, the
-  team dir is team data.
-- **Pi version compatibility.** The extension targets a Pi extension API;
-  `doctor` should check a minimum Pi version, and releases should state which Pi
-  versions they were tested against.
+- **Should `mpt lead` ship before daemon-owned tmux?** Phase 3 bundles them
+  because `lead` is the natural first consumer of the new code. Splitting it — a
+  `lead` that still delegates spawning to the extension — is genuinely small and
+  ships sooner, at the cost of writing the spawn path twice.
+- **Which harness first in Phase 4?** Claude, Codex, and Kiro were all tried
+  through the MCP server. Tier 0 needs only a spawn template and a prompt-delivery
+  convention, so the choice should follow whichever harness is most pleasant to
+  drive from a terminal.
+- **What is Tier 1's tool surface?** An MCP server is the obvious shape (most
+  harnesses speak it), and this time the supervising loop already exists — but it
+  should be generated from `shared/` rather than hand-maintained, which is how the
+  last one drifted.
+- **Does `daemon/store.ts` get split, and along what seams?** 2,936 lines, and 1c
+  removes a chunk. Deliberately deferred until there's a type-check and the
+  multi-host removal has landed.
 
 ## 7. Resolved
 
-- **Multi-host is out** (§3.3). It was added early, never configured, and taxed
-  the chat-agent path for nothing. One host, one leader.
+Design decisions:
+
+- **Multi-host is out** (§3.3). Added early, never configured, and taxed the
+  chat-agent path for nothing. One host, one leader.
 - **`mpt-mcp-server` is deleted** (§1.3). MCP alone can't supervise an agent;
   Tier 0/1 replaces it.
 - **The leader need not be Pi** (§3.2).
 - **Move then extract** (Phases 1a → 1c), so the mechanical move reviews cleanly
   on its own.
+
+Investigated and settled:
+
+- **Pi loads a local package from its path without copying**
+  (`docs/packages.md`). So `mpt upgrade` only has to rewrite the managed
+  directory — no re-registration, and no `npm install` step, because the extension
+  declares no `dependencies` and its peerDeps are packages Pi supplies itself.
+- **Pi identifies local packages by resolved absolute path.** This forces the
+  managed directory to a *stable* location (`~/.my-pizza-team/pi-extension/`): a
+  per-team path would mint one package identity per team. It also creates the
+  double-registration hazard Phase 2 must handle.
+- **The permission system is already optional.** `permissions.ts:65-68` resolves
+  it through a `Symbol.for("@gotgenes/pi-permission-system:service")` slot on
+  `globalThis` — "no hard dependency; degrades gracefully when absent"
+  (ARCHITECTURE.md:422). The gap is that it degrades *silently*, so the fix is a
+  warning, not a dependency.
+- **No chat v1 data exists.** No `legacy-*` sessions in any database on the
+  development machine, and every one has zero chat messages. 1c deletes the
+  migration and the deprecated columns outright.
+- **There is no Pi extension-API version to negotiate**, but exposure is small:
+  every Pi import in the extension is `import type`, over a seven-method surface
+  (`pi.on`, `registerTool`, `registerCommand`, `sendUserMessage`, `getFlag`,
+  `registerFlag`, `pi.events`) of long-stable core API. So `doctor` warns below a
+  per-release `TESTED_PI_VERSION` rather than blocking.
+- **Restarting teammates after an upgrade is in scope** (Phase 2), via a
+  per-member `reset-session` directive surfaced in the UI.
