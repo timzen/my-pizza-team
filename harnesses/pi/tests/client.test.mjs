@@ -41,7 +41,16 @@ test("exports DaemonError class", () => {
 });
 
 test("constructor takes daemonUrl, agentId, options", () => {
-  assert.ok(clientSrc.includes("constructor(daemonUrl: string, agentId: string, options?"));
+  // Asserts the parameters, not the formatting: the signature is multi-line since
+  // it gained the harnessVersion option.
+  // The file has two constructors (DaemonError's comes first), so pick the one
+  // that takes a daemonUrl.
+  const ctors = [...clientSrc.matchAll(/constructor\(([\s\S]*?)\)\s*\{/g)].map((m) => m[1]);
+  const ctor = ctors.find((params) => params.includes("daemonUrl"));
+  assert.ok(ctor, "expected a DaemonClient constructor taking daemonUrl");
+  for (const param of ["daemonUrl: string", "agentId: string", "options?"]) {
+    assert.ok(ctor.includes(param), `constructor should take ${param}`);
+  }
 });
 
 test("has hostId property derived from os.hostname()", () => {
@@ -308,9 +317,19 @@ test("does not import hono", () => {
   assert.ok(!clientSrc.includes("hono"));
 });
 
-test("only imports os and shared/types", () => {
-  const imports = clientSrc.match(/^import .+ from .+$/gm) || [];
-  assert.ok(imports.length === 2, `Expected 2 imports, got ${imports.length}: ${imports.join(', ')}`);
+test("imports nothing beyond node:os and ./shared/types", () => {
+  // Asserts the *specifiers*, not a count, so adding an import from an allowed
+  // module doesn't fail while a new dependency does. This is the seed of P1c-9's
+  // purity check: client.ts becomes agent-runtime/ and must import no
+  // dependencies and no node: builtins (the node:os use for hostname() is the one
+  // thing that has to be injected at that point).
+  const allowed = new Set(["node:os", "./shared/types.js"]);
+  const specifiers = [...clientSrc.matchAll(/^import .+ from ["']([^"']+)["']/gm)].map((m) => m[1]);
+  const disallowed = specifiers.filter((sp) => !allowed.has(sp));
+  assert.ok(
+    disallowed.length === 0,
+    `client.ts must stay dependency-free; unexpected imports: ${disallowed.join(", ")}`,
+  );
 });
 
 test("reports host readiness to the daemon", () => {

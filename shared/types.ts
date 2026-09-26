@@ -311,6 +311,17 @@ export interface Member {
    */
   metadata?: Record<string, unknown>;
   hostId?: string;
+  /**
+   * The agent-protocol version this agent's harness reported at registration.
+   * `undefined` means a pre-handshake harness — accepted, but surfaced in the UI
+   * so an un-upgraded agent is visible rather than silently half-working
+   * (BATTERIES_INCLUDED.md §1.2, P1b).
+   */
+  protocolVersion?: number;
+  /** Which harness this agent runs under (e.g. "pi"). */
+  harness?: string;
+  /** The harness integration's build version. Informational — never gated on. */
+  harnessVersion?: string;
   status: "idle" | "working" | "pairing" | "offline";
   lastHeartbeat: number;
 }

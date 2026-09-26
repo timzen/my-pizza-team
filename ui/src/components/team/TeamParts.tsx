@@ -11,7 +11,7 @@
 import { Link } from "react-router-dom";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Users, UserPlus } from "lucide-react";
+import { Trash2, RotateCcw, FolderOpen, Clock, X, Crown, User, Users, UserPlus, AlertTriangle } from "lucide-react";
 import { STATUS_DOT, dirName, roleOf, viewPath, type Role, type SpawnRequest, type Teammate } from "@/lib/team";
 
 /**
@@ -100,11 +100,14 @@ export function TeammateRow({
   selected,
   onDismiss,
   onReset,
+  skewReason,
 }: {
   teammate: Teammate;
   selected?: boolean;
   onDismiss: (id: string) => void;
   onReset?: (t: Teammate) => void;
+  /** Why this agent's extension is out of step, when it is (P1b-4). */
+  skewReason?: string;
 }) {
   const role = roleOf(teammate);
   const directory = teammate.directory || null;
@@ -123,6 +126,11 @@ export function TeammateRow({
       <div className="flex items-center gap-2">
         <span className={`h-2 w-2 rounded-full shrink-0 ${STATUS_DOT[teammate.status] || STATUS_DOT.offline}`} title={teammate.status} />
         <RoleIcon role={role} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+        {skewReason && (
+          <span className="relative z-10 shrink-0" title={skewReason} aria-label={skewReason}>
+            <AlertTriangle className="h-3.5 w-3.5 text-amber-500" />
+          </span>
+        )}
         {to ? (
           <Link to={to} className="font-medium text-sm truncate flex-1 after:absolute after:inset-0 after:content-['']" title="Watch this teammate">
             {teammate.name}

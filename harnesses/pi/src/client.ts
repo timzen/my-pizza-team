@@ -17,6 +17,23 @@
 import * as os from "node:os";
 import type { WorkflowConfig } from "./shared/types.js";
 
+// ─── Protocol version ────────────────────────────────────────────────
+
+/**
+ * The agent-protocol version this client speaks, sent at registration so the
+ * daemon can refuse a version it cannot serve instead of half-working
+ * (BATTERIES_INCLUDED.md §1.2, P1b). Must match `shared/protocol.ts` in the repo
+ * root; tests/protocol-version.test.ts fails if they drift, and P1c-7 replaces
+ * this with an import of that definition.
+ *
+ * Declared here rather than imported from ./shared/types.js on purpose: this
+ * module has no relative *value* imports, which is what lets it load standalone
+ * under Node's type stripping (a type-only import is erased, a value import is
+ * not, and Node does not remap './x.js' to './x.ts' the way Pi's loader does).
+ * That property is what makes client.ts testable today and movable in P1c-8.
+ */
+export const PROTOCOL_VERSION = 1;
+
 // ─── Error Type ──────────────────────────────────────────────────────
 
 /** Error thrown when the daemon returns a non-2xx response */
@@ -41,6 +58,10 @@ export interface AgentRegisterResponse {
     tmuxSession: string;
   };
   error?: string;
+  /** The daemon's protocol version, so the harness can warn on its own side. */
+  protocolVersion?: number;
+  /** The daemon's build version. Informational — never gated on. */
+  daemonVersion?: string;
 }
 
 /** Response from GET /api/agents/next-work */
@@ -228,11 +249,19 @@ export class DaemonClient {
   /** Host identifier for spawn request scoping (defaults to os.hostname()) */
   public readonly hostId: string;
 
-  constructor(daemonUrl: string, agentId: string, options?: { authToken?: string; hostId?: string }) {
+  /** This integration's own build version, reported at registration. */
+  private harnessVersion: string | undefined;
+
+  constructor(
+    daemonUrl: string,
+    agentId: string,
+    options?: { authToken?: string; hostId?: string; harnessVersion?: string },
+  ) {
     this.baseUrl = daemonUrl.replace(/\/$/, "");
     this.agentId = agentId;
     this.authToken = options?.authToken;
     this.hostId = options?.hostId || os.hostname();
+    this.harnessVersion = options?.harnessVersion;
   }
 
   /** The agent's unique ID */
@@ -370,6 +399,11 @@ export class DaemonClient {
       hostId: this.hostId,
       directory: opts.directory,
       metadata: opts.metadata,
+      // Version handshake: the daemon gates on protocolVersion and reports the
+      // rest for the UI's skew banner.
+      protocolVersion: PROTOCOL_VERSION,
+      harness: "pi",
+      harnessVersion: this.harnessVersion,
     });
   }
 

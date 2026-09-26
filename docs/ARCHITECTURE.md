@@ -104,6 +104,21 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 - **Declared team size, not spawn clicks** — The team's size is a *number you declare* (`minTeammates`, default 0), not a button you press per teammate. `Store.reconcileTeammatePool()` keeps at least that many generalist teammates online: it counts online pool members (the `leader`/`assistant` singletons are excluded by name) **plus** not-yet-realized `spawn` directives (so a slow leader never gets a second batch), clamps the target to `maxTeammates`, and queues `spawn` directives for the shortfall. It runs on the heartbeat timer immediately **after** the offline reaper — so a dismissed, crashed, or reaped teammate is replaced on the same tick — plus whenever the number changes or a leader registers (a leader is the first moment a spawn can actually be realized; with none connected the pool waits instead of piling up directives nobody will act on). Reconciliation is one-directional: the daemon never dismisses a teammate, so lowering the number only stops replacements. The value lives in `config.json`, which makes it the startup target too.
 - **Pages over modals** — The board is for glancing and light triage (drag a card to another column to move it). Clicking a card never opens an editor; the `details →` link opens the task page, and all reading/editing/creating lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`) — deep-linkable, roomy, and browser-back friendly. The only surviving modal is the FileViewer (a lightbox-style artifact/attachment viewer). This keeps destructive/edit actions off the high-traffic board surface. Cards carry no state badge (the column names the state) — only the substatus chip; drops only accept cards from the same story (the drag MIME type carries the story id). Each swimlane can hide the implicit todo/done bucket columns (persisted per story in `localStorage`); hidden buckets show their task counts in the story header.
 - **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
+- **Version handshake** — The daemon and a harness are one protocol shipped as two
+  artifacts, and when they drifted nothing noticed: an old extension kept running
+  while streaming no transcript and recording no usage (docs/BATTERIES_INCLUDED.md
+  §1.2). So `POST /api/agents/register` carries `protocolVersion` (from
+  `shared/protocol.ts`'s `PROTOCOL_VERSION`), `harness`, and `harnessVersion`. The
+  daemon **gates on the protocol version only** — one it can't serve is refused 409
+  with the fix named, and the agent is not registered at all rather than left
+  half-working. Build versions are deliberately *never* gated: rejecting on those
+  would reject the whole team on every patch release, so they are reported and
+  surfaced instead (a row marker plus a Team-tab banner, via `harnessSkew` in
+  `ui/src/lib/team.ts`). A missing `protocolVersion` means a pre-handshake harness:
+  accepted and flagged, because upgrading the daemon first must not strand a running
+  team. `harness` is open-ended so a Tier 0 harness (§3.2) can self-report without
+  versioning the handshake twice.
+
 - **Scheduler readiness gating** — Credentials/VPN/network are a whole-*host* fact, so readiness is a host property, not a per-teammate or per-directory one. Each host's **leader** (the per-host singleton) runs an optional probe and reports the result via `POST /api/hosts/:hostId/readiness`; the daemon holds it in memory (ephemeral connection state, like members — an unknown host is treated as ready). The cron scheduler consults it: a due scheduled child is **held** (not enqueued) when *every* host that could run it (directory affinity rolled up to `hostId`) is not-ready, so a wedged cloud desktop (e.g. expired `mwinit`) stops piling up FAILED scheduled runs overnight. Holding sets `heldForReadiness` on the Schedule and *doesn't* advance the cron cursor via that path, so when the host recovers the scheduler fires the held job **exactly once** (missed occurrences collapse into a single catch-up run — no thundering herd). This gates *only* the cron scheduler: Solitary/board work is human-initiated and still runs (and may fail visibly). Absent (offline) hosts are not gated — readiness is about connected-but-unable hosts; the queue waits for a connection as before.
 - **Thoughts: a lighter canvas, files as source of truth** — Thoughts is a markdown sticky-note board ported (deliberately trimmed) from a standalone product that was itself an older MPT fork. It's a personal *workspace/outbox*, decoupled from the task system: the assistant *reads* notes to draft tasks/stories/schedules (Phase 2), but a note carries no task foreign key. Storage mirrors WorkDefs — `thoughts/<id>.md` (frontmatter + markdown body, filename is the id) is the source of truth, read/written directly with no SQLite index (like Schedules). The lifecycle is intentionally simpler than the source product: two states (`active⇄archived`), pinning as an orthogonal flag (not a state), direct delete, and **no auto-sweeps** — nothing moves a note without an explicit action. Group membership lives on each note's `groupId` (set explicitly from the note's Group menu), and each group owns a rectangle (`x/y/w/h` in `groups.json`, plus `groupColor`/`plateOpacity` for its tint) so it can be named, positioned, resized, tinted, and carry its member notes when moved. The port drops the source product's cosmetic surface (100+ backgrounds/skins/palettes) — spatial canvas, not customization, is the value. Thoughts replaced the scratch-pad entirely (its daemon API, store, and UI were removed); the assistant reads the board via `list_thoughts`/`get_thought`/`list_thought_groups` and turns notes into work with `create_task`/`create_schedule`/`create_story`.
 
@@ -186,7 +201,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | GET | `/api/hosts-readiness` | List all reported host-readiness records (`{ hosts }`) |
 | POST | `/api/control/pause` | Pause task distribution |
 | POST | `/api/control/resume` | Resume task distribution |
-| POST | `/api/agents/register` | Register an agent (working `directory`, opaque `metadata`, `hostId`) |
+| POST | `/api/agents/register` | Register an agent (working `directory`, opaque `metadata`, `hostId`, and the version handshake `protocolVersion`/`harness`/`harnessVersion`). Refuses a `protocolVersion` this daemon can't serve with 409 |
 | POST | `/api/agents/heartbeat` | Agent heartbeat (restores this agent's MORIBUND items to IN_PROGRESS) |
 | GET | `/api/agents/next-work?agentId=X` | Poll for a `READY` WorkItem by directory affinity; `{ workItem: null }` when none |
 | POST | `/api/agents/claim/:workItemId` | Lease a READY WorkItem (→ IN_PROGRESS) and get the daemon-assembled prompt |
@@ -198,7 +213,7 @@ Client → Deno.serve() → Hono router → Route handler → JSON response
 | POST | `/api/agents/work-items/:workItemId/attachments` | Upload an attachment (resolved to the backing ref) |
 | GET | `/api/agents/comments/:workItemId` | Get comments on the WorkItem's ref |
 | POST | `/api/agents/comments/:workItemId` | Post a comment on the WorkItem's ref |
-| GET | `/api/agents` | List all registered agents |
+| GET | `/api/agents` | List all registered agents (each with its reported `protocolVersion`/`harness`/`harnessVersion`), plus the daemon's own `protocolVersion` and `daemonVersion` for skew detection |
 | DELETE | `/api/agents/:id` | Unregister an agent |
 | GET | `/api/work-items` | List WorkItems (`?state=`, `?read=`, `?limit=&offset=`) — powers Inbox + sidebar |
 | POST | `/api/work-items/:id/cancel` | Cancel a READY item |

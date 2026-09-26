@@ -15,7 +15,7 @@
 
 import { useApi, apiDelete, apiPost } from "@/hooks/useApi";
 import type { TeammatePool } from "@/components/TeamSizeDialog";
-import { roleOf, type SpawnRequest, type Teammate } from "@/lib/team";
+import { harnessSkew, roleOf, type SpawnRequest, type Teammate } from "@/lib/team";
 
 export interface TeamData {
   /** Pool teammates (never the leader). */
@@ -28,6 +28,14 @@ export interface TeamData {
   poolBlocked: boolean;
   /** The team wants a human: a declared size it can't meet (at-risk work is the queue strip's job). */
   needsAttention: boolean;
+  /** The daemon's build version, for comparing against each agent's harness. */
+  daemonVersion?: string;
+  /**
+   * Agents whose extension is behind the daemon. Restarting them is the fix; until
+   * then they keep working while quietly skipping anything the newer protocol
+   * added (BATTERIES_INCLUDED.md §1.2).
+   */
+  skewed: Array<{ teammate: Teammate; reason: string }>;
   dismiss: (id: string) => Promise<void>;
   reset: (t: Teammate) => Promise<void>;
   cancelSpawn: (id: string) => Promise<void>;
@@ -36,12 +44,21 @@ export interface TeamData {
 }
 
 export function useTeamData(): TeamData {
-  const { data, refetch } = useApi<{ agents: Teammate[] }>("/api/agents", [], { pollInterval: 10_000 });
+  const { data, refetch } = useApi<{ agents: Teammate[]; daemonVersion?: string }>("/api/agents", [], { pollInterval: 10_000 });
   const { data: spawnData, refetch: refetchSpawns } = useApi<{ requests: SpawnRequest[] }>("/api/spawn-requests", [], { pollInterval: 10_000 });
   const { data: pool, refetch: refetchPool } = useApi<TeammatePool>("/api/teammate-pool", [], { pollInterval: 10_000 });
 
   const teammates = (data?.agents || []).filter((a) => roleOf(a) === "teammate");
   const poolBlocked = !!pool && pool.minTeammates > 0 && !pool.leaderPresent;
+
+  // Skew covers *every* agent including the leader: the leader answers the chat,
+  // so a stale leader is the most user-visible kind of drift.
+  const skewed = (data?.agents || [])
+    .map((t) => {
+      const skew = harnessSkew(t, data?.daemonVersion);
+      return skew ? { teammate: t, reason: skew.reason } : null;
+    })
+    .filter((x): x is { teammate: Teammate; reason: string } => x !== null);
 
   return {
     teammates,
@@ -51,6 +68,8 @@ export function useTeamData(): TeamData {
     pool,
     poolBlocked,
     needsAttention: poolBlocked,
+    daemonVersion: data?.daemonVersion,
+    skewed,
 
     // `?dismiss=true` tombstones the id so the agent actually shuts down (a plain
     // DELETE would just remove it, and the agent would re-register on its next

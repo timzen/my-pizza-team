@@ -18,7 +18,7 @@ import { test } from "node:test";
 import * as assert from "node:assert";
 import * as http from "node:http";
 
-const { DaemonClient, DaemonError } = await import("../src/client.ts");
+const { DaemonClient, DaemonError, PROTOCOL_VERSION } = await import("../src/client.ts");
 
 /**
  * Start a throwaway server on an ephemeral port. `handler(req, body)` returns
@@ -57,7 +57,8 @@ async function withServer(handler, fn) {
   }
 }
 
-const client = (url, opts) => new DaemonClient(url, "agent-1", { hostId: "host-1", ...opts });
+const client = (url, opts) =>
+  new DaemonClient(url, "agent-1", { hostId: "host-1", harnessVersion: "9.9.9", ...opts });
 
 // ─── Construction ────────────────────────────────────────────────────
 
@@ -144,7 +145,7 @@ test("heartbeat swallows transport failures — it runs on an interval", async (
 
 // ─── The agent protocol ──────────────────────────────────────────────
 
-test("register posts identity, host, and directory", async () => {
+test("register posts identity, host, directory, and the version handshake", async () => {
   await withServer(null, async (url, calls) => {
     await client(url).register({ name: "swift-ripley", directory: "/repo", metadata: { window: "w3" } });
     const [c] = calls;
@@ -156,7 +157,23 @@ test("register posts identity, host, and directory", async () => {
       hostId: "host-1",
       directory: "/repo",
       metadata: { window: "w3" },
+      // The handshake (P1b). Without these the daemon treats the agent as
+      // pre-handshake and the UI's skew banner goes dark, so they are pinned.
+      protocolVersion: PROTOCOL_VERSION,
+      harness: "pi",
+      harnessVersion: "9.9.9",
     });
+  });
+});
+
+test("register omits harnessVersion when it could not be read", async () => {
+  // readHarnessVersion() returns undefined on an unreadable manifest rather than
+  // stopping the agent starting, so the field must simply be absent.
+  await withServer(null, async (url, calls) => {
+    const c = new DaemonClient(url, "agent-1", { hostId: "host-1" });
+    await c.register({ name: "swift-ripley" });
+    assert.equal("harnessVersion" in calls[0].body, false);
+    assert.equal(calls[0].body.protocolVersion, PROTOCOL_VERSION);
   });
 });
 

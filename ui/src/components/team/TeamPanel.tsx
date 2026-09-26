@@ -26,11 +26,28 @@ import { UserPlus, Users } from "lucide-react";
 export function TeamPanel({ team }: { team: TeamData }) {
   // Which teammate's view (if any) is in the center.
   const viewingId = useMatch("/teammates/:id")?.params.id ?? null;
-  const { teammates, online, offline, pendingSpawns } = team;
+  const { teammates, online, offline, pendingSpawns, skewed } = team;
+  const skewReasonFor = (id: string) => skewed.find((s) => s.teammate.id === id)?.reason;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto p-3">
+        {/*
+          Version skew (P1b-4). Restarting is the fix; until then these agents keep
+          working while quietly skipping whatever the newer protocol added — the
+          silent failure BATTERIES_INCLUDED.md §1.2 describes.
+        */}
+        {skewed.length > 0 && (
+          <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
+            <p className="font-medium text-amber-600 dark:text-amber-400">
+              {skewed.length === 1 ? "An agent is" : `${skewed.length} agents are`} out of step with the daemon
+            </p>
+            <ul className="mt-1 space-y-0.5 text-muted-foreground">
+              {skewed.map((s) => <li key={s.teammate.id}>{s.reason}</li>)}
+            </ul>
+          </div>
+        )}
+
         {pendingSpawns.length > 0 && (
           <div className="pb-1">
             <p className="px-1 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">
@@ -43,7 +60,7 @@ export function TeamPanel({ team }: { team: TeamData }) {
         )}
 
         {online.map((t) => (
-          <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={team.dismiss} onReset={team.reset} />
+          <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={team.dismiss} onReset={team.reset} skewReason={skewReasonFor(t.id)} />
         ))}
 
         {offline.length > 0 && (

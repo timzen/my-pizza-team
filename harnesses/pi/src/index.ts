@@ -22,6 +22,29 @@ import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js
 import { DaemonClient } from "./client.js";
 import { summarizeRun, hasUsage } from "./usage.js";
 
+/**
+ * This extension's build version, read from its own package.json.
+ *
+ * Reported at registration so the UI can flag an agent running an older build than
+ * the daemon (BATTERIES_INCLUDED.md §1.2 — the teammate watch view and the usage
+ * ledger both failed silently that way). The value is generated from the repo
+ * root's deno.json by `deno task sync-version`, so it matches the daemon's when
+ * both halves are current.
+ *
+ * Read here rather than in client.ts: that module moves to agent-runtime/ in
+ * P1c-8 and must stay free of node: imports.
+ */
+function readHarnessVersion(): string | undefined {
+  try {
+    const manifest = path.join(import.meta.dirname, "..", "package.json");
+    return JSON.parse(fs.readFileSync(manifest, "utf-8")).version as string;
+  } catch {
+    return undefined; // an unreadable manifest must not stop the agent starting
+  }
+}
+
+const HARNESS_VERSION = readHarnessVersion();
+
 export default function (pi: ExtensionAPI) {
   // ─── Flag Registration ─────────────────────────────────────────────
 
@@ -110,7 +133,7 @@ export default function (pi: ExtensionAPI) {
 
     if (isWorker) {
       const memberId = agentName || process.env.TMUX_PANE || `teammate-${Date.now()}`;
-      const client = new DaemonClient(daemonUrl, memberId);
+      const client = new DaemonClient(daemonUrl, memberId, { harnessVersion: HARNESS_VERSION });
       // All teammates are generalists biased by their working directory (the pi
       // cwd). Directory affinity is the only work-selection signal.
       await setupTeammate(pi, ctx, client, memberId, cwd);
@@ -134,7 +157,7 @@ export default function (pi: ExtensionAPI) {
     // ─── LEADER ROLE ───────────────────────────────────────────────
 
     if (isLead || hasConfig) {
-      const client = new DaemonClient(daemonUrl, "leader");
+      const client = new DaemonClient(daemonUrl, "leader", { harnessVersion: HARNESS_VERSION });
       const { setupLeader } = await import("./leader.js");
       await setupLeader(pi, ctx, client, cwd);
       return;

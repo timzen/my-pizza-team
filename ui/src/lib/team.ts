@@ -15,6 +15,41 @@ export interface Teammate {
   /** taskId of the WorkItem this agent currently holds, if any. */
   currentWork?: string | null;
   lastHeartbeat: number;
+  /** Agent-protocol version reported at registration; absent = pre-handshake. */
+  protocolVersion?: number;
+  /** Which harness the agent runs under (e.g. "pi"). */
+  harness?: string;
+  /** The harness integration's build version. */
+  harnessVersion?: string;
+}
+
+/**
+ * Is this agent's harness out of step with the daemon?
+ *
+ * Deliberately only about *build* version, and only for agents that are online:
+ * the protocol version is already enforced at registration (an unservable one is
+ * refused), so what's left to surface is the silent case — an agent still running
+ * an older extension, which keeps working while streaming no transcript and
+ * recording no usage (BATTERIES_INCLUDED.md §1.2).
+ *
+ * An agent that reported no version at all is also skewed: it predates the
+ * handshake entirely.
+ */
+export function harnessSkew(
+  t: Teammate,
+  daemonVersion: string | undefined,
+): { skewed: boolean; reason: string } | null {
+  if (t.status === "offline" || !daemonVersion) return null;
+  if (t.protocolVersion === undefined) {
+    return { skewed: true, reason: `${t.name} runs an extension from before version reporting — restart it.` };
+  }
+  if (t.harnessVersion && t.harnessVersion !== daemonVersion) {
+    return {
+      skewed: true,
+      reason: `${t.name} runs extension ${t.harnessVersion}; the daemon is ${daemonVersion} — restart it.`,
+    };
+  }
+  return null;
 }
 
 /** A pending spawn request the leader hasn't realized/acked yet. */

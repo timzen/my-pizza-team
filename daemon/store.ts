@@ -382,6 +382,9 @@ export class Store {
         assigned_story_id TEXT,
         metadata TEXT DEFAULT '{}',   -- opaque harness-owned data (daemon never interprets it)
         host_id TEXT,
+        protocol_version INTEGER,     -- agent-protocol version the harness speaks (null = pre-handshake)
+        harness TEXT,                 -- which harness this agent runs under (e.g. 'pi')
+        harness_version TEXT,         -- the harness integration's build version (informational)
         status TEXT DEFAULT 'idle',
         last_heartbeat INTEGER
       );
@@ -549,6 +552,17 @@ export class Store {
     // Directory-affinity matching: the agent's working directory (see refactor plan).
     if (!memberColumns.some((col) => col.name === "directory")) {
       this.db.exec("ALTER TABLE members ADD COLUMN directory TEXT");
+    }
+    // Version handshake (BATTERIES_INCLUDED.md P1b). Null protocol_version means a
+    // pre-handshake harness, which is reported rather than refused.
+    if (!memberColumns.some((col) => col.name === "protocol_version")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN protocol_version INTEGER");
+    }
+    if (!memberColumns.some((col) => col.name === "harness")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN harness TEXT");
+    }
+    if (!memberColumns.some((col) => col.name === "harness_version")) {
+      this.db.exec("ALTER TABLE members ADD COLUMN harness_version TEXT");
     }
   }
 
@@ -1497,13 +1511,24 @@ export class Store {
     directory?: string,
     metadata: Record<string, unknown> = {},
     hostId?: string,
+    handshake?: { protocolVersion?: number; harness?: string; harnessVersion?: string },
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
     this.db.prepare(
-      `INSERT OR REPLACE INTO members (id, name, directory, metadata, host_id, status, last_heartbeat)
-       VALUES (?, ?, ?, ?, ?, 'idle', ?)`
-    ).run(id, name, directory ? normalizeDirectory(directory) : null, JSON.stringify(metadata || {}), hostId || null, Date.now());
+      `INSERT OR REPLACE INTO members (id, name, directory, metadata, host_id, protocol_version, harness, harness_version, status, last_heartbeat)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
+    ).run(
+      id,
+      name,
+      directory ? normalizeDirectory(directory) : null,
+      JSON.stringify(metadata || {}),
+      hostId || null,
+      handshake?.protocolVersion ?? null,
+      handshake?.harness || null,
+      handshake?.harnessVersion || null,
+      Date.now(),
+    );
 
     // A leader arriving (daemon start, host reconnect) is the first moment a
     // pool spawn can actually be realized — fill the pool now instead of waiting
@@ -1536,6 +1561,9 @@ export class Store {
       directory: (row.directory as string) || undefined,
       metadata: row.metadata && (row.metadata as string) !== "{}" ? JSON.parse(row.metadata as string) : {},
       hostId: (row.host_id as string) || undefined,
+      protocolVersion: (row.protocol_version as number) ?? undefined,
+      harness: (row.harness as string) || undefined,
+      harnessVersion: (row.harness_version as string) || undefined,
       status: row.status as Member["status"],
       lastHeartbeat: row.last_heartbeat as number,
     };

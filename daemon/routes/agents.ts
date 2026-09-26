@@ -15,6 +15,8 @@ import type { RouteContext } from "./types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkItemRef } from "../../shared/types.ts";
+import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
+import denoConfig from "../../deno.json" with { type: "json" };
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused } = ctx;
@@ -26,14 +28,57 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       id?: string; name?: string; hostId?: string;
       directory?: string;
       metadata?: Record<string, unknown>;
+      protocolVersion?: number;
+      harness?: string;
+      harnessVersion?: string;
     };
     if (!body.id || !body.name) {
       return c.json({ success: false, error: "Fields 'id' and 'name' are required" }, 400);
     }
 
+    // ── Version handshake (P1b) ──────────────────────────────────────
+    //
+    // Gate on the *protocol* version only. A harness whose protocol this daemon
+    // cannot serve is refused here, loudly, rather than allowed to half-work: the
+    // §1.2 failure mode is an old extension that keeps running while streaming no
+    // transcript and recording no usage, with nothing to indicate why.
+    //
+    // Build versions are never gated on — that would reject the whole team on
+    // every patch release. They are reported for the UI's skew banner instead.
+    //
+    // A missing protocolVersion means a pre-handshake harness. Accepted, and
+    // recorded as null so the UI can flag it: upgrading the daemon first must not
+    // strand a running team.
+    if (typeof body.protocolVersion === "number") {
+      if (body.protocolVersion > PROTOCOL_VERSION) {
+        return c.json({
+          success: false,
+          error:
+            `This agent speaks protocol v${body.protocolVersion} but the daemon serves up to ` +
+            `v${PROTOCOL_VERSION}. The daemon is older than the harness — upgrade it with \`mpt upgrade\`.`,
+          protocolVersion: PROTOCOL_VERSION,
+          daemonVersion: denoConfig.version,
+        }, 409);
+      }
+      if (body.protocolVersion < MIN_PROTOCOL_VERSION) {
+        return c.json({
+          success: false,
+          error:
+            `This agent speaks protocol v${body.protocolVersion} but the daemon needs at least ` +
+            `v${MIN_PROTOCOL_VERSION}. Restart the agent so it picks up the current extension.`,
+          protocolVersion: PROTOCOL_VERSION,
+          daemonVersion: denoConfig.version,
+        }, 409);
+      }
+    }
+
     // The harness may attach opaque metadata (e.g. its tmux window) it later
     // uses to realize control intents. The daemon stores it verbatim.
-    store.registerMember(body.id, body.name, body.directory, body.metadata || {}, body.hostId);
+    store.registerMember(body.id, body.name, body.directory, body.metadata || {}, body.hostId, {
+      protocolVersion: body.protocolVersion,
+      harness: body.harness,
+      harnessVersion: body.harnessVersion,
+    });
 
     const hostConfig = body.hostId ? config.hosts?.[body.hostId] : undefined;
     const tmuxSession = hostConfig?.tmuxSession || config.tmuxSession;
@@ -41,6 +86,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({
       success: true,
       config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession },
+      protocolVersion: PROTOCOL_VERSION,
+      daemonVersion: denoConfig.version,
     });
   });
 
@@ -190,9 +237,17 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.get("/api/agents", (c) => {
     const members = store.getMembers();
     return c.json({
+      daemonVersion: denoConfig.version,
+      protocolVersion: PROTOCOL_VERSION,
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);
-        return { id: m.id, name: m.name, directory: m.directory, hostId: m.hostId, status: m.status, currentWork: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat };
+        return {
+          id: m.id, name: m.name, directory: m.directory, hostId: m.hostId, status: m.status,
+          currentWork: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat,
+          // Version handshake (P1b), so the UI can flag an agent whose extension
+          // is behind the daemon — §1.2's silent-skew failure made visible.
+          protocolVersion: m.protocolVersion, harness: m.harness, harnessVersion: m.harnessVersion,
+        };
       }),
     });
   });

@@ -1,11 +1,41 @@
 /**
  * shared/protocol.ts — API request/response shapes for the HTTP protocol.
  *
- * Defines the contract between daemon, CLI, and UI. All endpoints return
- * JSON conforming to these interfaces.
+ * Defines the contract between daemon, CLI, UI, and harnesses. All endpoints
+ * return JSON conforming to these interfaces.
  */
 
 import type { WorkflowConfig } from "./types.ts";
+
+// ─── Protocol version ────────────────────────────────────────────────
+
+/**
+ * The agent-protocol version this build speaks.
+ *
+ * **Bump this only on a breaking change to the agent protocol** — a route an
+ * agent depends on moving or changing shape. Do *not* bump it for the release
+ * version: the two are deliberately separate, because gating on build version
+ * would nag the whole team on every patch release until people learned to ignore
+ * the warning (BATTERIES_INCLUDED.md P1b-3).
+ *
+ * The daemon refuses to register an agent speaking a version it cannot serve, so
+ * skew fails loudly at startup instead of silently half-working — the failure
+ * mode BATTERIES_INCLUDED.md §1.2 describes, where an old extension kept running
+ * but streamed no transcript and recorded no usage.
+ *
+ * History:
+ *   1 — WorkItem-centric agent protocol, per-host leader directives.
+ */
+export const PROTOCOL_VERSION = 1;
+
+/**
+ * The lowest agent-protocol version this daemon still serves. Raise it in the
+ * same commit that removes the compatibility it covers.
+ */
+export const MIN_PROTOCOL_VERSION = 1;
+
+/** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
+export type HarnessKind = "pi" | (string & {});
 
 // GET /api/status
 export interface StatusResponse {
@@ -219,8 +249,26 @@ export interface AgentRegisterRequest {
   hostId?: string;
   /** Opaque harness metadata (e.g. tmux window), relayed verbatim. */
   metadata?: Record<string, unknown>;
+  /**
+   * The agent-protocol version the harness speaks. Absent means a pre-handshake
+   * harness: it is accepted and flagged rather than refused, so upgrading the
+   * daemon first doesn't strand a running team.
+   */
+  protocolVersion?: number;
+  /** Which harness this agent runs under (e.g. "pi"). Informational. */
+  harness?: HarnessKind;
+  /** The harness integration's own build version. Informational only. */
+  harnessVersion?: string;
 }
-export interface AgentRegisterResponse { success: boolean; config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig> }; error?: string }
+export interface AgentRegisterResponse {
+  success: boolean;
+  config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig> };
+  error?: string;
+  /** The daemon's protocol version, so a harness can warn on its own side too. */
+  protocolVersion?: number;
+  /** The daemon's build version, for the UI's skew banner. */
+  daemonVersion?: string;
+}
 
 // POST /api/agents/heartbeat
 export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" | "pairing" | "offline"; currentTask?: string }
