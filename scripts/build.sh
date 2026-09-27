@@ -74,7 +74,12 @@ compile_target() {
     --output "$output" \
     "$ENTRY_POINT"
 
-  echo "✅ Built: $output ($(du -h "$output" | cut -f1))"
+  # deno appends .exe for Windows targets, so match either form.
+  local built
+  # `|| true`: one of the two never exists, and under `set -euo pipefail` that ls
+  # would otherwise abort the whole build right after the first target.
+  built=$(ls "$output" "$output.exe" 2>/dev/null | head -1 || true)
+  echo "✅ Built: ${built:-$output} ($(du -h "${built:-$output}" 2>/dev/null | cut -f1))"
 }
 
 # --- Main ---
