@@ -1,6 +1,6 @@
 {
   "name": "pi-pizza-team",
-  "version": "0.17.2",
+  "version": "0.20.0",
   "description": "Multi-Pi task orchestration — a π pizza team (3.14 pizzas, the perfect size 🍕)",
   "keywords": [
     "pi-package"
