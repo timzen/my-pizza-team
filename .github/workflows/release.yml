@@ -5,8 +5,10 @@
 #
 # Targets:
 #   - mpt-darwin-arm64  (macOS Apple Silicon, signed)
+#   - mpt-darwin-x64    (macOS Intel — cross-compiled on the Apple Silicon runner)
 #   - mpt-linux-x64     (Linux x86_64)
 #   - mpt-linux-arm64   (Linux ARM64)
+#   - mpt-windows-x64   (Windows)
 #   - My Pizza Team.dmg (macOS menu bar app, arm64 only — lipo breaks Deno V8)
 #                       BEST-EFFORT: if this job fails (disk pressure, notary
 #                       flakiness) the release still publishes without the DMG.
@@ -34,6 +36,9 @@ jobs:
         include:
           - target: darwin-arm64
             deno-target: aarch64-apple-darwin
+            os: macos-latest
+          - target: darwin-x64
+            deno-target: x86_64-apple-darwin
             os: macos-latest
           - target: linux-x64
             deno-target: x86_64-unknown-linux-gnu
@@ -69,14 +74,29 @@ jobs:
           npm run build
 
       - name: Compile binary
+        # Through scripts/build.sh rather than an inline `deno compile`, so there is one
+        # definition of what goes into the binary. This step used to carry its own copy
+        # of the flags, and when the Pi extension was added to the embedded files
+        # (deno.json and build.sh) this copy was missed — a release built from it would
+        # have shipped a binary whose `mpt setup` fails for every user.
+        shell: bash
+        env:
+          MPT_BUILD_SKIP_PACKAGING: '1'
+        run: ./scripts/build.sh ${{ matrix.target }}
+
+      - name: Verify the Pi extension is embedded
+        # The check the missed flag would have failed. Run on the native-arch targets,
+        # where the binary can execute; each builds with the same script and flags.
+        if: matrix.target == 'darwin-arm64' || matrix.target == 'linux-x64'
         shell: bash
         run: |
-          deno compile \
-            --allow-net --allow-read --allow-write --allow-env --allow-run \
-            --include ui/dist/ \
-            --target ${{ matrix.deno-target }} \
-            --output dist/mpt-${{ matrix.target }} \
-            main.ts
+          sandbox="$(mktemp -d)"
+          mkdir -p "$sandbox/home/.pi/agent" "$sandbox/project"
+          cd "$sandbox/project"
+          HOME="$sandbox/home" MPT_HOME="$sandbox/home" \
+            PI_CODING_AGENT_DIR="$sandbox/home/.pi/agent" TEAM_DIR="$sandbox/project/.my-pizza-team" \
+            "$GITHUB_WORKSPACE/dist/mpt-${{ matrix.target }}" setup --dry-run | tee out.txt
+          grep -q "write the bundled Pi extension" out.txt
 
       - name: Sign macOS binary
         if: runner.os == 'macOS' && env.P12_BASE64 != ''

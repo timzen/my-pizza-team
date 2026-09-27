@@ -835,7 +835,7 @@ async function cmdSetup(args: string[]): Promise<void> {
     ])],
   });
 
-  console.log("\nNext: `mpt start` to run the daemon, then `pi` in this folder to start the leader.");
+  console.log("\nNext: `mpt start --daemon` to run the daemon, then `mpt lead` to start the leader.");
   console.log("      `mpt doctor` re-checks everything.");
 }
 

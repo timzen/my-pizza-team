@@ -110,8 +110,14 @@ echo ""
 echo "🎉 Build complete! Binaries in: $DIST_DIR/"
 ls -lh "$DIST_DIR"/mpt-* 2>/dev/null || true
 
-# Package macOS menu bar app (no-ops on non-macOS)
-"$SCRIPT_DIR/package-macos-menubar.sh" || true
+# Package the desktop apps, unless the caller does its own packaging. The release
+# workflow sets MPT_BUILD_SKIP_PACKAGING=1: it builds the menu bar app and the Windows
+# zip in dedicated jobs, and calls this script only so that the compile flags — in
+# particular what gets embedded — are defined in exactly one place.
+if [ "${MPT_BUILD_SKIP_PACKAGING:-}" != "1" ]; then
+  # Package macOS menu bar app (no-ops on non-macOS)
+  "$SCRIPT_DIR/package-macos-menubar.sh" || true
 
-# Package Windows tray app zip (no-ops if binary not found)
-"$SCRIPT_DIR/package-windows.sh" || true
+  # Package Windows tray app zip (no-ops if binary not found)
+  "$SCRIPT_DIR/package-windows.sh" || true
+fi
