@@ -537,7 +537,29 @@ though only Pi uses it.
 
 ---
 
-## Phase 5 — End-to-end coverage
+## Phase 5 — End-to-end coverage — **DONE**
+
+Result: `deno task test` 399 tests in ~5s; `deno task test:e2e` 41 tests in ~21s.
+
+Findings from executing it, which mattered more than the tests themselves:
+
+- **P5-5, done first, uncovered a data bug.** The slowdown wasn't the new tmux tests:
+  `--allow-run` let every Store-using test reach git for the first time, since
+  `DEFAULT_CONFIG` enables autosave. Investigating that found that **autosave committed
+  the user's own staged work** — `git commit` with no pathspec, in the user's project
+  repo, then pushed. Fixed in `517f366`; a real instance was already in this repo's
+  history (a committed `daemon.pid`). Tests now use a `TEST_CONFIG` with autosave off.
+- **The e2e tmux test was running on the user's real tmux server.** Unique session
+  names, but the same server — so a collision or a stray `kill-server` would have
+  taken out real sessions (an attached `mpt-demo` with five windows, at the time).
+  The sandbox gives each test a private server via `TMUX_TMPDIR`.
+- **Everything was mutation-tested.** After four vacuous passes earlier in the work,
+  green on first run was treated as a reason for suspicion. Every suite was checked by
+  deliberately breaking the real code — 15 mutants across P5-2/P5-3/P5-4, each killed
+  by exactly the tests that should catch it. Most tellingly, re-introducing the
+  stray-window bug fails P5-3, and reverting doctor's wording fails P5-4 while naming
+  the exact triggering combination.
+
 
 Runs before Phase 4. Rationale and scope in BATTERIES_INCLUDED.md §Phase 5; the short
 version is that Phases 2–3 were verified by hand and those checks left no test behind.

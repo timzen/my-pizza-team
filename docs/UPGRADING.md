@@ -9,7 +9,7 @@ in throwaway sandboxes (`MPT_HOME` + `PI_CODING_AGENT_DIR`); your real
 `~/.pi/agent/settings.json`, your team directories, and your data were never
 touched.
 
-Status of this guide: **Phases 0, 1a, 1b, 1c, 2 and 3 complete.** Phases 5 and 4 pending.
+Status of this guide: **Phases 0–3 and 5 complete.** Phase 4 pending.
 
 ---
 
@@ -203,8 +203,11 @@ with zero agents connected.
 
 Listed so you know what is *not* yet true:
 
-- **Phase 5** — end-to-end coverage: the checks that were verified by hand during
-  Phases 2–3 become repeatable tests, before Phase 4 changes the spawn path.
 - **Phase 4** — a second harness at Tier 0.
+
+Phase 5 (end-to-end tests) is done and needs nothing from you — but if you run the
+suites yourself: `deno task test` is the fast one (~5s), `deno task test:e2e` the slow
+one (~21s, real git/tmux/shell). The e2e suite runs on a **private** tmux server, so it
+can't disturb your sessions.
 
 This file gets updated as those land.
