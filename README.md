@@ -436,8 +436,8 @@ my-pizza-team/
 ## Development
 
 ```bash
-deno task dev          # Auto-reload daemon (daemon/main.ts — no tmux spawning or readiness probe)
-deno task mpt <cmd>    # Run the CLI from source (e.g. `deno task mpt start` for the full daemon)
+deno task dev          # Auto-reload daemon (the same daemon `mpt start` runs)
+deno task mpt <cmd>    # Run the CLI from source
 deno task ui:dev       # Vite dev server for the UI
 ```
 

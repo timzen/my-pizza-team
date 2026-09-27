@@ -1,79 +1,17 @@
 /**
- * daemon/main.ts — Entry point for the HTTP daemon.
+ * daemon/main.ts — Run the daemon directly from source (`deno task dev` / `start`).
  *
- * Starts a Hono server using Deno's native serve adapter.
- * Manages the full daemon lifecycle:
- * - Checks for existing daemon (PID file)
- * - Writes PID file on start
- * - Registers SIGTERM/SIGINT handlers for graceful shutdown
- * - Flushes state and cleans up on exit
+ * A thin entry point over daemon/start.ts, the one startup routine the `mpt` CLI
+ * and the compiled binary also use — so the dev daemon is the real daemon (tmux
+ * spawning and the readiness probe included). Reads TEAM_DIR, PORT, and HOST.
  */
 
-import { createApp } from "./app.ts";
-import { TEAM_DIR } from "../shared/types.ts";
-import {
-  writePidFile,
-  isAlreadyRunning,
-  registerSignalHandlers,
-  type DaemonContext,
-} from "./lifecycle.ts";
-import { resolveToken, validateBindSafety } from "./auth.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import { resolveTeamDir, startDaemonInProcess } from "./start.ts";
 
-/** Resolve team directory: TEAM_DIR env (dir or parent), else .my-pizza-team in cwd. */
-function resolveTeamDir(): string {
-  const envDir = Deno.env.get("TEAM_DIR");
-  if (envDir) {
-    if (envDir.endsWith(TEAM_DIR)) return envDir;
-    if (existsSync(path.join(envDir, TEAM_DIR))) return path.join(envDir, TEAM_DIR);
-    return envDir;
-  }
-  return path.join(Deno.cwd(), TEAM_DIR); // default (created if missing)
+if (import.meta.main) {
+  await startDaemonInProcess(
+    resolveTeamDir(),
+    Number(Deno.env.get("PORT") ?? 7437),
+    Deno.env.get("HOST") || "127.0.0.1",
+  );
 }
-
-const teamDir = resolveTeamDir();
-const port = Number(Deno.env.get("PORT") ?? 7437);
-const hostname = Deno.env.get("HOST") || "127.0.0.1";
-
-// Ensure team directory exists
-if (!existsSync(teamDir)) {
-  Deno.mkdirSync(teamDir, { recursive: true });
-}
-
-// Check if another daemon is already running
-const existing = isAlreadyRunning(teamDir);
-if (existing.running) {
-  console.error(`❌ Daemon already running (PID ${existing.pid}). Stop it first or remove ${teamDir}/daemon.pid`);
-  Deno.exit(1);
-}
-
-// Create the app and store
-const { app, store } = createApp(teamDir);
-
-// Validate bind safety: refuse 0.0.0.0 without a token
-const configPath = path.join(teamDir, "config.json");
-const configToken = existsSync(configPath)
-  ? (JSON.parse(Deno.readTextFileSync(configPath)).apiToken as string | undefined)
-  : undefined;
-const token = resolveToken(configToken);
-const bindCheck = validateBindSafety(hostname, token);
-if (!bindCheck.safe) {
-  console.error(`❌ ${bindCheck.reason}`);
-  Deno.exit(1);
-}
-
-// Start the HTTP server
-const server = Deno.serve({ port, hostname }, app.fetch);
-
-// Write PID file
-const pidFile = writePidFile(teamDir);
-
-// Set up graceful shutdown context
-const ctx: DaemonContext = { store, server, teamDir, pidFile };
-registerSignalHandlers(ctx);
-
-console.log(`🍕 my-pizza-team daemon listening on http://localhost:${port}`);
-console.log(`   PID: ${Deno.pid} (${pidFile})`);
-console.log(`   Team dir: ${teamDir}`);
-console.log(`   Press Ctrl+C to stop.`);

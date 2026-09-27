@@ -1,23 +1,40 @@
 /**
- * cli/start-daemon.ts — Start the daemon in-process.
+ * daemon/start.ts — Start the daemon in-process: the one startup routine.
  *
- * Used by the CLI's foreground `start` command and the compiled binary.
- * Extracts the daemon startup logic from daemon/main.ts into a callable
- * function so compiled binaries don't need to shell out to `deno run`.
+ * Every way of running the daemon comes through here — `mpt start` (foreground,
+ * and the background child `--daemon` launches), the compiled binary, and
+ * `deno task dev`/`start` via daemon/main.ts — so they all get the same daemon:
+ * the HTTP server, the PID file and signal handling, daemon-driven spawning, and
+ * the readiness probe. (daemon/main.ts used to be a separate, older copy that
+ * skipped the last two, so the dev daemon behaved differently from the real one.)
  */
 
-import { createApp } from "../daemon/app.ts";
+import { createApp } from "./app.ts";
 import {
   writePidFile,
   isAlreadyRunning,
   registerSignalHandlers,
   type DaemonContext,
-} from "../daemon/lifecycle.ts";
-import { resolveToken, validateBindSafety } from "../daemon/auth.ts";
-import { probeSpawnCapability, realizePending } from "../daemon/spawner.ts";
-import { startReadinessLoop } from "../daemon/readiness.ts";
+} from "./lifecycle.ts";
+import { resolveToken, validateBindSafety } from "./auth.ts";
+import { probeSpawnCapability, realizePending } from "./spawner.ts";
+import { startReadinessLoop } from "./readiness.ts";
+import { TEAM_DIR } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
+
+/**
+ * The team directory from the environment: `TEAM_DIR` names the directory itself
+ * or its parent; unset means `.my-pizza-team` in the current directory.
+ */
+export function resolveTeamDir(env: string | undefined = Deno.env.get("TEAM_DIR"), cwd: string = Deno.cwd()): string {
+  if (env) {
+    if (env.endsWith(TEAM_DIR)) return env;
+    if (existsSync(path.join(env, TEAM_DIR))) return path.join(env, TEAM_DIR);
+    return env;
+  }
+  return path.join(cwd, TEAM_DIR);
+}
 
 /**
  * Start the daemon server in the current process.

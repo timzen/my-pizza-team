@@ -75,7 +75,8 @@ marked done; moving one back out reopens it.
 
 ### daemon/
 
-- `main.ts` — Entry point for `deno task dev`/`start`. Reads PORT/HOST/TEAM_DIR, validates bind safety, writes the PID file, serves. It does **not** start the spawner or the readiness loop — only `cli/start-daemon.ts` does (see TODO.md).
+- `start.ts` — `startDaemonInProcess`: **the one startup routine**, used by `mpt start` (foreground and the `--daemon` child), the compiled binary, and `main.ts`. Creates the app, validates bind safety, writes the PID file, registers signal handlers, serves, then probes spawn capability (and, if tmux is reachable, runs `realizePending` every 2s) and starts the readiness loop. Also `resolveTeamDir` (TEAM_DIR as the dir or its parent; else `./.my-pizza-team`), shared with the CLI.
+- `main.ts` — Entry point for `deno task dev`/`start`: a thin call into `start.ts`, so the dev daemon is the real daemon.
 - `app.ts` — `createApp(teamDir)`: merges `config.json` over `DEFAULT_CONFIG`, constructs the Store, loads from disk, starts timers, builds the app. Without a team dir, a health-only app.
 - `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
@@ -119,7 +120,6 @@ marked done; moving one back out reopens it.
 ### cli/
 
 - `main.ts` — Command dispatch and most commands: `start` (foreground, or `--daemon` re-launches itself detached with `start --foreground-internal`; its output is not captured — see TODO.md), `stop`, `status`, `rotate-token`, `install`/`uninstall` (service), `upgrade`, `doctor`, `setup`, `lead`, and the hidden `write-extension-internal`. `cmdLead` renders the harness's `leader` template, opens the fixed `leader` window in the project directory, and attaches (or `select-window` when already inside tmux); an existing window is attached rather than duplicated. `upgrade` maps the platform to a release asset (`mpt-<os>-<arch>`), verifies `checksums.sha256`, atomically replaces the executable, runs the new binary's `write-extension-internal` to refresh the managed extension, and restarts an installed service. The GitHub API call sends `MPT_GITHUB_TOKEN`/`GITHUB_TOKEN`/`GH_TOKEN` when set (to `api.github.com` only); on any API failure (typically a rate-limit 403) it falls back to the unauthenticated `github.com/<repo>/releases/latest` redirect and constructs `/releases/download/<tag>/<asset>` URLs. Refuses when run from source.
-- `start-daemon.ts` — `startDaemonInProcess`: what `mpt start` runs. Creates the app, writes the PID file, serves, then probes spawn capability (and, if tmux is reachable, runs `realizePending` every 2s) and starts the readiness loop.
 - `setup.ts` — `planSetup()` (pure: decides what to change, including conflict resolution between managed, dev-checkout, and legacy registrations), settings mutation (atomic, preserving unowned fields), and the `SetupManifest` that `--uninstall` replays.
 - `doctor.ts` — Gathers facts and `evaluate()`s them (pure) into a checklist: Pi (vs `TESTED_PI_VERSION`), tmux, Pi settings, extension registration and version, permission system, team dir, project trust, daemon, leader, spawning path, service, GitHub token. Only failures set the exit code.
 - `pi-config.ts` — Reads Pi's `settings.json`/`trust.json` (under `PI_CODING_AGENT_DIR`, default `~/.pi/agent`); resolves local package entries to absolute paths before comparing; classifies registrations as `managed` / `dev` / `legacy` / `missing`.
@@ -211,7 +211,7 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 `thought-geometry`, `thought-list`, `usage-grid`, `wheel-gesture`, `harness-skew`) using
 `tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
-probe. Guard tests worth knowing: `version.test.ts` (extension version in step),
+probe, and entry points (every way of starting the daemon gets the same daemon). Guard tests worth knowing: `version.test.ts` (extension version in step),
 `protocol-version.test.ts`, `runtime-purity.test.ts`, `build-embeds.test.ts`,
 `doctor-coherence.test.ts`. The extension's suites are in `harnesses/pi/tests/`
 (`deno task test:ext`).

@@ -6,13 +6,6 @@ fixed.
 
 ## Bugs
 
-- **`deno task dev` / `deno task start` run a different daemon from `mpt start`.**
-  `daemon/main.ts` never calls `probeSpawnCapability`/`realizePending` or
-  `startReadinessLoop`; only `cli/start-daemon.ts` does. Under `deno task dev`,
-  `/health` reports spawning as "not probed", spawns fall to the leader, and a
-  configured readiness probe never runs. Have `daemon/main.ts` delegate to
-  `startDaemonInProcess` (keeping `--watch`).
-
 - **`mpt start --daemon` pipes the child's stdout/stderr and never reads them**
   (`cmdStart`). The parent exits right away, so daemon output is lost; check whether
   later writes hit a broken pipe. Redirect to a log file in the team dir (its names

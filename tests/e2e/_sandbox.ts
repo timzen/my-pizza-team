@@ -30,6 +30,8 @@ import { TESTED_PI_VERSION } from "../../cli/doctor.ts";
 
 const REPO = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "..", "..");
 const CLI = path.join(REPO, "cli", "main.ts");
+/** The source entry point `deno task dev` / `start` run. */
+const DAEMON_MAIN = path.join(REPO, "daemon", "main.ts");
 
 export interface RunResult {
   code: number;
@@ -65,8 +67,11 @@ export interface Sandbox extends AsyncDisposable {
   readPiSettings(): Record<string, unknown>;
   /** Write the team's config.json (creating the team directory). */
   writeTeamConfig(config: Record<string, unknown>): void;
-  /** Start the daemon in the background and wait until it answers /health. */
-  startDaemon(): Promise<void>;
+  /**
+   * Start the daemon in the background and wait until it answers /health — via
+   * `mpt start` (default), or via daemon/main.ts as `deno task dev` runs it.
+   */
+  startDaemon(entry?: "cli" | "source"): Promise<void>;
   /** Poll until `check` is true or the timeout passes. Returns whether it became true. */
   waitFor(check: () => boolean | Promise<boolean>, timeoutMs?: number): Promise<boolean>;
 }
@@ -216,9 +221,9 @@ export async function sandbox(label = "e2e", opts: SandboxOptions = {}): Promise
       Deno.writeTextFileSync(path.join(teamDir, "config.json"), JSON.stringify({ tmuxSession: session, ...config }, null, 2));
     },
 
-    async startDaemon() {
+    async startDaemon(entry = "cli") {
       daemon = new Deno.Command(Deno.execPath(), {
-        args: ["run", "--allow-all", CLI, "start"],
+        args: entry === "source" ? ["run", "--allow-all", DAEMON_MAIN] : ["run", "--allow-all", CLI, "start"],
         env,
         clearEnv: true,
         cwd: projectDir,

@@ -33,7 +33,7 @@ import {
   type SetupPlan,
 } from "./setup.ts";
 import { generateToken } from "../daemon/auth.ts";
-import { startDaemonInProcess } from "./start-daemon.ts";
+import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
 // Single source of truth for the version: the package manifest. Bundled into
 // the compiled binary by `deno compile` (JSON imports are part of the module
 // graph), and read directly under `deno run`.
@@ -46,13 +46,7 @@ const PID_FILENAME = "daemon.pid";
 const RELEASE_REPO = "timzen/my-pizza-team";
 
 function getTeamDir(): string {
-  const envDir = Deno.env.get("TEAM_DIR");
-  if (envDir) {
-    if (envDir.endsWith(TEAM_DIR)) return envDir;
-    if (existsSync(path.join(envDir, TEAM_DIR))) return path.join(envDir, TEAM_DIR);
-    return envDir;
-  }
-  return path.join(Deno.cwd(), TEAM_DIR);
+  return resolveTeamDir();
 }
 
 function getPort(): number {
