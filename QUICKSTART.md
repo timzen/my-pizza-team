@@ -115,6 +115,8 @@ something seems off.
 - **Review results** — completed work lands in the **Inbox** on the home page.
 - **Configure workflows** — the Workflows tab (under Board) customises states and
   their personas.
+- **Try other agents (experimental)** — Kiro and Claude Code can run as teammates too;
+  see [Other harnesses](README.md#other-harnesses) in the README.
 - **Stay current** — `mpt upgrade` updates `mpt` *and* its Pi extension together.
   Restart running agents afterwards; the Team tab flags any still on the old version
   and can restart them.

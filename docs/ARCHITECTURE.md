@@ -122,7 +122,7 @@ marked done; moving one back out reopens it.
 
 ### cli/
 
-- `main.ts` — Command dispatch and most commands: `start` (foreground, or `--daemon` re-launches itself detached — as `deno run …` when running from source — with `start --foreground-internal`, which logs to `daemon.log` via `redirectOutputToLog`; the parent waits for the PID file, or reports that the child exited and where its log is), `stop`, `status`, `rotate-token`, `install`/`uninstall` (service), `upgrade`, `doctor`, `setup`, `lead`, and the hidden `write-extension-internal`. `cmdLead` renders the harness's `leader` template, opens the fixed `leader` window in the project directory, and attaches (or `select-window` when already inside tmux); an existing window is attached rather than duplicated. `upgrade` maps the platform to a release asset (`mpt-<os>-<arch>`), verifies `checksums.sha256`, atomically replaces the executable, runs the new binary's `write-extension-internal` to refresh the managed extension, and restarts an installed service. The GitHub API call sends `MPT_GITHUB_TOKEN`/`GITHUB_TOKEN`/`GH_TOKEN` when set (to `api.github.com` only); on any API failure (typically a rate-limit 403) it falls back to the unauthenticated `github.com/<repo>/releases/latest` redirect and constructs `/releases/download/<tag>/<asset>` URLs. Refuses when run from source.
+- `main.ts` — Command dispatch and most commands (`agent` and `setup --harness` route to `agent.ts`): `start` (foreground, or `--daemon` re-launches itself detached — as `deno run …` when running from source — with `start --foreground-internal`, which logs to `daemon.log` via `redirectOutputToLog`; the parent waits for the PID file, or reports that the child exited and where its log is), `stop`, `status`, `rotate-token`, `install`/`uninstall` (service), `upgrade`, `doctor`, `setup`, `lead`, and the hidden `write-extension-internal`. `cmdLead` renders the harness's `leader` template, opens the fixed `leader` window in the project directory, and attaches (or `select-window` when already inside tmux); an existing window is attached rather than duplicated. `upgrade` maps the platform to a release asset (`mpt-<os>-<arch>`), verifies `checksums.sha256`, atomically replaces the executable, runs the new binary's `write-extension-internal` to refresh the managed extension, and restarts an installed service. The GitHub API call sends `MPT_GITHUB_TOKEN`/`GITHUB_TOKEN`/`GH_TOKEN` when set (to `api.github.com` only); on any API failure (typically a rate-limit 403) it falls back to the unauthenticated `github.com/<repo>/releases/latest` redirect and constructs `/releases/download/<tag>/<asset>` URLs. Refuses when run from source.
 - `setup.ts` — `planSetup()` (pure: decides what to change, including conflict resolution between managed, dev-checkout, and legacy registrations), settings mutation (atomic, preserving unowned fields), and the `SetupManifest` that `--uninstall` replays.
 - `doctor.ts` — Gathers facts and `evaluate()`s them (pure) into a checklist: Pi (vs `TESTED_PI_VERSION`), tmux, Pi settings, extension registration and version, permission system, team dir, project trust, daemon, leader, spawning path, service, GitHub token. Only failures set the exit code.
 - `pi-config.ts` — Reads Pi's `settings.json`/`trust.json` (under `PI_CODING_AGENT_DIR`, default `~/.pi/agent`); resolves local package entries to absolute paths before comparing; classifies registrations as `managed` / `dev` / `legacy` / `missing`.
@@ -256,6 +256,12 @@ opens a window in `config.tmuxSession` running the harness's `teammate` template
 within ~2s; otherwise the leader realizes it. The teammate registers with its tmux
 location in `metadata`, which later `dismiss` / `reset-session` directives use.
 `reconcileTeammatePool` only queues spawns while a leader is online — on purpose, even when the daemon could spawn (DESIGN.md "Team Size"); a one-off Spawn-dialog spawn isn't held.
+
+An experimental harness (`params.harness` or `defaultHarness` = `kiro`/`claude`, with
+`experimental.harnesses` on) spawns the same way, but its template runs `{mpt} agent
+--harness …` — the daemon fills `{mpt}` with how it was itself run (`daemon/self.ts`).
+The leader's fallback path can't, so those spawns need the daemon to reach tmux; the
+supervisor then registers with `harness` set, like any agent.
 
 ## Templates
 

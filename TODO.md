@@ -26,10 +26,10 @@ and Claude Code (adapter 0.81.2): each completed a small job end to end.
 - **Leading** (the chat mirror over ACP; typing in the tmux window has no path in yet).
 - **Graduating** a harness out of the flag once it has been used for real work.
 
-The original design, for the record: replaces the earlier one-shot Kiro design: both agents speak the **Agent
-Client Protocol** (JSON-RPC 2.0 over stdio, one object per line), which gives a
-persistent session with streaming, permissions, and cancellation — far more than
-one-shot runs.
+Background: both agents speak the **Agent Client Protocol** (JSON-RPC 2.0 over stdio,
+one object per line). The design as built is in docs/DESIGN.md "Harness Tiers, and Why
+Not MCP" and docs/ARCHITECTURE.md "agent/"; what the spike verified, and the
+decisions, are kept below for reference.
 
 ### Verified (spike, 2026-09-27; about $1 of Claude and 5.6 Kiro credits)
 
@@ -56,24 +56,6 @@ Gotchas found:
 - Kiro sends extension methods (`_kiro.dev/metadata`, `_kiro.dev/session/update`,
   `…/commands/available`, `…/mcp/server_initialized`); a client must ignore unknown
   notifications and answer unknown requests with "method not found".
-
-### Proposed design
-
-- **`mpt agent --harness <name>`**, a supervisor run *inside* the teammate's tmux window
-  (the daemon's teammate template), so agents keep surviving daemon restarts as Pi
-  teammates do. It is an **ACP client** to the agent and speaks the daemon protocol
-  through `harnesses/pi/src/runtime/` (pure TS + `fetch`, importable from Deno — the
-  second consumer DESIGN.md said would justify sharing it). The window shows a readable
-  transcript.
-- Mapping: heartbeat + register (handshake, `harness`); poll → claim → `session/new` (fresh
-  context per item; mode set explicitly) → `session/prompt` with the daemon's prompt →
-  `end_turn` = COMPLETE (last reply = summary comment), a `fail` path for giving up
-  (e.g. `mpt work fail "<why>"`, or an MCP tool); `session/update` → transcript mirror
-  (only while watched); usage → `/api/agents/:id/usage`; pairing: queue = next prompt,
-  steer = Claude's queueing or cancel-and-reprompt for Kiro; `request_permission` →
-  allow while autonomous, forwarded to the web UI while paired (new UI); `reset-session`
-  → `session/new`.
-- Pi stays native (Tier 2); the leader stays Pi at first.
 
 ### Decisions (2026-09-27)
 
