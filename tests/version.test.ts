@@ -31,7 +31,7 @@ Deno.test("the extension's generated shared constants are in step", async () => 
   // test that rendered independently could disagree with the generator, which is
   // the drift this task exists to remove.
   const { render, SOURCE, TARGET } = await import("../scripts/sync-shared.ts");
-  const expected = render(await Deno.readTextFile(SOURCE));
+  const expected = render(await import(SOURCE.href));
   assertEquals(
     await Deno.readTextFile(TARGET),
     expected,

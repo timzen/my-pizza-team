@@ -199,10 +199,11 @@ export class Store {
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
   /**
-   * The team's readiness, reported by the leader's probe (see TeamReadiness).
-   * Held in memory only: like member connections, it's live state a freshly-booted
-   * daemon has no knowledge of — with no report yet the team is treated as ready
-   * until the leader says otherwise (within a heartbeat).
+   * The team's readiness, from the daemon's own probe (daemon/readiness.ts) or a
+   * harness's `POST /api/readiness` (see TeamReadiness). Held in memory only: like
+   * member connections, it's live state a freshly-booted daemon has no knowledge
+   * of — with no report yet the team is treated as ready until the probe's first
+   * run says otherwise (at startup).
    */
   private teamReadiness: TeamReadiness | undefined;
   /**
@@ -541,7 +542,7 @@ export class Store {
     if (!memberColumns.some((col) => col.name === "metadata")) {
       this.db.exec("ALTER TABLE members ADD COLUMN metadata TEXT DEFAULT '{}'");
     }
-    // Directory-affinity matching: the agent's working directory (see refactor plan).
+    // Directory-affinity matching: the agent's working directory (docs/DESIGN.md "Work Matching: Directory Affinity").
     if (!memberColumns.some((col) => col.name === "directory")) {
       this.db.exec("ALTER TABLE members ADD COLUMN directory TEXT");
     }
@@ -1160,7 +1161,7 @@ export class Store {
 
   /**
    * Pick the next READY WorkItem for a polling agent using directory affinity
-   * (see the refactor plan). Eligibility: task refs must belong to a ready,
+   * (docs/DESIGN.md "Work Matching: Directory Affinity"). Eligibility: task refs must belong to a ready,
    * unpaused story. Priority tiers:
    *   1. item.directory == agent.directory  (my repo's work)
    *   2. item has no directory              (anyone's)
@@ -1548,8 +1549,8 @@ export class Store {
 
   /**
    * Record a heartbeat. A previously-reaped agent coming back restores its
-   * MORIBUND WorkItems to IN_PROGRESS — it was alive after all (see the
-   * refactor plan's reaping model).
+   * MORIBUND WorkItems to IN_PROGRESS — it was alive after all (see
+   * docs/DESIGN.md "Reaping").
    */
   heartbeat(id: string, status: string): void {
     const prev = this.getMember(id);
@@ -1613,8 +1614,9 @@ export class Store {
   /**
    * Check all registered agents for heartbeat timeout.
    * If an agent's last heartbeat is older than agentTimeoutSeconds:
-   * - Mark it as offline
-   * - Release any tasks it has claimed
+   * - Move its in-flight WorkItems to MORIBUND (the lease is kept — see
+   *   docs/DESIGN.md "Reaping")
+   * - Mark it offline
    * - Log a warning
    *
    * Returns the list of agent IDs that were marked offline.
@@ -1635,8 +1637,8 @@ export class Store {
       const agoSec = Math.round((Date.now() - lastHb) / 1000);
 
       // Move any in-flight WorkItem to MORIBUND (the agent went quiet, but we
-      // don't declare failure or hand its work to someone else — see the
-      // refactor plan's reaping model). The lease is kept; a human force-fails
+      // don't declare failure or hand its work to someone else — see
+      // docs/DESIGN.md "Reaping"). The lease is kept; a human force-fails
       // it, or the agent reconnects and its item is restored to IN_PROGRESS.
       const inflight = this.db.prepare(
         "SELECT id FROM work_items WHERE member_id = ? AND state = 'IN_PROGRESS'"
@@ -1762,7 +1764,7 @@ export class Store {
 
   // --- Team readiness (see TeamReadiness) ---
 
-  /** Record the team's readiness (reported by the leader's probe). */
+  /** Record the team's readiness (the daemon's probe, or a harness's report). */
   setTeamReadiness(ready: boolean, reason?: string): void {
     this.teamReadiness = { ready, reason: ready ? undefined : reason, at: Date.now() };
   }

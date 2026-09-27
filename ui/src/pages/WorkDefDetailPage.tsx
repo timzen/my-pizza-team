@@ -7,7 +7,7 @@
  * completion summaries agents post after each run, newest first). Details is
  * the default; the Inbox deep-links to `?tab=thread`. Editing saves via PUT;
  * "Run now" enqueues a fresh WorkItem. Comments live on the ref, not on any
- * individual WorkItem (see the daemon's refactor plan). Thread attachments are
+ * individual WorkItem (see docs/DESIGN.md "Comments"). Thread attachments are
  * clickable (open the diff/file viewer with line-level review) and the composer
  * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
  * attachments`), so they work for Solitary and Scheduled work just like board

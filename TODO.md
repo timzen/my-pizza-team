@@ -4,26 +4,6 @@ Code issues found while reconciling the docs with the source (docs consolidation
 v0.20.0). Each item names a symbol rather than a line number. Delete an item when it's
 fixed.
 
-## Stale code comments
-
-- `TeamConfig.readinessProbe` — "The leader runs this on each heartbeat" (the daemon
-  runs it every 30s). Same in `Store.setTeamReadiness` ("reported by the leader's
-  probe"), the `teamReadiness` field comment, and the readiness block in
-  `routes/shared.ts`.
-- `/health` in `routes/shared.ts` — "Hosts whose leader reported not-ready".
-- `Schedule.heldForReadiness` — "no ready agent could take its work … a teammate …
-  reported not-ready" (it's team readiness).
-- `server.ts` header — `tasks:` lists "comments, attachments, token usage" (moved to
-  work-defs); `agents:` lists "release, spawn".
-- `shared/types.ts` header — "P1c-7 folds its remaining local type copy" (done).
-- `WorkItem` doc — "a polymorphic `ref` (a story task, or a standalone WorkDef)"; the
-  ref is always a WorkDef id.
-- `Store.reapOfflineAgents` doc — "Release any tasks it has claimed" (they go
-  MORIBUND).
-- `harnesses/pi/src/leader.ts` still carries its own copy of the Pi teammate template
-  (`{workArgs}`) and a `"pi-pizza-team"` tmux-session fallback, for the leader-driven
-  spawn path. Worth deriving from `DEFAULT_HARNESS_TEMPLATES` / the daemon config.
-
 ## Dead code and leftovers
 
 - `DaemonClient.reportReadiness`, `getComments`, and `reportTokenUsage`

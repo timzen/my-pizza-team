@@ -9,6 +9,13 @@
 // package: `mpt setup` writes it to a managed directory outside this repo, so a
 // relative import into shared/ would not resolve there.
 
-export const TEAM_DIR = ".my-pizza-team";
-export const LEGACY_TEAM_DIR = ".pi-pizza-team";
-export const DEFAULT_DAEMON_URL = "http://localhost:7437";
+export const TEAM_DIR: string = ".my-pizza-team";
+export const LEGACY_TEAM_DIR: string = ".pi-pizza-team";
+export const DEFAULT_DAEMON_URL: string = "http://localhost:7437";
+export const DEFAULT_TMUX_SESSION: string = "my-pizza-team";
+export const DEFAULT_HARNESS_TEMPLATES: Record<string, { teammate: string; leader?: string }> = {
+  "pi": {
+    "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+    "leader": "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
+  }
+};

@@ -1,7 +1,7 @@
 /**
  * daemon/cron.ts — Minimal 5-field cron parser for Scheduled WorkDefs.
  *
- * Vendored (rather than adding a dependency) per the refactor plan. Supports the
+ * Vendored (rather than adding a dependency) to keep the dependency list short. Supports the
  * standard 5 fields `MIN HOUR DOM MON DOW` with `*`, lists (`a,b`), ranges
  * (`a-b`), and steps (`* /n`, `a-b/n`). Day-of-week 0 or 7 = Sunday. Matching is
  * minute-granular; the scheduler dedupes multiple ticks within one minute.

@@ -108,8 +108,19 @@ test("has a default harness template for pi (no pi-assistant: the leader is the 
   assert.ok(src.includes("pi:"));
 });
 
+// The leader's fallback spawn path uses the daemon's templates, generated into
+// src/shared/types.ts — not a copy of its own that can drift.
+const shared = fs.readFileSync(new URL("../src/shared/types.ts", import.meta.url), "utf8");
+
+test("the leader takes its templates and default session from the generated shared constants", () => {
+  assert.ok(src.includes('import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION } from "./shared/types.js"'));
+  assert.ok(!/const DEFAULT_HARNESS_TEMPLATES\b/.test(src), "no local copy of the templates");
+  assert.ok(src.includes("let tmuxSession = DEFAULT_TMUX_SESSION;"));
+  assert.ok(!src.includes('"pi-pizza-team";'), "no stale session name");
+});
+
 test("pi template uses -a --ppt-worker --ppt-daemon --ppt-name", () => {
-  assert.ok(src.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
+  assert.ok(shared.includes("pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}"));
 });
 
 test("nothing spawns an assistant any more (the leader is the chat agent)", () => {
@@ -123,18 +134,22 @@ test("nothing spawns an assistant any more (the leader is the chat agent)", () =
 test("pi harness templates auto-approve project trust", () => {
   // -a (--approve) lets a spawned teammate trust its cwd non-interactively so
   // it doesn't block on pi's "Trust project folder?" prompt.
-  assert.ok(src.includes('pi: "pi -a '));
+  assert.ok(shared.includes('"teammate": "pi -a '));
 });
 
 test("spawnAgent resolves template placeholders", () => {
   assert.ok(src.includes(".replace(/\\{name\\}/g,"));
   assert.ok(src.includes(".replace(/\\{url\\}/g,"));
   assert.ok(src.includes(".replace(/\\{cwd\\}/g,"));
-  assert.ok(src.includes(".replace(/\\{workArgs\\}/g,"));
+  // {workArgs} is gone: the daemon's templates don't have it.
+  assert.ok(!src.includes("workArgs"));
 });
 
-test("loads custom harness templates from daemon config", () => {
-  assert.ok(src.includes("daemonConfig.harnessCommands"));
+test("loads custom harness templates from the daemon config's `harnesses`", () => {
+  // The field config.json actually has. The leader used to read `harnessCommands`,
+  // which nothing sets, so custom templates never reached this path.
+  assert.ok(src.includes("teammateTemplates(daemonConfig.harnesses)"));
+  assert.ok(!src.includes("daemonConfig.harnessCommands"));
 });
 
 // ─── tmux management ─────────────────────────────────────────────
@@ -276,7 +291,7 @@ test("delivers reset-session intent as Pi's /new keystrokes", () => {
 });
 
 test("passes tmux session/window to spawned agents", () => {
-  assert.ok(src.includes("--ppt-tmux-session={session} --ppt-tmux-window={window}"));
+  assert.ok(shared.includes("--ppt-tmux-session={session} --ppt-tmux-window={window}"));
   assert.ok(src.includes(".replace(/\\{window\\}/g,"));
 });
 

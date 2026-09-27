@@ -140,7 +140,7 @@ export interface DeleteStoryResponse { success: boolean; error?: string }
 // POST /api/stories/:id/archive
 export interface ArchiveStoryResponse { success: boolean; synopsis?: string; error?: string }
 
-// --- Capabilities removed: matching is now directory-affinity only (see refactor plan). ---
+// --- Capabilities removed: matching is now directory-affinity only (docs/DESIGN.md "Work Matching: Directory Affinity"). ---
 
 // GET /api/archived
 export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: string; archivedAt: string; synopsis: string }> }
@@ -252,7 +252,7 @@ export interface AssistantPersonaResponse { personaId: string | null; entry: Con
 export interface SetAssistantPersonaRequest { personaId: string | null }
 export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; entry?: ContextEntry | null; systemPrompt?: string; session?: AssistantSession; error?: string }
 
-// --- Agents API (WorkItem-centric; see refactor plan) ---
+// --- Agents API (WorkItem-centric; see docs/DESIGN.md "The WorkItem") ---
 
 // POST /api/agents/register
 export interface AgentRegisterRequest {

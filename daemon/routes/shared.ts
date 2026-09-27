@@ -53,8 +53,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // whether a leader coordinator (a member named "leader") is connected.
       tmuxSession: config.tmuxSession,
       leaderPresent: members.some((m) => m.name === "leader" && m.status !== "offline"),
-      // Hosts whose leader reported not-ready (e.g. expired credentials). While a
-      // host is not ready, scheduled work destined for it is held (not failed).
+      // The team's readiness when it is *not* ready (e.g. expired credentials),
+      // else null. While not ready, scheduled work is held (not failed).
       notReady: store.getTeamReadiness()?.ready === false ? store.getTeamReadiness() : null,
       // Which path realizes spawns (P3-1), so `mpt doctor` can say rather than the
       // user discovering that nothing spawns.
@@ -185,11 +185,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
 
   // ─── Readiness ─────────────────────────────────────────────────────
   //
-  // The leader runs an optional probe — e.g. "are the shared credentials on this
-  // box valid?" — and reports the result. A not-ready team *holds* scheduled
-  // enqueues rather than failing them, and the held Schedule re-fires exactly once
-  // on recovery. Team-level since P1c-3: multi-host is gone, and credential/VPN
-  // state belongs to the machine the team runs on. See docs/ARCHITECTURE.md
+  // The daemon runs the optional probe itself (daemon/readiness.ts) — e.g. "are the
+  // shared credentials on this box valid?" — and a harness may also report here. A
+  // not-ready team *holds* scheduled enqueues rather than failing them, and the held
+  // Schedule re-fires exactly once on recovery. Team-level: credential/VPN state
+  // belongs to the machine the team runs on. See docs/ARCHITECTURE.md
   // "Scheduler readiness gating".
 
   app.post("/api/readiness", async (c) => {

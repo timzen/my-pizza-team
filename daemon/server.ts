@@ -5,13 +5,15 @@
  * Routes are organized into modules by concern:
  *   - shared: health, status, config, control, readiness, workflows
  *   - stories: story CRUD, archive, backlog
- *   - tasks: task CRUD, move, comments, attachments, token usage
- *   - work-defs: WorkDef CRUD + enqueue (Solitary one-shots and Scheduled children)
+ *   - tasks: story-parent task operations — create-in-story, reorder, move, delete
+ *   - work-defs: every WorkDef (board, Solitary, Scheduled): CRUD, enqueue,
+ *     archive/restore, comments, attachments, token usage
  *   - work: the WorkItem queue — Inbox/sidebar reads plus the recovery actions
  *     (cancel, force-fail, re-enqueue)
  *   - schedules: Schedule (cron parent) CRUD
  *   - templates: Task Template CRUD — reusable molds for Solitary tasks
- *   - agents: agent protocol (register, next-work, claim, release, spawn)
+ *   - agents: agent protocol (register, heartbeat, next-work, claim, set-state,
+ *     comments), self-directives, leader directives, spawn requests
  *   - assistant: chat v2 — conversation, SSE stream, agent mirror surface,
  *     session lifecycle, and the persona
  *   - thoughts: Thoughts board CRUD, batch positions, and groups

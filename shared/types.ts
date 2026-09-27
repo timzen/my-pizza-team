@@ -1,9 +1,9 @@
 /**
  * shared/types.ts — Shared type definitions and utilities used across daemon, CLI, and UI.
  *
- * Originally ported from the standalone pi-pizza-team extension for the Deno
- * runtime. That extension now lives in this repo at harnesses/pi/, and P1c-7 folds
- * its remaining local type copy into this file.
+ * The canonical definitions. The Pi extension (harnesses/pi/) has no copy of
+ * these types; the few constants it needs are generated from this file into
+ * harnesses/pi/src/shared/types.ts by `deno task sync-shared`.
  */
 
 /** Standard API response envelope. */
@@ -53,8 +53,8 @@ export interface TeamConfig {
   /** Which harness to spawn when none is named. Defaults to "pi". */
   defaultHarness?: string;
   /**
-   * Readiness probe command. The leader runs this on each heartbeat; exit 0 =
-   * ready, non-zero = not ready (stdout's first line = reason). A not-ready team
+   * Readiness probe command. The daemon runs it every 30s (daemon/readiness.ts);
+   * exit 0 = ready, non-zero = not ready (its first line of output = reason). A not-ready team
    * holds scheduled enqueues instead of failing them. See docs/ARCHITECTURE.md
    * "Scheduler readiness gating".
    */
@@ -97,8 +97,8 @@ export const DONE_STATE = "done";
 /**
  * The unit of agent execution: a single, dumb, terminal-only attempt to do some
  * work (see docs/DESIGN.md "The WorkItem"). A WorkItem points at its
- * work via a polymorphic `ref` (a story task, or a standalone WorkDef) and only
- * ever moves toward a terminal state. All rich detail (goal, comments, results)
+ * work via `ref` — the id of the WorkDef it runs (board, Solitary, or Scheduled
+ * alike) — and only ever moves toward a terminal state. All rich detail (goal, comments, results)
  * lives on the ref, never here.
  */
 export type WorkItemState =
@@ -112,9 +112,8 @@ export type WorkItemState =
 /** Non-terminal states — a WorkItem in one of these is "in the queue / in flight". */
 export const ACTIVE_WORK_ITEM_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND"];
 
-/** Polymorphic pointer to the work a WorkItem represents. Every unit of work is
- * now a WorkDef, so the ref is simply its id (the old task|workdef union
- * collapsed — see docs/DESIGN.md "WorkDefs & Parents"). */
+/** The work a WorkItem represents. Every unit of work is a WorkDef, so the ref is
+ * simply its id (see docs/DESIGN.md "WorkDefs & Parents"). */
 export interface WorkItemRef {
   workDefId: string;
 }
@@ -215,9 +214,9 @@ export interface Schedule {
   /** ISO timestamp of the last time this schedule enqueued its children. */
   lastEnqueuedAt?: string;
   /**
-   * Set when a due occurrence was held back because no ready agent could take
-   * its work (e.g. a teammate whose credentials expired reported not-ready).
-   * The scheduler fires the held occurrence once when an agent becomes ready
+   * Set when a due occurrence was held back because the team was not ready (its
+   * readiness probe failed — e.g. expired credentials) while agents were online.
+   * The scheduler fires the held occurrence once when the team is ready
    * again — collapsing any missed occurrences into a single catch-up run so
    * the queue never accumulates a per-occurrence backlog. See
    * docs/ARCHITECTURE.md "Scheduler readiness gating".
@@ -229,7 +228,7 @@ export interface Schedule {
  * Normalize a directory value for comparison: expand a leading `~` to $HOME and
  * strip a trailing slash. Applied at write time. Directory matching is only a
  * soft affinity bias, so an imperfect normalization (symlink/mount variants)
- * merely loses the preference — it never strands work (see the refactor plan).
+ * merely loses the preference — it never strands work (docs/DESIGN.md "Work Matching: Directory Affinity").
  */
 export function normalizeDirectory(dir: string): string {
   return dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~").replace(/\/+$/, "");
@@ -352,9 +351,12 @@ export interface Assignment {
   claimedAt: number;
 }
 
+/** The tmux session teammates run in, unless config names another. */
+export const DEFAULT_TMUX_SESSION = "my-pizza-team";
+
 export const DEFAULT_CONFIG: TeamConfig = {
   port: 7437,
-  tmuxSession: "my-pizza-team",
+  tmuxSession: DEFAULT_TMUX_SESSION,
   defaultWorkflow: "default",
   workflows: {
     default: {

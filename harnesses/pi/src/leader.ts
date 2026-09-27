@@ -29,6 +29,7 @@ import type { DaemonClient } from "./runtime/client.js";
 import { registerLeaderTools } from "./tools.js";
 import { prepareSpawnConfig } from "./permissions.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
+import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION } from "./shared/types.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
@@ -40,16 +41,21 @@ interface HarnessTemplates {
   [harness: string]: string;
 }
 
-// The pi templates pass `-a` (--approve) so a spawned teammate trusts its
-// project cwd non-interactively. Without it, spawning into a folder outside a
-// trusted parent (see ~/.pi/agent/trust.json) blocks on pi's "Trust project
-// folder?" prompt — and the permissive config we write into the cwd's .pi is
-// only applied once the project is trusted anyway.
-const DEFAULT_HARNESS_TEMPLATES: HarnessTemplates = {
-  pi: "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name}{workArgs} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-  // Only teammates are spawned. There is no assistant template: this leader is
-  // the agent the user chats with (see chat.ts).
-};
+/**
+ * Teammate start commands by harness, for when this leader realizes a spawn itself
+ * (the daemon's fallback when it can't reach tmux). The same templates the daemon
+ * uses: team config's `harnesses` when set, else the built-in defaults — generated
+ * from the daemon's shared/types.ts (`deno task sync-shared`), so the two paths
+ * can't drift. The built-in Pi template passes `-a` so a spawned teammate trusts its
+ * cwd non-interactively instead of blocking on Pi's "Trust project folder?" prompt.
+ */
+function teammateTemplates(harnesses?: Record<string, { teammate?: string }>): HarnessTemplates {
+  const out: HarnessTemplates = {};
+  for (const [name, t] of Object.entries(harnesses ?? DEFAULT_HARNESS_TEMPLATES)) {
+    if (t?.teammate) out[name] = t.teammate;
+  }
+  return out;
+}
 
 
 
@@ -91,8 +97,8 @@ export async function setupLeader(
   // config resolution is a retryable operation, not a one-shot at startup:
   // syncDaemonConfig() is retried from the heartbeat and before dispatching
   // directives until it succeeds (configSynced).
-  let tmuxSession = "pi-pizza-team";
-  let harnessTemplates: HarnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES };
+  let tmuxSession = DEFAULT_TMUX_SESSION;
+  let harnessTemplates: HarnessTemplates = teammateTemplates();
   let configSynced = false;
 
   /**
@@ -122,14 +128,15 @@ export async function setupLeader(
       }
     }
 
-    // Try to load harness templates from daemon config
+    // The team's harness templates (config.json `harnesses`), if it has any —
+    // the same ones the daemon spawns with. (This used to read a
+    // `harnessCommands` field no config has, so custom templates never reached
+    // the leader's spawn path.)
     try {
       const daemonConfig = await client.getConfig();
-      if (daemonConfig.harnessCommands) {
-        harnessTemplates = { ...DEFAULT_HARNESS_TEMPLATES, ...daemonConfig.harnessCommands };
-      }
+      if (daemonConfig.harnesses) harnessTemplates = teammateTemplates(daemonConfig.harnesses);
     } catch {
-      // Use defaults
+      // Keep the defaults (retried on the next sync).
     }
 
     configSynced = true;
@@ -574,8 +581,7 @@ function spawnAgent(
   }
 
   // Resolve the command template. Teammates are generalists biased by their
-  // working directory (the spawn cwd) — there are no work-mode/skill args.
-  const workArgs = "";
+  // working directory (the spawn cwd), so there are no per-teammate extra args.
   // `harnessTemplates` is an index signature, so both the lookup and the `pi`
   // fallback can be absent — a config that defines templates but omits the one
   // being spawned would otherwise crash here, surfacing as a teammate that
@@ -590,7 +596,6 @@ function spawnAgent(
     .replace(/\{name\}/g, shellSafe(name))
     .replace(/\{url\}/g, shellSafe(daemonUrl))
     .replace(/\{cwd\}/g, safeCwd)
-    .replace(/\{workArgs\}/g, workArgs)
     .replace(/\{session\}/g, safeSession)
     .replace(/\{window\}/g, safeName);
 
