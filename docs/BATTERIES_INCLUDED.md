@@ -8,7 +8,7 @@ the unused multi-host machinery. Setup becomes `mpt setup`, upgrades can't leave
 the two halves out of step, and a non-Pi harness becomes a config entry instead
 of a second integration.
 
-Status: **Phases 0–3 and 5 are built**; Phase 4 remains. Each phase
+Status: **Phases 0–3 and 5 are built.** Phase 4 (Kiro) is designed and deferred. Each phase
 stands on its own and ships separately. The numbered task list with acceptance
 checks is [BATTERIES_INCLUDED_TASKS.md](BATTERIES_INCLUDED_TASKS.md); the actions a
 human still has to take are [UPGRADING.md](UPGRADING.md).
@@ -448,11 +448,65 @@ hand.
   went 3s → 12s once the real-tmux tests started running, and spawn tests need
   multi-second waits; mixing them means the fast suite stops being run casually.
 
-### Phase 4 — A second harness
+### Phase 4 — A second harness: Kiro — **planned, deferred**
 
-With §3.1 done, this is config plus a spawn template, not a new integration. Pick
-one harness, get it to Tier 0 (spawn, prompt delivery, dismiss), then decide
-whether Tier 1's tool surface is worth building for it.
+Harness chosen: **Kiro** (`kiro-cli`). Designed and investigated, then deliberately
+parked; the task list is in BATTERIES_INCLUDED_TASKS.md §Phase 4. Recorded here so it
+can be picked up without redoing the investigation.
+
+**Verified, not assumed** (kiro-cli 2.11.1, logged in via IAM Identity Center):
+
+- `kiro-cli chat --no-interactive "<prompt>"` runs one task and **exits on its own**.
+- `--trust-all-tools` suppresses permission prompts — Kiro's built-in equivalent of
+  what Pi needs `@gotgenes/pi-permission-system` for.
+- It executes shell commands: a one-shot run told to `echo KIRO-RAN > marker.txt`
+  wrote the file and exited 0 in 15s, costing ~2.6 credits.
+
+**Why that changes the plan's Tier 0.** §3.2 assumed the daemon would type prompts
+into a long-running agent with `send-keys` — also what the archived Kiro runner did.
+That has two weak points: typing into a TUI is fragile, and knowing when the agent has
+*finished* means scraping its screen. One-shot mode turns completion into a process
+exit, and shell access lets the agent **report its own result by running a command**.
+
+**Design: one task per run, with the `mpt` CLI as the reporting channel.** For a Kiro
+teammate the daemon acts as supervisor:
+
+1. claim a WorkItem on the teammate's behalf, using the same matching as Pi
+   (directory affinity included);
+2. run `kiro-cli chat --no-interactive --trust-all-tools "<prompt>"` in that
+   teammate's tmux window, so it stays watchable;
+3. end the prompt with instructions to run `mpt work complete <id>` when done, or
+   `mpt work fail <id> "<why>"` when stuck;
+4. if Kiro exits **without** reporting, mark the item FAILED ("agent exited without
+   reporting"), so nothing hangs silently.
+
+Why this shape:
+
+- **A fresh context per item**, matching how Pi teammates already work.
+- **Completion is an explicit act**, never inferred from terminal output.
+- **`mpt work …` is harness-agnostic.** Any agent that can run shell commands can use
+  it, so Claude Code or Codex later become a template entry rather than an
+  integration. The CLI ends up being the reporting channel the MCP server was meant to
+  be (§1.3), except backed by the supervisor that one was missing.
+
+**What a Kiro teammate gives up against Pi** (Tier 0 against Tier 2): no live
+transcript in the web UI (watch the tmux window instead), no token-usage ledger (Kiro
+prints credits, which could be parsed later), no browser pairing, and it cannot be the
+leader — `harnesses.kiro` gets a `teammate` template and no `leader`, which `mpt lead`
+already refuses cleanly.
+
+**Scope, honestly:** about the size of P3-1, not "just a template" — a daemon-side work
+loop for Tier 0 teammates, daemon-side registration with tmux window liveness standing
+in for heartbeats, the `mpt work` commands, and tests.
+
+**Open questions, to settle when this is picked up:**
+
+1. **One-shot per task, or a persistent session nudged with `send-keys`?** One-shot is
+   recommended. A persistent session keeps context between tasks, but is fragile and
+   needs screen-scraping to detect completion.
+2. **Real-Kiro testing:** manual only (recommended, since every run spends credits),
+   or one real run inside `test:e2e`? The e2e suite should use a stand-in script
+   either way, so it stays free and deterministic.
 
 ---
 

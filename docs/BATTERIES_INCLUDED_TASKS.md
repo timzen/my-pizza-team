@@ -614,25 +614,76 @@ subprocess-driven suites. Both in CI; only the fast one is expected in the inner
 **Phase 5 DoD:** every manual verification from Phases 2–3 exists as a test; the fast
 suite is quick again; no test touches real configuration.
 
-## Phase 4 — A second harness
+## Phase 4 — Kiro as a Tier 0 teammate — **planned, deferred**
 
-### P4-1 — Pick a harness and add a Tier 0 template
+Design, rationale, and the verified `kiro-cli` facts are in BATTERIES_INCLUDED.md
+§Phase 4. Settle its two open questions (one-shot vs persistent; real-Kiro testing)
+before starting. Tasks below assume the recommended answers: one-shot per task, and
+real Kiro exercised by hand only.
 
-Config plus a spawn template; no new integration. Prove spawn, prompt delivery,
-and dismiss.
+### P4-1 — `mpt work` commands
 
-### P4-2 — Decide on Tier 1
+`mpt work complete <id>`, `mpt work fail <id> "<reason>"`, and `mpt work comment <id>
+"<text>"`, calling the existing agent routes (`/api/agents/work-items/:id/state`,
+`/api/agents/comments/:id`). Agent identity and daemon URL come from `MPT_AGENT_ID` /
+`MPT_DAEMON_URL`, which the daemon sets in the spawned command's environment.
 
-Whether a tool surface is worth building for that harness, and whether it's
-generated from `shared/` — the previous MCP server drifted precisely because it
-was hand-maintained.
+Harness-agnostic by design: this is the reporting channel for *any* shell-capable
+agent, not a Kiro feature.
+
+**Acceptance:** an e2e test drives each command against a sandbox daemon and asserts
+the WorkItem's resulting state and comment.
+
+### P4-2 — Tier 0 teammates as members
+
+A Tier 0 harness sends no heartbeat, so the daemon registers the teammate itself when
+it spawns one (with `harness: "kiro"`), and treats "its tmux window exists" as the
+heartbeat. A closed window means offline, and the pool replaces it as usual.
+
+**Acceptance:** a Tier 0 teammate appears in the Team tab, stays online while its window
+exists, and is reaped when the window closes.
+
+### P4-3 — The daemon-side work loop
+
+For each idle Tier 0 teammate: take its next WorkItem (same matching as Pi, directory
+affinity included), claim it, render the prompt — the daemon-assembled task prompt plus
+the `mpt work` reporting instructions — and run the harness's `task` template in the
+teammate's window.
+
+If the process exits and the item is still IN_PROGRESS, mark it FAILED with "agent
+exited without reporting". Never leave it hanging, which is the failure mode this
+whole plan exists to remove.
+
+Config shape: `harnesses.kiro.teammate` today is a *start* command. Tier 0 needs a
+per-task command instead — e.g. a `task` template taking `{prompt}` (shell-quoted on
+substitution, like `{cwd}`) — plus a `tier: 0` marker so the daemon knows to run the
+loop. Pin down the shape here.
+
+**Acceptance:** with a stand-in script in place of `kiro-cli` (free and
+deterministic): an item is claimed, run, and completed through `mpt work complete`; a
+script that reports failure leaves the item FAILED with its reason; a script that exits
+without reporting leaves it FAILED with "exited without reporting".
+
+### P4-4 — Kiro's defaults and docs
+
+Built-in `DEFAULT_HARNESS_TEMPLATES.kiro` (task template using `--no-interactive
+--trust-all-tools`, no `leader`). `mpt doctor` checks for `kiro-cli` when a configured
+harness needs it. README gains a Kiro section stating plainly what it gives up against
+Pi: no live transcript, no usage ledger, no browser pairing, can't lead.
+
+**Acceptance:** one real run by hand — a Kiro teammate completes a real task and
+reports it through `mpt work complete`.
+
+**Phase 4 DoD:** a team can mix Pi and Kiro teammates; a Kiro teammate's work reaches
+COMPLETE or FAILED without anyone watching its window; nothing it does touches the Pi
+path; the e2e suite covers the loop without spending credits.
 
 ---
 
 ## Dependency summary
 
 ```
-P0  ──▶ P1a ──▶ P1b ──▶ P1c ──▶ P2 ──▶ P3 ──▶ P4
+P0  ──▶ P1a ──▶ P1b ──▶ P1c ──▶ P2 ──▶ P3 ──▶ P5 ──▶ P4 (deferred)
 (done)  │               ▲
         └─ P1a-5 needs P1a-2 (delete unblocks route removal)
                         └─ HARD GATE: handshake before protocol break

@@ -9,7 +9,7 @@ in throwaway sandboxes (`MPT_HOME` + `PI_CODING_AGENT_DIR`); your real
 `~/.pi/agent/settings.json`, your team directories, and your data were never
 touched.
 
-Status of this guide: **Phases 0–3 and 5 complete.** Phase 4 pending.
+Status of this guide: **Phases 0–3 and 5 complete.** Phase 4 (Kiro) is designed and deferred.
 
 ---
 
@@ -203,7 +203,8 @@ with zero agents connected.
 
 Listed so you know what is *not* yet true:
 
-- **Phase 4** — a second harness at Tier 0.
+- **Phase 4 — Kiro as a teammate** — designed and parked
+  (BATTERIES_INCLUDED.md §Phase 4). Nothing to do until it's picked up.
 
 Phase 5 (end-to-end tests) is done and needs nothing from you — but if you run the
 suites yourself: `deno task test` is the fast one (~5s), `deno task test:e2e` the slow
