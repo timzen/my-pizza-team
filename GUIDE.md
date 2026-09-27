@@ -54,7 +54,7 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 
 The nav bar has five destinations, plus pause / **usage** / help / config / theme icons:
 
-- **Thoughts** — a canvas of sticky notes, where ideas start.
+- **Thoughts** — sticky notes, where ideas start: a canvas, or a list with folders.
 - **Board** — story swimlanes; sub-tabs for Backlog, Archive, and Workflows.
 - **Tasks** — standalone Solitary WorkDefs, with a **Templates** tab.
 - **Schedule** — cron-driven Scheduled jobs.
@@ -266,7 +266,12 @@ Tag a context entry with **`persona`** to make it a swappable assistant persona.
 
 ## Thoughts
 
-A personal workspace — **Thoughts** in the top nav (`/thoughts`). An infinite canvas of markdown sticky notes you can pan, zoom, drag, and group.
+A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sticky notes, organized into groups, with two ways to look at them — switch with **Canvas | List** at the right end of the toolbar (your choice is remembered). Both views share that toolbar: **+ Note** is always first, and **Archived** and the switch always sit at the right; the buttons in between belong to the view you're in.
+
+- **Canvas** — an infinite board you can pan, zoom, drag, and group on.
+- **List** — like Apple Notes or OneNote: notes down the left, grouped into folders, and the selected note in full on the right.
+
+### Canvas
 
 - **Notes are all the same size** on the canvas, so the board scans as a board; a long note shows its start and fades out.
 - **Open a note** to read or write it in full: **double-click** it, click the **⤢** icon in its corner (on hover), or select it and press **Enter**. The large view opens in Preview (Edit for a new or empty note — double-click the text or hit **Edit** to write). Its header has everything else: **color**, pin, group, copy id, archive, delete. Closing it any way (Esc, Done, clicking outside, ⌘↵) **saves** — there's no way to lose an edit.
@@ -274,9 +279,21 @@ A personal workspace — **Thoughts** in the top nav (`/thoughts`). An infinite 
 - **Group by dragging** — drag a note **onto a group** to add it: once it's about half over (or your pointer is), the group highlights and **grows to wrap it**, showing where it'll land before you let go. Drag a member **off every group** to take it out (its border goes dashed while it's leaving).
 - **Resize a group** with the grip on its bottom-right corner (a group always wraps its notes, so it won't shrink past them). Dragging a selection moves them all. Moving a group carries its notes; moving a group over loose notes doesn't absorb them — only a drop changes membership.
 - **Organize** — pin the important ones, **Tidy** to grid-arrange, archive what's done. Select mode (`S`) or shift+drag marquee-selects; `Delete` archives, `1–6` recolor the selection, `G` groups it, `M` toggles the minimap (shown by default; your choice is remembered). Alongside it, a row of **group chips** — biggest group first — jumps the canvas to center that group when clicked.
+### List
+
+- **Folders are your groups** — alphabetical, each with its note count. Click one to collapse or expand it (remembered). Notes in no group are listed after the folders, under **Notes**. In each folder, pinned notes come first, then the most recently edited.
+- **Click a note** to read it on the right; **↑ / ↓** move through the list. A note's title is its first line.
+- **Write** — the right side is the same editor as the canvas's large view (Preview, or **Edit** / double-click the text), with the color, pin, group, archive, and delete controls above it. There's nothing to close: edits **save as you type**, and switching notes saves too. ⌘↵ returns to Preview.
+- **File a note** — drag it onto a folder, or onto **Notes** to take it out of every folder. The group picker above the note does the same. On the canvas it moves into (or out from under) that group, so both views stay in step.
+- **+ Note** makes a note in the current note's folder; **Folder** makes a new folder and lets you name it straight away. **Double-click** a folder to rename it; its **×** deletes the folder but keeps its notes.
+- **Search** filters notes by their text; folders with matches open automatically.
+- Switching views keeps your place: the note selected in one is selected (and, on the canvas, centered) in the other.
+
+### Both views
+
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
-Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatter) — easy to hand-edit or grep; groups are in `groups.json`.
+Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatter) — easy to hand-edit or grep; groups are in `groups.json`. A note's "edited" time changes only when its text does — moving, recoloring, pinning, or filing it doesn't count.
 
 ---
 

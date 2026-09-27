@@ -161,7 +161,7 @@ dock's Assistant tab.
 - `pages/NewWorkDefPage.tsx` — Shared create form (`/work-defs/new?type=Solitary|Scheduled|Template`, `&template=<id>` to pre-fill): cron presets and auto-created Schedule for Scheduled, "enqueue now" for Solitary. Acceptance criteria use `ui/acceptance-criteria-editor.tsx` (RFC 2119 scoring).
 - `pages/WorkDefDetailPage.tsx` — Standalone WorkDef view/edit with Details/Thread tabs and Run now.
 - `pages/ContextPage.tsx` — The context library (`board/ContextSelector.tsx` attaches entries elsewhere).
-- `pages/ThoughtsPage.tsx` — The Thoughts canvas: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer. Geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`, the editor in `thoughts/NoteDialog.tsx`.
+- `pages/ThoughtsPage.tsx` — Thoughts: owns the notes, groups, and every mutation, and switches between two views (**Canvas | List**, `mpt.thoughts.view` in `localStorage`), carrying the selection across. Both sit under one shared toolbar row the page renders — **+ Note** first, then the view's own tools (canvas: Group, Tidy, Select, Map; list: Folder), and at the right zoom (canvas only), Archived, and the switch — so the fixed controls never move when you change view. The **canvas** is this page: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer; geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`. The **list** is `thoughts/ThoughtsList.tsx`: folders (groups, alphabetical, collapsible — `mpt.thoughts.collapsedFolders`) then ungrouped notes, search, ↑/↓, drag a row onto a folder to file it, and the selected note in a pane. Its rules (titles/snippets, ordering, search, keyboard order, and where a note lands on the canvas when the list files it — `placeForGroupChange`, `slotInPlate`, `slotBelowAll`) are pure in `lib/thoughtList.ts`. Both views edit through `thoughts/NoteEditor.tsx`: framed by `thoughts/NoteDialog.tsx` on the canvas (saves on close) and inline in the list (autosaves). `thoughts/CopyId.tsx` is the copy-id chip.
 - `pages/UsagePage.tsx` — Tiles, a 53-week contribution grid, and the cost split by kind; pure helpers in `lib/usage.ts`.
 - `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
 - `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, autosave), **Teammates** (name nouns), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
@@ -208,7 +208,7 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 ### tests/
 
 `deno task test` runs `tests/*.test.ts` (daemon, CLI, and pure UI helpers such as
-`thought-geometry`, `usage-grid`, `wheel-gesture`, `harness-skew`) using
+`thought-geometry`, `thought-list`, `usage-grid`, `wheel-gesture`, `harness-skew`) using
 `tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
 probe. Guard tests worth knowing: `version.test.ts` (extension version in step),
@@ -256,7 +256,12 @@ groupId, timestamps; body: markdown). Groups are `groups.json`
 (`[{id, title, x, y, w, h, groupColor, plateOpacity}]`). Files are read and written
 directly — no SQLite index. Store methods mint ids, auto-place new notes, and
 cascade group membership; `POST /api/thoughts/positions` batches one drag gesture.
-The Pi extension exposes read/write tools so the leader can use the board.
+`updatedAt` is the last *content* edit — geometry, color, pin, status, and group
+changes leave it alone, since the list view sorts by it. When the UI changes a
+note's group anywhere but a canvas drop (the list, a Group picker), it also sends a
+new `x`/`y` so the note sits inside its plate, or clear of every plate
+(`lib/thoughtList.ts`). The Pi extension exposes read/write tools so the leader can
+use the board.
 
 ## Scheduler readiness gating
 

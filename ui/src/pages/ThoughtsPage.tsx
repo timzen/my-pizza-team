@@ -15,17 +15,26 @@
  * Deliberately excludes the standalone Thoughts product's cosmetic surface
  * (100+ backgrounds, skins, palettes). Talks to /api/thoughts. Two-state
  * lifecycle (active⇄archived); direct delete. See docs/ARCHITECTURE.md.
+ *
+ * **Two views of one board.** The canvas (above) and a **list view**
+ * (components/thoughts/ThoughtsList: folders on the left, the note on the
+ * right). This page owns the data and every mutation, and switches between
+ * them (remembered in `localStorage`); the selection carries across a switch.
+ * Both hang under one shared toolbar, so + Note and the view switch stay put.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Plus, Minus, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, Hash, Check, LayoutGrid, BoxSelect, Map as MapIcon, Maximize2 } from "lucide-react";
+import { Plus, Minus, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, LayoutGrid, BoxSelect, Map as MapIcon, Maximize2, StickyNote, ListTree } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { NoteDialog } from "@/components/thoughts/NoteDialog";
+import { ThoughtsList } from "@/components/thoughts/ThoughtsList";
+import { CopyId } from "@/components/thoughts/CopyId";
 import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
 import { NOTE_W, NOTE_H, centerViewOn, dropTarget, groupsByNoteCount, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
+import { placeForGroupChange, slotBelowAll, slotInPlate } from "@/lib/thoughtList";
 
 interface Thought {
   id: string; content: string; color: string; status: "active" | "archived";
@@ -37,6 +46,9 @@ interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
 
 /** localStorage key for the minimap on/off choice (default on). */
 const MINIMAP_KEY = "mpt.thoughts.minimap";
+/** localStorage key for the chosen view: "canvas" (default) or "list". */
+const VIEW_KEY = "mpt.thoughts.view";
+type ViewMode = "canvas" | "list";
 /** Minimap size (px); the group-chip row starts just right of it. */
 const MINIMAP_W = 192, MINIMAP_H = 128;
 const MIN_SCALE = 0.3;
@@ -63,6 +75,13 @@ export function ThoughtsPage() {
   if (data && data !== seed) { setSeed(data); setNotes(data.thoughts); setGroups(data.groups); }
 
   const [view, setView] = useState({ tx: 40, ty: 40, scale: 1 });
+  // Canvas or list (remembered). The list has its own selection: the note shown
+  // in its pane, and the one just created there (which opens in Edit).
+  const [mode, setModeState] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) === "list" ? "list" : "canvas"));
+  const [listSelectedId, setListSelectedId] = useState<string | null>(null);
+  const [listEditingId, setListEditingId] = useState<string | null>(null);
+  // A folder the list should put into rename mode (one just created from the toolbar).
+  const [listRenameId, setListRenameId] = useState<string | null>(null);
   // The note open in the large view/edit dialog (and whether to start in Edit).
   const [openId, setOpenId] = useState<string | null>(null);
   const [openEditing, setOpenEditing] = useState(false);
@@ -103,7 +122,7 @@ export function ThoughtsPage() {
     });
     ro.observe(el);
     return () => ro.disconnect();
-  }, []);
+  }, [mode]); // the canvas viewport only exists in canvas mode
   // Active gesture: pan the canvas, drag a note, or move/resize a group plate.
   // Held in a ref so the window move/up listeners always see fresh values.
   const gesture = useRef<
@@ -295,7 +314,7 @@ export function ThoughtsPage() {
     };
     el.addEventListener("wheel", onWheel, { passive: false });
     return () => el.removeEventListener("wheel", onWheel);
-  }, []);
+  }, [mode]); // rebind when the canvas remounts after the list view
 
   // Button zoom: anchor on the viewport center so the view stays put.
   // useCallback (like the other keyboard-shortcut actions below) so the
@@ -321,7 +340,10 @@ export function ThoughtsPage() {
     if (res.thought) openNote(res.thought.id, true);
   };
   const saveContent = async (id: string, content: string) => {
-    setNotes((ns) => ns.map((n) => (n.id === id ? { ...n, content } : n)));
+    // Bump updatedAt locally too (the server does the same for a content change),
+    // so the list view re-sorts the edited note to the top straight away.
+    const updatedAt = new Date().toISOString();
+    setNotes((ns) => ns.map((n) => (n.id === id && n.content !== content ? { ...n, content, updatedAt } : n)));
     await apiPatch(`/api/thoughts/${id}`, { content });
   };
   const setColor = async (id: string, color: string) => {
@@ -439,12 +461,54 @@ export function ThoughtsPage() {
     for (const u of groupUpdates) apiPatch(`/api/thought-groups/${u.id}`, { x: u.x, y: u.y, w: u.w, h: u.h });
   };
 
-  // Membership is explicit — a drop on a plate (see the drag handler) or the
-  // dialog's Group picker — never inferred from where a note happens to sit.
-  // null removes it from a group.
+  // Membership is explicit — a drop on a plate (see the drag handler), a Group
+  // picker, or a folder drop in the list — never inferred from where a note
+  // happens to sit. null removes it from a group. Off the canvas the note also
+  // moves to where it now belongs (into its plate, or out from under one), so
+  // the canvas agrees with the list (lib/thoughtList placeForGroupChange).
   const assignGroup = async (id: string, groupId: string | null) => {
-    setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, groupId } : x)));
-    await apiPatch(`/api/thoughts/${id}`, { groupId });
+    const n = notes.find((x) => x.id === id);
+    const pos = n ? placeForGroupChange(n, groupId, notes, groups) : null;
+    setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, groupId, ...(pos ?? {}) } : x)));
+    await apiPatch(`/api/thoughts/${id}`, { groupId, ...(pos ?? {}) });
+  };
+
+  // ─── List view ───────────────────────────────────────────────────
+  // Switching carries the selection across: a single canvas selection becomes
+  // the list's note, and the list's note is selected and centered on the canvas.
+  const setMode = (next: ViewMode) => {
+    if (next === mode) return;
+    try { localStorage.setItem(VIEW_KEY, next); } catch { /* private mode */ }
+    if (next === "list") {
+      if (selected.size === 1) setListSelectedId([...selected][0]!);
+    } else {
+      const n = notes.find((x) => x.id === listSelectedId);
+      if (n) {
+        setSelected(new Set([n.id]));
+        setView((v) => ({ ...v, ...centerViewOn({ left: n.x, top: n.y, right: n.x + NOTE_W, bottom: n.y + NOTE_H }, vpSize.w, vpSize.h, v.scale) }));
+      }
+    }
+    setModeState(next);
+  };
+  // New notes and folders made in the list still need a canvas spot: a note
+  // goes into a free slot in its folder's plate (or below everything), a folder
+  // below everything.
+  const createNoteInList = async (groupId: string | null) => {
+    const g = groupId ? groups.find((x) => x.id === groupId) : undefined;
+    const pos = g ? slotInPlate(g, notes) : slotBelowAll(notes, groups);
+    const res = await apiPost<{ thought: Thought }>("/api/thoughts", { content: "", color: nextRotatedColor(notes), ...pos, ...(g ? { groupId: g.id } : {}) });
+    await refetch();
+    if (res.thought) { setListEditingId(res.thought.id); setListSelectedId(res.thought.id); }
+  };
+  const createGroupInList = async () => {
+    const pos = slotBelowAll(notes, groups);
+    const res = await apiPost<{ group: ThoughtGroup }>("/api/thought-groups", { title: "New Group", ...pos });
+    await refetch();
+    if (res.group) setListRenameId(res.group.id);
+  };
+  const renameGroup = async (id: string, title: string) => {
+    setGroups((gs) => gs.map((g) => (g.id === id ? { ...g, title } : g)));
+    await apiPatch(`/api/thought-groups/${id}`, { title });
   };
   const groupTitleById = (id: string) => groups.find((g) => g.id === id)?.title ?? "group";
 
@@ -453,7 +517,8 @@ export function ThoughtsPage() {
     const onKey = (e: KeyboardEvent) => {
       // Never hijack keys while typing in a note/title editor.
       const tag = (e.target as HTMLElement | null)?.tagName;
-      if (openId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      // The canvas's shortcuts; the list view handles its own keys.
+      if (mode !== "canvas" || openId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
 
       if (e.key === "Escape") { setSelected(new Set()); setPlatePaintFor(null); return; }
       // Zoom (with modifier).
@@ -475,50 +540,95 @@ export function ThoughtsPage() {
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [openId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup, openNote, toggleMinimap]);
+  }, [mode, openId, editingGroupId, selected, zoomBy, archiveSelected, colorSelected, newGroup, openNote, toggleMinimap]);
+
+  // ─── The shared toolbar ───────────────────────────────────────────
+  // One row above both views: + Note first and the view switch last never
+  // move when you switch; what's between them depends on the view.
+  const listFolder = (() => {
+    const gid = notes.find((n) => n.id === listSelectedId)?.groupId;
+    return gid && groups.some((g) => g.id === gid) ? gid : null;
+  })();
+  const toolBtn = "flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm";
+  const toolOff = "border-border bg-card hover:bg-accent/50";
+  const toolOn = "border-primary bg-primary text-primary-foreground";
 
   return (
-    <div className="relative h-full min-h-0 w-full overflow-hidden select-none rounded-lg border border-border">
-      {/* Toolbar */}
-      <div className="absolute left-4 top-4 z-30 flex items-center gap-2">
-        <button onClick={createNote} className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90">
+    <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border">
+      <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border bg-card/60 px-3 py-2">
+        <button
+          onClick={mode === "list" ? () => createNoteInList(listFolder) : createNote}
+          title={mode === "list" && listFolder ? `New note in ${groups.find((g) => g.id === listFolder)?.title}` : "New note"}
+          className="flex items-center gap-1.5 rounded-md bg-primary px-3 py-1.5 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90"
+        >
           <Plus className="h-4 w-4" /> Note
         </button>
-        <button onClick={newGroup} title={selected.size > 0 ? `New group with ${selected.size} selected note(s)` : "New empty group"} className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
-          <FolderPlus className="h-4 w-4" /> {selected.size > 0 ? `Group ${selected.size}` : "Group"}
-        </button>
-        <button onClick={tidy} title="Arrange notes into a grid (per group + ungrouped)" className="flex items-center gap-1.5 rounded-md border border-border bg-card px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50">
-          <LayoutGrid className="h-4 w-4" /> Tidy
-        </button>
-        <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${selectMode ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
-          <BoxSelect className="h-4 w-4" /> Select{selected.size ? ` (${selected.size})` : ""}
-        </button>
-        <button onClick={toggleMinimap} title="Minimap (M)" className={`flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-sm shadow-sm ${minimapOn ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card hover:bg-accent/50"}`}>
-          <MapIcon className="h-4 w-4" /> Map
-        </button>
-        <button onClick={() => setShowArchived((s) => !s)} className={`flex items-center gap-1.5 rounded-md border border-border px-3 py-1.5 text-sm shadow-sm hover:bg-accent/50 ${showArchived ? "bg-accent" : "bg-card"}`}>
-          <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
-        </button>
+        {mode === "canvas" ? (<>
+          <button onClick={newGroup} title={selected.size > 0 ? `New group with ${selected.size} selected note(s)` : "New empty group"} className={`${toolBtn} ${toolOff}`}>
+            <FolderPlus className="h-4 w-4" /> {selected.size > 0 ? `Group ${selected.size}` : "Group"}
+          </button>
+          <button onClick={tidy} title="Arrange notes into a grid (per group + ungrouped)" className={`${toolBtn} ${toolOff}`}>
+            <LayoutGrid className="h-4 w-4" /> Tidy
+          </button>
+          <button onClick={() => setSelectMode((m) => !m)} title="Select mode (S) — drag to marquee-select; shift+drag always selects" className={`${toolBtn} ${selectMode ? toolOn : toolOff}`}>
+            <BoxSelect className="h-4 w-4" /> Select{selected.size ? ` (${selected.size})` : ""}
+          </button>
+          <button onClick={toggleMinimap} title="Minimap (M)" className={`${toolBtn} ${minimapOn ? toolOn : toolOff}`}>
+            <MapIcon className="h-4 w-4" /> Map
+          </button>
+        </>) : (
+          <button onClick={createGroupInList} title="New folder (a group)" className={`${toolBtn} ${toolOff}`}>
+            <FolderPlus className="h-4 w-4" /> Folder
+          </button>
+        )}
+
+        <div className="ml-auto flex items-center gap-2">
+          {/* Zoom (canvas only): −  NN% (reset)  + */}
+          {mode === "canvas" && (
+            <div className="flex items-center rounded-md border border-border bg-card shadow-sm">
+              <button onClick={() => zoomBy(1 / 1.2)} className="rounded-l-md px-2 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Zoom out">
+                <Minus className="h-4 w-4" />
+              </button>
+              <button onClick={() => setView({ tx: 40, ty: 40, scale: 1 })} className="min-w-[3rem] border-x border-border px-1 py-1 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Reset view">
+                {Math.round(view.scale * 100)}%
+              </button>
+              <button onClick={() => zoomBy(1.2)} className="rounded-r-md px-2 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Zoom in">
+                <Plus className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+          <button onClick={() => setShowArchived((v) => !v)} className={`${toolBtn} ${showArchived ? "border-border bg-accent" : toolOff}`}>
+            <Archive className="h-4 w-4" /> Archived {archivedData ? `(${archivedData.thoughts.length})` : ""}
+          </button>
+          <ViewSwitch mode={mode} onChange={setMode} />
+        </div>
       </div>
 
-      {/* Zoom controls: −  NN% (reset)  + */}
-      <div className="absolute right-4 top-4 z-30 flex items-center rounded-md border border-border bg-card shadow-sm">
-        <button onClick={() => zoomBy(1 / 1.2)} className="rounded-l-md px-2 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Zoom out">
-          <Minus className="h-4 w-4" />
-        </button>
-        <button onClick={() => setView({ tx: 40, ty: 40, scale: 1 })} className="min-w-[3rem] border-x border-border px-1 py-1 text-xs text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Reset view">
-          {Math.round(view.scale * 100)}%
-        </button>
-        <button onClick={() => zoomBy(1.2)} className="rounded-r-md px-2 py-1 text-muted-foreground hover:bg-accent/50 hover:text-foreground" title="Zoom in">
-          <Plus className="h-4 w-4" />
-        </button>
-      </div>
-
+      {/* The view (and the overlays that sit over either: dialog, archived drawer) */}
+      <div className={`relative min-h-0 flex-1 ${mode === "canvas" ? "select-none" : ""}`}>
+      {mode === "list" ? (
+        <ThoughtsList
+          notes={notes}
+          groups={groups}
+          selectedId={listSelectedId}
+          onSelect={setListSelectedId}
+          editingId={listEditingId}
+          renameGroupId={listRenameId}
+          onRenameGroup={renameGroup}
+          onDeleteGroup={ungroup}
+          onMoveToGroup={assignGroup}
+          onSave={saveContent}
+          onColor={setColor}
+          onPin={setPinned}
+          onArchive={archive}
+          onDelete={remove}
+        />
+      ) : (<>
       {/* Canvas viewport */}
       <div
         ref={viewportRef}
         onPointerDown={onCanvasPointerDown}
-        className={`h-full w-full bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:24px_24px] ${selectMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
+        className={`relative h-full w-full overflow-hidden bg-[radial-gradient(circle,var(--color-border)_1px,transparent_1px)] [background-size:24px_24px] ${selectMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"}`}
       >
         {/* Transformed world layer */}
         <div className="absolute left-0 top-0 origin-top-left" style={{ transform: `translate(${view.tx}px, ${view.ty}px) scale(${view.scale})` }}>
@@ -666,6 +776,13 @@ export function ThoughtsPage() {
         setView((v) => ({ ...v, ...centerViewOn(plateRect(g, notes), vpW, vpH, v.scale) }));
       }} />}
 
+      {notes.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
+          <p>Empty canvas — hit <span className="font-medium text-foreground">+ Note</span> to capture a thought.</p>
+        </div>
+      )}
+      </>)}
+
       {/* The large view/edit experience (double-click a note). */}
       <NoteDialog
         note={notes.find((n) => n.id === openId) ?? null}
@@ -703,33 +820,28 @@ export function ThoughtsPage() {
           </div>
         </div>
       )}
-
-      {notes.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
-          <p>Empty canvas — hit <span className="font-medium text-foreground">+ Note</span> to capture a thought.</p>
-        </div>
-      )}
+      </div>
     </div>
   );
 }
 
-/** A click-to-copy id chip (monospace). Copying lets you paste a note/group id
- *  into the assistant chat to reference it precisely. */
-function CopyId({ id }: { id: string }) {
-  const [copied, setCopied] = useState(false);
-  return (
+/** Canvas ⇄ list switch (a two-button segmented control). */
+function ViewSwitch({ mode, onChange }: { mode: ViewMode; onChange: (m: ViewMode) => void }) {
+  const btn = (m: ViewMode, label: string, icon: React.ReactNode) => (
     <button
-      title={`Copy id: ${id}`}
-      onPointerDown={(e) => e.stopPropagation()}
-      onClick={(e) => {
-        e.stopPropagation();
-        navigator.clipboard?.writeText(id).then(() => { setCopied(true); setTimeout(() => setCopied(false), 1200); }).catch(() => {});
-      }}
-      className="inline-flex items-center gap-0.5 rounded bg-background/70 px-1 py-0.5 font-mono text-[10px] text-muted-foreground hover:bg-background hover:text-foreground"
+      onClick={() => onChange(m)}
+      aria-pressed={mode === m}
+      title={`${label} view`}
+      className={`flex items-center gap-1.5 px-2.5 py-1.5 text-sm ${mode === m ? "bg-primary text-primary-foreground" : "bg-card text-muted-foreground hover:bg-accent/50 hover:text-foreground"}`}
     >
-      {copied ? <Check className="h-2.5 w-2.5" /> : <Hash className="h-2.5 w-2.5" />}
-      {copied ? "copied" : id}
+      {icon}{label}
     </button>
+  );
+  return (
+    <div className="flex overflow-hidden rounded-md border border-border shadow-sm" role="group" aria-label="View">
+      {btn("canvas", "Canvas", <StickyNote className="h-4 w-4" />)}
+      {btn("list", "List", <ListTree className="h-4 w-4" />)}
+    </div>
   );
 }
 

@@ -575,7 +575,7 @@ modals are small, focused dialogs (team size, spawn, template picker, a thought'
 editor, a fullscreen chat bubble) and the file/diff viewer. Cards carry no state
 badge (the column names the state) — only the WorkItem chip.
 
-## Thoughts: Uniform Cards, Opened to Read
+## Thoughts: Uniform Cards, and a List to Read Them
 
 The Thoughts canvas is a board, so its notes are **all one size**. Variable-size
 notes made the canvas a collage you had to read rather than scan, and made tidy
@@ -592,6 +592,35 @@ over a plate (its center, or the pointer), the plate highlights and grows to sho
 where it'll land; the target test ignores that growth so the preview can't flicker.
 Resizing starts from the plate as *drawn*, not its smaller stored minimum. The rules
 are pure geometry (`ui/src/lib/thoughtGeometry.ts`) with their own tests.
+
+**Two views of one board: canvas and list.** The canvas is for arranging —
+seeing notes side by side, clustering them. It's poor for *reading and writing*
+many notes in a row: every note is a double-click and a dialog away, and finding
+one means panning. So there is also a **list view** in the shape of Apple Notes or
+OneNote: folders on the left, the note on the right. Folders *are* the groups —
+not a second hierarchy — so the two views never disagree about what's where. The
+list is not a separate feature with its own data; the page owns the board and
+either view is just a way of looking at it, with the selection carried across a
+switch.
+
+The differences between the two are deliberate:
+
+- **The list autosaves; the dialog saves on close.** A dialog is opened, written,
+  and closed, so its close paths are the natural save points. The list's pane is
+  never closed — you click the next note — so waiting for a "close" would mean
+  waiting forever. It saves a moment after typing stops, and on switching notes.
+  Neither has a path that loses text.
+- **The list orders by last edit, pinned first; folders alphabetically.** That's
+  what a notes app does, and it's why `updatedAt` means "the text last changed":
+  if dragging a note on the canvas counted as an edit, arranging the board would
+  shuffle the list.
+- **Filing a note in the list moves it on the canvas.** Membership is explicit
+  (only a drop or a picker changes it), but a plate always wraps its members — so a
+  note filed from the list while sitting across the canvas would stretch its
+  plate over everything in between, and a note taken out while still under its
+  plate would look like it never left. So filing from anywhere but a canvas drop
+  also moves the note: into a free slot in its plate, or below everything.
+  If it's already where it belongs, it stays put.
 
 Thoughts is deliberately a lighter port of a standalone product: files are the
 source of truth (`thoughts/<id>.md` + `groups.json`), a fixed six-color palette,
