@@ -18,7 +18,8 @@
  *
  * **Files are the source of truth; SQLite is a cache.** Each run is appended as
  * one JSON line to `usage/YYYY-MM.jsonl` in the team dir, so the ledger is
- * committed with the stories, tasks, and config (state.db is gitignored), diffs
+ * committed with the stories, tasks, and config (state.db is gitignored — by the
+ * .gitignore that store/git-sync.ts writes into the team directory), diffs
  * are append-only, and it's greppable / `jq`-able. On boot the `token_usage`
  * table is rebuilt from those files (`syncUsageLedger`). The first boot without
  * a `usage/` dir migrates: existing DB rows, plus the `tokenUsage` arrays that

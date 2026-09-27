@@ -149,6 +149,38 @@ uncommitted pivot preserved on branch `wip/mcp-tmux-tools`.
 
 ---
 
+## 4a. A data bug that affected you, now fixed
+
+**If autosave was on (it is by default), mpt could commit your own work.** The team
+directory normally lives inside your project repository, and autosave ran an unscoped
+`git commit` — which commits *everything staged*. So anything you had `git add`-ed was
+swept into a commit authored "pi-pizza-team: autosave" and then **pushed**, on a timer.
+
+Worth checking your project repos:
+
+```bash
+git log --oneline --author="$(git config user.name)" --grep="pi-pizza-team:" | head -20
+```
+
+For each such commit, `git show --stat <sha>` shows whether anything outside
+`.my-pizza-team/` got in. This repository has one example — a
+"pi-pizza-team: shutdown checkpoint" commit of `.my-pizza-team/daemon.pid` from June,
+made by a daemon run inside the checkout; it is harmless (just a PID) and is left in
+history rather than rewriting pushed commits.
+
+Now fixed: every git call is scoped to the team directory, so your staged and
+unstaged work is left exactly as you left it. mpt also writes a `.gitignore` into the
+team directory so `state.db`, `daemon.pid`, and the logs are never committed — that
+protection used to be assumed but was never actually created.
+
+One limit: that `.gitignore` stops runtime files from being *added*. If one is already
+tracked in a repo, it stays tracked — mpt won't `git rm --cached` in your repository
+without asking. To untrack one yourself:
+
+```bash
+git rm --cached .my-pizza-team/state.db .my-pizza-team/daemon.pid 2>/dev/null; git commit -m "untrack mpt runtime state"
+```
+
 ## 4b. One config change, if you use a readiness probe
 
 The probe moved from the leader to the daemon (P3-2), so:
