@@ -1,6 +1,8 @@
 # .github/workflows/ci.yml — Continuous integration checks.
 #
-# Runs on PRs and pushes to main. Validates types and runs tests.
+# Runs on PRs and pushes to main. One job per gate, so a failure names which part of
+# the repo broke rather than "CI failed". These are the same gates AGENTS.md asks for
+# before a commit.
 
 name: CI
 
@@ -12,23 +14,80 @@ on:
 
 env:
   DENO_VERSION: '2.x'
+  # The Pi extension is type-stripped by Node at load time; Pi itself needs >=22.19.
+  NODE_VERSION: '22'
 
 jobs:
-  check:
-    name: Type Check & Test
+  daemon:
+    name: Daemon — type check & fast tests
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
-
       - name: Type check
         run: deno task check
-
-      - name: Run tests
+      - name: Fast tests
         run: deno task test
+      - name: Generated files are in step
+        # The extension's version and shared constants are generated from the repo
+        # root; drift is exactly what the monorepo merge exists to prevent.
+        run: |
+          deno task sync-version --check
+          deno task sync-shared --check
+
+  e2e:
+    name: End-to-end — real git, tmux, and shell
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: ${{ env.DENO_VERSION }}
+      - name: Install tmux
+        # The e2e suite drives a real (private, per-test) tmux server. Without tmux
+        # those tests skip, and a skip in CI would read as a pass.
+        run: sudo apt-get update && sudo apt-get install -y tmux
+      - name: Verify tmux is really available
+        run: tmux -V
+      - name: End-to-end tests
+        run: deno task test:e2e
+
+  extension:
+    name: Pi extension — type check & tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: harnesses/pi
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: harnesses/pi/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npm run typecheck
+      - name: Tests
+        run: npm test
+
+  ui:
+    name: Web UI — type check & lint
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ui
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: ui/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npx tsc -b
+      - name: Lint
+        run: npm run lint

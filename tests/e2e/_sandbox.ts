@@ -70,6 +70,27 @@ export interface Sandbox extends AsyncDisposable {
   waitFor(check: () => boolean | Promise<boolean>, timeoutMs?: number): Promise<boolean>;
 }
 
+/**
+ * Deno's real cache directory, asked of Deno rather than assumed.
+ *
+ * The sandbox replaces HOME, which would otherwise send the CLI subprocess to an empty
+ * cache and re-download every dependency per test. This was first hardcoded to
+ * `~/Library/Caches/deno` — the macOS location — which on a Linux CI runner would have
+ * quietly meant a cold cache for every sandbox.
+ */
+function denoCacheDir(): string {
+  const explicit = Deno.env.get("DENO_DIR");
+  if (explicit) return explicit;
+  try {
+    const out = new Deno.Command(Deno.execPath(), { args: ["info", "--json"], stdout: "piped", stderr: "null" }).outputSync();
+    const dir = JSON.parse(new TextDecoder().decode(out.stdout)).denoDir;
+    if (typeof dir === "string" && dir) return dir;
+  } catch { /* fall through */ }
+  return path.join(Deno.env.get("HOME") ?? ".", ".cache", "deno");
+}
+
+const DENO_CACHE_DIR = denoCacheDir();
+
 /** An unused TCP port, so parallel sandboxes don't collide. */
 function freePort(): number {
   const listener = Deno.listen({ port: 0, hostname: "127.0.0.1" });
@@ -127,9 +148,8 @@ export async function sandbox(label = "e2e"): Promise<Sandbox> {
     TEAM_DIR: teamDir,
     PORT: String(port),
     TMUX_TMPDIR: tmuxDir,
-    // Deno needs a cache location; point it at the real one so the CLI doesn't
-    // re-download dependencies for every sandbox.
-    DENO_DIR: Deno.env.get("DENO_DIR") ?? path.join(Deno.env.get("HOME") ?? "", "Library", "Caches", "deno"),
+    // Point the CLI at the real cache so it doesn't re-download per sandbox.
+    DENO_DIR: DENO_CACHE_DIR,
     NO_COLOR: "1",
   };
 
