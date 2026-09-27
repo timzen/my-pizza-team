@@ -6,8 +6,6 @@ fixed.
 
 ## Dead code and leftovers
 
-- SQLite columns `stories.requirements` and `members.capabilities` are still created
-  and migrated in `initSchema`, though matching is directory-only.
 - `countPendingTeammateSpawns` skips `reason: "assistant"` rows from the retired
   assistant role; a one-time cleanup could delete them instead.
 - `deno.lock` still pins `jsr:@db/sqlite` although the store uses `node:sqlite`.

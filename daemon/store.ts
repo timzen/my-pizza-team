@@ -277,7 +277,7 @@ export class Store {
         if (!existsSync(wfFile)) continue;
         try {
           const wf: WorkflowConfig = JSON.parse(Deno.readTextFileSync(wfFile));
-          // Only accept the state/substatus shape (see docs/DESIGN.md "The Work Model");
+          // Only accept the ordered-states shape (see docs/DESIGN.md "The Work Model");
           // malformed or legacy transition-matrix files are skipped.
           if (validateWorkflow(wf) === null) this.workflows[entry.name] = wf;
         } catch {
@@ -328,7 +328,6 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'open',
         depends_on TEXT DEFAULT '[]',
-        requirements TEXT DEFAULT '{}',
         paused INTEGER DEFAULT 0,
         workflow TEXT,
         context TEXT DEFAULT '[]',
@@ -345,7 +344,6 @@ export class Store {
         title TEXT,
         description TEXT,
         status TEXT DEFAULT 'todo',
-        substatus TEXT,
         result TEXT,
         context TEXT DEFAULT '[]',
         dir_path TEXT,
@@ -374,9 +372,6 @@ export class Store {
       CREATE TABLE IF NOT EXISTS members (
         id TEXT PRIMARY KEY,
         name TEXT,
-        capabilities TEXT DEFAULT '{}',
-        work_mode TEXT DEFAULT 'eager-helper',
-        assigned_story_id TEXT,
         metadata TEXT DEFAULT '{}',   -- opaque harness-owned data (daemon never interprets it)
         protocol_version INTEGER,     -- agent-protocol version the harness speaks (null = pre-handshake)
         harness TEXT,                 -- which harness this agent runs under (e.g. 'pi')
@@ -447,15 +442,11 @@ export class Store {
       );
 
       -- The WorkItem queue: the unit of agent execution. A dumb, terminal-only
-      -- attempt pointing at its work via a polymorphic ref (task or workdef).
-      -- See docs/DESIGN.md "The WorkItem".
+      -- attempt pointing at the WorkDef it runs. See docs/DESIGN.md "The WorkItem".
       CREATE TABLE IF NOT EXISTS work_items (
         id TEXT PRIMARY KEY,
         title TEXT,
-        ref_kind TEXT,             -- 'task' | 'workdef'
-        story_id TEXT,             -- task refs
-        task_id TEXT,              -- task refs
-        work_def_id TEXT,          -- workdef refs
+        work_def_id TEXT,          -- the ref: the WorkDef this runs
         directory TEXT,            -- affinity bias, copied from the ref at creation
         state TEXT,                -- READY|IN_PROGRESS|MORIBUND|COMPLETE|FAILED|CANCELED
         read INTEGER DEFAULT 0,
@@ -473,15 +464,9 @@ export class Store {
     if (!storyColumns.some((col) => col.name === "workflow")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
     }
-    if (!storyColumns.some((col) => col.name === "categories")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN categories TEXT DEFAULT '[]'");
-    }
-    // Context-library attachments (replaces the old decorative `categories`).
+    // Context-library attachments.
     if (!storyColumns.some((col) => col.name === "context")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN context TEXT DEFAULT '[]'");
-    }
-    if (!storyColumns.some((col) => col.name === "requirements")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN requirements TEXT DEFAULT '{}'");
     }
     if (!storyColumns.some((col) => col.name === "paused")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN paused INTEGER DEFAULT 0");
@@ -510,13 +495,6 @@ export class Store {
     if (hasAsstColumn("status")) this.db.exec("ALTER TABLE assistant_messages DROP COLUMN status");
 
     const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
-    if (!taskColumns.some((col) => col.name === "last_read_at")) {
-      this.db.exec("ALTER TABLE tasks ADD COLUMN last_read_at INTEGER");
-    }
-    // Work-model: within-state position for tasks in agent states (see docs/DESIGN.md "The Work Model").
-    if (!taskColumns.some((col) => col.name === "substatus")) {
-      this.db.exec("ALTER TABLE tasks ADD COLUMN substatus TEXT");
-    }
     if (!taskColumns.some((col) => col.name === "context")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT '[]'");
     }
@@ -530,15 +508,6 @@ export class Store {
     }
 
     const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
-    if (!memberColumns.some((col) => col.name === "capabilities")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN capabilities TEXT DEFAULT '{}'");
-    }
-    if (!memberColumns.some((col) => col.name === "work_mode")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN work_mode TEXT DEFAULT 'eager-helper'");
-    }
-    if (!memberColumns.some((col) => col.name === "assigned_story_id")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN assigned_story_id TEXT");
-    }
     if (!memberColumns.some((col) => col.name === "metadata")) {
       this.db.exec("ALTER TABLE members ADD COLUMN metadata TEXT DEFAULT '{}'");
     }
@@ -572,6 +541,37 @@ export class Store {
     // human sees rather than a log line nobody reads.
     if (!directiveColumns.some((col) => col.name === "error")) {
       this.db.exec("ALTER TABLE leader_directives ADD COLUMN error TEXT");
+    }
+
+    this.dropRetiredColumns();
+  }
+
+  /**
+   * Drop columns from models the daemon no longer has, from databases created
+   * before they went: capability matching (`requirements`, `capabilities`), work
+   * modes (`work_mode`, `assigned_story_id`), task substatus and read tracking
+   * (`substatus`, `last_read_at`), story `categories` (replaced by context), and the
+   * old task|workdef WorkItem ref (`ref_kind`, `story_id`, `task_id`). Nothing reads
+   * or writes them, but a column that still exists invites someone to.
+   *
+   * WorkItems are the one table not rebuilt from files (they are the Inbox's
+   * history), so an item from before the ref collapsed may name its WorkDef only in
+   * `task_id`; that is copied into `work_def_id` before the column goes.
+   */
+  private dropRetiredColumns(): void {
+    const has = (table: string, col: string) =>
+      (this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>).some((c) => c.name === col);
+    if (has("work_items", "task_id")) {
+      this.db.exec("UPDATE work_items SET work_def_id = task_id WHERE work_def_id IS NULL AND task_id IS NOT NULL");
+    }
+    const retired: Array<[string, string]> = [
+      ["stories", "requirements"], ["stories", "categories"],
+      ["tasks", "substatus"], ["tasks", "last_read_at"],
+      ["members", "capabilities"], ["members", "work_mode"], ["members", "assigned_story_id"],
+      ["work_items", "ref_kind"], ["work_items", "story_id"], ["work_items", "task_id"],
+    ];
+    for (const [table, col] of retired) {
+      if (has(table, col)) this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${col}`);
     }
   }
 
@@ -1059,7 +1059,7 @@ export class Store {
   // See docs/DESIGN.md "The WorkItem".
 
   private rowToWorkItem(row: Record<string, unknown>): WorkItem {
-    const ref: WorkItemRef = { workDefId: (row.work_def_id ?? row.task_id) as string };
+    const ref: WorkItemRef = { workDefId: row.work_def_id as string };
     return {
       id: row.id as string,
       title: (row.title as string) || "",
