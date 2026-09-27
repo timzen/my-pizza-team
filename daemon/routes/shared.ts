@@ -143,6 +143,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
       if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
+      if (body.experimental !== undefined) config.experimental = body.experimental || undefined;
 
       // Store is the single config writer (it owns serializeConfig, so no field
       // this route doesn't know about — e.g. apiToken — is silently dropped).

@@ -30,6 +30,9 @@ export function registerPairingRoutes(ctx: RouteContext): void {
     const member = store.getMember(id);
     if (!member) return { status: 404, error: `Agent "${id}" not found` };
     if (!isPoolTeammate(member.name)) return { status: 400, error: "Only teammates can be paired (talk to the leader in the chat dock)" };
+    // Experimental ACP teammates (`mpt agent`) don't poll for pairing yet: accepting
+    // would pause nothing and leave the UI waiting on a teammate that never answers.
+    if (member.harness && member.harness !== "pi") return { status: 400, error: `Pairing isn't supported for ${member.harness} teammates yet` };
     return null;
   };
 

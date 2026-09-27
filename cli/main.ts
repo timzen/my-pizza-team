@@ -34,6 +34,8 @@ import {
 } from "./setup.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
+import { isRunningFromSource, mptInvocation } from "../daemon/self.ts";
+import { cmdAgent, cmdSetupHarness } from "./agent.ts";
 import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
 // Single source of truth for the version: the package manifest. Bundled into
 // the compiled binary by `deno compile` (JSON imports are part of the module
@@ -134,20 +136,9 @@ async function cmdStart(args: string[]): Promise<void> {
   }
 }
 
-/** Running from source (`deno run cli/main.ts`) rather than the compiled binary? */
-function isRunningFromSource(): boolean {
-  const base = path.basename(Deno.execPath()).toLowerCase();
-  return base === "deno" || base === "deno.exe";
-}
-
-/**
- * The arguments that re-run this program, before its own arguments. The compiled
- * binary is its own executable; from source, `Deno.execPath()` is `deno`, which needs
- * the script and the permissions `deno task mpt` grants.
- */
+/** The arguments after the executable that re-run this CLI (none for the binary). */
 function selfInvocation(): string[] {
-  if (!isRunningFromSource()) return [];
-  return ["run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", path.fromFileUrl(Deno.mainModule)];
+  return mptInvocation().slice(1);
 }
 
 function cmdStop(): void {
@@ -550,6 +541,7 @@ Usage:
 Commands:
   setup [--dry-run]     Install the Pi extension, create the team dir, trust the folder
   setup --uninstall     Undo what setup did (leaves the team directory and its data)
+  setup --harness <h>   Prepare an experimental non-Pi harness (kiro, claude)
   doctor                Read-only checklist of prerequisites, with a fix for each problem
   start [--daemon|-d]   Start the daemon (foreground, or in the background with -d;
                         its output then goes to daemon.log in the team directory)
@@ -560,6 +552,7 @@ Commands:
   install               Install as a user service (launchd/systemd; starts on login)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
+  agent --harness <h>   Run a non-Pi teammate (kiro, claude) — experimental; the daemon starts these
   --version, --help
 
 Environment:
@@ -747,6 +740,11 @@ function describePlan(plan: SetupPlan): void {
  * this edits the user's own Pi configuration, so guessing later is not acceptable.
  */
 async function cmdSetup(args: string[]): Promise<void> {
+  if (args.some((a) => a === "--harness" || a.startsWith("--harness="))) {
+    const teamDir = getTeamDir();
+    const config = readTeamConfig(teamDir) as { experimental?: { harnesses?: boolean } };
+    return cmdSetupHarness(args, path.join(teamDir, "config.json"), !!config.experimental?.harnesses);
+  }
   if (args.includes("--uninstall")) return cmdSetupUninstall(args);
 
   const dryRun = args.includes("--dry-run") || args.includes("-n");
@@ -990,6 +988,9 @@ export async function main(): Promise<void> {
       break;
     // Hidden: `mpt upgrade` invokes this on the freshly-installed binary so the
     // extension written out is the new one, not the one being replaced.
+    case "agent":
+      await cmdAgent(args.slice(1));
+      break;
     case "write-extension-internal":
       cmdWriteExtensionInternal();
       break;

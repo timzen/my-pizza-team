@@ -36,7 +36,8 @@ Deno.test("the extension sends the handshake at registration", async () => {
   // A regression guard with teeth: if register() stops sending these, the daemon
   // silently treats every agent as pre-handshake and the skew banner goes dark.
   const client = await Deno.readTextFile(new URL("../harnesses/pi/src/runtime/client.ts", import.meta.url));
-  for (const field of ["protocolVersion: PROTOCOL_VERSION", 'harness: "pi"', "harnessVersion:"]) {
+  // `harness` defaults to "pi"; `mpt agent` passes its own.
+  for (const field of ["protocolVersion: PROTOCOL_VERSION", "harness: this.harness", 'this.harness = options?.harness ?? "pi"', "harnessVersion:"]) {
     assertMatch(
       client,
       new RegExp(field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")),

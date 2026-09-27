@@ -184,6 +184,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   // change (tests/config-persist.test.ts).
   if (config.harnesses) out.harnesses = config.harnesses;
   if (config.defaultHarness) out.defaultHarness = config.defaultHarness;
+  if (config.experimental && Object.keys(config.experimental).length > 0) out.experimental = config.experimental;
   return out;
 }
 

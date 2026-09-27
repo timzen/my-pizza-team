@@ -3,9 +3,30 @@
 Known code issues and deferred work. Each item names a symbol rather than a line
 number. Delete an item when it's done.
 
-## Next: other harnesses (Kiro, Claude Code) over ACP
+## Bugs
 
-Not built. Replaces the earlier one-shot Kiro design: both agents speak the **Agent
+- **Deregistering a member orphans its in-flight WorkItem** (`Store.removeMember`):
+  `member_id` is set to NULL but the item stays `IN_PROGRESS`, and the reaper only walks
+  members, so it is never reaped to MORIBUND. A Pi teammate deregisters on shutdown even
+  mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
+  move the member's in-flight items to MORIBUND in `removeMember`.
+
+## Other harnesses (Kiro, Claude Code) over ACP — experimental
+
+**Built** (behind `experimental.harnesses`): `mpt agent` (agent/), `mpt setup --harness`,
+the registration and spawn gates, the Spawn dialog's harness choice, doctor checks, and
+tests/e2e/agent.test.ts against a fake ACP agent. Exercised by hand with real Kiro 2.11.1
+and Claude Code (adapter 0.81.2): each completed a small job end to end.
+
+**Still to do:**
+- **Pairing** from the web UI: poll `/api/agents/:id/pairing`; queue = next prompt,
+  steer = Claude's prompt queueing or cancel-and-reprompt for Kiro; forward
+  `request_permission` to the web UI while paired. The UI disables Pair for them and the
+  daemon refuses it until then.
+- **Leading** (the chat mirror over ACP; typing in the tmux window has no path in yet).
+- **Graduating** a harness out of the flag once it has been used for real work.
+
+The original design, for the record: replaces the earlier one-shot Kiro design: both agents speak the **Agent
 Client Protocol** (JSON-RPC 2.0 over stdio, one object per line), which gives a
 persistent session with streaming, permissions, and cancellation — far more than
 one-shot runs.
@@ -54,12 +75,12 @@ Gotchas found:
   → `session/new`.
 - Pi stays native (Tier 2); the leader stays Pi at first.
 
-### Open questions
+### Decisions (2026-09-27)
 
-1. Usage ledger unit for Kiro: add credits, or record tokens/context only?
-2. Harness choice in a mixed team: per spawn (Spawn dialog picker; `defaultHarness` for
-   the pool) first; routing work to a harness later?
-3. Where the Claude adapter comes from: an npm dependency `mpt setup` installs, or the
-   user's own `npx`?
-4. Testing: a fake ACP agent (a script speaking the protocol) for e2e; real agents by
-   hand only.
+1. **No credits in the usage ledger.** Nobody knows what a credit is worth. Kiro runs
+   record what they can in tokens, or nothing.
+2. **Harness choice is per spawn for now** (Spawn dialog; `defaultHarness` for the
+   pool), and **non-Pi harnesses sit behind an experimental flag** in team config until
+   they're better vetted.
+3. **`mpt setup` installs the Claude adapter** (pinned), rather than relying on `npx`.
+4. **A fake ACP agent drives the e2e tests**; real agents are exercised by hand.

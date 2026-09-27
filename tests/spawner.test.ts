@@ -85,9 +85,16 @@ Deno.test("a permission error is distinguished from tmux being absent", () => {
 
 Deno.test("tmux present but no teammate template configured is refused up front", () => {
   const { exec } = fakeTmux();
-  const cap = probeSpawnCapability(config({ defaultHarness: "kiro", harnesses: {} }), exec);
+  const cap = probeSpawnCapability(config({ defaultHarness: "acme", harnesses: {}, experimental: { harnesses: true } }), exec);
   assertEquals(cap.canSpawn, false);
-  if (!cap.canSpawn) assertStringIncludes(cap.fix, "harnesses.kiro.teammate");
+  if (!cap.canSpawn) assertStringIncludes(cap.fix, "harnesses.acme.teammate");
+});
+
+Deno.test("an experimental default harness without the opt-in is refused up front, with the fix", () => {
+  const cap = probeSpawnCapability(config({ defaultHarness: "kiro" }), fakeTmux().exec);
+  assertEquals(cap.canSpawn, false);
+  if (!cap.canSpawn) assertStringIncludes(cap.fix, "experimental");
+  assertEquals(probeSpawnCapability(config({ defaultHarness: "kiro", experimental: { harnesses: true } }), fakeTmux().exec).canSpawn, true);
 });
 
 Deno.test("tmux present and a template configured can spawn", () => {

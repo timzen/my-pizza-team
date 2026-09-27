@@ -382,11 +382,34 @@ session control.
 
 | Tier | Mechanism | What you get | Harnesses |
 | --- | --- | --- | --- |
-| **0 — text-driven** | the daemon owns tmux and delivers prompts | spawn, dismiss, prompt delivery | any CLI agent (not yet built) |
-| **1 — reporting** | + a way for the agent to report state (tools or CLI commands) | real work-item state | not yet built |
-| **2 — native** | + an in-process adapter: transcript, usage, pairing, permissions, chat | full fidelity | Pi |
+| **0 — text-driven** | the daemon owns tmux and delivers prompts | spawn, dismiss, prompt delivery | any CLI agent (not built) |
+| **1 — supervised (ACP)** | `mpt agent` drives the agent over the Agent Client Protocol | work loop, fresh sessions, permissions, watch view, usage | Kiro, Claude Code — **experimental** |
+| **2 — native** | + an in-process adapter: pairing, steering, chat, leading | full fidelity | Pi |
 
 Any agent can also speak the HTTP protocol directly (README's shell loop).
+
+**Tier 1 is ACP, from outside the agent.** Most coding agents now speak the Agent
+Client Protocol — JSON-RPC over stdio, built for editors: sessions, streamed updates,
+permission requests *to the client*, cancellation. So a non-Pi teammate needs no
+adapter inside it: `mpt agent` is an ACP client to the agent and a daemon-protocol
+client to the daemon, through the same `runtime/` the Pi extension uses. It runs **in
+the teammate's tmux window**, not in the daemon, so teammates still survive a daemon
+restart and re-register. The choices it makes:
+
+- **Completion is the turn ending**, as for Pi: `end_turn` completes the item with the
+  reply after the last tool call as its summary. **Giving up is explicit** — the
+  prompt names `mpt agent fail "<why>"`, which any shell-capable agent can run — and
+  anything else (another stop reason, an error, the agent dying) fails the item with
+  the reason, so nothing hangs.
+- **A fresh session per item**, and the session mode set explicitly: an agent
+  otherwise inherits the user's own defaults (Claude's `defaultMode`).
+- **Permissions are answered by the supervisor** — allow once while autonomous, never
+  "always" — rather than disabled in the agent, which keeps forwarding them to the
+  web UI during pairing possible.
+- **Usage in tokens and dollars only.** Kiro reports credits, which nobody can price;
+  they aren't recorded.
+- **Experimental, behind `experimental.harnesses`.** The daemon refuses to spawn or
+  register them without it, and says how to opt in.
 
 *Why not an MCP server:* one was built (`mpt-mcp-server`, archived at tag
 `archive/mpt-mcp-server`) and retired. An MCP server can only expose *tools*, and

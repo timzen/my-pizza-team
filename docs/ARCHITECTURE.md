@@ -12,6 +12,7 @@ my-pizza-team is one repository producing one binary, `mpt`:
 - **ui/** — the web UI (React + Vite + shadcn/ui), built into `ui/dist/` and served by the daemon.
 - **shared/** — types, protocol contracts, and constants shared by the daemon, CLI, and (via generation) the Pi extension.
 - **harnesses/pi/** — the Pi extension: a Node/npm package with its own `tsconfig.json`, `package.json`, and tests. Its source is embedded in `mpt` and written out by `mpt setup`.
+- **agent/** — `mpt agent`, the supervisor that runs an experimental non-Pi teammate (Kiro, Claude Code) over the Agent Client Protocol.
 - **desktop/** — optional tray/menu-bar apps (macOS SwiftUI, Windows PowerShell).
 - **scripts/** — build, packaging, release, and code generation.
 - **tests/** — the fast suite (`deno task test`) and `tests/e2e/` (`deno task test:e2e`).
@@ -100,8 +101,9 @@ marked done; moving one back out reopens it.
 - `prompt.ts` — `buildTaskPrompt` (see DESIGN.md "The Daemon Owns the Prompt") and `normalizeInstructionMarkdown` (fence-aware heading demotion).
 - `cron.ts` — Vendored 5-field cron parser (`parseCron`, `cronMatches`, `isCronDue`, `isValidCron`).
 - `token-cost.ts` — Fallback cost estimator, used only when a harness reports no `costUsd`.
-- `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`), and `tmuxUnavailableReason`.
-- `spawner.ts` — `probeSpawnCapability` (once at startup) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the configured harness templates; an unrealizable directive is marked `failed` with its reason. Other actions are left for the leader.
+- `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`, and `{mpt}` — how to run this mpt), and `tmuxUnavailableReason`.
+- `self.ts` — `mptInvocation()`: the argv that runs this mpt again (the binary, or `deno run … cli/main.ts` from source), for `mpt start --daemon`'s child and the `{mpt}` placeholder; `isRunningFromSource()`.
+- `spawner.ts` — `probeSpawnCapability` (once at startup) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the harness templates (built-ins overridden per harness by config); an unrealizable directive — including an experimental harness on a team that hasn't opted in — is marked `failed` with its reason. Other actions are left for the leader.
 - `readiness.ts` — `runProbe` (timeout-bounded `sh -c`, which also survives a hung child on Linux) and `startReadinessLoop` (every 30s; nothing configured → never reports → ready).
 - `routes/types.ts` — `RouteContext`.
 - `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows), the teammate pool, readiness, and workflows.
@@ -111,10 +113,10 @@ marked done; moving one back out reopens it.
 - `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
 - `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
 - `routes/templates.ts` — Template CRUD.
-- `routes/agents.ts` — The agent protocol: register (version handshake), heartbeat (`reregister`/`dismissed` signals), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
+- `routes/agents.ts` — The agent protocol: register (version handshake, and the experimental-harness gate — `experimentalGate`), heartbeat (`reregister`/`dismissed` signals), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
 - `routes/assistant.ts` — The chat: conversation reads/writes, SSE stream, the agent mirror surface (inbox/ack, bubbles, thoughts, session report), sessions (list/new/resume/snapshot), persona.
 - `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
-- `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Teammates only.
+- `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Pi teammates only (ACP teammates don't poll it yet).
 - `routes/usage.ts` — Usage reports from any run, and the dashboard's daily/day rollups.
 - `routes/context.ts`, `routes/thoughts.ts` — Thin CRUD shells over their store modules.
 
@@ -125,7 +127,18 @@ marked done; moving one back out reopens it.
 - `doctor.ts` — Gathers facts and `evaluate()`s them (pure) into a checklist: Pi (vs `TESTED_PI_VERSION`), tmux, Pi settings, extension registration and version, permission system, team dir, project trust, daemon, leader, spawning path, service, GitHub token. Only failures set the exit code.
 - `pi-config.ts` — Reads Pi's `settings.json`/`trust.json` (under `PI_CODING_AGENT_DIR`, default `~/.pi/agent`); resolves local package entries to absolute paths before comparing; classifies registrations as `managed` / `dev` / `legacy` / `missing`.
 - `extension.ts` — Locates the embedded extension (`MPT_PI_EXTENSION` override → checkout → alongside the binary) and writes it to `~/.my-pizza-team/pi-extension/` (`MPT_HOME` overrides `~`), staged and swapped so an interrupted write can't leave a half-populated directory. Only `package.json` and `src/` are embedded.
+- `agent.ts` — `mpt agent --harness <h>` (builds the supervisor: client, launch command, the `mpt agent fail` command the agent is told about, and the environment that lets it reach the daemon), `mpt agent fail "<why>"` (fails the IN_PROGRESS item belonging to `MPT_AGENT_ID`), and `mpt setup --harness <h>` (checks prerequisites; installs the pinned Claude adapter with npm).
 - `service.ts` — launchd plist / systemd user unit generation, detection of an installed service and the binary it launches, and `restart()`.
+
+### agent/
+
+The experimental ACP supervisor (DESIGN.md "Harness Tiers, and Why Not MCP"). Deno code in the
+`mpt` binary that imports the Pi extension's harness-agnostic `runtime/` (`client.ts`,
+`transcript.ts`) directly.
+
+- `acp.ts` — `AcpConnection`: JSON-RPC 2.0 over a child's stdio, one object per line. `initialize` (no fs/terminal; accepts `notice` updates so agents don't write notices into replies), `newSession`, `setMode`, `prompt`, `cancel`; notifications to handlers; agent → client requests answered by one handler, unknown ones with "method not supported"; `permissionOutcome` (never an "always" option).
+- `harnesses.ts` — `ACP_HARNESSES`: how to launch each — Kiro `kiro-cli acp`; Claude the pinned `@agentclientprotocol/claude-agent-acp` under `~/.my-pizza-team/acp/claude/` run with node, `CLAUDE_CODE_EXECUTABLE` pointing at the user's own `claude` — and the session mode to set (Claude: `default`).
+- `supervisor.ts` — `AgentSupervisor`: register (retrying while unreachable; a 409 refusal is final), heartbeat (dismissed → stop; reregister), and the loop: poll → claim → `session/new` (+ mode) → the daemon's prompt plus `failInstructions` → on `end_turn` a `[done]` comment with the reply after the last tool call and COMPLETE, unless the item was already failed (`getWorkItemState`); other stop reasons, errors, and the agent exiting fail the item with the reason. Permission requests → allow once. `session/update` → the transcript mirror (message segments split at tool calls, tools, thinking) and the tmux window; `usage_update` cost in USD + the prompt result's tokens → `/api/agents/:id/usage` (no report when the agent gives neither). On stop it fails any item in hand before deregistering.
 
 ### shared/
 
@@ -209,10 +222,10 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 ### tests/
 
 `deno task test` runs `tests/*.test.ts` (daemon, CLI, and pure UI helpers such as
-`thought-geometry`, `thought-list`, `usage-grid`, `wheel-gesture`, `harness-skew`) using
+`thought-geometry`, `thought-list`, `acp` (against the fake agent), `usage-grid`, `wheel-gesture`, `harness-skew`) using
 `tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
-probe, and entry points (every way of starting the daemon gets the same daemon). Guard tests worth knowing: `version.test.ts` (extension version in step),
+probe, entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
 `protocol-version.test.ts`, `runtime-purity.test.ts`, `build-embeds.test.ts`,
 `doctor-coherence.test.ts`. The extension's suites are in `harnesses/pi/tests/`
 (`deno task test:ext`).
@@ -337,7 +350,7 @@ When a token is configured, every path except `/health` requires it.
 
 | Method | Path | Description |
 |--------|------|-------------|
-| POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields); 409 on an unservable `protocolVersion` |
+| POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields); 409 on an unservable `protocolVersion`, or an experimental `harness` without `experimental.harnesses` |
 | POST | `/api/agents/heartbeat` | Keep-alive; `{reregister:true}` or `{dismissed:true}` when unknown |
 | GET | `/api/agents/next-work?agentId=` | Next READY item by directory affinity |
 | POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable) |
@@ -349,7 +362,7 @@ When a token is configured, every path except `/health` requires it.
 | DELETE | `/api/agents/:id` | Unregister (`?dismiss=true` leaves a tombstone) |
 | GET | `/api/agents/:id/directives` | Self-handled directives (`new-session`, `resume-session`) |
 | PUT | `/api/agents/:id/directives/:directiveId` | Mark one done/failed |
-| GET/POST | `/api/leader/directives` | Pending queue (self-handled actions excluded) / create (`spawn` gets a generated `params.name`) |
+| GET/POST | `/api/leader/directives` | Pending queue (self-handled actions excluded) / create (`spawn` gets a generated `params.name`; an experimental `params.harness` is refused with 400 unless opted in) |
 | PUT | `/api/leader/directives/:id` | Update status |
 | GET | `/api/spawn-requests` | `{ requests (pending spawns), failed (failed spawns with reasons) }` |
 | DELETE | `/api/spawn-requests/:id` | Mark a spawn directive `cancelled` (stops a pending one; clears a failed one from the list) |

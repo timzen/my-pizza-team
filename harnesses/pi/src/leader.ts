@@ -51,8 +51,10 @@ interface HarnessTemplates {
  */
 function teammateTemplates(harnesses?: Record<string, { teammate?: string }>): HarnessTemplates {
   const out: HarnessTemplates = {};
-  for (const [name, t] of Object.entries(harnesses ?? DEFAULT_HARNESS_TEMPLATES)) {
-    if (t?.teammate) out[name] = t.teammate;
+  for (const [name, t] of Object.entries({ ...DEFAULT_HARNESS_TEMPLATES, ...harnesses })) {
+    // `{mpt}` (the experimental `mpt agent` harnesses) is filled in by the daemon,
+    // which knows how it was run; this fallback path can't, so it doesn't offer them.
+    if (t?.teammate && !t.teammate.includes("{mpt}")) out[name] = t.teammate;
   }
   return out;
 }

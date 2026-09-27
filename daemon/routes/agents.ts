@@ -13,7 +13,7 @@
 
 import type { RouteContext } from "./types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
-import type { WorkItemRef } from "../../shared/types.ts";
+import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import denoConfig from "../../deno.json" with { type: "json" };
 
@@ -70,6 +70,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
         }, 409);
       }
     }
+
+    // ── Experimental harnesses ───────────────────────────────────────
+    // Non-Pi teammates (`mpt agent`) are opt-in until they're better vetted. Refused
+    // here, with the fix, so a hand-started one fails as loudly as a spawned one.
+    const gate = experimentalGate(config, body.harness);
+    if (gate) return c.json({ success: false, error: gate }, 409);
 
     // The harness may attach opaque metadata (e.g. its tmux window) it later
     // uses to realize control intents. The daemon stores it verbatim.
@@ -245,6 +251,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.post("/api/leader/directives", async (c) => {
     const body = await c.req.json().catch(() => ({})) as { action?: string; memberId?: string; params?: Record<string, unknown> };
     if (!body.action || typeof body.action !== "string") return c.json({ success: false, error: "Field 'action' is required" }, 400);
+    if (body.action === "spawn") {
+      const harness = typeof body.params?.harness === "string" && body.params.harness ? body.params.harness : config.defaultHarness ?? DEFAULT_HARNESS;
+      const gate = experimentalGate(config, harness);
+      if (gate) return c.json({ success: false, error: gate }, 400);
+    }
     const directive = store.createLeaderDirective(body.action, { memberId: body.memberId, params: body.params });
     return c.json({ success: true, directive }, 201);
   });
@@ -318,4 +329,14 @@ function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): strin
     comments: comments.length > 0 ? comments : undefined,
     contextEntries: store.resolveTaskContext(story?.context, def.contextRefs),
   });
+}
+
+/**
+ * Why `harness` isn't allowed on this team, or null if it is: every non-Pi harness
+ * needs `experimental.harnesses` (TODO.md "Next: other harnesses").
+ */
+export function experimentalGate(config: Pick<TeamConfig, "experimental">, harness: string | undefined): string | null {
+  if (!isExperimentalHarness(harness) || config.experimental?.harnesses) return null;
+  return `The "${harness}" harness is experimental. To try it, set "experimental": { "harnesses": true } ` +
+    `in the team's config.json and restart the daemon.`;
 }

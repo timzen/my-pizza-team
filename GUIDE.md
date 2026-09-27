@@ -208,6 +208,20 @@ The Team tab also shows **pending spawns** (starting up) and **failed spawns** w
 the reason (e.g. a directory that doesn't exist) — dismiss a failed one once you've
 seen it.
 
+### Experimental: Kiro and Claude Code teammates
+
+A team can also run **Kiro** or **Claude Code** teammates alongside Pi ones. They're
+experimental, so they're off until the team opts in (`"experimental": { "harnesses":
+true }` in `config.json`, then restart the daemon) and the machine is prepared (`mpt
+setup --harness kiro` or `--harness claude`). Then the **Spawn** dialog has a
+**Harness** choice.
+
+They pick up work like any teammate: each item in a fresh session, finished with a
+summary in its thread, or given up with a reason. You can watch them live; their row
+shows the harness. Not yet: **Pair** (the button is disabled for them) and **Reset**
+(they start every item fresh anyway). Claude Code's usage and cost appear on the Usage
+page; Kiro's don't, since it reports credits rather than dollars.
+
 ### After an upgrade
 
 `mpt upgrade` updates the daemon and the Pi extension together, but running

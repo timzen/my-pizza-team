@@ -17,5 +17,11 @@ export const DEFAULT_HARNESS_TEMPLATES: Record<string, { teammate: string; leade
   "pi": {
     "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
     "leader": "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
+  },
+  "kiro": {
+    "teammate": "{mpt} agent --harness kiro --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}"
+  },
+  "claude": {
+    "teammate": "{mpt} agent --harness claude --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}"
   }
 };

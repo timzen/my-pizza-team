@@ -235,16 +235,19 @@ export class DaemonClient {
 
   /** This integration's own build version, reported at registration. */
   private harnessVersion: string | undefined;
+  /** Which harness this agent runs under, reported at registration ("pi" unless told). */
+  private harness: string;
 
   constructor(
     daemonUrl: string,
     agentId: string,
-    options?: { authToken?: string; harnessVersion?: string },
+    options?: { authToken?: string; harnessVersion?: string; harness?: string },
   ) {
     this.baseUrl = daemonUrl.replace(/\/$/, "");
     this.agentId = agentId;
     this.authToken = options?.authToken;
     this.harnessVersion = options?.harnessVersion;
+    this.harness = options?.harness ?? "pi";
   }
 
   /** The agent's unique ID */
@@ -384,7 +387,7 @@ export class DaemonClient {
       // Version handshake: the daemon gates on protocolVersion and reports the
       // rest for the UI's skew banner.
       protocolVersion: PROTOCOL_VERSION,
-      harness: "pi",
+      harness: this.harness,
       harnessVersion: this.harnessVersion,
     });
   }
@@ -462,6 +465,15 @@ export class DaemonClient {
   // ═══════════════════════════════════════════════════════════════════
   // COMMENTS (replaces old "messages")
   // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * A WorkItem's current state. Used to tell whether an item this agent holds was
+   * already failed some other way (e.g. `mpt agent fail`) before completing it.
+   */
+  async getWorkItemState(workItemId: string): Promise<string | null> {
+    const res = await this.get<{ item?: { state?: string } }>(`/api/work-items/${encodeURIComponent(workItemId)}`);
+    return res.item?.state ?? null;
+  }
 
   /** Post a comment on a WorkItem's ref (task or WorkDef). */
   async postComment(workItemId: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): Promise<{ success: boolean }> {

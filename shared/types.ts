@@ -53,6 +53,12 @@ export interface TeamConfig {
   /** Which harness to spawn when none is named. Defaults to "pi". */
   defaultHarness?: string;
   /**
+   * Opt-ins for what's still being vetted. `harnesses`: allow non-Pi teammates
+   * (Kiro, Claude Code — `mpt agent`). Off by default: the daemon refuses to spawn or
+   * register them without it.
+   */
+  experimental?: { harnesses?: boolean };
+  /**
    * Readiness probe command. The daemon runs it every 30s (daemon/readiness.ts);
    * exit 0 = ready, non-zero = not ready (its first line of output = reason). A not-ready team
    * holds scheduled enqueues instead of failing them. See docs/ARCHITECTURE.md
@@ -427,7 +433,20 @@ export const DEFAULT_HARNESS_TEMPLATES: Record<string, HarnessTemplates> = {
       "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
     leader: "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}",
   },
+  // Experimental (behind `experimental.harnesses`): ACP agents supervised by
+  // `mpt agent` (agent/supervisor.ts). Teammates only — they can't lead yet.
+  kiro: {
+    teammate: "{mpt} agent --harness kiro --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}",
+  },
+  claude: {
+    teammate: "{mpt} agent --harness claude --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}",
+  },
 };
+
+/** Is `harness` one of the experimental ones (anything but Pi)? */
+export function isExperimentalHarness(harness: string | undefined): boolean {
+  return !!harness && harness !== DEFAULT_HARNESS;
+}
 
 /** The tmux window name the leader runs in. Fixed, since there is exactly one. */
 export const LEADER_WINDOW = "leader";

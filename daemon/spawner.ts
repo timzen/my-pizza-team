@@ -19,6 +19,7 @@
 import {
   DEFAULT_HARNESS,
   DEFAULT_HARNESS_TEMPLATES,
+  isExperimentalHarness,
   type HarnessTemplates,
   type TeamConfig,
 } from "../shared/types.ts";
@@ -64,6 +65,13 @@ export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTm
   }
 
   const harness = config.defaultHarness ?? DEFAULT_HARNESS;
+  if (isExperimentalHarness(harness) && !config.experimental?.harnesses) {
+    return {
+      canSpawn: false,
+      reason: `the default harness "${harness}" is experimental`,
+      fix: `set "experimental": { "harnesses": true } in the team's config.json, or defaultHarness back to "pi"`,
+    };
+  }
   if (!resolveTemplates(config)[harness]?.teammate) {
     return {
       canSpawn: false,
@@ -74,9 +82,9 @@ export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTm
   return { canSpawn: true };
 }
 
-/** Templates from config, or the built-in defaults. */
+/** The built-in templates, with config's entries overriding them harness by harness. */
 export function resolveTemplates(config: TeamConfig): Record<string, HarnessTemplates> {
-  return config.harnesses ?? DEFAULT_HARNESS_TEMPLATES;
+  return { ...DEFAULT_HARNESS_TEMPLATES, ...config.harnesses };
 }
 
 /** A directive as the spawner needs to see it. */
@@ -100,6 +108,8 @@ export interface RealizeDeps {
   daemonUrl: string;
   /** Where a spawn lands when the directive names no cwd. */
   fallbackCwd: string;
+  /** How to run this mpt, for templates using `{mpt}` (daemon/self.ts). */
+  mpt?: string[];
   exec?: TmuxExec;
 }
 
@@ -169,11 +179,14 @@ function realizeSpawn(
   const harness = typeof directive.params.harness === "string" && directive.params.harness
     ? directive.params.harness
     : deps.config.defaultHarness ?? DEFAULT_HARNESS;
+  if (isExperimentalHarness(harness) && !deps.config.experimental?.harnesses) {
+    throw new Error(`the "${harness}" harness is experimental — set experimental.harnesses: true in config.json`);
+  }
   const template = resolveTemplates(deps.config)[harness]?.teammate;
   if (!template) throw new Error(`no teammate command configured for harness "${harness}"`);
 
   const session = deps.config.tmuxSession || "mpt";
-  const command = renderTemplate(template, { name, url: deps.daemonUrl, cwd, session, window: name });
+  const command = renderTemplate(template, { mpt: deps.mpt, name, url: deps.daemonUrl, cwd, session, window: name });
   const unresolved = unresolvedPlaceholders(command);
   if (unresolved.length > 0) {
     throw new Error(`harness "${harness}" template has unknown placeholders: ${unresolved.join(", ")}`);

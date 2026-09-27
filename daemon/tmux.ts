@@ -185,6 +185,8 @@ export function selectWindow(session: string, window: string, exec: TmuxExec = r
 
 /** Placeholders a harness spawn template may use. */
 export interface TemplateVars {
+  /** `{mpt}`: how to run this mpt (daemon/self.ts), for `mpt agent` teammates. Left unfilled if absent. */
+  mpt?: string[];
   name: string;
   url: string;
   cwd: string;
@@ -201,7 +203,8 @@ export interface TemplateVars {
  * and values that need quoting are quoted by the caller.
  */
 export function renderTemplate(template: string, vars: TemplateVars): string {
-  return template
+  const filled = vars.mpt ? template.replaceAll("{mpt}", vars.mpt.map(shellQuote).join(" ")) : template;
+  return filled
     .replaceAll("{name}", vars.name)
     .replaceAll("{url}", vars.url)
     .replaceAll("{cwd}", shellQuote(vars.cwd))

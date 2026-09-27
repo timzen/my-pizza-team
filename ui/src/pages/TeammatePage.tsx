@@ -33,6 +33,7 @@ interface Agent {
   name: string;
   directory?: string | null;
   status: string;
+  harness?: string;
 }
 
 interface WorkItem extends LinkableWorkItem {
@@ -63,6 +64,8 @@ export function TeammatePage() {
   const current = work?.items.find((w) => w.memberId === id);
   const running = isRunning(entries);
   const paired = !!pairing?.paired;
+  // Experimental ACP teammates (`mpt agent`) don't poll for pairing yet.
+  const pairable = !agent?.harness || agent.harness === "pi";
 
   const act = async (path: string, body: unknown = {}) => {
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/agents/${encodeURIComponent(id)}/${path}`, body);
@@ -108,9 +111,11 @@ export function TeammatePage() {
               )}
               <Button
                 size="sm" variant="outline" className="h-7"
-                disabled={!agent || agent.status === "offline"}
+                disabled={!agent || agent.status === "offline" || !pairable}
                 onClick={() => act("pair")}
-                title="Pause its autonomous work and talk to it. Nothing is interrupted: it finishes its current step first."
+                title={pairable
+                  ? "Pause its autonomous work and talk to it. Nothing is interrupted: it finishes its current step first."
+                  : `Pairing isn't supported for ${agent?.harness} teammates yet.`}
               >
                 <MessageSquare className="mr-1 h-3.5 w-3.5" />Pair
               </Button>

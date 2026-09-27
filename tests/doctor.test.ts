@@ -292,3 +292,17 @@ Deno.test("compareVersions orders releases and tolerates junk", () => {
   assertEquals(compareVersions("v1.2.3", "1.2.3"), 0, "a leading v is tolerated");
   assertEquals(compareVersions("not-a-version", "1.0.0"), null);
 });
+
+Deno.test("experimental harnesses are reported only when opted in, and never fail doctor", () => {
+  const base = healthy();
+  assertEquals(evaluate(base).some((c) => c.name.includes("experimental")), false, "absent unless opted in");
+  const checks = evaluate({
+    ...base,
+    experimentalHarnesses: { kiro: { ready: true }, claude: { ready: false, missing: "the Claude Code ACP adapter is not installed", fix: "mpt setup --harness claude" } },
+  });
+  const kiro = checks.find((c) => c.name === "kiro (experimental)");
+  const claude = checks.find((c) => c.name === "claude (experimental)");
+  assertEquals(kiro?.status, "ok");
+  assertEquals(claude?.status, "warn");
+  assertEquals(claude?.fix, "mpt setup --harness claude");
+});

@@ -100,17 +100,22 @@ Deno.test("a differing build version is tolerated — only the protocol gates", 
   assertEquals(store!.getMember("a5")!.harnessVersion, "0.0.1-ancient");
 });
 
-Deno.test("a non-Pi harness can register — the field is open-ended", async () => {
-  // Tier 0 harnesses self-report (docs/DESIGN.md "Harness Tiers, and Why Not MCP"). Costing one field
-  // now avoids versioning the handshake twice later.
-  const res = await register({
-    id: "a6",
-    name: "claude-1",
-    protocolVersion: PROTOCOL_VERSION,
-    harness: "claude",
-  });
-  assertEquals(res.status, 200);
-  assertEquals(store!.getMember("a6")!.harness, "claude");
+Deno.test("a non-Pi harness is refused unless the team opted in to experimental harnesses", async () => {
+  // Harnesses self-report (docs/DESIGN.md "Harness Tiers, and Why Not MCP"). Non-Pi ones are
+  // experimental: refused, with the fix named, until `experimental.harnesses` is on.
+  const refused = await register({ id: "a6", name: "claude-1", protocolVersion: PROTOCOL_VERSION, harness: "claude" });
+  assertEquals(refused.status, 409);
+  assertStringIncludes((await refused.json()).error, '"experimental": { "harnesses": true }');
+  assertEquals(store!.getMember("a6"), null);
+
+  // The routes and the store share one config object (createApp), so this is the live one.
+  const config = store!.getConfig();
+  config.experimental = { harnesses: true };
+  try {
+    const res = await register({ id: "a6", name: "claude-1", protocolVersion: PROTOCOL_VERSION, harness: "claude" });
+    assertEquals(res.status, 200);
+    assertEquals(store!.getMember("a6")!.harness, "claude");
+  } finally { delete config.experimental; }
 });
 
 Deno.test({

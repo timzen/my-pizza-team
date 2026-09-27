@@ -172,8 +172,14 @@ export function TeammateRow({
         ) : (
           <span className="font-medium text-sm truncate flex-1">{teammate.name}</span>
         )}
+        {teammate.harness && teammate.harness !== "pi" && (
+          <span className="shrink-0 rounded border border-border px-1 text-[10px] text-muted-foreground" title={`${teammate.harness} teammate (experimental, via mpt agent)`}>
+            {teammate.harness}
+          </span>
+        )}
         <div className="relative z-10 flex items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
-          {onReset && (
+          {/* Reset types Pi's /new; an ACP teammate already starts each item in a fresh session. */}
+          {onReset && (!teammate.harness || teammate.harness === "pi") && (
             <button onClick={() => onReset(teammate)} className="text-muted-foreground hover:text-foreground p-0.5" title="Reset session (clears context window)">
               <RotateCcw className="h-3.5 w-3.5" />
             </button>

@@ -50,6 +50,8 @@ Commands:
   install               Install as a user service (launchd/systemd; starts on login)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
+  setup --harness <h>   Prepare an experimental harness (kiro, claude)
+  agent --harness <h>   Run an experimental teammate (the daemon starts these)
   --version, --help
 ```
 
@@ -133,6 +135,9 @@ most of it is editable on the **Config** page. Minimal:
   // Optional: a shell command the daemon runs every 30s. Exit 0 = ready; otherwise
   // cron jobs are held (not failed) until it recovers, then fire once.
   "readinessProbe": "my-credentials-check",
+
+  // ─── Experimental ──────────────────────────────────────────────
+  "experimental": { "harnesses": true }, // allow Kiro / Claude Code teammates (mpt agent)
 
   // ─── Autosave ──────────────────────────────────────────────────
   "autosave": {
@@ -339,13 +344,27 @@ pi install ./harnesses/pi
 
 ### Other harnesses
 
-**Pi is the only fully supported harness.** An MCP bridge was tried and retired:
-an MCP server can only expose *tools*, and tools are passive — nothing in MCP can
-make an agent act on a directive, mirror its transcript, or approve a permission
-prompt. The supervisor lives in `mpt` instead (it owns tmux and starts teammates
-from config templates), which is what makes other harnesses feasible without an
-in-process adapter. See [docs/DESIGN.md](docs/DESIGN.md#harness-tiers-and-why-not-mcp).
-Until one is built, any agent can speak the HTTP protocol directly.
+**Pi is the only fully supported harness.** Kiro and Claude Code can run as
+**experimental teammates**, over the [Agent Client Protocol](https://agentclientprotocol.com):
+`mpt agent` runs in the teammate's tmux window, starts the agent as a child speaking
+ACP, and speaks the daemon's protocol for it. See
+[docs/DESIGN.md](docs/DESIGN.md#harness-tiers-and-why-not-mcp).
+
+```bash
+mpt setup --harness kiro     # checks for kiro-cli (Kiro speaks ACP natively)
+mpt setup --harness claude   # installs the pinned Claude Code ACP adapter
+```
+
+Then opt the team in — `"experimental": { "harnesses": true }` in `config.json`,
+and restart the daemon — and pick the harness in the Team tab's **Spawn** dialog.
+Without the flag the daemon refuses to spawn or register them.
+
+What they do: claim work, run it in a fresh session per item, complete it with the
+agent's summary or give up through `mpt agent fail "<why>"`, answer permission
+prompts (allow once), stream to the watch view, and record usage — tokens and USD
+cost for Claude; Kiro reports only credits, which aren't recorded. Not yet: pairing
+from the web UI, or leading. Any other agent can still speak the HTTP protocol
+directly (below).
 
 ### Any CLI agent (HTTP protocol)
 
@@ -426,6 +445,7 @@ my-pizza-team/
 ├── ui/                # Web UI (React + Vite + shadcn/ui)
 ├── shared/            # Types, protocol contracts, constants
 ├── harnesses/pi/      # The Pi extension (its own package.json; embedded in mpt)
+├── agent/             # mpt agent: the ACP supervisor for experimental harnesses
 ├── desktop/           # Tray/menu-bar apps (macOS, Windows)
 ├── scripts/           # Build, packaging, release, code generation
 ├── tests/             # Fast suite; tests/e2e/ is the slow suite

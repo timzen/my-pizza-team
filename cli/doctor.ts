@@ -20,6 +20,7 @@
  *     build version would nag on every patch release until people ignored it.
  */
 
+import { ACP_HARNESSES } from "../agent/harnesses.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 import {
@@ -75,6 +76,11 @@ export interface DoctorFacts {
   spawning: { canSpawn: boolean; reason?: string; fix?: string } | null;
   serviceInstalled: boolean;
   githubTokenSet: boolean;
+  /**
+   * The experimental ACP harnesses, when the team has `experimental.harnesses` on
+   * (absent otherwise): whether each could start on this machine.
+   */
+  experimentalHarnesses?: Record<string, { ready: boolean; missing?: string; fix?: string }>;
 }
 
 /** Compare dotted versions numerically. Null when either is unparseable. */
@@ -242,6 +248,14 @@ export function evaluate(f: DoctorFacts): Check[] {
       : { name: "Service", status: "ok", detail: "not installed (optional)", fix: "mpt install" },
   );
 
+  // Experimental harnesses: reported only where the team has opted in, and never a
+  // failure — a Pi team works regardless.
+  for (const [name, h] of Object.entries(f.experimentalHarnesses ?? {})) {
+    checks.push(h.ready
+      ? { name: `${name} (experimental)`, status: "ok", detail: "ready to spawn" }
+      : { name: `${name} (experimental)`, status: "warn", detail: h.missing ?? "not ready", fix: h.fix ?? `mpt setup --harness ${name}` });
+  }
+
   if (!f.githubTokenSet) {
     checks.push({
       name: "GITHUB_TOKEN",
@@ -383,7 +397,28 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     spawning,
     serviceInstalled: opts.serviceInstalled,
     githubTokenSet: Boolean(Deno.env.get("GITHUB_TOKEN")),
+    experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
   };
+}
+
+/** Whether each ACP harness could launch here — only if the team opted in to them. */
+function experimentalHarnessFacts(teamDir: string): DoctorFacts["experimentalHarnesses"] {
+  try {
+    const config = JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json"))) as { experimental?: { harnesses?: boolean } };
+    if (!config.experimental?.harnesses) return undefined;
+  } catch {
+    return undefined;
+  }
+  const out: NonNullable<DoctorFacts["experimentalHarnesses"]> = {};
+  for (const [name, h] of Object.entries(ACP_HARNESSES)) {
+    try {
+      h.launch();
+      out[name] = { ready: true };
+    } catch (e) {
+      out[name] = { ready: false, missing: (e as Error).message.split(" — ")[0], fix: `mpt setup --harness ${name}` };
+    }
+  }
+  return out;
 }
 
 // ─── Rendering ───────────────────────────────────────────────────────

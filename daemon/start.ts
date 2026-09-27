@@ -19,6 +19,7 @@ import {
 import { resolveToken, validateBindSafety } from "./auth.ts";
 import { probeSpawnCapability, realizePending } from "./spawner.ts";
 import { startReadinessLoop } from "./readiness.ts";
+import { mptInvocation } from "./self.ts";
 import { TEAM_DIR } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
@@ -120,6 +121,7 @@ export async function startDaemonInProcess(
           config: store.getConfig(),
           daemonUrl: `http://localhost:${port}`,
           fallbackCwd: path.dirname(teamDir),
+          mpt: mptInvocation(),
         });
         for (const f of failed) console.error(`⚠️  Spawn ${f.id} failed: ${f.error}`);
       } catch (e) {

@@ -23,6 +23,7 @@ const FULL: Partial<TeamConfig> = {
   teammates: { nouns: ["ripley"] },
   readinessProbe: "true",
   defaultHarness: "custom",
+  experimental: { harnesses: true },
   harnesses: {
     custom: { teammate: "my-agent --name={name} --daemon={url}", leader: "my-agent --lead" },
   },
@@ -50,6 +51,7 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.agentTimeoutSeconds, FULL.agentTimeoutSeconds);
   assertEquals(saved.defaultHarness, FULL.defaultHarness);
   assertEquals(saved.harnesses, FULL.harnesses);
+  assertEquals(saved.experimental, FULL.experimental);
 }
 
 Deno.test("saveConfig writes every persistable field", () => {

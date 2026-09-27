@@ -16,6 +16,9 @@
  * nobody was making.
  *
  * Restores the old /spawn page's form as a dialog, opened from the sidebar.
+ *
+ * When the team has `experimental.harnesses` on, it also offers a harness: Pi (the
+ * default), or an experimental ACP teammate run by `mpt agent` (Kiro, Claude Code).
  */
 
 import { useEffect, useState } from "react";
@@ -50,6 +53,16 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
   const [cwd, setCwd] = useState("");
   const [error, setError] = useState("");
   const [storyDirs, setStoryDirs] = useState<string[]>([]);
+  const [experimental, setExperimental] = useState(false);
+  const [harness, setHarness] = useState("pi");
+
+  // Experimental harnesses are offered only where the team has opted in.
+  useEffect(() => {
+    fetch("/api/config")
+      .then((r) => r.json())
+      .then((c: { experimental?: { harnesses?: boolean } }) => setExperimental(!!c.experimental?.harnesses))
+      .catch(() => {});
+  }, []);
 
   // Load candidate directories (story homes) on open.
   useEffect(() => {
@@ -70,7 +83,7 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
     // directive and it shows as a pending spawn until one connects.
     const res = await apiPost<{ success: boolean; error?: string }>("/api/leader/directives", {
       action: "spawn",
-      params: { cwd: cwd || undefined, reason: "teammate" },
+      params: { cwd: cwd || undefined, reason: "teammate", ...(harness !== "pi" ? { harness } : {}) },
     });
     if (!res.success) { setError(res.error || "Failed to spawn"); return; }
     onDone();
@@ -91,6 +104,27 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
           <DirectoryInput value={cwd} onChange={setCwd} extraDirectories={storyDirs} />
           <p className="text-xs text-muted-foreground">Blank uses the leader's directory.</p>
         </div>
+
+        {experimental && (
+          <div className="space-y-1.5">
+            <Label htmlFor="spawn-harness">Harness</Label>
+            <select
+              id="spawn-harness"
+              value={harness}
+              onChange={(e) => setHarness(e.target.value)}
+              className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
+            >
+              <option value="pi">Pi</option>
+              <option value="kiro">Kiro (experimental)</option>
+              <option value="claude">Claude Code (experimental)</option>
+            </select>
+            {harness !== "pi" && (
+              <p className="text-xs text-muted-foreground">
+                Runs under <code>mpt agent</code>. Needs <code>mpt setup --harness {harness}</code> first. No web pairing yet.
+              </p>
+            )}
+          </div>
+        )}
 
         {error && <p className="text-xs text-destructive">{error}</p>}
 
