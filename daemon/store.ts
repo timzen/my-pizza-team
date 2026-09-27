@@ -2766,14 +2766,19 @@ export class Store {
     return t;
   }
 
-  /** Partial update; only provided fields are written. Bumps updatedAt. A
-   * groupId that doesn't resolve is ignored (null clears membership). */
+  /** Partial update; only provided fields are written. A groupId that doesn't
+   * resolve is ignored (null clears membership).
+   *
+   * `updatedAt` means "last edited": only a change to the note's *content* bumps
+   * it. The list view orders notes by it, so moving a note on the canvas,
+   * recoloring, pinning, or filing it in a group must not make it jump to the top. */
   updateThought(id: string, updates: {
     content?: string; color?: string; status?: ThoughtStatus; pinned?: boolean;
     groupId?: string | null; x?: number; y?: number; w?: number | null; h?: number | null; zIndex?: number;
   }): Thought | null {
     const t = ioGetThought(this.teamDir, id);
     if (!t) return null;
+    const edited = updates.content !== undefined && updates.content !== t.content;
     if (updates.content !== undefined) t.content = updates.content;
     if (updates.color !== undefined) t.color = updates.color;
     if (updates.status !== undefined) t.status = updates.status;
@@ -2786,7 +2791,7 @@ export class Store {
     if (updates.w !== undefined) t.w = updates.w;
     if (updates.h !== undefined) t.h = updates.h;
     if (updates.zIndex !== undefined) t.zIndex = updates.zIndex;
-    t.updatedAt = new Date().toISOString();
+    if (edited) t.updatedAt = new Date().toISOString();
     writeThought(this.teamDir, t);
     return t;
   }

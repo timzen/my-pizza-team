@@ -4,7 +4,7 @@
  * JSON file sync. See docs/DESIGN.md "The WorkItem".
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import { assert, assertEquals, assertExists } from "@std/assert";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { workDefType } from "../shared/types.ts";
@@ -366,6 +366,29 @@ Deno.test("Store: thoughts lifecycle — create, edit, archive, restore, delete"
 
     assertEquals(store.deleteThought(t.id), true);
     assertEquals(store.getThought(t.id), null);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: a thought's updatedAt moves only when its content changes", async () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, TEST_CONFIG);
+    const t = store.createThought({ content: "idea" });
+    const group = store.createThoughtGroup({ title: "G" });
+    const tick = () => new Promise((r) => setTimeout(r, 5));
+
+    // Moving, recoloring, pinning, and filing it are not edits: the list view
+    // orders by updatedAt, and none of these should reorder it.
+    await tick();
+    store.updateThoughtPositions([{ id: t.id, x: 500, y: 500 }]);
+    store.updateThought(t.id, { color: "blue", pinned: true, groupId: group.id });
+    store.updateThought(t.id, { content: "idea" }); // same text: not an edit either
+    assertEquals(store.getThought(t.id)!.updatedAt, t.updatedAt);
+
+    await tick();
+    const edited = store.updateThought(t.id, { content: "a better idea" })!;
+    assert(edited.updatedAt > t.updatedAt, "a content edit bumps updatedAt");
     store.close();
   } finally { cleanupDir(teamDir); }
 });
