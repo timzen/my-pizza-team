@@ -74,7 +74,6 @@ export async function startDaemonInProcess(
     } else {
       console.error(`   This often means SQLite failed to load. Ensure libsqlite3 is available.`);
     }
-    console.error(`   Check daemon.log in the team directory for details.`);
     Deno.exit(1);
   }
 

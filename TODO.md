@@ -4,13 +4,6 @@ Code issues found while reconciling the docs with the source (docs consolidation
 v0.20.0). Each item names a symbol rather than a line number. Delete an item when it's
 fixed.
 
-## Bugs
-
-- **`mpt start --daemon` pipes the child's stdout/stderr and never reads them**
-  (`cmdStart`). The parent exits right away, so daemon output is lost; check whether
-  later writes hit a broken pipe. Redirect to a log file in the team dir (its names
-  are already in `RUNTIME_FILES`) or to `null`.
-
 ## Stale code comments
 
 - `TeamConfig.readinessProbe` — "The leader runs this on each heartbeat" (the daemon

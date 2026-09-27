@@ -34,6 +34,7 @@ import {
 } from "./setup.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
+import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
 // Single source of truth for the version: the package manifest. Bundled into
 // the compiled binary by `deno compile` (JSON imports are part of the module
 // graph), and read directly under `deno run`.
@@ -97,31 +98,56 @@ async function cmdStart(args: string[]): Promise<void> {
     console.log(`Starting daemon in background...`);
 
     // Get the path to the current executable
-    const execPath = Deno.execPath();
-
-    const cmd = new Deno.Command(execPath, {
-      args: ["start", "--foreground-internal"],
+    // The child writes its own log (redirectOutputToLog): this process exits in a
+    // moment, so pipes back to it would be read by nobody.
+    const child = new Deno.Command(Deno.execPath(), {
+      args: [...selfInvocation(), "start", "--foreground-internal"],
       env: { ...Deno.env.toObject(), TEAM_DIR: teamDir, PORT: String(port) },
       stdin: "null",
-      stdout: "piped",
-      stderr: "piped",
-    });
-
-    const child = cmd.spawn();
+      stdout: "null",
+      stderr: "null",
+    }).spawn();
     child.unref();
+    let exited = false;
+    child.status.then(() => { exited = true; }).catch(() => { exited = true; });
 
-    // Wait briefly for PID file to appear
-    await new Promise(r => setTimeout(r, 500));
-    const newPid = readPid(teamDir);
-    if (newPid) {
+    // Wait for the PID file (written once the server is listening), or for the
+    // child to give up — say which, and where its log is.
+    const logPath = path.join(teamDir, LOG_FILENAME);
+    const deadline = Date.now() + 15_000;
+    let newPid: number | null = null;
+    while (Date.now() < deadline && !exited) {
+      newPid = readPid(teamDir);
+      if (newPid && isProcessAlive(newPid)) break;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+    if (newPid && !exited) {
       console.log(`✅ Daemon started (PID ${newPid}) on http://localhost:${port}`);
+      console.log(`   Log: ${logPath}`);
     } else {
-      console.log(`⚠️  Daemon process spawned but PID file not yet written. Check logs.`);
+      console.error(`❌ The daemon ${exited ? "exited during startup" : "did not start within 15s"}. See ${logPath}`);
+      Deno.exit(1);
     }
   } else {
     // Foreground mode: start daemon in-process (works for both compiled and deno run)
     await startDaemonInProcess(teamDir, port, hostname);
   }
+}
+
+/** Running from source (`deno run cli/main.ts`) rather than the compiled binary? */
+function isRunningFromSource(): boolean {
+  const base = path.basename(Deno.execPath()).toLowerCase();
+  return base === "deno" || base === "deno.exe";
+}
+
+/**
+ * The arguments that re-run this program, before its own arguments. The compiled
+ * binary is its own executable; from source, `Deno.execPath()` is `deno`, which needs
+ * the script and the permissions `deno task mpt` grants.
+ */
+function selfInvocation(): string[] {
+  if (!isRunningFromSource()) return [];
+  return ["run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", path.fromFileUrl(Deno.mainModule)];
 }
 
 function cmdStop(): void {
@@ -369,8 +395,7 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   const execPath = Deno.execPath();
 
   // Guard: running from source (deno run) — there's no mpt binary to replace.
-  const execBase = path.basename(execPath).toLowerCase();
-  if (execBase === "deno" || execBase === "deno.exe") {
+  if (isRunningFromSource()) {
     console.error("⚠️  Running from source (deno run), not the compiled binary — nothing to upgrade.");
     console.error("    Build the latest from source instead: deno task compile");
     Deno.exit(1);
@@ -929,7 +954,10 @@ export async function main(): Promise<void> {
     case "start":
       // Handle internal flag for daemonized background process
       if (args.includes("--foreground-internal")) {
+        // The background child `start --daemon` launches: no terminal, so log to a file.
         const teamDir = getTeamDir();
+        Deno.mkdirSync(teamDir, { recursive: true });
+        redirectOutputToLog(teamDir);
         const port = getPort();
         const hostname = Deno.env.get("HOST") || "127.0.0.1";
         await startDaemonInProcess(teamDir, port, hostname);

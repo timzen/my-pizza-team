@@ -25,6 +25,7 @@ export const RUNTIME_FILES = [
   "state.db-shm",
   "daemon.pid",
   "daemon.log",
+  "daemon.log.1",
   "daemon.stdout.log",
   "daemon.stderr.log",
 ] as const;

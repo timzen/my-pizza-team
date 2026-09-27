@@ -166,6 +166,7 @@ most of it is editable on the **Config** page. Minimal:
 ├── .gitignore           # written by mpt: excludes the runtime files below
 ├── state.db             # SQLite runtime index (rebuilt from the files; not committed)
 ├── daemon.pid           # while the daemon runs
+├── daemon.log           # a background daemon's output (daemon.log.1: the run before)
 ├── workflows/
 │   └── default/
 │       ├── workflow.json
