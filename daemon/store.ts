@@ -544,6 +544,21 @@ export class Store {
     }
 
     this.dropRetiredColumns();
+    this.cancelRetiredDirectives();
+  }
+
+  /**
+   * Cancel pending spawns for the retired assistant role. The leader is the chat
+   * agent now, but a database from before that can still hold a pending
+   * `spawn` with `reason: "assistant"`. Left alone it would be realized as a
+   * teammate, listed as a pending spawn, and counted toward the team size — so it is
+   * cancelled once, here, instead of every reader having to skip it.
+   */
+  private cancelRetiredDirectives(): void {
+    this.db.prepare(
+      `UPDATE leader_directives SET status = 'cancelled', updated_at = ?
+       WHERE action = 'spawn' AND status = 'pending' AND json_extract(params, '$.reason') = 'assistant'`,
+    ).run(Date.now());
   }
 
   /**
@@ -2476,18 +2491,10 @@ export class Store {
 
   /** Pending `spawn` directives for pool teammates. */
   private countPendingTeammateSpawns(): number {
-    const rows = this.db.prepare("SELECT params FROM leader_directives WHERE action = 'spawn' AND status = 'pending'").all() as Array<Record<string, unknown>>;
-    let n = 0;
-    for (const row of rows) {
-      try {
-        const p = JSON.parse((row.params as string) || "{}") as { name?: string; reason?: string };
-        // The assistant role was retired (the leader is now the chat agent), but a
-        // team dir upgraded from an older build can still hold such pending rows.
-        if (p.reason === "assistant") continue;
-        n++;
-      } catch { n++; }
-    }
-    return n;
+    // Every pending spawn is a teammate: retired assistant spawns are cancelled at
+    // boot (cancelRetiredDirectives).
+    const row = this.db.prepare("SELECT COUNT(*) AS n FROM leader_directives WHERE action = 'spawn' AND status = 'pending'").get() as { n: number };
+    return row.n;
   }
 
   /**

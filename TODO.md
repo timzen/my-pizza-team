@@ -6,8 +6,6 @@ fixed.
 
 ## Dead code and leftovers
 
-- `countPendingTeammateSpawns` skips `reason: "assistant"` rows from the retired
-  assistant role; a one-time cleanup could delete them instead.
 - `deno.lock` still pins `jsr:@db/sqlite` although the store uses `node:sqlite`.
   Likewise `mpt.entitlements`' `disable-library-validation` existed for that FFI
   `.dylib`; check whether a signed build still needs it.

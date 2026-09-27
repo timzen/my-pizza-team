@@ -236,3 +236,22 @@ Deno.test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", 
     assertEquals(config.minTeammates, 0);
   } finally { cleanup(teamDir, store); }
 });
+
+Deno.test("a pending spawn for the retired assistant role is cancelled at boot", async () => {
+  // A database from before the leader became the chat agent can hold one. It must
+  // not count toward the team size, be listed as pending, or be realized.
+  const first = setup();
+  first.store.createLeaderDirective("spawn", { params: { reason: "assistant", name: "assistant" } });
+  first.store.createLeaderDirective("spawn", { params: { reason: "teammate" } });
+  first.store.close();
+
+  // Reopen the same team dir: boot cancels the assistant spawn.
+  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
+  const store = new Store(first.teamDir, config);
+  const app = buildApp(store, config, first.teamDir);
+  try {
+    const pending = await pendingSpawns(app) as Array<{ name?: string }>;
+    assertEquals(pending.length, 1, "only the teammate spawn is still pending");
+    assertEquals(store.getTeammatePool().pending, 1);
+  } finally { cleanup(first.teamDir, store); }
+});
