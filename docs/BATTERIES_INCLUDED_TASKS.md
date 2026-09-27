@@ -490,7 +490,24 @@ the phase that pays off §1.1).
 
 ---
 
-## Phase 3 — `mpt lead` and daemon-owned tmux
+## Phase 3 — `mpt lead` and daemon-owned tmux — **DONE**
+
+Findings from executing it:
+
+- **`shellSafe` stripped characters instead of quoting them.** `/Users/t/My Project`
+  became `/Users/t/MyProject`, so a spawn landed in the wrong directory or none. The
+  daemon passes argv arrays, removing the class; a real-tmux test creates a marker file
+  inside a spaced path to prove it.
+- **The leader path is kept as a fallback, on purpose.** Whether the daemon can reach
+  tmux depends on how it was launched, so it probes once at startup and `mpt doctor`
+  reports which path is live.
+- **`reset-session` was deliberately not taken over** — it types `/new`, a Pi slash
+  command, and the daemon knowing each harness's commands is the coupling §3.1 removes.
+- **Moving the readiness probe fixed an inversion**: an agent-reported probe meant a
+  machine too wedged for the leader to start counted as healthy.
+- Three bugs escaped unit tests and were caught by *running* things — the stray `zsh`
+  window, the silently-skipped tmux tests, and `doctor` contradicting itself. That
+  evidence is what Phase 5 exists to address.
 
 ### P3-1 — Move tmux into the daemon
 
