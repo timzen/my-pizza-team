@@ -1,16 +1,38 @@
 #!/usr/bin/env bash
-# Publish script: increments the version (MAJOR, MINOR, or PATCH),
-# updates deno.json, commits, creates a git tag, and pushes it.
+# Publish script: sets the next version, updates deno.json (and the generated copies
+# derived from it), commits, creates a git tag, and pushes it. The tag triggers the
+# release workflow.
+#
+# Usage:
+#   ./scripts/publish.sh            # PATCH bump (default)
+#   ./scripts/publish.sh MINOR      # or MAJOR / PATCH
+#   ./scripts/publish.sh 0.20.0     # jump straight to an explicit version
 
 set -euo pipefail
 
-BUMP_TYPE="${1:-PATCH}"
-BUMP_TYPE="$(echo "$BUMP_TYPE" | tr '[:lower:]' '[:upper:]')"
+usage() {
+  echo "Usage: ./scripts/publish.sh [MAJOR|MINOR|PATCH|X.Y.Z]"
+  echo "  MAJOR|MINOR|PATCH  bump that part of the current version (default: PATCH)"
+  echo "  X.Y.Z              set this exact version (must be higher than the current one)"
+}
 
-if [[ "$BUMP_TYPE" != "MAJOR" && "$BUMP_TYPE" != "MINOR" && "$BUMP_TYPE" != "PATCH" ]]; then
-  echo "Usage: ./scripts/publish.sh [MAJOR|MINOR|PATCH]"
-  echo "  Default: PATCH"
-  exit 1
+ARG="${1:-PATCH}"
+case "$ARG" in
+  -h|--help) usage; exit 0 ;;
+esac
+
+# An explicit version (a leading "v" is tolerated, since tags carry one).
+EXPLICIT_VERSION=""
+BUMP_TYPE=""
+if [[ "$ARG" =~ ^v?([0-9]+)\.([0-9]+)\.([0-9]+)$ ]]; then
+  EXPLICIT_VERSION="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+else
+  BUMP_TYPE="$(echo "$ARG" | tr '[:lower:]' '[:upper:]')"
+  if [[ "$BUMP_TYPE" != "MAJOR" && "$BUMP_TYPE" != "MINOR" && "$BUMP_TYPE" != "PATCH" ]]; then
+    echo "Error: '$ARG' is neither MAJOR/MINOR/PATCH nor a version like 0.20.0"
+    usage
+    exit 1
+  fi
 fi
 
 # Get current version from deno.json
@@ -26,23 +48,36 @@ echo "Current version: $CURRENT_VERSION"
 # Split into components
 IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT_VERSION"
 
-# Increment based on bump type
-case "$BUMP_TYPE" in
-  MAJOR)
-    MAJOR=$((MAJOR + 1))
-    MINOR=0
-    PATCH=0
-    ;;
-  MINOR)
-    MINOR=$((MINOR + 1))
-    PATCH=0
-    ;;
-  PATCH)
-    PATCH=$((PATCH + 1))
-    ;;
-esac
-
-NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+if [[ -n "$EXPLICIT_VERSION" ]]; then
+  NEW_VERSION="$EXPLICIT_VERSION"
+  # Refuse to go backwards or stand still. `mpt upgrade` installs the newest release,
+  # so a lower number would be a release nobody upgrades to, and would read as a
+  # downgrade to anyone who picked it by hand.
+  IFS='.' read -r NMAJOR NMINOR NPATCH <<< "$NEW_VERSION"
+  if (( NMAJOR < MAJOR )) \
+    || (( NMAJOR == MAJOR && NMINOR < MINOR )) \
+    || (( NMAJOR == MAJOR && NMINOR == MINOR && NPATCH <= PATCH )); then
+    echo "Error: $NEW_VERSION is not higher than the current version $CURRENT_VERSION"
+    exit 1
+  fi
+else
+  # Increment based on bump type
+  case "$BUMP_TYPE" in
+    MAJOR)
+      MAJOR=$((MAJOR + 1))
+      MINOR=0
+      PATCH=0
+      ;;
+    MINOR)
+      MINOR=$((MINOR + 1))
+      PATCH=0
+      ;;
+    PATCH)
+      PATCH=$((PATCH + 1))
+      ;;
+  esac
+  NEW_VERSION="${MAJOR}.${MINOR}.${PATCH}"
+fi
 TAG="v${NEW_VERSION}"
 
 echo "New version: $NEW_VERSION"

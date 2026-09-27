@@ -10,7 +10,7 @@ to work on.
 
 Download the binary for your platform from
 [GitHub Releases](https://github.com/timzen/my-pizza-team/releases/latest). You need
-**mpt 0.18.0 or later** — earlier releases don't have `setup`, `doctor`, or `lead`.
+**mpt 0.20.0 or later** — earlier releases don't have `setup`, `doctor`, or `lead`.
 
 | Platform | Asset |
 |----------|-------|
