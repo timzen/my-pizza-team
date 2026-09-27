@@ -6,9 +6,6 @@ fixed.
 
 ## Dead code and leftovers
 
-- `deno.lock` still pins `jsr:@db/sqlite` although the store uses `node:sqlite`.
-  Likewise `mpt.entitlements`' `disable-library-validation` existed for that FFI
-  `.dylib`; check whether a signed build still needs it.
 - `mpt --help`'s **Commands** list omits `setup`, `doctor`, and `lead` (they appear
   only under Examples) and its Environment section omits `HOST`.
 
