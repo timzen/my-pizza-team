@@ -52,11 +52,8 @@ test("exports the ppt-autonomous link name", () => {
   assert.ok(src.includes('AUTONOMOUS_AUTHORIZER = "ppt-autonomous"'));
 });
 
-test("resolves the service via the Symbol.for globalThis slot (no hard dependency)", () => {
-  assert.ok(src.includes('Symbol.for("@gotgenes/pi-permission-system:service")'));
-  // Graceful degradation when the permission system isn't installed.
-  assert.ok(src.includes("if (!service?.registerAuthorizer) return"));
-});
+// How the service is found — per session, across versions — is tested by running
+// it, in permission-service.test.mjs.
 
 test("link allows when autonomous and defers when pairing", () => {
   const authorize = src.slice(src.indexOf("service.registerAuthorizer"));
@@ -70,11 +67,6 @@ test("link writes a review-log audit entry on auto-allow", () => {
   assert.ok(src.includes('"ppt.autonomous_auto_allow"'));
 });
 
-test("re-registers on permissions:ready (survives /reload) and tries immediately", () => {
-  assert.ok(src.includes('"permissions:ready"'));
-  // An immediate attempt outside the event handler.
-  assert.ok(src.match(/permissions:ready", register\);\s*\n\s*register\(\)/));
-});
 
 // ─── Config activation ───────────────────────────────────────────
 
@@ -90,7 +82,9 @@ test("leader's spawn-time config goes through the lease module (names the link)"
 });
 
 test("teammate setup registers the authorizer wired to loop autonomy", () => {
-  assert.ok(indexSrc.includes("registerAutonomousAuthorizer(pi, () => loop.isAutonomous)"));
+  // On this session's service, and dropped at shutdown so the next session registers its own.
+  assert.ok(indexSrc.includes("registerAutonomousAuthorizer(pi.events, sessionId, () => loop.isAutonomous)"));
+  assert.ok(indexSrc.includes("disposeAuthorizer();"));
 });
 
 
@@ -132,18 +126,19 @@ test("teammate releases its lease on shutdown", () => {
 test("leader wires the chat-agent permissions and the authorizer link", () => {
   const leaderSrc = fs.readFileSync(path.join(import.meta.dirname, "../src/leader.ts"), "utf-8");
   assert.ok(leaderSrc.includes("registerChatAgentPermissions(pi, cwd)"));
-  assert.ok(leaderSrc.includes("registerAutonomousAuthorizer(pi, chatPermissions.isRemoteDriven)"));
+  assert.ok(/registerAutonomousAuthorizer\(\s*pi\.events,\s*ctx\.sessionManager\?\.getSessionId\?\.\(\),\s*chatPermissions\.isRemoteDriven,?\s*\)/.test(leaderSrc));
+  assert.ok(leaderSrc.includes("disposeAuthorizer();"));
 });
 
 
 // ─── Absent permission system (P2-8) ─────────────────────────────────
 
-test("exposes a check for whether the permission system is loaded", () => {
+test("exposes a deferred check for whether the permission system is running", () => {
   // The extension already degrades gracefully without it, but silently: an
   // autonomous teammate then stalls on the first prompt and looks hung rather than
-  // under-configured. The check is what lets the caller say so.
-  assert.ok(src.includes("export function isPermissionSystemLoaded"));
-  assert.ok(src.includes("PERMISSIONS_SERVICE_KEY"));
+  // under-configured. The check is what lets the caller say so. (Behavior:
+  // permission-service.test.mjs.)
+  assert.ok(src.includes("export function warnIfPermissionSystemAbsent"));
 });
 
 test("the install command lives beside the check so the message can't drift", () => {

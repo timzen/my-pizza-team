@@ -59,28 +59,89 @@ const STALE_LOCK_MS = 2_000;
 export const AUTONOMOUS_AUTHORIZER = "ppt-autonomous";
 
 /**
- * The permission system's cross-extension service slot on globalThis
- * (Symbol.for is process-global, surviving pi's per-extension module
- * isolation). Reading the slot directly avoids a hard dependency on
- * @gotgenes/pi-permission-system — if it isn't installed, the slot is empty
- * and we degrade gracefully.
+ * Where the permission system publishes its cross-extension service. `Symbol.for`
+ * is process-global, so these slots survive Pi's per-extension module isolation,
+ * and reading them directly avoids a hard dependency on
+ * @gotgenes/pi-permission-system — if it isn't installed they're empty and we
+ * degrade gracefully.
+ *
+ * - **≥ 27: a map keyed by session id.** One process can host several Pi sessions
+ *   (a root and its in-process subagents), each with its own service. The only slot
+ *   since 29.0.0.
+ * - **< 29: a single process-root slot.** Still read, so an older install works.
+ *
+ * Reading only the old slot is what broke with 29.0.0: it went empty, so the
+ * "not installed" warning fired on every teammate *and* our authorizer link was
+ * silently never registered — the fail-closed asks it answers (`timeout`, `nohup`)
+ * prompted instead.
  */
-const PERMISSIONS_SERVICE_KEY = Symbol.for("@gotgenes/pi-permission-system:service");
+export const PERMISSIONS_SESSION_SERVICES_KEY = Symbol.for("@gotgenes/pi-permission-system:session-services");
+export const PERMISSIONS_LEGACY_SERVICE_KEY = Symbol.for("@gotgenes/pi-permission-system:service");
 
 /**
- * Is the permission system actually loaded?
- *
- * The extension degrades gracefully without it — but *silently*, which is the
- * problem. An autonomous teammate then stops on the first permission prompt and
- * simply sits there: no work completes, nothing explains why, and the symptom looks
- * like a hung agent rather than a missing package. That is precisely the
- * diagnostic-free failure docs/DESIGN.md "Setup Is One Command" is about, so callers warn
- * (P2-8). mpt does *not* auto-install it: coupling setup to a third party's
- * publishing would mean their bad release breaks our setup.
+ * The permission system's service for `sessionId` — the node whose permission
+ * gates our registrations should affect — or `undefined` if it hasn't published
+ * one (not installed, or not started yet). `globals` is injectable for tests.
  */
-export function isPermissionSystemLoaded(): boolean {
-  // deno-lint-ignore no-explicit-any
-  return Boolean((globalThis as any)[PERMISSIONS_SERVICE_KEY]);
+export function findPermissionsService(
+  sessionId: string | null | undefined,
+  globals: Record<symbol, unknown> = globalThis as unknown as Record<symbol, unknown>,
+): PermissionsServiceLike | undefined {
+  const byId = globals[PERMISSIONS_SESSION_SERVICES_KEY] as { get?: (id: string) => unknown } | undefined;
+  if (sessionId && typeof byId?.get === "function") {
+    const service = byId.get(sessionId) as PermissionsServiceLike | undefined;
+    if (service) return service;
+  }
+  return globals[PERMISSIONS_LEGACY_SERVICE_KEY] as PermissionsServiceLike | undefined;
+}
+
+/** The permission system's startup broadcast: it publishes, then announces. */
+const PERMISSIONS_READY = "permissions:ready";
+
+/** Just what we use of Pi's event bus, so tests can hand in a fake. */
+type EventsLike = { on?: (channel: string, handler: (data: unknown) => void) => (() => void) | void };
+
+/** How long after startup to wait for the permission system before warning. */
+export const PERMISSION_SYSTEM_GRACE_MS = 5_000;
+
+/**
+ * Warn — once — if the permission system turns out not to be running for this
+ * session.
+ *
+ * The extension works without it, but *silently*, which is the problem: an
+ * autonomous teammate then stops on the first permission prompt and sits there,
+ * looking like a hung agent rather than a missing package. That is the
+ * diagnostic-free failure docs/DESIGN.md "Setup Is One Command" is about, so we say
+ * so (P2-8). mpt does *not* auto-install it: coupling setup to a third party's
+ * publishing would mean their bad release breaks our setup.
+ *
+ * Not decided on the spot: the permission system publishes at its *own*
+ * session_start, which may run after ours. So it's present now, or its
+ * `permissions:ready` arrives within the grace period, or we warn. Returns a
+ * cancel for session shutdown.
+ */
+export function warnIfPermissionSystemAbsent(
+  events: EventsLike | undefined,
+  sessionId: string | null | undefined,
+  warn: () => void,
+  opts: { graceMs?: number; globals?: Record<symbol, unknown> } = {},
+): () => void {
+  if (findPermissionsService(sessionId, opts.globals)) return () => {};
+  let settled = false;
+  const off = events?.on?.(PERMISSIONS_READY, () => { settle(); });
+  const timer = setTimeout(() => {
+    if (settled) return;
+    const present = findPermissionsService(sessionId, opts.globals);
+    settle();
+    if (!present) warn();
+  }, opts.graceMs ?? PERMISSION_SYSTEM_GRACE_MS);
+  function settle() {
+    if (settled) return;
+    settled = true;
+    clearTimeout(timer);
+    if (typeof off === "function") off();
+  }
+  return settle;
 }
 
 /** The install command, kept beside the check so the message can't drift from it. */
@@ -97,23 +158,32 @@ interface PermissionsServiceLike {
 }
 
 /**
- * Register the `ppt-autonomous` authorizer chain link: auto-allows `ask`
- * escalations (e.g. the bash indirection-wrapper floor on `timeout`/`nohup`
- * commands) while the agent is autonomous; defers to the normal prompt flow
- * while pairing. Registration is re-attempted on every `permissions:ready`
- * broadcast so it survives /reload and load-order differences.
+ * Register the `ppt-autonomous` authorizer chain link on this session's permission
+ * service: auto-allows `ask` escalations (e.g. the bash indirection-wrapper floor
+ * on `timeout`/`nohup` commands) while the agent is autonomous; defers to the
+ * normal prompt flow while pairing.
+ *
+ * Registered now if the service is already up, and on this session's
+ * `permissions:ready` otherwise (the permission system may start after us). A
+ * `ready` for another session — an in-process subagent's — is ignored: a link
+ * registered there would answer that node's prompts, not ours. Returns a disposer
+ * for session shutdown, which drops both the registration and the listener.
  */
-export function registerAutonomousAuthorizer(pi: ExtensionAPI, getIsAutonomous: () => boolean): void {
+export function registerAutonomousAuthorizer(
+  events: EventsLike | undefined,
+  sessionId: string | null | undefined,
+  getIsAutonomous: () => boolean,
+  globals?: Record<symbol, unknown>,
+): () => void {
   let dispose: (() => void) | null = null;
 
   const register = () => {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- untyped cross-extension boundary
-    const service = (globalThis as any)[PERMISSIONS_SERVICE_KEY] as PermissionsServiceLike | undefined;
-    if (!service?.registerAuthorizer) return; // permission system not installed/published
+    const service = findPermissionsService(sessionId, globals);
+    if (!service?.registerAuthorizer) return; // not installed, or not started yet
 
-    // A fresh service is published per session; drop any stale registration
-    // before re-registering (duplicate names throw).
-    try { dispose?.(); } catch { /* stale disposer from a torn-down session */ }
+    // A fresh service is published per session (and per /reload); drop any stale
+    // registration before re-registering, since duplicate names throw.
+    try { dispose?.(); } catch { /* stale disposer from a torn-down service */ }
     dispose = null;
     try {
       dispose = service.registerAuthorizer(AUTONOMOUS_AUTHORIZER, async (details, _query, log) => {
@@ -132,10 +202,19 @@ export function registerAutonomousAuthorizer(pi: ExtensionAPI, getIsAutonomous: 
     }
   };
 
-  // The service publishes at session_start and broadcasts permissions:ready
-  // right after; also try immediately in case it's already up.
-  pi.events?.on?.("permissions:ready", register);
+  const off = events?.on?.(PERMISSIONS_READY, (data) => {
+    const readyFor = (data as { sessionId?: string | null } | undefined)?.sessionId;
+    // A legacy (<27) broadcast carries no session id; it can only mean ours.
+    if (readyFor && sessionId && readyFor !== sessionId) return;
+    register();
+  });
   register();
+
+  return () => {
+    if (typeof off === "function") off();
+    try { dispose?.(); } catch { /* service already torn down */ }
+    dispose = null;
+  };
 }
 
 // ═══════════════════════════════════════════════════════════════════════

@@ -301,7 +301,9 @@ test("a teammate warns at start when the permission system is missing", () => {
   // Warned once, where someone will see it — not auto-installed, since coupling
   // setup to a third party's publishing means their bad release breaks ours.
   const index = fs.readFileSync(path.join(import.meta.dirname, "../src/index.ts"), "utf-8");
-  assert.ok(index.includes("isPermissionSystemLoaded()"));
+  assert.ok(index.includes("warnIfPermissionSystemAbsent(pi.events, sessionId,"));
+  // Keyed by this session: the permission system's service is per session (≥ 27).
+  assert.ok(index.includes("ctx.sessionManager?.getSessionId?.()"));
   assert.ok(index.includes("stop "), "the warning should say what goes wrong");
   assert.ok(index.includes("PERMISSION_SYSTEM_INSTALL"), "and how to fix it");
 });

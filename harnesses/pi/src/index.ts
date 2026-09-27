@@ -203,8 +203,11 @@ async function setupTeammate(
   cwd: string,
 ): Promise<void> {
   const { TeammateLoop } = await import("./teammate.js");
-  const { registerPermissionBypass, registerAutonomousAuthorizer, isPermissionSystemLoaded, PERMISSION_SYSTEM_INSTALL } =
+  const { registerPermissionBypass, registerAutonomousAuthorizer, warnIfPermissionSystemAbsent, PERMISSION_SYSTEM_INSTALL } =
     await import("./permissions.js");
+  // The permission system keys its service by session (≥ 27), so every lookup
+  // needs this session's id.
+  const sessionId: string | undefined = ctx.sessionManager?.getSessionId?.();
   const { registerTeammateTools } = await import("./tools.js");
 
   // Check daemon reachability
@@ -250,14 +253,15 @@ async function setupTeammate(
   // Warn loudly when the permission system is absent (P2-8). The extension works
   // without it, but an autonomous teammate then stalls on the first permission
   // prompt with nothing to explain why — a hung agent instead of a missing package.
-  // Said once, at start, where someone will see it.
-  if (!isPermissionSystemLoaded()) {
+  // Said once, at start, where someone will see it — after giving the permission
+  // system a moment to start, since its session_start may run after ours.
+  const cancelPermissionWarning = warnIfPermissionSystemAbsent(pi.events, sessionId, () => {
     const message = "🍕 @gotgenes/pi-permission-system is not installed — this teammate will stop " +
       `on permission prompts instead of working autonomously.\n   Install it: ${PERMISSION_SYSTEM_INSTALL}`;
     if (ctx.hasUI) ctx.ui.notify(message, "warning");
     else console.warn(message);
     debug("permission system absent — autonomous runs will prompt");
-  }
+  });
 
   // Permission bypass (auto-pause on interactive input). Returns this agent's
   // lease on the directory's shared permission config (see permissions.ts).
@@ -278,7 +282,7 @@ async function setupTeammate(
   // indirection-wrapper floor on `timeout`/`nohup` commands, which even
   // yoloMode can't approve) while autonomous; defers to the human while
   // pairing. Activated via `authorizerChain` in the config we write.
-  registerAutonomousAuthorizer(pi, () => loop.isAutonomous);
+  const disposeAuthorizer = registerAutonomousAuthorizer(pi.events, sessionId, () => loop.isAutonomous);
 
   // Wire permission toggler to the loop
   loop.setAutonomousPermissions = (autonomous: boolean) => {
@@ -513,6 +517,9 @@ async function setupTeammate(
     // Drop our lease; the last agent out restores the directory's config. A
     // fresh-session reset re-acquires in the new instance moments later.
     permissions.release();
+    // The next session registers its own link, on its own service.
+    disposeAuthorizer();
+    cancelPermissionWarning();
     // Self-reset between work items: keep the daemon registration alive so
     // the member doesn't flicker offline; the fresh instance re-registers.
     if (resettingForFreshSession) return;

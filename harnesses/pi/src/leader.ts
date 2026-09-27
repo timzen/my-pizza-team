@@ -319,7 +319,12 @@ export async function setupLeader(
   // triggered remotely, and register the chain link that answers the fail-closed
   // asks yolo can't rewrite (the bash indirection-wrapper floor).
   const chatPermissions = registerChatAgentPermissions(pi, cwd);
-  registerAutonomousAuthorizer(pi, chatPermissions.isRemoteDriven);
+  const disposeAuthorizer = registerAutonomousAuthorizer(
+    pi.events,
+    ctx.sessionManager?.getSessionId?.(),
+    chatPermissions.isRemoteDriven,
+  );
+  pi.on("session_shutdown", async () => { disposeAuthorizer(); });
 
   // Persona: the daemon vends chat framing + the selected persona (or its
   // default), injected as the system prompt on every run.
