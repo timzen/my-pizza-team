@@ -26,6 +26,7 @@
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
 import type { TmuxExec } from "../../daemon/tmux.ts";
+import { TESTED_PI_VERSION } from "../../cli/doctor.ts";
 
 const REPO = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "..", "..");
 const CLI = path.join(REPO, "cli", "main.ts");
@@ -125,7 +126,19 @@ export function hasTmux(): boolean {
   }
 }
 
-export async function sandbox(label = "e2e"): Promise<Sandbox> {
+export interface SandboxOptions {
+  /**
+   * What `pi` looks like on PATH. Defaults to a stub reporting the tested version.
+   *
+   * Chosen by the test, never inherited from the host. The first CI run proved why:
+   * "doctor passes after setup" passed on a laptop with Pi installed and failed on a
+   * runner without it — a test of the machine, not of mpt. `false` makes Pi
+   * deterministically absent (a stub that exits 127), so a host's real Pi can't mask it.
+   */
+  pi?: string | false;
+}
+
+export async function sandbox(label = "e2e", opts: SandboxOptions = {}): Promise<Sandbox> {
   const root = await Deno.makeTempDir({ prefix: `mpt-${label}-` });
   const home = path.join(root, "home");
   const piAgentDir = path.join(home, ".pi", "agent");
@@ -137,11 +150,21 @@ export async function sandbox(label = "e2e"): Promise<Sandbox> {
   await Deno.mkdir(piAgentDir, { recursive: true });
   await Deno.mkdir(projectDir, { recursive: true });
 
+  // Tools the test controls, placed ahead of the host's PATH.
+  const bin = path.join(root, "bin");
+  await Deno.mkdir(bin, { recursive: true });
+  const pi = opts.pi === undefined ? TESTED_PI_VERSION : opts.pi;
+  await Deno.writeTextFile(
+    path.join(bin, "pi"),
+    pi === false ? "#!/bin/sh\nexit 127\n" : `#!/bin/sh\necho ${pi}\n`,
+    { mode: 0o755 },
+  );
+
   const session = `mpt-${crypto.randomUUID().slice(0, 8)}`;
   const port = freePort();
 
   const env: Record<string, string> = {
-    PATH: Deno.env.get("PATH") ?? "/usr/bin:/bin",
+    PATH: `${bin}:${Deno.env.get("PATH") ?? "/usr/bin:/bin"}`,
     HOME: home,
     MPT_HOME: home,
     PI_CODING_AGENT_DIR: piAgentDir,

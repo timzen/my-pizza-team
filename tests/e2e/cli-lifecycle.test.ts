@@ -186,6 +186,18 @@ Deno.test("doctor fails on real breakage and passes after setup", async () => {
   assertStringIncludes(after.output, "managed install");
 });
 
+Deno.test("doctor fails when Pi is missing, whatever the host has installed", async () => {
+  // Only deterministic because the sandbox controls PATH; before that, a host with Pi
+  // made this unobservable and a host without it broke the test above.
+  await using sb = await sandbox("doctor-nopi", { pi: false });
+  sb.writePiSettings({ packages: [] });
+  await sb.mpt("setup");
+
+  const result = await sb.mpt("doctor");
+  assertEquals(result.code === 0, false);
+  assertStringIncludes(result.output, "npm install -g @earendil-works/pi-coding-agent");
+});
+
 Deno.test("doctor is read-only", async () => {
   await using sb = await sandbox("doctor-ro");
   const legacy = legacyCheckout(sb);
