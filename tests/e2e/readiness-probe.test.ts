@@ -24,7 +24,24 @@ Deno.test("a shell probe is run as written, pipes and all", async () => {
   assertEquals((await runProbe("echo no | grep -q yes")).ready, false);
 });
 
-Deno.test("a probe that hangs is cut off and reported not ready", async () => {
+Deno.test("a probe that hangs is cut off promptly and reported not ready", async () => {
+  // Asserting promptness is the whole point. The first version only checked
+  // `ready === false`, and on Linux it passed after waiting the full 30 seconds: the
+  // timeout killed `sh`, but dash doesn't exec its last command, so `sleep` survived
+  // holding the pipes. A genuinely hung probe would have stalled readiness forever.
+  const started = Date.now();
   const result = await runProbe("sleep 30", { timeoutMs: 300 });
+  const elapsed = Date.now() - started;
   assertEquals(result.ready, false);
+  assertEquals(elapsed < 5000, true, `the timeout did not bound the probe: took ${elapsed}ms`);
+  assertEquals(result.reason?.includes("timed out"), true, `reason should say it timed out: ${result.reason}`);
+});
+
+Deno.test("a pipeline that hangs is cut off too", async () => {
+  // Several processes under one `sh`: the case most likely to leave something holding
+  // a pipe open after the shell is killed.
+  const started = Date.now();
+  const result = await runProbe("sleep 30 | cat", { timeoutMs: 300 });
+  assertEquals(result.ready, false);
+  assertEquals(Date.now() - started < 5000, true, `took ${Date.now() - started}ms`);
 });
