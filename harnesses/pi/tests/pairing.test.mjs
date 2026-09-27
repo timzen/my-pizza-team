@@ -87,7 +87,6 @@ function pairedLoop() {
     heartbeat: async () => ({}),
     postComment: async (id, c) => { daemon.comments.push([id, c]); return {}; },
     setWorkItemState: async (id, st) => { daemon.states.push([id, st]); return { success: true, completed: st === "COMPLETE" }; },
-    reportTokenUsage: async () => ({}),
     getNextWork: async () => ({}),
   };
   const loop = new TeammateLoop(pi, client);

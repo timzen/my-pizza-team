@@ -106,12 +106,12 @@ marked done; moving one back out reopens it.
 - `routes/types.ts` — `RouteContext`.
 - `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows), the teammate pool, readiness, and workflows.
 - `routes/stories.ts` — Story CRUD, archive, backlog/restore.
-- `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move, delete (plus a legacy `PUT`).
+- `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move, delete.
 - `routes/work-defs.ts` — WorkDef CRUD, enqueue, archive/restore, and the ref-scoped surface for **every** WorkDef: comments, attachments, token usage.
 - `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
 - `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
 - `routes/templates.ts` — Template CRUD.
-- `routes/agents.ts` — The agent protocol: register (version handshake), heartbeat (`reregister`/`dismissed` signals), next-work, claim, the single state-setter, work-item comments/attachments/token-usage (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
+- `routes/agents.ts` — The agent protocol: register (version handshake), heartbeat (`reregister`/`dismissed` signals), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
 - `routes/assistant.ts` — The chat: conversation reads/writes, SSE stream, the agent mirror surface (inbox/ack, bubbles, thoughts, session report), sessions (list/new/resume/snapshot), persona.
 - `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
 - `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Teammates only.
@@ -308,7 +308,6 @@ When a token is configured, every path except `/health` requires it.
 | POST | `/api/stories/:storyId/tasks/reorder` | `{ order: [taskId, …] }` |
 | POST | `/api/tasks/:taskId/move` | Judgment move to any position (buckets included) |
 | DELETE | `/api/tasks/:taskId` | Delete (drops it from the story; frees the CONWIP token) |
-| PUT | `/api/tasks/:taskId` | Legacy title/description update (the UI uses `PUT /api/work-defs/:id`) |
 
 ### WorkDefs, Schedules, Templates, WorkItems
 
@@ -345,7 +344,6 @@ When a token is configured, every path except `/health` requires it.
 | POST | `/api/agents/work-items/:workItemId/state` | COMPLETE (advances a board task) or FAILED; only the holder (403 otherwise); posts no comment |
 | GET/POST | `/api/agents/comments/:workItemId` | Read / post comments on the item's ref |
 | POST | `/api/agents/work-items/:workItemId/attachments` | Upload to the ref |
-| POST | `/api/agents/work-items/:workItemId/token-usage` | Legacy usage report (current harnesses use `/api/agents/:id/usage`) |
 | POST | `/api/agents/:id/usage` | One run: tokens incl. cache, `costUsd`, `model`, `kind` (`work`\|`pairing`\|`chat`\|`other`), optional `workItemId` |
 | GET | `/api/agents` | Members (with handshake fields) + the daemon's `protocolVersion` and `daemonVersion` |
 | DELETE | `/api/agents/:id` | Unregister (`?dismiss=true` leaves a tombstone) |

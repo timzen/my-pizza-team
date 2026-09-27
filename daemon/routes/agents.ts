@@ -13,7 +13,6 @@
 
 import type { RouteContext } from "./types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
-import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import denoConfig from "../../deno.json" with { type: "json" };
@@ -164,32 +163,6 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     store.updateMemberStatus(body.agentId, "idle");
     if (!res.ok) return c.json({ success: false, error: res.error }, 400);
     return c.json({ success: true, newStatus: res.newStatus, completed: res.completed });
-  });
-
-  // ─── Token usage (resolved to the backing task ref) ────────────────
-
-  app.post("/api/agents/work-items/:workItemId/token-usage", async (c) => {
-    const item = store.getWorkItem(c.req.param("workItemId"));
-    if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
-    const body = await c.req.json() as {
-      inputTokens?: number; outputTokens?: number; cacheReadTokens?: number; cacheWriteTokens?: number; model?: string; costUsd?: number;
-    };
-    if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
-      return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
-    }
-    // Newer harnesses report every run via POST /api/agents/:id/usage instead
-    // (routes/usage.ts); this stays for older ones, recorded as `work`.
-    // Prefer the harness-reported cost (accurate + cache-aware); fall back to a
-    // rough estimate only when the harness doesn't supply one. Recorded on the
-    // ref, so it works for board tasks AND standalone (Solitary/Scheduled) work.
-    const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
-    store.addTokenUsageForRef(item.ref, body.inputTokens, body.outputTokens, body.model, costUsd, {
-      cacheReadTokens: body.cacheReadTokens ?? 0,
-      cacheWriteTokens: body.cacheWriteTokens ?? 0,
-      kind: "work",
-      memberId: item.memberId ?? null,
-    });
-    return c.json({ success: true });
   });
 
   // ─── Attachments (resolved to the backing ref) ─────────────────────

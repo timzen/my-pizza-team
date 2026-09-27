@@ -9,7 +9,7 @@
 import type { RouteContext } from "./types.ts";
 import { TODO_STATE } from "../../shared/types.ts";
 import type {
-  CreateTaskRequest, CreateTaskResponse, UpdateTaskRequest, UpdateTaskResponse,
+  CreateTaskRequest, CreateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse,
   ReorderTasksRequest, ReorderTasksResponse,
 } from "../../shared/protocol.ts";
@@ -31,15 +31,6 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     if (!task) return c.json({ success: false, error: "Failed to add task" } satisfies CreateTaskResponse, 400);
 
     return c.json({ success: true, task: { id: task.id, seq: task.seq, title: task.title, description: task.description, status: task.status } } satisfies CreateTaskResponse, 201);
-  });
-
-  app.put("/api/tasks/:taskId", async (c) => {
-    const taskId = c.req.param("taskId");
-    const body = (await c.req.json()) as UpdateTaskRequest;
-    if (body.title === undefined && body.description === undefined && body.context === undefined) return c.json({ success: false, error: "At least one field required" } satisfies UpdateTaskResponse, 400);
-    if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies UpdateTaskResponse, 404);
-    store.updateTaskDetails(taskId, { title: body.title, description: body.description, context: body.context });
-    return c.json({ success: true } satisfies UpdateTaskResponse);
   });
 
   app.delete("/api/tasks/:taskId", (c) => {

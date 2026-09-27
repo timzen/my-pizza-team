@@ -138,8 +138,10 @@ test("has setWorkItemState method (single COMPLETE/FAILED state-setter)", () => 
 
 // ─── Comments (not messages) ─────────────────────────────────────
 
-test("has getComments method", () => {
-  assert.ok(clientSrc.includes("async getComments(workItemId"));
+test("has no comment reader: the claim prompt already carries the lead's comments", () => {
+  // The daemon inlines lead comments into the prompt (daemon/prompt.ts), so a
+  // client-side reader had no caller and was removed.
+  assert.ok(!clientSrc.includes("async getComments("));
 });
 
 test("has postComment method with agentId", () => {
@@ -308,10 +310,6 @@ test("AgentReleaseResponse includes newStatus and completed", () => {
   assert.ok(clientSrc.includes("completed?: boolean"));
 });
 
-test("CommentsResponse has correct shape", () => {
-  assert.ok(clientSrc.includes("comments: Array<"));
-});
-
 // ─── No server-side dependencies ─────────────────────────────────
 
 test("does not import better-sqlite3", () => {
@@ -323,12 +321,17 @@ test("does not import hono", () => {
 });
 
 
-test("reports team readiness to the daemon", () => {
-  // Team-level since P1c-3: one machine, one leader reporting for it, so the path
-  // is /api/readiness with no host segment.
-  assert.ok(clientSrc.includes("reportReadiness"));
-  assert.ok(clientSrc.includes('"/api/readiness"'));
-  assert.ok(!clientSrc.includes("reportHostReadiness"), "the host-scoped name should be gone");
+test("does not report readiness: the daemon runs the probe itself", () => {
+  // Readiness moved into the daemon (daemon/readiness.ts); the client's reporter
+  // had no caller left and was removed.
+  assert.ok(!clientSrc.includes("reportReadiness"));
+  assert.ok(!clientSrc.includes("reportHostReadiness"));
+});
+
+test("reports usage only through the per-run ledger route", () => {
+  // The work-item-only token-usage route is gone from the daemon.
+  assert.ok(!clientSrc.includes("reportTokenUsage"));
+  assert.ok(!clientSrc.includes("/token-usage"));
 });
 
 console.log(`\n${passed} passed, ${failed} failed`);

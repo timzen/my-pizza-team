@@ -6,12 +6,6 @@ fixed.
 
 ## Dead code and leftovers
 
-- `DaemonClient.reportReadiness`, `getComments`, and `reportTokenUsage`
-  (`harnesses/pi/src/runtime/client.ts`) have no callers.
-- `POST /api/agents/work-items/:id/token-usage` — no current harness calls it
-  (usage goes through `/api/agents/:id/usage`). `PUT /api/tasks/:taskId` — the UI
-  edits through `PUT /api/work-defs/:id`. Remove both with a protocol bump, or keep
-  and document why.
 - SQLite columns `stories.requirements` and `members.capabilities` are still created
   and migrated in `initSchema`, though matching is directory-only.
 - `countPendingTeammateSpawns` skips `reason: "assistant"` rows from the retired

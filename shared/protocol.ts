@@ -111,8 +111,6 @@ export interface CreateTaskRequest { title: string; description: string; context
 export interface CreateTaskResponse { success: boolean; task?: { id: string; seq: number; title: string; description: string; status: string }; error?: string }
 
 // PUT /api/tasks/:id
-export interface UpdateTaskRequest { title?: string; description?: string; context?: string[] | null }
-export interface UpdateTaskResponse { success: boolean; error?: string }
 
 // DELETE /api/tasks/:id
 export interface DeleteTaskResponse { success: boolean; error?: string }

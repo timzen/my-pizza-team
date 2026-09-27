@@ -281,16 +281,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 | `/api/agents/claim/:workItemId` | POST | Lease the WorkItem (→ IN_PROGRESS) + get the daemon prompt |
 | `/api/agents/work-items/:workItemId/state` | POST | Set COMPLETE (advance task) or FAILED (leave stuck) |
 | `/api/agents/:id/usage` | POST | Report one run's usage (tokens incl. cache, Pi's cost, model, kind, optional `workItemId`) — every run, teammate and leader |
-| `/api/agents/work-items/:workItemId/token-usage` | POST | Legacy work-item-only usage (`reportTokenUsage`; kept for older daemons) |
 | `/api/agents/work-items/:workItemId/attachments` | POST | Upload an attachment (resolved to the ref) |
-
-### Task Routes
-| Route | Method | Purpose |
-|-------|--------|---------|
-| `/api/tasks/:id/comment` | POST | Post a comment |
-| `/api/tasks/:id/comments` | GET | Get task comments |
-| `/api/tasks/:id/token-usage` | POST | Record token usage |
-| `/api/tasks/:id/attachments` | POST | Upload file attachment |
 
 ### Story/Task Management (leader tools)
 | Route | Method | Purpose |
@@ -440,7 +431,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 7. **`fail` over sentinel parsing** — giving up is the agent composing two primitives (a comment + set the WorkItem `FAILED`), never a magic string in the agent's output
 8. **Permission toggle is file-based** — leverages permission system's runtime config reload
 9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux. The two exceptions are `new-session`/`resume-session`, which the *target agent* polls from `/api/agents/:id/directives` and realizes with Pi's session APIs — tmux keystrokes can't express "switch to this exact session file"
-10. **Task-level comments** — lead ↔ teammate via `/api/tasks/:id/comment[s]`, not a chat stream
+10. **Task-level comments** — lead ↔ teammate via comments on the WorkDef (`/api/agents/comments/:workItemId` for agents, `/api/work-defs/:id/comment[s]` for the UI), not a chat stream
 11. **The assistant just talks; the harness mirrors it** — there is no `send_message` tool. The agent's own prose is mirrored into chat bubbles by splitting on blank lines (`src/bubbles.ts`), its reasoning feeds an ephemeral peek buffer, and messages typed in its terminal are mirrored back into the chat. Bubble boundaries are the *harness's* call because only the harness sees the raw message stream — but the framing that produces good boundaries (blank lines between points) is the daemon's `ASSISTANT_CHAT_FRAMING`. Routing replies through tool calls (v1) made prose stilted and turned the tmux transcript into a wall of tool calls.
 12. **Fresh session per work item** — after each COMPLETE/FAILED the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the queueing call **must** pass `expandPromptTemplates: true` to `pi.sendUserMessage()` (it defaults to `false`, in which case the slash command is handed to the LLM as plain text and the reset is silently skipped); the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate — the daemon/leader `reset-session` directive remains only for manual resets from the UI.
 

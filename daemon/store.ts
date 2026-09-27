@@ -1009,23 +1009,6 @@ export class Store {
     return { ok: true };
   }
 
-  updateTaskDetails(taskId: string, updates: { title?: string; description?: string; context?: string[] | null }): boolean {
-    const task = this.getTask(taskId);
-    if (!task) return false;
-
-    const newTitle = updates.title ?? task.title;
-    const newDescription = updates.description ?? task.description;
-    const newContext = updates.context !== undefined ? (updates.context || []) : (task.context || []);
-    // A board task is a WorkDef: persist authored edits to its workdef.md.
-    updateWorkDef(this.teamDir, taskId, {
-      title: newTitle,
-      goal: newDescription,
-      contextRefs: newContext,
-    });
-    this.db.prepare("UPDATE tasks SET title = ?, description = ?, context = ?, dirty = 1 WHERE id = ?").run(newTitle, newDescription, JSON.stringify(newContext), taskId);
-    return true;
-  }
-
   deleteTask(taskId: string): boolean {
     const task = this.getTask(taskId);
     if (!task) return false;

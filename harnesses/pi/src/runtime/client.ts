@@ -88,23 +88,6 @@ export interface AgentSetStateResponse {
   error?: string;
 }
 
-/** Response from GET /api/agents/comments/:taskId */
-export interface CommentsResponse {
-  comments: Array<{
-    from: string;
-    body: string;
-    at: string;
-    attachments?: Array<{ name: string; size: number; type: string }>;
-  }>;
-}
-
-/** Response from POST /api/agents/work-items/:id/token-usage */
-export interface TokenUsageResponse {
-  success: boolean;
-  costUsd?: number;
-  error?: string;
-}
-
 /** Delivery receipt states for a user chat message. */
 export type AssistantDelivery = "queued" | "delivered" | "read";
 
@@ -441,24 +424,6 @@ export class DaemonClient {
   }
 
   /**
-   * Report this host's readiness to the daemon.
-   *
-   * Readiness is a host-level fact (shared credentials, VPN, etc.), so the
-   * leader — the per-host singleton — runs a probe and reports the result here.
-   * The daemon holds scheduled enqueues destined for a not-ready host until it
-   * recovers (see the daemon's docs/ARCHITECTURE.md "Scheduler readiness gating").
-   *
-   * Never throws — safe for background intervals.
-   */
-  async reportReadiness(ready: boolean, reason?: string): Promise<void> {
-    try {
-      await this.post("/api/readiness", { ready, reason });
-    } catch {
-      // Non-fatal — the daemon may be temporarily unreachable; retried next tick.
-    }
-  }
-
-  /**
    * Poll for available work. Returns the next `READY` WorkItem the daemon
    * matches to this agent (directory affinity), or `{ workItem: null }` when
    * none is available or distribution is paused.
@@ -498,13 +463,6 @@ export class DaemonClient {
   // COMMENTS (replaces old "messages")
   // ═══════════════════════════════════════════════════════════════════
 
-  /** Get comments on a WorkItem's ref (task or WorkDef). */
-  async getComments(workItemId: string): Promise<CommentsResponse> {
-    return this.get<CommentsResponse>(
-      `/api/agents/comments/${encodeURIComponent(workItemId)}`
-    );
-  }
-
   /** Post a comment on a WorkItem's ref (task or WorkDef). */
   async postComment(workItemId: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): Promise<{ success: boolean }> {
     return this.post<{ success: boolean }>(
@@ -520,7 +478,6 @@ export class DaemonClient {
   /**
    * Report one agent run's usage to the daemon's ledger (any kind of run).
    * `workItemId` attaches it to that item's WorkDef (per-task cost rollups).
-   * Supersedes reportTokenUsage, which only covered work-item runs.
    */
   async reportUsage(usage: {
     inputTokens: number;
@@ -533,23 +490,6 @@ export class DaemonClient {
     workItemId?: string;
   }): Promise<{ success: boolean }> {
     return this.post<{ success: boolean }>(`/api/agents/${encodeURIComponent(this.agentId)}/usage`, usage);
-  }
-
-  /**
-   * Legacy: token usage for a work item only (input/output + pi's cost; the
-   * daemon estimates when `costUsd` is absent). Kept for older daemons —
-   * current harnesses use reportUsage for every run.
-   */
-  async reportTokenUsage(workItemId: string, usage: {
-    inputTokens: number;
-    outputTokens: number;
-    model: string;
-    costUsd?: number;
-  }): Promise<TokenUsageResponse> {
-    return this.post<TokenUsageResponse>(
-      `/api/agents/work-items/${encodeURIComponent(workItemId)}/token-usage`,
-      usage
-    );
   }
 
   // ═══════════════════════════════════════════════════════════════════
