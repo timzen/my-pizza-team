@@ -5,10 +5,11 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { TeammatePairing } from "../daemon/store/pairing.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 Deno.test("pairing: pair → send → poll drains messages exactly once", () => {
@@ -56,7 +57,7 @@ Deno.test("pairing: re-pairing supersedes an unconsumed release", () => {
 function setup() {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-pairing-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 };
+  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir };

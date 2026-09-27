@@ -6,12 +6,12 @@
  */
 
 import { assertEquals, assertExists } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
-import { DEFAULT_CONFIG } from "../shared/types.ts";
 
 // Use a temp directory so we get a full app with store
 const testDir = Deno.makeTempDirSync({ prefix: "mpt-health-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(DEFAULT_CONFIG));
+Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
 const { app, store } = createApp(testDir);
 
@@ -48,7 +48,7 @@ Deno.test("GET /health returns ok status with metrics", async () => {
 Deno.test("GET /health reports tmuxSession and leader presence", async () => {
   // No members yet — no leader connected.
   let body = await (await app.request("/health")).json();
-  assertEquals(body.tmuxSession, DEFAULT_CONFIG.tmuxSession);
+  assertEquals(body.tmuxSession, TEST_CONFIG.tmuxSession);
   assertEquals(body.leaderPresent, false);
 
   // A member named "leader" makes leaderPresent true.

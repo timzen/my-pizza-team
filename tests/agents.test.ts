@@ -9,15 +9,16 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
+import { type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-agents-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...DEFAULT_CONFIG, ...configOverride };
+  const config = { ...TEST_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
   if (configOverride?.workflows) {
     for (const [name, wf] of Object.entries(configOverride.workflows)) store.saveWorkflow(name, wf);

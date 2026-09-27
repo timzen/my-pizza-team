@@ -8,10 +8,11 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { TeammateTranscripts, WATCH_GRACE_MS, type TranscriptEntry } from "../daemon/store/transcripts.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 /** A transcript store with a controllable clock. */
@@ -123,7 +124,7 @@ Deno.test("forget drops an unwatched member's transcript but not a watched one's
 function setup() {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-transcript-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 };
+  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir };

@@ -6,15 +6,16 @@
  */
 
 import { assertAlmostEquals, assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function setup() {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-usage-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 };
+  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir };
@@ -122,7 +123,7 @@ Deno.test("files: a lost state.db is rebuilt from the ledger files", () => {
     for (const f of ["state.db", "state.db-wal", "state.db-shm"]) {
       try { Deno.removeSync(path.join(teamDir, f)); } catch { /* may not exist */ }
     }
-    const fresh = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const fresh = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     const runs = fresh.getUsageRunsOnDay({ date: "2026-09-01", tzOffsetMin: 0 });
     assertEquals(runs.length, 1);
     assertAlmostEquals(runs[0]!.costUsd, 1.25);
@@ -142,12 +143,12 @@ Deno.test("files: first boot migrates task.json mirrors (incl. archived stories)
     const mirrored = { inputTokens: 18, outputTokens: 4068, model: "opus", costUsd: 0.061074, at: "2026-07-16T20:35:28.254Z" };
     Deno.writeTextFileSync(path.join(taskDir, "task.json"), JSON.stringify({ id: "s1-1", title: "Old task", tokenUsage: [mirrored] }));
     // First boot on this version: no usage/ dir yet, so it migrates.
-    const db = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const db = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     const julyRuns = db.getUsageRunsOnDay({ date: "2026-07-16", tzOffsetMin: 0 });
     assertEquals(julyRuns.length, 1);
     assertEquals(julyRuns[0]!.title, "Old task");
     db.close();
-    const again = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const again = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(again.getUsageRunsOnDay({ date: "2026-07-16", tzOffsetMin: 0 }).length, 1);
     const lines = Deno.readTextFileSync(path.join(teamDir, "usage", "2026-07.jsonl")).trim().split("\n");
     assertEquals(lines.length, 1);
@@ -162,7 +163,7 @@ Deno.test("files: a DB row and its task.json mirror dedupe to one entry", () => 
   try {
     Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
     // Boot once and record a board-task run the old way (DB only)…
-    const s1 = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const s1 = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     const at = Date.UTC(2026, 6, 1, 10);
     s1.recordRunUsage({ refId: "t-1", inputTokens: 5, outputTokens: 6, model: "m", costUsd: 0.2, kind: "work", at });
     s1.close();
@@ -172,7 +173,7 @@ Deno.test("files: a DB row and its task.json mirror dedupe to one entry", () => 
     Deno.writeTextFileSync(path.join(teamDir, "tasks", "t-1", "task.json"), JSON.stringify({
       id: "t-1", title: "T", tokenUsage: [{ inputTokens: 5, outputTokens: 6, model: "m", costUsd: 0.2, at: new Date(at).toISOString() }],
     }));
-    const s2 = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const s2 = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(s2.getUsageRunsOnDay({ date: "2026-07-01", tzOffsetMin: 0 }).length, 1);
     s2.close();
   } finally {
@@ -186,7 +187,7 @@ Deno.test("files: a malformed ledger line is skipped, not fatal", () => {
     store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 0.1, kind: "chat", at: Date.UTC(2026, 8, 2) });
     Deno.writeTextFileSync(path.join(teamDir, "usage", "2026-09.jsonl"), "{not json\n", { append: true });
     store.close();
-    const fresh = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const fresh = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(fresh.getUsageRunsOnDay({ date: "2026-09-02", tzOffsetMin: 0 }).length, 1);
     fresh.close();
   } finally {
@@ -200,7 +201,7 @@ Deno.test("migration: an old token_usage with a FK to tasks is rebuilt (rows kep
     Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
     // A current schema, then swap in the early token_usage (FK to tasks) with
     // one row, and no ledger files — as an old team dir has it.
-    new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 }).close();
+    new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 }).close();
     Deno.removeSync(path.join(teamDir, "usage"), { recursive: true });
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(path.join(teamDir, "state.db"));
@@ -212,7 +213,7 @@ Deno.test("migration: an old token_usage with a FK to tasks is rebuilt (rows kep
         VALUES ('t-gone', 3, 557, 'opus', 0.008, ${Date.UTC(2026, 7, 3)});`);
     db.close();
 
-    const store = new Store(teamDir, { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 });
+    const store = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     // The old row survived the rebuild and made it into the ledger files…
     assertEquals(store.getUsageRunsOnDay({ date: "2026-08-03", tzOffsetMin: 0 }).length, 1);
     // …and a ref-less run (which the FK used to reject) now records.

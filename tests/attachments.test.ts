@@ -12,11 +12,11 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
-import { DEFAULT_CONFIG } from "../shared/types.ts";
 
 const testDir = Deno.makeTempDirSync({ prefix: "mpt-attach-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(DEFAULT_CONFIG));
+Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
 const { app, store } = createApp(testDir);
 

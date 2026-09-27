@@ -13,7 +13,8 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { TEST_CONFIG } from "./_config.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
 import {
   probeSpawnCapability,
@@ -53,7 +54,7 @@ const spawn = (over: Partial<SpawnableDirective> = {}): SpawnableDirective => ({
   ...over,
 });
 
-const config = (over: Partial<TeamConfig> = {}): TeamConfig => ({ ...DEFAULT_CONFIG, tmuxSession: "mpt", ...over });
+const config = (over: Partial<TeamConfig> = {}): TeamConfig => ({ ...TEST_CONFIG, tmuxSession: "mpt", ...over });
 
 const deps = (over: Partial<Parameters<typeof realizePending>[1]> = {}) => ({
   config: config(),

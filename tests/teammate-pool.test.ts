@@ -9,9 +9,10 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, resolveMinTeammates, type TeamConfig } from "../shared/types.ts";
+import { resolveMinTeammates, type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 /**
@@ -23,7 +24,7 @@ function setup(overrides: Partial<TeamConfig> = {}) {
   overrides = { minTeammates: 0, ...overrides };
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-pool-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(DEFAULT_CONFIG), ...overrides };
+  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir, config };

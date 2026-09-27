@@ -57,7 +57,8 @@ my-pizza-team/
 ├── harnesses/
 │   └── pi/                   # The Pi extension (its own package.json; npm test)
 ├── scripts/                  # build, publish, sync-version
-└── tests/                    # Tests (deno task test)
+└── tests/                    # Fast tests (deno task test); tests/e2e/ is the slow suite
+                              #   (deno task test:e2e) — real git, tmux, and shell
 ```
 
 The extension under `harnesses/pi/` is a Node/npm package inside a Deno repo, so it

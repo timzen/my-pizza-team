@@ -8,8 +8,9 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function createTempTeamDir(): string {
@@ -25,7 +26,7 @@ function cleanup(teamDir: string, store: Store) {
 
 Deno.test("reapOfflineAgents marks timed-out agents as offline", () => {
   const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
+  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
     // Register agent with a heartbeat in the past (6 seconds ago > 5s timeout)
@@ -43,7 +44,7 @@ Deno.test("reapOfflineAgents marks timed-out agents as offline", () => {
 
 Deno.test("reapOfflineAgents does not reap agents within timeout", () => {
   const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 60 };
+  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 60 };
   const store = new Store(teamDir, config);
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -56,7 +57,7 @@ Deno.test("reapOfflineAgents does not reap agents within timeout", () => {
 
 Deno.test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
   const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
+  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -81,7 +82,7 @@ Deno.test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
 
 Deno.test("reapOfflineAgents skips already-offline agents", () => {
   const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
+  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -99,7 +100,7 @@ Deno.test("reapOfflineAgents skips already-offline agents", () => {
 
 Deno.test("agent comes back online after being reaped", () => {
   const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...DEFAULT_CONFIG, agentTimeoutSeconds: 5 };
+  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -123,7 +124,7 @@ Deno.test("agent comes back online after being reaped", () => {
 Deno.test("reapOfflineAgents uses default timeout when not configured", () => {
   const teamDir = createTempTeamDir();
   // Don't set agentTimeoutSeconds — should default to 90
-  const config: TeamConfig = { ...DEFAULT_CONFIG };
+  const config: TeamConfig = { ...TEST_CONFIG };
   delete config.agentTimeoutSeconds;
   const store = new Store(teamDir, config);
   try {

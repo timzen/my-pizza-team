@@ -4,8 +4,9 @@
  */
 
 import { assertEquals, assertExists } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG } from "../shared/types.ts";
+
 import * as path from "@std/path";
 
 function createTempTeamDir(): string {
@@ -25,7 +26,7 @@ function cleanupDir(dir: string): void {
 Deno.test("Context: save then read round-trips metadata and body", () => {
   const teamDir = createTempTeamDir();
   try {
-    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const store = new Store(teamDir, TEST_CONFIG);
     const saved = store.saveContextEntry({
       title: "Coding Standards",
       description: "House style for all code",
@@ -51,7 +52,7 @@ Deno.test("Context: save then read round-trips metadata and body", () => {
 Deno.test("Context: list returns all entries sorted by id", () => {
   const teamDir = createTempTeamDir();
   try {
-    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const store = new Store(teamDir, TEST_CONFIG);
     store.saveContextEntry({ title: "Beta", content: "b" });
     store.saveContextEntry({ title: "Alpha", content: "a" });
     const entries = store.getContextEntries();
@@ -65,7 +66,7 @@ Deno.test("Context: list returns all entries sorted by id", () => {
 Deno.test("Context: update mutates fields in place", () => {
   const teamDir = createTempTeamDir();
   try {
-    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const store = new Store(teamDir, TEST_CONFIG);
     store.saveContextEntry({ title: "Notes", description: "old", tags: ["a"], content: "x" });
     const updated = store.updateContextEntry("notes", { description: "new", tags: ["a", "b"] });
     assertExists(updated);
@@ -81,7 +82,7 @@ Deno.test("Context: update mutates fields in place", () => {
 Deno.test("Context: delete removes the entry", () => {
   const teamDir = createTempTeamDir();
   try {
-    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const store = new Store(teamDir, TEST_CONFIG);
     store.saveContextEntry({ title: "Temp", content: "x" });
     assertEquals(store.deleteContextEntry("temp"), true);
     assertEquals(store.getContextEntry("temp"), null);
@@ -95,7 +96,7 @@ Deno.test("Context: delete removes the entry", () => {
 Deno.test("Context: attached to stories/tasks and resolved for prompts", () => {
   const teamDir = createTempTeamDir();
   try {
-    const store = new Store(teamDir, DEFAULT_CONFIG);
+    const store = new Store(teamDir, TEST_CONFIG);
     store.saveContextEntry({ title: "Style Guide", content: "tabs not spaces" });
     store.saveContextEntry({ title: "API Rules", content: "REST only" });
 

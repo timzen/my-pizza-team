@@ -9,15 +9,16 @@
  */
 
 import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, type TeamConfig } from "../shared/types.ts";
+import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...DEFAULT_CONFIG, ...configOverride };
+  const config = { ...TEST_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir };
@@ -388,7 +389,7 @@ Deno.test("vestiges of the v1 turn model are dropped, not carried", async () => 
 
     // Opening the Store runs the migrations; inspect the file afterwards rather
     // than reaching into its private connection.
-    new Store(teamDir, DEFAULT_CONFIG).close();
+    new Store(teamDir, TEST_CONFIG).close();
 
     const check = new DatabaseSync(path.join(teamDir, "state.db"));
     try {

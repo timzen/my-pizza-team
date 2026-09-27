@@ -9,16 +9,17 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG } from "../shared/types.ts";
+
 import * as path from "@std/path";
 
 function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: string } {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-directives-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, DEFAULT_CONFIG);
-  const app = buildApp(store, DEFAULT_CONFIG, teamDir);
+  const store = new Store(teamDir, TEST_CONFIG);
+  const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
 }
 

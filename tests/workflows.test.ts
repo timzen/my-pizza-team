@@ -7,19 +7,20 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
-import { DEFAULT_CONFIG } from "../shared/types.ts";
+
 import * as path from "@std/path";
 
 const testDir = Deno.makeTempDirSync({ prefix: "mpt-workflows-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(DEFAULT_CONFIG));
+Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
 // Create a workflow directory with a workflow.json
 const wfDir = path.join(testDir, "workflows", "default");
 Deno.mkdirSync(wfDir, { recursive: true });
 Deno.writeTextFileSync(
   path.join(wfDir, "workflow.json"),
-  JSON.stringify(DEFAULT_CONFIG.workflows!["default"], null, 2)
+  JSON.stringify(TEST_CONFIG.workflows!["default"], null, 2)
 );
 
 const { app } = createApp(testDir);

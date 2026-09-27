@@ -5,15 +5,16 @@
  */
 
 import { assertEquals } from "@std/assert";
+import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 
 Deno.test("status: `paused` follows control/pause and control/resume", async () => {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-status-test-" });
   Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(DEFAULT_CONFIG), minTeammates: 0 };
+  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   try {

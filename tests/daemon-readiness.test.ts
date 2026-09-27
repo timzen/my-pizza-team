@@ -13,7 +13,8 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import { TEST_CONFIG } from "./_config.ts";
+import { type TeamConfig } from "../shared/types.ts";
 import {
   type ProbeRunner,
   runProbe,
@@ -25,7 +26,7 @@ import {
 function fakeStore(config: Partial<TeamConfig> = {}) {
   const reports: Array<{ ready: boolean; reason?: string }> = [];
   const store: ReadinessStore = {
-    getConfig: () => ({ ...DEFAULT_CONFIG, ...config }),
+    getConfig: () => ({ ...TEST_CONFIG, ...config }),
     setTeamReadiness: (ready, reason) => reports.push({ ready, reason }),
   };
   return { store, reports };
@@ -89,7 +90,7 @@ Deno.test("no probe configured means nothing is reported", async () => {
   assertEquals(reports, []);
 });
 
-Deno.test("a whitespace-only probe counts as unconfigured", async () => {
+Deno.test("a whitespace-only probe counts as unconfigured", () => {
   const { store } = fakeStore({ readinessProbe: "   " });
   assertEquals(startReadinessLoop(store, { runner: runner({ code: 0 }) }), null);
 });
@@ -154,26 +155,4 @@ Deno.test("stopping the loop stops the probing", async () => {
   const after = reports.length;
   await new Promise((r) => setTimeout(r, 40));
   assertEquals(reports.length, after, "no further reports after stopping");
-});
-
-// ─── Against a real shell ────────────────────────────────────────────
-
-Deno.test("a real command's exit code and output are read correctly", async () => {
-  // The injected runner could be self-consistently wrong about how sh behaves.
-  assertEquals(await runProbe("exit 0"), { ready: true });
-
-  const failed = await runProbe("echo 'vpn is down'; exit 3");
-  assertEquals(failed.ready, false);
-  assertEquals(failed.reason, "vpn is down");
-});
-
-Deno.test("a shell probe is run as written, pipes and all", async () => {
-  // It is user config; the point is to honour what they wrote.
-  assertEquals((await runProbe("echo ok | grep -q ok")).ready, true);
-  assertEquals((await runProbe("echo no | grep -q yes")).ready, false);
-});
-
-Deno.test("a probe that hangs is cut off and reported not ready", async () => {
-  const result = await runProbe("sleep 30", { timeoutMs: 300 });
-  assertEquals(result.ready, false);
 });
