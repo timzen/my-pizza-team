@@ -160,7 +160,9 @@ function taskSeqFromId(storyId: string, taskId: string): number | null {
 /**
  * Serialize a TeamConfig to the on-disk config.json shape. Preserves all
  * persistable fields (workflows live in the workflows/ dir, so they are
- * intentionally omitted here).
+ * intentionally omitted here). Every route that saves config comes through here,
+ * so a field missing from this list is erased on the next save — add new
+ * TeamConfig fields here and to tests/config-persist.test.ts.
  */
 function serializeConfig(config: TeamConfig): Record<string, unknown> {
   const out: Record<string, unknown> = {
@@ -177,6 +179,11 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.apiToken) out.apiToken = config.apiToken;
   if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
   if (config.readinessProbe) out.readinessProbe = config.readinessProbe;
+  // Harness templates have no editor in the UI, so nothing re-sends them: dropping
+  // them here erased a team's custom templates on any Config save or team-size
+  // change (tests/config-persist.test.ts).
+  if (config.harnesses) out.harnesses = config.harnesses;
+  if (config.defaultHarness) out.defaultHarness = config.defaultHarness;
   return out;
 }
 

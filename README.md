@@ -144,9 +144,6 @@ most of it is editable on the **Config** page. Minimal:
 }
 ```
 
-> ⚠️ Saving config from the UI currently drops `harnesses` and `defaultHarness`
-> (see [TODO.md](TODO.md)). Re-add them by hand if you customise them.
-
 ### Environment Variables
 
 | Variable | Default | Description |

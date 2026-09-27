@@ -6,14 +6,6 @@ fixed.
 
 ## Bugs
 
-- **`serializeConfig` drops `harnesses` and `defaultHarness`** (`daemon/store.ts`).
-  It's the single `config.json` writer, and `PUT /api/config`, `PUT /api/teammate-pool`,
-  and `setMinTeammates` all go through it. So saving anything on the Config page or
-  changing the team size silently erases custom harness templates. The comment in
-  `routes/shared.ts` ("no field this route doesn't know about … is silently dropped")
-  is therefore false. Fix: persist both fields; add a round-trip test beside the
-  `apiToken` one.
-
 - **The pool won't grow without a leader, even when the daemon can spawn**
   (`Store.reconcileTeammatePool` / `isLeaderOnline`). The daemon realizes `spawn`
   directives itself when tmux is reachable, but the reconciler still returns early
