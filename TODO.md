@@ -1,13 +1,7 @@
 # TODO
 
-Code issues found while reconciling the docs with the source (docs consolidation,
-v0.20.0). Each item names a symbol rather than a line number. Delete an item when it's
-fixed.
-
-## Dead code and leftovers
-
-- `mpt --help`'s **Commands** list omits `setup`, `doctor`, and `lead` (they appear
-  only under Examples) and its Environment section omits `HOST`.
+Known code issues and deferred work. Each item names a symbol rather than a line
+number. Delete an item when it's done.
 
 ## Deferred: a second harness (Kiro, Tier 0/1)
 

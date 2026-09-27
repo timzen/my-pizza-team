@@ -548,33 +548,29 @@ Usage:
   mpt <command> [options]
 
 Commands:
-  start [--daemon|-d]   Start the daemon (foreground, or background with --daemon)
+  setup [--dry-run]     Install the Pi extension, create the team dir, trust the folder
+  setup --uninstall     Undo what setup did (leaves the team directory and its data)
+  doctor                Read-only checklist of prerequisites, with a fix for each problem
+  start [--daemon|-d]   Start the daemon (foreground, or in the background with -d;
+                        its output then goes to daemon.log in the team directory)
+  lead [--no-attach]    Start the leader in tmux and attach to it
   stop                  Stop the running daemon (sends SIGTERM)
-  status                Check if daemon is running and show summary
+  status                Check if the daemon is running and show a summary
+  upgrade [--check]     Update mpt *and* its Pi extension (--check only reports)
+  install               Install as a user service (launchd/systemd; starts on login)
+  uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
-  install               Install as system service (auto-start on login)
-  uninstall             Remove system service and disable auto-start
-  upgrade [--check]     Update mpt to the latest release (--check only reports)
+  --version, --help
 
 Environment:
-  TEAM_DIR              Team directory (default: ./${TEAM_DIR})
+  TEAM_DIR              Team directory, or its parent (default: ./${TEAM_DIR})
   PORT                  Daemon port (default: 7437)
+  HOST                  Bind address (default: 127.0.0.1; anything else needs an API token)
+  MPT_API_TOKEN         Overrides config.json's apiToken
+  GITHUB_TOKEN          Authenticates mpt upgrade's GitHub API call (optional)
 
-Examples:
-  mpt start             # Start in foreground (Ctrl+C to stop)
-  mpt start --daemon    # Start in background
-  mpt status            # Check if running
-  mpt stop              # Graceful shutdown
-  mpt rotate-token      # Generate new API token
-  mpt install           # Install as launchd/systemd service
-  mpt uninstall         # Remove service
-  mpt upgrade           # Self-update to the latest release
-  mpt doctor            # Check prerequisites and print a fix for each problem
-  mpt setup             # Install the Pi extension + prepare this folder (idempotent)
-  mpt setup --dry-run   # Show what setup would change, without changing it
-  mpt setup --uninstall # Undo what setup did (keeps the team directory)
-  mpt lead              # Start the leader in tmux and attach to it
-  mpt lead --no-attach  # Start it without taking over the terminal
+Getting started (in your project folder):
+  mpt setup && mpt start --daemon && mpt lead
 `);
 }
 
