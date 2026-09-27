@@ -3,7 +3,7 @@
 // The leader is the agent you talk to. There is no separate "assistant" process:
 // a leader already runs per host to realize tmux spawns, nobody types in its
 // session, and this mirror is role-agnostic — so it doubles as the team's chat
-// participant (see my-pizza-team/docs/ASSISTANT_CHAT_V2.md and DESIGN.md "One
+// participant (see my-pizza-team/docs/DESIGN.md "Assistant Chat Model" and DESIGN.md "One
 // agent to talk to").
 //
 // Chat v2 inverts the old model: the **Pi session is the conversation**, and the

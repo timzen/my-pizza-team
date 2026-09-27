@@ -1,6 +1,6 @@
 /**
  * lib/transcript-types.ts — Client-side mirror of the daemon's live teammate
- * transcript types (daemon/store/transcripts.ts; docs/TEAMMATE_CHAT.md §3),
+ * transcript types (daemon/store/transcripts.ts; docs/DESIGN.md "Watching and Pairing with a Teammate"),
  * plus the one derived fact both the view and the page need (isRunning).
  */
 
@@ -23,7 +23,7 @@ export type TranscriptEntry = EntryBase & (
   | { kind: "tool"; name: string; args?: unknown; state: "running" | "done" | "error"; result?: string }
 );
 
-/** GET /api/agents/:id/pairing/state (docs/TEAMMATE_CHAT.md §4). */
+/** GET /api/agents/:id/pairing/state (docs/DESIGN.md "Watching and Pairing with a Teammate"). */
 export interface PairingState {
   paired: boolean;
   since: number | null;

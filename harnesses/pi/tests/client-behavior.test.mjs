@@ -4,7 +4,7 @@
 // plus src.includes(...)), which cannot catch a behavioural regression and breaks
 // on any file move. client.ts is the module that actually crosses a package
 // boundary in P1c-8 (841 lines into agent-runtime/), so it gets real tests first
-// — see docs/BATTERIES_INCLUDED_TASKS.md P0-7.
+// — see docs/DESIGN.md "Testing: Fast, End-to-End, and Never Real Config".
 //
 // These run against a real node:http server rather than a stubbed fetch, so they
 // exercise URL construction, headers, status handling, and JSON parsing the same
@@ -235,8 +235,8 @@ test("leader directives are polled, created, completed, and failed on the leader
 
 // ─── Usage reporting ─────────────────────────────────────────────────
 //
-// The ledger silently records nothing when this drifts (BATTERIES_INCLUDED
-// §1.2), so the path and payload are worth pinning.
+// The ledger silently records nothing when this drifts (docs/DESIGN.md
+// DESIGN.md "One Protocol, One Version"), so the path and payload are worth pinning.
 
 test("usage is reported against the agent", async () => {
   await withServer(null, async (url, calls) => {

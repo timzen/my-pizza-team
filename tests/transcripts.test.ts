@@ -1,5 +1,5 @@
 /**
- * tests/transcripts.test.ts — Live teammate transcripts (docs/TEAMMATE_CHAT.md §3).
+ * tests/transcripts.test.ts — Live teammate transcripts (docs/DESIGN.md "Watching and Pairing with a Teammate").
  *
  * Covers the watch-only model: entries are recorded only while a member is
  * watched (with a grace window after the last viewer leaves), a `watch` marker

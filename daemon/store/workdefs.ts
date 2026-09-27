@@ -1,6 +1,6 @@
 /**
  * daemon/store/workdefs.ts — On-disk IO for WorkDefs (every unit of work).
- * See docs/WORKDEF_UNIFICATION.md.
+ * See docs/DESIGN.md "WorkDefs & Parents".
  *
  * Each WorkDef is a directory under `<teamDir>/tasks/<id>/`:
  *   - `workdef.md` — markdown + frontmatter (the human-authored definition)

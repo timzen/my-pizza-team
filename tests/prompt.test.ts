@@ -1,6 +1,6 @@
 /**
  * tests/prompt.test.ts — Verifies the canonical prompt assembly for a WorkDef
- * (optional board framing: state persona + story; see WORKDEF_UNIFICATION.md).
+ * (optional board framing: state persona + story; see docs/DESIGN.md "WorkDefs & Parents").
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";

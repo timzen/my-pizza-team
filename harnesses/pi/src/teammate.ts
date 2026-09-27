@@ -3,7 +3,7 @@
 // Autonomous execution engine for a teammate agent. Uses the daemon's
 // WorkItem-centric agent protocol (/api/agents/*): the WorkItem is the unit of
 // agent execution, and workers never move tasks (the daemon reacts to a terminal
-// WorkItem state). See the daemon's docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+// WorkItem state). See the daemon's docs/DESIGN.md "The WorkItem".
 //
 // Lifecycle:
 // 1. Poll GET /api/agents/next-work → a READY WorkItem (directory affinity)
@@ -136,7 +136,7 @@ export class TeammateLoop {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // WEB PAIRING RELEASE (my-pizza-team docs/TEAMMATE_CHAT.md §4)
+  // WEB PAIRING RELEASE (my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate")
   // ═══════════════════════════════════════════════════════════════════
 
   /**

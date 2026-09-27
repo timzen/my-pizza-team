@@ -29,7 +29,7 @@ export interface Teammate {
  * the protocol version is already enforced at registration (an unservable one is
  * refused), so what's left to surface is the silent case — an agent still running
  * an older extension, which keeps working while streaming no transcript and
- * recording no usage (BATTERIES_INCLUDED.md §1.2).
+ * recording no usage (docs/DESIGN.md "One Protocol, One Version").
  *
  * An agent that reported no version at all is also skewed: it predates the
  * handshake entirely.

@@ -4,7 +4,7 @@
  * The extension cannot yet import `shared/protocol.ts` directly: it is a separate
  * npm package that must stay publishable on its own, so it carries a local copy of
  * the constant (in client.ts, the protocol boundary). That is precisely the
- * duplication BATTERIES_INCLUDED.md §1.2 warns about, so it is enforced rather than
+ * duplication docs/DESIGN.md "One Protocol, One Version" warns about, so it is enforced rather than
  * trusted — this test fails if the two drift.
  *
  * P1c-7 deletes the duplicate by having the extension import the root definition,
@@ -28,7 +28,7 @@ Deno.test("harnesses/pi declares the same PROTOCOL_VERSION as shared/protocol.ts
     Number(match![1]),
     PROTOCOL_VERSION,
     "PROTOCOL_VERSION drift: harnesses/pi/src/client.ts disagrees with shared/protocol.ts. " +
-      "Both halves are one protocol (§1.2) — update the extension's copy.",
+      "Both halves are one protocol (DESIGN.md, One Protocol, One Version) — update the extension's copy.",
   );
 });
 

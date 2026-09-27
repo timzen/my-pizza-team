@@ -2,8 +2,7 @@
  * useTranscriptStream — Live transcript for one teammate (the watch view).
  *
  * Opening the SSE connection *is* watching: the daemon registers a viewer and
- * the teammate's extension starts mirroring its session (docs/TEAMMATE_CHAT.md
- * §3). The `hello` frame carries the daemon's buffered transcript; `entry`
+ * the teammate's extension starts mirroring its session (docs/DESIGN.md "Watching and Pairing with a Teammate"). The `hello` frame carries the daemon's buffered transcript; `entry`
  * frames are upserts keyed by `seq` (a streaming message or a tool call is
  * re-sent as it changes, in place). EventSource reconnects on its own, and each
  * reconnect's `hello` replaces the local copy, so a dropped frame can't leave

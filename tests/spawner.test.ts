@@ -9,7 +9,7 @@
  *      directives must stay pending for the leader — not fail, and not vanish.
  *   2. **A failure needs somewhere visible to live.** The leader used to report one;
  *      an unreported failure now looks exactly like a team that never grew, which is
- *      the silent class docs/BATTERIES_INCLUDED.md §1.1 is about.
+ *      the silent class docs/DESIGN.md "Setup Is One Command" is about.
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
@@ -113,7 +113,7 @@ Deno.test("a spawn becomes a tmux window running the harness command", () => {
 
 Deno.test("reset-session is left for the leader, not taken over", () => {
   // It types `/new` — a Pi slash command. Doing it here would mean the daemon knowing
-  // each harness's commands, which is the coupling §3.1 removes.
+  // each harness's commands, which is the coupling DESIGN.md "The Daemon Is the Supervisor" removes.
   const { store, updates } = fakeStore([{ id: "d", action: "reset-session", memberId: "a1", params: {} }]);
   const { exec, calls } = fakeTmux();
   const result = realizePending(store, deps({ exec }));

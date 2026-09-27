@@ -35,7 +35,7 @@ wires only that role's behavior:
 A teammate polls the daemon for a task sitting `ready` in an agent state, claims
 it (a lease), sends the daemon-assembled prompt to its own Pi agent, and on
 completion marks it done — the **daemon** advances the task; workers never move
-tasks (see the daemon's docs/WORK-MODEL.md). If it can't proceed it uses the
+tasks (see the daemon's docs/DESIGN.md "The Work Model"). If it can't proceed it uses the
 `return_task` tool (back to `ready` + comment) instead of a magic output string.
 Rework needs no special path: a human moves the task back, and the teammate
 rediscovers it on the next poll like any new work — comments included.
@@ -75,7 +75,7 @@ Session control (`new-session`, `resume-session`) is the one directive class an
 agent realizes *itself*, with Pi's `ctx.newSession()` / `ctx.switchSession()` —
 the daemon still only expresses intent, but the mechanism can't be keystrokes.
 The extension also exposes board and memory tools. Full design:
-[my-pizza-team/docs/ASSISTANT_CHAT_V2.md](../../my-pizza-team/docs/ASSISTANT_CHAT_V2.md).
+[docs/DESIGN.md "Assistant Chat Model"](../../../docs/DESIGN.md#assistant-chat-model-a-mirror-of-the-pi-session).
 
 ### 5a. Watching a teammate costs nothing until someone watches
 

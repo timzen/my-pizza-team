@@ -1,6 +1,6 @@
 /**
  * tests/pairing.test.ts — Pairing with a teammate from the web UI
- * (docs/TEAMMATE_CHAT.md §4): pair → message → release, the draining agent poll,
+ * (docs/DESIGN.md "Watching and Pairing with a Teammate"): pair → message → release, the draining agent poll,
  * and the route guards (teammates only; messages only while paired).
  */
 

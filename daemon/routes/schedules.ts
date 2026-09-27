@@ -2,7 +2,7 @@
  * daemon/routes/schedules.ts — Schedule (cron parent) CRUD.
  *
  * A Schedule fires a WorkItem for each WorkDef whose `parent` points at it. It
- * owns only the cron + lastEnqueuedAt (see docs/WORKDEF_UNIFICATION.md). Its
+ * owns only the cron + lastEnqueuedAt (see docs/DESIGN.md "WorkDefs & Parents"). Its
  * child WorkDefs are managed via the /api/work-defs routes.
  */
 

@@ -1,7 +1,7 @@
 /**
  * tests/doctor.test.ts — `mpt doctor`'s checklist logic.
  *
- * §1.1's complaint is that no setup step checks the others, so a missing piece
+ * DESIGN.md "Setup Is One Command" section's complaint is that no setup step checks the others, so a missing piece
  * surfaces later as a symptom rather than an error. The value of doctor is therefore
  * entirely in *which* status it assigns and *what fix* it names, so that is what
  * these cover — `evaluate` is pure, so every branch is reachable without Pi, a
@@ -11,7 +11,7 @@
  * the tool worse than nothing:
  *
  *   - An untested Pi version *warns*; it does not fail. There is no extension-API
- *     version to negotiate (§7), so blocking would be a guess dressed as a
+ *     version to negotiate (DESIGN.md "One Protocol, One Version"), so blocking would be a guess dressed as a
  *     requirement.
  *   - Only genuine breakage sets the exit code. If warnings failed the run, the exit
  *     code would mean "you have a normal setup" and nobody would read it.
@@ -76,7 +76,7 @@ Deno.test("a healthy system reports no problems and no warnings", () => {
 });
 
 Deno.test("every non-ok check names a fix — a problem without a next step is noise", () => {
-  // The whole premise of §1.1 is that symptoms don't tell you what to do.
+  // The whole premise of DESIGN.md "Setup Is One Command" is that symptoms don't tell you what to do.
   const perturbations: Array<Partial<DoctorFacts>> = [
     { piVersion: null },
     { piVersion: "0.50.0" },
@@ -216,7 +216,7 @@ Deno.test("an untrusted project fails — agents block on the trust prompt", () 
 
 Deno.test("a stopped daemon warns, and the leader check is skipped", () => {
   // Reporting "no leader" while the daemon is down would be a second symptom of one
-  // cause, which is the noise §1.1 complains about.
+  // cause, which is the noise DESIGN.md "Setup Is One Command" complains about.
   const checks = evaluate(healthy({ daemonRunning: false, leaderConnected: null }));
   assertEquals(find(checks, "Daemon").status, "warn");
   assertEquals(checks.some((c) => c.name === "Leader"), false);

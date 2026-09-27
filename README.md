@@ -5,31 +5,31 @@
 Manages stories, tasks, workflows, and agent lifecycle, and runs a team of
 autonomous coding agents against them — each in its own tmux window you can watch.
 Agents run on [Pi](https://pi.mariozechner.at/) today; see
-[Other harnesses](#other-harnesses) for what that means for Claude Code, Codex, and
-Kiro.
+[Other harnesses](#other-harnesses) for what that means for anything else.
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                          mpt daemon                          │
+│                     mpt (one binary)                         │
 │   stories & board · work queue · workflows · chat · usage    │
-│        spawns teammates in tmux · web UI · HTTP API          │
+│   spawns teammates in tmux · web UI · HTTP API · Pi extension│
 └───────────────┬──────────────────────────────┬───────────────┘
                 │                              │
                 ▼                              ▼
-         ┌─────────────┐              ┌──────────────────┐
-         │  Pi leader  │              │  Pi teammates    │
-         │ (you chat   │              │ (autonomous, one │
+         ┌─────────────┐              ┌───────────────────┐
+         │  Pi leader  │              │  Pi teammates     │
+         │ (you chat   │              │ (autonomous, one  │
          │  with it)   │              │  tmux window each)│
-         └─────────────┘              └──────────────────┘
+         └─────────────┘              └───────────────────┘
 ```
 
-- **You** create stories and tasks via the web UI or API
-- **Teammates** poll for work, claim tasks, do the work, and mark done
+- **You** create stories, tasks, and scheduled jobs in the web UI (or ask the leader to)
+- **Teammates** poll for work, claim it, do it, and report COMPLETE or FAILED
 - **The daemon** admits work (one task in flight per story), advances completed
-  work, manages assignments, tracks progress
+  work, keeps the team at its declared size, and tracks everything
 
 📖 **New here?** [QUICKSTART.md](QUICKSTART.md) gets a team running in about five
 minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, `mpt lead`.
+The in-app **Help** page is the user guide ([GUIDE.md](GUIDE.md)).
 
 ---
 
@@ -45,50 +45,51 @@ Commands:
   start [--daemon|-d]   Start the daemon (foreground, or background with -d)
   lead [--no-attach]    Start the leader in tmux and attach to it
   stop                  Stop the running daemon
-  status                Check if daemon is running + show summary
+  status                Check if the daemon is running + show a summary
   upgrade [--check]     Update mpt *and* its Pi extension (--check only reports)
-  install               Install as system service (auto-start on login)
-  uninstall             Remove system service
-  rotate-token          Generate a new API token
-
-Environment:
-  TEAM_DIR    Team directory or its parent (default: ./.my-pizza-team)
-  PORT        Daemon port (default: 7437)
-  HOST        Bind address (default: 127.0.0.1)
+  install               Install as a user service (launchd/systemd; starts on login)
+  uninstall             Remove the service
+  rotate-token          Generate a new API token (saved to config.json)
+  --version, --help
 ```
+
+`mpt setup` prints every change before making it and records what it did, so
+`--uninstall` undoes exactly that. It won't replace a registered development
+checkout of the extension (it steps aside and says so), and uninstall never revokes
+Pi project trust. `mpt doctor` is read-only — also the dry run for setup — and exits
+non-zero only for real breakage.
+
+`mpt lead` opens a `leader` window in the project directory running the harness's
+`leader` command. Running it again attaches to the existing leader rather than
+starting a second one.
 
 ### Upgrading
 
-`mpt upgrade` checks GitHub for the latest release and replaces the binary in
-place. It first tries the GitHub API, which limits **unauthenticated** requests
-to **60/hour per IP** — on a shared-egress cloud desktop this is easily
-exhausted, and GitHub then returns `HTTP 403` (rate limit exceeded).
+`mpt upgrade` downloads the latest GitHub release for your platform, verifies its
+checksum, replaces the binary in place, rewrites the managed Pi extension to match,
+and restarts the service if one is installed. **Restart running agents afterwards**
+— they keep the old extension until their Pi restarts; the Team tab flags them and
+can restart them for you.
 
-When that happens, `mpt upgrade` **automatically falls back** to plain
-`github.com` release links (`/releases/latest` → tagged release → predictable
-`/releases/download/<tag>/<asset>` URLs), which are *not* API rate limited. You
-should see a warning but the upgrade still completes — checksum verification
-included.
-
-Setting a GitHub token skips the fallback entirely by authenticating the API call
-(5,000/hour, keyed to your user, not the shared IP):
+The version check uses the GitHub API, which allows **60 unauthenticated requests
+per hour per IP** — easily exhausted on a shared-egress machine (`HTTP 403`). When
+the API fails, `mpt upgrade` falls back to plain `github.com` release links, which
+aren't rate limited, so the upgrade still completes (checksum included). Setting a
+token skips the fallback:
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxx   # or MPT_GITHUB_TOKEN / GH_TOKEN
 ```
 
-Reading a **public** repo's releases needs no permissions, so a **no-scope**
-Personal Access Token works. Create one at
-`https://github.com/settings/tokens` (classic, check no scopes) or
-`https://github.com/settings/tokens?type=beta` (fine-grained → *Public
-repositories, read-only*). This is a github.com token — unrelated to any
-internal git host.
+A **no-scope** Personal Access Token is enough (public repo, read-only). It is only
+ever sent to `api.github.com`.
 
 ---
 
 ## Configuration
 
-The daemon reads `.my-pizza-team/config.json`. Minimal:
+The daemon reads `.my-pizza-team/config.json`, merged over built-in defaults, and
+most of it is editable on the **Config** page. Minimal:
 
 ```json
 {
@@ -103,129 +104,132 @@ The daemon reads `.my-pizza-team/config.json`. Minimal:
 {
   // ─── Server ────────────────────────────────────────────────────
   "port": 7437,
-
-  // ─── Authentication ────────────────────────────────────────────
-  "apiToken": "your-secret-token",       // Required if binding 0.0.0.0
+  "apiToken": "your-secret-token",       // Required to bind anything but localhost
 
   // ─── Workflow ──────────────────────────────────────────────────
-  "defaultWorkflow": "default",
+  "defaultWorkflow": "default",          // Workflows themselves live in workflows/
 
   // ─── Team ──────────────────────────────────────────────────────
-  "tmuxSession": "my-pizza-team",
+  "tmuxSession": "my-pizza-team",        // Where teammate windows are created
   "maxTeammates": 4,
-  "minTeammates": 2,                     // Teammates the daemon keeps online (omit = half of maxTeammates; 0 = spawn none)
-  "agentTimeoutSeconds": 90,
+  "minTeammates": 2,                     // Declared team size (omit = half of maxTeammates; 0 = none)
+  "agentTimeoutSeconds": 90,             // Silence before an agent is reaped
+  "teammates": {
+    "nouns": ["ripley", "deckard", "neo"] // Name generation (adjective-noun)
+  },
 
-  // ─── Autosave ─────────────────────────────────────────────────
+  // ─── Harnesses ─────────────────────────────────────────────────
+  // Start commands the daemon types into a fresh tmux window. Omit for the
+  // built-in Pi templates. Placeholders: {name} {url} {cwd} {session} {window}.
+  "defaultHarness": "pi",
+  "harnesses": {
+    "pi": {
+      "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+      "leader": "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
+    }
+  },
+
+  // ─── Scheduling ────────────────────────────────────────────────
+  // Optional: a shell command the daemon runs every 30s. Exit 0 = ready; otherwise
+  // cron jobs are held (not failed) until it recovers, then fire once.
+  "readinessProbe": "my-credentials-check",
+
+  // ─── Autosave ──────────────────────────────────────────────────
   "autosave": {
     "flushIntervalMinutes": 30,
     "commitIntervalHours": 24,
     "commitMessage": "my-pizza-team: checkpoint {timestamp}",
-    "autoCommit": true
-  },
-
-  // ─── Teammates ─────────────────────────────────────────────────
-  "teammates": {
-    "nouns": ["ripley", "deckard", "neo"]
-  },
-
-  // ─── Multi-Machine Hosts ──────────────────────────────────────
-  "hosts": {
-    "macbook": {
-      "tmuxSession": "pizza-mac"
-    }
+    "autoCommit": true                   // Commit the team dir (only) into your git repo
   }
 }
 ```
+
+> ⚠️ Saving config from the UI currently drops `harnesses` and `defaultHarness`
+> (see [TODO.md](TODO.md)). Re-add them by hand if you customise them.
 
 ### Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `TEAM_DIR` | `./.my-pizza-team` | Path to team dir (or parent) |
+| `TEAM_DIR` | `./.my-pizza-team` | Team directory, or its parent |
 | `PORT` | `7437` | Daemon HTTP port |
-| `HOST` | `127.0.0.1` | Bind address (`0.0.0.0` requires apiToken) |
-| `MPT_API_TOKEN` | — | Overrides config.apiToken |
+| `HOST` | `127.0.0.1` | Bind address (anything else requires an API token) |
+| `MPT_API_TOKEN` | — | Overrides `config.apiToken` |
+| `MPT_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` | — | Authenticates `mpt upgrade`'s GitHub API call |
+| `MPT_HOME` | `$HOME` | Where the managed extension lives (`$MPT_HOME/.my-pizza-team/pi-extension/`) |
+| `MPT_PI_EXTENSION` | — | Use this extension source instead of the embedded one |
+| `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's settings directory (setup/doctor read and write it) |
+| `UI_DIST` | — | Serve the web UI from this directory |
 
 ### Team Directory Layout
 
 ```
 .my-pizza-team/
 ├── config.json
-├── store.db             # SQLite runtime index
+├── .gitignore           # written by mpt: excludes the runtime files below
+├── state.db             # SQLite runtime index (rebuilt from the files; not committed)
+├── daemon.pid           # while the daemon runs
 ├── workflows/
 │   └── default/
 │       ├── workflow.json
-│       └── *.md         # State persona per agent state
-├── stories/            # flat story files (grouping/order/status)
-│   ├── my-story.json    #   tasks: [{id, status}]  (children live in tasks/)
-│   └── …
-├── tasks/              # EVERY unit of work is a WorkDef (authored markdown)
+│       └── in_progress.md   # persona for each agent state
+├── stories/             # one file per story: order + status of its tasks
+│   └── my-story.json    #   tasks: [{id, status}]
+├── tasks/               # EVERY unit of work is a WorkDef
 │   └── my-story-1/
 │       ├── workdef.md   #   Goal / Acceptance Criteria / Additional Context + parent
 │       ├── comments.jsonl
 │       └── attachments/
-├── schedules/          # cron parents (fire their child WorkDefs)
+├── schedules/           # cron parents (fire their child WorkDefs)
 │   └── nightly.json
-├── templates/          # Task Templates: reusable molds for Solitary tasks
-│   └── investigate-ticket/
-│       └── template.md  #   same authored fields as a WorkDef; never enqueues
-├── archived/
-├── backlog/
-├── context/             # Context library: reusable prompt/context markdown entries
+├── templates/           # reusable molds for Solitary tasks (never enqueued)
+│   └── investigate-ticket/template.md
+├── archived/            # archived stories (with a synopsis)
+├── backlog/             # backlogged stories
+├── context/             # context library: reusable prompt/context markdown
 ├── assistant/
-│   └── sessions/        # Chat transcripts: one markdown snapshot per chat session
-├── thoughts/            # Thoughts board: markdown sticky notes (thoughts/<id>.md)
-├── usage/               # Token-usage ledger: one JSON line per agent run, a file per month
-│   └── 2026-09.jsonl    #   {at, kind, refId, title, memberId, model, tokens…, costUsd}
-└── groups.json          # Thought groups ([{id, title}]; membership lives on each note)
+│   └── sessions/        # one markdown transcript per chat session
+├── thoughts/            # Thoughts board notes (thoughts/<id>.md)
+├── groups.json          # Thought groups
+└── usage/               # token-usage ledger, one JSON line per agent run
+    └── 2026-09.jsonl
 ```
+
+Everything but the runtime files is plain text meant to be committed. If the team
+dir is inside a git repo, autosave commits **only that directory** (never your own
+staged work) and pushes if there's a remote. Turn it off with
+`autosave.autoCommit: false`.
 
 ---
 
 ## Workflows
 
-A workflow is an **ordered pipeline of active states** between the implicit
-`todo` and `done` buckets (see [docs/WORK-MODEL.md](docs/WORK-MODEL.md)).
-There is no transition matrix: the daemon admits one task per story into the
-pipeline (CONWIP), advances completed agent work automatically, and you can
-move any card anywhere.
-
-### workflow.json
+A workflow is an **ordered pipeline of active states** between the implicit `todo`
+and `done` buckets. There is no transition matrix: the daemon admits one task per
+story into the pipeline (CONWIP), advances completed agent work automatically, and
+you can move any card anywhere. See
+[docs/DESIGN.md](docs/DESIGN.md#the-work-model).
 
 ```json
 {
   "states": [
     { "name": "in_progress", "type": "agent" },
-    { "name": "leader_review", "type": "manual" }
+    { "name": "review", "type": "manual" }
   ]
 }
 ```
 
-**States**: Ordered. `todo` and `done` are implicit — never declared.
-
 | Type | Who works it | How it completes |
 |------|--------------|------------------|
-| `"agent"` | Teammates (claim → work → COMPLETE) | Daemon advances automatically |
-| `"manual"` | You (or the leader agent) | You move the card onward |
+| `"agent"` | Teammates (claim → work → COMPLETE) | The daemon advances it automatically |
+| `"manual"` | You (or the leader) | You move the card onward |
 
-When a task lands in an **agent state** the daemon enqueues a `READY` WorkItem
-for it; a teammate claims it (→ `IN_PROGRESS`) and, on COMPLETE, the daemon
-advances the task. The board shows the active WorkItem as a chip (queued /
-working / at-risk).
+When a task lands in an agent state the daemon enqueues a `READY` WorkItem for it;
+a teammate claims it and, on COMPLETE, the task advances. On FAILED it stays put
+until you move it (moving it back into an agent state enqueues a fresh attempt).
 
-### State Personas
-
-Markdown files in the workflow directory give each **agent state** a persona —
-role framing injected into the claim prompt. Filename matches state name:
-
-```
-workflows/default/
-├── workflow.json
-└── in_progress.md       # The "implementer" persona for in_progress
-```
-
-Example `in_progress.md`:
+**Personas.** A markdown file named after an agent state
+(`workflows/<name>/<state>.md`) is role framing injected into that state's prompt:
 
 ```markdown
 You are a careful implementer. Write the code the task describes,
@@ -233,237 +237,153 @@ add tests, and keep the change minimal. Summarize what you did when
 you finish — the task advances automatically.
 ```
 
-Manual states need no persona (no prompt is ever built for them).
-
-### Multiple Workflows
-
-Define different workflows for different types of work:
-
-```
-workflows/
-├── default/         # Standard dev: todo → in_progress → review → done
-├── bugfix/          # Simplified: [fixing]
-└── doc-writing/     # [outline, write, edit] with a manual publish gate
-```
-
-Assign a workflow when creating a story (required).
+Manual states need no persona. Create workflows, edit their states, and edit
+personas on the **Workflows** tab (under Board); every story names its workflow at
+creation. With no workflows on disk, a built-in `default` (`in_progress` →
+`review`) is used.
 
 ---
 
 ## Assistant Chat
 
-The assistant is a live chatbot, not a form — and it is **your leader**. There is
-no separate assistant to start: the leader already runs to manage tmux, so the chat
-just works whenever one is up (`pi --ppt-lead` in your project). The web UI and the
-leader's own tmux pane are **two views of one conversation**: the daemon mirrors
-that Pi session in both directions. See
+The assistant is a live chat — and it is **your leader**. There is no separate
+assistant to start: the chat works whenever the leader is up (`mpt lead`). The web
+UI and the leader's tmux window are **two views of one conversation**: the daemon
+mirrors that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
-It lives in the **left dock**, available on every page, as the **Assistant** tab
-beside the **Team** tab (the teammates) — collapse the dock to an icon rail
-(with an unread badge), or drag its inner edge to resize. On narrow screens it
-becomes a floating button in the bottom-left corner. Above both tabs, the dock's
-header row holds a **+** (New Story / Solitary Task / Scheduled Job) and the
-**queue summary** (counts, hover to preview, click for the Queue tab) — see
-[docs/DESIGN.md](docs/DESIGN.md#the-shell-a-dock-and-a-center).
+It lives in the **left dock** on every page, as the **Assistant** tab beside
+**Team**. The dock collapses to an icon rail (with an unread badge) or resizes by
+dragging its edge; on narrow screens it becomes a floating button.
 
-- **Send whenever you like.** The composer never locks. A message sent while the
+- **Send whenever you like.** The composer never locks; a message sent while the
   assistant is working is steered into its current run.
-- **Real receipts.** ⧗ queued (nobody has it yet) → ✓ delivered (handed to the
-  assistant) → ✓✓ read (it has started a run that sees it).
-- **Bubbles from prose.** The assistant just writes; each paragraph becomes a
-  bubble (code blocks and lists are never split). Markdown is rendered, and any
-  bubble can be expanded full screen or copied.
-- **Reply to a bubble.** Hover → reply quotes it; the quote is shown in your
-  message and passed to the assistant.
-- **Peek at its thinking.** Click the `…` while it works to read its live
-  reasoning. This is ephemeral — never saved, gone on restart.
-- **Multi-machine.** Leaders are per host, so the daemon designates one as the chat
-  agent (sticky while it's online) — a two-host team never answers you twice.
+- **Real receipts.** ⧗ queued → ✓ delivered → ✓✓ read.
+- **Bubbles from prose.** Each paragraph becomes a bubble (code blocks and lists are
+  never split); markdown is rendered; any bubble can be expanded or copied.
+- **Reply to a bubble** — the quote travels with your message.
+- **Peek at its thinking** — click the `…`. Ephemeral: never saved.
 - **Terminal parity.** Type in the leader's tmux window and it appears in the web
-  chat (marked with a terminal glyph), and vice versa.
+  chat (with a terminal glyph), and vice versa.
 - **Personas.** Any context-library entry tagged `persona` becomes a selectable
-  assistant. Swapping is not destructive — it ends the current chat and starts a
-  new one as that persona.
-- **Sessions: nothing is lost.** "New chat", a persona swap, or resuming another
-  session **snapshots** the current transcript to
-  `.my-pizza-team/assistant/sessions/<id>.md`. **History** lists every session:
-  read it, open its markdown, or **Resume** it — which switches the leader back to
-  that Pi session so its context comes along too.
+  assistant. Swapping starts a new chat as that persona; nothing is deleted.
+- **Sessions: nothing is lost.** New chat, a persona swap, or resuming another
+  session snapshots the current transcript to `assistant/sessions/<id>.md`.
+  **History** lists every session; **Resume** switches the leader back to that Pi
+  session, context included.
 
-See [docs/history/ASSISTANT_CHAT_V2.md](docs/history/ASSISTANT_CHAT_V2.md) for the design.
+The leader also has tools for the team's data — creating stories, tasks, and
+schedules, and reading and writing the Thoughts board.
 
 ---
 
 ## Agent Protocol
 
-Agents work the **WorkItem queue** — the single unit of agent execution — in a
-poll → claim → work → set-state loop. Workers never move tasks; the daemon
-reacts to a terminal WorkItem state (COMPLETE advances the task, FAILED leaves
-it stuck for a human). See [docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md](docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
+Agents work the **WorkItem queue** in a poll → claim → work → set-state loop.
+Workers never move tasks: the daemon reacts to the terminal state (COMPLETE
+advances a board task; FAILED leaves it for a human). See
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#agent-lifecycle).
 
 ```
-1. POST /api/agents/register              → register with daemon
-2. GET  /api/agents/next-work             → { workItem: { id, title } | null }
-3. POST /api/agents/claim/:workItemId     → lease (→ IN_PROGRESS) + daemon prompt
-   (agent does the work, in the ref's directory)
-4. POST /api/agents/work-items/:id/state  → { state: "COMPLETE" } (advance task)
-   or { state: "FAILED" } after posting a comment (leave the task stuck)
+1. POST /api/agents/register              → register (name, directory, protocol version)
+2. GET  /api/agents/next-work?agentId=    → { workItem: { id, title } | null }
+3. POST /api/agents/claim/:workItemId     → lease (→ IN_PROGRESS) + the daemon's prompt
+   (the agent does the work in the ref's directory and posts a comment)
+4. POST /api/agents/work-items/:id/state  → { state: "COMPLETE" } or { state: "FAILED" }
 5. POST /api/agents/heartbeat             → keep-alive (restores this agent's MORIBUND items)
 ```
 
-### Registration: name + directory
+**Registration** carries a name, a working `directory` (the only work-selection
+signal), and the version handshake (`protocolVersion`, `harness`,
+`harnessVersion`). A protocol version the daemon can't serve is refused with 409
+and the fix named; build-version differences are only reported, and shown in the
+Team tab.
 
-```jsonc
-POST /api/agents/register
-{
-  "id": "neo",
-  "name": "neo",
-  // The agent's working directory (its pi cwd). This is the ONLY work-selection
-  // signal — teammates are a flat generalist pool biased by directory.
-  "directory": "/path/to/project"
-}
-```
+**Matching is directory affinity** — there are no capabilities or skills; every
+teammate is a generalist. `getNextWorkItem()` offers, oldest first:
 
-There are no capabilities, skills, or work modes: every teammate is a
-generalist. Retiring capability matching removed a whole class of
-path-string/skill-mismatch bugs.
+1. items whose directory is the agent's directory,
+2. then items with no directory,
+3. then another directory's items — only if *no online agent* is homed there.
 
-### How work is matched: directory affinity
-
-`getNextWorkItem()` picks the next `READY` WorkItem for a polling agent using
-soft, presence-based **directory affinity** (no timers, no hard requirements):
-
-1. **My directory** — items whose ref names the agent's `directory`.
-2. **Un-homed work** — items with no directory.
-3. **Another directory** — only if *no online agent* is homed there (so nothing
-   starves), otherwise it waits for a matching-directory teammate to appear.
-
-An item that ends up somewhere an agent can't reach is simply failed by that
-agent. See [docs/DESIGN.md](docs/DESIGN.md).
-
-### What the agent gets on claim
-
-| Field | Description |
-|-------|-------------|
-| `workItem` | Minimal bookkeeping metadata: `{ id }` (the harness treats it as opaque) |
-| `prompt` | **The full, ready-to-use prompt** assembled by the daemon (state persona, story/WorkDef, working-directory instruction, reference context, prior-task context, lead comments, completion guidance). Harnesses deliver this verbatim rather than re-assembling their own. |
+**On claim** the agent gets `workItem: { id }` and a `prompt`: the complete,
+daemon-assembled message (state persona, story, working-directory instruction, the
+task's goal/criteria/context, attached reference context, lead comments,
+completion guidance). Harnesses deliver it verbatim.
 
 ---
 
 ## Harness Guides
 
-### Pi (Native Extension)
+### Pi (native)
 
 The Pi extension (`harnesses/pi/` in this repo) provides the leader and teammate
-integration. It ships **inside the `mpt` binary** and `mpt setup` installs it, so the
-daemon and the extension always match versions — `mpt upgrade` moves both together.
+integration. It ships **inside the `mpt` binary** and `mpt setup` installs it to
+`~/.my-pizza-team/pi-extension/`, so the daemon and the extension always match
+versions — `mpt upgrade` moves both together.
 
-Working on the extension itself? Register your checkout instead, and `mpt setup` will
-step aside rather than replace it:
+The **leader** is the Pi you chat with; `mpt lead` starts it. **Teammates** are
+started by the daemon in their own tmux windows and run an autonomous loop: poll →
+claim → execute → set state → repeat. If the daemon can't reach tmux (possible when
+it runs as a login service), the leader starts them instead; `mpt doctor` says which
+path is live.
+
+Recommended: `@gotgenes/pi-permission-system`, which lets teammates work
+autonomously. Without it they stop at the first permission prompt (the extension
+warns when it's missing).
+
+Working on the extension itself? Register your checkout, and `mpt setup` will step
+aside rather than replace it:
 
 ```bash
 pi install ./harnesses/pi
 ```
 
-The **leader** is the Pi you chat with; `mpt lead` starts it. **Teammates** are
-started by the daemon in their own tmux windows and run an autonomous loop: poll →
-claim → execute → set-state → repeat. (If the daemon can't reach tmux — possible when
-it runs as a login service — the leader starts them instead; `mpt doctor` says which.)
-
-### Setup
-
-> Already running an older mpt? See [docs/UPGRADING.md](docs/UPGRADING.md) —
-> the agent protocol changed, so running agents need a restart.
-
-```bash
-mpt setup             # install the Pi extension + prepare this folder (idempotent)
-mpt setup --dry-run   # show what it would change, without changing it
-mpt setup --uninstall # undo it (the team directory and its data are left alone)
-```
-
-`setup` writes the Pi extension carried inside the `mpt` binary to
-`~/.my-pizza-team/pi-extension/` and registers it with Pi, creates the team
-directory, and marks the folder trusted. Because the extension ships with the
-daemon, the two halves share a version and cannot drift apart.
-
-It prints every change before making it, and records them so `--uninstall` undoes
-exactly what it did. Two things it will not do: replace a development checkout of
-the extension (if one is registered, setup steps aside and says so), and revoke
-project trust on uninstall (other tools may rely on it).
-
-### Starting the leader
-
-```bash
-mpt lead              # start it in tmux and attach
-mpt lead --no-attach  # start it without taking over the terminal
-```
-
-The leader is the agent you chat with, and it realizes the daemon's spawn asks — a
-team without one has nobody answering and no way to grow. `mpt lead` opens a tmux
-window in the project directory and runs the harness's configured `leader` command;
-running it again attaches to the existing leader rather than starting a second one.
-
-### Checking your setup
-
-```bash
-mpt doctor
-```
-
-Reports Pi, tmux, the extension's registration and version, the permission system,
-the team directory, Pi's project trust, the daemon, the leader, and the service —
-with the command that fixes each problem. Read-only, so it is also the dry-run for
-`mpt setup`.
-
 ### Other harnesses
 
-**Pi is the only fully supported harness today.** An MCP bridge
-(`mpt-mcp-server`) was tried and retired — see
-[docs/BATTERIES_INCLUDED.md](docs/BATTERIES_INCLUDED.md) §1.3. The short version:
-an MCP server can only expose *tools*, and tools are passive. The model calls one
-if and when it decides to, so nothing in MCP can poll for a directive and make an
-agent act on it, mirror a transcript, or auto-approve a permission prompt. Pi
-works because its extension runs a supervisory loop alongside the agent.
-
-The supervisor now lives in `mpt` itself — the daemon starts teammates in tmux from
-config templates — which is what makes other harnesses feasible. **Kiro is designed
-as the next one** (one task per run, reporting back via `mpt work` commands) and
-deferred; see [docs/BATTERIES_INCLUDED.md](docs/BATTERIES_INCLUDED.md) §Phase 4. Until
-then, a harness can speak the HTTP protocol directly — see below.
+**Pi is the only fully supported harness.** An MCP bridge was tried and retired:
+an MCP server can only expose *tools*, and tools are passive — nothing in MCP can
+make an agent act on a directive, mirror its transcript, or approve a permission
+prompt. The supervisor lives in `mpt` instead (it owns tmux and starts teammates
+from config templates), which is what makes other harnesses feasible without an
+in-process adapter. See [docs/DESIGN.md](docs/DESIGN.md#harness-tiers-and-why-not-mcp).
+Until one is built, any agent can speak the HTTP protocol directly.
 
 ### Any CLI agent (HTTP protocol)
-
-The agent protocol is plain HTTP, so a shell loop is enough to join the team:
 
 ```bash
 #!/bin/bash
 DAEMON_URL="http://localhost:7437"
 AGENT_NAME="codex-1"
 
-# Register (name + working directory)
+# Register (name + working directory + protocol version)
 curl -s -X POST "$DAEMON_URL/api/agents/register" \
   -H "Content-Type: application/json" \
-  -d "{\"id\": \"$AGENT_NAME\", \"name\": \"$AGENT_NAME\", \"directory\": \"$(pwd)\"}"
+  -d "{\"id\": \"$AGENT_NAME\", \"name\": \"$AGENT_NAME\", \"directory\": \"$(pwd)\", \"protocolVersion\": 5, \"harness\": \"shell\"}"
 
-# Poll → claim → execute → set-state loop
 while true; do
+  curl -s -X POST "$DAEMON_URL/api/agents/heartbeat" -H "Content-Type: application/json" \
+    -d "{\"id\": \"$AGENT_NAME\", \"status\": \"idle\"}" > /dev/null
+
   WI=$(curl -s "$DAEMON_URL/api/agents/next-work?agentId=$AGENT_NAME" | jq -r '.workItem.id // empty')
   [ -z "$WI" ] && sleep 5 && continue
 
-  # Claim (daemon leases the WorkItem → IN_PROGRESS and returns the prompt)
-  CLAIM=$(curl -s -X POST "$DAEMON_URL/api/agents/claim/$WI" \
-    -H "Content-Type: application/json" \
-    -d "{\"agentId\": \"$AGENT_NAME\"}")
+  # Claim: the daemon leases the WorkItem and returns the prompt
+  PROMPT=$(curl -s -X POST "$DAEMON_URL/api/agents/claim/$WI" \
+    -H "Content-Type: application/json" -d "{\"agentId\": \"$AGENT_NAME\"}" | jq -r '.prompt')
 
-  # Execute with codex...
-  RESULT="Work completed"
+  # ... run your agent on "$PROMPT", then leave a summary comment
+  curl -s -X POST "$DAEMON_URL/api/agents/comments/$WI" -H "Content-Type: application/json" \
+    -d "{\"agentId\": \"$AGENT_NAME\", \"body\": \"Work completed\"}"
 
-  # Complete (daemon advances the task). Use "FAILED" to give up (leave it stuck).
+  # Complete (the daemon advances the task). Use "FAILED" to give up.
   curl -s -X POST "$DAEMON_URL/api/agents/work-items/$WI/state" \
     -H "Content-Type: application/json" \
-    -d "{\"agentId\": \"$AGENT_NAME\", \"state\": \"COMPLETE\", \"result\": \"$RESULT\"}"
+    -d "{\"agentId\": \"$AGENT_NAME\", \"state\": \"COMPLETE\"}"
 done
 ```
+
+The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 
 ---
 
@@ -471,25 +391,27 @@ done
 
 | Group | Key Endpoints | Purpose |
 |-------|-----------|---------|
-| Health | `GET /health` | Uptime, agents, memory |
-| Stories | `GET/POST/PUT/DELETE /api/stories/*` | CRUD, archive, backlog |
-| Tasks | `GET/POST/PUT/DELETE /api/tasks/*` | CRUD, move, comments, attachments |
-| Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, work-item state |
-| Teammate transcript | `/api/agents/:id/transcript[/stream\|/watch]` | Live, watch-only view of a teammate's session (streams only while someone watches) |
-| Teammate pairing | `POST /api/agents/:id/pair\|messages\|release`, `GET .../pairing[/state]` | Pause a teammate and talk to it from the browser; release it (resume / complete / fail its item) |
-| Usage | `POST /api/agents/:id/usage`, `GET /api/usage/daily`, `GET /api/usage/day` | Token + cost ledger for every agent run (work, chat, pairing); the Usage dashboard's per-day rollups |
-| Teammate pool | `GET/PUT /api/teammate-pool` | The team's *declared* size (`minTeammates`) — the daemon keeps that many teammates online |
-| Assistant | `/api/assistant/*` | Live chat: send any time, SSE stream, delivery receipts, quoted replies, thought peek, sessions (snapshot/resume), persona |
-| Context | `/api/context/*` | Reusable prompt/context library (inject into agents) |
-| Thoughts | `GET/POST /api/thoughts`, `POST /api/thoughts/positions`, `PATCH /api/thoughts/:id`, `POST .../archive\|restore`, `DELETE`, `POST/PATCH/DELETE /api/thought-groups[/:id]` | Markdown sticky-note board (a personal workspace/outbox) |
-| Control | `POST /api/control/pause\|resume` | Pause/resume task distribution |
-| WorkItems | `GET /api/work-items`, `POST /api/work-items/:id/{cancel,force-fail,read}`, `POST /api/work-items/re-enqueue` | The queue: list (Inbox/sidebar) + recovery actions |
-| WorkDefs | `GET/POST/PUT/DELETE /api/work-defs`, `POST /api/work-defs/:id/enqueue` | Standalone Solitary + Scheduled work |
-| Templates | `GET/POST/PUT/DELETE /api/templates` | Reusable molds that pre-fill a new Solitary task (never enqueue) |
-| Hosts | `GET /api/hosts/:hostId`, `POST /api/hosts/:hostId/readiness`, `GET /api/hosts-readiness` | Host config + readiness (a not-ready host holds scheduled work destined for it) |
-| Workflows | `GET /api/workflows/*` | List, view, manage workflows |
+| Health | `GET /health` | Uptime, agents, queue depth, leader presence, readiness, spawn capability (unauthenticated) |
+| Status / control | `GET /api/status`, `POST /api/control/pause\|resume` | Summary; pause/resume work distribution |
+| Config | `GET/PUT /api/config`, `GET/PUT /api/teammate-pool` | Config and workflows; the declared team size |
+| Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
+| Stories | `/api/stories/*`, `/api/archived`, `/api/backlog/*` | CRUD, archive, backlog |
+| Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |
+| WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD, enqueue, archive, comments, attachments, usage |
+| Schedules | `/api/schedules/*` | Cron parents |
+| Templates | `/api/templates/*` | Reusable molds for Solitary tasks (never enqueue) |
+| WorkItems | `GET /api/work-items[/:id]`, `POST .../cancel\|force-fail\|read`, `POST /api/work-items/re-enqueue` | The queue and its recovery actions |
+| Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, state, comments, directives |
+| Directives | `/api/leader/directives`, `/api/spawn-requests` | Spawn/dismiss/reset asks; pending and failed spawns |
+| Teammate transcript | `/api/agents/:id/transcript[/stream\|/watch]` | Watch-only live view (streams only while watched) |
+| Teammate pairing | `POST /api/agents/:id/pair\|messages\|release`, `GET .../pairing[/state]` | Talk to a paused teammate from the browser |
+| Usage | `POST /api/agents/:id/usage`, `GET /api/usage/daily\|day` | Token and cost ledger; dashboard rollups |
+| Assistant | `/api/assistant/*` | The chat: messages, SSE stream, receipts, thoughts peek, sessions, persona |
+| Context | `/api/context/*` | Reusable prompt/context library |
+| Thoughts | `/api/thoughts/*`, `/api/thought-groups/*` | Markdown sticky-note board |
+| Workflows | `GET /api/workflows[/:name]`, `GET/PUT .../instructions/:state` | Workflows and their personas |
 
-Full API route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
+Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 
 ---
 
@@ -497,17 +419,19 @@ Full API route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 
 ```
 my-pizza-team/
-├── daemon/            # HTTP server (Hono on Deno.serve)
+├── main.ts            # Entry point of the compiled binary (→ cli/main.ts)
+├── daemon/            # HTTP server (Hono on Deno.serve), Store, tmux supervisor
 │   ├── server.ts      # Route orchestrator
-│   ├── store.ts       # SQLite data layer
-│   └── routes/        # Route modules (shared, stories, tasks, agents, etc.)
-├── cli/               # CLI (start/stop/status/install)
-├── ui/                # Frontend (React + Vite + shadcn/ui)
-├── shared/            # Shared types, utilities, protocol contracts
-├── desktop/           # Native tray/menu bar apps (macOS, Windows)
-├── scripts/           # Build and packaging scripts
-├── tests/             # Integration and unit tests
-└── docs/              # Architecture and design docs
+│   ├── store.ts       # SQLite index + file sync (self-contained parts in store/)
+│   └── routes/        # Route modules
+├── cli/               # The mpt command (start, setup, doctor, lead, upgrade, service)
+├── ui/                # Web UI (React + Vite + shadcn/ui)
+├── shared/            # Types, protocol contracts, constants
+├── harnesses/pi/      # The Pi extension (its own package.json; embedded in mpt)
+├── desktop/           # Tray/menu-bar apps (macOS, Windows)
+├── scripts/           # Build, packaging, release, code generation
+├── tests/             # Fast suite; tests/e2e/ is the slow suite
+└── docs/              # ARCHITECTURE.md (the map), DESIGN.md (the why)
 ```
 
 ---
@@ -515,17 +439,32 @@ my-pizza-team/
 ## Development
 
 ```bash
-deno task dev          # Auto-reload daemon
-deno task ui:dev       # Vite dev server for UI
-deno task test         # Run tests
-deno task check        # Type-check
+deno task dev          # Auto-reload daemon (daemon/main.ts — no tmux spawning or readiness probe)
+deno task mpt <cmd>    # Run the CLI from source (e.g. `deno task mpt start` for the full daemon)
+deno task ui:dev       # Vite dev server for the UI
 ```
+
+Gates — all must pass before a commit:
+
+```bash
+deno task check          # type-check daemon/, cli/, shared/, tests/
+deno task test           # fast suite (seconds)
+deno task test:e2e       # real git, tmux, and shell — run before pushing
+deno task typecheck:ext  # the Pi extension
+deno task test:ext       # the Pi extension's suites
+(cd ui && npx tsc -b)    # the web UI
+```
+
+The extension's version is generated from `deno.json` (`deno task sync-version`)
+and its shared constants from `shared/types.ts` (`deno task sync-shared`); CI fails
+if either is out of step.
 
 ## Building
 
 ```bash
-deno task compile              # Single binary (current platform)
-deno task compile:all          # All platforms → dist/
+deno task compile              # ./mpt for this platform, with the UI and Pi extension embedded
+deno task compile:all          # all platforms → dist/
+./scripts/publish.sh [x.y.z]   # bump, tag, push — the tag triggers the release workflow
 ```
 
 ---

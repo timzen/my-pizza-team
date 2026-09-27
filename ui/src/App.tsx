@@ -76,7 +76,7 @@ function App() {
               <Route path="/workflows" element={<WorkflowsPage />} />
               <Route path="/workflows/:name" element={<WorkflowDetailPage />} />
               <Route path="/help" element={<HelpPage />} />
-              {/* A teammate's live view, opened from the sidebar (docs/TEAMMATE_CHAT.md). */}
+              {/* A teammate's live view, opened from the sidebar (docs/DESIGN.md "Watching and Pairing with a Teammate"). */}
               <Route path="/teammates/:id" element={<TeammatePage />} />
               <Route path="/usage" element={<UsagePage />} />
             </Routes>

@@ -5,7 +5,7 @@
  * Verifies GET/POST/PUT on /api/leader/directives.
  *
  * The queue lost its host key in P1c-1: there is exactly one leader
- * (docs/BATTERIES_INCLUDED.md §3.3), so there is nothing to route between.
+ * (docs/DESIGN.md "One Host, One Leader"), so there is nothing to route between.
  */
 
 import { assertEquals } from "@std/assert";

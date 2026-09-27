@@ -1,7 +1,7 @@
 // Type-checks the extension's sources.
 //
 // Pi strips types at load and the test suites are .mjs, so without this nothing
-// validates this package at all — see docs/BATTERIES_INCLUDED_TASKS.md P0-1.
+// validates this package at all — see docs/DESIGN.md "Testing: Fast, End-to-End, and Never Real Config".
 // Type-check only: Pi loads the TypeScript from disk, so a build would be
 // unused output.
 {

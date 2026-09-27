@@ -39,9 +39,9 @@ export interface TeamConfig {
    * Start-command templates by harness name.
    *
    * The daemon fills a template and types it into a fresh tmux window
-   * (docs/BATTERIES_INCLUDED.md §3.1). Living in team config rather than in
+   * (docs/DESIGN.md "The Daemon Is the Supervisor"). Living in team config rather than in
    * extension code is the point: adding a harness becomes a config change instead of
-   * an extension release, which is what makes Tier 0 support possible at all (§3.2).
+   * an extension release, which is what makes Tier 0 support possible at all (DESIGN.md "Harness Tiers, and Why Not MCP").
    *
    * Placeholders: `{name}` (daemon-assigned agent name), `{url}` (daemon URL),
    * `{cwd}` (working directory, shell-quoted on substitution), `{session}` and
@@ -68,7 +68,7 @@ export interface TeammateConfig {
 
 /**
  * A workflow is an ordered list of **active states** between the implicit
- * `todo` and `done` buckets (see docs/WORK-MODEL.md). There is no transition
+ * `todo` and `done` buckets (see docs/DESIGN.md "The Work Model"). There is no transition
  * matrix: the daemon advances completed agent-state tasks to the next state
  * mechanically, admission pulls from `todo` (CONWIP), and humans/the leader
  * may move any task anywhere.
@@ -96,7 +96,7 @@ export const DONE_STATE = "done";
 
 /**
  * The unit of agent execution: a single, dumb, terminal-only attempt to do some
- * work (see docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md). A WorkItem points at its
+ * work (see docs/DESIGN.md "The WorkItem"). A WorkItem points at its
  * work via a polymorphic `ref` (a story task, or a standalone WorkDef) and only
  * ever moves toward a terminal state. All rich detail (goal, comments, results)
  * lives on the ref, never here.
@@ -114,7 +114,7 @@ export const ACTIVE_WORK_ITEM_STATES: WorkItemState[] = ["READY", "IN_PROGRESS",
 
 /** Polymorphic pointer to the work a WorkItem represents. Every unit of work is
  * now a WorkDef, so the ref is simply its id (the old task|workdef union
- * collapsed — see docs/WORKDEF_UNIFICATION.md). */
+ * collapsed — see docs/DESIGN.md "WorkDefs & Parents"). */
 export interface WorkItemRef {
   workDefId: string;
 }
@@ -137,7 +137,7 @@ export interface WorkItem {
 
 /**
  * Every unit of work is a WorkDef: purely *authored* content (see
- * docs/WORKDEF_UNIFICATION.md). A WorkDef names its `parent` (the enqueuer that
+ * docs/DESIGN.md "WorkDefs & Parents"). A WorkDef names its `parent` (the enqueuer that
  * decides when it emits WorkItems); its "type" is derived from the parent kind:
  *   - parent { kind: "story" }    → a board task (workflow-driven)
  *   - parent { kind: "schedule" } → scheduled (cron-driven)
@@ -243,7 +243,7 @@ export interface AutosaveConfig {
 }
 
 /** A child WorkDef of a story: its id plus its workflow position (the story owns
- * both the ordering and the mutable status — see docs/WORKDEF_UNIFICATION.md). */
+ * both the ordering and the mutable status — see docs/DESIGN.md "WorkDefs & Parents"). */
 export interface StoryTaskRef {
   id: string;
   /** Workflow position: an active state name, or the "todo"/"done" buckets. */
@@ -313,7 +313,7 @@ export interface Member {
    * The agent-protocol version this agent's harness reported at registration.
    * `undefined` means a pre-handshake harness — accepted, but surfaced in the UI
    * so an un-upgraded agent is visible rather than silently half-working
-   * (BATTERIES_INCLUDED.md §1.2, P1b).
+   * (docs/DESIGN.md "One Protocol, One Version", P1b).
    */
   protocolVersion?: number;
   /** Which harness this agent runs under (e.g. "pi"). */
@@ -333,8 +333,8 @@ export interface Member {
  * overnight cron would pile up FAILED runs. A not-ready team *holds* scheduled
  * enqueues instead, and the held Schedule re-fires exactly once on recovery.
  *
- * Team-level, not per-host: multi-host was removed in P1c (BATTERIES_INCLUDED.md
- * §3.3), and credential/VPN/network state is a property of the machine the team
+ * Team-level, not per-host: multi-host was removed in P1c (docs/DESIGN.md
+ * DESIGN.md "One Host, One Leader"), and credential/VPN/network state is a property of the machine the team
  * runs on. Ephemeral connection state, not persisted across restarts — with no
  * report yet, the team is treated as ready.
  */
@@ -382,7 +382,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
 // Canonical home for the handful of values both the daemon and a harness need.
 // harnesses/pi/src/shared/types.ts is *generated* from these by
 // `deno task sync-shared`, so there is one definition rather than two that drift
-// (docs/BATTERIES_INCLUDED.md §1.2, P1c-7).
+// (docs/DESIGN.md "One Protocol, One Version", P1c-7).
 
 /** Team directory name. */
 export const TEAM_DIR = ".my-pizza-team";
@@ -466,7 +466,7 @@ export const TEMPLATES_DIR = "templates";
 
 /**
  * Directory holding assistant-chat artifacts. Session transcripts are markdown
- * snapshots under `assistant/sessions/<id>.md` (see docs/history/ASSISTANT_CHAT_V2.md).
+ * snapshots under `assistant/sessions/<id>.md` (see docs/DESIGN.md "Assistant Chat Model").
  */
 /**
  * The token-usage ledger: `usage/YYYY-MM.jsonl`, one JSON line per agent run

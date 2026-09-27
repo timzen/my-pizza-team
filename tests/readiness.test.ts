@@ -8,7 +8,7 @@
  * surface the leader's probe reports through.
  *
  * Team-level, not per-host: multi-host was removed in P1c
- * (docs/BATTERIES_INCLUDED.md §3.3), so POST /api/hosts/:hostId/readiness became
+ * (docs/DESIGN.md "One Host, One Leader"), so POST /api/hosts/:hostId/readiness became
  * POST /api/readiness.
  */
 

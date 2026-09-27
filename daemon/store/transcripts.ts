@@ -1,7 +1,7 @@
 /**
  * daemon/store/transcripts.ts — Live teammate transcripts (watch-only).
  *
- * Backs the teammate view (`/teammates/:id`, docs/TEAMMATE_CHAT.md §3): a
+ * Backs the teammate view (`/teammates/:id`, docs/DESIGN.md "Watching and Pairing with a Teammate"): a
  * CLI-ish, live rendering of what a teammate's Pi session is doing. Purely
  * in-memory — it's a live view, not a record (the WorkItem thread is the
  * record), so a daemon restart simply starts it over.
@@ -11,8 +11,8 @@
  * viewer left less than `WATCH_GRACE_MS` ago, so hopping between pages doesn't
  * flap — is *watched*; the extension polls that bit and only mirrors events
  * while it's set. An unwatched teammate costs nothing. There's no backfill: a
- * `watch` marker records where each watching period begins (§6 covers an
- * on-demand "load earlier" for later).
+ * `watch` marker records where each watching period begins. An on-demand
+ * "load earlier" is a possible future addition.
  *
  * **Entries are upserts.** Streaming prose and tool calls change over time, so
  * the agent sends entries with a stable `key` (`msg:…`, `tool:…`) and the

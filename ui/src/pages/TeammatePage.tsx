@@ -1,13 +1,13 @@
 /**
  * TeammatePage — Watch one teammate work, live (`/teammates/:id`).
  *
- * Fills the center column (docs/TEAMMATE_CHAT.md): a header strip — status,
+ * Fills the center column (docs/DESIGN.md "Watching and Pairing with a Teammate"): a header strip — status,
  * what it's working on (linked to the work item's page, where the full prompt
  * and thread live), and its directory — over the CLI-ish `TranscriptView`.
  *
  * Watching is read-only: having this page open is what turns the teammate's
  * transcript mirror on (the SSE subscription registers a viewer), and nothing
- * reaches the teammate. **Pair** (§4) is the explicit step that does: it pauses
+ * reaches the teammate. **Pair** is the explicit step that does: it pauses
  * the teammate's autonomous loop and opens the composer. **Release** hands it
  * back — keep working on its item (Resume), or Complete / Fail the item. A
  * release waits out a run in flight, so the teammate is never cut off mid-step.

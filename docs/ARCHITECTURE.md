@@ -1,377 +1,394 @@
 # Architecture
 
+What is where, and how the pieces talk. The rationale behind these choices is in
+[DESIGN.md](DESIGN.md); this document is the map.
+
 ## Overview
 
-my-pizza-team is a Deno-based application organized into four main modules:
+my-pizza-team is one repository producing one binary, `mpt`:
 
-- **daemon/** — HTTP API server built with [Hono](https://hono.dev/) on Deno's native `Deno.serve()` adapter
-- **cli/** — Command-line interface for interacting with the daemon
-- **ui/** — Frontend application (React + Vite + shadcn/ui). Talks to the daemon's HTTP API.
-  - `src/App.tsx` — Router + shell layout (`h-dvh overflow-hidden`, so the shell is exactly the viewport and each region scrolls itself — with a content-height shell a long chat grew the page instead of scrolling in the dock), with two full-height columns and aligned `h-14` headers: the **`SideDock`** on the left (tabs **Assistant** + **Team**, quick-create under both) and the center (nav + a scrollable `<main>`). The **`NavBar` spans only the center column** (it navigates the center; the dock is independent — DESIGN.md "The Shell: a Dock and a Center"). The center column is a Tailwind `@container`, so the nav adapts to the room the docks leave (wordmark hides, padding tightens, links scroll horizontally) rather than to the viewport. The dock collapses to an icon rail and remembers that and its tab in `localStorage`. Pages: `/` + `/queue` (RootPage — Queue/Inbox tabs), `/thoughts` (ThoughtsPage, in App's full-height `ThoughtsRoute` wrapper), `/context` (ContextPage), `/board`, `/tasks`, `/schedule`, `/work-defs/new`, `/work-defs/:id`, `/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`, `/teammates/:id` (TeammatePage), `/backlog`, `/archived`, `/config` (+ `/config/:tab`), `/workflows` (+ `/workflows/:name`), `/help`. **`/assistant` is a redirect** that opens the dock and sends you to the Inbox — the chat stopped being a page when it became dockable, and the old URL still works. The NavBar surfaces the five primary destinations — **Thoughts · Board · Tasks · Schedule · Context** — plus help/config/theme icons. Route-driven tab groups (RootPage's Queue/Inbox, the Board's Board/Backlog/Archive/Workflows, ConfigPage's General/Teammates/Theme) share `src/components/RouteTabs.tsx`.
-  - `src/components/ThemeToggle.tsx` — Light/dark mode toggle (the `dark` class on `<html>`, persisted to `localStorage`). Palette selection lives on the Config page's Theme tab; `src/lib/theme.ts` owns the palette preference (the `data-theme` attribute, applied at startup by `main.tsx`). Palettes are CSS variable blocks in `index.css` (`html[data-theme="…"]` for light, `html.dark[data-theme="…"]` for dark; Default and Solarized) — adding a palette is two variable blocks plus a `PALETTES` entry.
-  - `src/pages/RootPage.tsx` — Home: two tabs, **Queue** (`/queue`) · **Inbox** (`/`) — work in flight, finished work. The Queue (`src/pages/QueuePage.tsx`) lists non-terminal WorkItems grouped **At risk** (MORIBUND: force-fail / force-fail + re-enqueue) → **Waiting** (READY: cancel; age) → **Working** (IN_PROGRESS: the teammate, linked to its live view), each title linking to its item, with a stall banner for waiting work (distribution paused — `/api/status` `paused` — no teammates online, or none idle); data + actions in `src/hooks/useQueue.ts`, types/sort/counts in `src/lib/queue.ts`. The Inbox (`src/pages/InboxPage.tsx`) is a paginated, unread-by-default review queue of terminal WorkItems (COMPLETE/FAILED; CANCELED excluded); each routes to its backing WorkDef's detail page **deep-linked to the Thread tab** (`?tab=thread`, since a completed run's outcome lives in the comments) — board tasks open `/task/:storyId/:id` (via the item's `parent`), standalone work opens `/work-defs/:id`. The assistant chat and the quick-create buttons used to live here; both moved into the left `SideDock` so they work from **any** page. **Thoughts** moved out too — it's the first top-level nav page (`/thoughts`) — as did foundational setup: **Workflows** is a Board sub-tab and **Context** is a top-level nav page.
-  - `src/components/dock/SideDock.tsx` — **The left dock**. A dock-level **header row** (56px, aligned with and tinted like the nav): the `+` start-work menu (`src/components/dock/NewWorkMenu.tsx`; destinations in `src/lib/start-work.ts`), then the **queue summary** (`src/components/queue/QueueSummary.tsx`: counts with at-risk in amber, a CSS hover/focus preview of every item + status dropping down, linking to each item and to `/queue`), then collapse. Below it the **tab row** (**Assistant** with the leader's presence dot and an unread badge · **Team** with the online count and an amber attention dot for a team size it can't meet) whose right side holds the active tab's actions (the chat's `SessionMenu`; team size + spawn). Both tab bodies are kept mounted (a draft survives a peek at the team); drag-to-resize (300–560px), a collapsed icon rail (chat, quick-create, team size/spawn, teammate avatars linking to their live view, queue count linking to `/queue`), and a floating corner panel below `lg`. It owns the chat stream (`useAssistantStream`), team data (`src/hooks/useTeamData.ts`), and the queue (`useQueue`) so badges stay live, plus the team-size/spawn dialogs so the rail can open them. `src/components/dock/SideDockProvider.tsx` + `src/hooks/useSideDock.ts` hold open/tab state (localStorage); `OpenAssistantTab` backs the `/assistant` redirect.
-  - `src/components/team/TeamPanel.tsx` — The **Team** tab: the **teammates** — never the leader, which is the agent behind the Assistant tab (filtered once in `useTeamData`, so the tab badge, list, and rail avatars all agree) — (they link to `/teammates/:id` and stay highlighted while it's in the center; pending spawns; offline). Rows/avatars/buttons are in `src/components/team/TeamParts.tsx`; shared types + `roleOf`/`viewPath` in `src/lib/team.ts`. The queue isn't here — it's the dock's summary strip + the Queue tab.
-  - `src/components/assistant/*` — the chat, split so it can live in the dock's Assistant tab: `AssistantChat` (the conversation body under a slim toolbar — presentational, so collapsing or switching tabs can't drop the SSE connection), `MessageBubble` (+ hover actions), `BubbleDialog` (fullscreen a bubble), `ThinkingBubble` → `ThoughtsPanel` (peek behind the `…`), `Composer` (never locks; quoted-reply chip), `QuotedMessage`, `SessionMenu` (history/new/resume/snapshot), `PersonaChips`, `src/hooks/useAssistantStream.ts` owns the SSE subscription + a 15s reconcile poll; `src/hooks/useMediaQuery.ts` picks dock-vs-floating via `useSyncExternalStore` (rendering both and hiding one would mount the chat twice).
-  - `src/pages/TasksPage.tsx` / `src/pages/SchedulePage.tsx` — Standalone WorkDefs: **Solitary** one-shots (Tasks) and **Scheduled** cron jobs (Schedule). Both list `/api/work-defs` filtered by derived `type` (Board tasks are excluded); each row shows the aggregate run cost (`tokenUsage.totalCostUsd`) when present and an **Archive** button. Both pages have an **Archived** drawer toggle (slide-out panel listing archived WorkDefs with Restore/Delete actions), following the same two-state lifecycle as Thoughts (`active⇄archived`). Archived WorkDefs are excluded from the scheduler (no cron fires). The Tasks page is fronted by `src/components/TasksTabs.tsx` (a `RouteTabs` segmented control — **Items** at `/tasks`, **Templates** at `/templates`); Items has a **New Task** button (blank Solitary form) and a **Task from Template** button that opens `src/components/TemplatePickerDialog.tsx` (a modal listing templates → `/work-defs/new?type=Solitary&template=<id>`). Schedule joins `/api/schedules` for each job's cron + last-run (cron lives on the Schedule parent, not the WorkDef — see docs/WORKDEF_UNIFICATION.md). `src/pages/NewWorkDefPage.tsx` is the shared create form (`/work-defs/new?type=…` — fixed by the query param; Scheduled adds cron presets + auto-creates a Schedule, Solitary an "enqueue now" toggle, Template posts to `/api/templates`; a Solitary create pre-fills from `?template=<id>`). Acceptance criteria use an add-as-you-go list (`src/components/ui/acceptance-criteria-editor.tsx`) scored against **RFC 2119**. `src/pages/WorkDefDetailPage.tsx` is the view/edit page for standalone work; board tasks use the same format on `src/pages/TaskDetailPage.tsx` (see below).
-  - `src/pages/TemplatesPage.tsx` / `src/pages/TemplateDetailPage.tsx` — **Task Templates** (the Templates tab at `/templates`, and the per-template edit page `/templates/:id`). A template is a reusable *mold* for a Solitary task — the same authored fields as a WorkDef (title/goal/acceptance criteria/additional context/directory/context) but with no parent, no runtime state, and no run thread: it's never executed, only molded from. TemplatesPage lists `/api/templates` with a **New Template** button (`/work-defs/new?type=Template`) and a per-row **New Task** (→ `/work-defs/new?type=Solitary&template=<id>`); TemplateDetailPage is the Details-only editor (`PUT /api/templates/:id`) plus a New Task shortcut. Both split the detail into two tabs below the title — **Details** (goal/criteria/context/directory) and **Thread** (the run thread — comments, newest first, with clickable attachments that open the diff/file viewer and an **Attach** button; uploads are ref-scoped so they work for Solitary/Scheduled too) — via the shared `src/components/ui/detail-tabs.tsx` (`useDetailTab` + `DetailTabBar`), which backs the selection on the `?tab=` query param so the Inbox can deep-link to `?tab=thread`. Details is the default.
-  - `src/pages/ThoughtsPage.tsx` — **Thoughts** (a top-level nav page at `/thoughts`, the first NavBar item; App's `ThoughtsRoute` bounds it to `<main>`'s height so the canvas fills the center): a lighter infinite canvas of markdown sticky notes — a personal workspace/outbox that feeds the assistant. Pan/zoom (trackpad two-finger swipe pans, pinch zooms at the cursor, mouse wheel zooms — classified in `src/lib/wheelGesture.ts`), drag-to-arrange (positions batch-persisted on drop via `/api/thoughts/positions`), **multi-select** (shift-click, or a select-mode `S` toggle for marquee drag) with **multi-note drag**, **keyboard shortcuts** (Esc/Delete/1–6/G/S/M/Cmd-zoom), a **minimap** (on by default; `M` toggles, remembered in `localStorage`) with a row of **group chips** beside it along the bottom (shown with the minimap; ordered most-notes-first by `groupsByNoteCount`, clicking one centers that group's plate at the current zoom via `centerViewOn` — both in `src/lib/thoughtGeometry.ts`), **uniform note cards** (all `NOTE_W×NOTE_H`, content clipped with a fade — `src/lib/thoughtGeometry.ts`) that open (double-click, the hover ⤢ icon, or Enter on a selection) into `src/components/thoughts/NoteDialog.tsx`, the large view/edit experience (Preview ⇄ Edit markdown, checklists, and the header's color/pin/group/copy-id/archive/delete; every close path saves), named **group plates** (movable; resizable from a visible 32px corner grip that starts from the drawn rect, carry members, tint via `groupColor`/`plateOpacity`), membership by **drag-and-drop** (drop onto a plate joins it, drop a member on open canvas leaves; the target is the plate under the pointer *or* the grabbed note's center, and it highlights and grows live around the note as a drop preview (`previewRect`); plates stop wrapping the notes being dragged so a member can leave — `dropTarget`/`membershipChanges` in `thoughtGeometry`, tested in `tests/thought-geometry.test.ts`) or the dialog's Group picker, **Tidy** grid arrange, auto-rotating new-note colors, and an archived drawer (restore/delete). A deliberately lighter port of the standalone "Thoughts" product — it drops that product's cosmetic surface (100+ backgrounds, skins, palette editor). Two-state lifecycle (active⇄archived); direct delete. **Replaces the old scratch-pad page.** Colors are a fixed 6-key palette (`src/lib/thoughtColors.ts`, static Tailwind classes).
-  - `src/pages/UsagePage.tsx` — **Usage** (`/usage`, the chart icon in the nav): range tiles (today / 7 / 30 days / past year / peak day), a GitHub-style **contribution grid** (53 Sunday-first weeks, quartile shades by tokens or cost; hover → a fixed-position card with the day's input/output/cache tokens, cost, runs, and split by kind; click → that day's runs), and a "where it went" cost split by kind. Grid layout, shade levels, and formatting are pure helpers in `src/lib/usage.ts` (tested in `tests/usage-grid.test.ts`).
-  - `src/pages/TeammatePage.tsx` — **Watch a teammate** (`/teammates/:id`, opened by clicking its sidebar row — the row stays highlighted while it's in the center): a header strip (status, current work item linked via `src/lib/work-item-link.ts`, directory) over `src/components/transcript/TranscriptView.tsx`, a CLI-ish render of its live Pi session (`❯` user blocks that collapse, `✻ Thinking` folds, `⏺` prose as markdown, `⏺ tool args` + `⎿` collapsible output, a `working…` cursor; sticks to the bottom unless you scroll up). `src/hooks/useTranscriptStream.ts` owns the SSE subscription — which *is* the watching (docs/TEAMMATE_CHAT.md §3). No backfill (starts at a "watching from" marker). Watching is read-only; **Pair** (header button) pauses the teammate and opens `src/components/transcript/PairComposer.tsx` (Enter = queue behind the current run, ⌘↵ = steer), and **Resume / Complete / Fail** release it (docs/TEAMMATE_CHAT.md §4).
-  - `src/components/TeamSizeDialog.tsx` — The **steady team size** dialog (opened from the sidebar): a number bound to `GET/PUT /api/teammate-pool`. Team size is *declared*, not clicked — you say how many teammates you want and the daemon keeps that many online. Shows online/starting counts, whether the value is the default (half of `maxTeammates`), a **Use default** action (`PUT { minTeammates: null }`), and a warning when no leader is connected. The same value is editable as **Min Teammates** on Config › General (blank = default).
-  - `src/components/SpawnDialog.tsx` — **Spawn one teammate** in a chosen host + working directory (a `spawn` leader directive with `cwd`). The escape hatch from the pool for directory affinity: pool teammates start in the leader's directory, this homes one where the work is. Successor to the old `/spawn` page's form.
-  - `src/pages/BoardPage.tsx` — Kanban board of story swimlanes. Task cards are **not** clickable as a whole; opening a task is an explicit action (the `details →` link opens the task page — there are no preview modals). A card shows a small chip for its active agent WorkItem (queued / working / at-risk). Headed by `src/components/board/BoardTabs.tsx`, a segmented control presenting Board / Backlog / Archive / Workflows as tabs of one surface; `/backlog`, `/archived`, and `/workflows` stay deep-linkable routes and render the same tabs. Built on `src/components/RouteTabs.tsx`, the shared route-driven segmented tab control. The NavBar's Board link highlights for all of them (and story/task detail).
-  - `src/pages/NewStoryPage.tsx` — Story creation page (`/stories/new`; replaces the old modal): workflow, directory, context, inline task list. On success lands on the new story's page.
-  - `src/pages/NewTaskPage.tsx` — Task creation page (`/story/:id/tasks/new`; replaces the old modal), linked from the board swimlane header and the story page. On success returns to where you came from.
-  - `src/pages/TaskDetailPage.tsx` — Board-task page (`/task/:storyId/:taskId`). A board task **is a WorkDef** (parent = its story), so this page mirrors `WorkDefDetailPage`'s format: two tabs below the title (**Details** / **Thread**, via `detail-tabs.tsx`; deep-linkable through `?tab=thread`). Details edits the WorkDef fields (title, goal, acceptance criteria, additional context, directory, context) via `PUT /api/work-defs/:taskId`; Thread is the run thread (comments + attachments, **newest first**). Layered on top are the board-specific concerns — the story breadcrumb, the workflow status + move buttons (`POST /api/tasks/:taskId/move`), and delete via `DELETE /api/tasks/:taskId` (which also drops the task from the story's list + frees the CONWIP token). Thread attachments stay clickable, opening the diff/file viewer with line-level review; the composer keeps an **Attach** button. Because editing goes through the WorkDef path, `store.updateWorkDefDetails` syncs the `tasks` cache (title/goal/context) so the board reflects edits without a reload.
-  - `src/pages/StoryDetailPage.tsx` — Story page (`/story/:id`). Home for story editing (title, description, requirements, paused, delete) plus a linked task list. Reached by clicking a story title on the board. Requirements are edited with `RequirementsEditor` as key/value capabilities.
-  - `src/components/board/RequirementsEditor.tsx` — Edits a story's requirements as key/value capability badges (add/remove), with name/value suggestions sourced from `/api/capabilities` (recently used capabilities). Mirrors the settings "Recent Capabilities" editor and the teammates capability badges.
-- **shared/** — Types, utilities, and constants shared across modules
+- **daemon/** — HTTP API server: [Hono](https://hono.dev/) on `Deno.serve()`, a SQLite runtime index over plain files, tmux supervision, and timers (heartbeat reaper, scheduler, autosave, readiness probe, spawn realization).
+- **cli/** — the `mpt` command: start/stop the daemon, `setup`, `doctor`, `lead`, `upgrade`, service install.
+- **ui/** — the web UI (React + Vite + shadcn/ui), built into `ui/dist/` and served by the daemon.
+- **shared/** — types, protocol contracts, and constants shared by the daemon, CLI, and (via generation) the Pi extension.
+- **harnesses/pi/** — the Pi extension: a Node/npm package with its own `tsconfig.json`, `package.json`, and tests. Its source is embedded in `mpt` and written out by `mpt setup`.
+- **desktop/** — optional tray/menu-bar apps (macOS SwiftUI, Windows PowerShell).
+- **scripts/** — build, packaging, release, and code generation.
+- **tests/** — the fast suite (`deno task test`) and `tests/e2e/` (`deno task test:e2e`).
+
+```
+            ┌──────────── mpt (one binary) ─────────────┐
+ browser ──▶│ Hono routes ─▶ Store ─▶ SQLite (state.db) │
+            │                  │    └▶ team dir files    │──▶ git (autosave)
+            │ timers: reaper · pool · scheduler · probe  │
+            │ spawner ─▶ tmux windows ───────────────────┼──▶ pi (leader, teammates)
+            └────────────────────────────────────────────┘        │
+                    ▲  HTTP: register · poll · claim · state ·    │
+                    └──── chat mirror · transcript · usage ───────┘
+```
+
+## Data model and storage
+
+The **team directory** (`.my-pizza-team/`) is the record; SQLite (`state.db`) is a
+runtime index rebuilt from it. Everything under the team dir except runtime files is
+committed by autosave.
+
+| Path | Contents | Source of truth |
+|---|---|---|
+| `config.json` | Team config (`TeamConfig`) | file |
+| `workflows/<name>/workflow.json` | `{ states: [{name, type}] }` | file |
+| `workflows/<name>/<state>.md` | Persona for an agent state | file |
+| `stories/<id>.json` | Story: title, description, workflow, directory, context, paused, dependsOn, `tasks: [{id, status}]` | file (indexed in SQLite) |
+| `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, contextRefs, `status: archived`) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
+| `tasks/<id>/comments.jsonl`, `attachments/` | The WorkDef's thread and files (append-only comments) | file |
+| `schedules/<id>.json` | Cron parent: cron, lastEnqueuedAt, `heldForReadiness?` | file |
+| `templates/<id>/template.md` | Task Template (WorkDef format, never enqueued) | file |
+| `archived/<id>.json`, `backlog/<id>.json` | Archived (with synopsis) / backlogged stories | file |
+| `context/<id>.md` | Context-library entry (title/description/tags frontmatter) | file |
+| `thoughts/<id>.md`, `groups.json` | Thoughts notes and groups | file |
+| `assistant/sessions/<id>.md` | Chat session transcripts | file (messages live in SQLite) |
+| `usage/YYYY-MM.jsonl` | Token-usage ledger, one line per run | file (cached in `token_usage`) |
+| `state.db` (+ `-wal`, `-shm`) | SQLite: index, WorkItems, members, directives, chat | runtime |
+| `daemon.pid` | The running daemon's PID | runtime |
+| `.gitignore` | Written by mpt to exclude the runtime files | file |
+
+**Runtime-only state** (SQLite or memory, never committed): the WorkItem queue,
+members and assignments (cleared on boot), leader directives, chat messages and
+receipts, transcripts (memory), pairing intent (memory), readiness (memory), spawn
+capability (memory). Stories and board tasks are flushed to disk on a timer via a
+`dirty` flag; comments and usage are appended immediately.
+
+**WorkItem lifecycle:**
+
+```
+READY ──claim──▶ IN_PROGRESS ──▶ COMPLETE | FAILED        (terminal)
+  │                  │  ▲
+  └─cancel─▶ CANCELED  reaper/boot ▼ │ heartbeat
+                     MORIBUND ──force-fail──▶ FAILED (+ optional fresh READY)
+```
+
+A board task's position changes cancel its active WorkItem; landing in an agent
+state enqueues a new one. When every task in a story reaches `done` the story is
+marked done; moving one back out reopens it.
 
 ## Module Map
 
 ### daemon/
-- `main.ts` — Entry point. Reads PORT/HOST/TEAM_DIR from env, validates bind safety, starts `Deno.serve()`.
-- `app.ts` — Creates the Hono application, wires Store to routes. Merges user config with defaults.
-- `server.ts` — Builds the Hono app with route context (store, config, helpers). Applies auth middleware when token is configured.
-- `workflow-engine.ts` — Workflow position logic for the state model (docs/WORK-MODEL.md): `activeStateNames()`, `isAgentState()`, `firstActiveState()`, `nextState()`, `boardColumns()`, `isValidPosition()`, `validateWorkflow()`. No transition matrix, no permission checks.
-- `cron.ts` — vendored 5-field cron parser (`parseCron`/`cronMatches`/`isCronDue`/`isValidCron`) for Scheduled WorkDefs.
-- `token-cost.ts` — **fallback** token-cost estimator (rough per-1M-token price table) used only when the harness doesn't report a cost. Harnesses that know the real, cache-aware cost (pi's `usage.cost.total`, the number its powerline footer shows) send `costUsd` and the daemon stores it verbatim.
-- `store.ts` — SQLite data layer using `jsr:@db/sqlite`. Manages schema, CRUD for stories/members/comments, workflow validation, JSON file sync, autosave timers, and heartbeat/snapshot/cron timers. Every unit of work is a **WorkDef** (`tasks/<id>/workdef.md`); a **Story** (`stories/<id>.json`) is a grouping that owns order + status via `tasks: [{id,status}]`, and a **Schedule** (`schedules/<id>.json`) is a cron parent (see docs/WORKDEF_UNIFICATION.md). The internal `tasks` table is a runtime cache of board WorkDefs (those parented to a story). Also owns the **WorkItem queue** — the unit of agent execution: admission enqueues a `READY` WorkItem when a task lands in an agent state; `getNextWorkItem()` matches by **directory affinity** (my-dir → no-dir → other-dir-if-no-online-agent-has-it); `claimWorkItem`/`setWorkItemState` drive the terminal-only lifecycle (COMPLETE advances the board task, FAILED leaves it stuck), and the heartbeat reaper moves in-flight items to `MORIBUND`. A single **`enqueueFor(workDefId)`** is the one WorkItem creator; the **cron scheduler** (`runScheduler`) fires each due Schedule's child WorkDefs through it. The scheduler is **readiness-gated**: a due child whose target host is not ready (see `setHostReadiness`/`canScheduleForDirectory` and the "Scheduler readiness gating" design note) is *held* instead of enqueued, flagging the Schedule `heldForReadiness` so it re-fires exactly once when the host recovers (no per-occurrence backlog). Self-contained concerns are split into `store/`:
-  - `store/workdefs.ts` — on-disk IO for **WorkDefs** (authored markdown+frontmatter under `tasks/<id>/`, with per-def `comments.jsonl`); frontmatter carries only structural metadata (title, `parent`, directory, contextRefs, `status`). Status is `active` (default, omitted from frontmatter) or `archived` (persisted as `status: archived`).
-  - `store/schedules.ts` — flat cron **Schedule** files (`schedules/<id>.json`: cron + lastEnqueuedAt + optional `heldForReadiness` marker set when a due occurrence was held because its target host wasn't ready).
-  - `store/templates.ts` — on-disk IO for **Task Templates** (`templates/<id>/template.md`): reusable molds for Solitary tasks. A Template carries the same authored fields as a WorkDef but has no parent and no runtime state — it never enqueues a WorkItem and never appears in the `/api/work-defs` listing. It reuses the WorkDef markdown serializer (`serializeWorkDef`/`parseWorkDef`), and files are the source of truth (no SQLite index, like Schedules/Thoughts).
-  - `store/context.ts` — context library (reusable prompt/context entries as markdown files under `context/`, with `title`/`description`/`tags` frontmatter). Entries can be **attached to stories/tasks** (`story.context` / `task.context`); `store.resolveTaskContext()` merges + dedupes them for prompt injection.
-  - The chat is answered by the **leader** (`getLeader`/`isLeader` on the Store; DESIGN.md "One Agent to Talk To"). There is no designation to make: one leader, so `isLeader` is just an identity check gating who may drain the inbox — a teammate that polls gets nothing, since draining it would lose the message. The sticky chat-agent designation went with multi-host in P1c-4.
-  - `store/transcripts.ts` — **live teammate transcripts** (`TeammateTranscripts`, `store.transcripts`): purely in-memory per-member ring buffers of keyed-upsert entries, plus viewer tracking — a member is *watched* while it has an SSE viewer or for `WATCH_GRACE_MS` (30s) after the last one leaves; each watching period opens with a `watch` marker. Records only while watched. docs/TEAMMATE_CHAT.md §3.
-  - `store/usage.ts` — **the token-usage ledger** and its rollups. **Source of truth: `usage/YYYY-MM.jsonl`** in the team dir (one JSON line per run, appended by `recordUsage`; committed by git-sync); the `token_usage` table is a cache rebuilt from the files at boot by `syncUsageLedger` — whose first run (no `usage/` dir) migrates the old DB rows and `task.json` `tokenUsage` mirrors (incl. archived stories), deduplicated. `migrateUsageColumns` also rebuilds early tables that declared `task_id REFERENCES tasks(id)` (which rejected every standalone/archived/chat row). The ledger: one row per agent run — input/output/cache-read/cache-write tokens, the harness cost, model, `recorded_at`, **kind** (`work` | `pairing` | `chat` | `other`), member, and a **title snapshot** — migrated onto older DBs by `migrateUsageColumns`. **Rows are never deleted** (removing a story's live data used to wipe its usage, so archived work vanished from history). `dailyUsage` buckets by the client's local day (`tzOffset`), `runsOnDay` lists a day. Store methods: `addTokenUsage(…, extra)` / `addTokenUsageForRef` (snapshots the WorkDef title), `recordRunUsage`, `getDailyUsage`, `getUsageRunsOnDay`.
-  - `store/pairing.ts` — **web pairing intent** (`TeammatePairing`, `store.pairing`): per-teammate paired flag, an outbox of `{ text, mode }` messages, and a pending release (`resume|complete|fail`). The agent's poll **drains** (exactly-once). In-memory; a release is recorded even for a pairing the daemon forgot (restart). docs/TEAMMATE_CHAT.md §4.
-  - `store/assistant-chat.ts` — the **assistant conversation**: sessions, messages, delivery receipts, the agent-facing inbox, the ephemeral reasoning ("thoughts") ring buffer, the SSE event fan-out, and the v1→v2 migration. The Store delegates every assistant method here. At most one session is `active`; ending one snapshots it.
-  - `store/assistant-snapshots.ts` — markdown transcripts of chat sessions (`assistant/sessions/<id>.md`: frontmatter + readable dialogue). Written when a session ends, refreshed every ~5 min while active and on shutdown, so a crash loses minutes rather than a conversation. Reasoning is deliberately excluded.
-  - `store/thoughts.ts` — on-disk IO for **Thoughts** (markdown sticky notes): `thoughts/<id>.md` (frontmatter of structural + canvas metadata over the markdown body; the filename is the id) + `groups.json` (`[{id, title, x, y, w, h, groupColor, plateOpacity}]` — a group is a spatial container rectangle; membership still lives on each note's `groupId`). Files are the source of truth, read/written directly like Schedules — no SQLite index. Store methods (`createThought`/`updateThought`/`updateThoughtPositions`/`archive`/`restore`/`deleteThought` + group create/rename/ungroup) mint ids, auto-place, and cascade group membership. Two-state lifecycle (active⇄archived), pinning as an orthogonal flag, no auto-sweeps.
-  - `store/git-sync.ts` — optional git checkpointing of the team directory.
-- `auth.ts` — Optional API token authentication. Bearer tokens, Basic auth (for web UI), and query param fallback. Enforces bind safety (refuses 0.0.0.0 without token).
-- `routes/agents.ts` — Agent protocol (WorkItem-centric): register (with a working `directory`), heartbeat, next-work (returns `{ workItem }`), claim (lease + daemon-assembled prompt), the single **state-setter** (`work-items/:id/state` → COMPLETE|FAILED — the daemon posts **no** comment on a state change; the agent composes its own completion/failure comment), work-item comments/token-usage/attachments (resolved to the backing ref), and leader directives. Token-usage prefers the harness-reported `costUsd` (accurate + cache-aware) and estimates only as a fallback; it's recorded on the ref, so board **and** standalone runs are tracked. No `done`/`release`/`return` — the daemon offers primitives; "giving up" is a comment + FAILED composed by the agent.
-- `routes/transcripts.ts` — Teammate transcript surface: the UI's SSE stream (subscribing registers a viewer; `hello` carries the buffer), the agent's watch poll and batched POST (response carries `watched`), and a JSON snapshot.
-- `routes/usage.ts` — `POST /api/agents/:id/usage` (the harness reports **every** run: tokens incl. cache, cost, kind, optional `workItemId` → recorded on its ref) and the dashboard reads `GET /api/usage/daily` (per local day + today/7/30/range totals + peak) and `GET /api/usage/day`.
-- `routes/pairing.ts` — Pair / message / release a teammate (UI), the pairing state (UI), and the draining agent poll. Teammates only (the leader is talked to in the chat dock).
-- `routes/work.ts` — WorkItem queue: list (filter/paginate — powers Inbox + sidebar), cancel (READY), force-fail (MORIBUND, optional re-enqueue), read/unread, re-enqueue by ref.
-- `routes/shared.ts` — Health, status, control (pause/resume), config (`store.saveConfig()` is the single config writer, so a field the route doesn't name — e.g. `apiToken` — is never dropped), the **teammate pool** (`GET/PUT /api/teammate-pool`), readiness, and workflows.
-- `routes/work-defs.ts` — WorkDef CRUD + enqueue ("save without enqueueing" = `enqueue:false`) + archive/restore lifecycle + the ref-scoped surface for **any** WorkDef: comments, attachments (upload/list/serve/delete), and token-usage. The listing endpoint (`GET /api/work-defs`) defaults to active-only; pass `?status=archived` for archived or `?status=all` for everything. This is the canonical UI surface for board tasks too (a board task is a WorkDef).
-- `routes/templates.ts` — Task Template CRUD (`/api/templates`) over `store/templates.ts`. Templates are stored separately from work and never enqueue; the UI uses them only to pre-fill a new Solitary task.
-- `prompt.ts` — `buildTaskPrompt()`: assembles the canonical task prompt (**state persona** → Story → working-directory instruction (cd + read that repo's AGENTS.md) → Task → reference context → prior-task context → lead comments → completion guidance). The state persona is the markdown at `workflows/<wf>/<state>.md` — role framing for whoever works that state. There are no transition instructions: workers never move tasks (docs/WORK-MODEL.md). **Reference context** is the set of context-library entries attached to the story and/or task (resolved + deduped by `store.resolveTaskContext`), inlined verbatim so every harness gets the same material. Session-specific framing is intentionally excluded — that belongs to a stateful harness, not the shared prompt. Also exports `normalizeInstructionMarkdown()`, which demotes authored headings (fence-aware) so they nest under the prompt's own `##` sections and can't mangle its structure.
-- `workflow-lint.ts` — `validateInstructionMarkdown()`: lints authored state-instruction markdown. Unbalanced code fences are **errors** (they'd swallow the rest of the prompt) and block the save; shallow headings and stray `---` rules are **warnings** (the prompt builder normalizes headings anyway).
-- `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move (lead), delete. Comments, attachments, and token usage are all ref-scoped on the WorkDef (`/api/work-defs/:id/*`); the board-only `/api/tasks/:id/*` duplicates are gone — the last of them, attachments and token-usage, went with mpt-mcp-server in P1a-5. See docs/WORKDEF_UNIFICATION.md “Route surface.”
-- `routes/stories.ts` — Story CRUD, archive, backlog.
-- `routes/shared.ts` — Health, status, config, control (pause/resume), readiness, workflow management.
-- `routes/assistant.ts` — Assistant **chat v2** (docs/history/ASSISTANT_CHAT_V2.md): conversation reads/writes, the SSE stream, the agent-facing mirror surface (inbox/ack, bubbles, thoughts, session report), session lifecycle (list/new/resume/snapshot), and the **persona**. There are no response turns: posting a message always succeeds and the harness decides interleaving (`deliverAs: "steer"`). The vended `systemPrompt` is `ASSISTANT_CHAT_FRAMING` (~10 lines: be brief, blank lines separate bubbles, the user may interrupt) followed by the persona body — or `DEFAULT_ASSISTANT_PERSONA`. Swapping the persona ends + snapshots the session and starts a new one.
-- `routes/context.ts` — Context library CRUD (`/api/context`) over `store/context.ts`.
-- `routes/thoughts.ts` — Thoughts board (`/api/thoughts`, `/api/thought-groups`): note CRUD, batch positions, archive/restore, direct delete, and group create/rename/ungroup. Thin shell over the store; trimmed from the standalone product (no board-settings/backgrounds surface).
+
+- `main.ts` — Entry point for `deno task dev`/`start`. Reads PORT/HOST/TEAM_DIR, validates bind safety, writes the PID file, serves. It does **not** start the spawner or the readiness loop — only `cli/start-daemon.ts` does (see TODO.md).
+- `app.ts` — `createApp(teamDir)`: merges `config.json` over `DEFAULT_CONFIG`, constructs the Store, loads from disk, starts timers, builds the app. Without a team dir, a health-only app.
+- `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
+- `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
+- `static.ts` — Serves `ui/dist/` (or `UI_DIST`) with SPA fallback to `index.html`.
+- `lifecycle.ts` — PID file, SIGTERM/SIGINT handling, flush-and-close on exit.
+- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, CONWIP admission and advance (`setTaskPosition`, `advanceTask`), the **WorkItem queue** (`enqueueFor` — the single creator; `getNextWorkItem` — directory affinity; `claimWorkItem`; `setWorkItemState`; cancel/force-fail/re-enqueue), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness and the cron scheduler (`runScheduler`, readiness-gated), archive/backlog, attachments, context resolution (`resolveTaskContext`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s scheduler tick. Self-contained concerns live in `store/`:
+  - `store/workdefs.ts` — WorkDef markdown IO (`serializeWorkDef`/`parseWorkDef`) and per-def comments.
+  - `store/schedules.ts` — Schedule JSON files.
+  - `store/templates.ts` — Template IO (reuses the WorkDef serializer; files only, no index).
+  - `store/context.ts` — Context-library markdown entries.
+  - `store/thoughts.ts` — Thought notes and `groups.json` (files only). A group is a spatial rectangle; membership lives on each note's `groupId`.
+  - `store/assistant-chat.ts` — The chat: sessions, messages, receipts, the agent inbox, the ephemeral reasoning buffer, and SSE fan-out. At most one session is `active`.
+  - `store/assistant-snapshots.ts` — Session markdown transcripts (reasoning excluded).
+  - `store/transcripts.ts` — Live teammate transcripts: in-memory per-member ring buffers (500 entries) of keyed upserts, viewer tracking with a 30s grace, `watch` markers.
+  - `store/pairing.ts` — Web pairing intent: paired flag, message outbox, pending release; drained exactly-once by the agent's poll.
+  - `store/usage.ts` — The usage ledger: append to `usage/YYYY-MM.jsonl`, rebuild the `token_usage` cache on boot (`syncUsageLedger`), `dailyUsage` / `runsOnDay` rollups in the client's timezone.
+  - `store/git-sync.ts` — Autosave: `git add/commit -- <teamDir>` (pathspec-limited, so the user's own staged work is never included), push if a remote exists, and `ensureTeamGitignore`. All failures non-fatal.
+- `workflow-engine.ts` — Position logic: `activeStateNames`, `isAgentState`, `firstActiveState`, `nextState`, `boardColumns`, `isValidPosition`, `validateWorkflow`.
+- `workflow-lint.ts` — `validateInstructionMarkdown`: unbalanced fences are errors; shallow headings and `---` are warnings.
+- `prompt.ts` — `buildTaskPrompt` (see DESIGN.md "The Daemon Owns the Prompt") and `normalizeInstructionMarkdown` (fence-aware heading demotion).
+- `cron.ts` — Vendored 5-field cron parser (`parseCron`, `cronMatches`, `isCronDue`, `isValidCron`).
+- `token-cost.ts` — Fallback cost estimator, used only when a harness reports no `costUsd`.
+- `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`), and `tmuxUnavailableReason`.
+- `spawner.ts` — `probeSpawnCapability` (once at startup) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the configured harness templates; an unrealizable directive is marked `failed` with its reason. Other actions are left for the leader.
+- `readiness.ts` — `runProbe` (timeout-bounded `sh -c`, which also survives a hung child on Linux) and `startReadinessLoop` (every 30s; nothing configured → never reports → ready).
+- `routes/types.ts` — `RouteContext`.
+- `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows), the teammate pool, readiness, and workflows.
+- `routes/stories.ts` — Story CRUD, archive, backlog/restore.
+- `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move, delete (plus a legacy `PUT`).
+- `routes/work-defs.ts` — WorkDef CRUD, enqueue, archive/restore, and the ref-scoped surface for **every** WorkDef: comments, attachments, token usage.
+- `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
+- `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
+- `routes/templates.ts` — Template CRUD.
+- `routes/agents.ts` — The agent protocol: register (version handshake), heartbeat (`reregister`/`dismissed` signals), next-work, claim, the single state-setter, work-item comments/attachments/token-usage (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
+- `routes/assistant.ts` — The chat: conversation reads/writes, SSE stream, the agent mirror surface (inbox/ack, bubbles, thoughts, session report), sessions (list/new/resume/snapshot), persona.
+- `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
+- `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Teammates only.
+- `routes/usage.ts` — Usage reports from any run, and the dashboard's daily/day rollups.
+- `routes/context.ts`, `routes/thoughts.ts` — Thin CRUD shells over their store modules.
 
 ### cli/
-- `main.ts` — CLI entry point (start/stop/status/install/uninstall/rotate-token/upgrade/doctor/setup). Exposes `main()` for the compiled binary and runs directly under `deno run`. `upgrade` self-updates the compiled binary from the latest GitHub release (`timzen/my-pizza-team`): it maps the platform to the release asset (`mpt-<os>-<arch>`), verifies against `checksums.sha256`, atomically replaces `Deno.execPath()` in place, and — when a service is installed — restarts it via the service manager (warning if the service points at a different binary). The version-check API call sends `Authorization: Bearer` from `MPT_GITHUB_TOKEN`/`GITHUB_TOKEN`/`GH_TOKEN` when present (the unauthenticated 60/hr-per-IP limit is easily exhausted on a shared-egress cloud desktop → HTTP 403; a token raises it to 5000/hr and `githubErrorMessage()` turns a rate-limit 403 into an actionable message). The token is only sent to `api.github.com`, never to the asset download host. If the API call fails for any reason (most often a rate-limit 403), `resolveLatestRelease()` falls back to `resolveLatestViaRedirect()`: `github.com/<repo>/releases/latest` 302-redirects to the tagged release page (that host is not API rate limited), `versionFromReleaseUrl()` parses the tag out of the final URL, and asset URLs are constructed as `/releases/download/<tag>/<name>` — so upgrades keep working with no token and no API quota. Refuses when run from source (`deno run`), where the executable is `deno` itself.
-- `setup.ts` — `mpt setup`'s planner and settings mutation, split so the rules are testable without a Pi install. `planSetup()` is pure and decides what to change; the conflict rules exist because Pi identifies a local package by resolved path, so two registrations load the extension **twice** (duplicate tools and commands, two directive pollers, two heartbeats per agent). The one judgement call: **a development checkout wins** — if `…/harnesses/pi` is registered, someone is editing it, and silently replacing it with a managed copy would make their edits stop taking effect with no indication why, so setup removes its *own* registration instead and reports that it did. Settings are written atomically via temp-file-and-rename, preserving every field mpt doesn't own (a user's `defaultModel` must survive installing an extension). A `SetupManifest` records what changed so `--uninstall` undoes exactly that — without it, uninstall would have to guess which registrations were ours.
-- `lead.ts` logic lives in `main.ts`'s `cmdLead` — `mpt lead`: renders the harness's `leader` template from team config, opens a tmux window in the project directory, and attaches (or `select-window` when already inside tmux, since attaching would nest). Idempotent: an existing `leader` window is attached to rather than duplicated, because two leaders would both answer the chat. First consumer of `daemon/tmux.ts`, deliberately in the easy case — a foreground command with the user's own environment.
-- `doctor.ts` — `mpt doctor`: gathers facts (Pi/tmux presence, Pi's package list and trust file, the managed extension, daemon and leader reachability) and evaluates them into a checklist where every non-ok entry carries its fix — §1.1's complaint is that a missing piece surfaces as a *symptom* rather than an error. `evaluate()` is pure, so every branch is testable without Pi or a daemon. Read-only, which also makes it the dry-run for `mpt setup`. Two calibrations are deliberate: an untested Pi version **warns** rather than failing (there is no extension-API version to negotiate), and only genuine breakage sets the exit code.
-- `pi-config.ts` — Reads Pi's own `settings.json`/`trust.json`. Resolves local package entries to absolute paths *before* comparing them, because `pi install <path>` records a local package **relative to the settings file** (so the managed directory appears as `"../../.my-pizza-team/pi-extension"`); string matching would miss a conflict. Classifies our own registrations as `managed` / `dev` (a `…/harnesses/pi` checkout) / `legacy` (a pre-merge standalone `pi-pizza-team` checkout — told apart by path, since both manifests carry the same name) / `missing`.
-- `extension.ts` — Locates the extension embedded in the binary (`MPT_PI_EXTENSION` override → checkout → alongside the binary) and writes it to the managed directory. Staged into a sibling directory then swapped, so an interrupted write can't leave something half-populated for Pi to load; *replaces* rather than merges, so a module a newer version deleted doesn't survive. Only the manifest and `src/` are embedded — `node_modules/` is 455M of type-checking devDependencies and nothing there is needed at runtime.
-- `service.ts` — Platform service installer/uninstaller. Generates macOS launchd plists or Linux systemd unit files for auto-start on login (embedding the binary's absolute path at install time). `detectInstalledService()` locates an installed plist/unit, parses the launched binary path, and exposes a `restart()` (launchctl kickstart / systemctl --user restart) used by `mpt upgrade`.
+
+- `main.ts` — Command dispatch and most commands: `start` (foreground, or `--daemon` re-launches itself detached with `start --foreground-internal`; its output is not captured — see TODO.md), `stop`, `status`, `rotate-token`, `install`/`uninstall` (service), `upgrade`, `doctor`, `setup`, `lead`, and the hidden `write-extension-internal`. `cmdLead` renders the harness's `leader` template, opens the fixed `leader` window in the project directory, and attaches (or `select-window` when already inside tmux); an existing window is attached rather than duplicated. `upgrade` maps the platform to a release asset (`mpt-<os>-<arch>`), verifies `checksums.sha256`, atomically replaces the executable, runs the new binary's `write-extension-internal` to refresh the managed extension, and restarts an installed service. The GitHub API call sends `MPT_GITHUB_TOKEN`/`GITHUB_TOKEN`/`GH_TOKEN` when set (to `api.github.com` only); on any API failure (typically a rate-limit 403) it falls back to the unauthenticated `github.com/<repo>/releases/latest` redirect and constructs `/releases/download/<tag>/<asset>` URLs. Refuses when run from source.
+- `start-daemon.ts` — `startDaemonInProcess`: what `mpt start` runs. Creates the app, writes the PID file, serves, then probes spawn capability (and, if tmux is reachable, runs `realizePending` every 2s) and starts the readiness loop.
+- `setup.ts` — `planSetup()` (pure: decides what to change, including conflict resolution between managed, dev-checkout, and legacy registrations), settings mutation (atomic, preserving unowned fields), and the `SetupManifest` that `--uninstall` replays.
+- `doctor.ts` — Gathers facts and `evaluate()`s them (pure) into a checklist: Pi (vs `TESTED_PI_VERSION`), tmux, Pi settings, extension registration and version, permission system, team dir, project trust, daemon, leader, spawning path, service, GitHub token. Only failures set the exit code.
+- `pi-config.ts` — Reads Pi's `settings.json`/`trust.json` (under `PI_CODING_AGENT_DIR`, default `~/.pi/agent`); resolves local package entries to absolute paths before comparing; classifies registrations as `managed` / `dev` / `legacy` / `missing`.
+- `extension.ts` — Locates the embedded extension (`MPT_PI_EXTENSION` override → checkout → alongside the binary) and writes it to `~/.my-pizza-team/pi-extension/` (`MPT_HOME` overrides `~`), staged and swapped so an interrupted write can't leave a half-populated directory. Only `package.json` and `src/` are embedded.
+- `service.ts` — launchd plist / systemd user unit generation, detection of an installed service and the binary it launches, and `restart()`.
 
 ### shared/
-- `types.ts` — Shared TypeScript interfaces (TeamConfig, Story, Task, Member, `WorkItem`/`WorkItemState`/`WorkItemRef`, `WorkDef`/`WorkDefType`, etc.) and utilities (slugify, generateTeammateName, `normalizeDirectory`). Matching is directory-affinity only — there is no capability/requirements model.
-- `protocol.ts` — API request/response type contracts for all HTTP endpoints.
-- `frontmatter.ts` — Parsing/serialization of YAML-like frontmatter (`title`, `description`, `tags`) for context entries.
+
+- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, `normalizeDirectory`, `slugify`, `generateTeammateName`.
+- `protocol.ts` — Request/response contracts for the HTTP API, and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION`.
+- `frontmatter.ts` — The small YAML-like frontmatter parser/serializer used by markdown files.
+
+### ui/src/
+
+**Shell.** `App.tsx` is the router and the two-column shell (`h-dvh`, so each region
+scrolls itself): the `SideDock` on the left and the center (NavBar + scrollable
+`<main>`), with aligned `h-14` headers. The center is a Tailwind `@container`, so the
+nav adapts to the space the dock leaves. `/assistant` redirects to `/` and opens the
+dock's Assistant tab.
+
+- `components/NavBar.tsx` — Center-column nav: **Thoughts · Board · Tasks · Schedule · Context**, then pause/resume, Usage, Help, Config, and the theme toggle.
+- `components/RouteTabs.tsx` — Route-driven segmented tabs, used by RootPage (Queue/Inbox), `board/BoardTabs.tsx` (Board/Backlog/Archive/Workflows), `TasksTabs.tsx` (Items/Templates), and ConfigPage (General/Teammates/Theme).
+- `components/dock/SideDock.tsx` — The dock: header row (`NewWorkMenu` `+` → `lib/start-work.ts` destinations; `queue/QueueSummary.tsx` counts + hover preview; collapse), tab row (Assistant with presence dot + unread badge; Team with online count + amber dot; the active tab's actions), both bodies kept mounted, drag-resize (300–560px), collapsed icon rail, floating panel below `lg`. Owns `useAssistantStream`, `useTeamData`, and `useQueue` so badges stay live. `SideDockProvider.tsx` + `hooks/useSideDock.ts` hold open/tab state in `localStorage`.
+- `components/assistant/*` — `AssistantChat` (presentational, so collapsing can't drop the SSE connection), `MessageBubble`, `BubbleDialog`, `ThinkingBubble` → `ThoughtsPanel`, `Composer` (never locks; quoted replies), `QuotedMessage`, `SessionMenu`, `PersonaChips`. `hooks/useAssistantStream.ts` owns the SSE subscription plus a 15s reconcile poll; `hooks/useMediaQuery.ts` picks docked vs floating.
+- `components/team/TeamPanel.tsx`, `TeamParts.tsx` — The Team tab: teammate rows (never the leader) linking to `/teammates/:id`, pending and failed spawns, the version-skew banner with restart, offline members. `lib/team.ts` holds types, `roleOf`, `viewPath`, and `harnessSkew`.
+- `components/TeamSizeDialog.tsx` — Declared team size over `/api/teammate-pool` (online/starting counts, default indicator, **Use default**, no-leader warning).
+- `components/SpawnDialog.tsx` — Spawn one teammate in a chosen directory (a `spawn` directive with `cwd`).
+
+**Pages.**
+
+- `pages/RootPage.tsx` — Home tabs: **Queue** (`/queue`, `QueuePage.tsx`: At risk → Waiting → Working, with stall banner; `hooks/useQueue.ts`, `lib/queue.ts`) and **Inbox** (`/`, `InboxPage.tsx`: paginated terminal WorkItems, unread by default, each deep-linked to its WorkDef's Thread tab — board tasks via `/task/:storyId/:id`, standalone via `/work-defs/:id`; `lib/work-item-link.ts`).
+- `pages/BoardPage.tsx` — Story swimlanes (`board/StorySwimlane.tsx`) of task cards (`board/TaskCard.tsx`: title, assignee, cost, WorkItem chip, `details →`). Drag-to-move posts `/api/tasks/:id/move`; the drag MIME type (`board/task-drag.ts`) carries the story id so lanes only accept their own tasks. Todo/done bucket columns can be hidden per story (`localStorage`).
+- `pages/BacklogPage.tsx`, `pages/ArchivedPage.tsx` — Board sub-tabs.
+- `pages/WorkflowsPage.tsx`, `pages/WorkflowDetailPage.tsx` — List/create workflows and edit states (saved through `PUT /api/config`), set the default, and edit personas (`workflow/PersonaEditor.tsx`, via the instructions API with lint warnings).
+- `pages/NewStoryPage.tsx`, `pages/StoryDetailPage.tsx`, `pages/NewTaskPage.tsx` — Story creation (workflow, directory, context, inline tasks), story editing (title, description, directory, context, paused, task order, archive, delete), and task creation in a story.
+- `pages/TaskDetailPage.tsx` — A board task (a WorkDef with a story parent): **Details** / **Thread** tabs (`ui/detail-tabs.tsx`, `?tab=`), edits via `PUT /api/work-defs/:id`, plus breadcrumb, workflow status + move, and delete (`DELETE /api/tasks/:id`).
+- `pages/TasksPage.tsx`, `pages/SchedulePage.tsx` — Solitary and Scheduled WorkDefs (filtered by derived type), with Run / Run now, per-row cost, Archive, and an Archived drawer. Schedule joins `/api/schedules` for cron and last run.
+- `pages/TemplatesPage.tsx`, `pages/TemplateDetailPage.tsx`, `components/TemplatePickerDialog.tsx` — Templates list/edit and the "task from template" picker.
+- `pages/NewWorkDefPage.tsx` — Shared create form (`/work-defs/new?type=Solitary|Scheduled|Template`, `&template=<id>` to pre-fill): cron presets and auto-created Schedule for Scheduled, "enqueue now" for Solitary. Acceptance criteria use `ui/acceptance-criteria-editor.tsx` (RFC 2119 scoring).
+- `pages/WorkDefDetailPage.tsx` — Standalone WorkDef view/edit with Details/Thread tabs and Run now.
+- `pages/ContextPage.tsx` — The context library (`board/ContextSelector.tsx` attaches entries elsewhere).
+- `pages/ThoughtsPage.tsx` — The Thoughts canvas: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer. Geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`, the editor in `thoughts/NoteDialog.tsx`.
+- `pages/UsagePage.tsx` — Tiles, a 53-week contribution grid, and the cost split by kind; pure helpers in `lib/usage.ts`.
+- `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
+- `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, autosave), **Teammates** (name nouns), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
+- `pages/HelpPage.tsx` — Renders `GUIDE.md`, copied to `src/content/guide.md` by the `prebuild` script.
+
+**Shared UI.** `viewer/FileViewer.tsx` (attachment lightbox) and `viewer/DiffViewer.tsx`
+(line-comment review); `components/ui/*` (shadcn primitives plus markdown, title,
+directory, and back-button fields); `hooks/useApi.ts` (fetch + optional polling);
+`lib/assistant-types.ts` (hand-mirrored wire types).
+
+### harnesses/pi/
+
+A **pure HTTP client** of the daemon with no server-side code; it owns no state.
+Roles are chosen by flag: `--ppt-lead` (leader) or `--ppt-worker` (teammate), with
+`--ppt-name`, `--ppt-daemon`, `--ppt-tmux-session`, `--ppt-tmux-window`.
+
+```
+src/
+├── index.ts        — Role detection, flag registration, teammate commands, wiring
+├── leader.ts       — Leader: registration, directive polling (fallback spawns, reset-session → /new), /ppt-* commands, the chat mirror
+├── teammate.ts     — TeammateLoop: poll → claim → run the prompt → comment → set state; pairing and fresh sessions
+├── chat.ts         — ChatMirror: daemon inbox → Pi (steer), Pi prose → bubbles, terminal input → chat
+├── tools.ts        — LLM tools (role-specific): fail, stories/tasks/schedules, thoughts, workflows, context, team status, attachments
+├── permissions.ts  — Autonomous permission handling via @gotgenes/pi-permission-system (optional; warns when absent)
+├── runtime/        — Harness-agnostic protocol code: no external imports, no relative value imports,
+│   │                 no mention of Pi (tests/runtime-purity.test.ts)
+│   ├── client.ts     — DaemonClient: every HTTP call
+│   ├── transcript.ts — TranscriptMirror: streams the session while watched
+│   ├── bubbles.ts    — Splits prose into chat bubbles (fence/list aware)
+│   ├── pairing.ts    — WebPairing: pause/message/release from the browser
+│   └── usage.ts      — Summarises a run's token usage
+└── shared/types.ts — GENERATED from shared/types.ts by `deno task sync-shared`
+```
+
+The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs/`.
+
+### desktop/, scripts/, CI
+
+- `desktop/macos/` — SwiftUI menu-bar app (`Sources/App.swift`, `Sources/DaemonManager.swift`): launches the bundled `mpt`, polls `/health` (including `tmuxSession` and `leaderPresent`), start/stop/restart, open UI in a chosen browser, team-dir picker, reveal in Finder, open in a chosen terminal, and **Launch Leader** via an editable command template (`{session}`/`{dir}`/`{port}`/`{url}`). `Package.swift`; the bundle's version is injected from `deno.json` by `scripts/package-macos-menubar.sh`. `Resources/mpt.entitlements` grants `allow-jit` and `allow-unsigned-executable-memory` (V8) and `disable-library-validation` — without the first two a hardened-runtime build crashes with "Failed to reserve virtual memory for CodeRange".
+- `desktop/windows/` — `tray.ps1` system-tray app and `My Pizza Team.bat` launcher (see its README).
+- `scripts/build.sh` (cross-compile all platforms into `dist/`), `package-macos-menubar.sh`, `package-windows.sh`, `generate-icns.swift`, `publish.sh` (bump version, sync generated copies, tag — the tag triggers the release workflow), `sync-version.ts`, `sync-shared.ts`, `ci-annotate.py` (failed tests → GitHub annotations).
+- `.github/workflows/ci.yml` runs every gate: daemon check + fast tests + generated-files check, e2e (with real tmux), the extension's typecheck + tests, and the UI's `tsc -b` + lint. `release.yml` builds and publishes on tags.
 
 ### tests/
-- `health.test.ts` — Integration test for the `/health` endpoint using Hono's `app.request()` test helper.
-- `server.test.ts` — API route tests (stories, tasks, claims, transitions, comments, team, pause/resume).
-- `store.test.ts` — Unit tests for Store CRUD operations, workflow transitions, comment persistence, and disk sync.
 
-## Data Flow
-
-```
-Client → Deno.serve() → Hono router → Route handler → JSON response
-```
-
-## Key Design Decisions
-
-- **Deno runtime** — Chosen for built-in TypeScript, secure-by-default permissions, and standard library.
-- **Hono framework** — Lightweight, fast, Web Standards-based. Uses `app.request()` for testing without starting a real server.
-- **JSR imports** — Using `jsr:` specifiers via the import map in `deno.json` for dependency management.
-- **No build step** — Deno runs TypeScript directly.
-- **jsr:@db/sqlite** — Native FFI SQLite binding for Deno. API mirrors better-sqlite3 (synchronous, prepared statements). WAL mode for concurrent reads.
-- **JSON files as source of truth** — Story/task definitions live on disk as JSON. SQLite is the fast runtime index, synced via the `dirty` flag and periodic flush.
-- **Story-owned order + status** — A task's `id` (stable key), `title` (name), and position are separate concerns. The story owns order *and* workflow position in one list: `tasks: [{id, status}]` in `stories/<id>.json`. A board task is a WorkDef whose `parent` is the story; its directory is `tasks/<id>/`, named by id only, so the folder never encodes order and never drifts when the title changes. A reorder or advance rewrites one file (great for git), needs no directory renames, and `loadFromDisk` reconciles the list against the WorkDefs actually present so hand-edits are tolerated. See DESIGN.md / WORKDEF_UNIFICATION.md.
-- **Comments append to JSONL** — Never lost; append-only file per task.
-- **One agent to talk to** — There is no dedicated assistant process: the **leader** answers the chat. It already runs to realize tmux spawns and report readiness, nobody types in its session (so its Pi session contains only the chat, keeping snapshots/resume meaningful), and the mirror is role-agnostic. This deleted the assistant role, its reserved singleton name, the `pi-assistant` template, the spawn button, and `queue_request` (which would now be the chat agent messaging itself). There is one leader, so there is nothing to designate: `GET /api/assistant/inbox?agentId=` simply returns the queue to the leader and nothing to anyone else. The sticky designation and its `chat: true|false` flag went with multi-host (P1c-4). See DESIGN.md.
-- **Assistant chat model (a mirror of the Pi session)** — The chat is a chatbot, not a form: **the Pi session is the conversation and the daemon mirrors it**. Posting a message always succeeds (`queued`); the extension pulls the inbox and hands messages to Pi, steering them into a run in flight, then acks `delivered` → `read` (real 3-state receipts). The agent's own prose is mirrored back as bubbles (split on blank lines — never inside a fence or list), reasoning deltas feed an ephemeral in-memory peek buffer behind the `…`, and anything typed in the agent's terminal is mirrored in as a `tui`-origin user message, so tmux and the web UI are one conversation. Sessions are the unit of history: "new chat" and persona swaps *end* a session (snapshotting `assistant/sessions/<id>.md`) rather than deleting it, and resume switches the agent back to that Pi session file. v1's turn machine — claim/complete, composer lock, typing pings, pre-claim debounce, stuck-turn reaper, and the `send_message` tool — is gone. See DESIGN.md + docs/history/ASSISTANT_CHAT_V2.md.
-- **"Teammates", not "Agents", in the UI** — The product is my-pizza-team, so human-facing vocabulary settled on "Teammates". The HTTP API and internal types keep the technical term `agent`/`member` (the route stays `/api/agents`). Teammates are shown in the dock's Team tab rather than a dedicated page.
-- **Declared team size, not spawn clicks** — The team's size is a *number you declare* (`minTeammates`, default 0), not a button you press per teammate. `Store.reconcileTeammatePool()` keeps at least that many generalist teammates online: it counts online pool members (the `leader`/`assistant` singletons are excluded by name) **plus** not-yet-realized `spawn` directives (so a slow leader never gets a second batch), clamps the target to `maxTeammates`, and queues `spawn` directives for the shortfall. It runs on the heartbeat timer immediately **after** the offline reaper — so a dismissed, crashed, or reaped teammate is replaced on the same tick — plus whenever the number changes or a leader registers (a leader is the first moment a spawn can actually be realized; with none connected the pool waits instead of piling up directives nobody will act on). Reconciliation is one-directional: the daemon never dismisses a teammate, so lowering the number only stops replacements. The value lives in `config.json`, which makes it the startup target too.
-- **Pages over modals** — The board is for glancing and light triage (drag a card to another column to move it). Clicking a card never opens an editor; the `details →` link opens the task page, and all reading/editing/creating lives on dedicated pages (`/task/:storyId/:taskId`, `/story/:id`, `/stories/new`, `/story/:id/tasks/new`) — deep-linkable, roomy, and browser-back friendly. The only surviving modal is the FileViewer (a lightbox-style artifact/attachment viewer). This keeps destructive/edit actions off the high-traffic board surface. Cards carry no state badge (the column names the state) — only the substatus chip; drops only accept cards from the same story (the drag MIME type carries the story id). Each swimlane can hide the implicit todo/done bucket columns (persisted per story in `localStorage`); hidden buckets show their task counts in the story header.
-- **Distinct panel color for chrome** — The nav header and story headers use `bg-muted` (not `bg-card`) so they read as a distinct panel against the page background in both light and dark themes.
-- **The daemon realizes spawns** — `spawn` and `dismiss` become tmux windows in the
-  *daemon* rather than in the leader (docs/BATTERIES_INCLUDED.md §3.1, P3-1). Two
-  things follow: adding a harness is a config entry (`harnesses.<name>.teammate`)
-  rather than an extension release, and a teammate can start with **no leader
-  connected** — previously impossible, since only the leader realized directives.
-  `reset-session` is deliberately *not* taken over: it types `/new`, a Pi slash
-  command, and moving it here would mean the daemon knowing each harness's commands —
-  the coupling this removes.
-  **The leader path is kept as a fallback.** The daemon can only drive tmux if it can
-  reach it, which is a property of how it was launched — under launchd/systemd it may
-  have no `tmux` on PATH. It probes once at startup (`probeSpawnCapability`), reports
-  the result on `/health`, and when it can't spawn, directives stay `pending` for the
-  leader exactly as before. `mpt doctor` names which path is live, so this is a visible
-  fact rather than spawns quietly not happening.
-  A directive that can't be realized is marked **`failed` with its reason** rather than
-  left pending: a pending directive would be retried every 2s, spawning nothing and
-  saying nothing. Failures surface in the Team tab beside pending spawns, because a
-  failure the leader used to report is now the daemon's, and unreported it looks
-  exactly like a team that never grew.
-
-- **Upgrading both halves** — `mpt upgrade` replaces the binary *and* rewrites the
-  managed Pi extension, because the two are one protocol (docs/BATTERIES_INCLUDED.md
-  §1.2) and moving only one is the skew this plan exists to remove. The rewrite is
-  performed by invoking the **newly installed** binary
-  (`mpt write-extension-internal`, hidden): the running process still carries the
-  old embedded copy, so writing in-process would install the version being replaced.
-  Only a directory that already exists is refreshed — someone on a registered
-  development checkout, or who never ran `mpt setup`, must not have a managed install
-  created behind their back. No re-registration is needed, since Pi loads a local
-  package from its path without copying. Running agents keep the old code until their
-  Pi restarts, which the version handshake surfaces and the Team tab's banner offers
-  to fix.
-
-- **Version handshake** — The daemon and a harness are one protocol shipped as two
-  artifacts, and when they drifted nothing noticed: an old extension kept running
-  while streaming no transcript and recording no usage (docs/BATTERIES_INCLUDED.md
-  §1.2). So `POST /api/agents/register` carries `protocolVersion` (from
-  `shared/protocol.ts`'s `PROTOCOL_VERSION`), `harness`, and `harnessVersion`. The
-  daemon **gates on the protocol version only** — one it can't serve is refused 409
-  with the fix named, and the agent is not registered at all rather than left
-  half-working. Build versions are deliberately *never* gated: rejecting on those
-  would reject the whole team on every patch release, so they are reported and
-  surfaced instead (a row marker plus a Team-tab banner, via `harnessSkew` in
-  `ui/src/lib/team.ts`). A missing `protocolVersion` means a pre-handshake harness:
-  accepted and flagged, because upgrading the daemon first must not strand a running
-  team. `harness` is open-ended so a Tier 0 harness (§3.2) can self-report without
-  versioning the handshake twice.
-
-- **Scheduler readiness gating** — Credentials/VPN/network are a property of the
-  machine the team runs on, so readiness is one **team-level** fact (it was
-  per-host until P1c-3; multi-host is gone — docs/BATTERIES_INCLUDED.md §3.3). The
-  **daemon** runs the optional probe (`readinessProbe` in team config) on an interval
-  and holds the result in memory (ephemeral connection state, like members — nothing
-  reported yet means ready). `POST /api/readiness` remains, so a harness can report
-  too.
-  The probe used to be the leader's (P3-2 moved it), and moving it fixed an inversion
-  that was exactly backwards: an unreported team counts as ready — it must, since a
-  freshly booted daemon knows nothing — so a machine too wedged for the leader to even
-  *start* was treated as **healthy**, and the scheduler kept feeding work into it. The
-  daemon is running whenever it matters, so it answers with zero agents connected. An
-  unrunnable probe is "not ready" rather than "ready", for the same reason: a probe
-  confirms the machine can work, and one that cannot launch confirms nothing. The cron scheduler consults it: a due scheduled child is
-  **held** rather than enqueued while the team is not-ready, so a wedged cloud
-  desktop (e.g. expired `mwinit`) stops piling up FAILED scheduled runs overnight.
-  Holding sets `heldForReadiness` on the Schedule and *doesn't* advance the cron
-  cursor, so on recovery the held job fires **exactly once** (missed occurrences
-  collapse into a single catch-up run — no thundering herd). Gating applies only
-  when at least one agent is online: with none connected the queue simply waits, as
-  it always has — readiness is about connected-but-*unable*, not absent. This gates
-  *only* the cron scheduler; Solitary/board work is human-initiated and still runs
-  (and may fail visibly).
-
-## API Routes
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/health` | Health check (uptime, agents, queueDepth, memory, lastCommitTime, tmuxSession, leaderPresent, hostsNotReady) |
-| GET | `/api/status` | Status summary (stories, tasks, members) + `paused` (task distribution paused — drives the nav pause toggle and the Queue stall banner) |
-| GET | `/api/stories` | List all stories with tasks |
-| POST | `/api/stories` | Create a new story (with optional tasks) |
-| PUT | `/api/stories/:id` | Update story details |
-| DELETE | `/api/stories/:id` | Delete a story |
-| POST | `/api/stories/:id/archive` | Archive a completed story |
-| POST | `/api/stories/:id/backlog` | Move story to backlog |
-| POST | `/api/stories/:storyId/tasks` | Add a task to a story |
-| POST | `/api/stories/:storyId/tasks/reorder` | Reorder a story's tasks (`{ order: [taskId, ...] }`) |
-| POST | `/api/tasks/:id/move` | Judgment move (human/leader): put a task anywhere in its workflow; entering an agent state resets substatus + clears the lease |
-| PUT | `/api/tasks/:id` | Update task title/description (legacy; edits also go through `PUT /api/work-defs/:id`) |
-| DELETE | `/api/tasks/:id` | Delete a task (drops it from the story + frees the CONWIP token) |
-| GET | `/api/archived` | List archived stories |
-| GET | `/api/backlog` | List backlogged stories |
-| POST | `/api/backlog/:id/restore` | Restore from backlog |
-| GET | `/api/assistant/messages` | The conversation (`{session, messages, thinking, chatAgent}`); `chatAgent` is the leader that answers (null if none online); `?sessionId=` reads an earlier session. User messages carry `delivery` receipts (`queued`/`delivered`/`read`) and an `origin` (`web`/`tui`) |
-| POST | `/api/assistant/messages` | Send a message. **Always succeeds** — no turn, no lock, no debounce. Accepts `replyTo` (quote a bubble) and `origin: "tui"` (the extension mirroring terminal input). Returns `chatAgent` (who will answer, or null: the message just queues) |
-| DELETE | `/api/assistant/messages/:id` | Delete a single message |
-| GET | `/api/assistant/stream` | **SSE**: `hello`, `message`, `message-deleted`, `delivery`, `thinking` (with reasoning chunks), `session`. Sub-second push; the UI keeps a 15s reconcile poll as a safety net |
-| GET | `/api/assistant/inbox?agentId=` | Agent: queued user messages (oldest first) with resolved quotes; leaves the inbox once acked `delivered`. Only the **leader** gets messages — a teammate that polls gets an empty list, since draining the queue would lose the message |
-| POST | `/api/assistant/inbox/ack` | Agent: advance receipts (`{ids, state}`); empty `ids` + `read` promotes everything already `delivered` (sent on `agent_start`) |
-| POST | `/api/assistant/bubbles` | Agent: mirror one bubble of its reply (`{content, failed?}`) — one paragraph of its own prose |
-| POST | `/api/assistant/thoughts` | Agent: ephemeral reasoning peek — `{chunk}` appends, `{clear:true}` resets a run, `{thinking}` toggles the `…` |
-| GET | `/api/assistant/thoughts` | The current peek buffer (`{chunks, updatedAt, thinking}`) — in-memory only, never persisted |
-| POST | `/api/assistant/session` | Agent: report the Pi session file backing the chat (`{piSessionPath}`) — what makes resume possible |
-| GET | `/api/assistant/sessions` | List chat sessions, newest first |
-| POST | `/api/assistant/sessions/new` | New chat: snapshot + end the active session, open a new one, emit a `new-session` directive |
-| POST | `/api/assistant/sessions/:id/resume` | Resume a session (emits `resume-session` with its `piSessionPath`); `contextRestored:false` when no file was recorded |
-| GET | `/api/assistant/sessions/:id/snapshot` | The session's markdown transcript (`assistant/sessions/<id>.md`) |
-| GET | `/api/assistant/persona` | Get the active persona + effective system prompt (`{personaId, entry, systemPrompt}`; `systemPrompt` = chat framing + persona/default) |
-| PUT | `/api/assistant/persona` | Swap the persona: **ends + snapshots** the session and opens a new one (no longer destructive); `personaId: null` = default |
-| GET | `/api/agents/:id/directives` | Agent: directives it must realize itself (`new-session`, `resume-session` — Pi session APIs, not tmux keystrokes) |
-| PUT | `/api/agents/:id/directives/:directiveId` | Agent: mark a self-directive done/failed |
-| GET | `/api/context` | List context-library entries |
-| GET | `/api/context/:id` | Get a single context entry |
-| POST | `/api/context` | Create/overwrite a context entry (id derived from title) |
-| PUT | `/api/context/:id` | Update a context entry in place |
-| DELETE | `/api/context/:id` | Delete a context entry |
-| GET | `/api/thoughts` | List thoughts (`?status=active\|archived`) + groups (`{thoughts, groups}`) |
-| POST | `/api/thoughts` | Create a note (content optional; x/y together or auto-placed; unknown groupId 400) |
-| GET | `/api/thoughts/:id` | Get one note |
-| POST | `/api/thoughts/positions` | Batch position/size update for one drag gesture (`{moves:[{id,x,y,w?,h?,zIndex?}]}`) |
-| PATCH | `/api/thoughts/:id` | Partial update (content/color/status/pinned/groupId/geometry) |
-| POST | `/api/thoughts/:id/archive\|restore` | Toggle a note between active and archived |
-| DELETE | `/api/thoughts/:id` | Hard delete (direct — no archive-first guard) |
-| POST | `/api/thought-groups` | Create a group (`{title, memberIds?}`) |
-| PATCH | `/api/thought-groups/:id` | Rename a group |
-| DELETE | `/api/thought-groups/:id` | Ungroup: remove the group, clear members' `groupId` (notes stay) |
-| POST | `/api/leader/directives` | Create a leader directive (spawn, reset-session, ...). Self-handled actions (`new-session`, `resume-session`) are filtered out of the leader's queue — the target agent polls those itself. For `spawn`, the daemon assigns a generated adjective-noun `params.name` if absent |
-| GET | `/api/leader/directives` | Poll pending directives (the one leader queue) |
-| PUT | `/api/leader/directives/:id` | Update a directive's status (e.g. `done`) |
-| GET | `/api/spawn-requests` | List pending `spawn` directives (name, cwd, createdAt) — surfaces stuck spawns in the UI |
-| DELETE | `/api/spawn-requests/:id` | Cancel a pending spawn request (marks it `cancelled` so the leader stops retrying) |
-| GET | `/api/workflows` | List workflow summaries (name, stateCount, agentCount, manualCount, isDefault) |
-| GET | `/api/workflows/:name` | Get full WorkflowConfig for a workflow |
-| GET | `/api/workflows/:name/instructions/:filename` | Read a workflow instruction markdown file |
-| PUT | `/api/workflows/:name/instructions/:filename` | Write/update a workflow instruction markdown file. Lints content: unbalanced code fences are errors (rejected, 400); shallow headings / `---` return `warnings` on success. |
-| GET | `/api/config` | Get current config |
-| GET | `/api/teammate-pool` | The declared teammate pool: `{ minTeammates, isDefault, maxTeammates, online, pending, leaderPresent }` — `minTeammates` is the *effective* size (`resolveMinTeammates`: the explicit value, else half of `maxTeammates`) |
-| GET | `/api/agents/:id/transcript/stream` | SSE: a teammate's live transcript. Subscribing *is* watching (registers a viewer). `hello { entries }` then `entry { entry }` upserts (by `seq`) |
-| GET | `/api/agents/:id/transcript/watch` | Agent-facing: `{ watched }` — mirror only while true |
-| POST | `/api/agents/:id/transcript` | Agent-facing: `{ entries: [...] }` (keyed entries upsert); recorded only while watched; returns `{ recorded, watched }` |
-| GET | `/api/agents/:id/transcript` | Buffered transcript snapshot `{ entries, watched }` |
-| POST | `/api/agents/:id/pair` | Open a web pairing with a teammate (pauses its autonomous loop; 404 unknown, 400 leader) |
-| POST | `/api/agents/:id/messages` | `{ text, mode: "queue"\|"steer" }` for a paired teammate (409 unless paired) |
-| POST | `/api/agents/:id/release` | `{ action: "resume"\|"complete"\|"fail" }` — ends the pairing; the teammate applies it after any run in flight |
-| GET | `/api/agents/:id/pairing/state` | UI: `{ paired, since, pendingRelease }` |
-| GET | `/api/agents/:id/pairing` | Agent poll — drains `{ paired, release, messages }` |
-| PUT | `/api/teammate-pool` | Set the pool's minimum size (`{ minTeammates }`, non-negative integer, clamped to `maxTeammates`; `null` clears it back to the default) — persists to config.json and reconciles immediately |
-| POST | `/api/readiness` | Report the team's readiness (`{ ready, reason? }`) — the leader runs a probe; a not-ready team holds scheduled work |
-| GET | `/api/readiness` | The last-reported team readiness (`{ readiness }`, null if nothing has reported) |
-| POST | `/api/control/pause` | Pause task distribution |
-| POST | `/api/control/resume` | Resume task distribution |
-| POST | `/api/agents/register` | Register an agent (working `directory`, opaque `metadata`, and the version handshake `protocolVersion`/`harness`/`harnessVersion`). Refuses a `protocolVersion` this daemon can't serve with 409 |
-| POST | `/api/agents/heartbeat` | Agent heartbeat (restores this agent's MORIBUND items to IN_PROGRESS) |
-| GET | `/api/agents/next-work?agentId=X` | Poll for a `READY` WorkItem by directory affinity; `{ workItem: null }` when none |
-| POST | `/api/agents/claim/:workItemId` | Lease a READY WorkItem (→ IN_PROGRESS) and get the daemon-assembled prompt |
-| POST | `/api/agents/work-items/:workItemId/state` | Set COMPLETE (advances a task ref) or FAILED (leaves it stuck). Posts no comment — the agent composes its own |
-| POST | `/api/agents/work-items/:workItemId/token-usage` | Record token usage on the ref (any WorkDef); prefers harness `costUsd`, else estimates. Legacy — current harnesses use `/api/agents/:id/usage` |
-| POST | `/api/agents/:id/usage` | Report one run's usage: `{ inputTokens, outputTokens, cacheReadTokens, cacheWriteTokens, model, costUsd, kind: work\|pairing\|chat\|other, workItemId? }` — with `workItemId`, recorded on its WorkDef ref |
-| GET | `/api/usage/daily?days=&tzOffset=` | Usage per local day (`byKind` split) + `totals` (today / last7 / last30 / range) + `peak` — the Usage dashboard |
-| GET | `/api/usage/day?date=YYYY-MM-DD&tzOffset=` | One day's runs (kind, title snapshot, member, tokens, cost), most expensive first |
-| POST | `/api/agents/work-items/:workItemId/attachments` | Upload an attachment (resolved to the backing ref) |
-| GET | `/api/agents/comments/:workItemId` | Get comments on the WorkItem's ref |
-| POST | `/api/agents/comments/:workItemId` | Post a comment on the WorkItem's ref |
-| GET | `/api/agents` | List all registered agents (each with its reported `protocolVersion`/`harness`/`harnessVersion`), plus the daemon's own `protocolVersion` and `daemonVersion` for skew detection |
-| DELETE | `/api/agents/:id` | Unregister an agent |
-| GET | `/api/work-items` | List WorkItems (`?state=`, `?read=`, `?limit=&offset=`) — powers Inbox + sidebar |
-| POST | `/api/work-items/:id/cancel` | Cancel a READY item |
-| POST | `/api/work-items/:id/force-fail` | MORIBUND → FAILED (`{ reEnqueue? }`) |
-| POST | `/api/work-items/:id/read` | Mark read/unread (`?read=false`) |
-| POST | `/api/work-items/re-enqueue` | Create a fresh READY item for a ref with none active (`{ ref }`) |
-| GET/POST | `/api/work-defs` | List / create WorkDefs (create enqueues unless `enqueue:false`); listing defaults to active, `?status=archived` for archived, `?status=all` for all |
-| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete a WorkDef |
-| POST | `/api/work-defs/:id/archive` | Archive a WorkDef (removes from active list, stops cron scheduling) |
-| POST | `/api/work-defs/:id/restore` | Restore an archived WorkDef to active |
-| POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem for the def |
-| GET/POST | `/api/work-defs/:id/comment(s)` | Per-def comment thread (ref-scoped; the canonical UI comment routes for **all** WorkDefs incl. board tasks) |
-| POST/GET/DELETE | `/api/work-defs/:id/attachments[/:filename]` | Ref-scoped attachments for **any** WorkDef (board/Solitary/Scheduled) — upload, list, serve raw, delete |
-| POST | `/api/work-defs/:id/token-usage` | Record token usage on the ref (works for any WorkDef); prefers harness `costUsd`, else estimates |
-| GET/POST | `/api/templates` | List / create Task Templates (never enqueues; id derived from title) |
-| GET/PUT/DELETE | `/api/templates/:id` | Get / update / delete a Template |
+`deno task test` runs `tests/*.test.ts` (daemon, CLI, and pure UI helpers such as
+`thought-geometry`, `usage-grid`, `wheel-gesture`, `harness-skew`) using
+`tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
+on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
+probe. Guard tests worth knowing: `version.test.ts` (extension version in step),
+`protocol-version.test.ts`, `runtime-purity.test.ts`, `build-embeds.test.ts`,
+`doctor-coherence.test.ts`. The extension's suites are in `harnesses/pi/tests/`
+(`deno task test:ext`).
 
 ## Agent Lifecycle
 
-Agents use a poll → claim → set-state loop over **WorkItems** (the unit of agent
-execution). Workers never move tasks: the daemon owns admission (CONWIP), advance,
-and the WorkItem lifecycle. See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
-
 ```
-1. Poll  GET  /api/agents/next-work        → a READY WorkItem (directory affinity)
-2. POST /api/agents/claim/:workItemId       → lease (→ IN_PROGRESS) + daemon prompt
-3. Agent does the work (cd to the ref's directory)
-4a. POST .../work-items/:id/state COMPLETE  → daemon advances the task (task refs)
-4b. comment + .../state FAILED              → give up: task left stuck for a human
-5. Agent polls again (repeat)
+1. POST /api/agents/register          → {protocolVersion, harness, harnessVersion, directory, metadata}
+2. GET  /api/agents/next-work?agentId → { workItem: {id, title} | null }   (null while paused)
+3. POST /api/agents/claim/:id         → lease (→ IN_PROGRESS) + { workItem: {id}, prompt }
+4. (the agent works, in the ref's directory, and posts its own comment)
+5. POST /api/agents/work-items/:id/state {state: COMPLETE|FAILED}
+6. POST /api/agents/:id/usage         → one line in the ledger
+   POST /api/agents/heartbeat         → keep-alive; restores this agent's MORIBUND items
 ```
 
-A WorkItem only ever moves toward a terminal state (COMPLETE/FAILED/CANCELED);
-`MORIBUND` is the reaped-but-not-dead state (restored on reconnect, or
-force-failed by a human). Rework is a judgment move back into an agent state,
-which enqueues a fresh READY WorkItem — re-entry is indistinguishable from first
-entry. Manual states (e.g. review) belong to humans/the leader.
+Members and assignments are **connection state**: cleared on daemon boot
+(`resetConnectionsForBoot`), with any `IN_PROGRESS` item moved to `MORIBUND` (its
+`member_id` kept, so the same agent can still complete it). A heartbeat from an
+agent the daemon no longer knows gets `reregister` (a restart forgot it); one that
+was explicitly dismissed (`DELETE /api/agents/:id?dismiss=true`) gets `dismissed`
+and shuts down. A plain `DELETE` is a clean self-deregister and leaves no
+tombstone. This keeps restarts and upgrades from silently killing teammates.
 
-Members and assignments are **connection state, not durable records**: they live
-in SQLite for the running process but are cleared on daemon boot
-(`resetConnectionsForBoot`), since a freshly-started daemon holds zero live
-connections. Without this, a restarted daemon would list the previous run's
-agents as "offline" forever. Agents re-register on reconnect; any WorkItem left
-IN_PROGRESS across the restart is moved to `MORIBUND` (its `member_id` kept, so
-the same agent can still complete it or a human can recover it).
+**Spawning.** The pool reconciler (or the Spawn dialog) creates a `spawn`
+directive with a daemon-assigned name. If the daemon can reach tmux, `realizePending`
+opens a window in `config.tmuxSession` running the harness's `teammate` template
+within ~2s; otherwise the leader realizes it. The teammate registers with its tmux
+location in `metadata`, which later `dismiss` / `reset-session` directives use.
+`reconcileTeammatePool` only queues spawns while a leader is online.
 
-Because the members table is wiped on boot, a heartbeat from a still-running
-agent whose row is gone must be disambiguated: an **unknown** member is told to
-`reregister` (a daemon restart/upgrade forgot it — it re-registers and keeps
-working), while an **explicitly dismissed** member is told it's `dismissed` (it
-shuts down). Dismissal leaves an in-memory tombstone (`dismissMember`, set by
-`DELETE /api/agents/:id?dismiss=true` — the UI's dismiss button); a plain
-`DELETE` (clean self-deregister on shutdown) leaves no tombstone. (Re)registering
-clears the tombstone. This keeps `mpt upgrade`/restarts from silently killing
-running teammates while preserving the dismiss action.
+## Templates
 
-Comments live on the **ref** (per-task for story tasks, per-def for WorkDefs),
-not on the WorkItem. Agents load them when starting work.
+Task Templates are files under `templates/<id>/template.md` served by
+`/api/templates`; they share the WorkDef serializer and never touch the WorkItem
+queue. The UI's create form pre-fills from one via `?template=<id>`.
 
-## Pi Extension (Thin Adapter)
+## Thoughts
 
-### desktop/macos/
-- `Sources/App.swift` — SwiftUI menu bar app (`LSUIElement`). Status bar icon; start/stop/**restart** controls; **Open UI in a configurable browser**; team directory picker, **reveal in Finder**, and **open in a configurable terminal**; **Launch Leader** via a configurable command (shown only when the daemon is up and no leader is connected); port config; and an app-**version** line (read from the bundle's `CFBundleShortVersionString`).
-- `Sources/DaemonManager.swift` — Launches the bundled `mpt` binary as a subprocess, polls `/health` for status (including `tmuxSession` and `leaderPresent`), manages preferences via `UserDefaults` (`teamDir`, `port`, `browserAppPath`, `terminalAppPath`, `leaderCommand`). The leader command is a soft, editable default (`tmux new-session … pi --ppt-lead`) with `{session}`/`{dir}`/`{port}`/`{url}` placeholders — so the app has no hard dependency on the pi harness.
-- `Resources/mpt.entitlements` — Code-signing entitlements for the compiled Deno binary. Required for V8 JIT (`allow-jit`, `allow-unsigned-executable-memory`) and FFI SQLite loading (`disable-library-validation`).
-- `Package.swift` — Swift package manifest (SwiftUI, macOS 13+). The `.app` bundle's `Info.plist` version is injected from `deno.json` by `scripts/package-macos-menubar.sh`, so the menu's version line stays in sync with the daemon.
+Notes are `thoughts/<id>.md` (frontmatter: color, status, x/y/w/h, zIndex, pinned,
+groupId, timestamps; body: markdown). Groups are `groups.json`
+(`[{id, title, x, y, w, h, groupColor, plateOpacity}]`). Files are read and written
+directly — no SQLite index. Store methods mint ids, auto-place new notes, and
+cascade group membership; `POST /api/thoughts/positions` batches one drag gesture.
+The Pi extension exposes read/write tools so the leader can use the board.
 
-### Code Signing (macOS)
+## Scheduler readiness gating
 
-The compiled `mpt` binary requires three entitlements when signed with hardened runtime:
-1. **`com.apple.security.cs.allow-jit`** — V8 needs MAP_JIT for code generation
-2. **`com.apple.security.cs.allow-unsigned-executable-memory`** — V8 CodeRange allocation
-3. **`com.apple.security.cs.disable-library-validation`** — `@db/sqlite` loads a `.dylib` via FFI with a different Team ID
+`runScheduler` (every 30s) enqueues each due Schedule's active child WorkDefs, deduped
+per minute via `lastEnqueuedAt`. `canScheduleNow()` allows it when no agent is online
+or the team is ready (`TeamReadiness`, set by the daemon's probe or
+`POST /api/readiness`; unreported = ready). Otherwise the Schedule is marked
+`heldForReadiness` without advancing its cursor, and fires once on recovery.
+Rationale: DESIGN.md "Readiness Gating".
 
-Without these, the binary crashes immediately with "Failed to reserve virtual memory for CodeRange" or "code signature not valid for use in process".
+## API Routes
 
-The Pi extension lives in this repo at `harnesses/pi/` (merged from the standalone
-pi-pizza-team repo in P1a-1) and is a **pure HTTP client** with zero server-side
-code. It owns no state — all data lives in this daemon.
+When a token is configured, every path except `/health` requires it.
 
-Extension structure (`harnesses/pi/src/`). The split is the seam
-docs/BATTERIES_INCLUDED.md §3.1 rests on: `runtime/` implements the daemon
-*protocol*, everything beside it is what only Pi can do.
-```
-src/
-├── index.ts       — Role detection, flag registration, wiring
-├── leader.ts      — Tmux management, directive polling, slash commands, and the chat mirror
-├── teammate.ts    — TeammateLoop: poll → claim → execute → release
-├── chat.ts        — ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (inbox → steer, prose → bubbles)
-├── tools.ts       — LLM tool registration (role-specific)
-├── permissions.ts — Dynamic yoloMode toggling
-├── readiness.ts   — The machine's readiness probe (P3-2 moves this into the daemon)
-├── runtime/       — Harness-agnostic: no external imports, no relative value
-│   │                imports, no mention of Pi. Enforced by
-│   │                tests/runtime-purity.test.ts, which is also what keeps these
-│   │                modules loadable (and so testable) under plain Node.
-│   ├── client.ts     — DaemonClient: unified HTTP client for all API calls
-│   ├── transcript.ts — TranscriptMirror: streams a teammate's session while watched
-│   ├── bubbles.ts    — splits assistant prose into chat bubbles (fence/list aware)
-│   ├── pairing.ts    — WebPairing: pause/message/release from the browser
-│   └── usage.ts      — summarises a run's token usage
-└── shared/types.ts — GENERATED from the root shared/types.ts by `deno task sync-shared` (team dir names, default daemon URL)
-```
+### System
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/health` | `status`, `uptime`, `agents` (online), `queueDepth`, `memory`, `lastCommitTime`, `tmuxSession`, `leaderPresent`, `notReady` (readiness when not ready, else null), `spawning` (spawn capability) |
+| GET | `/api/status` | Story/task/member counts, `paused`, `defaultWorkflow`, `workflows` |
+| POST | `/api/control/pause` \| `/api/control/resume` | Pause/resume distribution (next-work returns null while paused) |
+| GET | `/api/config` | Config + loaded `workflows` + `defaultNouns` |
+| PUT | `/api/config` | Update config; requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; reconciles the pool |
+| GET | `/api/teammate-pool` | `{ minTeammates (effective), isDefault, maxTeammates, online, pending, leaderPresent }` |
+| PUT | `/api/teammate-pool` | `{ minTeammates }` (non-negative integer, clamped to max; `null` = default) — persists and reconciles |
+| GET | `/api/readiness` | `{ readiness }` (null if never reported) |
+| POST | `/api/readiness` | Report `{ ready, reason? }` (the daemon's own probe also writes this) |
+| GET | `/api/workflows` | Summaries: name, stateCount, agentCount, manualCount, isDefault |
+| GET | `/api/workflows/:name` | Full `WorkflowConfig` |
+| GET/PUT | `/api/workflows/:name/instructions/:state` | Read/write a persona; PUT lints (errors → 400; warnings returned) |
+
+### Stories and board tasks
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET/POST | `/api/stories` | List (with tasks) / create (optionally with tasks) |
+| PUT/DELETE | `/api/stories/:id` | Update / delete |
+| POST | `/api/stories/:id/archive` | Archive (writes `archived/<id>.json` with a synopsis) |
+| POST | `/api/stories/:id/backlog` | Move to backlog (with dependents; refused while tasks are assigned) |
+| GET | `/api/archived`, `/api/backlog` | List archived / backlogged stories |
+| POST | `/api/backlog/:id/restore` | Restore from backlog |
+| POST | `/api/stories/:storyId/tasks` | Create a board task in a story |
+| POST | `/api/stories/:storyId/tasks/reorder` | `{ order: [taskId, …] }` |
+| POST | `/api/tasks/:taskId/move` | Judgment move to any position (buckets included) |
+| DELETE | `/api/tasks/:taskId` | Delete (drops it from the story; frees the CONWIP token) |
+| PUT | `/api/tasks/:taskId` | Legacy title/description update (the UI uses `PUT /api/work-defs/:id`) |
+
+### WorkDefs, Schedules, Templates, WorkItems
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET/POST | `/api/work-defs` | List (`?status=active` default, `archived`, `all`) / create (enqueues unless `enqueue:false`) |
+| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete any WorkDef |
+| POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem |
+| POST | `/api/work-defs/:id/archive` \| `/restore` | Archive (also stops cron firing) / restore |
+| GET | `/api/work-defs/:id/comments` | The thread |
+| POST | `/api/work-defs/:id/comment` | Add a comment |
+| GET/POST | `/api/work-defs/:id/attachments` | List / upload |
+| GET/DELETE | `/api/work-defs/:id/attachments/:filename` | Serve raw / delete |
+| POST | `/api/work-defs/:id/token-usage` | Record usage on the ref (prefers harness `costUsd`) |
+| GET | `/api/schedules`, `/api/schedules/:id` | List / get (`id, title, cron, lastEnqueuedAt`) |
+| PUT/DELETE | `/api/schedules/:id` | Update (cron validated) / delete |
+| GET/POST | `/api/templates` | List / create |
+| GET/PUT/DELETE | `/api/templates/:id` | Get / update / delete |
+| GET | `/api/work-items` | List (`?state=`, `?read=`, `?limit=&offset=`) — Queue, Inbox, dock |
+| GET | `/api/work-items/:id` | One item (with its WorkDef's `parent`) |
+| POST | `/api/work-items/:id/cancel` | Cancel a READY item |
+| POST | `/api/work-items/:id/force-fail` | MORIBUND → FAILED (`{ reEnqueue? }`) |
+| POST | `/api/work-items/:id/read` | Mark read (`?read=false` for unread) |
+| POST | `/api/work-items/re-enqueue` | `{ ref }` — fresh READY item for a ref with none active |
+
+### Agents
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields); 409 on an unservable `protocolVersion` |
+| POST | `/api/agents/heartbeat` | Keep-alive; `{reregister:true}` or `{dismissed:true}` when unknown |
+| GET | `/api/agents/next-work?agentId=` | Next READY item by directory affinity |
+| POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable) |
+| POST | `/api/agents/work-items/:workItemId/state` | COMPLETE (advances a board task) or FAILED; only the holder (403 otherwise); posts no comment |
+| GET/POST | `/api/agents/comments/:workItemId` | Read / post comments on the item's ref |
+| POST | `/api/agents/work-items/:workItemId/attachments` | Upload to the ref |
+| POST | `/api/agents/work-items/:workItemId/token-usage` | Legacy usage report (current harnesses use `/api/agents/:id/usage`) |
+| POST | `/api/agents/:id/usage` | One run: tokens incl. cache, `costUsd`, `model`, `kind` (`work`\|`pairing`\|`chat`\|`other`), optional `workItemId` |
+| GET | `/api/agents` | Members (with handshake fields) + the daemon's `protocolVersion` and `daemonVersion` |
+| DELETE | `/api/agents/:id` | Unregister (`?dismiss=true` leaves a tombstone) |
+| GET | `/api/agents/:id/directives` | Self-handled directives (`new-session`, `resume-session`) |
+| PUT | `/api/agents/:id/directives/:directiveId` | Mark one done/failed |
+| GET/POST | `/api/leader/directives` | Pending queue (self-handled actions excluded) / create (`spawn` gets a generated `params.name`) |
+| PUT | `/api/leader/directives/:id` | Update status |
+| GET | `/api/spawn-requests` | `{ requests (pending spawns), failed (failed spawns with reasons) }` |
+| DELETE | `/api/spawn-requests/:id` | Mark a spawn directive `cancelled` (stops a pending one; clears a failed one from the list) |
+| GET | `/api/agents/:id/transcript/stream` | SSE; subscribing is watching. `hello {entries}` then `entry` upserts |
+| GET | `/api/agents/:id/transcript/watch` | Agent: `{ watched }` |
+| POST | `/api/agents/:id/transcript` | Agent: batched `{ entries }`; recorded only while watched |
+| GET | `/api/agents/:id/transcript` | Snapshot `{ entries, watched }` |
+| POST | `/api/agents/:id/pair` | Start pairing (404 unknown, 400 leader) |
+| POST | `/api/agents/:id/messages` | `{ text, mode: "queue"\|"steer" }` (409 unless paired) |
+| POST | `/api/agents/:id/release` | `{ action: "resume"\|"complete"\|"fail" }` |
+| GET | `/api/agents/:id/pairing/state` | UI: `{ paired, since, pendingRelease }` |
+| GET | `/api/agents/:id/pairing` | Agent: drains `{ paired, release, messages }` |
+
+### Assistant chat
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/assistant/messages` | `{ session, messages, thinking, chatAgent }`; `?sessionId=` for an earlier session |
+| POST | `/api/assistant/messages` | Send (always succeeds); `replyTo`, `origin: "tui"` for mirrored terminal input |
+| DELETE | `/api/assistant/messages/:id` | Delete one message |
+| GET | `/api/assistant/stream` | SSE: `hello`, `message`, `message-deleted`, `delivery`, `thinking`, `session` |
+| GET | `/api/assistant/inbox?agentId=` | Leader only: queued messages with resolved quotes |
+| POST | `/api/assistant/inbox/ack` | `{ ids, state }`; empty `ids` + `read` promotes all delivered |
+| POST | `/api/assistant/bubbles` | Mirror one bubble `{ content, failed? }` |
+| GET/POST | `/api/assistant/thoughts` | Reasoning peek: read / `{chunk}` \| `{clear:true}` \| `{thinking}` |
+| POST | `/api/assistant/session` | Report the backing Pi session file |
+| GET | `/api/assistant/sessions` | List sessions, newest first |
+| POST | `/api/assistant/sessions/new` | Snapshot + end the active session; emit `new-session` |
+| POST | `/api/assistant/sessions/:id/resume` | Reopen; emit `resume-session` (`contextRestored:false` if no file) |
+| GET | `/api/assistant/sessions/:id/snapshot` | The session's markdown |
+| GET/PUT | `/api/assistant/persona` | Active persona + effective system prompt / swap (ends + snapshots the session; `null` = default) |
+
+### Context, Thoughts, Usage
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET/POST | `/api/context` | List / create (id from title) |
+| GET/PUT/DELETE | `/api/context/:id` | Get / update / delete |
+| GET/POST | `/api/thoughts` | List (`?status=`) with groups / create (auto-placed unless x/y given) |
+| GET/PATCH/DELETE | `/api/thoughts/:id` | Get / partial update / hard delete |
+| POST | `/api/thoughts/positions` | Batch geometry for one gesture |
+| POST | `/api/thoughts/:id/archive` \| `/restore` | Toggle archived |
+| POST | `/api/thought-groups` | Create `{ title, memberIds? }` |
+| PATCH/DELETE | `/api/thought-groups/:id` | Rename / ungroup (notes stay) |
+| GET | `/api/usage/daily?days=&tzOffset=` | Per-day usage by kind + totals + peak |
+| GET | `/api/usage/day?date=&tzOffset=` | One day's runs, most expensive first |

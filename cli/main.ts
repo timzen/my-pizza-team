@@ -481,7 +481,7 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   console.log(`✅ Upgraded to v${latest}.`);
 
   // Move the *other half* with the binary. The daemon and the extension are one
-  // protocol (§1.2); upgrading only the binary is exactly the skew this plan
+  // protocol (DESIGN.md "One Protocol, One Version"); upgrading only the binary is exactly the skew this plan
   // exists to remove. Run through the new executable, because this process still
   // holds the old embedded copy.
   //
@@ -576,7 +576,7 @@ function readTeamConfig(teamDir: string): typeof DEFAULT_CONFIG & Record<string,
  *
  * The leader is the agent you chat with, and it also realizes the daemon's spawn
  * asks, so a team with no leader has no way to grow and nobody answering
- * (docs/BATTERIES_INCLUDED.md "One Agent to Talk To"). Starting it was the last step
+ * (docs/DESIGN.md "One Agent to Talk To"). Starting it was the last step
  * still done by hand.
  *
  * This is also the first consumer of the daemon's tmux module (P3-1), deliberately in
@@ -727,7 +727,7 @@ function describePlan(plan: SetupPlan): void {
  * `mpt setup` — make this machine ready to run a team. Idempotent.
  *
  * Installs the extension by *writing* the copy carried in this binary, which is what
- * keeps the daemon and the extension from drifting apart (§1.2). Every change is
+ * keeps the daemon and the extension from drifting apart (DESIGN.md "One Protocol, One Version"). Every change is
  * printed first, and recorded so `--uninstall` can undo exactly what was done —
  * this edits the user's own Pi configuration, so guessing later is not acceptable.
  */

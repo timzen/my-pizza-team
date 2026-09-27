@@ -1,6 +1,6 @@
 // Web pairing: talk to this teammate from the browser
 //
-// Phase C of my-pizza-team docs/TEAMMATE_CHAT.md. Watching (transcript.ts) is
+// Phase C of my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate". Watching (transcript.ts) is
 // read-only; *pairing* is how the web UI talks to a teammate. The daemon holds
 // the intent, and this class polls it (GET /api/agents/:id/pairing, which
 // drains) and hands each change to the handlers index.ts wires up:

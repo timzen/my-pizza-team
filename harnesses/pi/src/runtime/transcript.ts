@@ -1,7 +1,7 @@
 // Transcript mirror: stream a teammate's Pi session to the daemon — only while watched
 //
 // Backs the web UI's teammate view (/teammates/:id; my-pizza-team
-// docs/TEAMMATE_CHAT.md §3): a live, CLI-ish rendering of what this teammate is
+// docs/DESIGN.md "Watching and Pairing with a Teammate"): a live, CLI-ish rendering of what this teammate is
 // doing. Watch-only — nothing here ever feeds input *into* Pi.
 //
 // **Only while watched.** The daemon knows when a browser has the view open; the

@@ -183,7 +183,7 @@ Deno.test({
   ignore: !hasTmux(),
   async fn() {
     // It types `/new` — a Pi command. The daemon knowing each harness's commands is
-    // exactly the coupling §3.1 removes.
+    // exactly the coupling DESIGN.md "The Daemon Is the Supervisor" removes.
     await using sb = await sandbox("spawn-reset");
     sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
     await sb.startDaemon();

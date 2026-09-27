@@ -74,7 +74,7 @@ import { existsSync } from "@std/fs";
 /**
  * Directive actions an agent realizes itself rather than via its host leader.
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
- * cannot express. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
+ * cannot express. See docs/DESIGN.md "Assistant Chat Model".
  */
 export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
 
@@ -104,7 +104,7 @@ export function isPoolTeammate(name: string): boolean {
  * Internal board-task view: a WorkDef whose parent is a story, joined with its
  * workflow position (from the story's `tasks` list). This is a runtime cache
  * shape only — the persisted model is the WorkDef (`tasks/<id>/workdef.md`) plus
- * the story's `tasks: [{id, status}]` (see docs/WORKDEF_UNIFICATION.md). The
+ * the story's `tasks: [{id, status}]` (see docs/DESIGN.md "WorkDefs & Parents"). The
  * WorkDef body's Goal is surfaced as `description` for the (pre-unification) API.
  */
 export interface Task {
@@ -209,15 +209,15 @@ export class Store {
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
    * SSE). Delegated wholesale to store/assistant-chat.ts — see
-   * docs/history/ASSISTANT_CHAT_V2.md.
+   * docs/DESIGN.md "Assistant Chat Model".
    */
   private chat!: AssistantChat;
   /**
-   * Live teammate transcripts for the watch view (docs/TEAMMATE_CHAT.md §3).
+   * Live teammate transcripts for the watch view (docs/DESIGN.md "Watching and Pairing with a Teammate").
    * In-memory only; routes use it directly — it has no DB or config coupling.
    */
   readonly transcripts = new TeammateTranscripts();
-  /** Web-UI pairing intent per teammate (docs/TEAMMATE_CHAT.md §4). In-memory. */
+  /** Web-UI pairing intent per teammate (docs/DESIGN.md "Watching and Pairing with a Teammate"). In-memory. */
   readonly pairing = new TeammatePairing();
 
   constructor(teamDir: string, config: TeamConfig) {
@@ -269,7 +269,7 @@ export class Store {
         if (!existsSync(wfFile)) continue;
         try {
           const wf: WorkflowConfig = JSON.parse(Deno.readTextFileSync(wfFile));
-          // Only accept the state/substatus shape (see docs/WORK-MODEL.md);
+          // Only accept the state/substatus shape (see docs/DESIGN.md "The Work Model");
           // malformed or legacy transition-matrix files are skipped.
           if (validateWorkflow(wf) === null) this.workflows[entry.name] = wf;
         } catch {
@@ -381,7 +381,7 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         -- The WorkDef ref id (a board task id, or a standalone/Scheduled WorkDef
         -- id). No FK to tasks(id): usage is recorded on the ref, and standalone
-        -- WorkDefs have no tasks row. See docs/WORKDEF_UNIFICATION.md.
+        -- WorkDefs have no tasks row. See docs/DESIGN.md "WorkDefs & Parents".
         task_id TEXT,
         input_tokens INTEGER,
         output_tokens INTEGER,
@@ -406,7 +406,7 @@ export class Store {
       -- A chat session: one continuous conversation, backed by one Pi session.
       -- Ending a session snapshots it to assistant/sessions/<id>.md; nothing is
       -- ever deleted, which is what makes resume possible. At most one session is
-      -- 'active'. See docs/history/ASSISTANT_CHAT_V2.md §3.1.
+      -- 'active'. See docs/DESIGN.md "Assistant Chat Model".
       CREATE TABLE IF NOT EXISTS assistant_sessions (
         id TEXT PRIMARY KEY,
         persona_id TEXT,         -- context-entry id, NULL for the default assistant
@@ -421,7 +421,7 @@ export class Store {
       );
 
       -- One queue of asks from the daemon to the leader. Not keyed by host: there
-      -- is exactly one leader (docs/BATTERIES_INCLUDED.md §3.3, P1c-1).
+      -- is exactly one leader (docs/DESIGN.md "One Host, One Leader", P1c-1).
       CREATE TABLE IF NOT EXISTS leader_directives (
         id TEXT PRIMARY KEY,
         action TEXT NOT NULL,      -- 'spawn' | 'reset-session' | ...
@@ -440,7 +440,7 @@ export class Store {
 
       -- The WorkItem queue: the unit of agent execution. A dumb, terminal-only
       -- attempt pointing at its work via a polymorphic ref (task or workdef).
-      -- See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+      -- See docs/DESIGN.md "The WorkItem".
       CREATE TABLE IF NOT EXISTS work_items (
         id TEXT PRIMARY KEY,
         title TEXT,
@@ -481,7 +481,7 @@ export class Store {
     if (!storyColumns.some((col) => col.name === "task_order")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN task_order TEXT DEFAULT '[]'");
     }
-    // Work-model: the story's working directory is plain data (see docs/WORK-MODEL.md).
+    // Work-model: the story's working directory is plain data (see docs/DESIGN.md "The Work Model").
     if (!storyColumns.some((col) => col.name === "directory")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN directory TEXT");
     }
@@ -505,7 +505,7 @@ export class Store {
     if (!taskColumns.some((col) => col.name === "last_read_at")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN last_read_at INTEGER");
     }
-    // Work-model: within-state position for tasks in agent states (see docs/WORK-MODEL.md).
+    // Work-model: within-state position for tasks in agent states (see docs/DESIGN.md "The Work Model").
     if (!taskColumns.some((col) => col.name === "substatus")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN substatus TEXT");
     }
@@ -513,7 +513,7 @@ export class Store {
       this.db.exec("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT '[]'");
     }
     // WorkDef unification: board tasks are WorkDefs — cache their authored
-    // acceptance criteria / additional context (see docs/WORKDEF_UNIFICATION.md).
+    // acceptance criteria / additional context (see docs/DESIGN.md "WorkDefs & Parents").
     if (!taskColumns.some((col) => col.name === "acceptance_criteria")) {
       this.db.exec("ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT");
     }
@@ -538,7 +538,7 @@ export class Store {
     if (!memberColumns.some((col) => col.name === "directory")) {
       this.db.exec("ALTER TABLE members ADD COLUMN directory TEXT");
     }
-    // Version handshake (BATTERIES_INCLUDED.md P1b). Null protocol_version means a
+    // Version handshake (docs/DESIGN.md "One Protocol, One Version"). Null protocol_version means a
     // pre-handshake harness, which is reported rather than refused.
     if (!memberColumns.some((col) => col.name === "protocol_version")) {
       this.db.exec("ALTER TABLE members ADD COLUMN protocol_version INTEGER");
@@ -1065,7 +1065,7 @@ export class Store {
   // A WorkItem is the unit of agent execution: a dumb, terminal-only attempt
   // pointing at a story task or a WorkDef. It drives the task: a COMPLETE item
   // advances its task, a FAILED/CANCELED one leaves the task stuck for a human.
-  // See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+  // See docs/DESIGN.md "The WorkItem".
 
   private rowToWorkItem(row: Record<string, unknown>): WorkItem {
     const ref: WorkItemRef = { workDefId: (row.work_def_id ?? row.task_id) as string };
@@ -1714,7 +1714,7 @@ export class Store {
     this.heartbeatCheckTimer = setInterval(() => {
       this.reapOfflineAgents();
       // Keep the active chat's markdown snapshot fresh so a crash loses minutes,
-      // not the whole conversation (docs/history/ASSISTANT_CHAT_V2.md §6.1).
+      // not the whole conversation (docs/DESIGN.md "Assistant Chat Model").
       this.refreshAssistantSnapshot();
       this.reconcileTeammatePool();
     }, 30_000);
@@ -2141,7 +2141,7 @@ export class Store {
   // Delegated to store/assistant-chat.ts. The daemon mirrors the agent's Pi
   // session: user messages are queued for the extension to hand to Pi, and the
   // agent's own prose is mirrored back as bubbles. There are no response turns
-  // and the composer never locks. See docs/history/ASSISTANT_CHAT_V2.md.
+  // and the composer never locks. See docs/DESIGN.md "Assistant Chat Model".
 
   /** Subscribe to chat events for the SSE stream. Returns an unsubscribe fn. */
   subscribeAssistantEvents(fn: (event: AssistantEvent) => void): () => void {
@@ -2300,7 +2300,7 @@ export class Store {
    * Ask any online assistant to act on its Pi session. The daemon expresses
    * intent (`new-session`, `resume-session`) and never the mechanism — the
    * extension realizes it with `ctx.newSession()` / `ctx.switchSession()`
-   * (docs/history/ASSISTANT_CHAT_V2.md §5.5). Replaces the old `reset-session` keystroke
+   * (docs/DESIGN.md "Assistant Chat Model"). Replaces the old `reset-session` keystroke
    * path for the assistant; teammates still use that.
    */
   private directAssistantSession(action: string, params: Record<string, unknown>): void {
@@ -2384,7 +2384,7 @@ export class Store {
    * executed *inside* the target agent (`ctx.newSession()` / `ctx.switchSession()`),
    * so the agent polls those itself via `getMemberDirectives`. Without this
    * filter the leader would consume and complete them, and the agent would never
-   * see them. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
+   * see them. See docs/DESIGN.md "Assistant Chat Model".
    */
   getLeaderDirectives(): Array<ReturnType<Store["rowToDirective"]>> {
     const rows = this.db.prepare("SELECT * FROM leader_directives WHERE status = 'pending' ORDER BY created_at ASC").all() as Array<Record<string, unknown>>;
@@ -2504,7 +2504,7 @@ export class Store {
    *
    * This was `pickPoolSpawnHost()`, returning the host a spawn should land on —
    * but it only ever found *the* leader and returned its host, which is why P1c
-   * could drop multi-host without changing behaviour (BATTERIES_INCLUDED.md §1.4).
+   * could drop multi-host without changing behaviour (docs/DESIGN.md "One Host, One Leader").
    */
   private isLeaderOnline(): boolean {
     return this.getMembers().some((m) =>
@@ -2857,7 +2857,7 @@ export class Store {
   //
   // Comments live on the *ref* — i.e. the WorkDef directory (`tasks/<id>/`),
   // uniformly for board tasks and standalone work. Agents post via a WorkItem
-  // id, resolved to its ref. See docs/WORKDEF_UNIFICATION.md.
+  // id, resolved to its ref. See docs/DESIGN.md "WorkDefs & Parents".
 
   private refDir(ref: WorkItemRef): string | null {
     return getWorkDef(this.teamDir, ref.workDefId) ? workDefDir(this.teamDir, ref.workDefId) : null;

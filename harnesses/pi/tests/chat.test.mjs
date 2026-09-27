@@ -7,7 +7,7 @@
 //   outbound  assistant prose -> bubbles, reasoning -> ephemeral thought peek,
 //             terminal input -> user messages (tmux parity)
 //
-// See my-pizza-team/docs/ASSISTANT_CHAT_V2.md.
+// See my-pizza-team/docs/DESIGN.md "Assistant Chat Model".
 
 import * as assert from "node:assert";
 import * as fs from "node:fs";

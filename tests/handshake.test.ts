@@ -1,7 +1,7 @@
 /**
  * tests/handshake.test.ts — The agent registration version handshake (P1b).
  *
- * The failure this exists to prevent (BATTERIES_INCLUDED.md §1.2): the daemon and
+ * The failure this exists to prevent (docs/DESIGN.md "One Protocol, One Version"): the daemon and
  * the harness are one protocol, and when they drifted nothing noticed. An old
  * extension kept running while streaming no transcript and recording no usage,
  * with no hint why. So an unservable *protocol* is refused loudly here.
@@ -101,7 +101,7 @@ Deno.test("a differing build version is tolerated — only the protocol gates", 
 });
 
 Deno.test("a non-Pi harness can register — the field is open-ended", async () => {
-  // Tier 0 harnesses self-report (BATTERIES_INCLUDED.md §3.2). Costing one field
+  // Tier 0 harnesses self-report (docs/DESIGN.md "Harness Tiers, and Why Not MCP"). Costing one field
   // now avoids versioning the handshake twice later.
   const res = await register({
     id: "a6",

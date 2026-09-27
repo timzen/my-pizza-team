@@ -2,8 +2,8 @@
  * tests/version.test.ts — The daemon and the Pi extension carry one version.
  *
  * Before the monorepo merge these shipped separately and drifted (daemon 0.17.2,
- * extension 0.2.0) with nothing noticing — the failure mode BATTERIES_INCLUDED.md
- * §1.2 describes. `deno.json` is now the single source and
+ * extension 0.2.0) with nothing noticing — the failure mode docs/DESIGN.md
+ * DESIGN.md "One Protocol, One Version" describes. `deno.json` is now the single source and
  * `harnesses/pi/package.json` is a generated copy (scripts/sync-version.ts); this
  * test is what makes "generated" enforceable rather than aspirational.
  */

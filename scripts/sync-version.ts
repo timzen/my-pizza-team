@@ -6,7 +6,7 @@
  * it as the binary's version). The extension needs its own `package.json` because
  * Pi discovers packages that way, so its `version` field is a copy — and a copy is
  * exactly what drifted before the merge (daemon 0.17.2 vs extension 0.2.0), with
- * nothing noticing. BATTERIES_INCLUDED.md P1a-3.
+ * nothing noticing. docs/DESIGN.md "One Protocol, One Version".
  *
  * Rewrites only the version line so the file's formatting and comment keys survive
  * untouched.

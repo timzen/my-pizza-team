@@ -1,7 +1,7 @@
 /**
  * TranscriptView — A teammate's live Pi session, rendered CLI-ish.
  *
- * One monospace column that reads like the terminal (docs/TEAMMATE_CHAT.md §3),
+ * One monospace column that reads like the terminal (docs/DESIGN.md "Watching and Pairing with a Teammate"),
  * not chat bubbles:
  *
  *   ── watching from 14:32 ──        where live coverage starts (no backfill)

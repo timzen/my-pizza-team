@@ -2,7 +2,7 @@
  * daemon/workflow-engine.ts — Workflow position logic for the state model
  *
  * A workflow is an ordered list of active states between the implicit `todo`
- * and `done` buckets (see docs/WORK-MODEL.md). There is no transition matrix: this module answers
+ * and `done` buckets (see docs/DESIGN.md "The Work Model"). There is no transition matrix: this module answers
  * position questions (what's active, what's next, is this an agent state) and
  * the store applies the two mechanical rules (advance, admission). Humans may
  * move tasks anywhere, so there is no permission checking here either.

@@ -9,7 +9,7 @@
  * Two reasons this is worth enforcing rather than trusting:
  *
  *   1. **It keeps the seam honest.** The split between "protocol" and "what only
- *      Pi can do" is the boundary docs/BATTERIES_INCLUDED.md §3.1 rests on. Left
+ *      Pi can do" is the boundary docs/DESIGN.md "The Daemon Is the Supervisor" rests on. Left
  *      unchecked, a single convenient import quietly erases it.
  *   2. **It keeps these modules testable.** They load standalone under Node's type
  *      stripping *because* they have no relative value imports — Node resolves
@@ -20,7 +20,7 @@
  *
  * P1c-9. Note this is narrower than the plan first described: there is no
  * top-level `agent-runtime/` shared between harnesses, because no second harness
- * would import it — §3.1 moves the supervisor into the daemon precisely so a
+ * would import it — DESIGN.md "The Daemon Is the Supervisor" moves the supervisor into the daemon precisely so a
  * non-Pi teammate needs no in-process code.
  */
 

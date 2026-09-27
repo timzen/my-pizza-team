@@ -74,7 +74,7 @@ const PERMISSIONS_SERVICE_KEY = Symbol.for("@gotgenes/pi-permission-system:servi
  * problem. An autonomous teammate then stops on the first permission prompt and
  * simply sits there: no work completes, nothing explains why, and the symptom looks
  * like a hung agent rather than a missing package. That is precisely the
- * diagnostic-free failure docs/BATTERIES_INCLUDED.md §1.1 is about, so callers warn
+ * diagnostic-free failure docs/DESIGN.md "Setup Is One Command" is about, so callers warn
  * (P2-8). mpt does *not* auto-install it: coupling setup to a third party's
  * publishing would mean their bad release breaks our setup.
  */

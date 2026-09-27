@@ -5,7 +5,7 @@
 // semantics on a real TeammateLoop with fake Pi + daemon (complete / fail /
 // resume, and deferral while a run is in flight), and how web-sent messages are
 // tagged in the transcript. See src/runtime/pairing.ts, src/teammate.ts, and
-// my-pizza-team docs/TEAMMATE_CHAT.md §4.
+// my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate".
 
 import * as assert from "node:assert";
 import { WebPairing } from "../src/runtime/pairing.ts";

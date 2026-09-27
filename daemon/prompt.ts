@@ -12,7 +12,7 @@
  * Additional Context → reference context → lead comments → completion guidance.
  *
  * There are no transition instructions: workers never move work (see
- * docs/WORK-MODEL.md) — completing the work advances its story task
+ * docs/DESIGN.md "The Work Model") — completing the work advances its story task
  * mechanically (or, for standalone work, just records the outcome).
  */
 
@@ -58,7 +58,7 @@ export function normalizeInstructionMarkdown(md: string, minLevel = 3): string {
 
 /** Build the complete prompt an agent gets on claim. Every unit of work is a
  * WorkDef; the optional `story`/`state`/`persona` add board framing when the
- * WorkDef's parent is a story (see docs/WORKDEF_UNIFICATION.md). */
+ * WorkDef's parent is a story (see docs/DESIGN.md "WorkDefs & Parents"). */
 export interface WorkDefPromptInput {
   /** The work to do (authored content). */
   workDef: Pick<WorkDef, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory">;
@@ -102,7 +102,7 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
 
   // 3. Working directory — the WorkDef (or its story) declares where the work
   //    happens; the agent cds there and picks up that repo's conventions (pi
-  //    only auto-loads project context from its startup cwd; see WORK-MODEL.md).
+  //    only auto-loads project context from its startup cwd; see docs/DESIGN.md "The Work Model").
   if (directory) {
     out += `## Working Directory\n\nWork in \`${directory}\`. Change to that directory before starting. `;
     out += `If it contains an AGENTS.md (or CLAUDE.md), read it first and follow its instructions while working there.\n\n`;

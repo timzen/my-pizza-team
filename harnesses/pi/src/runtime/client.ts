@@ -20,7 +20,7 @@
 /**
  * The agent-protocol version this client speaks, sent at registration so the
  * daemon can refuse a version it cannot serve instead of half-working
- * (BATTERIES_INCLUDED.md §1.2, P1b). Must match `shared/protocol.ts` in the repo
+ * (docs/DESIGN.md "One Protocol, One Version", P1b). Must match `shared/protocol.ts` in the repo
  * root; tests/protocol-version.test.ts fails if they drift, and P1c-7 replaces
  * this with an import of that definition.
  *
@@ -619,7 +619,7 @@ export class DaemonClient {
   //
   // Chat v2 has no turns: the daemon queues the user's messages, this agent
   // pulls them and hands them to Pi, and the agent's own prose is mirrored back
-  // as bubbles. See my-pizza-team/docs/ASSISTANT_CHAT_V2.md.
+  // as bubbles. See my-pizza-team/docs/DESIGN.md "Assistant Chat Model".
 
   /**
    * User messages not yet handed to Pi, oldest first, plus whether we are the
@@ -674,7 +674,7 @@ export class DaemonClient {
     );
   }
 
-  // ─── Web pairing (my-pizza-team docs/TEAMMATE_CHAT.md §4) ────────────
+  // ─── Web pairing (my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate") ────────────
 
   /**
    * Poll this teammate's web-pairing intent. Drains: queued messages and a
@@ -684,7 +684,7 @@ export class DaemonClient {
     return this.get<PairingPoll>(`/api/agents/${encodeURIComponent(this.agentId)}/pairing`);
   }
 
-  // ─── Teammate transcript (watch view; my-pizza-team docs/TEAMMATE_CHAT.md §3) ─
+  // ─── Teammate transcript (watch view; my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate") ─
 
   /** Is anyone watching this agent's live transcript? Mirror only while true. */
   async isTranscriptWatched(): Promise<boolean> {

@@ -1,7 +1,7 @@
 /**
  * daemon/routes/transcripts.ts — Live teammate transcripts (watch-only).
  *
- * The HTTP face of `store/transcripts.ts` (docs/TEAMMATE_CHAT.md §3):
+ * The HTTP face of `store/transcripts.ts` (docs/DESIGN.md "Watching and Pairing with a Teammate"):
  *
  * - UI-facing: `GET /api/agents/:id/transcript/stream` (SSE). Subscribing *is*
  *   watching — the connection registers a viewer, and the `hello` frame carries

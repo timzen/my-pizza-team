@@ -26,7 +26,7 @@ import { summarizeRun, hasUsage } from "./runtime/usage.js";
  * This extension's build version, read from its own package.json.
  *
  * Reported at registration so the UI can flag an agent running an older build than
- * the daemon (BATTERIES_INCLUDED.md §1.2 — the teammate watch view and the usage
+ * the daemon (docs/DESIGN.md "One Protocol, One Version" — the teammate watch view and the usage
  * ledger both failed silently that way). The value is generated from the repo
  * root's deno.json by `deno task sync-version`, so it matches the daemon's when
  * both halves are current.

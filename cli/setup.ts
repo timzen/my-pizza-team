@@ -5,8 +5,8 @@
  * conflict rule is testable without a Pi install; apply does the smallest possible
  * set of writes and records them so `--uninstall` can undo exactly what was done.
  *
- * The rules exist because of how Pi identifies packages (docs/BATTERIES_INCLUDED.md
- * §7): a local package is identified by *resolved path*, so two registrations are
+ * The rules exist because of how Pi identifies packages (docs/DESIGN.md
+ * DESIGN.md "One Protocol, One Version"): a local package is identified by *resolved path*, so two registrations are
  * two different packages and Pi loads the extension **twice** — duplicate tools and
  * commands, two directive pollers, two heartbeats per agent. None of that announces
  * itself, so setup must guarantee exactly one registration rather than hope.

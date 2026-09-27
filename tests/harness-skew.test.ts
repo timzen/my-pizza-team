@@ -8,7 +8,7 @@
  *     refused at registration (tests/handshake.test.ts), so what's left to
  *     surface is the silent case: an agent still on an older extension that keeps
  *     working while streaming no transcript and recording no usage
- *     (BATTERIES_INCLUDED.md §1.2).
+ *     (docs/DESIGN.md "One Protocol, One Version").
  *   - Only *online* agents. Flagging every offline row would make the warning
  *     ambient, and an ambient warning is one people stop reading — the same
  *     reason P1b-3 refuses to gate on build version.

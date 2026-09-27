@@ -35,7 +35,7 @@ export interface TeamData {
   /**
    * Agents whose extension is behind the daemon. Restarting them is the fix; until
    * then they keep working while quietly skipping anything the newer protocol
-   * added (BATTERIES_INCLUDED.md §1.2).
+   * added (docs/DESIGN.md "One Protocol, One Version").
    */
   skewed: Array<{ teammate: Teammate; reason: string }>;
   dismiss: (id: string) => Promise<void>;

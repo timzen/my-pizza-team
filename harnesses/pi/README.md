@@ -72,7 +72,7 @@ configuration. A teammate registers its working directory (its pi cwd), and the
 daemon biases work by directory: a teammate preferentially picks up WorkItems
 whose story/WorkDef names its directory, falls back to un-homed work, and only
 takes another directory's work when no online teammate is homed there (see the
-daemon's `docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md`). If a teammate ends up on
+daemon's `docs/DESIGN.md "The WorkItem"`). If a teammate ends up on
 work whose directory it can't reach, it just fails that item.
 
 ```bash
@@ -180,7 +180,7 @@ conversation; the daemon chat is a mirror of it, kept in sync both ways:
 
 There is deliberately no polling of "turns", no composer lock, no `send_message`
 tool, and nothing to spawn. See
-[my-pizza-team/docs/ASSISTANT_CHAT_V2.md](../my-pizza-team/docs/ASSISTANT_CHAT_V2.md).
+[docs/DESIGN.md "Assistant Chat Model"](../../docs/DESIGN.md#assistant-chat-model-a-mirror-of-the-pi-session).
 
 
 ## Multi-Harness Spawning
@@ -201,7 +201,7 @@ Every spawn is a **teammate**: the chat is answered by the leader itself, so the
 
 Teammates work the daemon's **WorkItem queue** — the unit of agent execution.
 Workers never move tasks; the daemon reacts to a terminal WorkItem state (see the
-daemon's `docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md`):
+daemon's `docs/DESIGN.md "The WorkItem"`):
 
 1. **Poll** — `next-work` returns a `READY` WorkItem (chosen by directory affinity)
 2. **Claim** — leases it (→ `IN_PROGRESS`); gets the daemon-assembled prompt

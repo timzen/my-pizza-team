@@ -97,7 +97,7 @@ else
 fi
 
 # Propagate to the Pi extension's manifest. The daemon and the extension are one
-# protocol (BATTERIES_INCLUDED.md §1.2) and must carry one version; deno.json is
+# protocol (docs/DESIGN.md "One Protocol, One Version") and must carry one version; deno.json is
 # the source and harnesses/pi/package.json is a generated copy.
 deno task sync-version
 # Regenerate the extension's shared constants from shared/types.ts (P1c-7).

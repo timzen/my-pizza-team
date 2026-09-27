@@ -1,11 +1,11 @@
 /**
  * daemon/tmux.ts — tmux session and window control, owned by the daemon.
  *
- * Moved here from the Pi extension (docs/BATTERIES_INCLUDED.md §3.1, P3-1). The
+ * Moved here from the Pi extension (docs/DESIGN.md "The Daemon Is the Supervisor", P3-1). The
  * point of the move: while tmux lived in the extension, adding a harness meant
  * shipping extension code. With the daemon driving tmux, a non-Pi teammate needs no
  * in-process code at all — the daemon creates its window, types the prompt, and
- * watches it (Tier 0, §3.2).
+ * watches it (Tier 0, DESIGN.md "Harness Tiers, and Why Not MCP").
  *
  * Two deliberate differences from the extension's version:
  *
@@ -197,7 +197,7 @@ export interface TemplateVars {
  *
  * Templates live in team config (`TeamConfig.harnesses`) rather than in extension
  * code, which is what makes adding a harness a config change instead of a release
- * (§3.1). Substitution is literal: the result is typed into a shell by `send-keys`,
+ * (DESIGN.md "The Daemon Is the Supervisor"). Substitution is literal: the result is typed into a shell by `send-keys`,
  * and values that need quoting are quoted by the caller.
  */
 export function renderTemplate(template: string, vars: TemplateVars): string {

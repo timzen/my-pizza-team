@@ -4,7 +4,7 @@
  *
  * The daemon and the extension need the same handful of values (team directory
  * names, the default daemon URL). Two hand-maintained copies is exactly the
- * duplication BATTERIES_INCLUDED.md §1.2 warns about, and the copies had already
+ * duplication docs/DESIGN.md "One Protocol, One Version" warns about, and the copies had already
  * drifted: the extension declared `WorkflowConfig.states` as `string[]` while the
  * daemon had moved to `WorkflowState[]`.
  *
@@ -43,7 +43,7 @@ export function render(source: string): string {
 // Written by scripts/sync-shared.ts from the repo root's shared/types.ts, which is
 // the single definition of these values. Edit them there and run
 // \`deno task sync-shared\`; \`deno task test\` fails if the two drift
-// (docs/BATTERIES_INCLUDED.md §1.2, P1c-7).
+// (docs/DESIGN.md "One Protocol, One Version", P1c-7).
 //
 // Generated rather than imported because the extension is a self-contained
 // package: \`mpt setup\` writes it to a managed directory outside this repo, so a

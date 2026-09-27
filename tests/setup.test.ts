@@ -4,7 +4,7 @@
  * The planner is where the double-load hazard is either prevented or not. Pi
  * identifies a local package by resolved path, so two registrations are two packages
  * and the extension loads **twice**: duplicate tools and commands, two directive
- * pollers, two heartbeats per agent (docs/BATTERIES_INCLUDED.md §7). None of that
+ * pollers, two heartbeats per agent (docs/DESIGN.md DESIGN.md "One Protocol, One Version"). None of that
  * announces itself, so the rules are asserted rather than assumed.
  *
  * The mutation tests exist for a different reason: this edits the *user's* Pi

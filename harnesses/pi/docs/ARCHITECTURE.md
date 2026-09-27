@@ -112,7 +112,7 @@ Rework needs no special path: a human moves the task back into an agent state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new
 work — with the human's comments in the prompt. "Giving up" is the agent
 composing a comment + `FAILED` (the `fail` tool); the task is left stuck for a
-human. See the daemon's docs/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+human. See the daemon's docs/DESIGN.md "The WorkItem".
 
 ### Leader (spawn management)
 
@@ -161,7 +161,7 @@ session when the daemon was merely unreachable at leader startup.
 ### Transcript mirror (teammates; the web UI's watch view)
 
 Each teammate runs a `TranscriptMirror` (`src/transcript.ts`) so the web UI can
-show its session live at `/teammates/:id` (my-pizza-team docs/TEAMMATE_CHAT.md).
+show its session live at `/teammates/:id` (my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate").
 It's **watch-only** — nothing flows into Pi — and **streams only while watched**:
 
 ```
@@ -187,7 +187,7 @@ work loop's.
 ### Web pairing (teammates)
 
 `WebPairing` (`src/pairing.ts`) lets the web UI talk to a teammate
-(my-pizza-team docs/TEAMMATE_CHAT.md §4). It polls `GET /api/agents/:id/pairing`
+(my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate"). It polls `GET /api/agents/:id/pairing`
 (1s while the watch view is open, else 5s), which **drains** the daemon's intent:
 
 ```
@@ -210,7 +210,7 @@ item → just resume polling.
 
 The chat is answered by the **leader** — no dedicated assistant process exists (see
 DESIGN.md §5). It does not work a queue: **the Pi session is the conversation and
-the daemon mirrors it** (see my-pizza-team/docs/ASSISTANT_CHAT_V2.md). Two directions
+the daemon mirrors it** (see my-pizza-team/docs/DESIGN.md "Assistant Chat Model"). Two directions
 run concurrently:
 
 ```
@@ -433,7 +433,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
 2. **Daemon owns all state** — stories, tasks, workflows, context library, assistant conversation
-3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → set-state (COMPLETE/FAILED); workers never move tasks (the daemon reacts to a terminal WorkItem — advance + admit; see the daemon's FRONTIER_ENGINEER_REFACTOR_PLAN.md)
+3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → set-state (COMPLETE/FAILED); workers never move tasks (the daemon reacts to a terminal WorkItem — advance + admit; see the daemon's docs/DESIGN.md "The WorkItem")
 4. **Workflow-agnostic teammate** — never hardcodes state names; the state persona in the claim prompt tells it what role it plays
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing
 6. **Daemon owns the prompt** — the teammate sends `claim.prompt` verbatim and never augments it; all prompt content/wording lives in the daemon so every harness stays consistent (session-specific framing, if ever needed, would be the harness's only addition)

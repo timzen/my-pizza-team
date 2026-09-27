@@ -1,11 +1,11 @@
 /**
  * daemon/spawner.ts — the daemon realizes spawn and dismiss itself.
  *
- * The second half of §3.1's supervisor inversion. Until now the *leader* turned a
+ * The second half of DESIGN.md "The Daemon Is the Supervisor" section's supervisor inversion. Until now the *leader* turned a
  * `spawn` directive into a tmux window, which meant adding a harness required
  * shipping extension code, and meant nothing could spawn while no leader was
  * connected. With the daemon doing it, a harness is a config entry and a teammate
- * needs no in-process code at all (Tier 0, §3.2).
+ * needs no in-process code at all (Tier 0, DESIGN.md "Harness Tiers, and Why Not MCP").
  *
  * **The leader path is kept as a fallback, deliberately.** The daemon can only drive
  * tmux if it can reach it, and that is not guaranteed: started by `mpt start` it
@@ -109,7 +109,7 @@ export interface RealizeDeps {
  * `spawn` and `dismiss` are tmux work and become the daemon's. `reset-session` is
  * *left alone*: it types `/new` into an agent's window, which is harness-specific
  * behaviour (Pi's command), and the leader already does it correctly. Moving it here
- * would mean the daemon knowing each harness's slash commands — the coupling §3.1
+ * would mean the daemon knowing each harness's slash commands — the coupling DESIGN.md "The Daemon Is the Supervisor"
  * removes, reintroduced.
  *
  * Returns what happened, for logging and tests.

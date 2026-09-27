@@ -35,7 +35,7 @@ export function TeamPanel({ team }: { team: TeamData }) {
         {/*
           Version skew (P1b-4). Restarting is the fix; until then these agents keep
           working while quietly skipping whatever the newer protocol added — the
-          silent failure BATTERIES_INCLUDED.md §1.2 describes.
+          silent failure docs/DESIGN.md "One Protocol, One Version" describes.
         */}
         {skewed.length > 0 && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">

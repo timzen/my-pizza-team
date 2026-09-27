@@ -7,7 +7,7 @@
  * the held Schedule re-fires exactly once on recovery (docs/ARCHITECTURE.md
  * "Scheduler readiness gating").
  *
- * Moved here from the leader (docs/BATTERIES_INCLUDED.md §3.1, P3-2), which fixes an
+ * Moved here from the leader (docs/DESIGN.md "The Daemon Is the Supervisor", P3-2), which fixes an
  * inversion that was exactly backwards. While an *agent* reported readiness:
  *
  *   - nothing reported means "ready" (it has to — a fresh daemon knows nothing), so

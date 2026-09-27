@@ -5,7 +5,7 @@
  * help, config, theme.
  *
  * Spans only the center column (between the assistant dock and the teammate
- * sidebar), because it only navigates the center (docs/TEAMMATE_CHAT.md §2).
+ * sidebar), because it only navigates the center (docs/DESIGN.md "Watching and Pairing with a Teammate").
  * The center's width depends on the docks, so it adapts with container queries
  * (App's center column is the `@container`): the wordmark hides when narrow,
  * and the links scroll horizontally rather than wrapping or shoving the icons

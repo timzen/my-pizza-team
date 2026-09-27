@@ -2,7 +2,7 @@
 //
 // Chat v2 mirrors the assistant's *own prose* into the daemon chat instead of
 // making it call a `send_message` tool for every bubble (see
-// my-pizza-team/docs/ASSISTANT_CHAT_V2.md §5.2). That means the harness decides
+// my-pizza-team/docs/DESIGN.md "Assistant Chat Model"). That means the harness decides
 // where one bubble ends and the next begins.
 //
 // The rule: split on blank lines, because that is what the chat framing prompt

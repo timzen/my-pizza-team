@@ -4,7 +4,7 @@
 
 My Pizza Team (MPT) is a work-coordination daemon for a team of AI **teammates**. You define work, and teammates execute it autonomously by draining a **queue** of work items. You review the results in an **Inbox**.
 
-Teammates *are* AI agents — autonomous coding assistants (Pi, Claude Code, Codex, …) that connect to the daemon and poll for work. We call them "teammates" throughout the UI because that's how you work with them; "agent" is just the underlying technical term (and the one the HTTP API uses, e.g. `/api/agents`).
+Teammates *are* AI agents — autonomous [Pi](https://pi.mariozechner.at/) coding agents, each running in its own tmux window, that connect to the daemon and poll for work. We call them "teammates" throughout the UI because that's how you work with them; "agent" is just the underlying technical term (and the one the HTTP API uses, e.g. `/api/agents`). The **leader** is the one agent that isn't a teammate: it's the one you chat with (start it with `mpt lead`).
 
 The web UI at `http://localhost:7437` is your control center.
 
@@ -52,21 +52,22 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 
 ## Navigation
 
-The nav bar has four destinations, plus pause / **usage** / help / config / theme icons:
+The nav bar has five destinations, plus pause / **usage** / help / config / theme icons:
 
+- **Thoughts** — a canvas of sticky notes, where ideas start.
 - **Board** — story swimlanes; sub-tabs for Backlog, Archive, and Workflows.
-- **Tasks** — standalone Solitary WorkDefs.
+- **Tasks** — standalone Solitary WorkDefs, with a **Templates** tab.
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
-The **home page** (`/`) has two tabs — **Queue | Inbox** — work in flight, then finished work. Ideas start earlier, on **Thoughts** (first in the top nav). (Quick-create — the **+** beside the queue summary — and the assistant live in the left dock, on every page.)
+The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
 
 ### Queue
 
 The Queue is work **in flight** — every WorkItem that hasn't finished — grouped by what it needs from you:
 
 - **At risk** (MORIBUND, amber) — its teammate went silent mid-work. Nothing retries it automatically: **Force-fail** it, or **Re-enqueue** a fresh attempt.
-- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy).
+- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy). Work in a paused story, or one waiting on a dependency, isn't offered to anyone.
 - **Working** (IN_PROGRESS) — which teammate has it (click through to watch it) and for how long.
 
 You don't have to open the tab to keep an eye on it: the **queue summary** at the top of the left dock (the row beside the nav bar, above both tabs) always shows the counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview every item and its status; click it to open the Queue tab. With the dock collapsed, the rail's ⏱ badge (amber when anything is at risk) does the same.
@@ -112,7 +113,13 @@ Not all work belongs on the board. Two pages manage standalone WorkDefs:
 - **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies").
 - **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately.
 
-Both use the same create form (`New Solitary Task` / `New Scheduled Job`). **Acceptance criteria** are entered as an add-as-you-go checklist, and each line gets a live badge scoring it against [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) — normative (MUST/SHALL), recommended (SHOULD), optional (MAY), or vague — nudging you toward testable, unambiguous criteria.
+A failed run leaves the WorkDef in place — read its Thread, adjust it if needed, and **Run** it again.
+
+### Templates
+
+The **Templates** tab (on the Tasks page) holds reusable molds for one-shots you write again and again ("investigate a ticket"). A template has the same fields as a task but never runs itself: **New Task** on a template (or **Task from Template** on the Tasks page) opens a pre-filled Solitary task form.
+
+Both pages use the same create form (`New Solitary Task` / `New Scheduled Job`). **Acceptance criteria** are entered as an add-as-you-go checklist, and each line gets a live badge scoring it against [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) — normative (MUST/SHALL), recommended (SHOULD), optional (MAY), or vague — nudging you toward testable, unambiguous criteria.
 
 ---
 
@@ -122,11 +129,11 @@ The **Workflows** tab (under Board) lists workflow definitions.
 
 ### Viewing / editing a workflow
 
-Open a workflow to see its ordered states and edit them: add/remove states and set each state's **type** (**agent** or **manual**). There are no transitions or permissions to configure — the pipeline is the ordered list, and the daemon advances agent states automatically.
+Create a workflow by name (it starts as `in_progress` → `review`). Open one to see its ordered states and edit them: add/remove states and set each state's **type** (**agent** or **manual**), or make it the default. There are no transitions or permissions to configure — the pipeline is the ordered list, and the daemon advances agent states automatically. Every story picks its workflow when it's created.
 
 ### State personas
 
-Each **agent** state can have a markdown **persona** file — role framing the teammate receives when working that state (implementer, reviewer, CR-writer, …). Write clear, actionable guidance; it's injected into the prompt verbatim.
+Each **agent** state can have a markdown **persona** file — role framing the teammate receives when working that state (implementer, reviewer, CR-writer, …). Write clear, actionable guidance; it's injected into the prompt. Saving checks it: an unclosed code fence is rejected (it would swallow the rest of the prompt), and headings are nested under the prompt's own sections automatically.
 
 ---
 
@@ -171,7 +178,7 @@ Team tab's row (right of the tabs, while Team is showing) has two icons:
 - **Team size** (people icon) — the steady size of the teammate pool: set `3`
   and the daemon keeps three teammates online, spawning replacements whenever one
   is dismissed, crashes, or goes silent long enough to be reaped. An amber dot on
-  the icon means no leader is connected, so nothing can spawn yet.
+  the icon means no leader is connected, so the pool can't grow yet.
 - **Spawn** (person-plus icon) — start one teammate in a specific directory (see
   below).
 
@@ -183,9 +190,9 @@ Details:
 - The number is saved in `config.json` (also editable as **Min Teammates** on
   Config › General — leave it blank for the default), so it's the target the
   daemon applies at startup.
-- It's capped by **Max Teammates**, and it needs a **leader** connected on some
-  host — the leader is what actually starts the processes. Until one connects,
-  the box tells you so and the pool waits.
+- It's capped by **Max Teammates**, and it waits for the **leader** to be
+  connected (`mpt lead`). Until one is, the dialog tells you so. The daemon starts
+  the tmux windows itself; if it can't reach tmux, the leader does.
 - Lowering the number never kills anyone: it just stops replacements. Dismissing
   a teammate stays your call (but with a non-zero minimum, expect a fresh one to
   take its place).
@@ -194,8 +201,21 @@ Details:
   biases that repo's work toward it. It counts toward the team size like any
   other teammate.
 
-The **leader** isn't part of the pool: it's a per-host singleton — and it's the
-agent the chat talks to.
+The **leader** isn't part of the pool: there is exactly one, and it's the agent
+the chat talks to.
+
+The Team tab also shows **pending spawns** (starting up) and **failed spawns** with
+the reason (e.g. a directory that doesn't exist) — dismiss a failed one once you've
+seen it.
+
+### After an upgrade
+
+`mpt upgrade` updates the daemon and the Pi extension together, but running
+agents keep the old code until they restart. The Team tab marks each out-of-date
+teammate and shows a banner with a **Restart** button that rolls them all (their
+context is cleared). Restart the leader yourself (`mpt lead` after quitting it).
+An agent too old to speak the daemon's protocol is refused at startup with a
+message saying so.
 
 ### Recovery actions (the Queue tab)
 
@@ -204,12 +224,12 @@ agent the chat talks to.
 
 ### Managing a teammate
 
-- **Reset** (↺) — clears its context window (the harness realizes this as Pi's `/new`).
-- **Dismiss** (🗑) — removes it.
+- **Reset** (↺) — clears its context window (the leader realizes this as Pi's `/new`, so it needs the leader running).
+- **Dismiss** (🗑) — removes it; the teammate shuts itself down on its next heartbeat. With a non-zero team size, a replacement takes its place.
 
 ### Pausing distribution
 
-The **pause button** (⏸) in the navbar stops the daemon from handing out new WorkItems; in-flight work continues. Use it while reorganizing.
+The **pause button** (⏸) in the navbar stops the daemon from handing out new WorkItems; in-flight work continues. Use it while reorganizing. It isn't saved — restarting the daemon resumes distribution. To hold just one story, mark it **paused** on its page.
 
 ---
 
@@ -268,7 +288,7 @@ The chart icon in the nav opens **Usage** — what the team is spending, in toke
 - **The grid** — one square per day for the past year, darker for busier days (shade by **Tokens** or **Cost**). **Hover** a day for its tokens (input, output, cache read, cache write), cost, number of runs, and how it split between teammate work, the assistant chat, and pairing. **Click** it to list that day's runs, most expensive first.
 - **Where it went** — the year's cost split by kind.
 
-Every agent run is counted: teammates' work items, their runs while you pair with them, and the assistant chat. Tokens include **cached** input (with prompt caching, most of it), and the cost is the harness's own figure. History is kept even after its story is archived or deleted. (Usage recorded before this dashboard existed only covered teammate work, without cache tokens.)
+Every agent run is counted: teammates' work items, their runs while you pair with them, and the assistant chat. Tokens include **cached** input (with prompt caching, most of it), and the cost is the harness's own figure. History is kept even after its story is archived or deleted.
 
 The ledger is saved **in the team directory**, committed with your stories and config: `usage/YYYY-MM.jsonl`, one JSON line per run — easy to `grep` or `jq`, and it travels with the repo. (The daemon's SQLite database is just a cache of it, rebuilt on startup.)
 
@@ -278,9 +298,17 @@ The ledger is saved **in the team directory**, committed with your stories and c
 
 Visit `/config`:
 
-- **General** — port, session, team size (min/max teammates), autosave (flush/commit cadence)
-- **Teammates** — name generation
-- **Theme** — palette (a client-side preference)
+- **General** — port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, autosave (flush/commit cadence, auto-commit)
+- **Teammates** — the nouns used to name teammates
+- **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
+
+### Readiness probe
+
+If your machine sometimes can't work (expired credentials, VPN down), set a **readiness probe**: a shell command the daemon runs every 30 seconds. Exit 0 means ready; anything else means not ready, and its first line of output is the reason. While not ready, **scheduled** jobs are held instead of run — and when it recovers, each held job runs once (not once per missed tick). Board and Solitary work still run. With no probe, the team is always ready.
+
+### Autosave
+
+Your stories, tasks, notes, and usage are plain files in `.my-pizza-team/`. If that folder is inside a git repository, mpt commits it periodically (only that folder — never your own work) and pushes if there's a remote. Turn it off with **Auto Commit**.
 
 ---
 

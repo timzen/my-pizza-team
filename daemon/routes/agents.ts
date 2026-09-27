@@ -6,7 +6,7 @@
  * A WorkItem is the single unit of agent execution; its polymorphic ref points
  * at a story task or a WorkDef. The daemon owns the prompt and reacts to a
  * terminal WorkItem state (COMPLETE advances a task; FAILED leaves it stuck).
- * See docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md.
+ * See docs/DESIGN.md "The WorkItem".
  *
  * Also includes leader directives + spawn request endpoints.
  */
@@ -40,7 +40,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     //
     // Gate on the *protocol* version only. A harness whose protocol this daemon
     // cannot serve is refused here, loudly, rather than allowed to half-work: the
-    // §1.2 failure mode is an old extension that keeps running while streaming no
+    // DESIGN.md "One Protocol, One Version" failure mode is an old extension that keeps running while streaming no
     // transcript and recording no usage, with nothing to indicate why.
     //
     // Build versions are never gated on — that would reject the whole team on
@@ -242,7 +242,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           id: m.id, name: m.name, directory: m.directory, status: m.status,
           currentWork: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat,
           // Version handshake (P1b), so the UI can flag an agent whose extension
-          // is behind the daemon — §1.2's silent-skew failure made visible.
+          // is behind the daemon — DESIGN.md "One Protocol, One Version" section's silent-skew failure made visible.
           protocolVersion: m.protocolVersion, harness: m.harness, harnessVersion: m.harnessVersion,
         };
       }),
@@ -263,7 +263,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   // ─── Leader Directives (the one queue of asks for the leader) ────────
   //
-  // Not keyed by host: there is exactly one leader (BATTERIES_INCLUDED.md §3.3).
+  // Not keyed by host: there is exactly one leader (docs/DESIGN.md "One Host, One Leader").
   // These were /api/hosts/:hostId/leader/directives until P1c-1 — a breaking
   // change, which is why PROTOCOL_VERSION moved with it. An extension speaking v1
   // is refused at registration rather than left polling a 404 forever and never
@@ -292,7 +292,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   //
   // Session replacement (`new-session`, `resume-session`) has to run inside the
   // target agent via Pi's session APIs, so the agent polls its own queue rather
-  // than the leader delivering keystrokes. See docs/history/ASSISTANT_CHAT_V2.md §5.5.
+  // than the leader delivering keystrokes. See docs/DESIGN.md "Assistant Chat Model".
 
   app.get("/api/agents/:id/directives", (c) => {
     return c.json({ directives: store.getMemberDirectives(c.req.param("id")) });

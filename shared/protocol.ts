@@ -16,11 +16,11 @@ import type { WorkflowConfig } from "./types.ts";
  * agent depends on moving or changing shape. Do *not* bump it for the release
  * version: the two are deliberately separate, because gating on build version
  * would nag the whole team on every patch release until people learned to ignore
- * the warning (BATTERIES_INCLUDED.md P1b-3).
+ * the warning (docs/DESIGN.md "One Protocol, One Version").
  *
  * The daemon refuses to register an agent speaking a version it cannot serve, so
  * skew fails loudly at startup instead of silently half-working — the failure
- * mode BATTERIES_INCLUDED.md §1.2 describes, where an old extension kept running
+ * mode docs/DESIGN.md "One Protocol, One Version" describes, where an old extension kept running
  * but streamed no transcript and recorded no usage.
  *
  * History:
@@ -148,7 +148,7 @@ export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: s
 // --- Assistant Conversation (chat v2) ---
 // The chat mirrors the assistant's Pi session: there are no response turns, the
 // composer never locks, and delivery receipts advance queued -> delivered -> read
-// as the agent picks a message up. See docs/history/ASSISTANT_CHAT_V2.md.
+// as the agent picks a message up. See docs/DESIGN.md "Assistant Chat Model".
 
 /** Where a message came from: the web UI, the agent's terminal, the agent, the daemon. */
 export type AssistantOrigin = "web" | "tui" | "agent" | "system";
@@ -334,7 +334,7 @@ export interface ForceFailWorkItemRequest { reEnqueue?: boolean }
 // POST /api/work-items/re-enqueue
 export interface ReEnqueueRequest { ref: { workDefId: string } }
 
-// --- WorkDefs (every unit of work; parent-owned; see WORKDEF_UNIFICATION.md) ---
+// --- WorkDefs (every unit of work; parent-owned; see docs/DESIGN.md "WorkDefs & Parents") ---
 export interface WorkDefView {
   id: string;
   title: string;

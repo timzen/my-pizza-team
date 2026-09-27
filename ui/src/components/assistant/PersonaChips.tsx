@@ -4,7 +4,7 @@
  * A persona is a context-library entry tagged `persona`; its body becomes the
  * assistant's system prompt. Swapping is not destructive any more: the daemon
  * ends the current session (snapshotting it to markdown) and opens a new one, so
- * the old conversation stays resumable (docs/history/ASSISTANT_CHAT_V2.md §6.2).
+ * the old conversation stays resumable (docs/DESIGN.md "Assistant Chat Model").
  */
 
 import { SegmentedTabs } from "@/components/RouteTabs";

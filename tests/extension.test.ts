@@ -3,7 +3,7 @@
  *
  * `mpt setup` installs the extension by writing files rather than shelling out to
  * a package manager, which is only safe because of two facts established in
- * docs/BATTERIES_INCLUDED.md §7: the extension declares no runtime dependencies,
+ * docs/DESIGN.md DESIGN.md "One Protocol, One Version": the extension declares no runtime dependencies,
  * and Pi loads a local package from its path without copying. These tests cover
  * the mechanics; tests/version.test.ts guards the no-dependencies premise.
  */

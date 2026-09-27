@@ -1,7 +1,7 @@
 /**
  * useQueue — The live work queue (non-terminal WorkItems) plus its recovery
  * actions: cancel a READY item; force-fail a MORIBUND one, optionally
- * re-enqueuing a fresh attempt (docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md).
+ * re-enqueuing a fresh attempt (docs/DESIGN.md "The WorkItem").
  *
  * Used by the dock's summary strip (always mounted, so the counts are always
  * live) and by the Queue tab.

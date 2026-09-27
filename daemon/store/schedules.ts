@@ -1,6 +1,6 @@
 /**
  * daemon/store/schedules.ts — On-disk IO for Schedules (cron enqueuers).
- * See docs/WORKDEF_UNIFICATION.md.
+ * See docs/DESIGN.md "WorkDefs & Parents".
  *
  * A Schedule is a flat `schedules/<id>.json` file: `{ id, title?, cron,
  * lastEnqueuedAt? }`. It owns no content — it's a *parent* that fires a

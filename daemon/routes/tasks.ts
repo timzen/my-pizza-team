@@ -71,7 +71,7 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies MoveTaskResponse, 404);
     // Judgment moves are unrestricted: a human (or the leader agent) may put a
     // task anywhere in its workflow. Entering an agent state resets substatus
-    // to `ready` and clears the lease (rework path; see docs/WORK-MODEL.md).
+    // to `ready` and clears the lease (rework path; see docs/DESIGN.md "The Work Model").
     const moved = store.moveTask(taskId, body.status);
     if (!moved.ok) return c.json({ success: false, error: moved.error } satisfies MoveTaskResponse, 400);
     return c.json({ success: true } satisfies MoveTaskResponse);
@@ -84,7 +84,7 @@ export function registerTaskRoutes(ctx: RouteContext): void {
   // harnesses). The `/api/tasks/:taskId/*` duplicates resolved to the same files
   // on the same ref. The comment pair went first; attachments and token-usage
   // outlived them only because mpt-mcp-server still called them, and that harness
-  // is retired (BATTERIES_INCLUDED.md §1.3, task P1a-5).
-  // See docs/WORKDEF_UNIFICATION.md.
+  // is retired (docs/DESIGN.md "Harness Tiers, and Why Not MCP", task P1a-5).
+  // See docs/DESIGN.md "WorkDefs & Parents".
 
 }

@@ -1,7 +1,7 @@
 /**
  * daemon/store/pairing.ts — Pairing with a teammate from the web UI.
  *
- * Phase C of docs/TEAMMATE_CHAT.md. Watching is read-only; **pairing** is how
+ * Phase C of docs/DESIGN.md "Watching and Pairing with a Teammate". Watching is read-only; **pairing** is how
  * you talk to a teammate: it pauses the teammate's autonomous loop (no new
  * claims, and it won't COMPLETE or reset its session while you're talking), and
  * opens a message channel. **Releasing** hands it back, saying what to do with

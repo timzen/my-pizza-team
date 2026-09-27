@@ -1,7 +1,7 @@
 /**
  * cli/doctor.ts — `mpt doctor`: check the prerequisites and print one fix per problem.
  *
- * The problem this exists for (docs/BATTERIES_INCLUDED.md §1.1): setup is a
+ * The problem this exists for (docs/DESIGN.md "Setup Is One Command"): setup is a
  * scavenger hunt where no step checks the others, so a missing piece shows up later
  * as a *symptom* — a teammate stuck on a prompt, a chat nobody answers — rather than
  * an error. Every check here therefore carries the command or action that fixes it.
@@ -14,7 +14,7 @@
  *   - The Pi version is a **warning, not a gate**. There is no extension-API version
  *     to negotiate, and the extension's surface is seven long-stable methods, all
  *     imported as types. Blocking on an untested Pi would be a guess dressed up as
- *     a requirement (§7).
+ *     a requirement (DESIGN.md "One Protocol, One Version").
  *   - Build-version skew between daemon and extension is reported, never enforced.
  *     The protocol handshake already refuses what it cannot serve (P1b-3); gating on
  *     build version would nag on every patch release until people ignored it.
@@ -34,7 +34,7 @@ import {
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
 import { tmuxAvailable } from "../daemon/tmux.ts";
 
-/** The Pi release this build was tested against. See §7 — advisory, not a gate. */
+/** The Pi release this build was tested against. See DESIGN.md "One Protocol, One Version" — advisory, not a gate. */
 export const TESTED_PI_VERSION = "0.87.1";
 
 /** The npm package that makes autonomous teammates possible. */

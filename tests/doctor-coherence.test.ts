@@ -121,7 +121,7 @@ Deno.test("no two checks contradict each other about spawning", () => {
 });
 
 Deno.test("a leader check never appears without a running daemon to report it", () => {
-  // Two symptoms of one cause is the noise §1.1 complains about.
+  // Two symptoms of one cause is the noise DESIGN.md "Setup Is One Command" complains about.
   for (const { combo, checks } of CHECKLISTS) {
     if (combo.daemonRunning) continue;
     const named = checks.map((c) => c.name);
@@ -131,7 +131,7 @@ Deno.test("a leader check never appears without a running daemon to report it", 
 });
 
 Deno.test("every non-ok check names a fix, in every combination", () => {
-  // A problem without a next step is noise — §1.1's whole complaint.
+  // A problem without a next step is noise — DESIGN.md "Setup Is One Command" section's whole complaint.
   for (const { combo, checks } of CHECKLISTS) {
     for (const c of checks) {
       if (c.status === "ok") continue;

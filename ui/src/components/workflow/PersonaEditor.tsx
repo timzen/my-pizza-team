@@ -1,7 +1,7 @@
 /**
  * PersonaEditor — Collapsible markdown editor for each agent state's persona
  * (the role framing injected into that state's claim prompt; see the daemon's
- * docs/WORK-MODEL.md). Fetches, displays, and saves the markdown via the
+ * docs/DESIGN.md "The Work Model"). Fetches, displays, and saves the markdown via the
  * workflow instructions API endpoints (the on-disk files are unchanged:
  * workflows/<wf>/<state>.md).
  *

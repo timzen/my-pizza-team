@@ -1,7 +1,7 @@
 /**
  * PairComposer — Message a paired teammate from its watch view.
  *
- * Only rendered while paired (docs/TEAMMATE_CHAT.md §4). Two ways to send,
+ * Only rendered while paired (docs/DESIGN.md "Watching and Pairing with a Teammate"). Two ways to send,
  * because the teammate may be mid-run and interrupting it is a choice:
  *
  *   Enter          **queue** — lands after the current run (Pi followUp)

@@ -1,7 +1,7 @@
 /**
  * daemon/routes/pairing.ts — Pair with a teammate from the web UI.
  *
- * The HTTP face of `store/pairing.ts` (docs/TEAMMATE_CHAT.md §4):
+ * The HTTP face of `store/pairing.ts` (docs/DESIGN.md "Watching and Pairing with a Teammate"):
  *
  * - UI-facing: `POST .../pair` (pause its autonomous work, open the channel),
  *   `POST .../messages` (`{ text, mode: "queue" | "steer" }`, paired only),

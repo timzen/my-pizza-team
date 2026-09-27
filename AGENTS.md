@@ -32,12 +32,13 @@ Instructions for AI coding agents working on this project.
 1. **Update the docs.** Every change that affects the project's behavior, structure, or API must be reflected in:
    - `README.md` — if it changes user-facing behavior, commands, UI, directory structure, or setup
    - `QUICKSTART.md` — if it changes the getting-started flow
+   - `GUIDE.md` — if it changes what a user sees or does in the web UI
    - `docs/ARCHITECTURE.md` — if it changes modules, API routes, data flow, schema, or internal design decisions
    - `docs/DESIGN.md` — if it introduces new design principles or changes existing rationale
 
 2. **Don't skip this step.** Documentation rot is worse than no documentation. If you add a feature, add its docs in the same commit.
 
-3. **Write or update tests.** New functionality should have tests in `tests/`. Follow the existing pattern (see `tests/archive.test.mjs` for a good example).
+3. **Write or update tests.** New functionality should have tests in `tests/`. Follow the existing pattern (see `tests/templates.test.ts` for a good example; slow tests that need real git/tmux go in `tests/e2e/`).
 
 ## Project Structure Reference
 
@@ -45,6 +46,8 @@ Instructions for AI coding agents working on this project.
 my-pizza-team/
 ├── README.md                 # User-facing docs (keep updated!)
 ├── QUICKSTART.md             # Getting started guide (keep updated!)
+├── GUIDE.md                  # User guide, rendered as the in-app Help page (keep updated!)
+├── TODO.md                   # Known code issues and deferred work
 ├── docs/
 │   ├── ARCHITECTURE.md       # Internal technical docs (keep updated!)
 │   └── DESIGN.md             # Design philosophy (keep updated!)

@@ -1,7 +1,7 @@
 /**
  * daemon/routes/assistant.ts — Assistant chat, sessions, and persona routes.
  *
- * Chat v2 (see docs/history/ASSISTANT_CHAT_V2.md): the assistant chat is a mirror of the
+ * Chat v2 (see docs/DESIGN.md "Assistant Chat Model"): the assistant chat is a mirror of the
  * agent's Pi session, not a request/response queue. There are no response turns
  * — posting a message always succeeds, delivery receipts advance as the agent
  * picks it up, and the agent's own prose is mirrored back as bubbles (including
@@ -232,7 +232,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     const session = store.resumeAssistantSession(c.req.param("id"));
     if (!session) return c.json({ success: false, error: "Session not found" }, 404);
     // Without a recorded Pi session file the agent can't restore in-agent
-    // context; the UI shows the transcript and warns (see §6.2 "degraded resume").
+    // context; the UI shows the transcript and warns.
     return c.json({ success: true, session, contextRestored: !!session.piSessionPath });
   });
 

@@ -4,7 +4,7 @@
  * `mpt` carries the extension's source inside the binary (`deno compile
  * --include`), so installing it is `mpt setup` writing files rather than a
  * separate `pi install` of another repo. That is what stops the daemon and the
- * extension drifting apart — docs/BATTERIES_INCLUDED.md §1.2.
+ * extension drifting apart — docs/DESIGN.md "One Protocol, One Version".
  *
  * Two things make this simpler than it sounds:
  *

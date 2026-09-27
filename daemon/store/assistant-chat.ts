@@ -5,7 +5,7 @@
  * receipts, the agent-facing inbox, the ephemeral "thoughts" peek buffer, and
  * the SSE event stream. The Store delegates its assistant methods here.
  *
- * The model (see docs/history/ASSISTANT_CHAT_V2.md):
+ * The model (see docs/DESIGN.md "Assistant Chat Model"):
  *
  * - **The Pi session is the conversation; this is a mirror of it.** The user's
  *   messages are queued here and pulled by the extension, which hands them to

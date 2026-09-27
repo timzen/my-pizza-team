@@ -2,7 +2,7 @@
  * WorkflowDetailPage — Shows and edits a single workflow.
  *
  * A workflow is an ordered pipeline of active states between the implicit
- * `todo` and `done` buckets (see daemon docs/WORK-MODEL.md). This page renders
+ * `todo` and `done` buckets (see daemon docs/DESIGN.md "The Work Model"). This page renders
  * the pipeline, lets you edit the states (add/remove/reorder, agent|manual
  * type), and edit each agent state's persona markdown (the former "state
  * instructions" — same files, injected into that state's claim prompt).

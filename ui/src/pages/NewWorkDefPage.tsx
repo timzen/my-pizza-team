@@ -10,7 +10,7 @@
  * `?template=<id>`. Solitary work is enqueued immediately by default; Scheduled
  * work waits for its cron. On success, lands on the created item's detail page.
  *
- * See the daemon's docs/history/FRONTIER_ENGINEER_REFACTOR_PLAN.md for the model.
+ * See the daemon's docs/DESIGN.md "The WorkItem" for the model.
  */
 
 import { useState } from "react";
