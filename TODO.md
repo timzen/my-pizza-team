@@ -6,14 +6,6 @@ fixed.
 
 ## Bugs
 
-- **The pool won't grow without a leader, even when the daemon can spawn**
-  (`Store.reconcileTeammatePool` / `isLeaderOnline`). The daemon realizes `spawn`
-  directives itself when tmux is reachable, but the reconciler still returns early
-  when no leader is online ("Only a leader realizes directives"). Either gate on
-  `spawnCapability.canSpawn || isLeaderOnline()`, or keep the rule on purpose and
-  say why. `TeamSizeDialog`'s no-leader warning and `leaderPresent` follow whichever
-  is chosen.
-
 - **`deno task dev` / `deno task start` run a different daemon from `mpt start`.**
   `daemon/main.ts` never calls `probeSpawnCapability`/`realizePending` or
   `startReadinessLoop`; only `cli/start-daemon.ts` does. Under `deno task dev`,

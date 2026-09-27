@@ -209,6 +209,12 @@ It is **one-directional**: the daemon spawns up to the floor but never dismisses
 anyone. Ending a teammate stays a human act, so a reconciler can never kill work in
 flight.
 
+**The team starts when its leader does.** The pool waits for a leader even when
+the daemon can open tmux windows itself. The daemon often runs as a login service;
+without this, every login would start agents before anyone ran `mpt lead` — agents
+nobody can chat with, reset, or expected. `mpt lead` is the "start the team" step.
+A one-off spawn from the Spawn dialog is a human asking now, so it isn't held.
+
 **Default: half of `maxTeammates`** (rounded down), *derived* while unset rather
 than written to config, so raising the cap raises it too — until you declare a
 size (0 included), which always wins. "Use default" clears the declaration.

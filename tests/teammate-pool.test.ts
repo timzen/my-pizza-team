@@ -153,11 +153,15 @@ Deno.test("the target is capped by maxTeammates", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("no leader online: the pool waits instead of queueing unrealizable spawns", async () => {
+Deno.test("no leader online: the pool waits — even when the daemon could spawn", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals(store.getTeammatePool().leaderPresent, false);
+    // Deliberate: the team starts when its leader does (reconcileTeammatePool),
+    // so a daemon launched at login doesn't open agent windows on its own.
+    store.setSpawnCapability({ canSpawn: true });
     store.setMinTeammates(2);
+    store.reconcileTeammatePool();
     assertEquals((await pendingSpawns(app)).length, 0);
 
     // A leader arriving fills the pool immediately (no waiting for the tick).

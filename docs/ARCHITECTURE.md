@@ -241,7 +241,7 @@ directive with a daemon-assigned name. If the daemon can reach tmux, `realizePen
 opens a window in `config.tmuxSession` running the harness's `teammate` template
 within ~2s; otherwise the leader realizes it. The teammate registers with its tmux
 location in `metadata`, which later `dismiss` / `reset-session` directives use.
-`reconcileTeammatePool` only queues spawns while a leader is online.
+`reconcileTeammatePool` only queues spawns while a leader is online — on purpose, even when the daemon could spawn (DESIGN.md "Team Size"); a one-off Spawn-dialog spawn isn't held.
 
 ## Templates
 

@@ -2506,8 +2506,9 @@ export class Store {
   }
 
   /**
-   * Is a leader connected? Only a leader realizes directives, so without one the
-   * reconciler waits rather than piling up spawns nobody will act on.
+   * Is a leader connected? The pool reconciler waits for one (see
+   * reconcileTeammatePool for why — it is no longer because only a leader can
+   * realize a spawn).
    *
    * This was `pickPoolSpawnHost()`, returning the host a spawn should land on —
    * but it only ever found *the* leader and returned its host, which is why P1c
@@ -2556,8 +2557,15 @@ export class Store {
   /**
    * Top the teammate pool back up to `minTeammates`. Counts online teammates
    * plus not-yet-realized spawn requests (so a slow leader doesn't get a second
-   * batch), caps the target at `maxTeammates`, and needs an online leader to
-   * realize the spawns. Returns how many spawn directives were queued.
+   * batch), caps the target at `maxTeammates`, and waits for an online leader.
+   * Returns how many spawn directives were queued.
+   *
+   * **The team starts when its leader does**, even when the daemon could realize
+   * the spawns itself. The daemon often runs as a login service, so without this
+   * every login would open `minTeammates` agent windows before anyone ran
+   * `mpt lead` — agents nobody can chat with, reset (the leader types `/new`), or
+   * see coming. `mpt lead` is the "start the team" step. An explicit one-off spawn
+   * (the Spawn dialog) is a human asking now, and isn't held.
    *
    * Called on the heartbeat timer (right after offline agents are reaped, so a
    * lost teammate is replaced within one tick) and whenever the number changes.
@@ -2570,7 +2578,7 @@ export class Store {
     const deficit = target - (online + pending);
     if (deficit <= 0) return 0;
 
-    // Only a leader realizes directives, so a spawn is pointless without one.
+    // Waits for the leader even when the daemon can spawn (see above).
     if (!this.isLeaderOnline()) return 0;
 
     for (let i = 0; i < deficit; i++) {
