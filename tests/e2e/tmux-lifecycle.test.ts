@@ -21,18 +21,30 @@
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { hasTmux, sandbox, type Sandbox } from "./_sandbox.ts";
 
+/**
+ * Stand-in agent commands. Each prints a marker that only *execution* can produce —
+ * `$((40+2))` is typed into the pane literally but printed as `42`. Waiting on
+ * text that also appears in the typed command lets a wait succeed before the command
+ * has run at all, which is exactly what happened on the first CI run: fast enough
+ * locally to hide, slow enough on a GitHub runner to fail.
+ */
 const HARNESSES = {
   pi: {
-    teammate: "echo SPAWNED name={name} url={url} win={window}; sleep 30",
-    leader: "echo LEADER url={url} win={window}; sleep 30",
+    teammate: "echo SPAWNED-$((40+2)) name={name} url={url} win={window}; sleep 30",
+    leader: "echo LEADER-$((40+2)) url={url} win={window}; sleep 30",
   },
 };
 
 const windows = async (sb: Sandbox) =>
   (await sb.tmux("list-windows", "-t", sb.session, "-F", "#{window_name}")).stdout.split("\n").filter(Boolean);
 
+/**
+ * A window's contents. `-J` rejoins lines tmux wrapped at the pane width (80 columns
+ * when detached) — without it, a long URL can be split mid-token and an assertion on
+ * it fails for reasons that have nothing to do with mpt.
+ */
 const pane = async (sb: Sandbox, window: string) =>
-  (await sb.tmux("capture-pane", "-p", "-t", `${sb.session}:${window}`)).stdout;
+  (await sb.tmux("capture-pane", "-p", "-J", "-t", `${sb.session}:${window}`)).stdout;
 
 async function api<T>(sb: Sandbox, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`http://127.0.0.1:${sb.port}${path}`, body === undefined ? {} : {
@@ -58,11 +70,12 @@ Deno.test({
     // Exactly one — no stray initial window left beside the leader.
     assertEquals(await windows(sb), ["leader"]);
 
-    const ran = await sb.waitFor(async () => (await pane(sb, "leader")).includes("LEADER url="), 5000);
+    const ran = await sb.waitFor(async () => (await pane(sb, "leader")).includes("LEADER-42 "), 8000);
     assertEquals(ran, true, `leader command did not run:\n${await pane(sb, "leader")}`);
-    const out = await pane(sb, "leader");
-    assertStringIncludes(out, `url=http://localhost:${sb.port}`);
-    assertStringIncludes(out, "win=leader");
+    // Assert on the *output* line specifically, not anywhere in the pane.
+    const output = (await pane(sb, "leader")).split("\n").find((l) => l.startsWith("LEADER-42 ")) ?? "";
+    assertStringIncludes(output, `url=http://localhost:${sb.port}`);
+    assertStringIncludes(output, "win=leader");
   },
 });
 
@@ -133,7 +146,7 @@ Deno.test({
     const appeared = await sb.waitFor(async () => (await windows(sb)).includes(name), 8000);
     assertEquals(appeared, true, `no window for ${name}; windows: ${await windows(sb)}`);
 
-    const ran = await sb.waitFor(async () => (await pane(sb, name)).includes(`SPAWNED name=${name}`), 5000);
+    const ran = await sb.waitFor(async () => (await pane(sb, name)).includes(`SPAWNED-42 name=${name}`), 8000);
     assertEquals(ran, true, `teammate command did not run:\n${await pane(sb, name)}`);
 
     // And the directive was resolved rather than left pending to be re-realized.
