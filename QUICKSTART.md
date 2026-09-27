@@ -1,16 +1,24 @@
 # Quick Start 🍕
 
-Get a π pizza team running in under 5 minutes.
+Get a π pizza team running in about five minutes.
 
-## 1. Get the `mpt` executable
+You'll need **tmux** (teammates run in tmux windows) and **Node.js 22.19+** (for Pi).
+Everything below runs in **your project folder** — the repository you want the team
+to work on.
 
-Download the prebuilt binary for your platform from [GitHub Releases](https://github.com/timzen/my-pizza-team/releases/latest):
+## 1. Install `mpt`
 
-| Platform | Download |
-|----------|----------|
+Download the binary for your platform from
+[GitHub Releases](https://github.com/timzen/my-pizza-team/releases/latest). You need
+**mpt 0.18.0 or later** — earlier releases don't have `setup`, `doctor`, or `lead`.
+
+| Platform | Asset |
+|----------|-------|
 | macOS (Apple Silicon) | `mpt-darwin-arm64` |
 | macOS (Intel) | `mpt-darwin-x64` |
 | Linux (x64) | `mpt-linux-x64` |
+| Linux (ARM64) | `mpt-linux-arm64` |
+| Windows (x64) | `mpt-windows-x64.exe` — daemon and web UI; teammates need tmux, so run them under WSL |
 
 ```bash
 # Example: macOS Apple Silicon
@@ -19,80 +27,101 @@ chmod +x mpt
 sudo mv mpt /usr/local/bin/
 ```
 
-Or run from source with Deno:
+<details>
+<summary>Or build it from source</summary>
+
+Needs [Deno](https://deno.com) 2 and Node.js (the web UI is built with npm).
 
 ```bash
 git clone https://github.com/timzen/my-pizza-team.git
 cd my-pizza-team
-deno task start
+(cd ui && npm ci)
+deno task compile          # produces ./mpt, with the web UI and Pi extension inside
+sudo mv mpt /usr/local/bin/
 ```
 
-## 2. Get Pi
+</details>
 
-Install [Pi](https://pi.mariozechner.at/), the coding agent harness:
+## 2. Install Pi
+
+[Pi](https://pi.mariozechner.at/) is the coding agent your teammates run as:
 
 ```bash
 npm install -g @earendil-works/pi-coding-agent
 ```
 
-## 3. Install the Pi extension
-
-The extension lives in this repo under `harnesses/pi/`. Install it by path from a
-clone:
+**Recommended:** the permission system, which lets teammates work autonomously.
+Without it they stop at the first permission prompt and wait for you:
 
 ```bash
-git clone https://github.com/timzen/my-pizza-team.git
-pi install ./my-pizza-team/harnesses/pi
+pi install npm:@gotgenes/pi-permission-system
 ```
 
-Pi loads a local package from its path without copying, so a `git pull` is enough
-to update it.
-
-> Installing straight from a git URL isn't available for this extension: Pi's git
-> sources are whole repositories, and the extension is a subdirectory here. `mpt
-> setup` will remove this step entirely by carrying the extension inside the binary
-> — see `docs/BATTERIES_INCLUDED.md`.
-
-This adds the leader/teammate integration that connects Pi to the daemon.
-
-## 4. Create a team directory
+## 3. Set up
 
 ```bash
-mkdir my-team && cd my-team
-git init
+cd <your project>
+mpt setup --dry-run     # see what it will change (changes nothing)
+mpt setup               # do it
 ```
 
-The daemon stores stories, tasks, workflows, and knowledge in a `.my-pizza-team/` directory, auto-created on first run.
+`mpt setup` installs the Pi extension that ships inside `mpt` (so the two always match
+versions), creates the team directory `.my-pizza-team/`, and marks the folder trusted
+by Pi. It prints every change before making it, and `mpt setup --uninstall` undoes
+them.
 
-## 5. Start the daemon
+## 4. Start the daemon
 
 ```bash
 mpt start --daemon
 ```
 
-This starts the daemon in the background. It will:
-- Create `.my-pizza-team/` with default config and workflows
-- Serve the API and web UI on `http://localhost:7437`
+The daemon runs in the background and serves the web UI at
+**http://localhost:7437/**.
 
-## 6. Run Pi
+## 5. Start the leader
 
 ```bash
-pi
+mpt lead
 ```
 
-Pi auto-detects the `.my-pizza-team/` directory and activates leader mode. Create stories, set your team size, and manage your board.
+This opens the leader in a tmux window and attaches you to it. The leader is the agent
+you chat with — in that window or in the web UI, which is one conversation. Detach
+with `Ctrl-b d`; `mpt lead` again reattaches.
 
-## 7. Open the UI
+## 6. Check everything
 
-Visit **http://localhost:7437/** to see the board, manage stories, configure workflows, and monitor your team.
+```bash
+mpt doctor
+```
+
+A read-only checklist of Pi, tmux, the extension, the permission system, trust, the
+daemon, and the leader — with the command that fixes each problem. Run it whenever
+something seems off.
 
 ---
 
 ## Next steps
 
-- **Create a story** — **New Story** on the home page (pick a workflow), or add tasks to it later
-- **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for cron-driven ones
-- **Set your team size** — click the people icon next to **Team** in the teammate column (or **Min Teammates** on Config › General) and the daemon keeps that many teammates online (default: half of Max Teammates). The person-plus icon (or `/ppt-spawn` in Pi) adds a one-off teammate in a specific directory (a teammate is biased toward work in its own directory)
-- **Review results** — completed work lands in the **Inbox** on the home page
-- **Configure workflows** — the Workflows tab (under Board) to customize states and their personas
-- **Read the full docs** — see [README.md](README.md) for configuration and harness guides, or the in-app **Help** for the user guide
+- **Set your team size** — click the people icon next to **Team** in the teammate
+  column (or **Min Teammates** on Config › General). The daemon keeps that many
+  teammates online, starting them in tmux windows you can watch with
+  `tmux attach -t my-pizza-team`. The person-plus icon adds a one-off teammate in a specific
+  directory — teammates prefer work in their own directory.
+- **Create a story** — **New Story** on the home page (pick a workflow), then add
+  tasks to it.
+- **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for
+  cron-driven ones.
+- **Review results** — completed work lands in the **Inbox** on the home page.
+- **Configure workflows** — the Workflows tab (under Board) customises states and
+  their personas.
+- **Stay current** — `mpt upgrade` updates `mpt` *and* its Pi extension together.
+  Restart running agents afterwards; the Team tab flags any still on the old version
+  and can restart them.
+- **Read the full docs** — [README.md](README.md) for configuration and internals, or
+  the in-app **Help** for the user guide.
+
+> **Your team's data lives in `.my-pizza-team/`.** If your project is a git repository,
+> mpt autosaves that directory into it periodically (only that directory — your own
+> work is never included). Turn it off with `autosave.autoCommit: false` in
+> `.my-pizza-team/config.json`.

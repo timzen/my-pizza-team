@@ -2,32 +2,34 @@
 
 > A **π pizza team** (3.14 pizzas, the perfect size) — a daemon for multi-agent team coordination.
 
-Manages stories, tasks, workflows, and agent lifecycle. Connects to coding agent harnesses (Pi, Claude Code, Codex) to orchestrate autonomous teammates.
+Manages stories, tasks, workflows, and agent lifecycle, and runs a team of
+autonomous coding agents against them — each in its own tmux window you can watch.
+Agents run on [Pi](https://pi.mariozechner.at/) today; see
+[Other harnesses](#other-harnesses) for what that means for Claude Code, Codex, and
+Kiro.
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        mpt daemon                               │
-│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────────┐   │
-│  │  Stories  │  │  Tasks   │  │ Workflow  │  │  Knowledge   │   │
-│  │  & Board  │  │ & Claims │  │  Engine   │  │    Base      │   │
-│  └──────────┘  └──────────┘  └──────────┘  └──────────────┘   │
-│                         HTTP API                                 │
-└─────────────────┬───────────────┬───────────────┬───────────────┘
-                  │               │               │
-         ┌────────┘        ┌──────┘        ┌──────┘
-         ▼                 ▼               ▼
-   ┌──────────┐      ┌──────────┐   ┌──────────┐
-   │  Pi Lead │      │ Claude   │   │  Codex   │
-   │  + Team  │      │  Code    │   │ Wrapper  │
-   └──────────┘      └──────────┘   └──────────┘
+┌──────────────────────────────────────────────────────────────┐
+│                          mpt daemon                          │
+│   stories & board · work queue · workflows · chat · usage    │
+│        spawns teammates in tmux · web UI · HTTP API          │
+└───────────────┬──────────────────────────────┬───────────────┘
+                │                              │
+                ▼                              ▼
+         ┌─────────────┐              ┌──────────────────┐
+         │  Pi leader  │              │  Pi teammates    │
+         │ (you chat   │              │ (autonomous, one │
+         │  with it)   │              │  tmux window each)│
+         └─────────────┘              └──────────────────┘
 ```
 
 - **You** create stories and tasks via the web UI or API
-- **Agent harnesses** poll for work, claim tasks, do the work, and mark done
+- **Teammates** poll for work, claim tasks, do the work, and mark done
 - **The daemon** admits work (one task in flight per story), advances completed
   work, manages assignments, tracks progress
 
-📖 **New here?** See [QUICKSTART.md](QUICKSTART.md) to get running in 5 minutes.
+📖 **New here?** [QUICKSTART.md](QUICKSTART.md) gets a team running in about five
+minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, `mpt lead`.
 
 ---
 
@@ -37,13 +39,17 @@ Manages stories, tasks, workflows, and agent lifecycle. Connects to coding agent
 mpt <command> [options]
 
 Commands:
+  setup [--dry-run]     Install the Pi extension, create the team dir, trust the folder
+  setup --uninstall     Undo what setup did (leaves the team directory and its data)
+  doctor                Read-only checklist of prerequisites, with a fix for each problem
   start [--daemon|-d]   Start the daemon (foreground, or background with -d)
+  lead [--no-attach]    Start the leader in tmux and attach to it
   stop                  Stop the running daemon
   status                Check if daemon is running + show summary
-  rotate-token          Generate a new API token
+  upgrade [--check]     Update mpt *and* its Pi extension (--check only reports)
   install               Install as system service (auto-start on login)
   uninstall             Remove system service
-  upgrade [--check]     Self-update to the latest GitHub release (--check only reports)
+  rotate-token          Generate a new API token
 
 Environment:
   TEAM_DIR    Team directory or its parent (default: ./.my-pizza-team)
@@ -349,15 +355,21 @@ agent. See [docs/DESIGN.md](docs/DESIGN.md).
 
 ### Pi (Native Extension)
 
-The Pi extension in this repo (`harnesses/pi/`) provides native leader + teammate integration. Install it by path from a clone:
+The Pi extension (`harnesses/pi/` in this repo) provides the leader and teammate
+integration. It ships **inside the `mpt` binary** and `mpt setup` installs it, so the
+daemon and the extension always match versions — `mpt upgrade` moves both together.
+
+Working on the extension itself? Register your checkout instead, and `mpt setup` will
+step aside rather than replace it:
 
 ```bash
 pi install ./harnesses/pi
 ```
 
-It ships with the daemon and shares its version, so the two halves cannot drift apart. (Pi's git sources are whole repositories, so there is no git-URL install for a subdirectory; `mpt setup` will make this step unnecessary — see [docs/BATTERIES_INCLUDED.md](docs/BATTERIES_INCLUDED.md).)
-
-The leader Pi instance manages tmux, spawns teammates, and provides slash commands. Teammates run an autonomous loop: poll → claim → execute → set-state → repeat.
+The **leader** is the Pi you chat with; `mpt lead` starts it. **Teammates** are
+started by the daemon in their own tmux windows and run an autonomous loop: poll →
+claim → execute → set-state → repeat. (If the daemon can't reach tmux — possible when
+it runs as a login service — the leader starts them instead; `mpt doctor` says which.)
 
 ### Setup
 
@@ -413,9 +425,11 @@ if and when it decides to, so nothing in MCP can poll for a directive and make a
 agent act on it, mirror a transcript, or auto-approve a permission prompt. Pi
 works because its extension runs a supervisory loop alongside the agent.
 
-Broader harness support is planned, with the supervisor moving into `mpt` itself
-so any CLI agent can be driven from a tmux window. Until then, a harness can speak
-the HTTP protocol directly — see below.
+The supervisor now lives in `mpt` itself — the daemon starts teammates in tmux from
+config templates — which is what makes other harnesses feasible. **Kiro is designed
+as the next one** (one task per run, reporting back via `mpt work` commands) and
+deferred; see [docs/BATTERIES_INCLUDED.md](docs/BATTERIES_INCLUDED.md) §Phase 4. Until
+then, a harness can speak the HTTP protocol directly — see below.
 
 ### Any CLI agent (HTTP protocol)
 
