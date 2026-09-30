@@ -601,8 +601,47 @@ The board is for glancing and light triage (drag a card to move it). Clicking a
 card never opens an editor; the `details →` link opens the task page, and all
 reading, editing, and creating lives on dedicated, deep-linkable pages. The only
 modals are small, focused dialogs (team size, spawn, template picker, a thought's
-editor, a fullscreen chat bubble) and the file/diff viewer. Cards carry no state
+editor, a fullscreen chat bubble, the big editor) and the file/diff viewer. Cards carry no state
 badge (the column names the state) — only the WorkItem chip.
+
+## The Big Editor
+
+Pi and Claude Code bind **Ctrl+G** to "edit this prompt in `$EDITOR`": a real
+editor for anything longer than a line. A browser can't launch nvim, so the web UI
+brings the editor to the text instead: any text box that wires
+`ui/full-editor.tsx` opens full-screen in **CodeMirror 6** and hands the text back
+when you close it. The chord is incidental — the **Edit** button is the primary way
+in, Ctrl+G is there for muscle memory, and `/editor` works in the chat composers.
+
+Where a text box already has an Edit mode — a **Thoughts note**, and the
+markdown **description fields** on stories and WorkDefs — there is no full-screen
+step: Edit *is* the CodeMirror editor, inline, with the same vim switch. A button
+to open an editor from inside an editor would be ceremony. (A form owns saving
+there, so `:w` does nothing and `:wq` returns to Preview; a hidden textarea keeps
+the browser's native `required` validation working.)
+
+- **A library, not a hand-rolled textarea.** Indenting or continuing a list by
+  rewriting a textarea's value breaks native undo; CodeMirror keeps its own
+  history, and brings markdown list continuation, search, and vim for free. It is
+  **lazy-loaded**, so it costs nothing until someone opens it.
+- **Vim on by default, and obviously switchable.** The people who asked for this
+  live in vim, so vim keybindings (@replit/codemirror-vim) are on unless you turn
+  them off — with a labelled **Vim: On/Off** switch in the header, not a setting
+  buried in Config, remembered per browser (`mpt.editor.vim`) and shared live by
+  every editor on the page. It opens in
+  **insert mode** so typing just works for someone who has never seen vim, and the
+  status bar always says what mode you're in and how to get out.
+- **The host decides what `:w` means.** The editor only reports `write` (`:w`,
+  ⌘S), `save` (`:wq`, `:x`), `quit` (`:q`, `:q!`), and `submit` (⌘↵). In the
+  full-screen editor there's no file to keep open, so write and save both hand the
+  text back and close, and quit discards. In a note, `:w` saves and keeps you
+  writing, `:wq` finishes, and quit finishes too — a note has no discard path.
+  With vim on, **Esc belongs to vim** and never closes the editor or the dialog
+  around it; with it off, Esc closes and keeps the text.
+- **The host keeps the text.** The editor holds a buffer only while open; the host
+  (a composer's draft, a note's draft) stays the source of truth and saves the way
+  it always does. A host's primary action (Send) is bound to ⌘↵ and runs only
+  after the host has re-rendered with the edited text.
 
 ## Thoughts: Uniform Cards, and a List to Read Them
 

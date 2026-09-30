@@ -261,6 +261,9 @@ dragging its edge; on narrow screens it becomes a floating button.
 
 - **Send whenever you like.** The composer never locks; a message sent while the
   assistant is working is steered into its current run.
+- **A real editor for long prompts.** The Edit button, Ctrl+G, or `/editor` opens
+  the message full-screen in CodeMirror, vim keys on by default (one click to turn
+  off). Notes and story/task descriptions are written in it directly, inline.
 - **Real receipts.** ⧗ queued → ✓ delivered → ✓✓ read.
 - **Bubbles from prose.** Each paragraph becomes a bubble (code blocks and lists are
   never split); markdown is rendered; any bubble can be expanded or copied.

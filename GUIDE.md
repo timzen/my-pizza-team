@@ -278,6 +278,15 @@ Tag a context entry with **`persona`** to make it a swappable assistant persona.
 
 ---
 
+## The Big Editor
+
+For anything longer than a line, open the text in a full-screen editor — the web UI's version of Ctrl+G in Pi or Claude Code. It works in the **assistant chat** and the **pairing box** on a teammate's page. **Notes** and **descriptions** (a story's description, a task's goal and additional context) don't need it: their **Edit** mode *is* this editor, inline — with the same **Vim** switch beside Preview and the same mode line under the text (see [Thoughts](#thoughts)).
+
+- **Open it** with the **Edit** button beside the text box, **Ctrl+G** while typing, or by sending **`/editor`** in a chat box (`/editor some text` brings the text with you).
+- **Vim keys are on by default.** Don't want them? Click **Vim: On** in the header to turn them off — it's remembered. With vim on, the editor opens ready to type; **Esc** switches to normal mode, and the bar at the bottom always shows the mode and how to get out.
+- **Finish** with **Done**, **⌘S**, or `:wq` (vim) / **Esc** (no vim) — your text goes back into the box. In a chat box, **⌘↵** (or the **Send** button) sends it straight away. **Discard** (or `:q!`) closes without keeping changes.
+- **Write markdown comfortably** — line numbers, Enter continues lists and checklists, Tab indents, ⌘F searches, and **Preview** shows the rendered markdown beside the text.
+
 ## Thoughts
 
 A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sticky notes, organized into groups, with two ways to look at them — switch with **Canvas | List** at the right end of the toolbar (your choice is remembered). Both views share that toolbar: **+ Note** is always first, and **Archived** and the switch always sit at the right; the buttons in between belong to the view you're in.
@@ -288,7 +297,7 @@ A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sti
 ### Canvas
 
 - **Notes are all the same size** on the canvas, so the board scans as a board; a long note shows its start and fades out.
-- **Open a note** to read or write it in full: **double-click** it, click the **⤢** icon in its corner (on hover), or select it and press **Enter**. The large view opens in Preview (Edit for a new or empty note — double-click the text or hit **Edit** to write). Its header has everything else: **color**, pin, group, copy id, archive, delete. Closing it any way (Esc, Done, clicking outside, ⌘↵) **saves** — there's no way to lose an edit.
+- **Open a note** to read or write it in full: **double-click** it, click the **⤢** icon in its corner (on hover), or select it and press **Enter**. The large view opens in Preview (Edit for a new or empty note — double-click the text or hit **Edit** to write). Its header has everything else: **color**, pin, group, copy id, the **Vim** switch (while writing), archive, delete. Closing it any way (Esc, Done, clicking outside, ⌘↵) **saves** — there's no way to lose an edit.
 - **Capture** — hit **+ Note**; it opens straight into the editor. Checklists (`- [ ] task`) render as checkboxes you can tick on the canvas or in the large view.
 - **Group by dragging** — drag a note **onto a group** to add it: once it's about half over (or your pointer is), the group highlights and **grows to wrap it**, showing where it'll land before you let go. Drag a member **off every group** to take it out (its border goes dashed while it's leaving).
 - **Resize a group** with the grip on its bottom-right corner (a group always wraps its notes, so it won't shrink past them). Dragging a selection moves them all. Moving a group carries its notes; moving a group over loose notes doesn't absorb them — only a drop changes membership.
@@ -304,6 +313,8 @@ A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sti
 - Switching views keeps your place: the note selected in one is selected (and, on the canvas, centered) in the other.
 
 ### Both views
+
+- **Writing a note** uses the same editor as the [big editor](#the-big-editor) — line numbers, lists that continue on Enter, and **vim keys on by default**. Click **Vim: On** in the note's header to turn them off (remembered, and shared with the big editor). With vim on, a note opens ready to type; the line under the text shows the mode and what to press. `:w` or ⌘S saves, and `:wq` (or ⌘↵) finishes — back to Preview in the list, closed on the canvas. With vim on, **Esc** is vim's and doesn't close the canvas's large view; there's no discard — `:q!` finishes too.
 
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 

@@ -516,9 +516,11 @@ export function ThoughtsPage() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       // Never hijack keys while typing in a note/title editor.
-      const tag = (e.target as HTMLElement | null)?.tagName;
-      // The canvas's shortcuts; the list view handles its own keys.
-      if (mode !== "canvas" || openId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      // The canvas's shortcuts; the list view handles its own keys. The
+      // contenteditable check covers the big editor (CodeMirror).
+      if (mode !== "canvas" || openId || editingGroupId || tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target?.isContentEditable) return;
 
       if (e.key === "Escape") { setSelected(new Set()); setPlatePaintFor(null); return; }
       // Zoom (with modifier).

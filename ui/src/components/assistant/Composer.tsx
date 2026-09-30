@@ -5,11 +5,15 @@
  * debounce: the user may send at any time, and mid-run messages are steered into
  * the agent's current run by the extension (docs/DESIGN.md "Assistant Chat Model").
  * Enter sends, Shift+Enter is a newline, Escape clears a pending quote.
+ * Ctrl+G, the Edit button, or `/editor` + Enter open the big editor
+ * (ui/full-editor.tsx); ⌘↵ there sends.
  */
 
 import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
+import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
+import { editorCommandSeed } from "@/lib/editorPrefs";
 import { QuotedMessage } from "./QuotedMessage";
 import { Eraser, Send } from "lucide-react";
 import type { AssistantMessage } from "@/lib/assistant-types";
@@ -28,6 +32,7 @@ interface ComposerProps {
 
 export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, enabled, placeholder }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+  const editor = useFullEditor({ value: draft, onChange: onDraftChange, title: "Message", onSubmit: onSend, enabled });
 
   // Starting a reply should put the cursor in the box immediately.
   useEffect(() => {
@@ -35,6 +40,7 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
   }, [replyTo]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (editor.handleKeyDown(e)) return;
     if (e.key === "Escape" && replyTo) {
       e.preventDefault();
       onClearReply();
@@ -42,6 +48,9 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
     }
     if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
+      // `/editor` is a UI command, not a message: open the big editor instead.
+      const seed = editorCommandSeed(draft);
+      if (seed !== null) { onDraftChange(seed); editor.open(seed); return; }
       onSend();
     }
   };
@@ -65,6 +74,7 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
           className="flex-1 resize-none"
         />
         <div className="flex flex-col gap-2 self-end">
+          <FullEditorButton onClick={() => editor.open()} disabled={!enabled} className="px-1.5" />
           <Button variant="outline" size="icon" onClick={() => onDraftChange("")} disabled={!draft} title="Clear textbox">
             <Eraser className="h-4 w-4" />
           </Button>
@@ -73,6 +83,7 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
           </Button>
         </div>
       </div>
+      {editor.overlay}
     </div>
   );
 }

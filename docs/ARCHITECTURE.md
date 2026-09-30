@@ -183,7 +183,16 @@ dock's Assistant tab.
 
 **Shared UI.** `viewer/FileViewer.tsx` (attachment lightbox) and `viewer/DiffViewer.tsx`
 (line-comment review); `components/ui/*` (shadcn primitives plus markdown, title,
-directory, and back-button fields); `hooks/useApi.ts` (fetch + optional polling);
+directory, and back-button fields); the **big editor** — `ui/full-editor.tsx`
+(`useFullEditor` hook + full-screen overlay: preview, submit plumbing; and the
+shared pieces `CodeEditorSurface`, `useVimPref` — one vim setting synced live across
+editors — `VimSwitch`, `VimStatus`) lazy-loading `ui/code-editor.tsx` (CodeMirror 6
++ `@replit/codemirror-vim`, line numbers; `:w`/`:wq`/`:x`/`:q` routed per editor
+view to the host's `EditorCommands`), with its pure rules (vim default, `/editor`
+parsing) in `lib/editorPrefs.ts`. Full-screen in `Composer` and `PairComposer`; **inline** as the Edit mode of
+`ui/markdown-field.tsx` (grows with its content, `minLines`) and `NoteEditor`, where
+`NoteDialog` cancels Esc from inside a vim editor (`[data-vim="on"]`)
+(docs/DESIGN.md "The Big Editor"); `hooks/useApi.ts` (fetch + optional polling);
 `lib/assistant-types.ts` (hand-mirrored wire types).
 
 ### harnesses/pi/

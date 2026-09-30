@@ -4,9 +4,13 @@
  *
  *  - **Preview** (the default for a note with content): the rendered markdown,
  *    checklists clickable. Double-click the text, or **Edit**, to write.
- *  - **Edit** (the default for an empty/new note): a large markdown textarea.
+ *  - **Edit** (the default for an empty/new note): the CodeMirror editor, inline
+ *    (ui/code-editor.tsx) — vim keys on by default, with the **Vim** switch in the
+ *    header and a mode/how-to-get-out line under the text (docs/DESIGN.md "The
+ *    Big Editor"). `:w`/⌘S save, `:wq`/`:x`/`:q`/⌘↵ finish (there is no discard:
+ *    `:q!` finishes too, because a note never loses a thought).
  *  - The header holds everything you do *to* a note: color, pin, group, copy id,
- *    edit/preview, archive, delete.
+ *    vim, edit/preview, archive, delete.
  *
  * Saving differs by where it's shown, because the two are used differently:
  *
@@ -21,6 +25,8 @@
 import { useEffect, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { CodeEditorSurface, VimStatus, VimSwitch, useVimPref } from "@/components/ui/full-editor";
+import type { VimMode } from "@/components/ui/code-editor";
 import { THOUGHT_COLORS, dotClass, noteClass } from "@/lib/thoughtColors";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { Archive, Eye, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
@@ -70,6 +76,8 @@ export function NoteEditor({
   const [draft, setDraft] = useState(note.content);
   const [mode, setMode] = useState<"preview" | "edit">(startEditing || !note.content.trim() ? "edit" : "preview");
   const inDialog = onDone !== undefined;
+  const [vimOn, setVimOn] = useVimPref();
+  const [vimMode, setVimMode] = useState<VimMode>("insert");
 
   // The last content known to be saved. A ref (not `note.content`) so the
   // unmount flush below compares against what *this* editor last persisted.
@@ -96,6 +104,8 @@ export function NoteEditor({
 
   /** Dialog mode: save, then close. */
   const done = () => { flush(); onDone?.(); };
+  /** Finish writing: close the dialog, or save and return to Preview in the pane. */
+  const finish = () => { if (inDialog) done(); else { flush(); setMode("preview"); } };
   useEffect(() => {
     if (!closeRef) return;
     closeRef.current = done;
@@ -135,6 +145,7 @@ export function NoteEditor({
         </select>
         {idChip}
         <div className="ml-auto flex items-center gap-1">
+          {mode === "edit" && <VimSwitch on={vimOn} onChange={setVimOn} className="mr-1" />}
           <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setMode(mode === "edit" ? "preview" : "edit")} title={mode === "edit" ? "Preview" : "Edit"}>
             {mode === "edit" ? <><Eye className="mr-1 h-4 w-4" />Preview</> : <><Pencil className="mr-1 h-4 w-4" />Edit</>}
           </Button>
@@ -158,25 +169,36 @@ export function NoteEditor({
       </div>
 
       {/* Body, tinted like the note */}
-      <div className={`min-h-0 flex-1 overflow-y-auto border-0 ${noteClass(note.color)}`}>
+      <div className={`min-h-0 flex-1 border-0 ${mode === "edit" ? "overflow-hidden" : "overflow-y-auto"} ${noteClass(note.color)}`}>
         {mode === "edit" ? (
-          <textarea
-            autoFocus
-            // Caret at the end: opening a note to write usually means adding to it.
-            onFocus={(e) => { const end = e.currentTarget.value.length; e.currentTarget.setSelectionRange(end, end); }}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-            onBlur={() => { if (!inDialog) flush(); }}
-            onKeyDown={(e) => {
-              if ((e.metaKey || e.ctrlKey) && e.key === "Enter") {
-                e.preventDefault();
-                // ⌘↵ finishes: closes the dialog, or saves and returns to Preview in the pane.
-                if (inDialog) done(); else { flush(); setMode("preview"); }
-              }
-            }}
-            className="h-full w-full resize-none bg-transparent p-6 font-mono text-sm leading-relaxed outline-none"
-            placeholder="Write a thought… (markdown)"
-          />
+          <div className="flex h-full min-h-0 flex-col">
+            <div className="min-h-0 flex-1">
+              <CodeEditorSurface
+                initial={draft}
+                vim={vimOn}
+                fontSize={15}
+                onChange={setDraft}
+                onVimMode={setVimMode}
+                placeholder="Write a thought… (markdown)"
+                commands={{
+                  write: flush,
+                  save: finish,
+                  // A note has no discard path (see the header comment): :q and :q! finish.
+                  quit: finish,
+                  submit: finish,
+                }}
+              />
+            </div>
+            <div className="flex h-7 shrink-0 items-center gap-3 border-t border-foreground/10 px-4 text-xs text-muted-foreground">
+              <VimStatus
+                vim={vimOn}
+                mode={vimMode}
+                insertHint={`Esc for normal mode · ⌘↵ ${inDialog ? "to close" : "for Preview"}`}
+                normalHint={`i to type · :w saves · :wq ${inDialog ? "closes" : "for Preview"} · or switch Vim off above`}
+                plainHint={`⌘↵ ${inDialog ? "to close" : "for Preview"} · Tab indents · Enter continues lists`}
+              />
+            </div>
+          </div>
         ) : (
           <div className="min-h-full cursor-text p-6" onDoubleClick={() => setMode("edit")} title="Double-click to edit">
             {draft.trim() ? (
