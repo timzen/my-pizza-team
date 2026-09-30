@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Settings, Plus, X, Save } from "lucide-react";
 
@@ -36,6 +37,8 @@ interface ConfigData {
   teammates?: TeammateConfig;
   defaultNouns?: string[];
   readinessProbe?: string;
+  /** Auto triage (docs/DESIGN.md "Auto Triage"). Unset = on, hourly, 10 min quiet. */
+  triage?: { enabled?: boolean; intervalMinutes?: number; quietMinutes?: number };
 }
 
 type Tab = "general" | "teammates" | "theme";
@@ -198,6 +201,9 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
         </CardContent>
       </Card>
 
+      {/* Auto triage: a teammate reads each changed note and proposes work. */}
+      <TriageSettings config={config} setConfig={setConfig} />
+
       <Card>
         <CardContent className="p-4 space-y-3">
           <h2 className="font-semibold">Autosave</h2>
@@ -231,6 +237,106 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// --- Auto triage (docs/DESIGN.md "Auto Triage") ---
+
+/**
+ * The sweep's settings plus the instructions it follows (`triage.md`). The
+ * instructions save on their own — they're a file, not part of config.json — like
+ * a workflow persona.
+ */
+function TriageSettings({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
+  const t = config.triage ?? {};
+  const enabled = t.enabled !== false;
+  const setTriage = (patch: Partial<NonNullable<ConfigData["triage"]>>) =>
+    setConfig({ ...config, triage: { ...t, ...patch } });
+
+  const { data } = useApi<{ content: string; default: string }>("/api/triage/instructions");
+  const [draft, setDraft] = useState<string | null>(null);
+  const [saved, setSaved] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const content = draft ?? data?.content ?? "";
+  const usingDefault = (data?.content ?? "") === "" && draft === null;
+
+  const saveInstructions = async () => {
+    setSaving(true);
+    await apiPut("/api/triage/instructions", { content });
+    setSaving(false);
+    setSaved(true);
+    setTimeout(() => setSaved(false), 2000);
+  };
+
+  return (
+    <Card>
+      <CardContent className="space-y-3 p-4">
+        <h2 className="font-semibold">Auto Triage</h2>
+        <p className="text-xs text-muted-foreground">
+          A teammate reads each note whose text you've changed and comments with an analysis,
+          leaning toward work worth creating. Finished runs land in your Inbox; a badge on the
+          note opens its triage page.
+        </p>
+        <div className="grid grid-cols-[160px_1fr] items-center gap-3">
+          <Label htmlFor="triage-enabled">Enabled</Label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              id="triage-enabled"
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setTriage({ enabled: e.target.checked })}
+            />
+            Read changed notes and propose work
+          </label>
+          <Label>Sweep Interval (min)</Label>
+          <div className="space-y-1">
+            <Input
+              type="number"
+              min={1}
+              value={t.intervalMinutes ?? 60}
+              onChange={(e) => setTriage({ intervalMinutes: Math.max(1, parseInt(e.target.value) || 60) })}
+              className="max-w-[120px]"
+            />
+            <p className="text-xs text-muted-foreground">Takes effect when the daemon restarts.</p>
+          </div>
+          <Label>Quiet Period (min)</Label>
+          <div className="space-y-1">
+            <Input
+              type="number"
+              min={0}
+              value={t.quietMinutes ?? 10}
+              onChange={(e) => setTriage({ quietMinutes: Math.max(0, parseInt(e.target.value) || 0) })}
+              className="max-w-[120px]"
+            />
+            <p className="text-xs text-muted-foreground">
+              How long a note is left alone after your last edit, so a half-written thought isn't read.
+            </p>
+          </div>
+        </div>
+
+        <div className="space-y-2 border-t border-border pt-3">
+          <div className="flex items-center justify-between">
+            <Label>Instructions (triage.md)</Label>
+            <div className="flex items-center gap-2">
+              {usingDefault && <span className="text-xs text-muted-foreground">using the built-in default</span>}
+              {saved && <span className="text-xs text-green-600">Saved</span>}
+              <Button size="sm" variant="outline" disabled={saving} onClick={saveInstructions}>Save instructions</Button>
+            </div>
+          </div>
+          <Textarea
+            rows={8}
+            value={content}
+            placeholder={data?.default}
+            onChange={(e) => setDraft(e.target.value)}
+            className="font-mono text-xs"
+          />
+          <p className="text-xs text-muted-foreground">
+            What every triage run is told, before the note itself. Leave it empty to use the
+            built-in default (shown greyed out above).
+          </p>
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

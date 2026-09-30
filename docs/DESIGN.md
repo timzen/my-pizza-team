@@ -222,6 +222,18 @@ turn.
 - **The badge is the latest analysis's outcome, not a count** — and nothing once
   every proposal in it has been decided.
 
+**Notes stay clean; triage lives on its own page.** A note's view gains nothing at
+all. Its whole triage footprint is a small badge on the card and list row, which
+opens `/thoughts/:id/triage`: the note read-only on the left (with **Edit note** back
+to it — `?note=` selects and centres it), the latest analysis and its pending
+proposals on the right with **Accept / Edit / Reject**, and earlier rounds below.
+**Edit** opens the proposal's fields in the same widgets the create forms use and
+sends them as overrides, so one gesture covers "nearly right, but…". Every terminal
+run is in the **Inbox** whatever its outcome — that's the notification, and the row
+links to the triage page rather than the container WorkDef. Because the badge shows
+an outcome rather than a count, and because notes are for thinking, nothing about
+triage interrupts writing one.
+
 *Why not a comment thread on notes?* It's the same thing built twice. A WorkDef
 already has an append-only thread, attachments, a cost tally, and an Inbox row, and
 "a note is an enqueuer" is exactly what a parent is.

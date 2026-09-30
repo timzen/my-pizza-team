@@ -176,6 +176,7 @@ dock's Assistant tab.
 - `pages/NewWorkDefPage.tsx` — Shared create form (`/work-defs/new?type=Solitary|Scheduled|Template`, `&template=<id>` to pre-fill): cron presets and auto-created Schedule for Scheduled, "enqueue now" for Solitary. Acceptance criteria use `ui/acceptance-criteria-editor.tsx` (RFC 2119 scoring).
 - `pages/WorkDefDetailPage.tsx` — Standalone WorkDef view/edit with Details/Thread tabs and Run now.
 - `pages/ContextPage.tsx` — The context library (`board/ContextSelector.tsx` attaches entries elsewhere).
+- `pages/TriagePage.tsx` — A note's triage page (`/thoughts/:id/triage`): where a note becomes work — the note, the latest analysis, Accept / Edit / Reject per proposal, earlier rounds, Triage now. See "Thoughts" above.
 - `pages/ThoughtsPage.tsx` — Thoughts: owns the notes, groups, and every mutation, and switches between two views (**Canvas | List**, `mpt.thoughts.view` in `localStorage`), carrying the selection across. Both sit under one shared toolbar row the page renders — **+ Note** first, then the view's own tools (canvas: Group, Tidy, Select, Map; list: Folder), and at the right zoom (canvas only), Archived, and the switch — so the fixed controls never move when you change view. The **canvas** is this page: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer; geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`. The **list** is `thoughts/ThoughtsList.tsx`: folders (groups, alphabetical, collapsible — `mpt.thoughts.collapsedFolders`) then ungrouped notes, search, ↑/↓, drag a row onto a folder to file it, and the selected note in a pane. Its rules (titles/snippets, ordering, search, keyboard order, and where a note lands on the canvas when the list files it — `placeForGroupChange`, `slotInPlate`, `slotBelowAll`) are pure in `lib/thoughtList.ts`. Both views edit through `thoughts/NoteEditor.tsx`: framed by `thoughts/NoteDialog.tsx` on the canvas (saves on close) and inline in the list (autosaves). `thoughts/CopyId.tsx` is the copy-id chip.
 - `pages/UsagePage.tsx` — Tiles, a 53-week contribution grid, and the cost split by kind; pure helpers in `lib/usage.ts`.
 - `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
@@ -322,6 +323,20 @@ decision; `existingWorkDefId`/`overrides` serve the UI's "Edit" path),
 failure carries a `code` so routes map it to 404/409 without reading the message. The
 teammate posts through `propose_work` (harnesses/pi/src/tools.ts →
 `POST /api/agents/work-items/:id/proposals`, holder-only and triage-only).
+
+**UI.** `pages/TriagePage.tsx` (`/thoughts/:id/triage`) is the whole surface: the note
+read-only, the latest analysis, pending proposals with Accept / Edit (an override form
+built from `editableFields`, reusing `AcceptanceCriteriaEditor` and `DirectoryInput`) /
+Reject, earlier rounds, and **Triage now**. `thoughts/TriageBadge.tsx` is a note's only
+triage footprint on the canvas card and list row, fed by one `/api/triage/badges` poll
+in `ThoughtsPage`. Wording and the hand-mirrored wire types live in `lib/triage.ts`
+(`badgeTitle`, `outcomeLabel`, `kindLabel`, `editableFields`, `triageNowBlocked`,
+`analysesWithDecisions`); `lib/work-item-link.ts` routes a `thought`-parented item to
+the triage page (`hasThreadTab` is false for it, so the Inbox doesn't deep-link a
+Thread tab it hasn't got). `ThoughtsPage` accepts `?note=<id>` to select and centre one
+note (adjusted during render — React's "adjusting state when a prop changes" — since
+the notes load asynchronously). Config's General tab holds the sweep settings and the
+`triage.md` editor (saved on its own, like a workflow persona).
 
 ## Scheduler readiness gating
 

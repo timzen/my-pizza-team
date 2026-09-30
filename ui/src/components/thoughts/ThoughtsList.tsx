@@ -25,6 +25,8 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { ChevronDown, ChevronRight, Pin, Search, X } from "lucide-react";
 import { NoteEditor } from "@/components/thoughts/NoteEditor";
 import { CopyId } from "@/components/thoughts/CopyId";
+import { TriageBadge } from "@/components/thoughts/TriageBadge";
+import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
 import { dotClass } from "@/lib/thoughtColors";
 import { buildThoughtTree, neighbourAfterRemoval, noteSnippet, noteTitle, visibleOrder } from "@/lib/thoughtList";
 
@@ -53,6 +55,8 @@ export interface ThoughtsListProps {
   onPin: (id: string, pinned: boolean) => void;
   onArchive: (id: string) => void;
   onDelete: (id: string) => void;
+  /** Auto-triage badges by note id (docs/DESIGN.md "Auto Triage"); absent = none. */
+  badges?: Record<string, TriageBadgeState>;
 }
 
 const COLLAPSED_KEY = "mpt.thoughts.collapsedFolders";
@@ -77,7 +81,7 @@ function shortDate(iso: string): string {
 }
 
 export function ThoughtsList(props: ThoughtsListProps) {
-  const { notes, groups, selectedId, onSelect, editingId, renameGroupId } = props;
+  const { notes, groups, selectedId, onSelect, editingId, renameGroupId, badges } = props;
   const [query, setQuery] = useState("");
   const [collapsed, setCollapsedState] = useState<Set<string>>(readCollapsed);
   const [renaming, setRenaming] = useState<{ id: string; title: string } | null>(null);
@@ -202,6 +206,7 @@ export function ThoughtsList(props: ThoughtsListProps) {
           <span className="flex items-center gap-1">
             <span className={`truncate text-sm ${title ? "font-medium" : "italic text-muted-foreground"}`}>{title || "Empty note"}</span>
             {n.pinned && <Pin className="h-3 w-3 shrink-0 text-amber-500" aria-label="Pinned" />}
+            <TriageBadge noteId={n.id} badge={badges?.[n.id]} className="ml-auto" />
           </span>
           <span className="flex gap-2 text-xs text-muted-foreground">
             <span className="shrink-0">{shortDate(n.updatedAt)}</span>

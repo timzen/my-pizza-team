@@ -11,70 +11,29 @@ number. Delete an item when it's done.
   mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
   move the member's in-flight items to MORIBUND in `removeMember`.
 
-## Auto Triage — stages 1–2 built; the UI to go
+## Auto Triage — built
 
-**Built** (docs/DESIGN.md "Auto Triage: a Note Is a Parent", docs/ARCHITECTURE.md
-"Thoughts"):
+A teammate reads each note whose text you've changed and proposes what should become
+work; you accept, edit, or reject from the note's triage page. Shipped in three
+stages; the design now lives in docs/DESIGN.md "Auto Triage: a Note Is a Parent" and
+docs/ARCHITECTURE.md "Thoughts", with the user-facing half in GUIDE.md.
 
-- **Stage 1** — the `thought` parent kind and derived type **Triage**, lazy
-  `triage-<noteId>` containers, the turn rule (`daemon/triage.ts`), the hourly sweep
-  and `triage` config, `triage.md` + `buildTriagePrompt`, **Triage now**, the
-  note-lifecycle cascade, and the guards keeping the generic WorkDef verbs off a
-  triage container.
-- **Stage 2** — `propose_work` (validated, holder-only, triage-only), analyses as
-  comments carrying `outcome` + `proposals`, decisions appended to the same
-  `comments.jsonl`, the fold (`foldProposals`, `triageBadge`, `pendingProposals`),
-  accept (creating `task`/`story-task`/`story`/`schedule`, with `origin` frontmatter)
-  and reject, earlier decisions fed to the next run's prompt, and the routes
-  (`GET /api/thoughts/:id/triage`, `/api/triage/badges`, accept/reject).
+Tests: tests/triage.test.ts (42), tests/triage-ui.test.ts (8),
+harnesses/pi/tests/tools.test.mjs.
 
-Tests: tests/triage.test.ts (42), harnesses/pi/tests/tools.test.mjs.
+Known gaps / ideas, none blocking:
 
-**Stage 3 — UI.**
-
-- **The note stays clean.** Its view gains nothing; the only addition is a small
-  **state badge** on the card and list row — shape, not color, like teammate status
-  — showing the *latest analysis's outcome*, not a count:
-
-| Latest analysis | Badge |
-|---|---|
-| proposals, at least one pending | **proposal** (e.g. a lightbulb) |
-| proposals, all decided | none — dealt with |
-| nothing to do | **nothing** (e.g. a dash) |
-| a question for you | **question** — answer it by editing the note |
-| never triaged, or first run queued | none |
-
-- **The triage page**, `/thoughts/:id/triage` (a page, per "Pages over Modals"): the
-  note read-only on the left with an **Edit note** link, the latest analysis on the
-  right with **Accept / Edit / Reject** per proposal, earlier analyses and decisions
-  below, and **Triage now**. **Edit** is the "make it more detailed work" path: the
-  normal New Task / New Story / schedule form, pre-filled, whose save records the
-  acceptance.
-- **The Inbox row** is the notification — every terminal run is there whatever its
-  outcome. `lib/work-item-link.ts` needs a `thought` parent case (→ the triage page);
-  today those rows point at the WorkDef page, which shows the thread but is a
-  container. The row should show the outcome.
-- **Config + `triage.md` editor** (like `workflow/PersonaEditor`). Note:
-  `intervalMinutes` only re-arms the timer on daemon restart.
-- No cross-note list of pending proposals for now; if it's wanted, it's probably an
-  Inbox feature rather than a third Thoughts view.
-
-### Decisions (2026-09-29)
-
-1. **On by default** (`triage.enabled: true`). With no cap, the first sweep after
-   upgrading triages every non-archived, non-empty note — accepted.
-2. **No cap per sweep** for now.
-3. **A failed run counts as analyzed** (the version is stamped at enqueue), so a note
-   that breaks triage doesn't cost a run every hour. **Triage now** retries it.
-4. **Prompt context:** the note, its **group name** (light context, like a label),
-   earlier analyses, and the open stories (so it can propose `story-task`). Not the
-   other notes in the group.
-5. **The note's own view stays clean;** everything triage lives on its own page,
-   reached by the badge — or from the Inbox row, which is the actual notification.
-   Every terminal triage run appears in the Inbox whatever its outcome: work done is
-   never hidden.
-6. **The badge is the outcome** (proposal / nothing / question), not a count.
-7. **Only the agent comments** on a triage thread; you answer by editing the note.
+- **No cross-note list of pending proposals.** Badges and Inbox rows are the only way
+  in. If it's wanted, it's probably an Inbox filter rather than a third Thoughts view.
+- **`intervalMinutes` only re-arms on daemon restart** (the timer is created in
+  `startTimers`). Enabling/disabling and the quiet period take effect next sweep.
+- **A story proposal's tasks aren't editable before accepting** — only its title and
+  directory are; edit the tasks on the story afterwards.
+- **The badge polls every 60s** (`/api/triage/badges`), so a newly finished run can
+  take a minute to show up on the board. The Inbox is quicker.
+- **`Select` renders its raw value** rather than the item's label in Config's Autosave
+  card ("true"/"false" instead of Yes/No) — pre-existing, not triage's, but the reason
+  the triage toggle is a checkbox.
 
 ## Other harnesses (Kiro, Claude Code) over ACP — experimental
 

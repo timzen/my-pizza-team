@@ -14,6 +14,7 @@ import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
 import { RootPage } from "./pages/RootPage";
 import { ThoughtsPage } from "./pages/ThoughtsPage";
+import { TriagePage } from "./pages/TriagePage";
 import { BoardPage } from "./pages/BoardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
@@ -56,6 +57,8 @@ function App() {
               {/* The chat lives in the dock now; keep the old URL working. */}
               <Route path="/assistant" element={<OpenAssistantTab><Navigate to="/" replace /></OpenAssistantTab>} />
               <Route path="/thoughts" element={<ThoughtsRoute />} />
+              {/* A note's triage page: where it becomes work (docs/DESIGN.md "Auto Triage"). */}
+              <Route path="/thoughts/:id/triage" element={<TriagePage />} />
               <Route path="/queue" element={<RootPage />} />
               <Route path="/context" element={<ContextPage />} />
               <Route path="/board" element={<BoardPage />} />

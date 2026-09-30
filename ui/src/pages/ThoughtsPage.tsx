@@ -24,12 +24,15 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { Plus, Minus, Trash2, Archive, ArchiveRestore, SquareStack, X, FolderPlus, Palette, LayoutGrid, BoxSelect, Map as MapIcon, Maximize2, StickyNote, ListTree } from "lucide-react";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { NoteDialog } from "@/components/thoughts/NoteDialog";
 import { ThoughtsList } from "@/components/thoughts/ThoughtsList";
 import { CopyId } from "@/components/thoughts/CopyId";
+import { TriageBadge } from "@/components/thoughts/TriageBadge";
+import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
 import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
 import { NOTE_W, NOTE_H, centerViewOn, dropTarget, groupsByNoteCount, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
@@ -67,6 +70,12 @@ function nextRotatedColor(notes: Thought[]): string {
 
 export function ThoughtsPage() {
   const { data, refetch } = useApi<ThoughtsData>("/api/thoughts?status=active");
+  // Auto-triage badges, keyed by note id (docs/DESIGN.md "Auto Triage"). One call
+  // for the whole board; only notes with something to show are in it.
+  const { data: triageData } = useApi<{ badges: Record<string, TriageBadgeState> }>(
+    "/api/triage/badges", [], { pollInterval: 60_000 },
+  );
+  const badges = triageData?.badges ?? {};
   const { data: archivedData, refetch: refetchArchived } = useApi<ThoughtsData>("/api/thoughts?status=archived");
 
   const [notes, setNotes] = useState<Thought[]>([]);
@@ -78,6 +87,7 @@ export function ThoughtsPage() {
   // Canvas or list (remembered). The list has its own selection: the note shown
   // in its pane, and the one just created there (which opens in Edit).
   const [mode, setModeState] = useState<ViewMode>(() => (localStorage.getItem(VIEW_KEY) === "list" ? "list" : "canvas"));
+  const [searchParams] = useSearchParams();
   const [listSelectedId, setListSelectedId] = useState<string | null>(null);
   const [listEditingId, setListEditingId] = useState<string | null>(null);
   // A folder the list should put into rename mode (one just created from the toolbar).
@@ -474,6 +484,28 @@ export function ThoughtsPage() {
   };
 
   // ─── List view ───────────────────────────────────────────────────
+  // `?note=<id>` selects that note on arrival (and centers it on the canvas), so a
+  // link *to a note* works — the triage page's "Edit note" is one.
+  //
+  // Adjusted during render rather than in an effect (React's "adjusting state when
+  // a prop changes"): the notes arrive asynchronously, and the re-render they cause
+  // is what re-checks this. Guarded by the id it has already handled, so it fires
+  // once per link and never fights the user's own selection.
+  const noteParam = searchParams.get("note");
+  const [focusedParam, setFocusedParam] = useState<string | null>(null);
+  const paramTarget = noteParam && noteParam !== focusedParam
+    ? notes.find((x) => x.id === noteParam)
+    : undefined;
+  if (paramTarget) {
+    setFocusedParam(noteParam);
+    setListSelectedId(paramTarget.id);
+    setSelected(new Set([paramTarget.id]));
+    if (mode === "canvas") {
+      const box = { left: paramTarget.x, top: paramTarget.y, right: paramTarget.x + NOTE_W, bottom: paramTarget.y + NOTE_H };
+      setView((v) => ({ ...v, ...centerViewOn(box, vpSize.w, vpSize.h, v.scale) }));
+    }
+  }
+
   // Switching carries the selection across: a single canvas selection becomes
   // the list's note, and the list's note is selected and centered on the canvas.
   const setMode = (next: ViewMode) => {
@@ -624,6 +656,7 @@ export function ThoughtsPage() {
           onPin={setPinned}
           onArchive={archive}
           onDelete={remove}
+          badges={badges}
         />
       ) : (<>
       {/* Canvas viewport */}
@@ -741,6 +774,15 @@ export function ThoughtsPage() {
               >
                 <Maximize2 className="h-3.5 w-3.5" />
               </button>
+
+              {/* Auto-triage badge (top-left): a note's only triage footprint. It
+                  opens the triage page, where the note becomes work. */}
+              <TriageBadge
+                noteId={n.id}
+                badge={badges[n.id]}
+                className="absolute left-1 top-1 bg-background/70"
+                onPointerDown={(e) => e.stopPropagation()}
+              />
 
               {/* Group membership chip (bottom-left) + copyable note id (bottom-right), on hover. */}
               {n.groupId && (
