@@ -5,9 +5,11 @@
  * return JSON conforming to these interfaces.
  */
 
-import type { WorkflowConfig } from "./types.ts";
+import type { MemberSessionStats, WorkflowConfig } from "./types.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
+// (Additive, optional routes — like POST /api/agents/:id/session-stats — are not
+// a protocol change: an older harness simply never calls them.)
 
 /**
  * The agent-protocol version this build speaks.
@@ -284,6 +286,11 @@ export interface AgentRegisterResponse {
 // POST /api/agents/heartbeat
 export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" | "pairing" | "offline"; currentTask?: string }
 export interface AgentHeartbeatResponse { success: boolean }
+
+// POST /api/agents/:id/session-stats — context-window fill and session cost,
+// after every turn (see MemberSessionStats). The daemon stamps `at`.
+export type AgentSessionStatsRequest = Omit<MemberSessionStats, "at">;
+export interface AgentSessionStatsResponse { success: boolean; error?: string }
 
 // GET /api/agents/next-work?agentId=X
 export interface AgentNextWorkResponse { workItem: { id: string; title: string } | null }

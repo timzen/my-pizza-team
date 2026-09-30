@@ -330,6 +330,28 @@ export interface Member {
 }
 
 /**
+ * A live agent's harness session, as the Team tab shows it: the model it's
+ * running, how full its context window is, and what the session has cost so far
+ * — what Pi's own footer shows. Reported by the harness after every turn (`POST
+ * /api/agents/:id/session-stats`); held in memory only, like connection state,
+ * and cleared when the agent (re)registers, i.e. starts a fresh session.
+ */
+export interface MemberSessionStats {
+  /** Tokens in the context window, or null when unknown (e.g. just after compaction). */
+  contextTokens: number | null;
+  /** The model's context window size, or null when the harness doesn't know it. */
+  contextWindow: number | null;
+  /** contextTokens as a percentage of contextWindow (0–100), or null when unknown. */
+  contextPercent: number | null;
+  /** The session's cumulative cost in USD (Pi's cache-aware total). */
+  costUsd: number;
+  /** The model the session is running, or null when none is selected / unknown. */
+  model: { id: string; name: string; provider: string } | null;
+  /** When it was reported (epoch ms). */
+  at: number;
+}
+
+/**
  * The team's current readiness, from an optional probe (e.g. "are the shared
  * credentials on this box valid?").
  *

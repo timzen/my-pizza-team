@@ -504,6 +504,23 @@ export class DaemonClient {
     return this.post<{ success: boolean }>(`/api/agents/${encodeURIComponent(this.agentId)}/usage`, usage);
   }
 
+  /**
+   * Report this session's model, context-window fill, and cost, for the Team tab
+   * (see runtime/session-stats.ts). Never throws — it's display-only, and an
+   * older daemon without the route just ignores it.
+   */
+  async reportSessionStats(stats: {
+    contextTokens: number | null;
+    contextWindow: number | null;
+    contextPercent: number | null;
+    costUsd: number;
+    model: { id: string; name: string; provider: string } | null;
+  }): Promise<void> {
+    try {
+      await this.post<{ success: boolean }>(`/api/agents/${encodeURIComponent(this.agentId)}/session-stats`, stats);
+    } catch { /* display-only */ }
+  }
+
   // ═══════════════════════════════════════════════════════════════════
   // ATTACHMENTS
   // ═══════════════════════════════════════════════════════════════════

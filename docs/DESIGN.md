@@ -740,6 +740,29 @@ restart, so a paused teammate can always be released.
 
 ---
 
+## Teammate Status: Shape, not Color
+
+A teammate's status is shown by **which icon it has**, not by a colored dot:
+**person** — pairing with you; **bot** — waiting for work; a slowly turning
+**loader** — working; **cloud-off** — lost contact (the leader keeps its crown
+while reachable). A dot asked you to remember what green, blue, and red meant,
+said nothing to anyone who can't tell them apart, and sat next to a person icon
+that never changed. The shape *is* the meaning, and its tooltip says it in words.
+
+Beside the name each row shows the **model** the teammate is running (its name;
+provider/id on hover), and beside the directory the two numbers Pi's own footer
+shows:
+**context fill** (the percentage of the window — that's what decides "time for a
+fresh session"; raw tokens in the tooltip, or instead when the window is unknown)
+and the **session's cost** so far. They're reported by the harness after every
+turn (`POST /api/agents/:id/session-stats`) and on a model switch, not on the
+30-second heartbeat, because that's when they change. They're **live state, not a ledger**: held in
+memory, cleared when the agent starts a fresh session (re-registers), and resent
+after a daemon restart. Spend history stays the usage ledger's job. Unknown stays
+unknown: just after a compaction Pi can't count the context yet, so it reads
+`?`, never a reassuring 0%. The route is additive and optional, so it isn't a
+protocol bump — a harness that never reports simply shows no numbers.
+
 ## Testing: Fast, End-to-End, and Never Real Config
 
 - **`deno task test`** is the inner loop and stays fast (seconds). It uses a

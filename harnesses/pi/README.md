@@ -228,6 +228,7 @@ src/
 ├── transcript.ts     TranscriptMirror: teammate session → web UI watch view (only while watched)
 ├── pairing.ts        WebPairing: pair / message / release a teammate from the web UI
 ├── usage.ts          summarizeRun: every run's tokens (incl. cache) + cost for the usage ledger
+├── session-stats.ts  model, context fill, session cost for the Team tab, after every turn
 ├── tools.ts          LLM tool registration (role-specific)
 ├── permissions.ts    Dynamic yoloMode toggling
 └── shared/

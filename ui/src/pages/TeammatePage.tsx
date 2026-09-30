@@ -26,28 +26,17 @@ import { Button } from "@/components/ui/button";
 import { isRunning, type PairingState } from "@/lib/transcript-types";
 import { workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
 import { Badge } from "@/components/ui/badge";
+import { ModelName, SessionStats, StatusIcon } from "@/components/team/TeamParts";
+import { statusLabel, type Teammate } from "@/lib/team";
 import { FolderOpen, Eye, WifiOff, MessageSquare, Play, CheckCircle2, XCircle } from "lucide-react";
 
-interface Agent {
-  id: string;
-  name: string;
-  directory?: string | null;
-  status: string;
-  harness?: string;
-}
+type Agent = Teammate;
 
 interface WorkItem extends LinkableWorkItem {
   id: string;
   title: string;
   memberId?: string | null;
 }
-
-const DOT: Record<string, string> = {
-  idle: "bg-muted-foreground/50",
-  working: "bg-green-500",
-  pairing: "bg-blue-500",
-  offline: "bg-red-500",
-};
 
 export function TeammatePage() {
   const { id = "" } = useParams();
@@ -84,9 +73,11 @@ export function TeammatePage() {
   return (
     <div className="flex h-full flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
-        <span className={`h-2 w-2 shrink-0 rounded-full ${DOT[agent?.status ?? "offline"] || DOT.offline}`} title={agent?.status} />
+        {agent && <StatusIcon teammate={agent} className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <h1 className="font-semibold">{agent?.name ?? id}</h1>
-        <span className="text-xs text-muted-foreground">{agent?.status}</span>
+        {agent && <span className="text-xs text-muted-foreground">{statusLabel(agent.status)}</span>}
+        {agent && <ModelName teammate={agent} className="text-xs" />}
+        {agent && <SessionStats teammate={agent} className="text-xs" />}
         {current && (
           <Link to={workItemPath(current)} className="min-w-0 max-w-full truncate text-sm text-primary hover:underline" title={current.title}>
             ⚙️ {current.title}

@@ -45,6 +45,7 @@ import {
   DEFAULT_THOUGHT_COLOR,
   DEFAULT_GROUP_SIZE,
   type Member,
+  type MemberSessionStats,
   type TeamReadiness,
   type Assignment,
 } from "../shared/types.ts";
@@ -207,6 +208,12 @@ export class Store {
    * run says otherwise (at startup).
    */
   private teamReadiness: TeamReadiness | undefined;
+  /**
+   * Each live agent's session stats (context fill, session cost), as last
+   * reported. In memory only, like readiness: it describes a running process,
+   * and a restarted daemon hears again after the agent's next turn.
+   */
+  private sessionStats = new Map<string, MemberSessionStats>();
   /**
    * Ids explicitly dismissed by a human (tombstones). A dismissed id's next
    * heartbeat is told to shut down; an unknown-but-not-dismissed id is told to
@@ -1522,6 +1529,8 @@ export class Store {
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
+    // …and any session stats: a registration is a fresh harness session.
+    this.sessionStats.delete(id);
     this.db.prepare(
       `INSERT OR REPLACE INTO members (id, name, directory, metadata, protocol_version, harness, harness_version, status, last_heartbeat)
        VALUES (?, ?, ?, ?, ?, ?, ?, 'idle', ?)`
@@ -1591,6 +1600,17 @@ export class Store {
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
     this.transcripts.forget(id);
     this.pairing.forget(id);
+    this.sessionStats.delete(id);
+  }
+
+  /** Record an agent's session stats (context fill, session cost); stamps `at`. */
+  setMemberSessionStats(id: string, stats: Omit<MemberSessionStats, "at">): void {
+    this.sessionStats.set(id, { ...stats, at: Date.now() });
+  }
+
+  /** An agent's last-reported session stats, if it has reported any this session. */
+  getMemberSessionStats(id: string): MemberSessionStats | undefined {
+    return this.sessionStats.get(id);
   }
 
   /**

@@ -49,6 +49,7 @@ src/
 ├── transcript.ts         # TranscriptMirror: teammate's live session → daemon, only while watched in the web UI
 ├── pairing.ts            # WebPairing: polls web-pairing intent (pair / messages / release) for a teammate
 ├── usage.ts              # summarizeRun: a run's tokens (incl. cache read/write), cost, model, last prose
+├── session-stats.ts      # readSessionStats: model, context fill (ctx.getContextUsage), session cost (footer arithmetic)
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
@@ -107,6 +108,15 @@ Pi's cost) and posts it to `POST /api/agents/:id/usage` with a kind: a
 teammate's own work run → `work` (+ `workItemId`); a run while paused/pairing →
 `pairing` (+ the held item); a foreign run → `other`; the leader → `chat`. The
 kind is decided before completion/release changes loop state.
+
+**Session stats (teammates, every turn).** On `turn_end`, `agent_end`,
+`session_compact`, and `model_select` (with the event's new model) — and once at setup, as the fresh session's baseline — the
+teammate posts `readSessionStats(ctx)` (`src/runtime/session-stats.ts`) to
+`POST /api/agents/:id/session-stats`: `ctx.getContextUsage()` (tokens, window,
+percent; null when Pi doesn't know yet), `ctx.model` (id, name, provider), and the session's cumulative cost,
+summed over every entry exactly as Pi's footer does. Unchanged numbers aren't
+re-sent; after a daemon restart (`reregister`) the last report is sent again.
+Display-only: failures are swallowed.
 
 Rework needs no special path: a human moves the task back into an agent state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new

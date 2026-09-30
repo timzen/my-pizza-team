@@ -297,6 +297,7 @@ advances a board task; FAILED leaves it for a human). See
    (the agent does the work in the ref's directory and posts a comment)
 4. POST /api/agents/work-items/:id/state  → { state: "COMPLETE" } or { state: "FAILED" }
 5. POST /api/agents/heartbeat             → keep-alive (restores this agent's MORIBUND items)
+   POST /api/agents/:id/session-stats     → optional, after each turn: context fill + session cost
 ```
 
 **Registration** carries a name, a working `directory` (the only work-selection

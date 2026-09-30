@@ -139,7 +139,7 @@ Each **agent** state can have a markdown **persona** file — role framing the t
 
 ## Teammates
 
-Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing status, current work, and its working directory. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when a team size can't be met (at-risk work shows in the queue strip instead). The collapsed dock shows everyone as avatars.
+Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing its status, the model it's running (hover for provider/id), current work, working directory, how full its context window is, and what its session has cost so far. The icon *is* the status — **person**: pairing with you · **bot**: waiting for work · **spinning loader**: working · **cloud with a slash**: lost contact (hover it for the words). The gauge shows the context window's fill (hover for exact tokens; `?` just after Pi compacts, until its next reply), then the session's cost; both reset when the teammate starts a fresh session for its next work item. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when a team size can't be met (at-risk work shows in the queue strip instead). The collapsed dock shows everyone as avatars.
 
 ### Watching a teammate
 

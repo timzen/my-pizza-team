@@ -113,7 +113,7 @@ marked done; moving one back out reopens it.
 - `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
 - `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
 - `routes/templates.ts` — Template CRUD.
-- `routes/agents.ts` — The agent protocol: register (version handshake, and the experimental-harness gate — `experimentalGate`), heartbeat (`reregister`/`dismissed` signals), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
+- `routes/agents.ts` — The agent protocol: register (version handshake, and the experimental-harness gate — `experimentalGate`), heartbeat (`reregister`/`dismissed` signals), session stats (model, context fill, session cost, held in memory by the store and echoed on `GET /api/agents`), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
 - `routes/assistant.ts` — The chat: conversation reads/writes, SSE stream, the agent mirror surface (inbox/ack, bubbles, thoughts, session report), sessions (list/new/resume/snapshot), persona.
 - `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
 - `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Pi teammates only (ACP teammates don't poll it yet).
@@ -158,7 +158,7 @@ dock's Assistant tab.
 - `components/RouteTabs.tsx` — Route-driven segmented tabs, used by RootPage (Queue/Inbox), `board/BoardTabs.tsx` (Board/Backlog/Archive/Workflows), `TasksTabs.tsx` (Items/Templates), and ConfigPage (General/Teammates/Theme).
 - `components/dock/SideDock.tsx` — The dock: header row (`NewWorkMenu` `+` → `lib/start-work.ts` destinations; `queue/QueueSummary.tsx` counts + hover preview; collapse), tab row (Assistant with presence dot + unread badge; Team with online count + amber dot; the active tab's actions), both bodies kept mounted, drag-resize (300–560px), collapsed icon rail, floating panel below `lg`. Owns `useAssistantStream`, `useTeamData`, and `useQueue` so badges stay live. `SideDockProvider.tsx` + `hooks/useSideDock.ts` hold open/tab state in `localStorage`.
 - `components/assistant/*` — `AssistantChat` (presentational, so collapsing can't drop the SSE connection), `MessageBubble`, `BubbleDialog`, `ThinkingBubble` → `ThoughtsPanel`, `Composer` (never locks; quoted replies), `QuotedMessage`, `SessionMenu`, `PersonaChips`. `hooks/useAssistantStream.ts` owns the SSE subscription plus a 15s reconcile poll; `hooks/useMediaQuery.ts` picks docked vs floating.
-- `components/team/TeamPanel.tsx`, `TeamParts.tsx` — The Team tab: teammate rows (never the leader) linking to `/teammates/:id`, pending and failed spawns, the version-skew banner with restart, offline members. `lib/team.ts` holds types, `roleOf`, `viewPath`, and `harnessSkew`.
+- `components/team/TeamPanel.tsx`, `TeamParts.tsx` — The Team tab: teammate rows (never the leader) linking to `/teammates/:id`, pending and failed spawns, the version-skew banner with restart, offline members. Status is `StatusIcon`'s shape (person pairing · bot waiting · spinning loader working · cloud-off lost contact), `ModelName` the model, and `SessionStats` context fill and session cost; both are reused by the rail avatars and the teammate page header. `lib/team.ts` holds types, `roleOf`, `viewPath`, `harnessSkew`, and the wording rules (`statusLabel`, `formatContext`, `formatTokens`, `formatCost`, `modelTitle`).
 - `components/TeamSizeDialog.tsx` — Declared team size over `/api/teammate-pool` (online/starting counts, default indicator, **Use default**, no-leader warning).
 - `components/SpawnDialog.tsx` — Spawn one teammate in a chosen directory (a `spawn` directive with `cwd`).
 
@@ -215,7 +215,8 @@ src/
 │   ├── transcript.ts — TranscriptMirror: streams the session while watched
 │   ├── bubbles.ts    — Splits prose into chat bubbles (fence/list aware)
 │   ├── pairing.ts    — WebPairing: pause/message/release from the browser
-│   └── usage.ts      — Summarises a run's token usage
+│   ├── usage.ts      — Summarises a run's token usage
+│   └── session-stats.ts — Model, context fill, session cost (Pi's footer numbers), reported after every turn
 └── shared/types.ts — GENERATED from shared/types.ts by `deno task sync-shared`
 ```
 
@@ -248,6 +249,7 @@ probe, entry points (every way of starting the daemon gets the same daemon), and
 4. (the agent works, in the ref's directory, and posts its own comment)
 5. POST /api/agents/work-items/:id/state {state: COMPLETE|FAILED}
 6. POST /api/agents/:id/usage         → one line in the ledger
+   POST /api/agents/:id/session-stats → after every turn: context fill + session cost (Team tab)
    POST /api/agents/heartbeat         → keep-alive; restores this agent's MORIBUND items
 ```
 
@@ -372,8 +374,9 @@ When a token is configured, every path except `/health` requires it.
 | POST | `/api/agents/work-items/:workItemId/state` | COMPLETE (advances a board task) or FAILED; only the holder (403 otherwise); posts no comment |
 | GET/POST | `/api/agents/comments/:workItemId` | Read / post comments on the item's ref |
 | POST | `/api/agents/work-items/:workItemId/attachments` | Upload to the ref |
+| POST | `/api/agents/:id/session-stats` | After every turn and on a model switch: `contextTokens`, `contextWindow`, `contextPercent` (each nullable), `costUsd` (the session's running total), `model` (`{id, name, provider}` or null). In memory; cleared on (re)register. Optional — an agent that never sends it shows no numbers |
 | POST | `/api/agents/:id/usage` | One run: tokens incl. cache, `costUsd`, `model`, `kind` (`work`\|`pairing`\|`chat`\|`other`), optional `workItemId` |
-| GET | `/api/agents` | Members (with handshake fields) + the daemon's `protocolVersion` and `daemonVersion` |
+| GET | `/api/agents` | Members (with handshake fields and `session` — the last session stats, or null) + the daemon's `protocolVersion` and `daemonVersion` |
 | DELETE | `/api/agents/:id` | Unregister (`?dismiss=true` leaves a tombstone) |
 | GET | `/api/agents/:id/directives` | Self-handled directives (`new-session`, `resume-session`) |
 | PUT | `/api/agents/:id/directives/:directiveId` | Mark one done/failed |

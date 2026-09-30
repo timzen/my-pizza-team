@@ -109,6 +109,33 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true });
   });
 
+  // ─── Session stats ─────────────────────────────────────────────────
+  // Model, context-window fill, and session cost, reported after every turn so the
+  // Team tab can show them (shared/types.ts MemberSessionStats). Additive and
+  // optional: an agent that never reports simply shows no numbers.
+
+  app.post("/api/agents/:id/session-stats", async (c) => {
+    const id = c.req.param("id");
+    if (!store.getMember(id)) return c.json({ success: false, error: `Agent "${id}" not found` }, 404);
+    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    // Unknown or nonsense numbers become null (never a fake 0%), except cost,
+    // which is a running total that starts at 0.
+    const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
+    const contextPercent = count(body.contextPercent);
+    const text = (v: unknown) => (typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : null);
+    const m = (body.model && typeof body.model === "object" ? body.model : {}) as Record<string, unknown>;
+    const modelId = text(m.id);
+    store.setMemberSessionStats(id, {
+      contextTokens: count(body.contextTokens),
+      contextWindow: count(body.contextWindow) || null,
+      contextPercent: contextPercent === null ? null : Math.min(100, contextPercent),
+      costUsd: count(body.costUsd) ?? 0,
+      // A model needs at least an id; its name falls back to the id.
+      model: modelId ? { id: modelId, name: text(m.name) ?? modelId, provider: text(m.provider) ?? "" } : null,
+    });
+    return c.json({ success: true });
+  });
+
   // ─── Next Work ─────────────────────────────────────────────────────
 
   app.get("/api/agents/next-work", (c) => {
@@ -223,6 +250,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           // Version handshake (P1b), so the UI can flag an agent whose extension
           // is behind the daemon — DESIGN.md "One Protocol, One Version" section's silent-skew failure made visible.
           protocolVersion: m.protocolVersion, harness: m.harness, harnessVersion: m.harnessVersion,
+          // Context fill + session cost, when the harness reports them.
+          session: store.getMemberSessionStats(m.id) ?? null,
         };
       }),
     });

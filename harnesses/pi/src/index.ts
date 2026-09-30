@@ -21,6 +21,7 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
 import { DaemonClient } from "./runtime/client.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
+import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
 
 /**
  * This extension's build version, read from its own package.json.
@@ -245,6 +246,24 @@ async function setupTeammate(
   // Create work loop
   const loop = new TeammateLoop(pi, client);
   loop.debugLog = debug;
+
+  // ─── Session stats (the Team tab's model, context fill, session cost) ──
+  // Reported after every turn — that's when the context grows and cost accrues
+  // — after compaction, which shrinks the context, and when the model is
+  // switched. Unchanged numbers aren't re-sent. The first report is the fresh
+  // session's baseline (system prompt).
+  let lastStats: SessionStats | null = null;
+  const reportStats = (c: unknown, model?: { id?: string; name?: string; provider?: string }) => {
+    const stats = readSessionStats(c as Parameters<typeof readSessionStats>[0], model);
+    if (sameStats(lastStats, stats)) return;
+    lastStats = stats;
+    client.reportSessionStats(stats).catch(() => {});
+  };
+  pi.on("turn_end", async (_event, c) => { reportStats(c); });
+  pi.on("agent_end", async (_event, c) => { reportStats(c); });
+  pi.on("session_compact", async (_event, c) => { reportStats(c); });
+  pi.on("model_select", async (event, c) => { reportStats(c, event.model); });
+  reportStats(ctx);
 
   // Register tools. The `fail` tool lets the agent give up on a claimed work
   // item with a comment when it can't proceed; the loop then skips COMPLETE.
@@ -486,6 +505,8 @@ async function setupTeammate(
   // so an `mpt upgrade` or daemon restart doesn't shut down a running teammate.
   loop.reregister = async () => {
     await client.register({ name: memberId, directory: cwd, metadata: readTmuxMetadata(pi) }).catch(() => {});
+    // A restarted daemon forgot our stats (they're in-memory); tell it again.
+    if (lastStats) client.reportSessionStats(lastStats).catch(() => {});
     if (ctx.hasUI) ctx.ui.notify("🍕 Reconnected to daemon (it had restarted).", "info");
   };
 
