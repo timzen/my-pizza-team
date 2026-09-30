@@ -6,13 +6,19 @@
  * delete, pinning as a flag. Files are the source of truth (thoughts/<id>.md +
  * groups.json); this is a thin shell over the store. See docs/ARCHITECTURE.md.
  *
- * Auto triage lives here too (TODO.md "Auto Triage"): **Triage now** for one note,
- * and the team's `triage.md` instructions.
+ * Auto triage lives here too (docs/DESIGN.md "Auto Triage"): a note's triage state
+ * (its thread, proposals and decisions), accept/reject on one proposal, **Triage
+ * now**, and the team's `triage.md` instructions.
  */
 
 import type { RouteContext } from "./types.ts";
-import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
+import { type ThoughtStatus, type TriageProposal, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
 import { DEFAULT_TRIAGE_INSTRUCTIONS } from "../prompt.ts";
+
+/** The fields the "Edit" path may change before accepting (mirrors Store.acceptProposal). */
+type TriageProposalOverrides = Partial<
+  Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">
+>;
 
 const COORD_LIMIT = 1e7;
 
@@ -142,6 +148,54 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
     if (typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required" }, 400);
     store.setTriageInstructions(body.content);
     return c.json({ success: true, content: store.getTriageInstructions() ?? "" });
+  });
+
+  // GET /api/thoughts/:id/triage — everything the triage page shows: the note, its
+  // thread (analyses *and* decisions), proposals folded with what was decided, the
+  // badge, and why the sweep would skip it right now.
+  app.get("/api/thoughts/:id/triage", (c) => {
+    const id = c.req.param("id");
+    const note = store.getThought(id);
+    if (!note) return c.json({ success: false, error: "Thought not found" }, 404);
+    const thread = store.getTriageThread(id);
+    return c.json({
+      note,
+      workDefId: thread.workDefId,
+      triaged: thread.exists,
+      entries: thread.entries,
+      proposals: thread.proposals,
+      pending: thread.pending,
+      badge: thread.badge,
+      latestOutcome: thread.latestOutcome,
+      skipReason: store.triageStatusFor(id),
+    });
+  });
+
+  // The badges for every note that has one (the canvas and list read this).
+  app.get("/api/triage/badges", (c) => c.json({ badges: store.getTriageBadges() }));
+
+  // Accept a proposal: create the work and record the decision. Creates only —
+  // nothing is enqueued. `workDefId` records work the author already created
+  // through the normal form (the "Edit" path); `overrides` carries its edits.
+  app.post("/api/thoughts/:id/proposals/:proposalId/accept", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as {
+      workDefId?: string; overrides?: Record<string, unknown>; from?: string;
+    };
+    const res = store.acceptProposal(c.req.param("id"), c.req.param("proposalId"), {
+      from: typeof body.from === "string" ? body.from : undefined,
+      existingWorkDefId: typeof body.workDefId === "string" ? body.workDefId : undefined,
+      overrides: body.overrides as TriageProposalOverrides | undefined,
+    });
+    if (!res.ok) return c.json({ success: false, error: res.error }, res.code === "not-found" ? 404 : 409);
+    return c.json({ success: true, decision: res.decision });
+  });
+
+  // Reject a proposal: one appended line, no reason, not a turn.
+  app.post("/api/thoughts/:id/proposals/:proposalId/reject", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { from?: string };
+    const res = store.rejectProposal(c.req.param("id"), c.req.param("proposalId"), body.from);
+    if (!res.ok) return c.json({ success: false, error: res.error }, res.code === "not-found" ? 404 : 409);
+    return c.json({ success: true, decision: res.decision });
   });
 
   // POST /api/thoughts/:id/triage — run triage on this note now, skipping the

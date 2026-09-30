@@ -46,7 +46,15 @@ import {
   DEFAULT_GROUP_SIZE,
   type Member,
   type MemberSessionStats,
+  type WorkDefOrigin,
+  isTriageDecision,
   resolveTriage,
+  type ThreadEntry,
+  type TriageBadge,
+  type TriageDecision,
+  type TriageOutcome,
+  type TriageProposal,
+  type TriageProposalState,
   TRIAGE_INSTRUCTIONS_FILE,
   type TeamReadiness,
   type Assignment,
@@ -57,7 +65,11 @@ import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, wr
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
-import { isTriageDue, triageSkipReason, triageWorkDefId, triageWorkDefTitle, triageWorkItemTitle, type TriageSkipReason } from "./triage.ts";
+import {
+  decisionSummary, foldProposals, isTriageDue, latestAnalysis, pendingProposals, triageBadge,
+  triageSkipReason, triageWorkDefId, triageWorkDefTitle, triageWorkItemTitle, validateAnalysis,
+  type TriageSkipReason,
+} from "./triage.ts";
 import {
   AssistantChat,
   type AssistantDelivery,
@@ -67,7 +79,7 @@ import {
   type AssistantSession,
   type InboxMessage,
 } from "./store/assistant-chat.ts";
-import { isCronDue } from "./cron.ts";
+import { isCronDue, isValidCron } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
@@ -192,6 +204,15 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
   return out;
 }
+
+/**
+ * The outcome of accepting or rejecting a triage proposal. The failure carries a
+ * `code` so routes map it to a status without reading the message (a missing
+ * proposal is a 404; one already decided is a 409).
+ */
+export type ProposalResult =
+  | { ok: true; decision: TriageDecision }
+  | { ok: false; code: "not-found" | "conflict"; error: string };
 
 export class Store {
   private db: DatabaseSync;
@@ -2027,6 +2048,188 @@ export class Store {
     Deno.writeTextFileSync(file, content.endsWith("\n") ? content : content + "\n");
   }
 
+  /**
+   * Post one analysis (a teammate's reply to a triage run): its prose plus the
+   * structured outcome and any proposals. Validated here, so a bad proposal is a
+   * fixable error the agent sees instead of a broken thread line.
+   */
+  addTriageAnalysis(thoughtId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]):
+    { ok: true } | { ok: false; error: string } {
+    const ref = { workDefId: triageWorkDefId(thoughtId) };
+    if (!this.getWorkDef(ref.workDefId)) return { ok: false, error: `No triage thread for note "${thoughtId}"` };
+    const invalid = validateAnalysis({ outcome, proposals }, { storyExists: (id) => this.getStory(id) !== null });
+    if (invalid) return { ok: false, error: invalid };
+    const entry: Comment = { from, body, at: new Date().toISOString(), outcome };
+    if (outcome === "proposals" && proposals) entry.proposals = proposals;
+    return this.appendThreadEntry(ref, entry) ? { ok: true } : { ok: false, error: "Could not write the thread" };
+  }
+
+  /** A note's whole triage state: the thread, its proposals with decisions, the badge. */
+  getTriageThread(thoughtId: string): {
+    workDefId: string;
+    exists: boolean;
+    entries: ThreadEntry[];
+    proposals: TriageProposalState[];
+    pending: TriageProposalState[];
+    badge: TriageBadge;
+    latestOutcome: TriageOutcome | null;
+  } {
+    const workDefId = triageWorkDefId(thoughtId);
+    const exists = this.getWorkDef(workDefId) !== null;
+    const entries = exists ? this.getThreadEntries({ workDefId }) : [];
+    return {
+      workDefId,
+      exists,
+      entries,
+      proposals: foldProposals(entries),
+      pending: pendingProposals(entries),
+      badge: triageBadge(entries),
+      latestOutcome: latestAnalysis(entries)?.outcome ?? null,
+    };
+  }
+
+  /** The badge for every note that has one, keyed by note id (the Thoughts list). */
+  getTriageBadges(): Record<string, TriageBadge> {
+    const out: Record<string, TriageBadge> = {};
+    for (const def of listWorkDefs(this.teamDir)) {
+      if (def.parent?.kind !== "thought") continue;
+      const badge = triageBadge(this.getThreadEntries({ workDefId: def.id }));
+      if (badge !== "none") out[def.parent.id] = badge;
+    }
+    return out;
+  }
+
+  /**
+   * Accept a proposal: create the work it describes and append the decision.
+   *
+   * **Accepting creates; it never starts anything itself.** What happens next is
+   * whatever that kind of work does when you create it by hand: a `task` waits for
+   * **Run**, a `schedule` waits for its cron, and a `story-task`/`story` enters its
+   * story's workflow — which, exactly as when you add a task to a story yourself,
+   * may admit it (CONWIP) and enqueue it immediately. Triage-created work is not a
+   * special case of the board (docs/DESIGN.md "Auto Triage").
+   *
+   * `existingWorkDefId` records an acceptance the author already completed through
+   * the normal create form (the "Edit" path), instead of creating it here.
+   * `overrides` lets that form's edits land without re-authoring the proposal.
+   */
+  acceptProposal(thoughtId: string, proposalId: string, opts: {
+    from?: string;
+    existingWorkDefId?: string;
+    overrides?: Partial<Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">>;
+  } = {}): ProposalResult {
+    const found = this.findProposal(thoughtId, proposalId);
+    if (!found.ok) return found;
+    const { state } = found;
+    if (state.decision) {
+      return { ok: false, code: "conflict", error: `Proposal "${proposalId}" was already ${state.decision.action}` };
+    }
+
+    const p = { ...state.proposal, ...opts.overrides };
+    const from = opts.from || "you";
+    const origin = { thought: thoughtId, proposal: proposalId };
+    let workDefId: string | undefined = opts.existingWorkDefId;
+    let storyId: string | undefined;
+
+    if (!workDefId) {
+      switch (p.kind) {
+        case "task": {
+          const def = this.createWorkDef({
+            title: p.title, goal: p.goal ?? "", acceptanceCriteria: p.acceptanceCriteria ?? "",
+            additionalContext: p.additionalContext, directory: p.directory, origin,
+          }, false); // no WorkItem: a Solitary task waits for the author to press Run
+          workDefId = def.id;
+          break;
+        }
+        case "story-task": {
+          if (!p.storyId || !this.getStory(p.storyId)) {
+            return { ok: false, code: "conflict", error: `No story "${p.storyId}"` };
+          }
+          // Board rules apply from here (admission may pull it straight in), the
+          // same as adding a task to that story by hand.
+          const task = this.addTask(p.storyId, { title: p.title, description: p.goal ?? "" });
+          if (!task) return { ok: false, code: "conflict", error: "Could not add the task to that story" };
+          workDefId = task.id;
+          storyId = p.storyId;
+          updateWorkDef(this.teamDir, task.id, { origin });
+          break;
+        }
+        case "story": {
+          const id = this.uniqueStoryId(p.title);
+          const created = this.createStory(
+            id, p.title, p.description ?? p.goal ?? "", "open", [],
+            (p.tasks ?? []).map((t) => ({ title: t.title, description: t.goal })),
+            undefined, undefined, undefined, p.directory,
+          );
+          storyId = created.story.id;
+          for (const t of created.tasks) updateWorkDef(this.teamDir, t.id, { origin });
+          break;
+        }
+        case "schedule": {
+          if (!isValidCron(p.cron ?? "")) return { ok: false, code: "conflict", error: "That proposal has no valid cron" };
+          const schedule = this.createSchedule({ title: p.title, cron: p.cron! });
+          const def = this.createWorkDef({
+            title: p.title, goal: p.goal ?? "", acceptanceCriteria: p.acceptanceCriteria ?? "",
+            additionalContext: p.additionalContext, directory: p.directory,
+            parent: { kind: "schedule", id: schedule.id }, origin,
+          }, false); // the cron enqueues it, not us
+          workDefId = def.id;
+          break;
+        }
+      }
+    }
+
+    const decision: TriageDecision = {
+      kind: "decision", proposalId, action: "accepted", from, at: new Date().toISOString(),
+      ...(workDefId ? { workDefId } : {}),
+      ...(storyId ? { storyId } : {}),
+    };
+    this.appendThreadEntry({ workDefId: triageWorkDefId(thoughtId) }, decision);
+    return { ok: true, decision };
+  }
+
+  /** Reject a proposal: one appended line, no reason. Not a turn. */
+  rejectProposal(thoughtId: string, proposalId: string, from = "you"): ProposalResult {
+    const found = this.findProposal(thoughtId, proposalId);
+    if (!found.ok) return found;
+    if (found.state.decision) {
+      return { ok: false, code: "conflict", error: `Proposal "${proposalId}" was already ${found.state.decision.action}` };
+    }
+    const decision: TriageDecision = {
+      kind: "decision", proposalId, action: "rejected", from, at: new Date().toISOString(),
+    };
+    this.appendThreadEntry({ workDefId: triageWorkDefId(thoughtId) }, decision);
+    return { ok: true, decision };
+  }
+
+  /** Locate one proposal in a note's thread. */
+  private findProposal(thoughtId: string, proposalId: string):
+    { ok: true; state: TriageProposalState } | { ok: false; code: "not-found"; error: string } {
+    if (!this.getThought(thoughtId)) {
+      return { ok: false, code: "not-found", error: `Thought "${thoughtId}" not found` };
+    }
+    const thread = this.getTriageThread(thoughtId);
+    // Latest wins if an id was reused across analyses (foldProposals keeps order).
+    const state = [...thread.proposals].reverse().find((s) => s.proposal.id === proposalId);
+    return state
+      ? { ok: true, state }
+      : { ok: false, code: "not-found", error: `No proposal "${proposalId}" on note ${thoughtId}` };
+  }
+
+  /** A free story id derived from a title (stories are keyed by a human-ish slug). */
+  private uniqueStoryId(title: string): string {
+    const base = slugify(title) || "story";
+    let id = base;
+    let n = 2;
+    while (this.getStory(id)) { id = `${base}-${n}`; n++; }
+    return id;
+  }
+
+  /** Earlier proposals and what the author decided, for the next run's prompt. */
+  triageDecisionSummary(thoughtId: string): string[] {
+    return decisionSummary(this.getTriageThread(thoughtId).entries);
+  }
+
   commitToGit(message?: string): void {
     commitTeamDir(this.teamDir, this.config.autosave, message);
   }
@@ -2786,7 +2989,7 @@ export class Store {
   /** Create a WorkDef; when `enqueue` (default), also enqueue a READY WorkItem. */
   createWorkDef(input: {
     title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
-    additionalContext?: string; contextRefs?: string[]; directory?: string;
+    additionalContext?: string; contextRefs?: string[]; directory?: string; origin?: WorkDefOrigin;
   }, enqueue = true): WorkDef {
     const def = saveWorkDef(this.teamDir, {
       ...input,
@@ -3084,12 +3287,38 @@ export class Store {
     return getWorkDef(this.teamDir, ref.workDefId) ? workDefDir(this.teamDir, ref.workDefId) : null;
   }
 
+  /**
+   * A ref's comments. Triage **decision** lines live in the same append-only file
+   * (docs/DESIGN.md "Auto Triage") and are not comments, so they're filtered out
+   * here — every existing caller (the prompt, the thread UI, agents) sees exactly
+   * what it did before. Use `getThreadEntries` for the whole file.
+   */
   getCommentsForRef(ref: WorkItemRef): Comment[] {
+    return this.getThreadEntries(ref).filter((e) => !isTriageDecision(e)) as Comment[];
+  }
+
+  /** Every line of a ref's thread, comments and triage decisions alike, in order. */
+  getThreadEntries(ref: WorkItemRef): ThreadEntry[] {
     const dir = this.refDir(ref);
     if (!dir) return [];
     const file = path.join(dir, "comments.jsonl");
     if (!existsSync(file)) return [];
-    return Deno.readTextFileSync(file).split("\n").filter(Boolean).map((l) => JSON.parse(l) as Comment);
+    const out: ThreadEntry[] = [];
+    for (const line of Deno.readTextFileSync(file).split("\n")) {
+      if (!line.trim()) continue;
+      // A malformed line must not take the whole thread down with it.
+      try { out.push(JSON.parse(line) as ThreadEntry); } catch { /* skip */ }
+    }
+    return out;
+  }
+
+  /** Append one raw line to a ref's thread (comments.jsonl stays append-only). */
+  private appendThreadEntry(ref: WorkItemRef, entry: ThreadEntry): boolean {
+    const dir = this.refDir(ref);
+    if (!dir) return false;
+    Deno.mkdirSync(dir, { recursive: true });
+    Deno.writeTextFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(entry) + "\n", { append: true });
+    return true;
   }
 
   addCommentForRef(ref: WorkItemRef, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {

@@ -13,7 +13,7 @@
 
 import type { RouteContext } from "./types.ts";
 import { buildTriagePrompt, buildWorkDefPrompt } from "../prompt.ts";
-import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type WorkItemRef } from "../../shared/types.ts";
+import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import denoConfig from "../../deno.json" with { type: "json" };
 
@@ -198,6 +198,44 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true, newStatus: res.newStatus, completed: res.completed });
   });
 
+  // ─── Triage proposals (the `propose_work` tool) ─────────────────────
+  //
+  // The structured half of a triage analysis: prose plus an outcome plus the work
+  // it proposes (docs/DESIGN.md "Auto Triage"). Only the agent holding the triage
+  // item may post, and a bad proposal comes back as a fixable error rather than a
+  // broken thread line.
+
+  app.post("/api/agents/work-items/:workItemId/proposals", async (c) => {
+    const workItemId = c.req.param("workItemId");
+    const body = await c.req.json().catch(() => ({})) as {
+      agentId?: string; body?: string; outcome?: string; proposals?: unknown[];
+    };
+    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+    if (typeof body.body !== "string" || !body.body.trim()) {
+      return c.json({ success: false, error: "Field 'body' (your written analysis) is required" }, 400);
+    }
+
+    const item = store.getWorkItem(workItemId);
+    if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
+    if (item.memberId && item.memberId !== body.agentId) {
+      return c.json({ success: false, error: "WorkItem not held by this agent" }, 403);
+    }
+    const parent = store.getWorkDef(item.ref.workDefId)?.parent;
+    if (parent?.kind !== "thought") {
+      return c.json({ success: false, error: "propose_work is only for a triage work item (one whose parent is a note)" }, 400);
+    }
+
+    const res = store.addTriageAnalysis(
+      parent.id,
+      body.agentId,
+      body.body,
+      body.outcome as TriageOutcome,
+      body.proposals as TriageProposal[] | undefined,
+    );
+    if (!res.ok) return c.json({ success: false, error: res.error }, 400);
+    return c.json({ success: true, thoughtId: parent.id });
+  });
+
   // ─── Attachments (resolved to the backing ref) ─────────────────────
 
   app.post("/api/agents/work-items/:workItemId/attachments", async (c) => {
@@ -353,6 +391,7 @@ function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): strin
       instructions: store.getTriageInstructions(),
       stories: store.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
       priorComments: store.getCommentsForRef(ref),
+      priorDecisions: store.triageDecisionSummary(def.parent.id),
     });
   }
 

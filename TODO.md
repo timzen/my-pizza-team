@@ -11,46 +11,24 @@ number. Delete an item when it's done.
   mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
   move the member's in-flight items to MORIBUND in `removeMember`.
 
-## Auto Triage — stage 1 built; proposals and UI to go
+## Auto Triage — stages 1–2 built; the UI to go
 
 **Built** (docs/DESIGN.md "Auto Triage: a Note Is a Parent", docs/ARCHITECTURE.md
-"Thoughts"): the `thought` parent kind and derived type **Triage**, lazy
-`triage-<noteId>` containers, the turn rule (`daemon/triage.ts`), the hourly sweep
-and `triage` config, `triage.md` + `buildTriagePrompt`, **Triage now**
-(`POST /api/thoughts/:id/triage`), note-lifecycle cascade, and the guards that keep
-the generic WorkDef verbs off a triage container. Tests: tests/triage.test.ts. The
-teammate replies with a plain comment; the run lands in the Inbox like any other.
+"Thoughts"):
 
-**Stage 2 — proposals.** Structured analysis, so accepting creates real work without
-parsing prose, and decisions recorded without a second file.
+- **Stage 1** — the `thought` parent kind and derived type **Triage**, lazy
+  `triage-<noteId>` containers, the turn rule (`daemon/triage.ts`), the hourly sweep
+  and `triage` config, `triage.md` + `buildTriagePrompt`, **Triage now**, the
+  note-lifecycle cascade, and the guards keeping the generic WorkDef verbs off a
+  triage container.
+- **Stage 2** — `propose_work` (validated, holder-only, triage-only), analyses as
+  comments carrying `outcome` + `proposals`, decisions appended to the same
+  `comments.jsonl`, the fold (`foldProposals`, `triageBadge`, `pendingProposals`),
+  accept (creating `task`/`story-task`/`story`/`schedule`, with `origin` frontmatter)
+  and reject, earlier decisions fed to the next run's prompt, and the routes
+  (`GET /api/thoughts/:id/triage`, `/api/triage/badges`, accept/reject).
 
-- **`propose_work` tool** (teammate-only, valid only while holding a triage item),
-  which validates what it's given (the story exists, the cron parses, an `outcome`
-  of `proposals` carries at least one) and returns fixable errors.
-- **Every analysis has an `outcome`:** `proposals` | `nothing` ("reference note,
-  nothing to do") | `question` (it needs one thing from you first).
-- **Proposal kinds:** `task` (Solitary WorkDef), `story-task` (into an existing
-  story), `story` (new story with tasks), `schedule` (cron WorkDef).
-- **Storage:** the analysis is a comment in the triage WorkDef's
-  `comments.jsonl` carrying `outcome` + `proposals`; your decisions are **appended**
-  to the same file as `kind: "decision"` lines (not comments, not turns), so state
-  is a fold over one append-only file and it doubles as the history:
-
-```jsonl
-{"from":"swift-neo","at":"…","body":"This note is really two things: …","outcome":"proposals","proposals":[
-  {"id":"p1","kind":"task","title":"…","goal":"…","acceptanceCriteria":["MUST …"],"directory":"…"},
-  {"id":"p2","kind":"story-task","storyId":"payments","title":"…","goal":"…"}]}
-{"from":"you","at":"…","kind":"decision","proposalId":"p1","action":"accepted","workDefId":"td-4821"}
-{"from":"you","at":"…","kind":"decision","proposalId":"p2","action":"rejected"}
-```
-
-- **Accept creates only** — never enqueues or runs. **Reject** is one click, no
-  reason; to steer the next analysis, edit the note.
-- **Both directions link:** the decision names what it created; that WorkDef's
-  frontmatter gets `origin: {thought, proposal}`.
-- **The next run sees the decisions** (the prompt already includes earlier
-  analyses — add what happened to each), so a rejected idea isn't re-proposed.
-- `Comment` gains three optional fields: `outcome`, `proposals`, `kind`.
+Tests: tests/triage.test.ts (42), harnesses/pi/tests/tools.test.mjs.
 
 **Stage 3 — UI.**
 

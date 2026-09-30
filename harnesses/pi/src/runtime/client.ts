@@ -505,6 +505,22 @@ export class DaemonClient {
   }
 
   /**
+   * Post a triage analysis: prose, an outcome, and the work it proposes
+   * (my-pizza-team docs/DESIGN.md "Auto Triage"). Only valid while holding a
+   * triage work item; the daemon validates and returns a fixable error.
+   */
+  async proposeWork(workItemId: string, analysis: {
+    body: string;
+    outcome: "proposals" | "nothing" | "question";
+    proposals?: unknown[];
+  }): Promise<{ success: boolean; error?: string }> {
+    return this.post<{ success: boolean; error?: string }>(
+      `/api/agents/work-items/${encodeURIComponent(workItemId)}/proposals`,
+      { agentId: this.agentId, ...analysis },
+    );
+  }
+
+  /**
    * Report this session's model, context-window fill, and cost, for the Team tab
    * (see runtime/session-stats.ts). Never throws — it's display-only, and an
    * older daemon without the route just ignores it.

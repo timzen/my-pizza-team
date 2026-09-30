@@ -212,6 +212,21 @@ export interface WorkDef {
   directory?: string;
   /** Lifecycle status: active (default) or archived. */
   status?: "active" | "archived";
+  /**
+   * Where this WorkDef came from, when it wasn't authored directly: the note and
+   * proposal whose acceptance created it (docs/DESIGN.md "Auto Triage"). Structural
+   * metadata, so it belongs in frontmatter; it makes the link note → work
+   * navigable in both directions.
+   */
+  origin?: WorkDefOrigin;
+}
+
+/** The triage proposal a WorkDef was created from. */
+export interface WorkDefOrigin {
+  /** The note (`thoughts/<id>.md`). */
+  thought: string;
+  /** The proposal's id within its analysis. */
+  proposal: string;
 }
 
 /**
@@ -329,7 +344,96 @@ export interface Comment {
   body: string;
   at: string;
   attachments?: CommentAttachment[];
+  /**
+   * Auto triage only: what this analysis concluded, and the work it proposes
+   * (docs/DESIGN.md "Auto Triage"). Absent on every ordinary comment.
+   */
+  outcome?: TriageOutcome;
+  proposals?: TriageProposal[];
 }
+
+// ─── Auto triage: analyses, proposals, decisions ──────────────────────
+//
+// An analysis is a Comment in the note's triage thread carrying `outcome` and any
+// `proposals`; the author's accept/reject is a TriageDecision **appended to the
+// same `comments.jsonl`**. So one append-only file holds the conversation *and*
+// its history, and current state is a fold over it (daemon/triage.ts).
+
+/** What one analysis concluded. */
+export type TriageOutcome =
+  /** There's work worth doing; `proposals` says what. */
+  | "proposals"
+  /** A reference note, a journal entry, already-done work: nothing to create. */
+  | "nothing"
+  /** The teammate needs something from the author first (asked in the body). */
+  | "question";
+
+export type TriageProposalKind = "task" | "story-task" | "story" | "schedule";
+
+/**
+ * One piece of proposed work, structured so that accepting it creates the real
+ * thing without parsing prose.
+ */
+export interface TriageProposal {
+  /** Unique within its analysis (the teammate names it, e.g. "p1"). */
+  id: string;
+  kind: TriageProposalKind;
+  title: string;
+  /** What to achieve. Required except for `story`, where the tasks carry it. */
+  goal?: string;
+  acceptanceCriteria?: string;
+  additionalContext?: string;
+  directory?: string;
+  /** `story-task`: the existing story to add it to. */
+  storyId?: string;
+  /** `schedule`: a 5-field cron. */
+  cron?: string;
+  /** `story`: the tasks to create with the new story (at least one). */
+  tasks?: Array<{ title: string; goal: string; acceptanceCriteria?: string }>;
+  /** `story`: the new story's description. */
+  description?: string;
+}
+
+export type TriageDecisionAction = "accepted" | "rejected";
+
+/**
+ * The author's answer to one proposal — a line in the triage thread, not a
+ * comment and not a turn (only editing the note is a turn).
+ */
+export interface TriageDecision {
+  kind: "decision";
+  proposalId: string;
+  action: TriageDecisionAction;
+  /** What accepting created (a WorkDef, or a story for `kind: "story"`). */
+  workDefId?: string;
+  storyId?: string;
+  from: string;
+  at: string;
+}
+
+/** One line of a triage thread: an analysis/comment, or a decision. */
+export type ThreadEntry = Comment | TriageDecision;
+
+/** Is this thread line a decision rather than a comment? */
+export function isTriageDecision(entry: ThreadEntry): entry is TriageDecision {
+  return (entry as TriageDecision).kind === "decision";
+}
+
+/** A proposal plus what the author did about it (undecided = still pending). */
+export interface TriageProposalState {
+  proposal: TriageProposal;
+  /** Which analysis it came from. */
+  at: string;
+  from: string;
+  decision?: TriageDecision;
+}
+
+/**
+ * What the note's badge shows — the latest analysis's outcome, not a count
+ * (docs/DESIGN.md "Auto Triage"). `none` = nothing to show: never triaged, or
+ * every proposal has been dealt with.
+ */
+export type TriageBadge = "none" | "proposal" | "nothing" | "question";
 
 export interface Member {
   id: string;

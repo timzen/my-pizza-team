@@ -193,9 +193,42 @@ it" is answered by the note itself.
   WorkDef verbs refuse a triage container (409 naming the note) so nothing can edit
   a thread out of step with what it's about; "Run" on one means Triage now.
 
+**Proposals are structured comments; decisions are appended.** The analysis is a
+comment in the note's triage thread carrying an `outcome` — `proposals`, `nothing`
+("a reference note; nothing to create"), or `question` (it needs one thing from you
+first) — plus, for `proposals`, the work itself: `task`, `story-task`, `story`, or
+`schedule`, each with the fields that kind needs. Structured so accepting creates the
+real thing without parsing prose, and posted through the teammate's `propose_work`
+tool, which **validates** (the story exists, the cron parses, `proposals` carries at
+least one) and hands back a fixable message rather than writing a broken line.
+
+Your accept/reject is a `kind: "decision"` line **appended to the same
+`comments.jsonl`**. So one append-only file holds the conversation *and* its history,
+current state is a fold over it (a proposal no decision names is pending), and
+`getCommentsForRef` simply filters decisions out — every existing reader is
+unchanged. Decisions are **not comments and not turns**; only editing the note is a
+turn.
+
+- **Accepting creates; it never starts anything itself.** What happens next is
+  whatever that kind of work does when you create it by hand: a `task` waits for
+  **Run**, a `schedule` waits for its cron, and a story task enters its story's
+  workflow — which, exactly as when you add a task to a story yourself, may admit it
+  and queue it straight away. Triage-created work is not a special case of the board.
+- **Rejecting is one click, no reason.** To steer the next analysis, edit the note.
+  The next run's prompt lists earlier proposals and what you did with each, so a
+  rejected idea isn't offered again.
+- **Both directions are linked:** the decision names what it created, and that
+  WorkDef's frontmatter carries `origin: {thought, proposal}`.
+- **The badge is the latest analysis's outcome, not a count** — and nothing once
+  every proposal in it has been decided.
+
 *Why not a comment thread on notes?* It's the same thing built twice. A WorkDef
 already has an append-only thread, attachments, a cost tally, and an Inbox row, and
 "a note is an enqueuer" is exactly what a parent is.
+
+*Why not a separate proposals file?* `comments.jsonl` is append-only, which reads
+like a reason to put mutable state elsewhere — but a decision isn't a mutation, it's
+the next event. Appending it keeps one file, one order, and one history.
 
 ## Task Templates: a Mold, not Work
 

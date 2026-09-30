@@ -118,6 +118,13 @@ summed over every entry exactly as Pi's footer does. Unchanged numbers aren't
 re-sent; after a daemon restart (`reregister`) the last report is sent again.
 Display-only: failures are swallowed.
 
+**Triage answers (`propose_work`).** A teammate holding a triage item posts its
+analysis with `propose_work` (src/tools.ts → `client.proposeWork` →
+`POST /api/agents/work-items/:id/proposals`): prose, an `outcome`
+(`proposals`/`nothing`/`question`), and structured proposals. The daemon validates and
+returns a message the agent can act on, so a malformed proposal is a retry rather than
+a broken thread. The tool creates nothing — accepting is the author's decision.
+
 Rework needs no special path: a human moves the task back into an agent state,
 which enqueues a fresh READY WorkItem, and the next poll discovers it like new
 work — with the human's comments in the prompt. "Giving up" is the agent

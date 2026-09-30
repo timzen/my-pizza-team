@@ -182,6 +182,11 @@ export interface TriagePromptInput {
   stories?: Array<{ id: string; title: string }>;
   /** Earlier analyses of this note (its triage WorkDef's thread). */
   priorComments?: Array<{ from: string; body: string; at: string }>;
+  /**
+   * One line per earlier proposal and what the author did with it
+   * (Store.triageDecisionSummary), so a rejected idea isn't proposed again.
+   */
+  priorDecisions?: string[];
 }
 
 /**
@@ -190,7 +195,7 @@ export interface TriagePromptInput {
  * borrowing that shape would mean faking authored fields the WorkDef doesn't have.
  */
 export function buildTriagePrompt(input: TriagePromptInput): string {
-  const { note, groupName, instructions, stories, priorComments } = input;
+  const { note, groupName, instructions, stories, priorComments, priorDecisions } = input;
   let out = "## Your Role: Triage\n\n";
   out += `${normalizeInstructionMarkdown((instructions ?? DEFAULT_TRIAGE_INSTRUCTIONS).trim(), 3)}\n\n`;
 
@@ -213,8 +218,17 @@ export function buildTriagePrompt(input: TriagePromptInput): string {
     for (const c of priorComments) out += `> **${c.from}** (${c.at}):\n>\n${c.body.split("\n").map((l) => `> ${l}`).join("\n")}\n\n`;
   }
 
+  // What the author already decided: the strongest signal about what they want.
+  if (priorDecisions && priorDecisions.length > 0) {
+    out += `## What the Author Did With Earlier Proposals\n\n`;
+    for (const line of priorDecisions) out += `- ${line}\n`;
+    out += `\nDon't re-propose something they rejected unless the note's edit changes it.\n\n`;
+  }
+
   out += `## Finishing\n\n`;
-  out += `Post your analysis as a comment on this work item, then mark it complete. `;
+  out += `Post your analysis with the \`propose_work\` tool — it takes your written analysis, an `;
+  out += `\`outcome\` (\`proposals\`, \`nothing\`, or \`question\`), and the proposals themselves — then mark `;
+  out += `this work item complete. Creating the work is the author's decision, not yours: propose it and stop. `;
   out += `Don't pick up other work, and don't change the note — the author answers you by editing it.\n`;
   return out.trimEnd() + "\n";
 }

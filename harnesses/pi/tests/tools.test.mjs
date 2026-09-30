@@ -225,5 +225,24 @@ test("uses TypeBox for parameter schemas", () => {
   assert.ok(src.includes("Type.Optional("));
 });
 
+test("has propose_work (the teammate's answer to an auto-triage item)", () => {
+  assert.ok(src.includes('name: "propose_work"'));
+  // It's a teammate tool, registered with the others.
+  assert.ok(src.includes("registerProposeWork(pi, client, getCurrentWorkItemId)"));
+  // All four proposal kinds are offered, and the three outcomes.
+  for (const kind of ["task", "story-task", "story", "schedule"]) {
+    assert.ok(src.includes(`Type.Literal("${kind}")`), `missing kind ${kind}`);
+  }
+  for (const outcome of ["proposals", "nothing", "question"]) {
+    assert.ok(src.includes(`Type.Literal("${outcome}")`), `missing outcome ${outcome}`);
+  }
+  // It proposes; it must not create the work itself.
+  assert.ok(src.includes("client.proposeWork("));
+});
+
+test("propose_work tells the agent a rejected analysis is fixable", () => {
+  assert.ok(src.includes("Fix it and call propose_work again"));
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

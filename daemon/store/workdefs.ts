@@ -17,7 +17,7 @@
 
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
-import { slugify, type WorkDef, type WorkDefParent, type WorkDefParentKind, WORKDEFS_DIR } from "../../shared/types.ts";
+import { slugify, type WorkDef, type WorkDefOrigin, type WorkDefParent, type WorkDefParentKind, WORKDEFS_DIR } from "../../shared/types.ts";
 
 const FILE = "workdef.md";
 const GOAL_H = "## Goal";
@@ -44,6 +44,11 @@ export function serializeWorkDef(def: WorkDef): string {
   if (def.directory) fm.push(`directory: ${quote(def.directory)}`);
   if (def.contextRefs && def.contextRefs.length > 0) fm.push(`contextRefs: [${def.contextRefs.join(", ")}]`);
   if (def.status === "archived") fm.push(`status: archived`);
+  // Where an accepted triage proposal turned into this work (structural, not authored).
+  if (def.origin) {
+    fm.push(`originThought: ${quote(def.origin.thought)}`);
+    fm.push(`originProposal: ${quote(def.origin.proposal)}`);
+  }
   fm.push("---");
   const body = [
     GOAL_H, "", def.goal.trim(), "",
@@ -75,6 +80,8 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
   if (dir) def.directory = dir;
   const refs = list(fm, "contextRefs");
   if (refs.length > 0) def.contextRefs = refs;
+  const origin = parseOrigin(fm);
+  if (origin) def.origin = origin;
   return def;
 }
 
@@ -86,6 +93,13 @@ function parseParent(fm: string): WorkDefParent | undefined {
     return { kind: kind as WorkDefParentKind, id };
   }
   return undefined;
+}
+
+/** Read the triage origin from frontmatter (originThought + originProposal). */
+function parseOrigin(fm: string): WorkDefOrigin | undefined {
+  const thought = scalar(fm, "originThought");
+  const proposal = scalar(fm, "originProposal");
+  return thought && proposal ? { thought, proposal } : undefined;
 }
 
 /** List all WorkDefs on disk, sorted by id. */
@@ -110,7 +124,7 @@ export function getWorkDef(teamDir: string, id: string): WorkDef | null {
 /** Create a WorkDef; id derived from title (deduped) unless one is supplied. */
 export function saveWorkDef(teamDir: string, input: {
   id?: string; title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
-  additionalContext?: string; contextRefs?: string[]; directory?: string;
+  additionalContext?: string; contextRefs?: string[]; directory?: string; origin?: WorkDefOrigin;
 }): WorkDef {
   let id = input.id;
   if (!id) {
@@ -130,6 +144,7 @@ export function saveWorkDef(teamDir: string, input: {
   if (input.additionalContext) def.additionalContext = input.additionalContext;
   if (input.contextRefs && input.contextRefs.length > 0) def.contextRefs = input.contextRefs;
   if (input.directory) def.directory = input.directory;
+  if (input.origin) def.origin = input.origin;
 
   writeWorkDef(teamDir, def);
   return def;
@@ -138,7 +153,7 @@ export function saveWorkDef(teamDir: string, input: {
 export function updateWorkDef(teamDir: string, id: string, updates: {
   title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
   additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
-  status?: "active" | "archived";
+  status?: "active" | "archived"; origin?: WorkDefOrigin;
 }): WorkDef | null {
   const def = getWorkDef(teamDir, id);
   if (!def) return null;
@@ -150,6 +165,7 @@ export function updateWorkDef(teamDir: string, id: string, updates: {
   if (updates.contextRefs !== undefined) def.contextRefs = updates.contextRefs || undefined;
   if (updates.directory !== undefined) def.directory = updates.directory || undefined;
   if (updates.status !== undefined) def.status = updates.status;
+  if (updates.origin !== undefined) def.origin = updates.origin;
   writeWorkDef(teamDir, def);
   return def;
 }

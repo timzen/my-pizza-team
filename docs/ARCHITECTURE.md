@@ -99,7 +99,7 @@ marked done; moving one back out reopens it.
 - `workflow-engine.ts` — Position logic: `activeStateNames`, `isAgentState`, `firstActiveState`, `nextState`, `boardColumns`, `isValidPosition`, `validateWorkflow`.
 - `workflow-lint.ts` — `validateInstructionMarkdown`: unbalanced fences are errors; shallow headings and `---` are warnings.
 - `prompt.ts` — `buildTaskPrompt` (see DESIGN.md "The Daemon Owns the Prompt") and `normalizeInstructionMarkdown` (fence-aware heading demotion).
-- `triage.ts` — Auto-triage rules (pure, like cron.ts): `triageSkipReason`/`isTriageDue` (the turn rule), `triageWorkDefId`, `triageWorkItemTitle`, `noteFirstLine`.
+- `triage.ts` — Auto-triage rules (pure, like cron.ts): `triageSkipReason`/`isTriageDue` (the turn rule), `triageWorkDefId`, `triageWorkItemTitle`, `noteFirstLine`, and the proposal layer — `validateAnalysis`/`validateProposal`, `foldProposals`, `latestAnalysis`, `pendingProposals`, `triageBadge`, `decisionSummary`.
 - `cron.ts` — Vendored 5-field cron parser (`parseCron`, `cronMatches`, `isCronDue`, `isValidCron`).
 - `token-cost.ts` — Fallback cost estimator, used only when a harness reports no `costUsd`.
 - `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`, and `{mpt}` — how to run this mpt), and `tmuxUnavailableReason`.
@@ -308,6 +308,21 @@ open stories + earlier analysis; `buildClaimPrompt` routes thought-parented item
 it. Archive/restore/delete of a note cascades to its WorkDef, and the generic
 `PUT`/`DELETE`/`enqueue` WorkDef routes refuse one.
 
+**Proposals.** An analysis is a `Comment` with `outcome` + `proposals`; a decision is
+a `TriageDecision` line in the same `comments.jsonl`. `getThreadEntries` reads every
+line, `getCommentsForRef` filters decisions out (so existing readers are unchanged),
+and `appendThreadEntry` is the only writer. Pure helpers in `daemon/triage.ts`:
+`validateAnalysis`/`validateProposal` (messages written to be actionable by the
+agent), `foldProposals`, `latestAnalysis`, `pendingProposals`, `triageBadge`,
+`decisionSummary` (fed to the next run's prompt). The Store adds
+`addTriageAnalysis`, `getTriageThread`, `getTriageBadges`, `acceptProposal` (creates
+`task`/`story-task`/`story`/`schedule`, stamps `origin` frontmatter, appends the
+decision; `existingWorkDefId`/`overrides` serve the UI's "Edit" path),
+`rejectProposal`, and `triageDecisionSummary`; both return a `ProposalResult` whose
+failure carries a `code` so routes map it to 404/409 without reading the message. The
+teammate posts through `propose_work` (harnesses/pi/src/tools.ts →
+`POST /api/agents/work-items/:id/proposals`, holder-only and triage-only).
+
 ## Scheduler readiness gating
 
 `runScheduler` (every 30s) enqueues each due Schedule's active child WorkDefs, deduped
@@ -339,6 +354,10 @@ When a token is configured, every path except `/health` requires it.
 | GET/PUT | `/api/workflows/:name/instructions/:state` | Read/write a persona; PUT lints (errors → 400; warnings returned) |
 | GET/PUT | `/api/triage/instructions` | The team's `triage.md`; GET also returns the built-in `default`. Empty content clears it |
 | POST | `/api/thoughts/:id/triage` | **Triage now**: enqueue a run for this note, skipping the quiet period and the unchanged rule (409 when one is in flight) |
+| GET | `/api/thoughts/:id/triage` | The triage page's payload: the note, thread entries, proposals folded with decisions, `pending`, `badge`, `latestOutcome`, `skipReason` |
+| GET | `/api/triage/badges` | `{ noteId: badge }` for every note with one (the canvas/list badges) |
+| POST | `/api/thoughts/:id/proposals/:pid/accept` | Create the proposed work + record the decision. Optional `workDefId` (record work the author created via the normal form) and `overrides` (its edits). 404 unknown, 409 already decided |
+| POST | `/api/thoughts/:id/proposals/:pid/reject` | Record a rejection (no reason, not a turn) |
 
 ### Stories and board tasks
 
@@ -390,6 +409,7 @@ When a token is configured, every path except `/health` requires it.
 | POST | `/api/agents/work-items/:workItemId/state` | COMPLETE (advances a board task) or FAILED; only the holder (403 otherwise); posts no comment |
 | GET/POST | `/api/agents/comments/:workItemId` | Read / post comments on the item's ref |
 | POST | `/api/agents/work-items/:workItemId/attachments` | Upload to the ref |
+| POST | `/api/agents/work-items/:workItemId/proposals` | `propose_work`: an analysis (`body`, `outcome`, `proposals`) on a triage item. Holder-only (403), triage-only (400), validated (400 with a fixable message) |
 | POST | `/api/agents/:id/session-stats` | After every turn and on a model switch: `contextTokens`, `contextWindow`, `contextPercent` (each nullable), `costUsd` (the session's running total), `model` (`{id, name, provider}` or null). In memory; cleared on (re)register. Optional — an agent that never sends it shows no numbers |
 | POST | `/api/agents/:id/usage` | One run: tokens incl. cache, `costUsd`, `model`, `kind` (`work`\|`pairing`\|`chat`\|`other`), optional `workItemId` |
 | GET | `/api/agents` | Members (with handshake fields and `session` — the last session stats, or null) + the daemon's `protocolVersion` and `daemonVersion` |

@@ -6,7 +6,7 @@
 // Three registration functions for role-specific tool sets:
 //   - registerLeaderTools: create_story, edit_story, add_task, list_workflows,
 //                          list_context, team_status
-//   - registerTeammateTools: upload_attachment
+//   - registerTeammateTools: upload_attachment, propose_work
 //   - registerLeaderTools: create_story, edit_story, add_task, create_task,
 //                          create_schedule, list_workflows, list_context,
 //                          team_status, list_thought_groups, list_thoughts,
@@ -61,9 +61,10 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
 
 /**
  * Register tools for the teammate role.
- * Includes file upload for attachments and the `fail` escape hatch. "Giving up"
- * is two primitives the agent composes: post a comment, then set the WorkItem
- * FAILED (the daemon bundles nothing).
+ * Includes file upload for attachments, the `fail` escape hatch, and `propose_work`
+ * (the answer to an auto-triage item). "Giving up" is two primitives the agent
+ * composes: post a comment, then set the WorkItem FAILED (the daemon bundles
+ * nothing).
  */
 export function registerTeammateTools(
   pi: ExtensionAPI,
@@ -73,6 +74,82 @@ export function registerTeammateTools(
 ): void {
   registerUploadAttachment(pi, client, getCurrentWorkItemId);
   registerFailWorkItem(pi, client, getCurrentWorkItemId, onWorkItemFailed);
+  registerProposeWork(pi, client, getCurrentWorkItemId);
+}
+
+// ─── propose_work (the answer to an auto-triage item) ───────────
+
+/**
+ * How a teammate answers a triage work item: its reading of the note plus the work
+ * it proposes, structured so the author can accept one with a click (my-pizza-team
+ * docs/DESIGN.md "Auto Triage"). The author decides — this creates nothing.
+ */
+function registerProposeWork(
+  pi: ExtensionAPI,
+  client: DaemonClient,
+  getCurrentWorkItemId: () => string | null,
+): void {
+  const proposal = Type.Object({
+    id: Type.String({ description: 'Unique within this analysis, e.g. "p1"' }),
+    kind: Type.Union([
+      Type.Literal("task"), Type.Literal("story-task"), Type.Literal("story"), Type.Literal("schedule"),
+    ], { description: "task = standalone; story-task = into an existing story; story = new story with tasks; schedule = recurring" }),
+    title: Type.String(),
+    goal: Type.Optional(Type.String({ description: "What to achieve. Required for every kind except story." })),
+    acceptanceCriteria: Type.Optional(Type.String({ description: "MUST/SHOULD/MAY bullets" })),
+    additionalContext: Type.Optional(Type.String()),
+    directory: Type.Optional(Type.String({ description: "Where the work happens (repo path)" })),
+    storyId: Type.Optional(Type.String({ description: "story-task: the existing story's id, from the Open Stories list" })),
+    cron: Type.Optional(Type.String({ description: "schedule: 5-field cron, e.g. '0 9 * * 1-5'" })),
+    description: Type.Optional(Type.String({ description: "story: the new story's description" })),
+    tasks: Type.Optional(Type.Array(Type.Object({
+      title: Type.String(),
+      goal: Type.String(),
+      acceptanceCriteria: Type.Optional(Type.String()),
+    }), { description: "story: its tasks, in order (at least one)" })),
+  });
+
+  pi.registerTool({
+    name: "propose_work",
+    label: "Propose Work",
+    description:
+      "Answer an auto-triage work item: post your reading of the note plus any work you think should come out of it. " +
+      "Use it once per triage item, then end your turn. It creates nothing — the author accepts, edits, or rejects " +
+      "each proposal. Only valid while holding a triage item (one whose prompt shows 'Your Role: Triage').",
+    promptSnippet: "Answer a triage item with an analysis and proposed work",
+    promptGuidelines: [
+      "Prefer concrete proposals a teammate could pick up without asking questions.",
+      "outcome 'nothing' is a real answer for a reference note or a journal entry — don't invent work.",
+      "outcome 'question' when one missing fact blocks a useful proposal; ask it in the body.",
+      "Never create stories/tasks/schedules yourself for a triage item; propose them here instead.",
+    ],
+    parameters: Type.Object({
+      body: Type.String({ description: "Your written analysis: what this note is, then your reasoning" }),
+      outcome: Type.Union([Type.Literal("proposals"), Type.Literal("nothing"), Type.Literal("question")], {
+        description: "proposals = there's work; nothing = nothing to create; question = you need something first",
+      }),
+      proposals: Type.Optional(Type.Array(proposal, { description: "Required (and only allowed) when outcome is 'proposals'" })),
+    }),
+    async execute(_toolCallId, params) {
+      const workItemId = getCurrentWorkItemId();
+      if (!workItemId) {
+        return { content: [{ type: "text", text: "No work item is currently claimed — nothing to propose against." }], details: undefined };
+      }
+      const p = params as { body: string; outcome: "proposals" | "nothing" | "question"; proposals?: unknown[] };
+      try {
+        const res = await client.proposeWork(workItemId, { body: p.body, outcome: p.outcome, proposals: p.proposals });
+        if (!res.success) {
+          // The daemon's validation message is written to be actionable.
+          return { content: [{ type: "text", text: `Not accepted: ${res.error || "unknown error"}. Fix it and call propose_work again.` }], details: undefined };
+        }
+        const n = p.outcome === "proposals" ? (p.proposals?.length ?? 0) : 0;
+        const what = p.outcome === "proposals" ? `${n} proposal${n === 1 ? "" : "s"}` : `outcome "${p.outcome}"`;
+        return { content: [{ type: "text", text: `Posted your analysis with ${what}. The author decides from here — end your turn.` }], details: undefined };
+      } catch {
+        return { content: [{ type: "text", text: "Failed to post the analysis (daemon unreachable)." }], details: undefined };
+      }
+    },
+  });
 }
 
 // ─── fail (teammate escape hatch) ──────────────────────────────
