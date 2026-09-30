@@ -65,6 +65,32 @@ export interface TeamConfig {
    * "Scheduler readiness gating".
    */
   readinessProbe?: string;
+  /**
+   * Auto-triage: a teammate reads each changed note and replies with an analysis
+   * (TODO.md "Auto Triage"). On by default. The sweep runs every
+   * `intervalMinutes` and skips notes edited within `quietMinutes`, so it never
+   * reads a half-written thought.
+   */
+  triage?: TriageConfig;
+}
+
+export interface TriageConfig {
+  /** Default true. */
+  enabled?: boolean;
+  /** How often the sweep runs (default 60). */
+  intervalMinutes?: number;
+  /** Leave a note alone for this long after its last edit (default 10). */
+  quietMinutes?: number;
+}
+
+/** Triage settings with defaults applied. */
+export function resolveTriage(config: Pick<TeamConfig, "triage">): Required<TriageConfig> {
+  const t = config.triage ?? {};
+  return {
+    enabled: t.enabled !== false,
+    intervalMinutes: t.intervalMinutes && t.intervalMinutes > 0 ? t.intervalMinutes : 60,
+    quietMinutes: t.quietMinutes !== undefined && t.quietMinutes >= 0 ? t.quietMinutes : 10,
+  };
 }
 
 export interface TeammateConfig {
@@ -151,7 +177,7 @@ export interface WorkItem {
  * Story, cron/lastEnqueuedAt on the Schedule. The daemon never rewrites a
  * WorkDef file except on an explicit human/agent edit.
  */
-export type WorkDefParentKind = "story" | "schedule";
+export type WorkDefParentKind = "story" | "schedule" | "thought";
 
 export interface WorkDefParent {
   kind: WorkDefParentKind;
@@ -159,12 +185,14 @@ export interface WorkDefParent {
 }
 
 /** Derived label for a WorkDef, from its parent kind. */
-export type WorkDefType = "Solitary" | "Scheduled" | "Board";
+export type WorkDefType = "Solitary" | "Scheduled" | "Board" | "Triage";
 
 /** Derive the display type from a WorkDef's parent. */
 export function workDefType(parent?: WorkDefParent): WorkDefType {
   if (!parent) return "Solitary";
-  return parent.kind === "schedule" ? "Scheduled" : "Board";
+  if (parent.kind === "schedule") return "Scheduled";
+  if (parent.kind === "thought") return "Triage";
+  return "Board";
 }
 
 export interface WorkDef {
@@ -405,6 +433,9 @@ export const DEFAULT_CONFIG: TeamConfig = {
   // (resolveMinTeammates), so the default tracks the cap instead of freezing it.
   agentTimeoutSeconds: 90,
   teammates: {},
+  // Auto-triage is on by default; every non-archived, non-empty note is eligible
+  // (TODO.md "Auto Triage" Decisions 1–2).
+  triage: { enabled: true, intervalMinutes: 60, quietMinutes: 10 },
 };
 
 // ─── Shared constants ────────────────────────────────────────────────
@@ -522,6 +553,13 @@ export const ASSISTANT_SESSIONS_DIR = "sessions";
 
 /** Directory holding thought notes (`thoughts/<id>.md`); groups live in `groups.json`. */
 export const THOUGHTS_DIR = "thoughts";
+/**
+ * Auto-triage instructions: how a teammate should analyse a note. One file for
+ * the whole team (edited in the UI like a workflow persona), because a triage
+ * WorkDef is an empty container — copying instructions into each one would make
+ * the daemon rewrite authored files on every note edit (TODO.md "Auto Triage").
+ */
+export const TRIAGE_INSTRUCTIONS_FILE = "triage.md";
 export const THOUGHT_GROUPS_FILE = "groups.json";
 
 /**
@@ -556,6 +594,14 @@ export interface Thought {
   createdBy: string;
   createdAt: string;
   updatedAt: string;
+  /**
+   * The note version (`updatedAt`) last handed to auto-triage — stamped when a
+   * triage WorkItem is *enqueued*, not when the analysis comes back. The note is
+   * eligible again once `updatedAt` moves past it, so an edit made mid-run isn't
+   * swallowed, and a failed run doesn't re-cost every sweep (TODO.md "Auto
+   * Triage"). Absent = never triaged.
+   */
+  triagedVersion?: string;
 }
 
 /** A named group of thoughts (a spatial container rectangle on the canvas).

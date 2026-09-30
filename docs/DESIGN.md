@@ -133,6 +133,7 @@ emits WorkItems — and its type is derived from that parent, never stored:
 |---|---|---|
 | a **Story** (`stories/<id>.json`) | Board | its workflow position enters an agent state (first entry or rework) |
 | a **Schedule** (`schedules/<id>.json`) | Scheduled | the 5-field cron fires |
+| a **Thought** (`thoughts/<id>.md`) | Triage | the triage sweep finds the note's text changed since its last analysis |
 | none | Solitary | you press **Run** |
 
 All three funnel through one `enqueueFor(workDefId)`; a teammate works "the next
@@ -155,6 +156,46 @@ work should be universal too; a separate board-task type duplicated comments,
 attachments, and routes for no gain. Each WorkItem is self-contained — story-level
 context plus the WorkDef's own goal and criteria carry continuity, so there is no
 "result" field or "previous task" context threaded between tasks.
+
+## Auto Triage: a Note Is a Parent
+
+A teammate reads each note you've changed and replies with an analysis of it. The
+note is the parent that enqueues that work, so triage needed no new machinery: the
+thread, attachments, usage, and the Inbox entry are a WorkDef's, and "whose turn is
+it" is answered by the note itself.
+
+- **The WorkDef is a container, not authored work.** `triage-<noteId>` is created
+  lazily the first time a note is due, and holds nothing but a title and its parent.
+  The instructions live **once**, in `triage.md` at the team root (absent = the
+  built-in default), and the prompt is assembled at claim time from those plus the
+  note's *current* text, its group name, the open stories, and any earlier analysis.
+  Copying the note into `workdef.md` would mean rewriting an authored file on every
+  edit, which "WorkDefs & Parents" forbids. The *WorkItem* title is resolved at
+  enqueue ("Triage: <the note's first line>"), so the queue and Inbox read as the
+  note rather than as `triage-th-1790…`.
+- **Turns: you edit the note, the teammate comments.** A note is due when it is
+  active, non-empty, has no run in flight, and its text has moved on since the
+  version last handed over — which is stamped **at enqueue**, on the note (as a
+  Schedule keeps `lastEnqueuedAt`). Stamping then, rather than when the analysis
+  lands, is what makes an edit *during* a run survive: it lands after the stamp, so
+  the next sweep sees it. It also means a **failed run counts as analyzed**, so a
+  note that breaks triage doesn't cost a run every hour; **Triage now** retries it.
+- **An hourly sweep, not a Schedule.** A Schedule enqueues one WorkDef; a sweep
+  enqueues many, so it's a daemon timer beside the scheduler. It skips notes edited
+  in the last few minutes (`quietMinutes`), so it never reads a half-written
+  thought — they go in the next pass. On by default, and every non-archived,
+  non-empty note is eligible, so the first sweep covers the whole board.
+- **It runs like any other work.** In the leader's directory (the one place with
+  project context; with no leader registered it has none, so any teammate may take
+  it), at no special priority — the queue is oldest-first within directory tiers.
+- **The note owns it.** Archiving a note archives its WorkDef and cancels a queued
+  run; deleting one deletes the thread; restoring brings it back. The generic
+  WorkDef verbs refuse a triage container (409 naming the note) so nothing can edit
+  a thread out of step with what it's about; "Run" on one means Triage now.
+
+*Why not a comment thread on notes?* It's the same thing built twice. A WorkDef
+already has an append-only thread, attachments, a cost tally, and an Inbox row, and
+"a note is an enqueuer" is exactly what a parent is.
 
 ## Task Templates: a Mold, not Work
 

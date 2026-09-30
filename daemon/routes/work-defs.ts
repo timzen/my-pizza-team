@@ -4,6 +4,13 @@
  * WorkDefs are standalone work definitions (Solitary one-shots and Scheduled
  * cron work), stored as markdown on disk. Creating one enqueues a WorkItem by
  * default; "save without enqueueing" passes `enqueue: false`. See the plan.
+ *
+ * **A triage WorkDef is not editable here.** It's an empty container owned by its
+ * note (TODO.md "Auto Triage"): its content comes from `triage.md` plus the note,
+ * its lifecycle follows the note, and a run is started with
+ * `POST /api/thoughts/:id/triage`. Editing or deleting it directly would leave a
+ * note pointing at something that no longer describes it, so those verbs 409 and
+ * name the note instead.
  */
 
 import type { RouteContext } from "./types.ts";
@@ -21,6 +28,16 @@ function view(d: WorkDef, store: RouteContext["store"]) {
     tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
   };
 }
+
+/** A triage WorkDef is owned by its note; this is the refusal for direct edits. */
+function triageOwned(store: RouteContext["store"], id: string): { kind: "thought"; id: string } | null {
+  const parent = store.getWorkDef(id)?.parent;
+  return parent?.kind === "thought" ? { kind: "thought", id: parent.id } : null;
+}
+
+const TRIAGE_OWNED_ERROR = (thoughtId: string) =>
+  `This is the auto-triage thread for note ${thoughtId}; edit the note instead ` +
+  `(and use POST /api/thoughts/${thoughtId}/triage to re-run it).`;
 
 export function registerWorkDefRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -62,6 +79,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const body = (await c.req.json()) as UpdateWorkDefRequest;
     const existing = store.getWorkDef(id);
     if (!existing) return c.json({ success: false, error: "WorkDef not found" } satisfies SaveWorkDefResponse, 404);
+    const owned = triageOwned(store, id);
+    if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) } satisfies SaveWorkDefResponse, 409);
     if (body.cron !== undefined && body.cron !== null && !isValidCron(body.cron)) return c.json({ success: false, error: "Invalid 'cron' expression" } satisfies SaveWorkDefResponse, 400);
     // A cron edit updates the WorkDef's parent Schedule, not the WorkDef itself.
     if (body.cron && existing.parent?.kind === "schedule") {
@@ -76,6 +95,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   });
 
   app.delete("/api/work-defs/:id", (c) => {
+    const owned = triageOwned(store, c.req.param("id"));
+    if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) }, 409);
     const ok = store.deleteWorkDef(c.req.param("id"));
     if (!ok) return c.json({ success: false, error: "WorkDef not found" }, 404);
     return c.json({ success: true });
@@ -97,6 +118,14 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   // Enqueue a READY WorkItem for this def (manual trigger / "save then enqueue").
   app.post("/api/work-defs/:id/enqueue", (c) => {
+    // "Run" on a triage thread is Triage now, which knows the note's rules.
+    const owned = triageOwned(store, c.req.param("id"));
+    if (owned) {
+      const res = store.triageNow(owned.id);
+      return res.ok
+        ? c.json({ success: true, workItemId: res.workItem.id })
+        : c.json({ success: false, error: res.error }, 409);
+    }
     const item = store.enqueueWorkDef(c.req.param("id"));
     if (!item) return c.json({ success: false, error: "Unknown WorkDef, or one is already in flight" }, 400);
     return c.json({ success: true, workItemId: item.id });

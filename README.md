@@ -136,6 +136,11 @@ most of it is editable on the **Config** page. Minimal:
   // cron jobs are held (not failed) until it recovers, then fire once.
   "readinessProbe": "my-credentials-check",
 
+  // ─── Auto triage ───────────────────────────────────────────────
+  // A teammate reads each note you've changed and comments with an analysis.
+  // On by default. intervalMinutes re-arms on daemon restart.
+  "triage": { "enabled": true, "intervalMinutes": 60, "quietMinutes": 10 },
+
   // ─── Experimental ──────────────────────────────────────────────
   "experimental": { "harnesses": true }, // allow Kiro / Claude Code teammates (mpt agent)
 
@@ -192,6 +197,7 @@ most of it is editable on the **Config** page. Minimal:
 ├── context/             # context library: reusable prompt/context markdown
 ├── assistant/
 │   └── sessions/        # one markdown transcript per chat session
+├── triage.md            # Auto-triage instructions (optional; absent = built-in)
 ├── thoughts/            # Thoughts board notes (thoughts/<id>.md)
 ├── groups.json          # Thought groups
 └── usage/               # token-usage ledger, one JSON line per agent run

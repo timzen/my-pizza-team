@@ -143,6 +143,24 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
       if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
+      // Auto triage. A changed interval needs a daemon restart to re-arm the
+      // timer; enabling/disabling and the quiet period take effect next sweep.
+      if (body.triage !== undefined) {
+        const t = (body.triage || {}) as { enabled?: unknown; intervalMinutes?: unknown; quietMinutes?: unknown };
+        const minutes = (v: unknown, min: number) =>
+          typeof v === "number" && Number.isInteger(v) && v >= min ? v : undefined;
+        if (t.intervalMinutes !== undefined && minutes(t.intervalMinutes, 1) === undefined) {
+          return c.json({ success: false, error: "triage.intervalMinutes must be an integer >= 1" }, 400);
+        }
+        if (t.quietMinutes !== undefined && minutes(t.quietMinutes, 0) === undefined) {
+          return c.json({ success: false, error: "triage.quietMinutes must be an integer >= 0" }, 400);
+        }
+        config.triage = {
+          enabled: t.enabled !== false,
+          ...(minutes(t.intervalMinutes, 1) !== undefined ? { intervalMinutes: t.intervalMinutes as number } : {}),
+          ...(minutes(t.quietMinutes, 0) !== undefined ? { quietMinutes: t.quietMinutes as number } : {}),
+        };
+      }
       if (body.experimental !== undefined) config.experimental = body.experimental || undefined;
 
       // Store is the single config writer (it owns serializeConfig, so no field

@@ -50,6 +50,10 @@ export function serializeThought(t: Thought): string {
   fm.push(`createdBy: ${quote(t.createdBy)}`);
   fm.push(`createdAt: ${quote(t.createdAt)}`);
   fm.push(`updatedAt: ${quote(t.updatedAt)}`);
+  // Runtime state for auto-triage, on the parent rather than in the triage
+  // WorkDef (as a Schedule keeps lastEnqueuedAt). Writing it doesn't touch
+  // `updatedAt`, which only a content edit moves.
+  if (t.triagedVersion) fm.push(`triagedVersion: ${quote(t.triagedVersion)}`);
   fm.push("---");
   const body = t.content.replace(/^\n+/, "").replace(/\s+$/, "");
   return `${fm.join("\n")}\n${body}\n`;
@@ -62,6 +66,7 @@ export function parseThought(id: string, raw: string): Thought | null {
   const fm = m[1] ?? "";
   const body = m[2] ?? "";
   const status = scalar(fm, "status") === "archived" ? "archived" : "active";
+  const triagedVersion = scalar(fm, "triagedVersion");
   return {
     id,
     content: body.replace(/^\n+/, "").replace(/\s+$/, ""),
@@ -77,6 +82,7 @@ export function parseThought(id: string, raw: string): Thought | null {
     createdBy: scalar(fm, "createdBy") || "human",
     createdAt: scalar(fm, "createdAt") || "",
     updatedAt: scalar(fm, "updatedAt") || "",
+    ...(triagedVersion ? { triagedVersion } : {}),
   };
 }
 

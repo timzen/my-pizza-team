@@ -5,10 +5,14 @@
  * (a personal workspace/outbox). Two-state lifecycle (active⇄archived), direct
  * delete, pinning as a flag. Files are the source of truth (thoughts/<id>.md +
  * groups.json); this is a thin shell over the store. See docs/ARCHITECTURE.md.
+ *
+ * Auto triage lives here too (TODO.md "Auto Triage"): **Triage now** for one note,
+ * and the team's `triage.md` instructions.
  */
 
 import type { RouteContext } from "./types.ts";
 import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
+import { DEFAULT_TRIAGE_INSTRUCTIONS } from "../prompt.ts";
 
 const COORD_LIMIT = 1e7;
 
@@ -123,6 +127,29 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
       return c.json({ success: false, error: "Thought not found" }, 404);
     }
     return c.json({ success: true });
+  });
+
+  // ─── Auto triage ───────────────────────────────────────────────────
+
+  // The team's triage instructions. Absent/empty means the built-in default,
+  // which is returned as `default` so the editor can show what it's replacing.
+  app.get("/api/triage/instructions", (c) => {
+    return c.json({ content: store.getTriageInstructions() ?? "", default: DEFAULT_TRIAGE_INSTRUCTIONS });
+  });
+
+  app.put("/api/triage/instructions", async (c) => {
+    const body = await c.req.json().catch(() => ({})) as { content?: string };
+    if (typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required" }, 400);
+    store.setTriageInstructions(body.content);
+    return c.json({ success: true, content: store.getTriageInstructions() ?? "" });
+  });
+
+  // POST /api/thoughts/:id/triage — run triage on this note now, skipping the
+  // quiet period and the unchanged rule (the only way to retry a failed run).
+  app.post("/api/thoughts/:id/triage", (c) => {
+    const res = store.triageNow(c.req.param("id"));
+    if (!res.ok) return c.json({ success: false, error: res.error }, res.error.includes("not found") ? 404 : 409);
+    return c.json({ success: true, workItem: { id: res.workItem.id, title: res.workItem.title } });
   });
 
   // ─── Groups ────────────────────────────────────────────────────────

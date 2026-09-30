@@ -323,7 +323,7 @@ export interface WorkItemView {
   title: string;
   ref: { workDefId: string };
   /** The backing WorkDef's parent, so clients can route to the right detail page. */
-  parent?: { kind: "story" | "schedule"; id: string };
+  parent?: { kind: "story" | "schedule" | "thought"; id: string };
   directory?: string;
   state: string;
   read: boolean;
@@ -343,9 +343,9 @@ export interface ReEnqueueRequest { ref: { workDefId: string } }
 export interface WorkDefView {
   id: string;
   title: string;
-  /** Derived from parent kind: story→Board, schedule→Scheduled, none→Solitary. */
-  type: "Solitary" | "Scheduled" | "Board";
-  parent?: { kind: "story" | "schedule"; id: string };
+  /** Derived from parent kind: story→Board, schedule→Scheduled, thought→Triage, none→Solitary. */
+  type: "Solitary" | "Scheduled" | "Board" | "Triage";
+  parent?: { kind: "story" | "schedule" | "thought"; id: string };
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;

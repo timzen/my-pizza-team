@@ -10,7 +10,7 @@
  * A WorkDef is *authored content only* — the daemon never rewrites this file
  * except on an explicit human/agent edit. All mutable runtime state lives off
  * the markdown: workflow status on the Story, cron/lastEnqueuedAt on the
- * Schedule. Frontmatter carries only structural metadata (title, parent,
+ * Schedule, the note version last triaged on the Thought. Frontmatter carries only structural metadata (title, parent,
  * directory, contextRefs); the body carries Goal / Acceptance Criteria /
  * Additional Context, round-tripped by those exact headers.
  */
@@ -82,7 +82,7 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
 function parseParent(fm: string): WorkDefParent | undefined {
   const kind = scalar(fm, "parentKind");
   const id = scalar(fm, "parentId");
-  if ((kind === "story" || kind === "schedule") && id) {
+  if ((kind === "story" || kind === "schedule" || kind === "thought") && id) {
     return { kind: kind as WorkDefParentKind, id };
   }
   return undefined;

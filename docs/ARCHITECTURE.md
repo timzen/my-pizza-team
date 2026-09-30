@@ -99,6 +99,7 @@ marked done; moving one back out reopens it.
 - `workflow-engine.ts` — Position logic: `activeStateNames`, `isAgentState`, `firstActiveState`, `nextState`, `boardColumns`, `isValidPosition`, `validateWorkflow`.
 - `workflow-lint.ts` — `validateInstructionMarkdown`: unbalanced fences are errors; shallow headings and `---` are warnings.
 - `prompt.ts` — `buildTaskPrompt` (see DESIGN.md "The Daemon Owns the Prompt") and `normalizeInstructionMarkdown` (fence-aware heading demotion).
+- `triage.ts` — Auto-triage rules (pure, like cron.ts): `triageSkipReason`/`isTriageDue` (the turn rule), `triageWorkDefId`, `triageWorkItemTitle`, `noteFirstLine`.
 - `cron.ts` — Vendored 5-field cron parser (`parseCron`, `cronMatches`, `isCronDue`, `isValidCron`).
 - `token-cost.ts` — Fallback cost estimator, used only when a harness reports no `costUsd`.
 - `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`, and `{mpt}` — how to run this mpt), and `tmuxUnavailableReason`.
@@ -294,6 +295,19 @@ new `x`/`y` so the note sits inside its plate, or clear of every plate
 (`lib/thoughtList.ts`). The Pi extension exposes read/write tools so the leader can
 use the board.
 
+**Auto triage** (docs/DESIGN.md "Auto Triage: a Note Is a Parent"). `daemon/triage.ts`
+holds the pure rules — `triageSkipReason` (archived / empty / in-flight / unchanged /
+too-fresh), the `triage-<noteId>` id, and the WorkItem title — beside the Store's
+`runTriageSweep` (its own timer, `triage.intervalMinutes`, default 60),
+`triageNow` (**Triage now**: overrides quiet/unchanged, refuses in-flight),
+`ensureTriageWorkDef` (lazy), `triageStatusFor`, and `get/setTriageInstructions`
+(`triage.md`). The note's frontmatter carries `triagedVersion`, stamped when a run is
+*enqueued*. `buildTriagePrompt` (daemon/prompt.ts, with
+`DEFAULT_TRIAGE_INSTRUCTIONS`) assembles instructions + the note + its group name +
+open stories + earlier analysis; `buildClaimPrompt` routes thought-parented items to
+it. Archive/restore/delete of a note cascades to its WorkDef, and the generic
+`PUT`/`DELETE`/`enqueue` WorkDef routes refuse one.
+
 ## Scheduler readiness gating
 
 `runScheduler` (every 30s) enqueues each due Schedule's active child WorkDefs, deduped
@@ -323,6 +337,8 @@ When a token is configured, every path except `/health` requires it.
 | GET | `/api/workflows` | Summaries: name, stateCount, agentCount, manualCount, isDefault |
 | GET | `/api/workflows/:name` | Full `WorkflowConfig` |
 | GET/PUT | `/api/workflows/:name/instructions/:state` | Read/write a persona; PUT lints (errors → 400; warnings returned) |
+| GET/PUT | `/api/triage/instructions` | The team's `triage.md`; GET also returns the built-in `default`. Empty content clears it |
+| POST | `/api/thoughts/:id/triage` | **Triage now**: enqueue a run for this note, skipping the quiet period and the unchanged rule (409 when one is in flight) |
 
 ### Stories and board tasks
 

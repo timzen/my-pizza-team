@@ -46,6 +46,8 @@ import {
   DEFAULT_GROUP_SIZE,
   type Member,
   type MemberSessionStats,
+  resolveTriage,
+  TRIAGE_INSTRUCTIONS_FILE,
   type TeamReadiness,
   type Assignment,
 } from "../shared/types.ts";
@@ -55,6 +57,7 @@ import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, wr
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
+import { isTriageDue, triageSkipReason, triageWorkDefId, triageWorkDefTitle, triageWorkItemTitle, type TriageSkipReason } from "./triage.ts";
 import {
   AssistantChat,
   type AssistantDelivery,
@@ -186,6 +189,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.harnesses) out.harnesses = config.harnesses;
   if (config.defaultHarness) out.defaultHarness = config.defaultHarness;
   if (config.experimental && Object.keys(config.experimental).length > 0) out.experimental = config.experimental;
+  if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
   return out;
 }
 
@@ -198,6 +202,7 @@ export class Store {
   private commitTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null;
   private schedulerTimer: ReturnType<typeof setInterval> | null = null;
+  private triageTimer: ReturnType<typeof setInterval> | null = null;
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
   /**
@@ -1139,15 +1144,25 @@ export class Store {
     const def = this.getWorkDef(workDefId);
     if (!def) return null;
     let directory = def.directory;
+    let title = def.title;
     if (!directory && def.parent?.kind === "story") {
       directory = this.getStory(def.parent.id)?.directory;
+    }
+    if (def.parent?.kind === "thought") {
+      // A triage WorkDef is an empty container: its title and where it runs are
+      // resolved now, from the note and the leader (TODO.md "Auto Triage").
+      const note = this.getThought(def.parent.id);
+      if (note) title = triageWorkItemTitle(note);
+      // The leader's repo is the one place with project context; with no leader
+      // registered the item has no directory, so any teammate may take it.
+      directory = directory || this.getLeader()?.directory;
     }
     const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     this.db.prepare(
       `INSERT INTO work_items (id, title, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at)
        VALUES (?, ?, ?, ?, 'READY', 0, NULL, ?, ?)`
-    ).run(id, def.title, def.id, directory || null, now, now);
+    ).run(id, title, def.id, directory || null, now, now);
     return this.getWorkItem(id)!;
   }
 
@@ -1203,8 +1218,16 @@ export class Store {
       const wf = this.getWorkflowForStory(story.id);
       return isAgentState(wf, task.status);
     }
+    const def = this.getWorkDef(wi.ref.workDefId);
+    if (!def) return false;
+    // Triage: only while its note is still there and active (archiving a note
+    // archives its WorkDef, but an in-flight item must stop being handed out).
+    if (def.parent?.kind === "thought") {
+      const note = this.getThought(def.parent.id);
+      return note !== null && note.status === "active";
+    }
     // Standalone (Solitary/Scheduled) WorkDef: eligible while it exists.
-    return this.getWorkDef(wi.ref.workDefId) !== null;
+    return true;
   }
 
   /** Lease a READY WorkItem to a member (→ IN_PROGRESS). Board tasks also get an assignment row. */
@@ -1750,6 +1773,14 @@ export class Store {
     // Cron scheduler: enqueue due Scheduled WorkDefs, checked every 30s
     // (matching is minute-granular and deduped per minute; see cron.ts).
     this.schedulerTimer = setInterval(() => this.runScheduler(), 30_000);
+
+    // Auto-triage sweep: one pass over the notes every `intervalMinutes`. Its own
+    // timer rather than a Schedule, because a Schedule enqueues one WorkDef and a
+    // sweep enqueues many (TODO.md "Auto Triage").
+    const triage = resolveTriage(this.config);
+    if (triage.enabled) {
+      this.triageTimer = setInterval(() => this.runTriageSweep(), triage.intervalMinutes * 60 * 1000);
+    }
   }
 
   stopTimers(): void {
@@ -1757,6 +1788,7 @@ export class Store {
     if (this.commitTimer) clearInterval(this.commitTimer);
     if (this.heartbeatCheckTimer) clearInterval(this.heartbeatCheckTimer);
     if (this.schedulerTimer) clearInterval(this.schedulerTimer);
+    if (this.triageTimer) clearInterval(this.triageTimer);
   }
 
   /** The team's config, as resolved at startup. */
@@ -1866,6 +1898,133 @@ export class Store {
         updateSchedule(this.teamDir, sched.id, patch);
       }
     }
+  }
+
+  // --- Auto triage (TODO.md "Auto Triage") ---
+  //
+  // A note is a WorkDef parent: its triage WorkDef is an empty container that owns
+  // the thread, and the prompt is built from the note's *current* text at claim
+  // time. The turn rule (only a content edit is the author's turn) is in
+  // daemon/triage.ts; the note's frontmatter holds the version last handed over.
+
+  /**
+   * One triage pass over the notes: enqueue a WorkItem for every note whose text
+   * has moved on since its last analysis. Returns the items enqueued.
+   *
+   * Every non-archived, non-empty note is eligible and there is no per-sweep cap,
+   * so the first sweep after enabling triage covers the whole board (Decisions 1–2).
+   */
+  runTriageSweep(now: number = Date.now()): WorkItem[] {
+    const { enabled, quietMinutes } = resolveTriage(this.config);
+    if (!enabled) return [];
+    const out: WorkItem[] = [];
+    for (const note of this.getThoughts("active")) {
+      if (!isTriageDue({ note, inFlight: this.hasTriageInFlight(note.id), now, quietMinutes })) continue;
+      const item = this.enqueueTriage(note.id);
+      if (item) out.push(item);
+    }
+    return out;
+  }
+
+  /**
+   * Enqueue a triage run for one note now, skipping the quiet period and the
+   * "unchanged" rule — this is the **Triage now** button, and the only way to
+   * retry a note whose last run failed (its version was already stamped).
+   * Refuses only when a run is already in flight, or the note can't be triaged.
+   */
+  triageNow(thoughtId: string): { ok: true; workItem: WorkItem } | { ok: false; error: string } {
+    const note = this.getThought(thoughtId);
+    if (!note) return { ok: false, error: `Thought "${thoughtId}" not found` };
+    const reason = triageSkipReason({ note, inFlight: this.hasTriageInFlight(thoughtId), now: 0, quietMinutes: 0 });
+    // "unchanged"/"too-fresh" are what this button exists to override.
+    if (reason === "archived") return { ok: false, error: "An archived note isn't triaged" };
+    if (reason === "empty") return { ok: false, error: "An empty note has nothing to triage" };
+    if (reason === "in-flight") return { ok: false, error: "This note is already being triaged" };
+    const item = this.enqueueTriage(thoughtId);
+    return item ? { ok: true, workItem: item } : { ok: false, error: "Could not enqueue triage" };
+  }
+
+  /** Why the sweep would skip this note right now (null = it's due). */
+  triageStatusFor(thoughtId: string, now: number = Date.now()): TriageSkipReason | null {
+    const note = this.getThought(thoughtId);
+    if (!note) return "archived";
+    const { quietMinutes } = resolveTriage(this.config);
+    return triageSkipReason({ note, inFlight: this.hasTriageInFlight(thoughtId), now, quietMinutes });
+  }
+
+  /** A note's triage WorkDef, created on first use (never for a note that's never analysed). */
+  ensureTriageWorkDef(thoughtId: string): WorkDef | null {
+    const note = this.getThought(thoughtId);
+    if (!note) return null;
+    const id = triageWorkDefId(thoughtId);
+    const existing = getWorkDef(this.teamDir, id);
+    if (existing) {
+      // A note un-archived after its WorkDef was archived: bring it back.
+      if (existing.status === "archived" && note.status === "active") {
+        return updateWorkDef(this.teamDir, id, { status: "active" });
+      }
+      return existing;
+    }
+    // Authored content only, and there is none: the instructions live in
+    // triage.md and the note's text is injected at claim time.
+    return saveWorkDef(this.teamDir, {
+      id,
+      title: triageWorkDefTitle(thoughtId),
+      parent: { kind: "thought", id: thoughtId },
+      goal: "",
+      acceptanceCriteria: "",
+    });
+  }
+
+  /** Is a triage run for this note queued or running? */
+  private hasTriageInFlight(thoughtId: string): boolean {
+    return this.getActiveWorkItemForRef({ workDefId: triageWorkDefId(thoughtId) }) !== null;
+  }
+
+  /**
+   * Create the WorkDef if needed, enqueue a WorkItem, and stamp the note with the
+   * version handed over. Stamping **at enqueue** is what makes an edit during a
+   * run survive (it lands after the stamp, so the note is due again) and a failed
+   * run not retry every sweep.
+   */
+  private enqueueTriage(thoughtId: string): WorkItem | null {
+    const note = this.getThought(thoughtId);
+    if (!note) return null;
+    if (!this.ensureTriageWorkDef(thoughtId)) return null;
+    const item = this.enqueueFor(triageWorkDefId(thoughtId));
+    if (!item) return null;
+    const fresh = ioGetThought(this.teamDir, thoughtId);
+    if (fresh) {
+      fresh.triagedVersion = fresh.updatedAt;
+      writeThought(this.teamDir, fresh);
+    }
+    return item;
+  }
+
+  /**
+   * The team's triage instructions (`triage.md`), or undefined when it has none —
+   * the prompt builder then uses its built-in default. One file for the team, so
+   * changing how triage works is one edit rather than one per note.
+   */
+  getTriageInstructions(): string | undefined {
+    const file = path.join(this.teamDir, TRIAGE_INSTRUCTIONS_FILE);
+    try {
+      if (!existsSync(file)) return undefined;
+      const content = Deno.readTextFileSync(file);
+      return content.trim() ? content : undefined;
+    } catch {
+      return undefined;
+    }
+  }
+
+  /** Write `triage.md` (empty clears it, restoring the built-in default). */
+  setTriageInstructions(content: string): void {
+    const file = path.join(this.teamDir, TRIAGE_INSTRUCTIONS_FILE);
+    if (content.trim() === "") {
+      try { Deno.removeSync(file); } catch { /* already absent */ }
+      return;
+    }
+    Deno.writeTextFileSync(file, content.endsWith("\n") ? content : content + "\n");
   }
 
   commitToGit(message?: string): void {
@@ -2834,11 +2993,40 @@ export class Store {
     return updated;
   }
 
-  archiveThought(id: string): Thought | null { return this.updateThought(id, { status: "archived" }); }
-  restoreThought(id: string): Thought | null { return this.updateThought(id, { status: "active" }); }
+  /** Archive a note; its triage WorkDef (if any) follows, and a queued run is canceled. */
+  archiveThought(id: string): Thought | null {
+    const t = this.updateThought(id, { status: "archived" });
+    if (t) {
+      const item = this.getActiveWorkItemForRef({ workDefId: triageWorkDefId(id) });
+      if (item) this.setWorkItemStateRow(item.id, "CANCELED");
+      if (getWorkDef(this.teamDir, triageWorkDefId(id))) {
+        updateWorkDef(this.teamDir, triageWorkDefId(id), { status: "archived" });
+      }
+    }
+    return t;
+  }
 
-  /** Hard delete (direct — no archive-first guard; it's a personal workspace). */
-  deleteThought(id: string): boolean { return deleteThoughtFile(this.teamDir, id); }
+  /** Restore a note; its triage WorkDef comes back with it (the thread is kept). */
+  restoreThought(id: string): Thought | null {
+    const t = this.updateThought(id, { status: "active" });
+    if (t && getWorkDef(this.teamDir, triageWorkDefId(id))) {
+      updateWorkDef(this.teamDir, triageWorkDefId(id), { status: "active" });
+    }
+    return t;
+  }
+
+  /**
+   * Hard delete (direct — no archive-first guard; it's a personal workspace).
+   * Takes the note's triage WorkDef — thread included — with it: the thread is
+   * about a note that no longer exists.
+   */
+  deleteThought(id: string): boolean {
+    const defId = triageWorkDefId(id);
+    const item = this.getActiveWorkItemForRef({ workDefId: defId });
+    if (item) this.setWorkItemStateRow(item.id, "CANCELED");
+    if (getWorkDef(this.teamDir, defId)) deleteWorkDef(this.teamDir, defId);
+    return deleteThoughtFile(this.teamDir, id);
+  }
 
   createThoughtGroup(input: { title?: string; x?: number; y?: number; w?: number; h?: number; memberIds?: string[] }): ThoughtGroup {
     const groups = this.getThoughtGroups();

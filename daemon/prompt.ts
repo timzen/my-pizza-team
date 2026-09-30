@@ -14,6 +14,10 @@
  * There are no transition instructions: workers never move work (see
  * docs/DESIGN.md "The Work Model") — completing the work advances its story task
  * mechanically (or, for standalone work, just records the outcome).
+ *
+ * `buildTriagePrompt` is the auto-triage variant (TODO.md "Auto Triage"): a
+ * Thought-parented WorkDef carries no authored goal, so its prompt is assembled
+ * from the team's `triage.md` plus the note's *current* text.
  */
 
 import type { WorkDef } from "../shared/types.ts";
@@ -144,3 +148,73 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
 }
 
 // (Prompt input types are defined above, next to buildWorkDefPrompt.)
+
+// ─── Auto triage (TODO.md "Auto Triage") ─────────────────────────────
+
+/** The built-in triage instructions, used when the team has no `triage.md`. */
+export const DEFAULT_TRIAGE_INSTRUCTIONS = `Read the note below and help the author decide what, if anything, should become work.
+
+Lean toward **proposing work**: concrete tasks, a story with tasks, or a scheduled job.
+Be specific — a proposal should read like something a teammate could pick up without
+asking questions.
+
+Three honest outcomes, in order of preference:
+
+1. **Proposals** — the note describes something worth doing.
+2. **A question** — you need one thing from the author before you can propose anything
+   useful. Ask exactly one, and say what you'd propose for each likely answer.
+3. **Nothing to do** — the note is a reference, a link dump, a journal entry, or
+   already-done work. Say so plainly; inventing work from a shopping list is worse
+   than saying there's none.
+
+Do not edit the note, and do not create stories, tasks, or schedules yourself — the
+author decides. Keep your analysis short: what you think this note is, then your
+proposals.`;
+
+export interface TriagePromptInput {
+  /** The note, as it reads right now. */
+  note: { id: string; content: string; updatedAt?: string };
+  /** The note's group name, if it's in one — light context, like a label. */
+  groupName?: string;
+  /** The team's `triage.md`, or the built-in default when absent. */
+  instructions?: string;
+  /** Open stories (id + title), so a proposal can attach a task to one. */
+  stories?: Array<{ id: string; title: string }>;
+  /** Earlier analyses of this note (its triage WorkDef's thread). */
+  priorComments?: Array<{ from: string; body: string; at: string }>;
+}
+
+/**
+ * The prompt for one triage run. Deliberately *not* `buildWorkDefPrompt`: there's
+ * no goal, no acceptance criteria, and the work is "read this and tell me", so
+ * borrowing that shape would mean faking authored fields the WorkDef doesn't have.
+ */
+export function buildTriagePrompt(input: TriagePromptInput): string {
+  const { note, groupName, instructions, stories, priorComments } = input;
+  let out = "## Your Role: Triage\n\n";
+  out += `${normalizeInstructionMarkdown((instructions ?? DEFAULT_TRIAGE_INSTRUCTIONS).trim(), 3)}\n\n`;
+
+  out += `## The Note (\`${note.id}\`${groupName ? `, in group “${groupName}”` : ""})\n\n`;
+  const content = note.content.trim();
+  out += content ? `${normalizeInstructionMarkdown(content, 3)}\n\n` : "_(empty)_\n\n";
+
+  // Open stories, so "add a task to story X" is a proposal it can actually make.
+  if (stories && stories.length > 0) {
+    out += `## Open Stories\n\nA proposal may add a task to one of these (use its id):\n\n`;
+    for (const s of stories) out += `- \`${s.id}\` — ${s.title}\n`;
+    out += "\n";
+  }
+
+  // Earlier rounds: the note has been triaged before and then edited.
+  if (priorComments && priorComments.length > 0) {
+    out += `## Earlier Analysis of This Note\n\n`;
+    out += `You (or another teammate) already looked at this note; the author has since edited it. `;
+    out += `Don't repeat an idea they've already seen unless the edit changes it.\n\n`;
+    for (const c of priorComments) out += `> **${c.from}** (${c.at}):\n>\n${c.body.split("\n").map((l) => `> ${l}`).join("\n")}\n\n`;
+  }
+
+  out += `## Finishing\n\n`;
+  out += `Post your analysis as a comment on this work item, then mark it complete. `;
+  out += `Don't pick up other work, and don't change the note — the author answers you by editing it.\n`;
+  return out.trimEnd() + "\n";
+}

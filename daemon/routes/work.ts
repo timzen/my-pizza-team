@@ -6,12 +6,12 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import type { WorkItem, WorkItemState, WorkItemRef } from "../../shared/types.ts";
+import type { WorkDefParent, WorkItem, WorkItemState, WorkItemRef } from "../../shared/types.ts";
 import type { WorkItemsResponse, WorkItemMutationResponse, ForceFailWorkItemRequest, ReEnqueueRequest } from "../../shared/protocol.ts";
 
 const ALL_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND", "COMPLETE", "FAILED", "CANCELED"];
 
-function view(wi: WorkItem, parent?: { kind: "story" | "schedule"; id: string }) {
+function view(wi: WorkItem, parent?: WorkDefParent) {
   return {
     id: wi.id, title: wi.title, ref: wi.ref, parent, directory: wi.directory,
     state: wi.state, read: wi.read, memberId: wi.memberId,
