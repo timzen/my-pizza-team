@@ -29,8 +29,8 @@ derived type is **Triage**:
 |---|---|---|
 | a Thought | Triage | the triage sweep finds its text changed since the last analysis |
 
-So the thread (`comments.jsonl`), attachments, usage rollups, the Thread tab, and the
-Inbox link all come from the existing WorkDef machinery; nothing new stores comments.
+So the thread (`comments.jsonl`), attachments, usage rollups, and the Inbox entry all
+come from the existing WorkDef machinery; nothing new stores comments.
 
 - **The WorkDef is a container, not authored work.** Its `workdef.md` is just a title
   and the parent — no goal. The **instructions live once**, in `triage.md` in the team
@@ -81,16 +81,18 @@ prose. Your decisions are **appended** to the same file as `kind: "decision"` li
 not comments, not turns — so the file stays append-only and doubles as the history:
 
 ```jsonl
-{"from":"swift-neo","at":"…","body":"This note is really two things: …","proposals":[
+{"from":"swift-neo","at":"…","body":"This note is really two things: …","outcome":"proposals","proposals":[
   {"id":"p1","kind":"task","title":"…","goal":"…","acceptanceCriteria":["MUST …"],"directory":"…"},
   {"id":"p2","kind":"story-task","storyId":"payments","title":"…","goal":"…"}]}
 {"from":"you","at":"…","kind":"decision","proposalId":"p1","action":"accepted","workDefId":"td-4821"}
 {"from":"you","at":"…","kind":"decision","proposalId":"p2","action":"rejected"}
 ```
 
+- **Every analysis has an `outcome`:** `proposals`, `nothing` ("reference note,
+  nothing to do"), or `question` (it needs something from you first). The badge is
+  that outcome. `proposals` requires at least one proposal; the other two carry none.
 - **Kinds:** `task` (a Solitary WorkDef), `story-task` (a task in an existing story),
-  `story` (a new story with tasks), `schedule` (a cron WorkDef). **No proposals** is a
-  valid answer ("reference note, nothing to do"), and so is a question for you.
+  `story` (a new story with tasks), `schedule` (a cron WorkDef).
 - **State is a fold** over the file: a proposal is pending until a decision names it.
 - **Accept creates only** — it never enqueues or runs anything. **Edit** opens the
   normal create form pre-filled; saving it records an `accepted` decision with the
@@ -101,17 +103,44 @@ not comments, not turns — so the file stays append-only and doubles as the his
 - **The next run sees the history:** the prompt includes earlier proposals and what
   happened to them, so a rejected idea isn't proposed again.
 - **Posted through a tool**, `propose_work` (teammate-only, valid only while holding a
-  triage WorkItem), which validates each proposal (the story exists, the cron parses,
-  …) and returns errors the agent can fix. The `Comment` type gains two optional
-  fields, `proposals` and `kind`; existing comments are untouched.
+  triage WorkItem), which validates the outcome and each proposal (the story exists,
+  the cron parses, …) and returns errors the agent can fix. The `Comment` type gains
+  three optional fields, `outcome`, `proposals`, and `kind`; existing comments are
+  untouched.
 
 ### Where you see it
 
-- **The note:** a badge on the card and list row ("2 proposals"), and in the note's
-  view the latest analysis with **Accept / Edit / Reject** per proposal, plus
-  **Triage now**.
-- **The Inbox:** a finished triage run lands there like any WorkItem, linking to the
-  note.
+Notes are for tossing out and reorganizing ideas; triage is for the moment you're
+ready to promote one to work. So they don't share a screen:
+
+- **The note stays clean.** Its view gains nothing — no analysis, no buttons. The only
+  addition is a small **state badge** on the card and list row (below).
+- **The badge opens the triage page**, `/thoughts/:id/triage` (a page, per "Pages over
+  Modals"): the note read-only on the left, with an **Edit note** link back (editing is
+  still your turn); the latest analysis on the right, each proposal a card with
+  **Accept / Edit / Reject**; earlier analyses and their decisions below; and
+  **Triage now**. **Edit** is the "make it more detailed work" path: the normal New
+  Task / New Story / schedule form, pre-filled, whose save records the acceptance.
+- **In the Inbox, always.** Every terminal WorkItem belongs there however it ended —
+  proposals, nothing, a question, or a failure. It's finished work, and the Inbox is
+  how you know there's something to engage with; hiding a run because it "wasn't
+  asked for" would hide work done. Its Inbox row links to the **triage page**, not the
+  WorkDef page, and says what the outcome was.
+
+**The badge is the latest analysis's outcome, not a count** — shape, not color, like
+teammate status (DESIGN "Teammate Status: Shape, not Color"), with a tooltip in words:
+
+| Latest analysis | Badge |
+|---|---|
+| proposals, at least one still pending | **proposal** (e.g. a lightbulb) |
+| proposals, all accepted or rejected | none — it's been dealt with |
+| nothing to do | **nothing** (e.g. a dash) |
+| a question for you | **question** (e.g. a question mark) — answer it by editing the note |
+| never triaged, or first run still queued | none |
+
+The badge reflects the latest analysis until a new one replaces it, even after you've
+edited the note (the next sweep will re-triage it). The badge is a shortcut, not the
+only way in: the Inbox row is the notification.
 
 ### Stages
 
@@ -121,8 +150,10 @@ not comments, not turns — so the file stays append-only and doubles as the his
    teammate replies with a plain comment.
 2. **Proposals:** the `propose_work` tool and validation, the comment fields, decision
    lines, the fold, accept/edit/reject routes, `origin` frontmatter.
-3. **UI:** the badge, the proposals panel in the note view, Triage now, the Inbox
-   link, the `triage.md` editor, Config.
+3. **UI:** the state badge on cards and list rows, the triage page
+   (`/thoughts/:id/triage`) with Accept / Edit / Reject and Triage now, the `triage.md`
+   editor, Config, and the Inbox row: `lib/work-item-link.ts` gains a `thought`
+   parent case (→ `/thoughts/:id/triage`), and the row shows the outcome.
 
 ### Decisions (2026-09-29)
 
@@ -135,6 +166,13 @@ not comments, not turns — so the file stays append-only and doubles as the his
 4. **Prompt context:** the note, its **group name** (light context, like a label),
    its earlier proposals and their decisions, and the story list (ids and titles, so
    it can propose `story-task`). Not the other notes in the group.
+5. **The note's own view stays clean;** everything triage lives on its own page,
+   reached by the badge — or from the Inbox row, which is the actual notification.
+   Every terminal triage run appears in the Inbox whatever its outcome: work done is
+   never hidden.
+6. **The badge is the outcome** (proposal / nothing / question), not a count.
+7. **No cross-note list of pending proposals** for now. If it's wanted later, it's
+   probably an Inbox feature, not a third Thoughts view.
 
 ## Other harnesses (Kiro, Claude Code) over ACP — experimental
 
