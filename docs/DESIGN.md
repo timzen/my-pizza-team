@@ -669,7 +669,8 @@ view: the **Queue** tab on the home page, before the Inbox, because that's where
 sits in a piece of work's life (in flight → finished).
 
 The dock collapses to an icon rail (remembered in `localStorage`) carrying both
-tabs' essentials. Below the `lg` breakpoint it becomes a floating corner panel.
+tabs' essentials. Below the `lg` breakpoint it becomes a floating corner panel —
+for a narrow desktop window. A phone gets a different shell altogether (next).
 
 The **Team tab is teammates only.** The leader is the agent behind the Assistant
 tab; listing it on Team too would show one agent twice. It shows up on Team only
@@ -680,6 +681,58 @@ ever changes what's in the middle. The rule for the middle is *one thing at a ti
 and whatever put it there is highlighted* — a nav tab for pages, a teammate row for
 a teammate's live view. The center is a container-query context, so the nav adapts
 to the room the dock leaves rather than to the viewport.
+
+## A Phone Is a Peek
+
+On a phone the app is a **separate shell at `/m`** (`ui/src/mobile/`), not the
+desktop one made responsive. What you want from a phone is a glance and a quick
+reply — is the team working, is anything at risk, what did the leader say, what
+finished — so it has four bottom tabs: **Team** (teammates + the queue), **Chat**,
+**Thoughts** (a list, and one note at a time), and **Inbox**.
+
+*Why a second shell, not a responsive one:* the desktop is built around two columns
+and pages that assume width (the board's swimlanes, the Thoughts canvas, task pages
+with tabs). Squeezing them gave a floating chat panel over a page you couldn't use.
+A peek needs a fraction of the surface, and rebuilding that fraction from the same
+parts is cheaper than making every page work at 390px. The parts *are* the same:
+`AssistantChat`, `TeammateRow`, `QueueList`, `TeammatePage`, `lib/thoughtList.ts`.
+Anything the phone doesn't do (boards, workflows, config, team size) is one "Open
+full" or 🖥 tap away in the desktop UI.
+
+**How you get there.** The split happens in `App.tsx` before either shell mounts, so
+the phone never mounts the dock (a second chat stream). A phone — a narrow viewport
+*and* a touch pointer, so neither a narrow desktop window nor an iPad — that lands on
+the home page is redirected to `/m`. Only the home page: a deep link means "show me
+that page". 🖥 remembers "desktop" on that device; opening `/m` forgets it.
+
+**Built like the dock.** The shell owns the live data (chat stream, team, queue,
+unread Inbox count) so every tab's badge stays live, and keeps all four tabs mounted
+so a half-typed message survives a look at the team.
+
+**Touch rules that also reach the desktop components:**
+
+- In the chat composer, **Enter is a newline on a touch screen** and Send sends.
+  A phone keyboard has no Shift+Enter, so Enter-to-send made multi-line messages
+  impossible.
+- Hover-revealed actions don't exist on touch, and an invisible button is still
+  tappable. Chat bubble actions show faintly on touch (`pointer-coarse:`), and the
+  phone's Team tab passes `TeammateRow` no actions and summarises spawn rows.
+- A note's Edit mode is a **plain textarea**, not CodeMirror. Vim keys (the
+  desktop default) are no use on a phone keyboard, and iOS selection, dictation,
+  and autocorrect work with a native field.
+
+**The Inbox opens in place.** On the desktop an Inbox row opens the task page,
+where the outcome is the last comment of a long thread. The phone shows just the
+run's closing comment (`[done]` / `[failed]`, else its teammate's last comment by
+then — `lib/mobile.ts` `inboxOutcome`). Opening marks it read, and opened rows stay
+on screen until you leave, even with "unread only" on, so the poll can't pull the
+summary out from under you.
+
+**Reaching it from a phone is not the daemon's job.** The daemon binds to localhost.
+Remote access is a tunnel in front of it that does its own authentication (an
+SSO-protected tunnel opened in a browser that can sign in to it), plus the API token
+if you want a second lock. A native app was the other option and was rejected for now: it wouldn't
+have the browser's SSO cookies, so it couldn't get through that kind of tunnel.
 
 ## Pages over Modals
 

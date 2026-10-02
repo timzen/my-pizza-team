@@ -27,11 +27,23 @@ export const DOT_CLASSES: Record<string, string> = {
   orange: "bg-orange-400",
 };
 
+/**
+ * Next palette color for a new note: one step past the most-recently-created
+ * note's color (cycling), so a run of new notes fans through the palette. Shared
+ * by the Thoughts page and the phone view's Thoughts tab.
+ */
+export function nextRotatedColor(notes: Array<{ color: string; createdAt: string }>): string {
+  if (notes.length === 0) return THOUGHT_COLORS[0];
+  const recent = notes.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+  const idx = (THOUGHT_COLORS as readonly string[]).indexOf(recent.color);
+  return THOUGHT_COLORS[(idx >= 0 ? idx + 1 : 0) % THOUGHT_COLORS.length]!;
+}
+
 export function noteClass(color: string): string {
-  return NOTE_CLASSES[color] ?? NOTE_CLASSES.yellow;
+  return NOTE_CLASSES[color] ?? NOTE_CLASSES.yellow!;
 }
 export function dotClass(color: string): string {
-  return DOT_CLASSES[color] ?? DOT_CLASSES.yellow;
+  return DOT_CLASSES[color] ?? DOT_CLASSES.yellow!;
 }
 
 /** Hex per palette color (≈Tailwind 500), for inline group-plate tints. */

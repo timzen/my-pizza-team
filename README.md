@@ -263,7 +263,8 @@ mirrors that Pi session in both directions. See
 
 It lives in the **left dock** on every page, as the **Assistant** tab beside
 **Team**. The dock collapses to an icon rail (with an unread badge) or resizes by
-dragging its edge; on narrow screens it becomes a floating button.
+dragging its edge; in a narrow desktop window it becomes a floating button. On a
+phone, the chat is a tab of the [phone view](#phone-view).
 
 - **Send whenever you like.** The composer never locks; a message sent while the
   assistant is working is steered into its current run.
@@ -286,6 +287,21 @@ dragging its edge; on narrow screens it becomes a floating button.
 
 The leader also has tools for the team's data — creating stories, tasks, and
 schedules, and reading and writing the Thoughts board.
+
+## Phone View
+
+`/m` is a phone-sized UI for checking in: **Team** (teammates and the queue, with
+its recovery buttons; tap a teammate to watch or pair), **Chat**, **Thoughts** (a
+list; read, check off, and write notes), and **Inbox** (open a row to read the run's
+summary in place). A phone that opens the home page is sent there automatically; 🖥
+switches that device to the full UI. Boards, workflows, and config stay on the
+desktop. See [docs/DESIGN.md](docs/DESIGN.md#a-phone-is-a-peek).
+
+The daemon only listens on localhost, so reaching it from a phone needs a tunnel in
+front of it that handles login: an SSO-protected tunnel service that forwards to
+`localhost:7437`, limited to you. A tunnel makes a localhost daemon reachable from
+elsewhere, so also set an API token (`mpt rotate-token`): the browser asks for it
+once.
 
 ---
 

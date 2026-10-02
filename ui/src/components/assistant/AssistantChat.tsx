@@ -28,9 +28,15 @@ interface AssistantChatProps {
   /** The session being viewed (null = follow the live one). */
   viewingId: string | null;
   onViewSession: (sessionId: string | null) => void;
+  /**
+   * Is the chat on screen? A host that keeps it mounted but hidden (the phone
+   * view's tabs) passes this so showing it again scrolls to the newest message —
+   * scrolling a hidden container does nothing. Omit when it's always visible.
+   */
+  active?: boolean;
 }
 
-export function AssistantChat({ stream, viewingId, onViewSession }: AssistantChatProps) {
+export function AssistantChat({ stream, viewingId, onViewSession, active = true }: AssistantChatProps) {
   const { session, messages, chatAgent, thinking, thoughts, refresh } = stream;
 
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
@@ -50,10 +56,12 @@ export function AssistantChat({ stream, viewingId, onViewSession }: AssistantCha
   // silently move you out of the transcript you're reading.
   const isHistory = viewingId !== null;
 
-  // Auto-scroll to the newest message (and when the `…` appears/disappears).
+  // Auto-scroll to the newest message (and when the `…` appears/disappears, or
+  // the chat comes back on screen).
   useEffect(() => {
+    if (!active) return;
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [messages.length, thinking]);
+  }, [messages.length, thinking, active]);
 
   const send = async () => {
     const content = draft.trim();

@@ -4,7 +4,10 @@
  * Chat v2 removed the composer lock, the typing pings, and the pre-claim
  * debounce: the user may send at any time, and mid-run messages are steered into
  * the agent's current run by the extension (docs/DESIGN.md "Assistant Chat Model").
- * Enter sends, Shift+Enter is a newline, Escape clears a pending quote.
+ * Enter sends, Shift+Enter is a newline, Escape clears a pending quote — except
+ * on a touch screen, where Enter is a newline and the Send button sends: a phone
+ * keyboard has no Shift+Enter, so Enter-to-send would make multi-line messages
+ * impossible (docs/DESIGN.md "A Phone Is a Peek").
  * Ctrl+G, the Edit button, or `/editor` + Enter open the big editor
  * (ui/full-editor.tsx); ⌘↵ there sends.
  */
@@ -13,6 +16,7 @@ import { useEffect, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
+import { useMediaQuery } from "@/hooks/useMediaQuery";
 import { editorCommandSeed } from "@/lib/editorPrefs";
 import { QuotedMessage } from "./QuotedMessage";
 import { Eraser, Send } from "lucide-react";
@@ -33,6 +37,7 @@ interface ComposerProps {
 export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, enabled, placeholder }: ComposerProps) {
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const editor = useFullEditor({ value: draft, onChange: onDraftChange, title: "Message", onSubmit: onSend, enabled });
+  const touch = useMediaQuery("(pointer: coarse)");
 
   // Starting a reply should put the cursor in the box immediately.
   useEffect(() => {
@@ -47,10 +52,11 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
       return;
     }
     if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
       // `/editor` is a UI command, not a message: open the big editor instead.
       const seed = editorCommandSeed(draft);
-      if (seed !== null) { onDraftChange(seed); editor.open(seed); return; }
+      if (seed !== null) { e.preventDefault(); onDraftChange(seed); editor.open(seed); return; }
+      if (touch) return; // a newline; the Send button sends
+      e.preventDefault();
       onSend();
     }
   };

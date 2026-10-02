@@ -177,17 +177,21 @@ export function TeammateRow({
   onDismiss,
   onReset,
   skewReason,
+  href,
 }: {
   teammate: Teammate;
   selected?: boolean;
-  onDismiss: (id: string) => void;
+  /** Absent = no actions (the phone view: hover-revealed buttons don't exist on touch). */
+  onDismiss?: (id: string) => void;
   onReset?: (t: Teammate) => void;
   /** Why this agent's extension is out of step, when it is (P1b-4). */
   skewReason?: string;
+  /** Where the row links, overriding its live view (the phone view's own route). */
+  href?: string | null;
 }) {
   const directory = teammate.directory || null;
   const dir = dirName(directory);
-  const to = viewPath(teammate);
+  const to = href !== undefined ? href : viewPath(teammate);
 
   // Teammate rows are clickable as a whole via a "stretched link" (the name's
   // ::after covers the card) so the action buttons can stay real buttons on top
@@ -222,6 +226,7 @@ export function TeammateRow({
         )}
         {/* Collapsed until hover/focus, so they don't hold space the model needs;
             on hover they take the model's place (it truncates). */}
+        {(onDismiss || onReset) && (
         <div className="relative z-10 hidden items-center gap-0.5 group-hover:flex group-focus-within:flex">
           {/* Reset types Pi's /new; an ACP teammate already starts each item in a fresh session. */}
           {onReset && (!teammate.harness || teammate.harness === "pi") && (
@@ -229,10 +234,13 @@ export function TeammateRow({
               <RotateCcw className="h-3.5 w-3.5" />
             </button>
           )}
-          <button onClick={() => onDismiss(teammate.id)} className="text-muted-foreground hover:text-destructive p-0.5" title="Dismiss teammate">
-            <Trash2 className="h-3.5 w-3.5" />
-          </button>
+          {onDismiss && (
+            <button onClick={() => onDismiss(teammate.id)} className="text-muted-foreground hover:text-destructive p-0.5" title="Dismiss teammate">
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          )}
         </div>
+        )}
       </div>
 
       {teammate.currentWork && (

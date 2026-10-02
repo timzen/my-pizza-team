@@ -35,6 +35,26 @@ Known gaps / ideas, none blocking:
   card ("true"/"false" instead of Yes/No) — pre-existing, not triage's, but the reason
   the triage toggle is a checkbox.
 
+## Phone View — built
+
+`/m`: Team (teammates + queue), Chat, Thoughts, Inbox — docs/DESIGN.md "A Phone Is a
+Peek", docs/ARCHITECTURE.md "Phone view", GUIDE.md "On Your Phone". Tests:
+tests/mobile.test.ts. Checked in headless Chrome with iPhone emulation.
+
+Known gaps / ideas, none blocking:
+
+- **Not yet tried on a real iPhone.** Watch for the keyboard covering the chat
+  composer: iOS Safari ignores `interactive-widget=resizes-content`, so it may need a
+  `visualViewport` listener.
+- **No home-screen icon or manifest.** The `apple-mobile-web-app-*` tags are there,
+  but there's no `apple-touch-icon` or `manifest.webmanifest`.
+- **No notifications.** "An item is at risk" or "the leader replied" would need web
+  push (home-screen PWAs only on iOS), and would be the first reason to build native.
+- **Desktop-only links:** a note's triage badge, a queue item's title, and the
+  teammate page's "working on" link open desktop pages. A phone triage page (accept /
+  reject) is the obvious next tab-level feature.
+- **A note can't change folder from the phone** (it needs `placeForGroupChange`).
+
 ## Other harnesses (Kiro, Claude Code) over ACP — experimental
 
 **Built** (behind `experimental.harnesses`): `mpt agent` (agent/), `mpt setup --harness`,

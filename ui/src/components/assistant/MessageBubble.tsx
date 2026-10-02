@@ -42,8 +42,9 @@ export function MessageBubble({ message, onReply, onJumpTo }: MessageBubbleProps
   return (
     <div id={`msg-${message.id}`} className={`group flex flex-col ${isUser ? "items-end" : "items-start"}`}>
       <div className={`flex items-end gap-1 max-w-[85%] ${isUser ? "flex-row" : "flex-row-reverse"}`}>
-        {/* Actions sit outside the bubble so they never cover content. */}
-        <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {/* Actions sit outside the bubble so they never cover content. On a touch
+            screen there is no hover to reveal them, so they're always (faintly) shown. */}
+        <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-50">
           <IconButton title="Reply to this message" onClick={() => onReply(message)}><Reply className="h-3.5 w-3.5" /></IconButton>
           <IconButton title="Expand" onClick={() => setExpanded(true)}><Expand className="h-3.5 w-3.5" /></IconButton>
           <IconButton title="Copy" onClick={() => navigator.clipboard?.writeText(message.content)}><Copy className="h-3.5 w-3.5" /></IconButton>

@@ -62,6 +62,7 @@ import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useTeamData } from "@/hooks/useTeamData";
 import { useSideDock, type SideDockTab } from "@/hooks/useSideDock";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
+import { countUnread } from "@/lib/unread";
 import {
   MessageSquare, PanelLeftClose, PanelLeftOpen, X, Clock, Users,
 } from "lucide-react";
@@ -309,27 +310,18 @@ function UnreadBadge({ count }: { count: number }) {
 }
 
 /**
- * Unread = assistant bubbles that arrived since you last looked (you're
+ * The "last looked at" timestamp behind the unread badge (lib/unread.ts; you're
  * "looking" while the dock is open on the Assistant tab).
  *
- * Derived during render from a single "last looked at" timestamp rather than an
- * effect, so there are no cascading renders and no ref read during render. The
- * timestamp is stamped at mount (a dock that loads collapsed doesn't claim the
- * whole backlog is unread) and again whenever the dock is opened or closed.
- *
- * Message timestamps come from the daemon while `seenAt` is local, but both are
- * the same machine in practice; worst case a badge is off by one on a skewed
- * clock, which is not worth a server round-trip to fix.
+ * Derived during render from a single timestamp rather than an effect, so there
+ * are no cascading renders and no ref read during render. The timestamp is
+ * stamped at mount (a dock that loads collapsed doesn't claim the whole backlog
+ * is unread) and again whenever the dock is opened or closed.
  */
 function useSeenMarker(): { seenAt: number; markSeen: () => void } {
   const [seenAt, setSeenAt] = useState(() => Date.now());
   const markSeen = useCallback(() => setSeenAt(Date.now()), []);
   return { seenAt, markSeen };
-}
-
-function countUnread(messages: Array<{ role: string; createdAt: string }>, seenAt: number, looking: boolean): number {
-  if (looking) return 0;
-  return messages.filter((m) => m.role === "assistant" && new Date(m.createdAt).getTime() > seenAt).length;
 }
 
 /** Dock width + a pointer-drag resize handler. Width persists across reloads. */

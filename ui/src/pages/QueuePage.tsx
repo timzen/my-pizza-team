@@ -16,11 +16,15 @@
  *
  * Every title links to the item's page. The dock's QueueSummary strip is the
  * always-visible summary of this page (and previews it on hover).
+ *
+ * The list itself is `QueueList`, driven by data its host already has, so the
+ * phone view's Team tab (mobile/MobileTeam) shows the same list without polling
+ * the queue a second time.
  */
 
 import { Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
-import { useQueue } from "@/hooks/useQueue";
+import { useQueue, type QueueData } from "@/hooks/useQueue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QUEUE_STATES, since, type QueueItem, type QueueState } from "@/lib/queue";
@@ -39,10 +43,32 @@ export function QueuePage() {
   const queue = useQueue();
   const { data: agents } = useApi<{ agents: Teammate[] }>("/api/agents", [], { pollInterval: 10_000 });
   const { data: status } = useApi<{ paused?: boolean }>("/api/status", [], { pollInterval: 10_000 });
-
   const teammates = (agents?.agents || []).filter((a) => roleOf(a) === "teammate");
+  return <QueueList queue={queue} teammates={teammates} paused={!!status?.paused} />;
+}
+
+/** Where a teammate's name links: its live view (the phone view passes its own). */
+const desktopTeammatePath = (id: string) => `/teammates/${encodeURIComponent(id)}`;
+
+/**
+ * The grouped queue with its recovery actions. `teammates` (never the leader)
+ * and `paused` only feed the stall banner.
+ */
+export function QueueList({
+  queue,
+  teammates,
+  paused,
+  teammatePath = desktopTeammatePath,
+}: {
+  queue: QueueData;
+  teammates: Teammate[];
+  paused: boolean;
+  teammatePath?: (memberId: string) => string;
+}) {
   const idle = teammates.filter((t) => t.status === "idle").length;
-  const stall = stallReason(queue.counts.waiting, !!status?.paused, teammates.length, idle);
+  // Offline teammates aren't "busy": with none online the banner should say so.
+  const online = teammates.filter((t) => t.status !== "offline").length;
+  const stall = stallReason(queue.counts.waiting, paused, online, idle);
 
   if (queue.loaded && queue.items.length === 0) {
     return (
@@ -73,7 +99,7 @@ export function QueuePage() {
             </div>
             <div className="space-y-2">
               {items.map((item) => (
-                <QueueRow key={item.id} item={item} onCancel={queue.cancel} onForceFail={queue.forceFail} />
+                <QueueRow key={item.id} item={item} onCancel={queue.cancel} onForceFail={queue.forceFail} teammatePath={teammatePath} />
               ))}
             </div>
           </section>
@@ -96,10 +122,12 @@ function QueueRow({
   item,
   onCancel,
   onForceFail,
+  teammatePath,
 }: {
   item: QueueItem;
   onCancel: (id: string) => void;
   onForceFail: (id: string, reEnqueue: boolean) => void;
+  teammatePath: (memberId: string) => string;
 }) {
   const dir = dirName(item.directory);
   return (
@@ -113,7 +141,7 @@ function QueueRow({
           {item.state !== "READY" && item.memberId && (
             <span>
               {item.state === "MORIBUND" ? "was held by " : ""}
-              <Link to={`/teammates/${encodeURIComponent(item.memberId)}`} className="text-primary hover:underline">{item.memberId}</Link>
+              <Link to={teammatePath(item.memberId)} className="text-primary hover:underline">{item.memberId}</Link>
               {" · "}{since(item.lastStateChangeAt)}
             </span>
           )}

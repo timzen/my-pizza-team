@@ -364,6 +364,35 @@ Your stories, tasks, notes, and usage are plain files in `.my-pizza-team/`. If t
 
 ---
 
+## On Your Phone
+
+Open MPT on a phone and you get the **phone view** (`/m`): a quick way to check on
+the team, not the whole app. Four tabs along the bottom:
+
+- **Team** — your teammates (what each is working on, its model, context fill, and
+  cost), then the queue: at risk, waiting, working, with **Force-fail** /
+  **Re-enqueue** / **Cancel**. Tap a teammate to watch it live, or **Pair**. The
+  tab gets an amber dot when something is at risk.
+- **Chat** — the assistant chat, with history. On a phone **Enter starts a new
+  line**; tap ➤ to send. The tab shows how many replies you haven't read.
+- **Thoughts** — your notes as a list, in their folders, with search. Tap one to
+  read it (checklists are tappable), ✏️ to write (it saves as you type), and change
+  its color, pin, archive, or delete it. **+ Note** starts a new one.
+- **Inbox** — finished work. Tap a row to read its summary right there (that marks
+  it read); **Open full** goes to the task's page in the full UI.
+
+The strip under the header is the queue summary, and ⏸ shows when distribution is
+paused. 🖥 switches this device to the full UI, and it stays there until you open
+`/m` again. Boards, tasks, schedules, workflows, team size, and config are only in the
+full UI.
+
+**Getting to it from your phone.** MPT listens only on the machine it runs on. To
+reach it from a phone, put a tunnel in front of it that handles login (for example,
+an SSO-protected tunnel service your company provides), and open its URL in a browser
+that can sign in to it. Set an API token too: the phone asks for it once.
+
+---
+
 ## Tips
 
 - **Write testable acceptance criteria** — use RFC 2119 keywords (MUST/SHOULD/MAY). The editor scores them for you.

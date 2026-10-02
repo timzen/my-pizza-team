@@ -33,7 +33,7 @@ import { ThoughtsList } from "@/components/thoughts/ThoughtsList";
 import { CopyId } from "@/components/thoughts/CopyId";
 import { TriageBadge } from "@/components/thoughts/TriageBadge";
 import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
-import { THOUGHT_COLORS, noteClass, dotClass, plateTintStyle } from "@/lib/thoughtColors";
+import { THOUGHT_COLORS, noteClass, dotClass, nextRotatedColor, plateTintStyle } from "@/lib/thoughtColors";
 import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
 import { NOTE_W, NOTE_H, centerViewOn, dropTarget, groupsByNoteCount, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
@@ -58,15 +58,6 @@ const MIN_SCALE = 0.3;
 const MAX_SCALE = 2.5;
 const MIN_GROUP_W = 180;
 const MIN_GROUP_H = 140;
-
-/** Next palette color for a new note: one step past the most-recently-created
- *  note's color (cycling), so a run of new notes fans through the palette. */
-function nextRotatedColor(notes: Thought[]): string {
-  if (notes.length === 0) return THOUGHT_COLORS[0];
-  const recent = notes.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
-  const idx = (THOUGHT_COLORS as readonly string[]).indexOf(recent.color);
-  return THOUGHT_COLORS[(idx >= 0 ? idx + 1 : 0) % THOUGHT_COLORS.length];
-}
 
 export function ThoughtsPage() {
   const { data, refetch } = useApi<ThoughtsData>("/api/thoughts?status=active");

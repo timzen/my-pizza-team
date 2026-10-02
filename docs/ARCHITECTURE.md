@@ -153,19 +153,22 @@ The experimental ACP supervisor (DESIGN.md "Harness Tiers, and Why Not MCP"). De
 scrolls itself): the `SideDock` on the left and the center (NavBar + scrollable
 `<main>`), with aligned `h-14` headers. The center is a Tailwind `@container`, so the
 nav adapts to the space the dock leaves. `/assistant` redirects to `/` and opens the
-dock's Assistant tab.
+dock's Assistant tab. Before either shell mounts, `App.tsx` routes `/m` and below to
+the **phone shell** (`mobile/`, below), and sends a phone (`lib/mobile.ts`
+`PHONE_QUERY`) landing on `/` there unless it chose the desktop view
+(`shouldRedirectToMobile`, `mpt.mobile.view` in `localStorage`).
 
 - `components/NavBar.tsx` — Center-column nav: **Thoughts · Board · Tasks · Schedule · Context**, then pause/resume, Usage, Help, Config, and the theme toggle.
 - `components/RouteTabs.tsx` — Route-driven segmented tabs, used by RootPage (Queue/Inbox), `board/BoardTabs.tsx` (Board/Backlog/Archive/Workflows), `TasksTabs.tsx` (Items/Templates), and ConfigPage (General/Teammates/Theme).
 - `components/dock/SideDock.tsx` — The dock: header row (`NewWorkMenu` `+` → `lib/start-work.ts` destinations; `queue/QueueSummary.tsx` counts + hover preview; collapse), tab row (Assistant with presence dot + unread badge; Team with online count + amber dot; the active tab's actions), both bodies kept mounted, drag-resize (300–560px), collapsed icon rail, floating panel below `lg`. Owns `useAssistantStream`, `useTeamData`, and `useQueue` so badges stay live. `SideDockProvider.tsx` + `hooks/useSideDock.ts` hold open/tab state in `localStorage`.
-- `components/assistant/*` — `AssistantChat` (presentational, so collapsing can't drop the SSE connection), `MessageBubble`, `BubbleDialog`, `ThinkingBubble` → `ThoughtsPanel`, `Composer` (never locks; quoted replies), `QuotedMessage`, `SessionMenu`, `PersonaChips`. `hooks/useAssistantStream.ts` owns the SSE subscription plus a 15s reconcile poll; `hooks/useMediaQuery.ts` picks docked vs floating.
+- `components/assistant/*` — `AssistantChat` (presentational, so collapsing can't drop the SSE connection), `MessageBubble`, `BubbleDialog`, `ThinkingBubble` → `ThoughtsPanel`, `Composer` (never locks; quoted replies), `QuotedMessage`, `SessionMenu`, `PersonaChips`. `hooks/useAssistantStream.ts` owns the SSE subscription plus a 15s reconcile poll; `hooks/useMediaQuery.ts` picks docked vs floating. On a touch screen (`(pointer: coarse)`) the composer's Enter is a newline and bubble actions show without hover.
 - `components/team/TeamPanel.tsx`, `TeamParts.tsx` — The Team tab: teammate rows (never the leader) linking to `/teammates/:id`, pending and failed spawns, the version-skew banner with restart, offline members. Status is `StatusIcon`'s shape (person pairing · bot waiting · spinning loader working · cloud-off lost contact), `ModelName` the model, and `SessionStats` context fill and session cost; both are reused by the rail avatars and the teammate page header. `lib/team.ts` holds types, `roleOf`, `viewPath`, `harnessSkew`, and the wording rules (`statusLabel`, `formatContext`, `formatTokens`, `formatCost`, `modelTitle`).
 - `components/TeamSizeDialog.tsx` — Declared team size over `/api/teammate-pool` (online/starting counts, default indicator, **Use default**, no-leader warning).
 - `components/SpawnDialog.tsx` — Spawn one teammate in a chosen directory (a `spawn` directive with `cwd`).
 
 **Pages.**
 
-- `pages/RootPage.tsx` — Home tabs: **Queue** (`/queue`, `QueuePage.tsx`: At risk → Waiting → Working, with stall banner; `hooks/useQueue.ts`, `lib/queue.ts`) and **Inbox** (`/`, `InboxPage.tsx`: paginated terminal WorkItems, unread by default, each deep-linked to its WorkDef's Thread tab — board tasks via `/task/:storyId/:id`, standalone via `/work-defs/:id`; `lib/work-item-link.ts`).
+- `pages/RootPage.tsx` — Home tabs: **Queue** (`/queue`, `QueuePage.tsx`: At risk → Waiting → Working, with stall banner — the list is `QueueList`, fed by its host, so the phone view reuses it; `hooks/useQueue.ts`, `lib/queue.ts`) and **Inbox** (`/`, `InboxPage.tsx`: paginated terminal WorkItems, unread by default, each deep-linked to its WorkDef's Thread tab — board tasks via `/task/:storyId/:id`, standalone via `/work-defs/:id`; `lib/work-item-link.ts`).
 - `pages/BoardPage.tsx` — Story swimlanes (`board/StorySwimlane.tsx`) of task cards (`board/TaskCard.tsx`: title, assignee, cost, WorkItem chip, `details →`). Drag-to-move posts `/api/tasks/:id/move`; the drag MIME type (`board/task-drag.ts`) carries the story id so lanes only accept their own tasks. Todo/done bucket columns can be hidden per story (`localStorage`).
 - `pages/BacklogPage.tsx`, `pages/ArchivedPage.tsx` — Board sub-tabs.
 - `pages/WorkflowsPage.tsx`, `pages/WorkflowDetailPage.tsx` — List/create workflows and edit states (saved through `PUT /api/config`), set the default, and edit personas (`workflow/PersonaEditor.tsx`, via the instructions API with lint warnings).
@@ -182,6 +185,16 @@ dock's Assistant tab.
 - `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
 - `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, autosave), **Teammates** (name nouns), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
 - `pages/HelpPage.tsx` — Renders `GUIDE.md`, copied to `src/content/guide.md` by the `prebuild` script.
+
+**Phone view** (`/m`, docs/DESIGN.md "A Phone Is a Peek"). Its own shell, built from
+the desktop's parts; no daemon routes of its own.
+
+- `mobile/MobileShell.tsx` — Header (pause state, theme, 🖥 desktop view), a queue summary strip, the active tab, and bottom tabs **Team · Chat · Thoughts · Inbox** with live badges (at-risk / attention dot, unread chat via `lib/unread.ts`, unread Inbox count). Owns `useAssistantStream`, `useTeamData`, `useQueue`, `/api/status`, and the unread Inbox count; keeps all four tabs mounted. Tab from path: `lib/mobile.ts` `mobileTabOf`. Safe-area padding (`env(safe-area-inset-*)`, with `viewport-fit=cover` in `index.html`).
+- `mobile/MobileTeam.tsx` — Teammates (`TeammateRow` with `href` to `/m/teammates/:id` and no actions; spawn summaries) and the queue (`pages/QueuePage.tsx` `QueueList`). `/m/teammates/:id` renders `TeammatePage` under a back link.
+- `mobile/MobileChat.tsx` — Presence + `SessionMenu` over `AssistantChat` (its `active` prop re-scrolls when the tab is shown).
+- `mobile/MobileThoughts.tsx` — The list (`buildThoughtTree`: collapsible folders, search, `TriageBadge`) and `/m/thoughts/:id`: Preview (tappable checklists) / Edit (a textarea, autosaving 600ms after typing and on leave), color, pin, archive, delete. New notes: `POST /api/thoughts` with `nextRotatedColor`, placed by the daemon.
+- `mobile/MobileInbox.tsx` — Latest 30 finished items; a row opens in place, marks read, and shows the run's closing comment from `GET /api/work-defs/:id/comments` (`inboxOutcome`, `outcomeBody`), with Open full. Opened rows are retained across polls (`mergeInboxRows`).
+- `lib/mobile.ts` — The pure rules: `isMobilePath`, `shouldRedirectToMobile`, the view preference, `mobileTabOf`, `inboxOutcome`, `outcomeBody`, `mergeInboxRows`. `lib/unread.ts` — `countUnread`, shared with the dock.
 
 **Shared UI.** `viewer/FileViewer.tsx` (attachment lightbox) and `viewer/DiffViewer.tsx`
 (line-comment review); `components/ui/*` (shadcn primitives plus markdown, title,
@@ -234,7 +247,7 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 ### tests/
 
 `deno task test` runs `tests/*.test.ts` (daemon, CLI, and pure UI helpers such as
-`thought-geometry`, `thought-list`, `acp` (against the fake agent), `usage-grid`, `wheel-gesture`, `harness-skew`) using
+`thought-geometry`, `thought-list`, `mobile`, `acp` (against the fake agent), `usage-grid`, `wheel-gesture`, `harness-skew`) using
 `tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
 probe, entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
