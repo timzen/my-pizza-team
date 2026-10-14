@@ -118,6 +118,43 @@ Tier 3 is presence-based, not timed: if an online agent with the matching
 directory exists, the item waits for it. `Story.paused` and unmet story
 dependencies are independent gates (their items are never offered).
 
+### Exclusive directory leases: one teammate per directory
+
+Affinity decides *who* gets work; the **directory lease** decides *whether* it's
+handed out at all. With `exclusiveDirectories` on (the default), a READY item
+with a directory is skipped while another **active** WorkItem's directory
+overlaps it. Active means `IN_PROGRESS` or `MORIBUND`; `COMPLETE`, `FAILED` and
+`CANCELED` free the lease. Overlap means the same path or one inside the other,
+compared by **path segment** after `normalizeDirectory` on both sides:
+`/ws/mpt-dev` and `/ws/mpt-dev/my-pizza-team` conflict, `/ws/foo` and
+`/ws/foobar` don't. The rules:
+
+- **Only WorkItem directories lease.** A teammate's registered directory still
+  drives the affinity tiers, but it never takes or blocks a lease.
+- **No directory, no lease.** Items without a directory never take one and are
+  never blocked, so they run in parallel with anything. This includes triage
+  items when no leader is registered. Triage items that inherit the leader's
+  directory do lease it.
+- **Blocked items stay READY.** Nothing is re-queued. Once the lease frees, the
+  oldest blocked item is picked up by the normal tiers.
+- **MORIBUND keeps the lease.** A teammate that reconnects resumes its item
+  without colliding with a newcomer in the same checkout. Nothing times a
+  MORIBUND item out (see "Reaping"). A human releases a stuck lease by
+  **force-failing** the item on the Queue page (optionally re-enqueuing it).
+- **Claim is atomic.** `claimWorkItem` re-checks the lease inside a
+  `BEGIN IMMEDIATE` transaction. Two agents offered overlapping items in the same
+  instant can't both claim; the loser gets a 409 ("directory busy") and polls
+  again.
+- **Visible.** `GET /api/work-items` attaches `blockedBy` to a blocked READY
+  item, and the Queue page reads "waiting — directory busy (<teammate>, <item>)".
+
+*Why:* CONWIP only serializes the tasks *within* a story. Two standalone tasks,
+two stories, or a story and a task aimed at one checkout used to run at once,
+which meant clashing edits and tangled commits. The lease is coarse on purpose:
+parent/child paths conflict because a commit in the parent repo sweeps up the
+child's edits. Setting `exclusiveDirectories: false` (Config → Teammates)
+restores unrestricted parallelism for teams that use separate worktrees.
+
 The claim prompt tells the agent to `cd` into the directory and **read that repo's
 AGENTS.md** before starting, since Pi only auto-loads project context from its
 startup cwd.
@@ -125,9 +162,9 @@ startup cwd.
 *Why:* the only matching signal that ever mattered was "where the work happens."
 Making it a *bias* rather than a filter retires the path-string bug class
 (symlinks, mounts, trailing slashes) — a false-negative match merely loses the
-preference; it never strands work. Accepted trade-offs: two stories sharing one
-directory can interleave commits (CONWIP is story-scoped), and any teammate can be
-pointed anywhere the process user can write.
+preference; it never strands work. The directory *lease* (below) is the one place
+a directory gates work, and it compares WorkItem directories only. Accepted
+trade-off: any teammate can be pointed anywhere the process user can write.
 
 ## WorkDefs & Parents: One Model for All Work
 

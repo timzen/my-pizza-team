@@ -141,6 +141,10 @@ most of it is editable on the **Config** page. Minimal:
   // On by default. intervalMinutes re-arms on daemon restart.
   "triage": { "enabled": true, "intervalMinutes": 60, "quietMinutes": 10 },
 
+  // ─── Work distribution ─────────────────────────────────────────
+  // One teammate per directory (default true): overlapping work waits its turn.
+  "exclusiveDirectories": true,
+
   // ─── Experimental ──────────────────────────────────────────────
   "experimental": { "harnesses": true }, // allow Kiro / Claude Code teammates (mpt agent); also Config → Teammates
 
@@ -334,6 +338,13 @@ teammate is a generalist. `getNextWorkItem()` offers, oldest first:
 1. items whose directory is the agent's directory,
 2. then items with no directory,
 3. then another directory's items — only if *no online agent* is homed there.
+
+**One teammate per directory.** While a WorkItem with a directory is in flight
+(`IN_PROGRESS`, or `MORIBUND` after a lost connection), no other item whose
+directory is the same, a parent, or a child is handed out. It waits in the queue
+("waiting — directory busy" on the Queue page). Items with no directory are exempt.
+Release a stuck `MORIBUND` lease by force-failing the item. Turn this off with
+`"exclusiveDirectories": false` or in Config → Teammates.
 
 **On claim** the agent gets `workItem: { id }` and a `prompt`: the complete,
 daemon-assembled message (state persona, story, working-directory instruction, the

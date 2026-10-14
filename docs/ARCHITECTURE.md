@@ -84,7 +84,7 @@ marked done; moving one back out reopens it.
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
 - `static.ts` — Serves `ui/dist/` (or `UI_DIST`) with SPA fallback to `index.html`.
 - `lifecycle.ts` — PID file, SIGTERM/SIGINT handling, flush-and-close on exit, and `redirectOutputToLog` (a background daemon's console → `daemon.log`, the previous run's kept as `daemon.log.1`, uncaught errors included).
-- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, CONWIP admission and advance (`setTaskPosition`, `advanceTask`), the **WorkItem queue** (`enqueueFor` — the single creator; `getNextWorkItem` — directory affinity; `claimWorkItem`; `setWorkItemState`; cancel/force-fail/re-enqueue), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness and the cron scheduler (`runScheduler`, readiness-gated), archive/backlog, attachments, context resolution (`resolveTaskContext`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s scheduler tick. Self-contained concerns live in `store/`:
+- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, CONWIP admission and advance (`setTaskPosition`, `advanceTask`), the **WorkItem queue** (`enqueueFor` — the single creator; `getNextWorkItem` — directory affinity, skipping items blocked by an exclusive directory lease; `claimWorkItem` — re-checks the lease in a `BEGIN IMMEDIATE` transaction; `getDirectoryBlocker` — the in-flight item holding an overlapping directory; `setWorkItemState`; cancel/force-fail/re-enqueue), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness and the cron scheduler (`runScheduler`, readiness-gated), archive/backlog, attachments, context resolution (`resolveTaskContext`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s scheduler tick. Self-contained concerns live in `store/`:
   - `store/workdefs.ts` — WorkDef markdown IO (`serializeWorkDef`/`parseWorkDef`) and per-def comments.
   - `store/schedules.ts` — Schedule JSON files.
   - `store/templates.ts` — Template IO (reuses the WorkDef serializer; files only, no index).
@@ -183,7 +183,7 @@ the **phone shell** (`mobile/`, below), and sends a phone (`lib/mobile.ts`
 - `pages/ThoughtsPage.tsx` — Thoughts: owns the notes, groups, and every mutation, and switches between two views (**Canvas | List**, `mpt.thoughts.view` in `localStorage`), carrying the selection across. Both sit under one shared toolbar row the page renders — **+ Note** first, then the view's own tools (canvas: Group, Tidy, Select, Map; list: Folder), and at the right zoom (canvas only), Archived, and the switch — so the fixed controls never move when you change view. The **canvas** is this page: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer; geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`. The **list** is `thoughts/ThoughtsList.tsx`: folders (groups, alphabetical, collapsible — `mpt.thoughts.collapsedFolders`) then ungrouped notes, search, ↑/↓, drag a row onto a folder to file it, and the selected note in a pane. Its rules (titles/snippets, ordering, search, keyboard order, and where a note lands on the canvas when the list files it — `placeForGroupChange`, `slotInPlate`, `slotBelowAll`) are pure in `lib/thoughtList.ts`. Both views edit through `thoughts/NoteEditor.tsx`: framed by `thoughts/NoteDialog.tsx` on the canvas (saves on close) and inline in the list (autosaves). `thoughts/CopyId.tsx` is the copy-id chip.
 - `pages/UsagePage.tsx` — Tiles, a 53-week contribution grid, and the cost split by kind; pure helpers in `lib/usage.ts`.
 - `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
-- `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, autosave), **Teammates** (name nouns; experimental harnesses + default harness — off resets the default to Pi), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
+- `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, autosave), **Teammates** (name nouns; the `exclusiveDirectories` "One teammate per directory" checkbox; experimental harnesses + default harness — off resets the default to Pi), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
 - `pages/HelpPage.tsx` — Renders `GUIDE.md`, copied to `src/content/guide.md` by the `prebuild` script.
 
 **Phone view** (`/m`, docs/DESIGN.md "A Phone Is a Peek"). Its own shell, built from
@@ -261,6 +261,7 @@ probe, entry points (every way of starting the daemon gets the same daemon), and
 1. POST /api/agents/register          → {protocolVersion, harness, harnessVersion, directory, metadata}
 2. GET  /api/agents/next-work?agentId → { workItem: {id, title} | null }   (null while paused)
 3. POST /api/agents/claim/:id         → lease (→ IN_PROGRESS) + { workItem: {id}, prompt }
+                                         (409 if its directory is leased meanwhile)
 4. (the agent works, in the ref's directory, and posts its own comment)
 5. POST /api/agents/work-items/:id/state {state: COMPLETE|FAILED}
 6. POST /api/agents/:id/usage         → one line in the ledger
@@ -372,7 +373,7 @@ When a token is configured, every path except `/health` requires it.
 | GET | `/api/status` | Story/task/member counts, `paused`, `defaultWorkflow`, `workflows` |
 | POST | `/api/control/pause` \| `/api/control/resume` | Pause/resume distribution (next-work returns null while paused) |
 | GET | `/api/config` | Config + loaded `workflows` + `defaultNouns` |
-| PUT | `/api/config` | Update config; requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), applied live; reconciles the pool |
+| PUT | `/api/config` | Update config; requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), applied live; reconciles the pool |
 | GET | `/api/teammate-pool` | `{ minTeammates (effective), isDefault, maxTeammates, online, pending, leaderPresent }` |
 | PUT | `/api/teammate-pool` | `{ minTeammates }` (non-negative integer, clamped to max; `null` = default) — persists and reconciles |
 | GET | `/api/readiness` | `{ readiness }` (null if never reported) |
@@ -419,7 +420,7 @@ When a token is configured, every path except `/health` requires it.
 | PUT/DELETE | `/api/schedules/:id` | Update (cron validated) / delete |
 | GET/POST | `/api/templates` | List / create |
 | GET/PUT/DELETE | `/api/templates/:id` | Get / update / delete |
-| GET | `/api/work-items` | List (`?state=`, `?read=`, `?limit=&offset=`) — Queue, Inbox, dock |
+| GET | `/api/work-items` | List (`?state=`, `?read=`, `?limit=&offset=`) — Queue, Inbox, dock. A READY item held back by a directory lease carries `blockedBy: { workItemId, title, directory, memberId, memberName }` |
 | GET | `/api/work-items/:id` | One item (with its WorkDef's `parent`) |
 | POST | `/api/work-items/:id/cancel` | Cancel a READY item |
 | POST | `/api/work-items/:id/force-fail` | MORIBUND → FAILED (`{ reEnqueue? }`) |
@@ -432,8 +433,8 @@ When a token is configured, every path except `/health` requires it.
 |--------|------|-------------|
 | POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields); 409 on an unservable `protocolVersion`, or an experimental `harness` without `experimental.harnesses` |
 | POST | `/api/agents/heartbeat` | Keep-alive; `{reregister:true}` or `{dismissed:true}` when unknown |
-| GET | `/api/agents/next-work?agentId=` | Next READY item by directory affinity |
-| POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable) |
+| GET | `/api/agents/next-work?agentId=` | Next READY item by directory affinity, skipping items whose directory is leased |
+| POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable, including "directory busy" when an overlapping item is in flight) |
 | POST | `/api/agents/work-items/:workItemId/state` | COMPLETE (advances a board task) or FAILED; only the holder (403 otherwise); posts no comment |
 | GET/POST | `/api/agents/comments/:workItemId` | Read / post comments on the item's ref |
 | POST | `/api/agents/work-items/:workItemId/attachments` | Upload to the ref |

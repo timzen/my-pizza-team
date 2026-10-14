@@ -2,25 +2,42 @@
  * daemon/routes/work.ts — WorkItem queue routes (the legible record of what
  * will / is / did happen). Powers the Inbox and the sidebar, plus the recovery
  * actions: cancel (READY), force-fail (MORIBUND), re-enqueue (by ref), and
- * read/unread. See docs/DESIGN.md "The WorkItem".
+ * read/unread. READY items blocked by a directory lease report `blockedBy`.
+ * See docs/DESIGN.md "The WorkItem".
  */
 
 import type { RouteContext } from "./types.ts";
-import type { WorkDefParent, WorkItem, WorkItemState, WorkItemRef } from "../../shared/types.ts";
-import type { WorkItemsResponse, WorkItemMutationResponse, ForceFailWorkItemRequest, ReEnqueueRequest } from "../../shared/protocol.ts";
+import type { WorkItem, WorkItemState, WorkItemRef } from "../../shared/types.ts";
+import type { WorkItemView, WorkItemsResponse, WorkItemMutationResponse, ForceFailWorkItemRequest, ReEnqueueRequest } from "../../shared/protocol.ts";
 
 const ALL_STATES: WorkItemState[] = ["READY", "IN_PROGRESS", "MORIBUND", "COMPLETE", "FAILED", "CANCELED"];
 
-function view(wi: WorkItem, parent?: WorkDefParent) {
-  return {
-    id: wi.id, title: wi.title, ref: wi.ref, parent, directory: wi.directory,
-    state: wi.state, read: wi.read, memberId: wi.memberId,
-    enqueuedAt: wi.enqueuedAt, lastStateChangeAt: wi.lastStateChangeAt,
-  };
-}
-
 export function registerWorkRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
+
+  /**
+   * The wire view of a WorkItem. A READY item held back by an exclusive
+   * directory lease carries `blockedBy` (who holds the directory, on what), so
+   * the Queue page can say why it's waiting (docs/DESIGN.md "Work Matching:
+   * Directory Affinity").
+   */
+  function view(wi: WorkItem): WorkItemView {
+    const blocker = wi.state === "READY" ? store.getDirectoryBlocker(wi) : null;
+    const holder = blocker?.memberId ? store.getMember(blocker.memberId) : null;
+    return {
+      id: wi.id, title: wi.title, ref: wi.ref, parent: store.getWorkDef(wi.ref.workDefId)?.parent, directory: wi.directory,
+      state: wi.state, read: wi.read, memberId: wi.memberId,
+      enqueuedAt: wi.enqueuedAt, lastStateChangeAt: wi.lastStateChangeAt,
+      ...(blocker
+        ? {
+          blockedBy: {
+            workItemId: blocker.id, title: blocker.title, directory: blocker.directory,
+            memberId: blocker.memberId, memberName: holder?.name ?? blocker.memberId,
+          },
+        }
+        : {}),
+    };
+  }
 
   // List WorkItems. Filters: ?state=READY,IN_PROGRESS  ?read=false  ?limit=&offset=
   app.get("/api/work-items", (c) => {
@@ -34,13 +51,13 @@ export function registerWorkRoutes(ctx: RouteContext): void {
     const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!, 10) : undefined;
 
     const { items, total } = store.getWorkItems({ states, read, limit, offset });
-    return c.json({ items: items.map((wi) => view(wi, store.getWorkDef(wi.ref.workDefId)?.parent)), total } satisfies WorkItemsResponse);
+    return c.json({ items: items.map(view), total } satisfies WorkItemsResponse);
   });
 
   app.get("/api/work-items/:id", (c) => {
     const item = store.getWorkItem(c.req.param("id"));
     if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
-    return c.json({ item: view(item, store.getWorkDef(item.ref.workDefId)?.parent) });
+    return c.json({ item: view(item) });
   });
 
   // Cancel a READY item (human).

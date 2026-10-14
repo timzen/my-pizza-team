@@ -48,6 +48,8 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 3. Do the work (cd-ing into the WorkDef's directory)
 4. Set the outcome — **COMPLETE** (the task advances) or, if blocked, post a comment and mark it **FAILED** (the task is left stuck for you)
 
+**One teammate per directory.** While work runs in a directory, other work for that directory (or a folder inside it, or one containing it) waits its turn, so two teammates never edit and commit in the same checkout at once. Work with no directory always runs in parallel. Turn this off under **Config → Teammates → One teammate per directory**.
+
 ---
 
 ## Navigation
@@ -67,7 +69,7 @@ The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — w
 The Queue is work **in flight** — every WorkItem that hasn't finished — grouped by what it needs from you:
 
 - **At risk** (MORIBUND, amber) — its teammate went silent mid-work. Nothing retries it automatically: **Force-fail** it, or **Re-enqueue** a fresh attempt.
-- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy). Work in a paused story, or one waiting on a dependency, isn't offered to anyone.
+- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy). Work in a paused story, or one waiting on a dependency, isn't offered to anyone. An item whose directory is busy reads **waiting — directory busy (teammate, item)**. It starts when that item finishes. If the busy item is *at risk*, force-fail it to free the directory.
 - **Working** (IN_PROGRESS) — which teammate has it (click through to watch it) and for how long.
 
 You don't have to open the tab to keep an eye on it: the **queue summary** at the top of the left dock (the row beside the nav bar, above both tabs) always shows the counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview every item and its status; click it to open the Queue tab. With the dock collapsed, the rail's ⏱ badge (amber when anything is at risk) does the same.

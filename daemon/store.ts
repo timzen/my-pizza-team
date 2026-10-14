@@ -20,6 +20,8 @@ import {
   DEFAULT_CONFIG,
   generateTeammateName,
   normalizeDirectory,
+  directoriesOverlap,
+  exclusiveDirectoriesEnabled,
   TODO_STATE,
   DONE_STATE,
   ACTIVE_WORK_ITEM_STATES,
@@ -202,6 +204,8 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.defaultHarness) out.defaultHarness = config.defaultHarness;
   if (config.experimental && Object.keys(config.experimental).length > 0) out.experimental = config.experimental;
   if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
+  // Default is on; persist only an explicit value so config.json stays minimal.
+  if (config.exclusiveDirectories !== undefined) out.exclusiveDirectories = config.exclusiveDirectories;
   return out;
 }
 
@@ -1210,21 +1214,22 @@ export class Store {
    *   3. item.directory != agent.directory AND no online agent has that dir
    * Oldest-first within a tier. All directories are compared via
    * `normalizeDirectory` (symlinks resolved), applied here at compare time.
+   *
+   * With `exclusiveDirectories` on (the default), a candidate whose directory
+   * overlaps an active (IN_PROGRESS/MORIBUND) item's directory is skipped — it
+   * stays READY until the lease frees (see `getDirectoryBlocker`).
    */
   getNextWorkItem(agent: { id?: string; directory?: string }): WorkItem | null {
     const rows = this.db.prepare("SELECT * FROM work_items WHERE state = 'READY' ORDER BY enqueued_at ASC").all() as Array<Record<string, unknown>>;
-    const candidates = rows.map((r) => this.rowToWorkItem(r)).filter((wi) => this.isWorkItemEligible(wi));
-    if (candidates.length === 0) return null;
-
     // Normalize at compare time too (not just at write time): rows written
     // before symlink resolution, or before the path existed on this host, may
     // hold an unresolved variant. Memoized per call — one realpath per distinct dir.
-    const memo = new Map<string, string>();
-    const norm = (d: string): string => {
-      let n = memo.get(d);
-      if (n === undefined) { n = normalizeDirectory(d); memo.set(d, n); }
-      return n;
-    };
+    const norm = this.directoryNormalizer();
+    const leases = this.getDirectoryLeases(norm);
+    const candidates = rows.map((r) => this.rowToWorkItem(r))
+      .filter((wi) => this.isWorkItemEligible(wi) && !this.findLeaseBlocker(wi, leases, norm));
+    if (candidates.length === 0) return null;
+
     const agentDir = agent.directory ? norm(agent.directory) : undefined;
     const onlineDirs = new Set(
       this.getMembers()
@@ -1261,16 +1266,75 @@ export class Store {
     return true;
   }
 
-  /** Lease a READY WorkItem to a member (→ IN_PROGRESS). Board tasks also get an assignment row. */
+  /**
+   * Lease a READY WorkItem to a member (→ IN_PROGRESS). Board tasks also get an
+   * assignment row. Refused (false) if the item isn't READY or its directory is
+   * busy: the lease is re-checked here, inside one IMMEDIATE transaction, so two
+   * agents that were both offered items for one directory can't both claim
+   * (docs/DESIGN.md "Work Matching: Directory Affinity").
+   */
   claimWorkItem(id: string, memberId: string): boolean {
-    const item = this.getWorkItem(id);
-    if (!item || item.state !== "READY") return false;
-    this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
-    if (this.getTask(item.ref.workDefId)) {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
-      this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(item.ref.workDefId, memberId, Date.now());
+    this.db.exec("BEGIN IMMEDIATE");
+    try {
+      const item = this.getWorkItem(id);
+      if (!item || item.state !== "READY" || this.getDirectoryBlocker(item)) {
+        this.db.exec("ROLLBACK");
+        return false;
+      }
+      this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
+      if (this.getTask(item.ref.workDefId)) {
+        this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
+        this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(item.ref.workDefId, memberId, Date.now());
+      }
+      this.db.exec("COMMIT");
+      return true;
+    } catch (e) {
+      this.db.exec("ROLLBACK");
+      throw e;
     }
-    return true;
+  }
+
+  /**
+   * The active WorkItem holding a directory lease that blocks `item`, or null.
+   * Only WorkItem directories take part — a teammate's registered directory
+   * only biases matching. Null when `exclusiveDirectories` is off, when `item`
+   * has no directory (exempt), or when nothing overlapping is in flight.
+   * Surfaced by `GET /api/work-items` as the reason a READY item is waiting.
+   */
+  getDirectoryBlocker(item: WorkItem): WorkItem | null {
+    const norm = this.directoryNormalizer();
+    return this.findLeaseBlocker(item, this.getDirectoryLeases(norm), norm);
+  }
+
+  /** A memoized `normalizeDirectory` (one realpath per distinct dir per call). */
+  private directoryNormalizer(): (d: string) => string {
+    const memo = new Map<string, string>();
+    return (d: string): string => {
+      let n = memo.get(d);
+      if (n === undefined) { n = normalizeDirectory(d); memo.set(d, n); }
+      return n;
+    };
+  }
+
+  /**
+   * Active directory leases: every IN_PROGRESS or MORIBUND WorkItem with a
+   * directory. MORIBUND keeps its lease so a teammate that reconnects doesn't
+   * collide with a newcomer; COMPLETE/FAILED/CANCELED free it. Empty when
+   * `exclusiveDirectories` is off.
+   */
+  private getDirectoryLeases(norm: (d: string) => string): Array<{ item: WorkItem; dir: string }> {
+    if (!exclusiveDirectoriesEnabled(this.config)) return [];
+    const rows = this.db.prepare(
+      "SELECT * FROM work_items WHERE state IN ('IN_PROGRESS', 'MORIBUND') AND directory IS NOT NULL AND directory != '' ORDER BY last_state_change_at ASC",
+    ).all() as Array<Record<string, unknown>>;
+    return rows.map((r) => this.rowToWorkItem(r)).map((item) => ({ item, dir: norm(item.directory!) }));
+  }
+
+  /** The first lease whose directory overlaps `item`'s (never `item` itself). */
+  private findLeaseBlocker(item: WorkItem, leases: Array<{ item: WorkItem; dir: string }>, norm: (d: string) => string): WorkItem | null {
+    if (!item.directory || leases.length === 0) return null;
+    const dir = norm(item.directory);
+    return leases.find((l) => l.item.id !== item.id && directoriesOverlap(l.dir, dir))?.item ?? null;
   }
 
   /**

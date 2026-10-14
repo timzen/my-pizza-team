@@ -163,7 +163,16 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
 
     const ok = store.claimWorkItem(workItemId, body.agentId);
-    if (!ok) return c.json({ success: false, error: "WorkItem not claimable (already claimed, or not ready)" }, 409);
+    if (!ok) {
+      // Lost a race for the item's directory lease (another agent claimed
+      // overlapping work first) — say so rather than the generic refusal.
+      const blocker = store.getWorkItem(workItemId)?.state === "READY" ? store.getDirectoryBlocker(item) : null;
+      const holder = blocker?.memberId ? store.getMember(blocker.memberId)?.name ?? blocker.memberId : "unknown";
+      const error = blocker
+        ? `WorkItem not claimable: directory busy (${holder}, ${blocker.title})`
+        : "WorkItem not claimable (already claimed, or not ready)";
+      return c.json({ success: false, error }, 409);
+    }
 
     store.updateMemberStatus(body.agentId, "working");
 

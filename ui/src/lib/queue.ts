@@ -16,6 +16,11 @@ export interface QueueItem extends LinkableWorkItem {
   /** The teammate holding it (IN_PROGRESS / MORIBUND). */
   memberId?: string | null;
   directory?: string | null;
+  /**
+   * READY only: the in-flight item holding an overlapping directory, when that's
+   * why this one waits (exclusive directory leases).
+   */
+  blockedBy?: { workItemId: string; title: string; memberId?: string; memberName?: string };
   enqueuedAt: string;
   lastStateChangeAt: string;
 }

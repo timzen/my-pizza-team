@@ -10,7 +10,9 @@
  *     it automatically (DESIGN.md "Reaping"). Force-fail it, or force-fail and
  *     re-enqueue a fresh attempt.
  *   - **Waiting** (READY) — not picked up yet. Cancel it if it's not wanted. A
- *     hint explains a stall: distribution paused, or no idle teammate.
+ *     hint explains a stall: distribution paused, or no idle teammate; an item
+ *     held back by a busy directory says "waiting — directory busy (<teammate>,
+ *     <item>)" (exclusive directory leases, DESIGN.md "Work Matching").
  *   - **Working** (IN_PROGRESS) — who has it (linked to their live view) and
  *     for how long.
  *
@@ -137,7 +139,16 @@ function QueueRow({
           {item.title}
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
-          {item.state === "READY" && <span>waiting {since(item.lastStateChangeAt)}</span>}
+          {item.state === "READY" && !item.blockedBy && <span>waiting {since(item.lastStateChangeAt)}</span>}
+          {item.state === "READY" && item.blockedBy && (
+            <span className="text-amber-700 dark:text-amber-400" title={`waiting ${since(item.lastStateChangeAt)}`}>
+              waiting — directory busy (
+              {item.blockedBy.memberId
+                ? <Link to={`/teammates/${encodeURIComponent(item.blockedBy.memberId)}`} className="hover:underline">{item.blockedBy.memberName ?? item.blockedBy.memberId}</Link>
+                : "no teammate"}
+              , {item.blockedBy.title})
+            </span>
+          )}
           {item.state !== "READY" && item.memberId && (
             <span>
               {item.state === "MORIBUND" ? "was held by " : ""}

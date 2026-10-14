@@ -330,6 +330,12 @@ export interface WorkItemView {
   memberId?: string;
   enqueuedAt: string;
   lastStateChangeAt: string;
+  /**
+   * READY only: the active WorkItem holding an overlapping directory lease, when
+   * that's why this one is waiting (`exclusiveDirectories`; docs/DESIGN.md
+   * "Work Matching: Directory Affinity"). Absent when the item isn't blocked.
+   */
+  blockedBy?: { workItemId: string; title: string; directory?: string; memberId?: string; memberName?: string };
 }
 // GET /api/work-items?state=READY,IN_PROGRESS&read=false&limit=&offset=
 export interface WorkItemsResponse { items: WorkItemView[]; total: number }

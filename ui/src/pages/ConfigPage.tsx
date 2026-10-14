@@ -1,6 +1,6 @@
 /**
  * ConfigPage — Edit daemon configuration with tabs for General, Teammates
- * (name nouns, experimental harnesses), and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
+ * (name nouns, one-teammate-per-directory, experimental harnesses), and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
  * `/config/theme`) via the
  * shared RouteTabs control, so each tab is deep-linkable and consistent with
  * the Board and Root page tabs. The Theme tab is a client-side preference
@@ -45,6 +45,8 @@ interface ConfigData {
   defaultHarness?: string;
   /** Custom harness templates from config.json (read-only here; adds to the picker). */
   harnesses?: Record<string, { teammate: string; leader?: string }>;
+  /** One teammate per directory (exclusive directory leases). Unset = on. */
+  exclusiveDirectories?: boolean;
 }
 
 type Tab = "general" | "teammates" | "theme";
@@ -390,8 +392,46 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
         </CardContent>
       </Card>
 
+      <ExclusiveDirectories config={config} setConfig={setConfig} />
+
       <ExperimentalHarnesses config={config} setConfig={setConfig} />
     </div>
+  );
+}
+
+// --- Exclusive directories (docs/DESIGN.md "Work Matching: Directory Affinity") ---
+
+/**
+ * The `exclusiveDirectories` toggle: while a WorkItem with a directory is in
+ * flight, overlapping work waits. Default on (unset reads as checked); applies
+ * live once saved.
+ */
+function ExclusiveDirectories({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
+  const enabled = config.exclusiveDirectories !== false;
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Directories</h2>
+        <p className="text-xs text-muted-foreground">
+          While a piece of work runs in a directory, other work for that directory (or a folder inside
+          it, or one containing it) waits in the queue, so two teammates never edit and commit in the
+          same checkout at once. Work with no directory always runs in parallel.
+        </p>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            id="exclusive-directories"
+            type="checkbox"
+            checked={enabled}
+            onChange={(e) => setConfig({ ...config, exclusiveDirectories: e.target.checked })}
+          />
+          One teammate per directory
+        </label>
+        <p className="text-xs text-muted-foreground">
+          Takes effect as soon as you save. A stuck <em>At risk</em> item keeps its directory until you
+          force-fail it on the Queue page.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

@@ -113,6 +113,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // save leaves the live config (which the spawner reads) untouched.
       const harnessSettings = resolveHarnessSettings(config, body);
       if ("error" in harnessSettings) return c.json({ success: false, error: harnessSettings.error }, 400);
+      if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
+        return c.json({ success: false, error: "exclusiveDirectories must be a boolean" }, 400);
+      }
 
       config.port = body.port || config.port;
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
@@ -148,6 +151,13 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
       if (body.teammates !== undefined) config.teammates = body.teammates;
       if (body.readinessProbe !== undefined) config.readinessProbe = body.readinessProbe || undefined;
+      // One teammate per directory (default on). Live: getNextWorkItem and
+      // claimWorkItem read the in-memory config on every poll. `null` = default.
+      if (body.exclusiveDirectories === null) {
+        delete config.exclusiveDirectories;
+      } else if (body.exclusiveDirectories !== undefined) {
+        config.exclusiveDirectories = body.exclusiveDirectories;
+      }
       // Auto triage. A changed interval needs a daemon restart to re-arm the
       // timer; enabling/disabling and the quiet period take effect next sweep.
       if (body.triage !== undefined) {

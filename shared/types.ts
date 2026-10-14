@@ -59,6 +59,15 @@ export interface TeamConfig {
    */
   experimental?: { harnesses?: boolean };
   /**
+   * One teammate per directory (default true). While a WorkItem with a
+   * `directory` is IN_PROGRESS or MORIBUND, no other WorkItem whose directory
+   * overlaps it (same path, parent, or child) is handed out — so two pieces of
+   * work never edit and commit in the same checkout at once. Items with no
+   * directory are exempt. `false` restores unrestricted parallelism. See
+   * docs/DESIGN.md "Work Matching: Directory Affinity".
+   */
+  exclusiveDirectories?: boolean;
+  /**
    * Readiness probe command. The daemon runs it every 30s (daemon/readiness.ts);
    * exit 0 = ready, non-zero = not ready (its first line of output = reason). A not-ready team
    * holds scheduled enqueues instead of failing them. See docs/ARCHITECTURE.md
@@ -283,7 +292,10 @@ export interface Schedule {
  * symlink resolution (or before the path existed) still match. Directory
  * matching is only a soft affinity bias, so an imperfect normalization (e.g. a
  * path missing on the daemon's host) merely loses the preference — it never
- * strands work (docs/DESIGN.md "Work Matching: Directory Affinity").
+ * strands work (docs/DESIGN.md "Work Matching: Directory Affinity"). The
+ * exclusive directory lease compares the same normalized form (see
+ * `directoriesOverlap`); a miss there only lets two items run side by side, as
+ * they would with the lease off.
  */
 export function normalizeDirectory(dir: string): string {
   const expanded = dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~");
@@ -296,6 +308,28 @@ export function normalizeDirectory(dir: string): string {
     // Missing, unreadable, or no --allow-read: fall back to the string form.
     return stripped;
   }
+}
+
+/**
+ * Do two directories overlap — the same path, or one inside the other? Compares
+ * whole path segments, not string prefixes, so `/ws/foo` and `/ws/foobar` do
+ * **not** overlap while `/ws/mpt-dev` and `/ws/mpt-dev/my-pizza-team` do. Pass
+ * already-normalized paths (`normalizeDirectory`). Used by the exclusive
+ * directory lease (docs/DESIGN.md "Work Matching: Directory Affinity").
+ */
+export function directoriesOverlap(a: string, b: string): boolean {
+  if (a === b) return true;
+  const within = (inner: string, outer: string) =>
+    outer === "/" ? inner.startsWith("/") : inner.startsWith(outer + "/");
+  return within(a, b) || within(b, a);
+}
+
+/**
+ * Is the exclusive-directory lease on? Default true: only an explicit
+ * `exclusiveDirectories: false` turns it off (see TeamConfig).
+ */
+export function exclusiveDirectoriesEnabled(config: Pick<TeamConfig, "exclusiveDirectories">): boolean {
+  return config.exclusiveDirectories !== false;
 }
 
 export interface AutosaveConfig {
