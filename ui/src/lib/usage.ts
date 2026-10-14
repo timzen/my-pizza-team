@@ -1,8 +1,16 @@
 /**
  * lib/usage — Pure helpers for the Usage dashboard: laying out the
  * contribution-style grid (53 weeks × 7 days, Sunday-first columns ending in
- * the current week), bucketing days into shade levels, and formatting tokens /
- * dollars. No DOM, so it's unit-tested (tests/usage-grid.test.ts).
+ * the current week), bucketing days into shade levels, counting tokens with or
+ * without cache reads, and formatting tokens / dollars. No DOM, so it's
+ * unit-tested (tests/usage-grid.test.ts).
+ *
+ * **Token counting.** The API's `tokens` field sums all four parts (input,
+ * output, cache read, cache write). Cache reads are cheap and pile up fast on
+ * long sessions — they swamp the rest — so the dashboard counts
+ * input + output + cache write by default and adds cache reads back only when
+ * "Include cached" is on (`tokensOf`). The math is done here from the separate
+ * fields; the stored data and costs are untouched.
  */
 
 export type UsageKind = "work" | "pairing" | "chat" | "other";
@@ -38,6 +46,53 @@ export interface UsageRun {
 
 /** What the grid shades by. */
 export type UsageMetric = "tokens" | "costUsd";
+
+/** The four token fields every usage record carries (day, kind bucket, run). */
+export type TokenParts = Pick<UsageTotals, "inputTokens" | "outputTokens" | "cacheReadTokens" | "cacheWriteTokens">;
+
+/**
+ * Tokens as the dashboard counts them: input + output + cache write, plus
+ * cache read only when `includeCached` is on (see the header comment).
+ */
+export function tokensOf(t: TokenParts, includeCached: boolean): number {
+  return t.inputTokens + t.outputTokens + t.cacheWriteTokens + (includeCached ? t.cacheReadTokens : 0);
+}
+
+/** A record's value for the shading metric: tokens (per the toggle) or cost, which never changes with it. */
+export function metricOf(t: TokenParts & { costUsd: number }, metric: UsageMetric, includeCached: boolean): number {
+  return metric === "costUsd" ? t.costUsd : tokensOf(t, includeCached);
+}
+
+/** The day with the highest value for `metric` (first wins a tie), or null with no usage. */
+export function peakDay(days: UsageDay[], metric: UsageMetric, includeCached: boolean): UsageDay | null {
+  let best: UsageDay | null = null;
+  for (const d of days) {
+    if (!best || metricOf(d, metric, includeCached) > metricOf(best, metric, includeCached)) best = d;
+  }
+  return best;
+}
+
+/** localStorage key for the "Include cached" toggle. */
+export const INCLUDE_CACHED_KEY = "mpt.usage.includeCached";
+
+/** The minimal slice of `Storage` the pref helpers use (passed in, so they're testable). */
+export type PrefStorage = Pick<Storage, "getItem" | "setItem">;
+
+/** Is "Include cached" on? **Off by default** — only an explicit "on" turns it on. */
+export function readIncludeCached(storage: PrefStorage | undefined): boolean {
+  try {
+    return storage?.getItem(INCLUDE_CACHED_KEY) === "on";
+  } catch {
+    return false; // storage blocked (private mode, sandboxed iframe)
+  }
+}
+
+/** Remember the toggle. Failures are ignored: it's a preference, not data. */
+export function writeIncludeCached(storage: PrefStorage | undefined, on: boolean): void {
+  try {
+    storage?.setItem(INCLUDE_CACHED_KEY, on ? "on" : "off");
+  } catch { /* ignore */ }
+}
 
 export const KIND_LABEL: Record<UsageKind, string> = {
   work: "Teammate work",

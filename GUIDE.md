@@ -344,11 +344,12 @@ Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatte
 
 The chart icon in the nav opens **Usage** — what the team is spending, in tokens and dollars:
 
-- **Tiles** — today, the last 7 and 30 days, the past year, and the peak day.
-- **The grid** — one square per day for the past year, darker for busier days (shade by **Tokens** or **Cost**). **Hover** a day for its tokens (input, output, cache read, cache write), cost, number of runs, and how it split between teammate work, the assistant chat, and pairing. **Click** it to list that day's runs, most expensive first.
-- **Where it went** — the year's cost split by kind.
+- **Tiles** — today, the last 7 and 30 days, the past year, and the peak day (by tokens or cost, whichever the grid shades by).
+- **The grid** — one square per day for the past year, darker for busier days (shade by **Tokens** or **Cost**). **Hover** a day for its tokens, the full breakdown (input, output, cache read, cache write), cost, number of runs, and how it split between teammate work, the assistant chat, and pairing. **Click** it to list that day's runs, most expensive first.
+- **Where it went** — the year split by kind, by cost or tokens.
+- **What do these mean?** — a collapsed glossary at the bottom.
 
-Every agent run is counted: teammates' work items, their runs while you pair with them, and the assistant chat. Tokens include **cached** input (with prompt caching, most of it), and the cost is the harness's own figure. History is kept even after its story is archived or deleted.
+Every agent run is counted: teammates' work items, their runs while you pair with them, and the assistant chat. **Token figures leave out cache reads by default** — earlier prompt tokens reused from the cache are cheap and pile up fast on long sessions, swamping everything else. Tick **Include cached** (next to Tokens/Cost; remembered in this browser) to add them back. Cache writes always count. The cost is the harness's own figure, already cache-aware, and doesn't change with the toggle. History is kept even after its story is archived or deleted.
 
 The ledger is saved **in the team directory**, committed with your stories and config: `usage/YYYY-MM.jsonl`, one JSON line per run — easy to `grep` or `jq`, and it travels with the repo. (The daemon's SQLite database is just a cache of it, rebuilt on startup.)
 

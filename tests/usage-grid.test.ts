@@ -1,11 +1,15 @@
 /**
  * tests/usage-grid.test.ts — The Usage dashboard's grid math
  * (ui/src/lib/usage.ts): 53 Sunday-first weeks ending this week, future days
- * out of range, quartile shade levels, and compact formatting.
+ * out of range, quartile shade levels, token counting with/without cache
+ * reads, the "Include cached" preference, and compact formatting.
  */
 
 import { assertEquals } from "@std/assert";
-import { buildGrid, formatTokens, formatUsd, levelOf, levelThresholds, monthLabels, type UsageDay } from "../ui/src/lib/usage.ts";
+import {
+  buildGrid, formatTokens, formatUsd, INCLUDE_CACHED_KEY, levelOf, levelThresholds, metricOf, monthLabels, peakDay,
+  readIncludeCached, tokensOf, writeIncludeCached, type UsageDay,
+} from "../ui/src/lib/usage.ts";
 
 const day = (date: string, tokens: number, costUsd = 0): UsageDay => ({
   date, tokens, costUsd, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, runs: 1, byKind: {},
@@ -51,4 +55,60 @@ Deno.test("formatting: compact tokens, sub-cent dollars", () => {
   assertEquals(formatUsd(0.004), "<$0.01");
   assertEquals(formatUsd(0), "$0.00");
   assertEquals(formatUsd(3.456), "$3.46");
+});
+
+/** A day with explicit token parts; `tokens` is the API's all-four sum. */
+const parts = (date: string, inp: number, out: number, cr: number, cw: number, costUsd = 0): UsageDay => ({
+  date, inputTokens: inp, outputTokens: out, cacheReadTokens: cr, cacheWriteTokens: cw,
+  tokens: inp + out + cr + cw, costUsd, runs: 1, byKind: {},
+});
+
+Deno.test("tokensOf: cache reads excluded by default, cache writes always counted", () => {
+  const d = parts("2026-09-24", 100, 20, 5000, 30);
+  assertEquals(tokensOf(d, false), 150);
+  // Including cached restores the API's all-four total.
+  assertEquals(tokensOf(d, true), 5150);
+  assertEquals(tokensOf(d, true), d.tokens);
+  // Works on runs too (no `tokens` field).
+  assertEquals(tokensOf({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 8 }, false), 11);
+});
+
+Deno.test("metricOf: cost ignores the toggle", () => {
+  const d = parts("2026-09-24", 100, 20, 5000, 30, 1.25);
+  assertEquals(metricOf(d, "costUsd", false), 1.25);
+  assertEquals(metricOf(d, "costUsd", true), 1.25);
+  assertEquals(metricOf(d, "tokens", false), 150);
+  assertEquals(metricOf(d, "tokens", true), 5150);
+});
+
+Deno.test("shade thresholds follow the toggle", () => {
+  // Day b is the biggest only because of cache reads.
+  const days = [parts("a", 400, 0, 0, 0), parts("b", 10, 0, 10_000, 0), parts("c", 200, 0, 0, 0), parts("d", 100, 0, 0, 0), parts("e", 300, 0, 0, 0)];
+  const off = levelThresholds(days.map((d) => metricOf(d, "tokens", false)));
+  const on = levelThresholds(days.map((d) => metricOf(d, "tokens", true)));
+  assertEquals(levelOf(metricOf(days[1]!, "tokens", false), off), 1);
+  assertEquals(levelOf(metricOf(days[1]!, "tokens", true), on), 4);
+});
+
+Deno.test("peakDay: by the selected metric and toggle", () => {
+  const days = [parts("a", 400, 0, 0, 0, 5), parts("b", 10, 0, 10_000, 0, 1)];
+  assertEquals(peakDay(days, "tokens", false)?.date, "a");
+  assertEquals(peakDay(days, "tokens", true)?.date, "b");
+  assertEquals(peakDay(days, "costUsd", true)?.date, "a");
+  assertEquals(peakDay([], "tokens", false), null);
+});
+
+Deno.test("Include cached pref: off by default, remembered, tolerant of blocked storage", () => {
+  const m = new Map<string, string>();
+  const storage = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
+  assertEquals(readIncludeCached(storage), false);
+  assertEquals(readIncludeCached(undefined), false);
+  writeIncludeCached(storage, true);
+  assertEquals(m.get(INCLUDE_CACHED_KEY), "on");
+  assertEquals(readIncludeCached(storage), true);
+  writeIncludeCached(storage, false);
+  assertEquals(readIncludeCached(storage), false);
+  const blocked = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("blocked"); } };
+  assertEquals(readIncludeCached(blocked), false);
+  writeIncludeCached(blocked, true); // no throw
 });

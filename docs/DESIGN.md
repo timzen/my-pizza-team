@@ -892,7 +892,11 @@ it was for, so it stays legible after its ref is gone.
 **Every run is counted, labelled by kind** — `work` (a teammate's run on a
 WorkItem), `pairing`, `chat` (the leader), `other`. **Cache tokens count**: with
 prompt caching most input is cache reads/writes, and counting only uncached input
-made a real run look like three tokens. Cost is the harness's own cache-aware
+made a real run look like three tokens. The ledger and API keep all four parts,
+but the dashboard's token figures **leave out cache reads by default** — they're
+cheap and dwarf the rest on long sessions — with an "Include cached" toggle to add
+them back (computed client-side from the separate fields; the tooltip always shows
+all four). Cost is the harness's own cache-aware
 figure (the daemon estimates only when none is sent), so the dashboard leads with
 dollars. Days are the **user's** days: the browser sends its UTC offset.
 
