@@ -7,7 +7,7 @@
 import { assert, assertEquals, assertExists } from "@std/assert";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { workDefType } from "../shared/types.ts";
+import { normalizeDirectory, workDefType } from "../shared/types.ts";
 import * as path from "@std/path";
 
 function createTempTeamDir(): string {
@@ -224,6 +224,81 @@ Deno.test("Store: directory-affinity matching (tiers + presence reservation)", (
 
     store.close();
   } finally { cleanupDir(teamDir); }
+});
+
+/** A real temp dir plus a symlink pointing at it (both realpath'd for stable compares). */
+function makeSymlinkedDir(): { real: string; link: string; root: string } {
+  const root = Deno.realPathSync(Deno.makeTempDirSync({ prefix: "mpt-symlink-" }));
+  const real = path.join(root, "real-repo");
+  Deno.mkdirSync(real);
+  const link = path.join(root, "link-repo");
+  Deno.symlinkSync(real, link);
+  return { real, link, root };
+}
+
+Deno.test("normalizeDirectory: a symlink and its target normalize to the same path", () => {
+  const { real, link, root } = makeSymlinkedDir();
+  try {
+    assertEquals(normalizeDirectory(link), real);
+    assertEquals(normalizeDirectory(link + "/"), real);
+    assertEquals(normalizeDirectory(real), real);
+  } finally { cleanupDir(root); }
+});
+
+Deno.test("normalizeDirectory: a nonexistent path falls back to string normalization without throwing", () => {
+  assertEquals(normalizeDirectory("/definitely/not/here-mpt/"), "/definitely/not/here-mpt");
+  const home = Deno.env.get("HOME");
+  if (home) {
+    assertEquals(normalizeDirectory("~/no-such-mpt-dir-xyz/"), home.replace(/\/+$/, "") + "/no-such-mpt-dir-xyz");
+  }
+});
+
+for (const [label, agentVia, taskVia] of [
+  ["real-path agent, symlink-path task", "real", "link"],
+  ["symlink-path agent, real-path task", "link", "real"],
+] as const) {
+  Deno.test(`Store: tier 1 matches across a symlink (${label})`, () => {
+    const teamDir = createTempTeamDir();
+    const dirs = makeSymlinkedDir();
+    try {
+      const store = new Store(teamDir, TEST_CONFIG);
+      const agentDir = dirs[agentVia];
+      // An unrelated online agent elsewhere must not be offered the item: it
+      // belongs to an online teammate (the reservation in tier 3).
+      store.registerMember("ag-x", "ag-x", "/repo/x");
+      store.registerMember("ag-home", "ag-home", agentDir);
+      store.createStory("s1", "S", "D", "open", [], [{ title: "T", description: "d" }], "default", undefined, false, dirs[taskVia]);
+      // A no-directory item exists too: tier 1 must beat it for the home agent.
+      store.createStory("s2", "S2", "D", "open", [], [{ title: "T2", description: "d" }], "default", undefined, false);
+
+      assertEquals(store.getNextWorkItem({ id: "ag-home", directory: agentDir })!.ref.workDefId, "s1-1");
+      assertEquals(store.getNextWorkItem({ id: "ag-x", directory: "/repo/x" })!.ref.workDefId, "s2-1");
+
+      store.close();
+    } finally { cleanupDir(teamDir); cleanupDir(dirs.root); }
+  });
+}
+
+Deno.test("Store: legacy rows holding un-resolved symlink paths still match (compare-time normalization)", () => {
+  const teamDir = createTempTeamDir();
+  const { real, link, root } = makeSymlinkedDir();
+  try {
+    const store = new Store(teamDir, TEST_CONFIG);
+    store.createStory("sl", "L", "D", "open", [], [{ title: "TL", description: "d" }], "default", undefined, false, real);
+    store.registerMember("ag-x", "ag-x", "/repo/x");
+    store.registerMember("ag-old", "ag-old", real);
+    // Simulate rows written before symlink resolution existed.
+    const db = (store as unknown as { db: { prepare(sql: string): { run(...a: unknown[]): unknown } } }).db;
+    db.prepare("UPDATE work_items SET directory = ?").run(link);
+    db.prepare("UPDATE members SET directory = ? WHERE id = 'ag-old'").run(link);
+
+    // The symlinked member still reserves the item from the unrelated agent…
+    assertEquals(store.getNextWorkItem({ id: "ag-x", directory: "/repo/x" }), null);
+    // …and an agent polling with the real path wins it in tier 1.
+    assertEquals(store.getNextWorkItem({ id: "ag-old", directory: real })!.ref.workDefId, "sl-1");
+
+    store.close();
+  } finally { cleanupDir(teamDir); cleanupDir(root); }
 });
 
 Deno.test("Store: tier-3 fallback only when no online agent has that directory", () => {

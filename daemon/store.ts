@@ -1183,7 +1183,7 @@ export class Store {
     this.db.prepare(
       `INSERT INTO work_items (id, title, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at)
        VALUES (?, ?, ?, ?, 'READY', 0, NULL, ?, ?)`
-    ).run(id, title, def.id, directory || null, now, now);
+    ).run(id, title, def.id, directory ? normalizeDirectory(directory) : null, now, now);
     return this.getWorkItem(id)!;
   }
 
@@ -1208,25 +1208,35 @@ export class Store {
    *   1. item.directory == agent.directory  (my repo's work)
    *   2. item has no directory              (anyone's)
    *   3. item.directory != agent.directory AND no online agent has that dir
-   * Oldest-first within a tier.
+   * Oldest-first within a tier. All directories are compared via
+   * `normalizeDirectory` (symlinks resolved), applied here at compare time.
    */
   getNextWorkItem(agent: { id?: string; directory?: string }): WorkItem | null {
     const rows = this.db.prepare("SELECT * FROM work_items WHERE state = 'READY' ORDER BY enqueued_at ASC").all() as Array<Record<string, unknown>>;
     const candidates = rows.map((r) => this.rowToWorkItem(r)).filter((wi) => this.isWorkItemEligible(wi));
     if (candidates.length === 0) return null;
 
-    const agentDir = agent.directory ? normalizeDirectory(agent.directory) : undefined;
+    // Normalize at compare time too (not just at write time): rows written
+    // before symlink resolution, or before the path existed on this host, may
+    // hold an unresolved variant. Memoized per call — one realpath per distinct dir.
+    const memo = new Map<string, string>();
+    const norm = (d: string): string => {
+      let n = memo.get(d);
+      if (n === undefined) { n = normalizeDirectory(d); memo.set(d, n); }
+      return n;
+    };
+    const agentDir = agent.directory ? norm(agent.directory) : undefined;
     const onlineDirs = new Set(
       this.getMembers()
         .filter((m) => m.status !== "offline" && m.directory)
-        .map((m) => normalizeDirectory(m.directory!)),
+        .map((m) => norm(m.directory!)),
     );
 
-    const tier1 = candidates.filter((wi) => agentDir && wi.directory === agentDir);
+    const tier1 = candidates.filter((wi) => agentDir && wi.directory && norm(wi.directory) === agentDir);
     if (tier1[0]) return tier1[0];
     const tier2 = candidates.filter((wi) => !wi.directory);
     if (tier2[0]) return tier2[0];
-    const tier3 = candidates.filter((wi) => wi.directory && wi.directory !== agentDir && !onlineDirs.has(wi.directory));
+    const tier3 = candidates.filter((wi) => wi.directory && norm(wi.directory) !== agentDir && !onlineDirs.has(norm(wi.directory)));
     return tier3[0] ?? null;
   }
 

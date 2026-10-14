@@ -274,13 +274,28 @@ export interface Schedule {
 }
 
 /**
- * Normalize a directory value for comparison: expand a leading `~` to $HOME and
- * strip a trailing slash. Applied at write time. Directory matching is only a
- * soft affinity bias, so an imperfect normalization (symlink/mount variants)
- * merely loses the preference — it never strands work (docs/DESIGN.md "Work Matching: Directory Affinity").
+ * Normalize a directory value for comparison: expand a leading `~` to $HOME,
+ * strip a trailing slash, then resolve symlinks to the real path (so
+ * `/home/u/repo` and `/local/home/u/repo` via a `/home/u` symlink compare
+ * equal). If the path doesn't exist or can't be resolved on this machine, the
+ * `~`/slash-only form is returned — this never throws. Applied at write time
+ * *and* at compare time in `Store.getNextWorkItem`, so rows stored before
+ * symlink resolution (or before the path existed) still match. Directory
+ * matching is only a soft affinity bias, so an imperfect normalization (e.g. a
+ * path missing on the daemon's host) merely loses the preference — it never
+ * strands work (docs/DESIGN.md "Work Matching: Directory Affinity").
  */
 export function normalizeDirectory(dir: string): string {
-  return dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~").replace(/\/+$/, "");
+  const expanded = dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~");
+  // Keep a bare "/" as-is rather than stripping it to the empty string.
+  const stripped = expanded.replace(/\/+$/, "") || (expanded ? "/" : "");
+  if (!stripped) return stripped;
+  try {
+    return Deno.realPathSync(stripped);
+  } catch {
+    // Missing, unreadable, or no --allow-read: fall back to the string form.
+    return stripped;
+  }
 }
 
 export interface AutosaveConfig {

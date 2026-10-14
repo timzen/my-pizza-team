@@ -106,6 +106,14 @@ working `directory` (its pi cwd); a WorkDef (or its story) has an optional
 3. item `directory` != agent `directory` **and no online agent has that dir**
    (nobody's coming for it — the agent cds there and fails the item if it can't)
 
+Directories are compared after `normalizeDirectory`: `~` expanded, trailing
+slash stripped, and **symlinks resolved to the real path** (`Deno.realPathSync`),
+so `/home/u/repo` and `/local/home/u/repo` (via a `/home/u` symlink) match. A path
+that doesn't exist or can't be read on the daemon's machine falls back to the
+string form — normalization never throws. It's applied at write time *and* at
+compare time in `getNextWorkItem`, so rows stored before resolution (or before
+the path existed) still match without a migration.
+
 Tier 3 is presence-based, not timed: if an online agent with the matching
 directory exists, the item waits for it. `Story.paused` and unmet story
 dependencies are independent gates (their items are never offered).

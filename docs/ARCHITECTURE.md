@@ -143,7 +143,7 @@ The experimental ACP supervisor (DESIGN.md "Harness Tiers, and Why Not MCP"). De
 
 ### shared/
 
-- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, `normalizeDirectory`, `slugify`, `generateTeammateName`.
+- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, `normalizeDirectory` (`~` expansion, trailing-slash strip, symlink resolution via `realPathSync` with string fallback), `slugify`, `generateTeammateName`.
 - `protocol.ts` — Request/response contracts for the HTTP API, and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION`.
 - `frontmatter.ts` — The small YAML-like frontmatter parser/serializer used by markdown files.
 
