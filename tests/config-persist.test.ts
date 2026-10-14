@@ -8,7 +8,7 @@
  * being lost. These tests save through each path and read the file back.
  */
 
-import { assertEquals } from "@std/assert";
+import { assertEquals, assertStringIncludes } from "@std/assert";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -95,5 +95,83 @@ Deno.test("changing the team size (PUT /api/teammate-pool) keeps every other fie
     const saved = onDisk();
     assertEquals(saved.minTeammates, 2);
     assertPreserved(saved);
+  } finally { cleanup(); }
+});
+
+// ─── Experimental harnesses (Config → Teammates) ─────────────────────
+
+/** PUT the Config page's payload — GET's shape back — with `patch` applied. */
+async function putConfig(app: ReturnType<typeof setup>["app"], patch: Record<string, unknown>) {
+  const current = await (await app.request("/api/config")).json();
+  const res = await app.request("/api/config", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ ...current, ...patch }),
+  });
+  return { status: res.status, body: await res.json() as { success: boolean; error?: string } };
+}
+
+Deno.test("the experimental-harnesses toggle saves, survives a reload, and applies live", async () => {
+  const { app, store, onDisk, cleanup } = setup();
+  try {
+    let r = await putConfig(app, { experimental: { harnesses: false }, defaultHarness: "pi" });
+    assertEquals(r.body.success, true);
+    // Off is the default, so nothing is written — and Pi is stored as unset.
+    assertEquals(onDisk().experimental, undefined);
+    assertEquals(onDisk().defaultHarness, undefined);
+    assertEquals(store.getConfig().experimental, undefined);
+
+    r = await putConfig(app, { experimental: { harnesses: true }, defaultHarness: "kiro" });
+    assertEquals(r.body.success, true);
+    assertEquals(onDisk().experimental, { harnesses: true });
+    assertEquals(onDisk().defaultHarness, "kiro");
+    // Live: the in-memory config the spawner and Spawn dialog read changed too.
+    const live = await (await app.request("/api/config")).json();
+    assertEquals(live.experimental, { harnesses: true });
+    assertEquals(live.defaultHarness, "kiro");
+  } finally { cleanup(); }
+});
+
+Deno.test("PUT /api/config rejects an unknown defaultHarness with a 400", async () => {
+  const { app, store, cleanup } = setup();
+  try {
+    const r = await putConfig(app, { defaultHarness: "nope" });
+    assertEquals(r.status, 400);
+    assertEquals(r.body.success, false);
+    assertStringIncludes(r.body.error ?? "", "defaultHarness");
+    assertEquals(store.getConfig().defaultHarness, FULL.defaultHarness);
+  } finally { cleanup(); }
+});
+
+Deno.test("an experimental default without the opt-in is refused and changes nothing", async () => {
+  const { app, store, cleanup } = setup();
+  try {
+    const maxBefore = store.getConfig().maxTeammates;
+    // Turning experimental off while the default stays non-Pi ("custom").
+    let r = await putConfig(app, { experimental: { harnesses: false }, maxTeammates: 9 });
+    assertEquals(r.status, 400);
+    assertStringIncludes(r.body.error ?? "", "experimental");
+    // Validated before mutation: the live config is untouched.
+    assertEquals(store.getConfig().experimental, { harnesses: true });
+    assertEquals(store.getConfig().defaultHarness, "custom");
+    assertEquals(store.getConfig().maxTeammates, maxBefore);
+
+    // Setting a non-Pi default with the opt-in off is refused too.
+    r = await putConfig(app, { experimental: null, defaultHarness: "claude" });
+    assertEquals(r.status, 400);
+
+    // Off + reset to Pi together is consistent, and saves.
+    r = await putConfig(app, { experimental: { harnesses: false }, defaultHarness: "" });
+    assertEquals(r.body.success, true);
+    assertEquals(store.getConfig().defaultHarness, undefined);
+    assertEquals(store.getConfig().experimental, undefined);
+  } finally { cleanup(); }
+});
+
+Deno.test("experimental must be an object with a boolean harnesses", async () => {
+  const { app, cleanup } = setup();
+  try {
+    assertEquals((await putConfig(app, { experimental: "yes" })).status, 400);
+    assertEquals((await putConfig(app, { experimental: { harnesses: "true" } })).status, 400);
   } finally { cleanup(); }
 });

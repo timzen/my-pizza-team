@@ -420,6 +420,7 @@ function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): strin
  */
 export function experimentalGate(config: Pick<TeamConfig, "experimental">, harness: string | undefined): string | null {
   if (!isExperimentalHarness(harness) || config.experimental?.harnesses) return null;
-  return `The "${harness}" harness is experimental. To try it, set "experimental": { "harnesses": true } ` +
-    `in the team's config.json and restart the daemon.`;
+  return `The "${harness}" harness is experimental. To try it, turn on Experimental harnesses in ` +
+    `Config → Teammates (applies immediately), or set "experimental": { "harnesses": true } in the ` +
+    `team's config.json and restart the daemon.`;
 }

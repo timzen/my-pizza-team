@@ -7,8 +7,9 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import type { WorkflowConfig } from "../../shared/types.ts";
-import { DEFAULT_NOUNS } from "../../shared/types.ts";
+import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
+import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness } from "../../shared/types.ts";
+import { resolveTemplates } from "../spawner.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import * as path from "@std/path";
@@ -108,6 +109,10 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if (!body.defaultWorkflow || !body.workflows[body.defaultWorkflow]) {
         return c.json({ success: false, error: "defaultWorkflow must reference an existing workflow" }, 400);
       }
+      // Harness settings are validated before anything is mutated, so a refused
+      // save leaves the live config (which the spawner reads) untouched.
+      const harnessSettings = resolveHarnessSettings(config, body);
+      if ("error" in harnessSettings) return c.json({ success: false, error: harnessSettings.error }, 400);
 
       config.port = body.port || config.port;
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
@@ -161,7 +166,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
           ...(minutes(t.quietMinutes, 0) !== undefined ? { quietMinutes: t.quietMinutes as number } : {}),
         };
       }
-      if (body.experimental !== undefined) config.experimental = body.experimental || undefined;
+      // Experimental harnesses + default harness (Config → Teammates). Live: the
+      // spawner, the directive/register gates and the Spawn dialog all read this
+      // in-memory config, so no restart is needed.
+      config.experimental = harnessSettings.experimental;
+      if (harnessSettings.defaultHarness) config.defaultHarness = harnessSettings.defaultHarness;
+      else delete config.defaultHarness;
 
       // Store is the single config writer (it owns serializeConfig, so no field
       // this route doesn't know about — e.g. apiToken — is silently dropped).
@@ -269,4 +279,57 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     Deno.writeTextFileSync(path.join(wfDir, `${filename}.md`), body.content);
     return c.json({ success: true, warnings });
   });
+}
+
+/**
+ * The `experimental` and `defaultHarness` a config PUT would leave in place, or why
+ * it's refused.
+ *
+ * Absent fields keep their current value; `defaultHarness` of `""`, `null` or `"pi"`
+ * means unset (Pi is the default anyway). A default must be a harness with a teammate
+ * template (built-in or `harnesses.*`), and a non-Pi default needs
+ * `experimental.harnesses` on — that combination would otherwise be saved and leave
+ * the spawner refusing every default spawn.
+ */
+function resolveHarnessSettings(
+  config: TeamConfig,
+  body: { experimental?: unknown; defaultHarness?: unknown },
+): { experimental: TeamConfig["experimental"]; defaultHarness: string | undefined } | { error: string } {
+  let experimental = config.experimental;
+  if (body.experimental !== undefined) {
+    if (body.experimental === null || body.experimental === false) {
+      experimental = undefined;
+    } else if (typeof body.experimental !== "object" || Array.isArray(body.experimental)) {
+      return { error: "experimental must be an object, e.g. { \"harnesses\": true }" };
+    } else {
+      const next = { ...(body.experimental as Record<string, unknown>) };
+      if (next.harnesses !== undefined && typeof next.harnesses !== "boolean") {
+        return { error: "experimental.harnesses must be a boolean" };
+      }
+      // `false` is the default; dropping it keeps config.json minimal.
+      if (!next.harnesses) delete next.harnesses;
+      experimental = Object.keys(next).length > 0 ? next as TeamConfig["experimental"] : undefined;
+    }
+  }
+
+  let defaultHarness = config.defaultHarness;
+  if (body.defaultHarness !== undefined) {
+    const h = body.defaultHarness;
+    if (h === null || h === "" || h === DEFAULT_HARNESS) {
+      defaultHarness = undefined;
+    } else if (typeof h !== "string" || !resolveTemplates(config)[h]?.teammate) {
+      const known = Object.keys(resolveTemplates(config)).join(", ");
+      return { error: `defaultHarness must be one of: ${known}` };
+    } else {
+      defaultHarness = h;
+    }
+  }
+
+  if (isExperimentalHarness(defaultHarness) && !experimental?.harnesses) {
+    return {
+      error: `The default harness "${defaultHarness}" is experimental: turn on Experimental harnesses, ` +
+        `or set the default harness back to pi.`,
+    };
+  }
+  return { experimental, defaultHarness };
 }

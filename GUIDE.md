@@ -211,10 +211,16 @@ seen it.
 ### Experimental: Kiro and Claude Code teammates
 
 A team can also run **Kiro** or **Claude Code** teammates alongside Pi ones. They're
-experimental, so they're off until the team opts in (`"experimental": { "harnesses":
-true }` in `config.json`, then restart the daemon) and the machine is prepared (`mpt
-setup --harness kiro` or `--harness claude`). Then the **Spawn** dialog has a
-**Harness** choice.
+experimental, so they're off until the team opts in and the machine is prepared (`mpt
+setup --harness kiro` or `--harness claude`). Opt in under **Config → Teammates →
+Experimental Harnesses** — tick **Enabled** and **Save**; it applies immediately, no
+restart. (Or set `"experimental": { "harnesses": true }` in `config.json` by hand and
+restart the daemon.) Then the **Spawn** dialog has a **Harness** choice.
+
+The same section sets the **Default Harness** — what a spawn that doesn't pick one
+uses, including the teammates the daemon keeps online. It's only selectable while
+experimental harnesses are on; turning them off resets it to Pi (the daemon won't
+save a non-Pi default without the opt-in).
 
 They pick up work like any teammate: each item in a fresh session, finished with a
 summary in its thread, or given up with a reason. You can watch them live; their row
@@ -351,7 +357,7 @@ The ledger is saved **in the team directory**, committed with your stories and c
 Visit `/config`:
 
 - **General** — port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, autosave (flush/commit cadence, auto-commit)
-- **Teammates** — the nouns used to name teammates
+- **Teammates** — the nouns used to name teammates, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
 
 ### Readiness probe

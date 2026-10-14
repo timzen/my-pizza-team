@@ -142,7 +142,7 @@ most of it is editable on the **Config** page. Minimal:
   "triage": { "enabled": true, "intervalMinutes": 60, "quietMinutes": 10 },
 
   // ─── Experimental ──────────────────────────────────────────────
-  "experimental": { "harnesses": true }, // allow Kiro / Claude Code teammates (mpt agent)
+  "experimental": { "harnesses": true }, // allow Kiro / Claude Code teammates (mpt agent); also Config → Teammates
 
   // ─── Autosave ──────────────────────────────────────────────────
   "autosave": {
@@ -381,9 +381,12 @@ mpt setup --harness kiro     # checks for kiro-cli (Kiro speaks ACP natively)
 mpt setup --harness claude   # installs the pinned Claude Code ACP adapter
 ```
 
-Then opt the team in — `"experimental": { "harnesses": true }` in `config.json`,
-and restart the daemon — and pick the harness in the Team tab's **Spawn** dialog.
-Without the flag the daemon refuses to spawn or register them.
+Then opt the team in — **Config → Teammates → Experimental Harnesses** in the web UI
+(applies on save, no restart), or `"experimental": { "harnesses": true }` in
+`config.json` and restart the daemon — and pick the harness in the Team tab's **Spawn**
+dialog. The same section sets `defaultHarness`; a non-Pi default requires the opt-in,
+so `PUT /api/config` refuses that combination. Without the flag the daemon refuses to
+spawn or register them.
 
 What they do: claim work, run it in a fresh session per item, complete it with the
 agent's summary or give up through `mpt agent fail "<why>"`, answer permission

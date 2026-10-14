@@ -1,6 +1,6 @@
 /**
- * ConfigPage — Edit daemon configuration with tabs for General, Teammates,
- * and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
+ * ConfigPage — Edit daemon configuration with tabs for General, Teammates
+ * (name nouns, experimental harnesses), and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
  * `/config/theme`) via the
  * shared RouteTabs control, so each tab is deep-linkable and consistent with
  * the Board and Root page tabs. The Theme tab is a client-side preference
@@ -39,6 +39,12 @@ interface ConfigData {
   readinessProbe?: string;
   /** Auto triage (docs/DESIGN.md "Auto Triage"). Unset = on, hourly, 10 min quiet. */
   triage?: { enabled?: boolean; intervalMinutes?: number; quietMinutes?: number };
+  /** Opt-ins for unfinished features. `harnesses` allows non-Pi (ACP) teammates. */
+  experimental?: { harnesses?: boolean };
+  /** Harness spawned when a spawn names none. Unset (or "pi") = Pi. */
+  defaultHarness?: string;
+  /** Custom harness templates from config.json (read-only here; adds to the picker). */
+  harnesses?: Record<string, { teammate: string; leader?: string }>;
 }
 
 type Tab = "general" | "teammates" | "theme";
@@ -383,7 +389,85 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
           </div>
         </CardContent>
       </Card>
+
+      <ExperimentalHarnesses config={config} setConfig={setConfig} />
     </div>
+  );
+}
+
+// --- Experimental harnesses (docs/DESIGN.md "Harness Tiers, and Why Not MCP") ---
+
+/** Built-in harnesses, Pi first; config.json may add custom ones (`harnesses.*`). */
+const BUILT_IN_HARNESSES: Array<{ value: string; label: string }> = [
+  { value: "pi", label: "Pi" },
+  { value: "kiro", label: "Kiro (experimental)" },
+  { value: "claude", label: "Claude Code (experimental)" },
+];
+
+/**
+ * The `experimental.harnesses` opt-in and the default harness, saved with the rest
+ * of the page. Turning the opt-in off resets the default to Pi in the draft, since
+ * the daemon refuses to save (or spawn with) a non-Pi default without the opt-in.
+ * Both apply live — the PUT updates the daemon's in-memory config.
+ */
+function ExperimentalHarnesses({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
+  const enabled = !!config.experimental?.harnesses;
+  const current = config.defaultHarness || "pi";
+  const custom = Object.keys(config.harnesses ?? {})
+    .filter((h) => !BUILT_IN_HARNESSES.some((b) => b.value === h) && config.harnesses?.[h]?.teammate)
+    .map((h) => ({ value: h, label: `${h} (custom)` }));
+  const options = [...BUILT_IN_HARNESSES, ...custom];
+
+  const setEnabled = (on: boolean) =>
+    setConfig({
+      ...config,
+      experimental: { ...config.experimental, harnesses: on },
+      // "pi" (not undefined) so the PUT carries the reset; the daemon stores it as unset.
+      ...(on ? {} : { defaultHarness: "pi" }),
+    });
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Experimental Harnesses</h2>
+        <p className="text-xs text-muted-foreground">
+          Lets you spawn Kiro and Claude Code teammates, run by <code>mpt agent</code> over the Agent
+          Client Protocol. Each harness needs <code>mpt setup --harness &lt;h&gt;</code> (e.g.{" "}
+          <code>mpt setup --harness kiro</code>) on this machine first. Teammates only — they can't lead yet.
+        </p>
+        <div className="grid grid-cols-[160px_1fr] items-center gap-3">
+          <Label htmlFor="experimental-harnesses">Enabled</Label>
+          <label className="flex items-center gap-2 text-sm">
+            <input
+              id="experimental-harnesses"
+              type="checkbox"
+              checked={enabled}
+              onChange={(e) => setEnabled(e.target.checked)}
+            />
+            Allow non-Pi teammates (adds a Harness picker to the Spawn dialog)
+          </label>
+          <Label htmlFor="default-harness">Default Harness</Label>
+          <div className="space-y-1">
+            <select
+              id="default-harness"
+              value={current}
+              disabled={!enabled}
+              onChange={(e) => setConfig({ ...config, defaultHarness: e.target.value })}
+              className="h-9 max-w-[260px] rounded-md border border-border bg-background px-2 text-sm disabled:opacity-50"
+            >
+              {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <p className="text-xs text-muted-foreground">
+              Used for spawns that don't pick a harness — including the teammates the daemon keeps
+              online. {enabled ? "" : "Pi while experimental harnesses are off."}
+            </p>
+          </div>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Takes effect as soon as you save — no daemon restart. Teammates already running keep their harness.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

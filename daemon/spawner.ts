@@ -43,11 +43,22 @@ export type SpawnCapability =
 /**
  * Can this daemon process drive tmux?
  *
+ * The full answer: tmux reachability (`probeTmuxCapability`) and then whether the
+ * config names a spawnable default harness (`harnessCapability`).
+ */
+export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTmux): SpawnCapability {
+  const tmux = probeTmuxCapability(exec);
+  return tmux.canSpawn ? harnessCapability(config) : tmux;
+}
+
+/**
+ * Can this daemon process drive tmux?
+ *
  * Checked once at startup rather than per spawn: the answer is a property of how the
  * daemon was launched, and re-probing on every attempt would turn one clear startup
  * message into repeated noise.
  */
-export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTmux): SpawnCapability {
+export function probeTmuxCapability(exec: TmuxExec = realTmux): SpawnCapability {
   const reason = tmuxUnavailableReason(exec);
   if (reason === "not-installed") {
     return {
@@ -63,13 +74,24 @@ export function probeSpawnCapability(config: TeamConfig, exec: TmuxExec = realTm
       fix: "run the compiled binary, or grant --allow-run",
     };
   }
+  return { canSpawn: true };
+}
 
+/**
+ * Does the config name a default harness the daemon may spawn?
+ *
+ * Unlike tmux reachability this is a property of config, which `PUT /api/config`
+ * changes live (Config → Teammates), so the daemon re-checks it every spawn pass
+ * rather than only at startup — otherwise a team started with an inconsistent
+ * config would stay leader-driven until a restart even after it was fixed.
+ */
+export function harnessCapability(config: TeamConfig): SpawnCapability {
   const harness = config.defaultHarness ?? DEFAULT_HARNESS;
   if (isExperimentalHarness(harness) && !config.experimental?.harnesses) {
     return {
       canSpawn: false,
       reason: `the default harness "${harness}" is experimental`,
-      fix: `set "experimental": { "harnesses": true } in the team's config.json, or defaultHarness back to "pi"`,
+      fix: `turn on Experimental harnesses (or set the default harness back to Pi) in Config → Teammates, or edit experimental.harnesses / defaultHarness in the team's config.json`,
     };
   }
   if (!resolveTemplates(config)[harness]?.teammate) {
@@ -180,7 +202,7 @@ function realizeSpawn(
     ? directive.params.harness
     : deps.config.defaultHarness ?? DEFAULT_HARNESS;
   if (isExperimentalHarness(harness) && !deps.config.experimental?.harnesses) {
-    throw new Error(`the "${harness}" harness is experimental — set experimental.harnesses: true in config.json`);
+    throw new Error(`the "${harness}" harness is experimental — turn on Experimental harnesses in Config → Teammates`);
   }
   const template = resolveTemplates(deps.config)[harness]?.teammate;
   if (!template) throw new Error(`no teammate command configured for harness "${harness}"`);

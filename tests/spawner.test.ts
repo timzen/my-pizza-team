@@ -17,7 +17,9 @@ import { TEST_CONFIG } from "./_config.ts";
 import { type TeamConfig } from "../shared/types.ts";
 import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
 import {
+  harnessCapability,
   probeSpawnCapability,
+  probeTmuxCapability,
   realizePending,
   type SpawnableDirective,
   type SpawnerStore,
@@ -246,4 +248,13 @@ Deno.test("dismissing an already-gone window succeeds quietly", () => {
   assertEquals(result.failed, []);
   assertEquals(updates[0]!.status, "done");
   assertEquals(calls.some((c) => c[0] === "kill-window"), false);
+});
+
+Deno.test("the harness check is separate from the tmux probe, so a fixed config needs no restart", () => {
+  // start.ts probes tmux once and re-runs harnessCapability every spawn pass.
+  assertEquals(probeTmuxCapability(fakeTmux().exec).canSpawn, true);
+  const cfg = config({ defaultHarness: "kiro" });
+  assertEquals(harnessCapability(cfg).canSpawn, false);
+  cfg.experimental = { harnesses: true }; // what PUT /api/config does in place
+  assertEquals(harnessCapability(cfg).canSpawn, true);
 });
