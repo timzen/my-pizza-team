@@ -104,7 +104,7 @@ marked done; moving one back out reopens it.
 - `token-cost.ts` — Fallback cost estimator, used only when a harness reports no `costUsd`.
 - `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`, and `{mpt}` — how to run this mpt), and `tmuxUnavailableReason`.
 - `self.ts` — `mptInvocation()`: the argv that runs this mpt again (the binary, or `deno run … cli/main.ts` from source), for `mpt start --daemon`'s child and the `{mpt}` placeholder; `isRunningFromSource()`.
-- `spawner.ts` — `probeTmuxCapability` (once at startup), `harnessCapability` (the config half, re-checked each pass; `probeSpawnCapability` is both) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the harness templates (built-ins overridden per harness by config); an unrealizable directive — including an experimental harness on a team that hasn't opted in — is marked `failed` with its reason. Other actions are left for the leader.
+- `spawner.ts` — `probeTmuxCapability` (once at startup), `harnessCapability` (the config half, re-checked each pass; `probeSpawnCapability` is both) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the harness templates (built-ins overridden per harness by config); an unrealizable directive — including an experimental harness on a team that hasn't opted in — is marked `failed` with its reason. Other actions are left for the leader. A `dismiss` is realized over several 2s passes (`realizeDismiss`), staying `pending` between them: wait until its agent has exited (`dismissReady` — deregistered, told `dismissed` ≥3s ago, already offline, or past `params.deadline`, `DISMISS_WAIT_MS` = 25s after the dismiss), then send C-c, then — on a later pass at least `DISMISS_KILL_DELAY_MS` on, never the same one — kill the window. The leader's window (`LEADER_WINDOW`) is never killed (the directive fails instead), and a window already gone (or tmux no longer answering) is simply `done`. `dismissParams` builds a UI dismiss's params from the member's `tmuxSession`/`tmuxWindow` metadata, falling back to its name and `config.tmuxSession`.
 - `readiness.ts` — `runProbe` (timeout-bounded `sh -c`, which also survives a hung child on Linux) and `startReadinessLoop` (every 30s; nothing configured → never reports → ready).
 - `routes/types.ts` — `RouteContext`.
 - `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows), the teammate pool, readiness, and workflows.
@@ -114,7 +114,7 @@ marked done; moving one back out reopens it.
 - `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
 - `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
 - `routes/templates.ts` — Template CRUD.
-- `routes/agents.ts` — The agent protocol: register (version handshake, and the experimental-harness gate — `experimentalGate`), heartbeat (`reregister`/`dismissed` signals), session stats (model, context fill, session cost, held in memory by the store and echoed on `GET /api/agents`), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests.
+- `routes/agents.ts` — The agent protocol: register (version handshake, and the experimental-harness gate — `experimentalGate`), heartbeat (`reregister`/`dismissed` signals), session stats (model, context fill, session cost, held in memory by the store and echoed on `GET /api/agents`), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests. `DELETE /api/agents/:id?dismiss=true` tombstones the member *and* queues a `dismiss` directive (`dismissParams`) so its tmux window — left at a shell prompt when the harness exits, since spawn typed the command into a shell — is closed once it has gone; a dismissed agent's later heartbeat (`noteDismissedHeartbeat`) and deregister (`noteDismissedDeregistered`, answered 200) are the "it has gone" signals. A plain DELETE queues nothing. `GET /api/leader/directives` hides `dismiss` directives from the leader while the daemon drives tmux, and otherwise until `dismissReady`.
 - `routes/assistant.ts` — The chat: conversation reads/writes, SSE stream, the agent mirror surface (inbox/ack, bubbles, thoughts, session report), sessions (list/new/resume/snapshot), persona.
 - `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
 - `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Pi teammates only (ACP teammates don't poll it yet).
@@ -276,6 +276,18 @@ agent the daemon no longer knows gets `reregister` (a restart forgot it); one th
 was explicitly dismissed (`DELETE /api/agents/:id?dismiss=true`) gets `dismissed`
 and shuts down. A plain `DELETE` is a clean self-deregister and leaves no
 tombstone. This keeps restarts and upgrades from silently killing teammates.
+
+**Dismissing closes the window.** Spawn types `cd … && <harness>` into the
+window's shell, so a harness that exits leaves a shell prompt behind. A dismiss
+(`?dismiss=true`, from the UI or the leader's `/ppt-dismiss`) therefore also queues
+a `dismiss` directive naming the member's window. The daemon waits for the agent to
+exit by itself (a Pi teammate exits ~0.5s after hearing `dismissed`; an `mpt agent`
+supervisor deregisters first), then sends C-c and kills the window on a later pass —
+normally a few seconds after the agent's next heartbeat, and within ~30s even if it
+never answers. When the daemon can't reach tmux, the leader is handed the directive
+once it is ready and does the same (C-c, kill 2s later). Any other exit — a crash, a
+user quitting, a plain self-deregister — leaves its window open so the error stays
+readable.
 
 **Spawning.** The pool reconciler (or the Spawn dialog) creates a `spawn`
 directive with a daemon-assigned name. If the daemon can reach tmux, `realizePending`
@@ -442,10 +454,10 @@ When a token is configured, every path except `/health` requires it.
 | POST | `/api/agents/:id/session-stats` | After every turn and on a model switch: `contextTokens`, `contextWindow`, `contextPercent` (each nullable), `costUsd` (the session's running total), `model` (`{id, name, provider}` or null). In memory; cleared on (re)register. Optional — an agent that never sends it shows no numbers |
 | POST | `/api/agents/:id/usage` | One run: tokens incl. cache, `costUsd`, `model`, `kind` (`work`\|`pairing`\|`chat`\|`other`), optional `workItemId` |
 | GET | `/api/agents` | Members (with handshake fields and `session` — the last session stats, or null) + the daemon's `protocolVersion` and `daemonVersion` |
-| DELETE | `/api/agents/:id` | Unregister (`?dismiss=true` leaves a tombstone) |
+| DELETE | `/api/agents/:id` | Unregister. `?dismiss=true` leaves a tombstone and queues a `dismiss` directive that closes its tmux window once it exits (never the leader's). A dismissed id deregistering on its way out gets 200 |
 | GET | `/api/agents/:id/directives` | Self-handled directives (`new-session`, `resume-session`) |
 | PUT | `/api/agents/:id/directives/:directiveId` | Mark one done/failed |
-| GET/POST | `/api/leader/directives` | Pending queue (self-handled actions excluded) / create (`spawn` gets a generated `params.name`; an experimental `params.harness` is refused with 400 unless opted in) |
+| GET/POST | `/api/leader/directives` | Pending queue (self-handled actions excluded; `dismiss` only when the daemon can't drive tmux and its agent has exited or its deadline passed) / create (`spawn` gets a generated `params.name`; an experimental `params.harness` is refused with 400 unless opted in) |
 | PUT | `/api/leader/directives/:id` | Update status |
 | GET | `/api/spawn-requests` | `{ requests (pending spawns), failed (failed spawns with reasons) }` |
 | DELETE | `/api/spawn-requests/:id` | Mark a spawn directive `cancelled` (stops a pending one; clears a failed one from the list) |

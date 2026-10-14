@@ -32,6 +32,7 @@ const EXPORTED: Record<string, string> = {
   LEGACY_TEAM_DIR: "string",
   DEFAULT_DAEMON_URL: "string",
   DEFAULT_TMUX_SESSION: "string",
+  LEADER_WINDOW: "string",
   DEFAULT_HARNESS_TEMPLATES: "Record<string, { teammate: string; leader?: string }>",
 };
 

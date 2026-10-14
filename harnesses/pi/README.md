@@ -93,7 +93,7 @@ pi --ppt-worker
 |---------|-------------|
 | `/ppt-help` | Shows setup instructions (install mpt, run `mpt start`) |
 | `/ppt-spawn [name] [cwd]` | Spawn a teammate in a tmux window |
-| `/ppt-dismiss <name>` | Stop a teammate |
+| `/ppt-dismiss <name>` | Stop a teammate (via the daemon, like the UI's dismiss; its window closes once it exits) |
 | `/ppt-hop <name>` | Jump to teammate's tmux window |
 | `/ppt-status` | Quick status summary from daemon |
 | `/ppt-browse` | Show recently used directories for spawning |

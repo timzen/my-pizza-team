@@ -16,6 +16,7 @@ import { buildTriagePrompt, buildWorkDefPrompt } from "../prompt.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import denoConfig from "../../deno.json" with { type: "json" };
+import { dismissParams, dismissReady } from "../spawner.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
   const { app, store, config, isPaused } = ctx;
@@ -102,7 +103,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       // member (re-register). A daemon restart wipes the members table, so
       // treating unknown as "dismissed" would kill every running agent on
       // restart/upgrade; instead we tell them to re-register.
-      if (store.isDismissed(body.id)) return c.json({ success: false, dismissed: true });
+      if (store.isDismissed(body.id)) {
+        // The agent exits on hearing this; noted so its window can be closed
+        // promptly rather than at the dismiss deadline (daemon/spawner.ts).
+        store.noteDismissedHeartbeat(body.id);
+        return c.json({ success: false, dismissed: true });
+      }
       return c.json({ success: false, reregister: true });
     }
     store.heartbeat(body.id, body.status);
@@ -307,12 +313,27 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.delete("/api/agents/:id", (c) => {
     const agentId = c.req.param("id");
     const member = store.getMember(agentId);
-    if (!member) return c.json({ success: false, error: `Agent "${agentId}" not found` }, 404);
+    if (!member) {
+      // A dismissed agent deregistering on its way out (an `mpt agent` teammate
+      // does): that is the "it has exited" signal its window close waits on.
+      if (store.isDismissed(agentId)) {
+        store.noteDismissedDeregistered(agentId);
+        return c.json({ success: true });
+      }
+      return c.json({ success: false, error: `Agent "${agentId}" not found` }, 404);
+    }
     // `?dismiss=true` (a human clicking "dismiss") tombstones the id so its next
-    // heartbeat shuts the agent down. A plain DELETE (clean self-deregister on
-    // shutdown) just removes it — no tombstone.
-    if (c.req.query("dismiss") === "true") store.dismissMember(agentId);
-    else store.removeMember(agentId);
+    // heartbeat shuts the agent down, and queues a `dismiss` directive that closes
+    // its tmux window once it has exited (or after a grace period) — spawn typed
+    // the harness into a shell, which would otherwise be left at a prompt. A plain
+    // DELETE (clean self-deregister on shutdown) just removes it: no tombstone and
+    // no window close, so a teammate quitting on its own keeps its window and any
+    // error stays visible. See ARCHITECTURE.md "Spawner".
+    if (c.req.query("dismiss") === "true") {
+      const params = dismissParams(member, config);
+      store.dismissMember(agentId);
+      if (params) store.createLeaderDirective("dismiss", { params });
+    } else store.removeMember(agentId);
     return c.json({ success: true });
   });
 
@@ -337,7 +358,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 
   app.get("/api/leader/directives", (c) => {
-    return c.json({ directives: store.getLeaderDirectives() });
+    // A `dismiss` is the daemon's while it can drive tmux; otherwise it is held
+    // back from the leader until its agent has exited (or its deadline passed), so
+    // the fallback closes the window at the same moment the daemon would.
+    const daemonDrivesTmux = store.getSpawnCapability().canSpawn;
+    const directives = store.getLeaderDirectives().filter((d) =>
+      d.action !== "dismiss" || (!daemonDrivesTmux && dismissReady(d, store))
+    );
+    return c.json({ directives });
   });
 
   app.put("/api/leader/directives/:id", async (c) => {

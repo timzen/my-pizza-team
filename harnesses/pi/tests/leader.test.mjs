@@ -113,7 +113,7 @@ test("has a default harness template for pi (no pi-assistant: the leader is the 
 const shared = fs.readFileSync(new URL("../src/shared/types.ts", import.meta.url), "utf8");
 
 test("the leader takes its templates and default session from the generated shared constants", () => {
-  assert.ok(src.includes('import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION } from "./shared/types.js"'));
+  assert.ok(src.includes('import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION, LEADER_WINDOW } from "./shared/types.js"'));
   assert.ok(!/const DEFAULT_HARNESS_TEMPLATES\b/.test(src), "no local copy of the templates");
   assert.ok(src.includes("let tmuxSession = DEFAULT_TMUX_SESSION;"));
   assert.ok(!src.includes('"pi-pizza-team";'), "no stale session name");
@@ -218,6 +218,22 @@ test("only sets up permission config for pi harness", () => {
 test("dismissAgent sends Ctrl+C then kills the window", () => {
   assert.ok(src.includes("C-c"));
   assert.ok(src.includes("kill-window"));
+});
+
+test("dismissAgent never closes the leader's window and skips a missing one", () => {
+  const fn = src.slice(src.indexOf("function dismissAgent("));
+  assert.ok(fn.includes("if (name === LEADER_WINDOW) return false;"));
+  assert.ok(fn.includes("listWindows(session, execSync).includes(name)"));
+  // The kill is deferred, never in the same breath as the C-c.
+  assert.ok(/C-c[\s\S]*?setTimeout\([\s\S]*?kill-window/.test(fn));
+});
+
+test("/ppt-dismiss goes through the daemon, like the UI's dismiss", () => {
+  assert.ok(src.includes("client.dismissAgent(member.id)"));
+});
+
+test("a leader-realized dismiss directive closes the window", () => {
+  assert.ok(src.includes('directive.action === "dismiss"'));
 });
 
 // ─── Slash commands ──────────────────────────────────────────────

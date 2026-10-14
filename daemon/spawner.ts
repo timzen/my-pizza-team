@@ -20,6 +20,7 @@ import {
   DEFAULT_HARNESS,
   DEFAULT_HARNESS_TEMPLATES,
   isExperimentalHarness,
+  LEADER_WINDOW,
   type HarnessTemplates,
   type TeamConfig,
 } from "../shared/types.ts";
@@ -123,6 +124,71 @@ export interface SpawnerStore {
   getLeaderDirectives(): SpawnableDirective[];
   updateLeaderDirective(id: string, status: string, error?: string): boolean;
   getMembers(): Array<{ name: string; status: string }>;
+  /** Has a dismissed agent exited (deregistered, or heard `dismissed`)? See Store.dismissedAgentExited. */
+  dismissedAgentExited(memberId: string): boolean;
+}
+
+/**
+ * How long a UI dismiss waits for the agent to exit by itself before its window is
+ * interrupted anyway. Two realize passes (C-c, then kill) follow, so the window is
+ * gone within ~30s of the dismiss even if the agent never answers.
+ */
+export const DISMISS_WAIT_MS = 25_000;
+
+/** Minimum gap between a dismiss's C-c and its kill-window, so a final flush lands. */
+export const DISMISS_KILL_DELAY_MS = 1_500;
+
+/**
+ * Windows interrupted (C-c sent) and awaiting their kill, by directive id → when.
+ * In-memory: a daemon restart forgets it, and the next pass simply interrupts again.
+ */
+const defaultInterrupts = new Map<string, number>();
+
+/** The parameters a dismiss directive carries; built by `dismissParams`. */
+export interface DismissParams {
+  [key: string]: unknown;
+  memberId: string;
+  /** The tmux window to close (the member's `tmuxWindow` metadata, else its name). */
+  name: string;
+  tmuxSession: string;
+  /** Epoch ms after which the window is closed even if the agent hasn't exited. */
+  deadline: number;
+}
+
+/**
+ * The window a dismissed member lives in, from its registration metadata, falling
+ * back to its name and the configured session (spawned windows are named after the
+ * teammate). Null for the leader, whose window is never closed by a dismiss.
+ */
+export function dismissParams(
+  member: { id: string; name: string; metadata?: Record<string, unknown> },
+  config: Pick<TeamConfig, "tmuxSession">,
+  now = Date.now(),
+): DismissParams | null {
+  const meta = member.metadata ?? {};
+  const window = typeof meta.tmuxWindow === "string" && meta.tmuxWindow ? meta.tmuxWindow : member.name;
+  const session = typeof meta.tmuxSession === "string" && meta.tmuxSession
+    ? meta.tmuxSession
+    : config.tmuxSession || "mpt";
+  if (!window || window === LEADER_WINDOW) return null;
+  return { memberId: member.id, name: window, tmuxSession: session, deadline: now + DISMISS_WAIT_MS };
+}
+
+/**
+ * Is a dismiss directive ready to act on — its agent has exited, or its deadline has
+ * passed? A directive without a member or deadline (one asked for directly) always is.
+ * Shared with the leader-directives route, which holds dismissals back from a
+ * leader-realized fallback until the same moment.
+ */
+export function dismissReady(
+  directive: Pick<SpawnableDirective, "params">,
+  store: Pick<SpawnerStore, "dismissedAgentExited">,
+  now = Date.now(),
+): boolean {
+  const memberId = typeof directive.params.memberId === "string" ? directive.params.memberId : "";
+  const deadline = typeof directive.params.deadline === "number" ? directive.params.deadline : 0;
+  if (!memberId || !deadline) return true;
+  return now >= deadline || store.dismissedAgentExited(memberId);
 }
 
 export interface RealizeDeps {
@@ -133,6 +199,10 @@ export interface RealizeDeps {
   /** How to run this mpt, for templates using `{mpt}` (daemon/self.ts). */
   mpt?: string[];
   exec?: TmuxExec;
+  /** Clock, injectable for tests. */
+  now?: () => number;
+  /** Dismiss interrupts in flight; injectable so tests don't share module state. */
+  interrupts?: Map<string, number>;
 }
 
 /**
@@ -158,7 +228,7 @@ export function realizePending(
     if (directive.action !== "spawn" && directive.action !== "dismiss") continue;
     try {
       if (directive.action === "spawn") realizeSpawn(directive, deps, exec, store);
-      else realizeDismiss(directive, deps, exec);
+      else if (realizeDismiss(directive, deps, exec, store) === "pending") continue;
       store.updateLeaderDirective(directive.id, "done");
       realized.push(directive.id);
     } catch (e) {
@@ -217,17 +287,51 @@ function realizeSpawn(
   spawnWindow({ session, window: name, cwd, command }, exec);
 }
 
-function realizeDismiss(directive: SpawnableDirective, deps: RealizeDeps, exec: TmuxExec): void {
+/**
+ * Close a dismissed agent's tmux window, over several passes.
+ *
+ * Spawn types the harness command into the window's shell, so when a dismissed
+ * harness exits by itself the shell is left behind; this is what closes it. Each
+ * pass does at most one step, and returns "pending" until the last:
+ *
+ *   1. wait until the agent has exited (or the deadline passes) — `dismissReady`;
+ *   2. send C-c, so anything still running can exit cleanly;
+ *   3. on a later pass, at least DISMISS_KILL_DELAY_MS on, kill the window.
+ *
+ * Never on the same pass as the C-c: killing immediately would cut off a final
+ * flush. The leader's window is never killed, and a window already gone is done.
+ */
+function realizeDismiss(
+  directive: SpawnableDirective,
+  deps: RealizeDeps,
+  exec: TmuxExec,
+  store: SpawnerStore,
+): "done" | "pending" {
+  const interrupts = deps.interrupts ?? defaultInterrupts;
+  const now = deps.now?.() ?? Date.now();
   const name = typeof directive.params.name === "string" && directive.params.name
     ? directive.params.name
     : (directive.metadata?.tmuxWindow as string | undefined) ?? "";
   if (!name) throw new Error("dismiss directive names no window");
+  if (name === LEADER_WINDOW) throw new Error("refusing to close the leader's window");
 
-  const session = (directive.metadata?.tmuxSession as string | undefined) || deps.config.tmuxSession || "mpt";
-  if (!listWindows(session, exec).includes(name)) return; // already gone
+  const session = (typeof directive.params.tmuxSession === "string" && directive.params.tmuxSession) ||
+    (directive.metadata?.tmuxSession as string | undefined) || deps.config.tmuxSession || "mpt";
+  if (!listWindows(session, exec).includes(name)) {
+    interrupts.delete(directive.id);
+    return "done"; // already gone (the user closed it, or tmux isn't running)
+  }
 
-  // Interrupt first so the agent can exit cleanly; the window is killed on the next
-  // pass if it is still there. Killing immediately would cut off a final flush.
-  sendControl(session, name, "C-c", exec);
+  const interruptedAt = interrupts.get(directive.id);
+  if (interruptedAt === undefined) {
+    if (!dismissReady(directive, store, now)) return "pending";
+    sendControl(session, name, "C-c", exec);
+    interrupts.set(directive.id, now);
+    return "pending";
+  }
+  if (now - interruptedAt < DISMISS_KILL_DELAY_MS) return "pending";
+
   killWindow(session, name, exec);
+  interrupts.delete(directive.id);
+  return "done";
 }

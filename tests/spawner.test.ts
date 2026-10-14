@@ -14,9 +14,12 @@
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
 import { TEST_CONFIG } from "./_config.ts";
-import { type TeamConfig } from "../shared/types.ts";
+import { LEADER_WINDOW, type TeamConfig } from "../shared/types.ts";
 import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
 import {
+  DISMISS_KILL_DELAY_MS,
+  DISMISS_WAIT_MS,
+  dismissParams,
   harnessCapability,
   probeSpawnCapability,
   probeTmuxCapability,
@@ -36,7 +39,11 @@ function fakeTmux(handler?: (args: string[]) => Partial<ExecResult>): { exec: Tm
 }
 
 /** A store stub recording status transitions. */
-function fakeStore(directives: SpawnableDirective[], members: Array<{ name: string; status: string }> = []) {
+function fakeStore(
+  directives: SpawnableDirective[],
+  members: Array<{ name: string; status: string }> = [],
+  exited: Set<string> = new Set(),
+) {
   const updates: Array<{ id: string; status: string; error?: string }> = [];
   const store: SpawnerStore = {
     getLeaderDirectives: () => directives,
@@ -45,6 +52,7 @@ function fakeStore(directives: SpawnableDirective[], members: Array<{ name: stri
       return true;
     },
     getMembers: () => members,
+    dismissedAgentExited: (id) => exited.has(id),
   };
   return { store, updates };
 }
@@ -223,9 +231,9 @@ Deno.test("one failing directive does not stop the others", () => {
 
 // ─── Dismiss ─────────────────────────────────────────────────────────
 
-Deno.test("a dismiss interrupts the agent before killing its window", () => {
-  // Killing outright would cut off a final flush.
-  const { store } = fakeStore([{
+Deno.test("a dismiss interrupts the agent, and kills its window only on a later pass", () => {
+  // Killing on the same pass as the C-c would cut off a final flush.
+  const { store, updates } = fakeStore([{
     id: "d",
     action: "dismiss",
     params: { name: "swift-ripley" },
@@ -234,11 +242,104 @@ Deno.test("a dismiss interrupts the agent before killing its window", () => {
   const { exec, calls } = fakeTmux((args) =>
     args[0] === "list-windows" ? { ok: true, stdout: "swift-ripley\n" } : {}
   );
-  realizePending(store, deps({ exec }));
-  const order = calls.map((c) => `${c[0]}${c[3] ? ` ${c[3]}` : ""}`);
-  assertEquals(order.includes("send-keys C-c"), true);
+  let t = 1_000_000;
+  const d = deps({ exec, now: () => t, interrupts: new Map() });
+
+  realizePending(store, d);
+  assertEquals(calls.some((c) => c[0] === "send-keys" && c[3] === "C-c"), true);
+  assertEquals(calls.some((c) => c[0] === "kill-window"), false, "no kill on the C-c pass");
+  assertEquals(updates, [], "still pending until the window is gone");
+
+  // A pass too soon after the C-c still doesn't kill.
+  t += 500;
+  realizePending(store, d);
+  assertEquals(calls.some((c) => c[0] === "kill-window"), false);
+
+  t += DISMISS_KILL_DELAY_MS;
+  realizePending(store, d);
+  const kill = calls.find((c) => c[0] === "kill-window");
+  assertEquals(kill, ["kill-window", "-t", "mpt:swift-ripley"]);
+  assertEquals(calls.filter((c) => c[3] === "C-c").length, 1, "interrupted once");
+  assertEquals(updates, [{ id: "d", status: "done", error: undefined }]);
+});
+
+Deno.test("a UI dismiss waits for its agent to exit, then closes the window", () => {
+  const exited = new Set<string>();
+  const { store, updates } = fakeStore([{
+    id: "d",
+    action: "dismiss",
+    params: { memberId: "a1", name: "swift-ripley", tmuxSession: "team", deadline: 1_000_000 + DISMISS_WAIT_MS },
+  }], [], exited);
+  const { exec, calls } = fakeTmux((args) =>
+    args[0] === "list-windows" ? { ok: true, stdout: "leader\nswift-ripley\n" } : {}
+  );
+  let t = 1_000_000;
+  const d = deps({ exec, now: () => t, interrupts: new Map() });
+
+  // Still running: leave it to exit by itself.
+  realizePending(store, d);
+  assertEquals(calls.filter((c) => c[0] === "send-keys" || c[0] === "kill-window"), []);
+
+  exited.add("a1");
+  t += 2_000;
+  realizePending(store, d); // C-c
+  t += 2_000;
+  realizePending(store, d); // kill
+  assertEquals(calls.find((c) => c[0] === "send-keys"), ["send-keys", "-t", "team:swift-ripley", "C-c"]);
+  assertEquals(calls.find((c) => c[0] === "kill-window"), ["kill-window", "-t", "team:swift-ripley"]);
+  assertEquals(updates[0]!.status, "done");
+});
+
+Deno.test("a UI dismiss whose agent never exits is closed at the deadline", () => {
+  const { store, updates } = fakeStore([{
+    id: "d",
+    action: "dismiss",
+    params: { memberId: "a1", name: "swift-ripley", tmuxSession: "mpt", deadline: 1_000_000 + DISMISS_WAIT_MS },
+  }]);
+  const { exec, calls } = fakeTmux((args) =>
+    args[0] === "list-windows" ? { ok: true, stdout: "swift-ripley\n" } : {}
+  );
+  let t = 1_000_000;
+  const d = deps({ exec, now: () => t, interrupts: new Map() });
+  // Daemon passes every 2s, as start.ts runs them.
+  while (!updates.length && t < 1_000_000 + 60_000) {
+    realizePending(store, d);
+    t += 2_000;
+  }
   assertEquals(calls.some((c) => c[0] === "kill-window"), true);
-  assertEquals(order.indexOf("send-keys C-c") < calls.findIndex((c) => c[0] === "kill-window"), true);
+  assertEquals(t - 1_000_000 <= 30_000, true, `window gone within the grace period (took ${t - 1_000_000}ms)`);
+});
+
+Deno.test("the leader's window is never killed by a dismiss", () => {
+  const { store, updates } = fakeStore([{ id: "d", action: "dismiss", params: { name: LEADER_WINDOW } }]);
+  const { exec, calls } = fakeTmux((args) => (args[0] === "list-windows" ? { ok: true, stdout: "leader\n" } : {}));
+  const d = deps({ exec, interrupts: new Map() });
+  realizePending(store, d);
+  realizePending(store, d);
+  assertEquals(calls.some((c) => c[0] === "send-keys" || c[0] === "kill-window"), false);
+  assertEquals(updates[0]!.status, "failed");
+});
+
+Deno.test("dismissParams falls back to the member's name and the configured session, and skips the leader", () => {
+  const cfg = config({ tmuxSession: "team" });
+  assertEquals(
+    dismissParams({ id: "a1", name: "swift-ripley", metadata: {} }, cfg, 0),
+    { memberId: "a1", name: "swift-ripley", tmuxSession: "team", deadline: DISMISS_WAIT_MS },
+  );
+  assertEquals(
+    dismissParams({ id: "a1", name: "x", metadata: { tmuxSession: "s", tmuxWindow: "w" } }, cfg, 0)?.name,
+    "w",
+  );
+  assertEquals(dismissParams({ id: "l", name: "leader", metadata: { tmuxWindow: LEADER_WINDOW } }, cfg), null);
+});
+
+Deno.test("a dismiss with tmux gone away doesn't throw", () => {
+  // tmux unreachable mid-run: list-windows fails, which reads as "already gone".
+  const { store, updates } = fakeStore([{ id: "d", action: "dismiss", params: { name: "swift-ripley" } }]);
+  const { exec } = fakeTmux(() => ({ ok: false, stderr: "no server running" }));
+  const result = realizePending(store, deps({ exec, interrupts: new Map() }));
+  assertEquals(result.failed, []);
+  assertEquals(updates[0]!.status, "done");
 });
 
 Deno.test("dismissing an already-gone window succeeds quietly", () => {

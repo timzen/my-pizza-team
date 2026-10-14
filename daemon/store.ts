@@ -94,6 +94,9 @@ import { existsSync } from "@std/fs";
  * These need in-process Pi APIs (session replacement), which tmux keystrokes
  * cannot express. See docs/DESIGN.md "Assistant Chat Model".
  */
+/** How long after hearing `dismissed` an agent is assumed to have exited. */
+export const DISMISS_EXIT_GRACE_MS = 3_000;
+
 export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
 
 /**
@@ -251,6 +254,14 @@ export class Store {
    * members), so after a restart every agent simply re-registers.
    */
   private dismissedIds: Set<string> = new Set();
+  /**
+   * When each tombstoned agent was dismissed, was told so by a heartbeat, and
+   * deregistered — the signals the spawner waits on before closing its tmux window
+   * (daemon/spawner.ts realizeDismiss). In-memory for the same reason as
+   * `dismissedIds`; after a restart the dismiss directive's grace deadline still
+   * closes the window.
+   */
+  private dismissals = new Map<string, { toldAt: number | null; exited: boolean }>();
 
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
@@ -1647,6 +1658,7 @@ export class Store {
   ): void {
     // (Re)registering clears any dismiss tombstone for this id.
     this.dismissedIds.delete(id);
+    this.dismissals.delete(id);
     // …and any session stats: a registration is a fresh harness session.
     this.sessionStats.delete(id);
     this.db.prepare(
@@ -1739,8 +1751,36 @@ export class Store {
    * `reregister` instead, so restarts/upgrades don't kill running teammates.
    */
   dismissMember(id: string): void {
+    // An agent already offline (crashed, wedged) will never heartbeat again, so
+    // there is nothing to wait for before closing its window.
+    const offline = this.getMember(id)?.status === "offline";
     this.dismissedIds.add(id);
+    this.dismissals.set(id, { toldAt: null, exited: offline });
     this.removeMember(id);
+  }
+
+  /** A dismissed agent's heartbeat was just answered `dismissed`; it is now exiting. */
+  noteDismissedHeartbeat(id: string): void {
+    const d = this.dismissals.get(id);
+    if (d && d.toldAt === null) d.toldAt = Date.now();
+  }
+
+  /** A dismissed agent deregistered (its clean-shutdown DELETE): it has exited. */
+  noteDismissedDeregistered(id: string): void {
+    const d = this.dismissals.get(id);
+    if (d) d.exited = true;
+  }
+
+  /**
+   * Has a dismissed agent gone — deregistered, or been told `dismissed` at least
+   * `exitGraceMs` ago (a Pi teammate exits ~0.5s after hearing it, without
+   * deregistering)? Unknown ids count as not gone: the dismiss directive's own
+   * deadline covers them.
+   */
+  dismissedAgentExited(id: string, exitGraceMs = DISMISS_EXIT_GRACE_MS): boolean {
+    const d = this.dismissals.get(id);
+    if (!d) return false;
+    return d.exited || (d.toldAt !== null && Date.now() - d.toldAt >= exitGraceMs);
   }
 
   /** True when `id` was explicitly dismissed (tombstoned) and not since re-registered. */

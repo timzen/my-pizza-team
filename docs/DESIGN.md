@@ -482,6 +482,11 @@ the harness's start command into it, and kills it on dismiss. Start commands are
 **team config** (`harnesses.<name>.teammate` / `.leader`, with built-in defaults
 for Pi), not extension code.
 
+A dismiss closes the window, but only after the agent has exited by itself (or a
+grace period ran out), with C-c before the kill and never in the same breath: the
+agent gets to flush. Only a dismiss closes a window. A teammate that crashes or is
+quit keeps its window, because the error on screen is the most useful thing left.
+
 *Why:* while tmux lived in the extension, adding a harness meant an extension
 release and nothing could spawn without a leader process. With the daemon as
 supervisor, a harness is a config entry, and the extension shrinks to what only Pi

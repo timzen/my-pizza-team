@@ -403,6 +403,19 @@ export class DaemonClient {
     return this.delete<{ success: boolean }>(`/api/agents/${encodeURIComponent(this.agentId)}`);
   }
 
+  /** The team's registered agents (id, name, status), as the Team tab sees them. */
+  async listAgents(): Promise<{ agents: Array<{ id: string; name: string; status: string }> }> {
+    return this.get<{ agents: Array<{ id: string; name: string; status: string }> }>("/api/agents");
+  }
+
+  /**
+   * Dismiss another agent, as the UI's dismiss button does: the daemon tombstones it
+   * (its next heartbeat tells it to exit) and closes its tmux window once it has.
+   */
+  async dismissAgent(agentId: string): Promise<{ success: boolean }> {
+    return this.delete<{ success: boolean }>(`/api/agents/${encodeURIComponent(agentId)}?dismiss=true`);
+  }
+
   /**
    * Send a heartbeat to the daemon.
    *

@@ -13,6 +13,7 @@ export const TEAM_DIR: string = ".my-pizza-team";
 export const LEGACY_TEAM_DIR: string = ".pi-pizza-team";
 export const DEFAULT_DAEMON_URL: string = "http://localhost:7437";
 export const DEFAULT_TMUX_SESSION: string = "my-pizza-team";
+export const LEADER_WINDOW: string = "leader";
 export const DEFAULT_HARNESS_TEMPLATES: Record<string, { teammate: string; leader?: string }> = {
   "pi": {
     "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",

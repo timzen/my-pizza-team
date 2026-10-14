@@ -29,7 +29,7 @@ import type { DaemonClient } from "./runtime/client.js";
 import { registerLeaderTools } from "./tools.js";
 import { prepareSpawnConfig } from "./permissions.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
-import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION } from "./shared/types.js";
+import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION, LEADER_WINDOW } from "./shared/types.js";
 
 const SPAWN_POLL_INTERVAL_MS = 5000;
 const WIDGET_UPDATE_INTERVAL_MS = 10000;
@@ -257,12 +257,24 @@ export async function setupLeader(
       const name = args?.trim();
       if (!name) { cmdCtx.ui.notify("Usage: /ppt-dismiss <name>", "warning"); return; }
 
+      if (name === LEADER_WINDOW) { cmdCtx.ui.notify("The leader can't dismiss itself", "warning"); return; }
+
+      // Through the daemon when it knows the teammate — the same path as the UI's
+      // dismiss: tombstone it so it exits by itself, and let the daemon's `dismiss`
+      // directive close its window once it has (daemon/spawner.ts realizeDismiss).
       try {
-        dismissAgent(name, tmuxSession, execSync);
-        cmdCtx.ui.notify(`✓ ${name} has left the team`, "info");
-      } catch {
-        cmdCtx.ui.notify(`No tmux window named "${name}" found`, "error");
-      }
+        const { agents } = await client.listAgents();
+        const member = agents.find((a) => a.name === name);
+        if (member) {
+          await client.dismissAgent(member.id);
+          cmdCtx.ui.notify(`✓ ${name} is leaving the team (its window closes once it exits)`, "info");
+          return;
+        }
+      } catch { /* daemon unreachable: close the window directly */ }
+
+      // Not a registered teammate (or no daemon): close its window directly.
+      if (dismissAgent(name, tmuxSession, execSync)) cmdCtx.ui.notify(`✓ ${name} has left the team`, "info");
+      else cmdCtx.ui.notify(`No tmux window named "${name}" found`, "error");
     },
   });
 
@@ -635,6 +647,15 @@ function dispatchDirective(
     }, execSync);
     return;
   }
+  if (directive.action === "dismiss") {
+    // Fallback for when the daemon can't drive tmux: it holds a dismiss back until
+    // the agent has exited (or its grace deadline passed), so closing now is safe.
+    const params = directive.params || {};
+    const window = (params.name as string) || (directive.metadata?.tmuxWindow as string) || "";
+    const session = (params.tmuxSession as string) || (directive.metadata?.tmuxSession as string) || ctx.session;
+    if (window) dismissAgent(window, session, execSync);
+    return;
+  }
   // Actions on an existing agent are delivered via its tmux window.
   deliverAgentCommand(directive, ctx.session, execSync);
 }
@@ -669,9 +690,13 @@ function deliverAgentCommand(
 }
 
 /**
- * Dismiss an agent by sending Ctrl+C then exit to its tmux window.
+ * Close an agent's tmux window: Ctrl+C now, kill-window a moment later (never in
+ * the same breath, so a final flush can land). Returns false when there is no such
+ * window. Never touches the leader's own window.
  */
-function dismissAgent(name: string, session: string, execSync: any): void {
+function dismissAgent(name: string, session: string, execSync: any): boolean {
+  if (name === LEADER_WINDOW) return false;
+  if (!listWindows(session, execSync).includes(name)) return false;
   const safeName = shellSafe(name);
   const safeSession = shellSafe(session);
   // Send Ctrl+C to interrupt Pi, then kill the tmux window after a brief delay
@@ -683,6 +708,7 @@ function dismissAgent(name: string, session: string, execSync: any): void {
       // Window may already be gone
     }
   }, 2000);
+  return true;
 }
 
 /**
