@@ -209,6 +209,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
   // Default is on; persist only an explicit value so config.json stays minimal.
   if (config.exclusiveDirectories !== undefined) out.exclusiveDirectories = config.exclusiveDirectories;
+  if (config.favoriteDirectories && config.favoriteDirectories.length > 0) out.favoriteDirectories = config.favoriteDirectories;
   return out;
 }
 
@@ -3101,6 +3102,74 @@ export class Store {
       path.join(this.teamDir, CONFIG_FILE),
       JSON.stringify(serializeConfig(this.config), null, 2) + "\n",
     );
+  }
+
+  // --- Directory suggestions (docs/DESIGN.md "Favorite Directories") ---
+
+  /** The favorite directories, in the user's order (normalized; see TeamConfig). */
+  getFavoriteDirectories(): string[] {
+    return [...(this.config.favoriteDirectories ?? [])];
+  }
+
+  /**
+   * Replace the favorites list. Each entry is normalized the same way stored
+   * directories are (`normalizeDirectory`), so a favorite matches the paths
+   * agents register with; empties and duplicates (after normalization) are
+   * dropped, first occurrence wins. Persists and returns the stored list.
+   */
+  setFavoriteDirectories(dirs: string[]): string[] {
+    const out: string[] = [];
+    for (const raw of dirs) {
+      const dir = normalizeDirectory(raw.trim());
+      if (dir && !out.includes(dir)) out.push(dir);
+    }
+    if (out.length > 0) this.config.favoriteDirectories = out;
+    else delete this.config.favoriteDirectories;
+    this.saveConfig();
+    return out;
+  }
+
+  /** Append one favorite (no-op if already present). Returns the stored list. */
+  addFavoriteDirectory(dir: string): string[] {
+    return this.setFavoriteDirectories([...this.getFavoriteDirectories(), dir]);
+  }
+
+  /**
+   * Remove one favorite. The argument is normalized first, so `~/repo` removes
+   * the stored `/home/u/repo`. Returns false if it wasn't a favorite.
+   */
+  removeFavoriteDirectory(dir: string): boolean {
+    const target = normalizeDirectory(dir.trim());
+    const current = this.getFavoriteDirectories();
+    if (!current.includes(target)) return false;
+    this.setFavoriteDirectories(current.filter((d) => d !== target));
+    return true;
+  }
+
+  /**
+   * Recently used working directories, most recent first: where teammates are
+   * homed right now, then the directories of recently enqueued WorkItems, then
+   * story directories. Derived from existing state rather than tracked
+   * separately, so it can never drift. Normalized, deduped, favorites excluded
+   * (pickers list those first anyway), capped at `limit`.
+   */
+  getRecentDirectories(limit = 20): string[] {
+    const favorites = new Set(this.getFavoriteDirectories());
+    const out: string[] = [];
+    const add = (d: string | null | undefined) => {
+      if (!d || out.length >= limit) return;
+      const n = normalizeDirectory(d);
+      if (n && !favorites.has(n) && !out.includes(n)) out.push(n);
+    };
+    for (const m of this.getMembers()) if (m.status !== "offline") add(m.directory);
+    const rows = this.db.prepare(
+      `SELECT directory, MAX(enqueued_at) AS last FROM work_items
+       WHERE directory IS NOT NULL AND directory != ''
+       GROUP BY directory ORDER BY last DESC LIMIT ?`,
+    ).all(limit) as Array<{ directory: string }>;
+    for (const r of rows) add(r.directory);
+    for (const s of this.getStories()) add(s.directory);
+    return out;
   }
 
   // --- WorkDefs + Schedules (see store/workdefs.ts, store/schedules.ts) ---

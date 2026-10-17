@@ -101,7 +101,7 @@ Use **New Story** (from the dock's **+** menu, or `/stories/new`):
 1. **ID** — a URL-safe identifier
 2. **Workflow** — which workflow governs this story's tasks
 3. **Title** & **Description** (markdown)
-4. **Directory** — where teammates work (also the affinity bias)
+4. **Directory** — where teammates work (also the affinity bias). Pick from the dropdown — your **favorite directories** first, then recently used ones — or type a path (see [Favorite directories](#favorite-directories))
 5. **Context** — context-library entries injected into every task's prompt
 6. **Tasks** — optionally add initial tasks inline
 
@@ -369,13 +369,17 @@ The ledger is saved **in the team directory**, committed with your stories and c
 
 Visit `/config`:
 
-- **General** — port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, autosave (flush/commit cadence, auto-commit)
+- **General** — port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
 
 ### Readiness probe
 
 If your machine sometimes can't work (expired credentials, VPN down), set a **readiness probe**: a shell command the daemon runs every 30 seconds. Exit 0 means ready; anything else means not ready, and its first line of output is the reason. While not ready, **scheduled** jobs are held instead of run — and when it recovers, each held job runs once (not once per missed tick). Board and Solitary work still run. With no probe, the team is always ready.
+
+### Favorite directories
+
+Every directory field — New Story, a story's page, New Task, a WorkDef or template, a triage proposal's edit form, and **Spawn** — has a dropdown of suggestions: your **Favorites** first, then **Recent** directories (where teammates are working now, then recent work and story directories). Click the ☆ on any row to favorite it (★ to unfavorite), or the ☆ inside the field to favorite the path you typed. Manage the list under **Config → General → Favorite Directories**; changes save immediately (no Save button). Paths are stored resolved — `~` expanded and symlinks followed — so `~/repo` and its real path are the same favorite.
 
 ### Autosave
 

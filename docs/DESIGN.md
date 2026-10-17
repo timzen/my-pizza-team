@@ -166,6 +166,26 @@ preference; it never strands work. The directory *lease* (below) is the one plac
 a directory gates work, and it compares WorkItem directories only. Accepted
 trade-off: any teammate can be pointed anywhere the process user can write.
 
+### Favorite Directories
+
+Since every piece of work names a directory, typing paths is the most repeated
+chore in the UI. Every directory field is one component (`DirectoryInput`) that
+offers the team's **favorites** first, then **recently used** directories, then
+any caller extras (e.g. story homes in Spawn).
+
+- **Favorites live in team config** (`favoriteDirectories`), normalized with
+  `normalizeDirectory` — the same `~`/symlink resolution affinity uses — so a
+  favorite is the same string agents register and WorkItems carry.
+- **Recent is derived, not tracked**: online teammates' directories, then recent
+  WorkItem directories, then story directories. Nothing extra to persist or
+  drift. (An earlier version replaced favorites with an auto-maintained
+  "recent capabilities" map; capabilities are gone, and an auto list alone
+  never let you pin the handful of repos you actually use.)
+- **Edited where used.** A star on each suggestion adds/removes a favorite
+  immediately; the Config page lists them too. Favorites have their own
+  endpoint and `PUT /api/config` ignores the field, so saving a Config draft
+  loaded before a star was clicked can't silently undo it.
+
 ## WorkDefs & Parents: One Model for All Work
 
 Every unit of work is a **WorkDef**: purely *authored* content (Goal / Acceptance

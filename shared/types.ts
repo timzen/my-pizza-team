@@ -68,6 +68,14 @@ export interface TeamConfig {
    */
   exclusiveDirectories?: boolean;
   /**
+   * Favorite working directories, in the user's order. Every directory picker
+   * in the UI offers these first, ahead of recently used directories. Stored
+   * normalized (`normalizeDirectory`: `~` expanded, symlinks resolved) and
+   * deduped. Edited through `/api/directories/favorites` (Store owns the list),
+   * not `PUT /api/config`. See docs/DESIGN.md "Favorite Directories".
+   */
+  favoriteDirectories?: string[];
+  /**
    * Readiness probe command. The daemon runs it every 30s (daemon/readiness.ts);
    * exit 0 = ready, non-zero = not ready (its first line of output = reason). A not-ready team
    * holds scheduled enqueues instead of failing them. See docs/ARCHITECTURE.md

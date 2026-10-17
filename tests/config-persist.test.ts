@@ -24,6 +24,7 @@ const FULL: Partial<TeamConfig> = {
   readinessProbe: "true",
   defaultHarness: "custom",
   experimental: { harnesses: true },
+  favoriteDirectories: ["/tmp/mpt-fav-a", "/tmp/mpt-fav-b"],
   harnesses: {
     custom: { teammate: "my-agent --name={name} --daemon={url}", leader: "my-agent --lead" },
   },
@@ -52,6 +53,8 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.defaultHarness, FULL.defaultHarness);
   assertEquals(saved.harnesses, FULL.harnesses);
   assertEquals(saved.experimental, FULL.experimental);
+  // Favorites have their own endpoint; PUT /api/config must not drop them.
+  assertEquals(saved.favoriteDirectories, FULL.favoriteDirectories);
 }
 
 Deno.test("saveConfig writes every persistable field", () => {

@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { DirectoryInput } from "@/components/ui/directory-input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { ContextSelector } from "@/components/board/ContextSelector";
@@ -101,7 +102,7 @@ export function NewStoryPage() {
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-title">Title</Label></div><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><Input id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={e => setDirectory(e.target.value)} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><DirectoryInput id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
 

@@ -119,6 +119,7 @@ marked done; moving one back out reopens it.
 - `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
 - `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
 - `routes/templates.ts` — Template CRUD.
+- `routes/directories.ts` — Directory-picker suggestions (`GET /api/directories`: favorites + recent) and favorite edits; the Store normalizes and persists (`favoriteDirectories` in config.json).
 - `routes/agents.ts` — The agent protocol: register (version handshake, and the experimental-harness gate — `experimentalGate`), heartbeat (`reregister`/`dismissed` signals), session stats (model, context fill, session cost, held in memory by the store and echoed on `GET /api/agents`), next-work, claim, the single state-setter, work-item comments/attachments (resolved to the ref), agent list/delete, self-directives, leader directives, spawn requests. `DELETE /api/agents/:id?dismiss=true` tombstones the member *and* queues a `dismiss` directive (`dismissParams`) so its tmux window — left at a shell prompt when the harness exits, since spawn typed the command into a shell — is closed once it has gone; a dismissed agent's later heartbeat (`noteDismissedHeartbeat`) and deregister (`noteDismissedDeregistered`, answered 200) are the "it has gone" signals. A plain DELETE queues nothing. `GET /api/leader/directives` hides `dismiss` directives from the leader while the daemon drives tmux, and otherwise until `dismissReady`.
 - `routes/assistant.ts` — The chat: conversation reads/writes, SSE stream, the agent mirror surface (inbox/ack, bubbles, thoughts, session report), sessions (list/new/resume/snapshot), persona.
 - `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
@@ -190,7 +191,7 @@ the **phone shell** (`mobile/`, below), and sends a phone (`lib/mobile.ts`
 - `pages/ThoughtsPage.tsx` — Thoughts: owns the notes, groups, and every mutation, and switches between two views (**Canvas | List**, `mpt.thoughts.view` in `localStorage`), carrying the selection across. Both sit under one shared toolbar row the page renders — **+ Note** first, then the view's own tools (canvas: Group, Tidy, Select, Map; list: Folder), and at the right zoom (canvas only), Archived, and the switch — so the fixed controls never move when you change view. The **canvas** is this page: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer; geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`. The **list** is `thoughts/ThoughtsList.tsx`: folders (groups, alphabetical, collapsible — `mpt.thoughts.collapsedFolders`) then ungrouped notes, search, ↑/↓, drag a row onto a folder to file it, and the selected note in a pane. Its rules (titles/snippets, ordering, search, keyboard order, and where a note lands on the canvas when the list files it — `placeForGroupChange`, `slotInPlate`, `slotBelowAll`) are pure in `lib/thoughtList.ts`. Both views edit through `thoughts/NoteEditor.tsx`: framed by `thoughts/NoteDialog.tsx` on the canvas (saves on close) and inline in the list (autosaves). `thoughts/CopyId.tsx` is the copy-id chip.
 - `pages/UsagePage.tsx` — Tiles, a 53-week contribution grid, the split by kind, and a collapsed glossary. Token figures exclude cache reads unless "Include cached" is on (localStorage `mpt.usage.includeCached`); pure helpers (`tokensOf`, `metricOf`, `peakDay`, grid math) in `lib/usage.ts`.
 - `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
-- `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, autosave), **Teammates** (name nouns; the `exclusiveDirectories` "One teammate per directory" checkbox; experimental harnesses + default harness — off resets the default to Pi), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
+- `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, favorite directories — saved immediately via `/api/directories/favorites`, autosave), **Teammates** (name nouns; the `exclusiveDirectories` "One teammate per directory" checkbox; experimental harnesses + default harness — off resets the default to Pi), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
 - `pages/HelpPage.tsx` — Renders `GUIDE.md`, copied to `src/content/guide.md` by the `prebuild` script.
 
 **Phone view** (`/m`, docs/DESIGN.md "A Phone Is a Peek"). Its own shell, built from
@@ -205,7 +206,9 @@ the desktop's parts; no daemon routes of its own.
 
 **Shared UI.** `viewer/FileViewer.tsx` (attachment lightbox) and `viewer/DiffViewer.tsx`
 (line-comment review); `components/ui/*` (shadcn primitives plus markdown, title,
-directory, and back-button fields); the **big editor** — `ui/full-editor.tsx`
+directory, and back-button fields — `ui/directory-input.tsx` is the one directory
+picker: favorites then recent from `GET /api/directories`, a star per row, ordering in
+`lib/directories.ts`, and a window event that keeps every mounted picker in sync); the **big editor** — `ui/full-editor.tsx`
 (`useFullEditor` hook + full-screen overlay: preview, submit plumbing; and the
 shared pieces `CodeEditorSurface`, `useVimPref` — one vim setting synced live across
 editors — `VimSwitch`, `VimStatus`) lazy-loading `ui/code-editor.tsx` (CodeMirror 6
@@ -392,7 +395,11 @@ When a token is configured, every path except `/health` requires it.
 | GET | `/api/status` | Story/task/member counts, `paused`, `defaultWorkflow`, `workflows` |
 | POST | `/api/control/pause` \| `/api/control/resume` | Pause/resume distribution (next-work returns null while paused) |
 | GET | `/api/config` | Config + loaded `workflows` + `defaultNouns` |
-| PUT | `/api/config` | Update config; requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), applied live; reconciles the pool |
+| GET | `/api/directories` | `{ favorites, recent }` — favorites in the user's order; recent = online teammates' dirs, then recent WorkItem dirs, then story dirs (normalized, deduped, favorites excluded, max 20) |
+| POST | `/api/directories/favorites` | `{ directory }` — append a favorite (normalized; no-op if present); 400 if empty |
+| PUT | `/api/directories/favorites` | `{ directories }` — replace/reorder the list; 400 unless an array of non-empty strings |
+| DELETE | `/api/directories/favorites?directory=` | Remove one (matched after normalization); 404 if not a favorite |
+| PUT | `/api/config` | Update config (ignores `favoriteDirectories` — edited only via `/api/directories/favorites`, so a stale Config draft can't undo a star); requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), applied live; reconciles the pool |
 | GET | `/api/teammate-pool` | `{ minTeammates (effective), isDefault, maxTeammates, online, pending, leaderPresent }` |
 | PUT | `/api/teammate-pool` | `{ minTeammates }` (non-negative integer, clamped to max; `null` = default) — persists and reconciles |
 | GET | `/api/readiness` | `{ readiness }` (null if never reported) |

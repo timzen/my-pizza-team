@@ -460,3 +460,19 @@ export interface CreateLeaderDirectiveResponse { success: boolean; directive?: L
 // PUT /api/leader/directives/:id
 export interface UpdateLeaderDirectiveRequest { status: string }
 export interface UpdateLeaderDirectiveResponse { success: boolean; error?: string }
+
+// ─── Directory suggestions (docs/DESIGN.md "Favorite Directories") ───
+
+// GET /api/directories — what every directory picker offers, in order.
+export interface DirectoriesResponse {
+  /** Favorites, in the user's order (team config `favoriteDirectories`). */
+  favorites: string[];
+  /** Recently used directories, most recent first, favorites excluded. */
+  recent: string[];
+}
+// POST /api/directories/favorites  { directory }
+export interface AddFavoriteDirectoryRequest { directory: string }
+// PUT /api/directories/favorites   { directories } — replace (reorder) the list
+export interface SetFavoriteDirectoriesRequest { directories: string[] }
+// POST / PUT / DELETE /api/directories/favorites
+export interface FavoriteDirectoriesResponse { success: boolean; favorites?: string[]; error?: string }

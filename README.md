@@ -141,6 +141,12 @@ most of it is editable on the **Config** page. Minimal:
   // On by default. intervalMinutes re-arms on daemon restart.
   "triage": { "enabled": true, "intervalMinutes": 60, "quietMinutes": 10 },
 
+  // ─── Directory pickers ─────────────────────────────────────────
+  // Offered first by every directory field in the UI (then recent dirs).
+  // Stored normalized (~ expanded, symlinks resolved). Managed in Config →
+  // General or by starring a directory in any picker (/api/directories/favorites).
+  "favoriteDirectories": ["/path/to/project"],
+
   // ─── Work distribution ─────────────────────────────────────────
   // One teammate per directory (default true): overlapping work waits its turn.
   "exclusiveDirectories": true,
@@ -465,6 +471,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 | WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while a draft), publish, enqueue, archive, comments, attachments, usage |
 | Schedules | `/api/schedules/*` | Cron parents |
 | Templates | `/api/templates/*` | Reusable molds for Solitary tasks (never enqueue) |
+| Directories | `GET /api/directories`, `POST/PUT/DELETE /api/directories/favorites` | Picker suggestions (favorites, then recent); edit favorites |
 | WorkItems | `GET /api/work-items[/:id]`, `POST .../cancel\|force-fail\|read`, `POST /api/work-items/re-enqueue` | The queue and its recovery actions |
 | Agents | `/api/agents/*` | Register, heartbeat, next-work, claim, state, comments, directives |
 | Directives | `/api/leader/directives`, `/api/spawn-requests` | Spawn/dismiss/reset asks; pending and failed spawns |

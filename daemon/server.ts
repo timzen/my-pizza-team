@@ -30,6 +30,7 @@ import { createAuthMiddleware, resolveToken } from "./auth.ts";
 import { resolveDistDir, staticMiddleware } from "./static.ts";
 import type { RouteContext } from "./routes/types.ts";
 import { registerSharedRoutes } from "./routes/shared.ts";
+import { registerDirectoryRoutes } from "./routes/directories.ts";
 import { registerStoryRoutes } from "./routes/stories.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -89,6 +90,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerTranscriptRoutes(ctx);
   registerPairingRoutes(ctx);
   registerUsageRoutes(ctx);
+  registerDirectoryRoutes(ctx);
 
   return app;
 }
