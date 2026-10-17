@@ -5,7 +5,7 @@
  * return JSON conforming to these interfaces.
  */
 
-import type { MemberSessionStats, WorkflowConfig } from "./types.ts";
+import type { FeaturesConfig, MemberSessionStats, WorkflowConfig } from "./types.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
 // (Additive, optional routes — like POST /api/agents/:id/session-stats — are not
@@ -68,6 +68,8 @@ export interface StatusResponse {
   defaultWorkflow: string;
   workflows: Record<string, WorkflowConfig>;
   workflow?: WorkflowConfig;
+  /** Which work-item kinds are on, defaults applied (`resolveFeatures`). */
+  features: Required<FeaturesConfig>;
 }
 
 // GET /api/stories

@@ -19,6 +19,7 @@ import {
   packageSource,
   type PiSettings,
 } from "./pi-config.ts";
+import { newTeamConfig } from "../shared/types.ts";
 
 /** One change setup intends to make. Rendered to the user before anything happens. */
 export type Action =
@@ -189,6 +190,21 @@ export function writePiSettingsFile(agentDir: string, raw: Record<string, unknow
   } finally {
     if (existsSync(temp)) Deno.removeSync(temp);
   }
+}
+
+/**
+ * Create a brand-new team directory's `config.json` (`newTeamConfig()`: Tasks on,
+ * Stories and Schedules off — docs/DESIGN.md "Feature Toggles"). Never overwrites:
+ * a half-initialised team dir may already hold real data, and an existing config
+ * without a `features` block must keep meaning "everything on". Returns whether
+ * it wrote the file.
+ */
+export function initTeamConfig(teamDir: string): boolean {
+  Deno.mkdirSync(teamDir, { recursive: true });
+  const configFile = path.join(teamDir, "config.json");
+  if (existsSync(configFile)) return false;
+  Deno.writeTextFileSync(configFile, `${JSON.stringify(newTeamConfig(), null, 2)}\n`);
+  return true;
 }
 
 /** Mark a project directory trusted, preserving any other entries. */

@@ -220,6 +220,8 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
   // Default is on; persist only an explicit value so config.json stays minimal.
   if (config.exclusiveDirectories !== undefined) out.exclusiveDirectories = config.exclusiveDirectories;
+  // Absent means "everything on" (an existing team); persist only an explicit block.
+  if (config.features) out.features = config.features;
   if (config.favoriteDirectories && config.favoriteDirectories.length > 0) out.favoriteDirectories = config.favoriteDirectories;
   return out;
 }

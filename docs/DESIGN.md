@@ -393,6 +393,30 @@ WorkDef model (a fourth parent kind, a "don't enqueue" flag) would leak a non-wo
 concept into the listing, matching, and lifecycle machinery a template must stay
 out of. Sharing the file format avoids drift without coupling the concepts.
 
+## Feature Toggles: Start Small, Never Strand Work
+
+A team can switch the **Stories**, **Tasks** (Solitary tasks and Templates), and
+**Schedules** kinds off in `config.features`. Thoughts, Context, and the Inbox are
+always on, so "everything off" is still a working team: notes in, triage out.
+
+- **New teams start with Tasks only; existing teams keep everything.** A missing
+  `features` block means *all on*, so no team loses a kind it was using and nothing
+  is migrated. Only `mpt setup`, creating a team, writes the small default. That's
+  why the block isn't in `DEFAULT_CONFIG`: defaults are merged under every existing
+  config, where it would silently switch kinds off.
+- **Off is enforced by the daemon, in one place.** The UI hides, but the API
+  refuses (daemon/features.ts, middleware ahead of every route), so the CLI, the Pi
+  tools, and a stale browser tab all hit the same wall with the same message. It's a
+  403, not a 404: the client must be able to say "switched off", not "missing".
+- **Switching off requires the kind to be empty.** Hiding live work would strand
+  it — a story nobody can see still holds teammates and its queue slot. So turning a
+  kind off is refused while it has active items and names how many to archive or
+  delete; archived items don't count, since they're history, not work.
+- **What's already running finishes.** The queue, the Inbox, the agent protocol,
+  and a WorkDef's thread are never gated. The guard makes this rare (a kind is only
+  turned off empty), but a hand-edited config must not leave a claimed item unable
+  to complete.
+
 ## Task Ordering: the Story Owns It
 
 A task has three independent concerns: its **id** (a stable key like `auth-3` —

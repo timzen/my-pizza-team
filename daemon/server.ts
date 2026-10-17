@@ -2,7 +2,8 @@
  * daemon/server.ts — HTTP API server for the team lead (Deno port).
  *
  * Serves the REST API for teammates and the lead. Built with Hono on Deno.serve().
- * Routes are organized into modules by concern:
+ * Feature toggles (daemon/features.ts) are middleware installed ahead of every
+ * route module. Routes are organized into modules by concern:
  *   - shared: health, status, config, control, readiness, workflows
  *   - stories: story CRUD, archive, backlog
  *   - tasks: story-parent task operations — create-in-story, reorder, move, delete
@@ -29,6 +30,7 @@ import { type TeamConfig } from "../shared/types.ts";
 import { createAuthMiddleware, resolveToken } from "./auth.ts";
 import { resolveDistDir, staticMiddleware } from "./static.ts";
 import type { RouteContext } from "./routes/types.ts";
+import { registerFeatureGates } from "./features.ts";
 import { registerSharedRoutes } from "./routes/shared.ts";
 import { registerDirectoryRoutes } from "./routes/directories.ts";
 import { registerStoryRoutes } from "./routes/stories.ts";
@@ -74,6 +76,10 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
     setPaused: (v) => { paused = v; },
     startedAt,
   };
+
+  // Feature toggles first: their middleware must sit in front of the routes it
+  // gates (docs/ARCHITECTURE.md "Feature toggles").
+  registerFeatureGates(ctx);
 
   // Register all route modules
   registerSharedRoutes(ctx);

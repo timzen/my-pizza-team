@@ -23,6 +23,7 @@ import { managedExtensionDir, resolveExtensionSourceDir, writeExtension } from "
 import { piAgentDir, readPiSettings } from "./pi-config.ts";
 import {
   applyPackageChanges,
+  initTeamConfig,
   isNoOp,
   manifestPath,
   planSetup,
@@ -804,12 +805,8 @@ async function cmdSetup(args: string[]): Promise<void> {
       console.log(`✅ Extension written to ${action.targetDir} (v${version ?? "unknown"})`);
     }
     if (action.kind === "create-team-dir") {
-      Deno.mkdirSync(action.teamDir, { recursive: true });
-      const configFile = path.join(action.teamDir, "config.json");
-      // Never overwrite: a half-initialised team dir may already hold real data.
-      if (!existsSync(configFile)) {
-        Deno.writeTextFileSync(configFile, `${JSON.stringify(DEFAULT_CONFIG, null, 2)}\n`);
-      }
+      // A new team starts with Tasks only; never overwrites an existing config.
+      initTeamConfig(action.teamDir);
       console.log(`✅ Team directory ready at ${action.teamDir}`);
     }
     if (action.kind === "trust-project") {

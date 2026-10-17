@@ -36,7 +36,7 @@ committed by autosave.
 
 | Path | Contents | Source of truth |
 |---|---|---|
-| `config.json` | Team config (`TeamConfig`) | file |
+| `config.json` | Team config (`TeamConfig`), including the `features` toggles (absent ⇒ all on; see "Feature toggles") | file |
 | `workflows/<name>/workflow.json` | `{ states: [{name, type}] }` | file |
 | `workflows/<name>/<state>.md` | Persona for an agent state | file |
 | `stories/<id>.json` | Story: title, description, workflow, directory, context, paused, dependsOn, `tasks: [{id, status}]` | file (indexed in SQLite) |
@@ -85,7 +85,8 @@ marked done; moving one back out reopens it.
 - `start.ts` — `startDaemonInProcess`: **the one startup routine**, used by `mpt start` (foreground and the `--daemon` child), the compiled binary, and `main.ts`. Creates the app, validates bind safety, writes the PID file, registers signal handlers, serves, then probes tmux once (and, if reachable, every 2s re-checks the config's default harness with `harnessCapability` — so a Config-page fix needs no restart — and runs `realizePending`) and starts the readiness loop. Also `resolveTeamDir` (TEAM_DIR as the dir or its parent; else `./.my-pizza-team`), shared with the CLI.
 - `main.ts` — Entry point for `deno task dev`/`start`: a thin call into `start.ts`, so the dev daemon is the real daemon.
 - `app.ts` — `createApp(teamDir)`: merges `config.json` over `DEFAULT_CONFIG`, constructs the Store, loads from disk, starts timers, builds the app. Without a team dir, a health-only app.
-- `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
+- `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, the feature gates (`registerFeatureGates`, ahead of every route), and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
+- `features.ts` — Feature toggles (see "Feature toggles"): `registerFeatureGates` (one `requireFeature` middleware per kind; 403 `feature '<name>' is disabled`), `featureForWorkDef` / `featureForProposalKind` / `isWorkDefVisible`, and the turn-off guard — `activeFeatureItems` (active, non-archived items of a kind) and `resolveFeaturesUpdate` (validates a `PUT /api/config` `features` value; 409 while items remain).
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
 - `static.ts` — Serves `ui/dist/` (or `UI_DIST`) with SPA fallback to `index.html`.
 - `lifecycle.ts` — PID file, SIGTERM/SIGINT handling, flush-and-close on exit, and `redirectOutputToLog` (a background daemon's console → `daemon.log`, the previous run's kept as `daemon.log.1`, uncaught errors included).
@@ -112,7 +113,7 @@ marked done; moving one back out reopens it.
 - `spawner.ts` — `probeTmuxCapability` (once at startup), `harnessCapability` (the config half, re-checked each pass; `probeSpawnCapability` is both) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the harness templates (built-ins overridden per harness by config); an unrealizable directive — including an experimental harness on a team that hasn't opted in — is marked `failed` with its reason. Other actions are left for the leader. A `dismiss` is realized over several 2s passes (`realizeDismiss`), staying `pending` between them: wait until its agent has exited (`dismissReady` — deregistered, told `dismissed` ≥3s ago, already offline, or past `params.deadline`, `DISMISS_WAIT_MS` = 25s after the dismiss), then send C-c, then — on a later pass at least `DISMISS_KILL_DELAY_MS` on, never the same one — kill the window. The leader's window (`LEADER_WINDOW`) is never killed (the directive fails instead), and a window already gone (or tmux no longer answering) is simply `done`. `dismissParams` builds a UI dismiss's params from the member's `tmuxSession`/`tmuxWindow` metadata, falling back to its name and `config.tmuxSession`.
 - `readiness.ts` — `runProbe` (timeout-bounded `sh -c`, which also survives a hung child on Linux) and `startReadinessLoop` (every 30s; nothing configured → never reports → ready).
 - `routes/types.ts` — `RouteContext`.
-- `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows), the teammate pool, readiness, and workflows.
+- `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows and takes `features` through `resolveFeaturesUpdate`), the teammate pool, readiness, and workflows.
 - `routes/stories.ts` — Story CRUD, archive, backlog/restore.
 - `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move, delete.
 - `routes/work-defs.ts` — WorkDef CRUD (every view carries `executionCount`/`lastRunAt`; the list fetches all stats in one query) (PUT of the definition only while a draft — 409 once published; a cron-only PUT is always allowed), publish, enqueue (409 for a draft), archive/restore, and the ref-scoped surface for **every** WorkDef: comments, attachments, token usage.
@@ -130,7 +131,7 @@ marked done; moving one back out reopens it.
 ### cli/
 
 - `main.ts` — Command dispatch and most commands (`agent` and `setup --harness` route to `agent.ts`): `start` (foreground, or `--daemon` re-launches itself detached — as `deno run …` when running from source — with `start --foreground-internal`, which logs to `daemon.log` via `redirectOutputToLog`; the parent waits for the PID file, or reports that the child exited and where its log is), `stop`, `status`, `rotate-token`, `install`/`uninstall` (service), `upgrade`, `doctor`, `setup`, `lead`, and the hidden `write-extension-internal`. `cmdLead` renders the harness's `leader` template, opens the fixed `leader` window in the project directory, and attaches (or `select-window` when already inside tmux); an existing window is attached rather than duplicated. `upgrade` maps the platform to a release asset (`mpt-<os>-<arch>`), verifies `checksums.sha256`, atomically replaces the executable, runs the new binary's `write-extension-internal` to refresh the managed extension, and restarts an installed service. The GitHub API call sends `MPT_GITHUB_TOKEN`/`GITHUB_TOKEN`/`GH_TOKEN` when set (to `api.github.com` only); on any API failure (typically a rate-limit 403) it falls back to the unauthenticated `github.com/<repo>/releases/latest` redirect and constructs `/releases/download/<tag>/<asset>` URLs. Refuses when run from source.
-- `setup.ts` — `planSetup()` (pure: decides what to change, including conflict resolution between managed, dev-checkout, and legacy registrations), settings mutation (atomic, preserving unowned fields), and the `SetupManifest` that `--uninstall` replays.
+- `setup.ts` — `planSetup()` (pure: decides what to change, including conflict resolution between managed, dev-checkout, and legacy registrations), settings mutation (atomic, preserving unowned fields), `initTeamConfig` (a new team's `config.json` from `newTeamConfig()`; never overwrites), and the `SetupManifest` that `--uninstall` replays.
 - `doctor.ts` — Gathers facts and `evaluate()`s them (pure) into a checklist: Pi (vs `TESTED_PI_VERSION`), tmux, Pi settings, extension registration and version, permission system, team dir, project trust, daemon, leader, spawning path, service, GitHub token. Only failures set the exit code.
 - `pi-config.ts` — Reads Pi's `settings.json`/`trust.json` (under `PI_CODING_AGENT_DIR`, default `~/.pi/agent`); resolves local package entries to absolute paths before comparing; classifies registrations as `managed` / `dev` / `legacy` / `missing`.
 - `extension.ts` — Locates the embedded extension (`MPT_PI_EXTENSION` override → checkout → alongside the binary) and writes it to `~/.my-pizza-team/pi-extension/` (`MPT_HOME` overrides `~`), staged and swapped so an interrupted write can't leave a half-populated directory. Only `package.json` and `src/` are embedded.
@@ -149,7 +150,7 @@ The experimental ACP supervisor (DESIGN.md "Harness Tiers, and Why Not MCP"). De
 
 ### shared/
 
-- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, `normalizeDirectory` (`~` expansion, trailing-slash strip, symlink resolution via `realPathSync` with string fallback), `slugify`, `generateTeammateName`.
+- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, the feature toggles (`FeaturesConfig`, `FEATURE_NAMES`, `resolveFeatures` — absent ⇒ on, `NEW_TEAM_FEATURES`, `newTeamConfig`), `normalizeDirectory` (`~` expansion, trailing-slash strip, symlink resolution via `realPathSync` with string fallback), `slugify`, `generateTeammateName`.
 - `protocol.ts` — Request/response contracts for the HTTP API, and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION`.
 - `frontmatter.ts` — The small YAML-like frontmatter parser/serializer used by markdown files.
 
@@ -374,6 +375,42 @@ note (adjusted during render — React's "adjusting state when a prop changes" �
 the notes load asynchronously). Config's General tab holds the sweep settings and the
 `triage.md` editor (saved on its own, like a workflow persona).
 
+## Feature toggles
+
+`config.features` (`{ stories?, tasks?, schedules? }`) switches whole work-item kinds
+off (DESIGN.md "Feature Toggles"). `resolveFeatures` applies the defaults: a missing
+block or flag is **on**, so teams that predate the toggles are unchanged and nothing
+is migrated. `DEFAULT_CONFIG` has no `features` (it is merged *under* every existing
+config); `mpt setup` writes `newTeamConfig()` — `features: { tasks: true, stories:
+false, schedules: false }` — when it creates a team dir. A team dir with no
+`config.json` (e.g. one `mpt start` created) counts as existing: all on.
+
+**Gating** is one module, `daemon/features.ts`, installed before the route modules:
+
+| Feature | Gated routes |
+|---|---|
+| `stories` | `/api/stories*` (incl. `/:storyId/tasks*`), `/api/tasks/*`, `/api/backlog*`, `/api/archived`; `/api/work-defs/:id` (+ `archive`/`restore`/`publish`/`enqueue`) for a Board WorkDef; accepting a `story`/`story-task` proposal |
+| `tasks` | `/api/templates*`; `POST /api/work-defs` (not Scheduled); `/api/work-defs/:id…` for a Solitary WorkDef; accepting a `task` proposal |
+| `schedules` | `/api/schedules*`; `POST /api/work-defs` with `type: "Scheduled"`; `/api/work-defs/:id…` for a Scheduled WorkDef; accepting a `schedule` proposal |
+
+A refused request gets **403** `{ success: false, error: "feature '<name>' is
+disabled", feature }` — 403, not 404, so a client can tell "switched off" from "no
+such item". `GET /api/work-defs` omits the disabled kinds' WorkDefs. **Never gated:**
+`/api/work-items*` (Queue, Inbox, recovery), `/api/agents/*` (claim, comment,
+complete — so work already queued finishes), the WorkDef thread surface
+(`/api/work-defs/:id/comments|comment|attachments|token-usage`), triage WorkDefs,
+Thoughts, Context, and the timers (the scheduler, admission). The gates read the live
+config per request, so a `PUT /api/config` applies without a restart.
+
+**Turning a kind off** through `PUT /api/config` is refused with **409** while it has
+active items (`activeFeatureItems`): stories in `stories/` or `backlog/`; active
+Solitary WorkDefs plus every Template; active Scheduled WorkDefs. Drafts count;
+archived WorkDefs and stories don't. The message names the count ("Can't turn off
+stories: archive or delete 3 stories first"). An already-off kind staying off, and
+turning a kind on, are never refused. An object is a partial update stored in full;
+`null` removes the block (all on). The resolved toggles are on `GET /api/status` and
+`GET /api/config` as `features`.
+
 ## Scheduler readiness gating
 
 `runScheduler` (every 30s) enqueues each due Schedule's active child WorkDefs, deduped
@@ -385,21 +422,22 @@ Rationale: DESIGN.md "Readiness Gating".
 
 ## API Routes
 
-When a token is configured, every path except `/health` requires it.
+When a token is configured, every path except `/health` requires it. A route of a
+switched-off kind answers 403 (see "Feature toggles").
 
 ### System
 
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | `status`, `uptime`, `agents` (online), `queueDepth`, `memory`, `lastCommitTime`, `tmuxSession`, `leaderPresent`, `notReady` (readiness when not ready, else null), `spawning` (spawn capability) |
-| GET | `/api/status` | Story/task/member counts, `paused`, `queuedCount` (READY WorkItems), `unreadInboxCount` (unread COMPLETE/FAILED), `defaultWorkflow`, `workflows` |
+| GET | `/api/status` | Story/task/member counts, `paused`, `queuedCount` (READY WorkItems), `unreadInboxCount` (unread COMPLETE/FAILED), `defaultWorkflow`, `workflows`, `features` (resolved toggles) |
 | POST | `/api/control/pause` \| `/api/control/resume` | Pause/resume distribution (next-work returns null while paused) |
-| GET | `/api/config` | Config + loaded `workflows` + `defaultNouns` |
+| GET | `/api/config` | Config + loaded `workflows` + `defaultNouns`; `features` is the resolved toggles |
 | GET | `/api/directories` | `{ favorites, recent }` — favorites in the user's order; recent = online teammates' dirs, then recent WorkItem dirs, then story dirs (normalized, deduped, favorites excluded, max 20) |
 | POST | `/api/directories/favorites` | `{ directory }` — append a favorite (normalized; no-op if present); 400 if empty |
 | PUT | `/api/directories/favorites` | `{ directories }` — replace/reorder the list; 400 unless an array of non-empty strings |
 | DELETE | `/api/directories/favorites?directory=` | Remove one (matched after normalization); 404 if not a favorite |
-| PUT | `/api/config` | Update config (ignores `favoriteDirectories` — edited only via `/api/directories/favorites`, so a stale Config draft can't undo a star); requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), applied live; reconciles the pool |
+| PUT | `/api/config` | Update config (ignores `favoriteDirectories` — edited only via `/api/directories/favorites`, so a stale Config draft can't undo a star); requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), `features` (partial object of booleans, `null` = all on; 400 for an unknown key or non-boolean, **409** when switching off a kind that still has active items — see "Feature toggles"), applied live; reconciles the pool |
 | GET | `/api/teammate-pool` | `{ minTeammates (effective), isDefault, maxTeammates, online, pending, leaderPresent }` |
 | PUT | `/api/teammate-pool` | `{ minTeammates }` (non-negative integer, clamped to max; `null` = default) — persists and reconciles |
 | GET | `/api/readiness` | `{ readiness }` (null if never reported) |

@@ -3,12 +3,14 @@
  *
  * These routes are used by all consumers: the web UI, leader tools,
  * and agents. Provides system-level endpoints for monitoring, config
- * management, and workflow definitions.
+ * management, and workflow definitions. `PUT /api/config` also takes the
+ * feature toggles (validated by daemon/features.ts).
  */
 
 import type { RouteContext } from "./types.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
-import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness } from "../../shared/types.ts";
+import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness, resolveFeatures } from "../../shared/types.ts";
+import { resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
@@ -92,6 +94,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       defaultWorkflow: config.defaultWorkflow,
       workflows: store.getWorkflows(),
       workflow: store.getWorkflows()[config.defaultWorkflow],
+      // Which work-item kinds are on (defaults applied), so the nav, CLI and the
+      // Pi tools can hide what the team has switched off.
+      features: resolveFeatures(config),
     });
   });
 
@@ -103,7 +108,10 @@ export function registerSharedRoutes(ctx: RouteContext): void {
 
   // ─── Config ────────────────────────────────────────────────────────
 
-  app.get("/api/config", (c) => c.json({ ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS }));
+  // `features` is the resolved view (absent ⇒ all on), not the raw block.
+  app.get("/api/config", (c) => c.json({
+    ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS, features: resolveFeatures(config),
+  }));
 
   app.put("/api/config", async (c) => {
     try {
@@ -121,6 +129,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
         return c.json({ success: false, error: "exclusiveDirectories must be a boolean" }, 400);
       }
+      // Feature toggles: validated (and the turn-off guard checked) up front too.
+      const featureSettings = resolveFeaturesUpdate(config, body, store);
+      if ("error" in featureSettings) return c.json({ success: false, error: featureSettings.error }, featureSettings.status);
 
       config.port = body.port || config.port;
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
@@ -184,6 +195,10 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // Experimental harnesses + default harness (Config → Teammates). Live: the
       // spawner, the directive/register gates and the Spawn dialog all read this
       // in-memory config, so no restart is needed.
+      // Feature toggles. Live: the gates in daemon/features.ts read this config
+      // on every request.
+      if (featureSettings.features) config.features = featureSettings.features;
+      else delete config.features;
       config.experimental = harnessSettings.experimental;
       if (harnessSettings.defaultHarness) config.defaultHarness = harnessSettings.defaultHarness;
       else delete config.defaultHarness;

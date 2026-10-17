@@ -89,6 +89,57 @@ export interface TeamConfig {
    * reads a half-written thought.
    */
   triage?: TriageConfig;
+  /**
+   * Which work-item kinds this team uses (docs/DESIGN.md "Feature Toggles").
+   * Absent — every team that predates the toggles — means everything on; a new
+   * team (`mpt setup`) starts with `NEW_TEAM_FEATURES`. Read it through
+   * `resolveFeatures`, never directly.
+   */
+  features?: FeaturesConfig;
+}
+
+/**
+ * The work-item kinds a team can switch off. `tasks` covers Solitary tasks and
+ * Task Templates; `stories` covers stories and their board tasks; `schedules`
+ * covers Scheduled WorkDefs and their Schedules. Thoughts, Context, and the
+ * Inbox are always on. A missing flag means on.
+ */
+export interface FeaturesConfig {
+  stories?: boolean;
+  tasks?: boolean;
+  schedules?: boolean;
+}
+
+/** One switchable work-item kind (a key of `FeaturesConfig`). */
+export type FeatureName = keyof FeaturesConfig;
+
+/** Every switchable kind, in display order. */
+export const FEATURE_NAMES: readonly FeatureName[] = ["stories", "tasks", "schedules"];
+
+/** What `mpt setup` writes for a brand-new team: Tasks only. */
+export const NEW_TEAM_FEATURES: Required<FeaturesConfig> = { tasks: true, stories: false, schedules: false };
+
+/**
+ * Feature toggles with defaults applied: a missing `features` block (an existing
+ * team) or a missing flag is on, so no team loses a kind it was already using.
+ */
+export function resolveFeatures(config: Pick<TeamConfig, "features">): Required<FeaturesConfig> {
+  const f = config.features ?? {};
+  return {
+    stories: f.stories !== false,
+    tasks: f.tasks !== false,
+    schedules: f.schedules !== false,
+  };
+}
+
+/**
+ * The config a brand-new team starts with: `DEFAULT_CONFIG` plus explicit
+ * `NEW_TEAM_FEATURES`. Kept separate from `DEFAULT_CONFIG` because that one is
+ * merged *under* existing configs, where a `features` block would switch kinds
+ * off for teams already using them.
+ */
+export function newTeamConfig(): TeamConfig {
+  return { ...structuredClone(DEFAULT_CONFIG), features: { ...NEW_TEAM_FEATURES } };
 }
 
 export interface TriageConfig {
@@ -605,6 +656,9 @@ export const DEFAULT_CONFIG: TeamConfig = {
   // Auto-triage is on by default; every non-archived, non-empty note is eligible
   // (TODO.md "Auto Triage" Decisions 1–2).
   triage: { enabled: true, intervalMinutes: 60, quietMinutes: 10 },
+  // `features` is deliberately absent: this is merged under existing configs,
+  // and absent means "everything on" (resolveFeatures). New teams get theirs
+  // from newTeamConfig().
 };
 
 // ─── Shared constants ────────────────────────────────────────────────

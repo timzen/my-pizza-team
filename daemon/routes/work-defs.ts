@@ -15,6 +15,10 @@
  * Every view carries `executionCount` / `lastRunAt`, derived from the WorkItem
  * table (CANCELED excluded) — docs/DESIGN.md "Execution Count: Derived, not Counted".
  *
+ * **Feature toggles.** daemon/features.ts gates these routes by the WorkDef's
+ * kind (403 when its feature is off) and the list hides those kinds; the thread
+ * surface (comments, attachments, token usage) is never gated.
+ *
  * **A triage WorkDef is not editable here.** It's an empty container owned by its
  * note (TODO.md "Auto Triage"): its content comes from `triage.md` plus the note,
  * its lifecycle follows the note, and a run is started with
@@ -29,6 +33,7 @@ import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkD
 import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
+import { isWorkDefVisible } from "../features.ts";
 
 /**
  * The API shape of a WorkDef. `stats` is passed in by the list route, which
@@ -75,7 +80,9 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     // Default to active-only (unlike thoughts which default to all)
     const filter = status === "archived" ? "archived" : status === "all" ? undefined : "active";
     const stats = store.getExecutionStats();
-    return c.json({ workDefs: store.getWorkDefs(filter).map((d) => view(d, store, stats)) } satisfies WorkDefsResponse);
+    // A switched-off kind's WorkDefs are hidden (daemon/features.ts gates the rest).
+    const defs = store.getWorkDefs(filter).filter((d) => isWorkDefVisible(ctx.config, d));
+    return c.json({ workDefs: defs.map((d) => view(d, store, stats)) } satisfies WorkDefsResponse);
   });
 
   app.get("/api/work-defs/:id", (c) => {

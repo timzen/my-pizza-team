@@ -70,6 +70,11 @@ versions), creates the team directory `.my-pizza-team/`, and marks the folder tr
 by Pi. It prints every change before making it, and `mpt setup --uninstall` undoes
 them.
 
+A new team starts with **Tasks** only: Stories and Schedules are switched off until
+you turn them on with `"features"` in `.my-pizza-team/config.json` (see
+[Feature toggles](README.md#feature-toggles)). A team directory that already existed
+keeps everything on.
+
 ## 4. Start the daemon
 
 ```bash
@@ -108,8 +113,8 @@ something seems off.
   teammates online, starting them in tmux windows you can watch with
   `tmux attach -t my-pizza-team`. The person-plus icon adds a one-off teammate in a specific
   directory — teammates prefer work in their own directory.
-- **Create a story** — **New Story** on the home page (pick a workflow), then add
-  tasks to it.
+- **Create a story** — turn Stories on (`"features": { "stories": true }`), then
+  **New Story** on the home page (pick a workflow), and add tasks to it.
 - **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for
   cron-driven ones.
 - **Review results** — completed work lands in the **Inbox** on the home page.

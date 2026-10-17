@@ -151,6 +151,12 @@ most of it is editable on the **Config** page. Minimal:
   // One teammate per directory (default true): overlapping work waits its turn.
   "exclusiveDirectories": true,
 
+  // ─── Feature toggles ───────────────────────────────────────────
+  // Which work-item kinds the team uses. Omitted = all on (existing teams);
+  // `mpt setup` writes { tasks: true, stories: false, schedules: false } for a
+  // new team. See "Feature toggles" below.
+  "features": { "stories": true, "tasks": true, "schedules": true },
+
   // ─── Experimental ──────────────────────────────────────────────
   "experimental": { "harnesses": true }, // allow Kiro / Claude Code teammates (mpt agent); also Config → Teammates
 
@@ -163,6 +169,28 @@ most of it is editable on the **Config** page. Minimal:
   }
 }
 ```
+
+### Feature toggles
+
+`features` switches whole work-item kinds on or off: **`stories`** (stories and their
+board tasks, backlog, archive), **`tasks`** (Solitary tasks *and* Task Templates), and
+**`schedules`** (Scheduled tasks and their cron). Thoughts, Context, the Queue and the
+Inbox are always on, so every kind can be off at once.
+
+- **Defaults.** No `features` key — every team that predates the toggles — means
+  everything on; a missing flag means that one is on. `mpt setup` gives a brand-new
+  team `{ "tasks": true, "stories": false, "schedules": false }`.
+- **Off means refused.** The daemon answers that kind's API routes with **403**
+  `{ "success": false, "error": "feature 'stories' is disabled", "feature": "stories" }`,
+  hides its WorkDefs from `GET /api/work-defs`, and refuses to accept a triage
+  proposal of that kind. Work already queued or in flight still runs, completes,
+  and lands in the Inbox, and every WorkDef's thread (comments, attachments) stays
+  readable.
+- **Turning one off needs it empty.** `PUT /api/config` refuses (409) to switch a
+  kind off while it has active items — e.g. "Can't turn off stories: archive or
+  delete 3 stories first". Backlogged stories and drafts count; archived items
+  don't. Turning a kind on is always allowed.
+- `GET /api/status` and `GET /api/config` report the resolved toggles as `features`.
 
 ### Environment Variables
 
