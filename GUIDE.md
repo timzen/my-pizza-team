@@ -20,6 +20,14 @@ Everything a teammate does is defined by a **WorkDef**: a small authored documen
 - **Solitary** — a standalone one-shot you run on demand (the **Tasks** page).
 - **Scheduled** — driven by a cron **Schedule** (the **Schedule** page).
 
+### Drafts — write first, publish when it's right
+
+Any WorkDef can start as a **draft**: **Save as draft** on the create forms (**Save tasks as drafts** on New Story), or ask the assistant to write tasks up "as drafts" for you to review. A draft carries an amber **Draft** badge and **never runs** — no Run, no cron, and on the board it **holds its place**: the story waits at that task (later tasks don't jump ahead) until you publish it.
+
+While it's a draft, you and the assistant can both revise it: open it and press **Edit** (Save draft / Cancel). When it's right, press **Publish**. Publishing is one-way and **locks the definition**: a Solitary task is enqueued straight away, a board task is picked up when its story reaches it, and a scheduled job fires on its next cron time. To change published work, do what you always do — add a comment on its **Thread** and **Run** it again (for a board task, move it back into an agent state); the comments go into the next attempt's prompt. A scheduled job's **cron** stays editable after publishing — it belongs to the schedule, not the definition.
+
+Everything created before drafts existed counts as published.
+
 ### Stories
 
 A story groups related board tasks and gives them order + a workflow. Each story has an **ID**, **Title**, **Description**, a **Workflow**, an optional **Directory** (where the work happens), **Dependencies** (other stories that must finish first), and an ordered list of its tasks with each task's current status.
@@ -103,7 +111,7 @@ The board is for glancing and light triage; editing happens on the task page.
 
 - **Add a task** — the `+` on a story swimlane
 - **Move a task** — drag its card to another column (that's how you send to review, approve, or send back for rework)
-- **Open a task** — the `details →` link opens the task page (edit title/description/context, move, delete, read comments, upload/review files)
+- **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Publish** it while it's a [draft](#drafts--write-first-publish-when-its-right) — move, delete, read comments, upload/review files)
 - **Edit a story** — click the story title to open its page (title, description, directory, context, paused)
 
 A card shows its title/ID, assignee, cost (if tracked), and a small chip when it has an active WorkItem: **queued** (READY), **working** (IN_PROGRESS), or **at risk** (MORIBUND).
@@ -114,10 +122,10 @@ A card shows its title/ID, assignee, cost (if tracked), and a small chip when it
 
 Not all work belongs on the board. Two pages manage standalone WorkDefs:
 
-- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies").
+- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies"). Drafts show **Publish** instead of Run; the **All / Drafts / Published** buttons filter the list.
 - **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately.
 
-A failed run leaves the WorkDef in place — read its Thread, adjust it if needed, and **Run** it again.
+A failed run leaves the WorkDef in place — read its Thread, add a comment with what to change, and **Run** it again (a published definition is locked; see [Drafts](#drafts--write-first-publish-when-its-right)).
 
 ### Templates
 

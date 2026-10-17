@@ -11,7 +11,7 @@
  * except on an explicit human/agent edit. All mutable runtime state lives off
  * the markdown: workflow status on the Story, cron/lastEnqueuedAt on the
  * Schedule, the note version last triaged on the Thought. Frontmatter carries only structural metadata (title, parent,
- * directory, contextRefs); the body carries Goal / Acceptance Criteria /
+ * directory, contextRefs, `draft: true` while a draft); the body carries Goal / Acceptance Criteria /
  * Additional Context, round-tripped by those exact headers.
  */
 
@@ -44,6 +44,8 @@ export function serializeWorkDef(def: WorkDef): string {
   if (def.directory) fm.push(`directory: ${quote(def.directory)}`);
   if (def.contextRefs && def.contextRefs.length > 0) fm.push(`contextRefs: [${def.contextRefs.join(", ")}]`);
   if (def.status === "archived") fm.push(`status: archived`);
+  // Only a draft is marked; absence means published (the default for old files).
+  if (def.draft) fm.push(`draft: true`);
   // Where an accepted triage proposal turned into this work (structural, not authored).
   if (def.origin) {
     fm.push(`originThought: ${quote(def.origin.thought)}`);
@@ -74,6 +76,7 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
   };
   const additional = section(body, CONTEXT_H, null);
   if (additional) def.additionalContext = additional;
+  if (scalar(fm, "draft") === "true") def.draft = true;
   const parent = parseParent(fm);
   if (parent) def.parent = parent;
   const dir = scalar(fm, "directory");
@@ -125,6 +128,7 @@ export function getWorkDef(teamDir: string, id: string): WorkDef | null {
 export function saveWorkDef(teamDir: string, input: {
   id?: string; title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
   additionalContext?: string; contextRefs?: string[]; directory?: string; origin?: WorkDefOrigin;
+  draft?: boolean;
 }): WorkDef {
   let id = input.id;
   if (!id) {
@@ -145,6 +149,7 @@ export function saveWorkDef(teamDir: string, input: {
   if (input.contextRefs && input.contextRefs.length > 0) def.contextRefs = input.contextRefs;
   if (input.directory) def.directory = input.directory;
   if (input.origin) def.origin = input.origin;
+  if (input.draft) def.draft = true;
 
   writeWorkDef(teamDir, def);
   return def;
@@ -154,6 +159,8 @@ export function updateWorkDef(teamDir: string, id: string, updates: {
   title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
   additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
   status?: "active" | "archived"; origin?: WorkDefOrigin;
+  /** `false` publishes a draft (see WorkDef.draft); drafts are only created, never re-entered. */
+  draft?: boolean;
 }): WorkDef | null {
   const def = getWorkDef(teamDir, id);
   if (!def) return null;
@@ -166,6 +173,7 @@ export function updateWorkDef(teamDir: string, id: string, updates: {
   if (updates.directory !== undefined) def.directory = updates.directory || undefined;
   if (updates.status !== undefined) def.status = updates.status;
   if (updates.origin !== undefined) def.origin = updates.origin;
+  if (updates.draft !== undefined) def.draft = updates.draft || undefined;
   writeWorkDef(teamDir, def);
   return def;
 }

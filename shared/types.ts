@@ -222,6 +222,14 @@ export interface WorkDef {
   /** Lifecycle status: active (default) or archived. */
   status?: "active" | "archived";
   /**
+   * Draft: still being written (docs/DESIGN.md "Drafts: Write, Review, Publish").
+   * While true the definition is editable and the daemon never creates a WorkItem
+   * for it — not on Run, not on cron, not on board admission. Publishing clears it
+   * (one-way), which locks the definition and lets its parent enqueue it. Absent =
+   * published, so every WorkDef written before drafts existed is published.
+   */
+  draft?: boolean;
+  /**
    * Where this WorkDef came from, when it wasn't authored directly: the note and
    * proposal whose acceptance created it (docs/DESIGN.md "Auto Triage"). Structural
    * metadata, so it belongs in frontmatter; it makes the link note → work

@@ -37,6 +37,7 @@ interface StoryView {
     seq: number;
     title: string;
     status: string;
+    draft?: boolean;
     workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
     description?: string;
     assignee: string | null;

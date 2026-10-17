@@ -5,8 +5,11 @@
  * into two tabs below the title: **Details** (goal, acceptance criteria,
  * context, directory) and **Thread** (the run thread — comments, including the
  * completion summaries agents post after each run, newest first). Details is
- * the default; the Inbox deep-links to `?tab=thread`. Editing saves via PUT;
- * "Run now" enqueues a fresh WorkItem. Comments live on the ref, not on any
+ * the default; the Inbox deep-links to `?tab=thread`. The definition section is
+ * `WorkDefDefinition`: a **draft** can be edited and published; a published one
+ * is locked (revise it with a comment and Run — docs/DESIGN.md "Drafts: Write,
+ * Review, Publish"). A Scheduled job's cron lives on its Schedule, so it stays
+ * editable either way. "Run now" enqueues a fresh WorkItem (not for a draft). Comments live on the ref, not on any
  * individual WorkItem (see docs/DESIGN.md "Comments"). Thread attachments are
  * clickable (open the diff/file viewer with line-level review) and the composer
  * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
@@ -22,11 +25,8 @@ import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { MarkdownField } from "@/components/ui/markdown-field";
-import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { DirectoryInput } from "@/components/ui/directory-input";
-import { ContextSelector } from "@/components/board/ContextSelector";
+import { WorkDefDefinition, DraftBadge } from "@/components/WorkDefDefinition";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { FileViewer } from "@/components/viewer/FileViewer";
 import { Save, Trash2, Play, CalendarClock, Zap, Upload } from "lucide-react";
@@ -43,6 +43,7 @@ interface WorkDef {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string | null;
+  draft?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
@@ -73,12 +74,6 @@ export function WorkDefDetailPage() {
   const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
   const { data: schedData } = useApi<{ schedule?: Schedule }>(scheduleId ? `/api/schedules/${scheduleId}` : "/api/schedules?none", [scheduleId]);
 
-  const [title, setTitle] = useState("");
-  const [goal, setGoal] = useState("");
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
-  const [additionalContext, setAdditionalContext] = useState("");
-  const [directory, setDirectory] = useState("");
-  const [contextRefs, setContextRefs] = useState<string[]>([]);
   const [cron, setCron] = useState("");
   const [error, setError] = useState("");
   const [newComment, setNewComment] = useState("");
@@ -86,19 +81,6 @@ export function WorkDefDetailPage() {
   const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  // Seed edit fields once the def loads (React's derive-state-in-render pattern).
-  const [seededId, setSeededId] = useState<string | null>(null);
-  if (def && def.id !== seededId) {
-    setSeededId(def.id);
-    setTitle(def.title);
-    setGoal(def.goal);
-    setAcceptanceCriteria(def.acceptanceCriteria || "");
-    setAdditionalContext(def.additionalContext || "");
-    setDirectory(def.directory || "");
-    setContextRefs(def.contextRefs ? [...def.contextRefs] : []);
-    setError("");
-  }
 
   // Seed cron once its parent Schedule loads.
   const [seededCron, setSeededCron] = useState<string | null>(null);
@@ -119,21 +101,19 @@ export function WorkDefDetailPage() {
   // (the same section the NavBar highlights for it).
   const backTo = workDefHomePath(def.type);
 
-  const handleSave = async () => {
+  // The cron is the parent Schedule's, not the definition's, so a cron-only PUT
+  // is accepted even after publishing.
+  const saveCron = async () => {
     setError("");
-    const body: Record<string, unknown> = {
-      title, goal, acceptanceCriteria, additionalContext,
-      directory: directory.trim() || null,
-      contextRefs,
-    };
-    if (def.type === "Scheduled") body.cron = cron.trim();
-    const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}`, body);
+    const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}`, { cron: cron.trim() });
     if (res.success) refetch();
-    else setError(res.error || "Failed to save");
+    else setError(res.error || "Failed to save schedule");
   };
 
   const run = async () => {
-    await apiPost(`/api/work-defs/${def.id}/enqueue`, {});
+    setError("");
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}/enqueue`, {});
+    if (!res.success) setError(res.error || "Failed to run");
     refetch();
   };
 
@@ -199,6 +179,7 @@ export function WorkDefDetailPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
+        {def.draft && <DraftBadge />}
         <Badge variant="outline" className="flex items-center gap-1">
           {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
         </Badge>
@@ -207,28 +188,25 @@ export function WorkDefDetailPage() {
             ${def.tokenUsage.totalCostUsd.toFixed(3)}
           </Badge>
         )}
-        <Button variant="outline" size="sm" onClick={run}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+        <Button variant="outline" size="sm" onClick={run} disabled={def.draft} title={def.draft ? "Publish the draft before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
       </div>
 
       <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />
 
       {tab === "details" && (
       <div className="space-y-4">
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
-        <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
-        <div>
-          <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
-          <div className="mt-1">
-            <AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} />
-          </div>
-        </div>
-        <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
+        <WorkDefDefinition
+          def={def}
+          onChanged={refetch}
+          actions={<Button variant="destructive" onClick={remove}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>}
+        />
         {def.type === "Scheduled" && (
           <div>
             <div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div>
-            <Input className="font-mono mt-1" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
+            <div className="flex gap-2 mt-1">
+              <Input className="font-mono" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
+              <Button variant="outline" onClick={saveCron}><Save className="h-4 w-4 mr-1" />Save schedule</Button>
+            </div>
             <p className="text-[11px] text-muted-foreground mt-1">
               Five fields: <span className="font-mono">minute hour day-of-month month day-of-week</span> (use <span className="font-mono">*</span> for any). E.g. <span className="font-mono">0 9 * * *</span> = 9:00 every day; <span className="font-mono">*/15 * * * *</span> = every 15 min; <span className="font-mono">0 2 * * 1</span> = 02:00 every Monday.
             </p>
@@ -236,10 +214,6 @@ export function WorkDefDetailPage() {
         )}
 
         {error && <p className="text-sm text-destructive">{error}</p>}
-        <div className="flex gap-2">
-          <Button onClick={handleSave}><Save className="h-4 w-4 mr-1" />Save</Button>
-          <Button variant="destructive" onClick={remove}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
-        </div>
       </div>
       )}
 

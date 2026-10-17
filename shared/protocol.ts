@@ -89,6 +89,8 @@ export interface TaskView {
   seq: number;
   title: string;
   status: string;
+  /** A draft task: holds its place in the story, gets no WorkItem until published. */
+  draft?: boolean;
   /** Active WorkItem state for this task, if any (drives the board chip). */
   workItemState?: string | null;
   description?: string;
@@ -105,12 +107,13 @@ export interface PostCommentResponse { success: boolean }
 export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/stories
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[] }> }
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[]; draft?: boolean }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // POST /api/stories/:storyId/tasks
-export interface CreateTaskRequest { title: string; description: string; context?: string[] }
-export interface CreateTaskResponse { success: boolean; task?: { id: string; seq: number; title: string; description: string; status: string }; error?: string }
+/** `draft` creates it as a draft that holds its place in the story until published. */
+export interface CreateTaskRequest { title: string; description: string; context?: string[]; draft?: boolean }
+export interface CreateTaskResponse { success: boolean; task?: { id: string; seq: number; title: string; description: string; status: string; draft?: boolean }; error?: string }
 
 // PUT /api/tasks/:id
 
@@ -357,6 +360,8 @@ export interface WorkDefView {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string;
+  /** Still a draft: editable, never enqueued until published (docs/DESIGN.md "Drafts"). */
+  draft: boolean;
   /** Aggregate token usage/cost across this def's runs (recorded on the ref). */
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
@@ -373,8 +378,10 @@ export interface SaveWorkDefRequest {
   directory?: string;
   /** Required when type === "Scheduled": the cron for the created Schedule. */
   cron?: string;
-  /** When true (default) for Solitary, also enqueue a WorkItem immediately. */
+  /** When true (default) for Solitary, also enqueue a WorkItem immediately. Ignored for a draft. */
   enqueue?: boolean;
+  /** Save as a draft: editable, never enqueued until `POST /api/work-defs/:id/publish`. */
+  draft?: boolean;
 }
 export interface UpdateWorkDefRequest {
   title?: string;
@@ -387,6 +394,12 @@ export interface UpdateWorkDefRequest {
   cron?: string | null;
 }
 export interface SaveWorkDefResponse { success: boolean; workDef?: WorkDefView; error?: string }
+// POST /api/work-defs/:id/publish — end a draft (409 if it isn't one).
+export interface PublishWorkDefRequest {
+  /** Solitary only: enqueue on publish (default true). Board/Scheduled follow their parent. */
+  enqueue?: boolean;
+}
+export interface PublishWorkDefResponse { success: boolean; workDef?: WorkDefView; workItemId?: string | null; error?: string }
 
 // --- Task Templates (reusable molds for Solitary tasks; see docs/ARCHITECTURE.md) ---
 export interface TemplateView {

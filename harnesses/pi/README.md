@@ -123,7 +123,7 @@ Tools are registered per-role (all proxy to the daemon API):
 ### Leader Tools
 - **`create_story`** — Create a new story (id, title, description, directory?, skills?, paused?, workflow?, dependsOn?)
 - **`edit_story`** — Edit an existing story's fields
-- **`add_task`** — Add a task to a story
+- **`add_task`** — Add a task to a story (optionally as a `draft`)
 - **`team_status`** — Get current team status summary
 
 ### Teammate Tools
@@ -144,6 +144,10 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`add_task`** — Add tasks to stories
 - **`create_task`** — Create a standalone one-off task (Solitary WorkDef); enqueued, lands in the Inbox when done
 - **`create_schedule`** — Create a recurring scheduled job (Scheduled WorkDef on a cron)
+- All three take an optional **`draft: true`**: the work is saved for the user to review and nothing runs until it's published (a draft board task holds its place in the story). See my-pizza-team docs/DESIGN.md "Drafts: Write, Review, Publish".
+- **`get_task`** — Read any task/WorkDef by id, including whether it's a draft
+- **`edit_task`** — Revise a draft's definition (refused once published — revise published work with a comment + re-run)
+- **`publish_task`** — Publish a draft (only when the user asks; publishing locks the definition and lets it run)
 - **`queue_request`** — Delegate sub-requests
 - **`list_thought_groups`** / **`list_thoughts`** / **`get_thought`** — Read the user's Thoughts board (markdown sticky notes), optionally by group, so the assistant can turn captured ideas into work; read-only
 - **`create_thought`** / **`edit_thought`** / **`archive_thought`** / **`group_thoughts`** — Write to the board: capture a follow-up/summary note, annotate or append to a note, archive a note it has acted on, or organize notes into a group (closes the thoughts → tasks → inbox → new-thoughts loop)

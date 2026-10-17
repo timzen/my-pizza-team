@@ -8,7 +8,10 @@
  * creates a reusable mold instead of work — it posts to /api/templates and never
  * enqueues. A Solitary create may pre-fill from an existing template via
  * `?template=<id>`. Solitary work is enqueued immediately by default; Scheduled
- * work waits for its cron. On success, lands on the created item's detail page.
+ * work waits for its cron. **Save as draft** (WorkDefs only) saves it without
+ * letting anything run — no enqueue, no cron — until it's published from its
+ * detail page (docs/DESIGN.md "Drafts: Write, Review, Publish"). On success,
+ * lands on the created item's detail page.
  *
  * See the daemon's docs/DESIGN.md "The WorkItem" for the model.
  */
@@ -86,8 +89,11 @@ export function NewWorkDefPage() {
 
   const backTo = workDefHomePath(type);
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  // `draft` comes from which submit button was pressed (Create vs Save as draft).
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const draft = submitter?.value === "draft";
     setError("");
     if (!title.trim()) { setError("Title is required"); return; }
     if (type !== "Template" && !goal.trim()) { setError("Goal is required"); return; }
@@ -103,6 +109,7 @@ export function NewWorkDefPage() {
     };
     if (type === "Scheduled") body.cron = cron.trim();
     else if (type === "Solitary") body.enqueue = enqueueNow;
+    if (draft && type !== "Template") body.draft = true;
 
     setSaving(true);
     try {
@@ -168,7 +175,10 @@ export function NewWorkDefPage() {
 
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
-          <Button type="submit" disabled={saving}>{saving ? "Creating…" : `Create ${submitLabel}`}</Button>
+          <Button type="submit" value="create" disabled={saving}>{saving ? "Creating…" : `Create ${submitLabel}`}</Button>
+          {type !== "Template" && (
+            <Button type="submit" value="draft" variant="secondary" disabled={saving} title="Save it for review: nothing runs until you publish it">Save as draft</Button>
+          )}
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>

@@ -192,8 +192,23 @@ export interface CreateStoryResponse {
 /** Response from POST /api/stories/:storyId/tasks */
 export interface CreateTaskResponse {
   success: boolean;
-  task?: { id: string; seq: number; title: string };
+  task?: { id: string; seq: number; title: string; draft?: boolean };
   error?: string;
+}
+
+/** A WorkDef as GET/PUT /api/work-defs/:id returns it (the fields the tools use). */
+export interface WorkDefSummary {
+  id: string;
+  title: string;
+  type: "Solitary" | "Scheduled" | "Board" | "Triage";
+  parent?: { kind: string; id: string };
+  goal: string;
+  acceptanceCriteria: string;
+  additionalContext?: string;
+  contextRefs?: string[];
+  directory?: string;
+  /** Still a draft: editable, never dispatched until published. */
+  draft: boolean;
 }
 
 /** Response from POST /api/agents/work-items/:id/attachments */
@@ -740,12 +755,39 @@ export class DaemonClient {
    * Create a standalone WorkDef. Solitary by default (enqueued immediately so it
    * lands in the Inbox when done); pass `type: "Scheduled"` + `cron` to create a
    * recurring job instead. This is how the assistant turns thoughts into work.
+   * `draft: true` saves it for review instead: never enqueued until published.
    */
   async createWorkDef(body: {
     title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string;
     directory?: string; contextRefs?: string[]; type?: "Solitary" | "Scheduled"; cron?: string; enqueue?: boolean;
+    draft?: boolean;
   }): Promise<{ success: boolean; workDef?: { id: string; title: string }; error?: string }> {
     return this.post("/api/work-defs", body);
+  }
+
+  /** Read any WorkDef (board task, Solitary, Scheduled) by id, including its `draft` flag. */
+  async getWorkDef(id: string): Promise<{ workDef?: WorkDefSummary; success?: boolean; error?: string }> {
+    return this.get(`/api/work-defs/${encodeURIComponent(id)}`);
+  }
+
+  /**
+   * Edit a WorkDef's definition. The daemon only accepts this while the WorkDef
+   * is a draft; once published it answers 409 (thrown as a DaemonError), since a
+   * published definition is locked — revise it with a comment and a re-run.
+   */
+  async updateWorkDef(id: string, updates: {
+    title?: string; goal?: string; acceptanceCriteria?: string; additionalContext?: string | null;
+    directory?: string | null; contextRefs?: string[] | null;
+  }): Promise<{ success: boolean; workDef?: WorkDefSummary; error?: string }> {
+    return this.put(`/api/work-defs/${encodeURIComponent(id)}`, updates);
+  }
+
+  /**
+   * Publish a draft WorkDef: locks its definition and lets the daemon enqueue it
+   * (Solitary now, a board task when its story admits it, Scheduled on its cron).
+   */
+  async publishWorkDef(id: string): Promise<{ success: boolean; workDef?: WorkDefSummary; workItemId?: string | null; error?: string }> {
+    return this.post(`/api/work-defs/${encodeURIComponent(id)}/publish`, {});
   }
 
   // ─── Thoughts: write (the assistant refines the board) ─────────────────
@@ -821,12 +863,13 @@ export class DaemonClient {
    *
    * Tasks are sequential within a story — the daemon assigns the next
    * sequence number automatically. `context` attaches context-library entry
-   * ids to this task (injected into its prompt).
+   * ids to this task (injected into its prompt). `draft` creates it as a draft:
+   * it holds its place in the story and gets no WorkItem until published.
    */
-  async createTask(storyId: string, title: string, description: string, context?: string[]): Promise<CreateTaskResponse> {
+  async createTask(storyId: string, title: string, description: string, context?: string[], draft?: boolean): Promise<CreateTaskResponse> {
     return this.post<CreateTaskResponse>(
       `/api/stories/${encodeURIComponent(storyId)}/tasks`,
-      { title, description, context }
+      { title, description, context, draft }
     );
   }
 

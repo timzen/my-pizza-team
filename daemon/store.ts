@@ -802,7 +802,7 @@ export class Store {
     description: string,
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
-    tasks?: Array<{ title: string; description: string; context?: string[] }>,
+    tasks?: Array<{ title: string; description: string; context?: string[]; draft?: boolean }>,
     workflow?: string,
     context?: string[],
     paused?: boolean,
@@ -834,6 +834,7 @@ export class Store {
           goal: taskDef.description,
           acceptanceCriteria: "",
           contextRefs: taskDef.context && taskDef.context.length > 0 ? taskDef.context : undefined,
+          draft: taskDef.draft,
         });
         storyData.tasks.push({ id: taskId, status: TODO_STATE });
         this.upsertTask(def, id, TODO_STATE, seq);
@@ -855,8 +856,12 @@ export class Store {
     return { story: storyData, tasks: createdTasks };
   }
 
-  /** Append a board task (a WorkDef parented to the story) in the `todo` bucket. */
-  addTask(storyId: string, input: { title: string; description: string; context?: string[] }): TaskWithMeta | null {
+  /**
+   * Append a board task (a WorkDef parented to the story) in the `todo` bucket.
+   * `draft` creates it as a draft, which holds its place in the story until it is
+   * published (docs/DESIGN.md "Drafts: Write, Review, Publish").
+   */
+  addTask(storyId: string, input: { title: string; description: string; context?: string[]; draft?: boolean }): TaskWithMeta | null {
     const story = this.getStory(storyId);
     if (!story) return null;
     const existing = this.getTasksForStory(storyId);
@@ -866,6 +871,7 @@ export class Store {
       id: taskId, title: input.title, parent: { kind: "story", id: storyId },
       goal: input.description, acceptanceCriteria: "",
       contextRefs: input.context && input.context.length > 0 ? input.context : undefined,
+      draft: input.draft,
     });
     const tasks = [...story.tasks, { id: taskId, status: TODO_STATE }];
     this.writeStory({ ...story, tasks });
@@ -1175,10 +1181,14 @@ export class Store {
    * The single WorkItem creator: enqueue a READY item for any WorkDef (board,
    * Solitary, or Scheduled). Board WorkDefs inherit their story's directory
    * when they don't set one. Caller ensures none is already active.
+   *
+   * A draft never gets a WorkItem: refusing here, at the one creator, is what
+   * guarantees no path (Run, cron, admission, reconcile, re-enqueue) dispatches
+   * one (docs/DESIGN.md "Drafts: Write, Review, Publish").
    */
   private enqueueFor(workDefId: string): WorkItem | null {
     const def = this.getWorkDef(workDefId);
-    if (!def) return null;
+    if (!def || def.draft) return null;
     let directory = def.directory;
     let title = def.title;
     if (!directory && def.parent?.kind === "story") {
@@ -1447,6 +1457,10 @@ export class Store {
 
     const candidate = tasks.find((t) => t.status === TODO_STATE && t.id !== excludeTaskId);
     if (!candidate) return;
+    // A draft holds its place: tasks are sequential, so admitting the one after
+    // it would run step N+1 before step N exists. The story waits until the
+    // draft is published (docs/DESIGN.md "Drafts: Write, Review, Publish").
+    if (this.isDraft(candidate.id)) return;
 
     // setTaskPosition creates the READY WorkItem when landing in an agent state.
     this.setTaskPosition(candidate.id, first);
@@ -2005,6 +2019,7 @@ export class Store {
     for (const def of listWorkDefs(this.teamDir)) {
       if (def.parent?.kind !== "schedule") continue;
       if (def.status === "archived") continue;
+      if (def.draft) continue; // a draft never fires (nor holds the schedule for readiness)
       const arr = childrenBySchedule.get(def.parent.id) || [];
       arr.push(def);
       childrenBySchedule.set(def.parent.id, arr);
@@ -3100,17 +3115,56 @@ export class Store {
     return getWorkDef(this.teamDir, id);
   }
 
-  /** Create a WorkDef; when `enqueue` (default), also enqueue a READY WorkItem. */
+  /**
+   * Create a WorkDef; when `enqueue` (default), also enqueue a READY WorkItem.
+   * A `draft` is never enqueued, whatever `enqueue` says.
+   */
   createWorkDef(input: {
     title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
     additionalContext?: string; contextRefs?: string[]; directory?: string; origin?: WorkDefOrigin;
+    draft?: boolean;
   }, enqueue = true): WorkDef {
     const def = saveWorkDef(this.teamDir, {
       ...input,
       directory: input.directory ? normalizeDirectory(input.directory) : undefined,
     });
-    if (enqueue) this.enqueueWorkDef(def.id);
+    if (enqueue && !def.draft) this.enqueueWorkDef(def.id);
     return def;
+  }
+
+  /** True when the WorkDef exists and is still a draft (editable, never dispatched). */
+  isDraft(id: string): boolean {
+    return getWorkDef(this.teamDir, id)?.draft === true;
+  }
+
+  /**
+   * Publish a draft: clear the flag (locking the definition) and hand it to its
+   * parent's normal enqueue rule (docs/DESIGN.md "Drafts: Write, Review, Publish"):
+   *   - Board: if the task already sits in an agent state it gets its WorkItem now;
+   *     otherwise admission runs, so a draft that was holding the story's next
+   *     slot is admitted.
+   *   - Solitary: enqueued, as creating it would have done, unless `enqueue` is false.
+   *   - Scheduled: nothing now; its next cron firing enqueues it.
+   * Returns null for an unknown id; `error` when it isn't a draft.
+   */
+  publishWorkDef(id: string, opts: { enqueue?: boolean } = {}): { def: WorkDef; workItem: WorkItem | null } | { error: string } | null {
+    const existing = getWorkDef(this.teamDir, id);
+    if (!existing) return null;
+    if (!existing.draft) return { error: `WorkDef "${id}" is already published` };
+    const def = updateWorkDef(this.teamDir, id, { draft: false })!;
+    let workItem: WorkItem | null = null;
+    if (def.parent?.kind === "story") {
+      const task = this.getTask(id);
+      if (task) {
+        const wf = this.getWorkflowForStory(task.storyId);
+        if (isAgentState(wf, task.status)) workItem = this.enqueueWorkDef(id);
+        else this.runAdmission(task.storyId);
+        workItem = workItem ?? this.getActiveWorkItemForTask(id);
+      }
+    } else if (!def.parent && opts.enqueue !== false && def.status !== "archived") {
+      workItem = this.enqueueWorkDef(id);
+    }
+    return { def, workItem };
   }
 
   updateWorkDefDetails(id: string, updates: {

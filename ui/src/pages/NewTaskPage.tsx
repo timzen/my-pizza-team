@@ -1,7 +1,10 @@
 /**
  * NewTaskPage — Full-page form for adding a task to a story
  * (/story/:id/tasks/new). Replaces the old AddTaskDialog modal. On success,
- * returns to wherever you came from (board or story page).
+ * returns to wherever you came from (board or story page). **Save as draft**
+ * creates it as a draft: it holds its place in the story (later tasks wait
+ * behind it) and gets no WorkItem until published from the task page
+ * (docs/DESIGN.md "Drafts: Write, Review, Publish").
  */
 
 import { useState } from "react";
@@ -22,10 +25,12 @@ export function NewTaskPage() {
   const [context, setContext] = useState<string[]>([]);
   const [error, setError] = useState("");
 
-  const handleSubmit = async (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     if (!storyId) return;
-    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, context: context.length > 0 ? context : undefined });
+    const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
+    const draft = submitter?.value === "draft";
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, context: context.length > 0 ? context : undefined, draft: draft || undefined });
     if (res.success) navigate(-1);
     else setError(res.error || "Failed to create task");
   };
@@ -43,7 +48,8 @@ export function NewTaskPage() {
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={context} onChange={setContext} /></div></div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
-          <Button type="submit">Add Task</Button>
+          <Button type="submit" value="add">Add Task</Button>
+          <Button type="submit" value="draft" variant="secondary" title="Hold its place in the story; nothing runs until you publish it">Save as draft</Button>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>

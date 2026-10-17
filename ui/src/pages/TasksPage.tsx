@@ -5,6 +5,9 @@
  * define it once, enqueue it (now or later), review the outcome in the Inbox.
  * Each row links to the WorkDef detail page and can be re-run on demand.
  * Polls /api/work-defs and filters to type=Solitary. Supports archive/restore.
+ * Drafts carry a **Draft** badge and a **Publish** button instead of Run, and
+ * the All / Drafts / Published filter (lib/drafts.ts) narrows the list
+ * (docs/DESIGN.md "Drafts: Write, Review, Publish").
  */
 
 import { Link } from "react-router-dom";
@@ -15,7 +18,9 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TasksTabs } from "@/components/TasksTabs";
 import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
-import { Plus, Play, Zap, FolderOpen, FileText, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
+import { DraftBadge } from "@/components/WorkDefDefinition";
+import { DRAFT_FILTERS, countDrafts, filterByDraft, type DraftFilter } from "@/lib/drafts";
+import { Plus, Play, Send, Zap, FolderOpen, FileText, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
 
 interface WorkDef {
   id: string;
@@ -23,19 +28,28 @@ interface WorkDef {
   type: "Solitary" | "Scheduled" | "Board";
   goal: string;
   directory?: string | null;
+  draft?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
 
 export function TasksPage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });
   const { data: archivedData, refetch: refetchArchived } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs?status=archived", [], { pollInterval: 30_000 });
-  const defs = (data?.workDefs || []).filter(d => d.type === "Solitary");
+  const allDefs = (data?.workDefs || []).filter(d => d.type === "Solitary");
+  const [draftFilter, setDraftFilter] = useState<DraftFilter>("all");
+  const defs = filterByDraft(allDefs, draftFilter);
+  const draftCount = countDrafts(allDefs);
   const archivedDefs = (archivedData?.workDefs || []).filter(d => d.type === "Solitary");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
 
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
+    refetch();
+  };
+
+  const publish = async (id: string) => {
+    await apiPost(`/api/work-defs/${encodeURIComponent(id)}/publish`, {});
     refetch();
   };
 
@@ -68,12 +82,21 @@ export function TasksPage() {
           <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
         </div>
       </div>
-      <p className="text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
+        <div className="flex items-center gap-1" role="group" aria-label="Filter by draft status">
+          {DRAFT_FILTERS.map(f => (
+            <Button key={f.value} size="sm" variant={draftFilter === f.value ? "default" : "outline"} onClick={() => setDraftFilter(f.value)}>
+              {f.label}{f.value === "drafts" && draftCount > 0 ? ` (${draftCount})` : ""}
+            </Button>
+          ))}
+        </div>
+      </div>
 
       {defs.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
           <Zap className="h-8 w-8" />
-          <p className="text-sm">No solitary tasks yet.</p>
+          <p className="text-sm">{draftFilter === "drafts" ? "No drafts." : draftFilter === "published" ? "No published tasks." : "No solitary tasks yet."}</p>
         </div>
       )}
 
@@ -84,6 +107,7 @@ export function TasksPage() {
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
+                  {def.draft && <DraftBadge className="text-[10px]" />}
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
@@ -93,7 +117,9 @@ export function TasksPage() {
                 </div>
               </Link>
               <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this task"><Archive className="h-3.5 w-3.5" /></Button>
-              <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>
+              {def.draft
+                ? <Button size="sm" onClick={() => publish(def.id)} title="Lock the definition and enqueue it"><Send className="h-3.5 w-3.5 mr-1" />Publish</Button>
+                : <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>}
             </CardContent>
           </Card>
         ))}

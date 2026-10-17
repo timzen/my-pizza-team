@@ -247,7 +247,7 @@ test("has read-only listWorkflows and listContext methods", () => {
 
 test("createStory and createTask accept a context array", () => {
   assert.ok(clientSrc.includes("context?: string[]"));
-  assert.ok(clientSrc.includes("createTask(storyId: string, title: string, description: string, context?: string[])"));
+  assert.ok(clientSrc.includes("createTask(storyId: string, title: string, description: string, context?: string[], draft?: boolean)"));
 });
 
 test("client does NOT expose context write/search methods", () => {

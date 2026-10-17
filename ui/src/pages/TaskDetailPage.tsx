@@ -10,6 +10,11 @@
  * and delete (which routes through the task endpoint so the story's task list +
  * CONWIP token are cleaned up).
  *
+ * The definition is `WorkDefDefinition`: a **draft** task can be edited and
+ * published (it holds its place in the story until then); a published one is
+ * locked — rework goes through the Thread and a move back into an agent state
+ * (docs/DESIGN.md "Drafts: Write, Review, Publish").
+ *
  * Comments live on the WorkDef's ref (same comments.jsonl the agents append
  * completion summaries to). Attachments remain clickable — opening the diff/
  * file viewer with line-level review.
@@ -17,19 +22,14 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { useApi, apiPost, apiPut, apiDelete } from "@/hooks/useApi";
+import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Label } from "@/components/ui/label";
-import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { MarkdownField } from "@/components/ui/markdown-field";
-import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { DirectoryInput } from "@/components/ui/directory-input";
-import { ContextSelector } from "@/components/board/ContextSelector";
+import { WorkDefDefinition, DraftBadge } from "@/components/WorkDefDefinition";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
-import { Save, Trash2, Upload } from "lucide-react";
+import { Trash2, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { FileViewer } from "@/components/viewer/FileViewer";
 
@@ -37,6 +37,7 @@ interface WorkDef {
   id: string;
   title: string;
   type: "Solitary" | "Scheduled" | "Board";
+  draft?: boolean;
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
@@ -105,27 +106,7 @@ export function TaskDetailPage() {
   const [tab, setTab] = useDetailTab();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  // --- Edit fields (WorkDef model) ---
-  const [title, setTitle] = useState("");
-  const [goal, setGoal] = useState("");
-  const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
-  const [additionalContext, setAdditionalContext] = useState("");
-  const [directory, setDirectory] = useState("");
-  const [contextRefs, setContextRefs] = useState<string[]>([]);
   const [editError, setEditError] = useState("");
-
-  // Seed edit fields once the WorkDef loads (derive-state-in-render pattern).
-  const [seededId, setSeededId] = useState<string | null>(null);
-  if (def && def.id !== seededId) {
-    setSeededId(def.id);
-    setTitle(def.title);
-    setGoal(def.goal);
-    setAcceptanceCriteria(def.acceptanceCriteria || "");
-    setAdditionalContext(def.additionalContext || "");
-    setDirectory(def.directory || "");
-    setContextRefs(def.contextRefs ? [...def.contextRefs] : []);
-    setEditError("");
-  }
 
   // Resolve workflow states/transitions for this task's story.
   const workflows = statusData?.workflows || {};
@@ -135,15 +116,7 @@ export function TaskDetailPage() {
   const transitions = workflows[wfName]?.transitions || {};
   const validTransitions = task ? Object.keys(transitions[task.status] || {}) : [];
 
-  const saveTask = async () => {
-    if (!taskId) return;
-    setEditError("");
-    const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${encodeURIComponent(taskId)}`, {
-      title, goal, acceptanceCriteria, additionalContext,
-      directory: directory.trim() || null,
-      contextRefs,
-    });
-    if (!res.success) { setEditError(res.error || "Failed to save"); return; }
+  const definitionChanged = () => {
     refetchDef();
     refetchStories();
   };
@@ -224,6 +197,7 @@ export function TaskDetailPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback="/board" title="Back to board" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
+        {def.draft && <DraftBadge />}
         <Badge variant="secondary">{task.status.replace(/_/g, " ")}</Badge>
       </div>
       <div className="flex items-center justify-between gap-2">
@@ -237,15 +211,11 @@ export function TaskDetailPage() {
 
       {tab === "details" && (
       <div className="space-y-4">
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
-        <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} />
-        <div>
-          <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
-          <div className="mt-1"><AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} /></div>
-        </div>
-        <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
+        <WorkDefDefinition
+          def={def}
+          onChanged={definitionChanged}
+          actions={<Button variant="destructive" onClick={deleteTask}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>}
+        />
 
         {/* Workflow moves */}
         {validTransitions.length > 0 && (
@@ -266,10 +236,6 @@ export function TaskDetailPage() {
         )}
 
         {editError && <p className="text-sm text-destructive">{editError}</p>}
-        <div className="flex gap-2">
-          <Button onClick={saveTask}><Save className="h-4 w-4 mr-1" />Save</Button>
-          <Button variant="destructive" onClick={deleteTask}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>
-        </div>
       </div>
       )}
 

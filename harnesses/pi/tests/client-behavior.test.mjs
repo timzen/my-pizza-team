@@ -247,3 +247,30 @@ test("usage is reported against the agent", async () => {
     assert.equal(calls[0].body.outputTokens, 20);
   });
 });
+
+test("drafts: create with draft, read, edit, and publish hit the WorkDef routes", async () => {
+  await withServer(null, async (url, calls) => {
+    const c = client(url);
+    await c.createTask("story/1", "T", "d", undefined, true);
+    await c.createWorkDef({ title: "W", goal: "g", draft: true });
+    await c.getWorkDef("wd 1");
+    await c.updateWorkDef("wd 1", { goal: "g2" });
+    await c.publishWorkDef("wd 1");
+    assert.deepStrictEqual(calls.map((x) => `${x.method} ${x.url}`), [
+      "POST /api/stories/story%2F1/tasks",
+      "POST /api/work-defs",
+      "GET /api/work-defs/wd%201",
+      "PUT /api/work-defs/wd%201",
+      "POST /api/work-defs/wd%201/publish",
+    ]);
+    assert.strictEqual(calls[0].body.draft, true);
+    assert.strictEqual(calls[1].body.draft, true);
+    assert.deepStrictEqual(calls[3].body, { goal: "g2" });
+  });
+});
+
+test("editing a published WorkDef surfaces the daemon's 409 as a DaemonError", async () => {
+  await withServer(() => ({ status: 409, json: { success: false, error: "This WorkDef is published, so its definition is locked." } }), async (url) => {
+    await assert.rejects(client(url).updateWorkDef("x", { goal: "g" }), (e) => e instanceof DaemonError && /locked/.test(e.message));
+  });
+});
