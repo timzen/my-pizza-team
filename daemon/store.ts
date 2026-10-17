@@ -1166,6 +1166,22 @@ export class Store {
     return { items: rows.map((r) => this.rowToWorkItem(r)), total };
   }
 
+  /**
+   * Count WorkItems matching state(s)/read without loading any rows — a single
+   * `COUNT(*)`, cheap enough for the toolbar badges that poll /api/status.
+   */
+  countWorkItems(opts?: { states?: WorkItemState[]; read?: boolean }): number {
+    const where: string[] = [];
+    const params: (string | number)[] = [];
+    if (opts?.states && opts.states.length > 0) {
+      where.push(`state IN (${opts.states.map(() => "?").join(",")})`);
+      params.push(...opts.states);
+    }
+    if (opts?.read !== undefined) { where.push("read = ?"); params.push(opts.read ? 1 : 0); }
+    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
+    return (this.db.prepare(`SELECT COUNT(*) AS n FROM work_items ${clause}`).get(...params) as { n: number }).n;
+  }
+
   /** The active (READY/IN_PROGRESS/MORIBUND) WorkItem for a WorkDef, if any. */
   getActiveWorkItemForTask(workDefId: string): WorkItem | null {
     const row = this.db.prepare(

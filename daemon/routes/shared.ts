@@ -84,6 +84,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       stories: { total: stories.length, open: stories.filter(s => s.status === "open").length, done: stories.filter(s => s.status === "done").length },
       tasks: { total: totalTasks, byStatus: allTasks },
       members: { total: members.length, working: members.filter(m => m.status === "working").length, idle: members.filter(m => m.status === "idle").length },
+      // Toolbar badges on the Pizza Team link (NavBar): WorkItems waiting to be
+      // picked up, and finished ones not yet reviewed in the Inbox. Plain
+      // COUNT(*)s so polling them costs nothing — the UI never fetches the lists.
+      queuedCount: store.countWorkItems({ states: ["READY"] }),
+      unreadInboxCount: store.countWorkItems({ states: ["COMPLETE", "FAILED"], read: false }),
       defaultWorkflow: config.defaultWorkflow,
       workflows: store.getWorkflows(),
       workflow: store.getWorkflows()[config.defaultWorkflow],

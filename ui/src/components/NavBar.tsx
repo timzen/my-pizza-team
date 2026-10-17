@@ -10,6 +10,12 @@
  * (App's center column is the `@container`): the wordmark hides when narrow,
  * and the links scroll horizontally rather than wrapping or shoving the icons
  * off-screen.
+ * The Pizza Team link (home: Queue | Inbox) carries two count badges from
+ * `/api/status` — queued WorkItems (`queuedCount`, neutral) and unread Inbox
+ * items (`unreadInboxCount`, accent) — each hidden at zero. They sit on the
+ * pizza icon, so they survive the wordmark hiding when the center is narrow.
+ * The status poll is shared with the pause toggle; an Inbox read/unread action
+ * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
  * Config is shown as a gear icon beside the theme toggle. Backlog/Archive/
  * Workflows are tabs within the Board surface (see BoardTabs), so the Board
  * link highlights for those routes (and story/task detail) too.
@@ -25,6 +31,14 @@ import { ThemeToggle } from "./ThemeToggle";
 import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn } from "lucide-react";
 import { apiPost, useApi } from "@/hooks/useApi";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
+import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
+
+/** The slice of `/api/status` the bar reads (shared/protocol.ts StatusResponse). */
+interface NavStatus {
+  paused?: boolean;
+  queuedCount?: number;
+  unreadInboxCount?: number;
+}
 
 /** Primary nav items always visible in the bar */
 const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection }> = [
@@ -39,6 +53,12 @@ export function NavBar() {
   const location = useLocation();
   const workDefType = useWorkDefTypeForPath(location.pathname);
   const activeSection = navSectionForPath(location.pathname, { search: location.search, workDefType });
+  // One status poll feeds both the home-link badges and the pause toggle.
+  const { data: status, refetch: refetchStatus } = useApi<NavStatus>("/api/status", [], { pollInterval: 10_000 });
+  useEffect(() => {
+    globalThis.addEventListener(INBOX_CHANGED_EVENT, refetchStatus);
+    return () => globalThis.removeEventListener(INBOX_CHANGED_EVENT, refetchStatus);
+  }, [refetchStatus]);
 
   const linkClass = (section: NavSection) =>
     `px-2 @2xl:px-3 py-1.5 text-sm rounded-md transition-colors ${
@@ -50,8 +70,11 @@ export function NavBar() {
   return (
     <header className="shrink-0 border-b border-border bg-muted">
       <div className="flex h-14 items-center gap-2 px-3 @2xl:px-4">
-        <Link to="/" className="flex shrink-0 items-center gap-2 font-semibold mr-2 @2xl:mr-4" title="Pizza Team">
-          <Pizza className="h-5 w-5" />
+        <Link to="/" className="flex shrink-0 items-center gap-3 font-semibold mr-3 @2xl:mr-4" title="Pizza Team">
+          <span className="relative">
+            <Pizza className="h-5 w-5" />
+            <HomeBadges queued={status?.queuedCount} unread={status?.unreadInboxCount} />
+          </span>
           <span className="hidden @2xl:inline whitespace-nowrap">Pizza Team</span>
         </Link>
 
@@ -65,7 +88,7 @@ export function NavBar() {
 
         {/* Pause/play, help, config gear, theme toggle */}
         <div className="flex shrink-0 items-center @2xl:gap-1">
-          <PauseButton />
+          <PauseButton paused={!!status?.paused} onToggled={refetchStatus} />
           {/* Usage dashboard (tokens + cost per day). */}
           <Link
             to="/usage"
@@ -134,18 +157,50 @@ function useWorkDefTypeForPath(pathname: string): string | null {
 }
 
 /**
- * Toggle button for pausing/resuming task distribution. Reflects the daemon's
- * real state (`/api/status` → `paused`): it used to assume "running" on every
- * page load, so a paused daemon showed a pause button that paused nothing.
+ * The two count badges pinned to the pizza icon's corners: queued work
+ * (neutral, bottom-right) and unread Inbox items (accent, top-right). Each is
+ * hidden at zero; the counts' meaning is in title/aria-label since the badges
+ * are only numbers.
  */
-function PauseButton() {
-  const { data, refetch } = useApi<{ paused?: boolean }>("/api/status", [], { pollInterval: 30_000 });
-  const paused = !!data?.paused;
+function HomeBadges({ queued, unread }: { queued?: number; unread?: number }) {
+  const queuedLabel = badgeLabel(queued);
+  const unreadLabel = badgeLabel(unread);
+  const pill = "absolute -right-2.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full px-1 text-[10px] font-semibold leading-none ring-2 ring-muted tabular-nums";
+  return (
+    <>
+      {unreadLabel && (
+        <span
+          className={`${pill} -top-2 bg-primary text-primary-foreground`}
+          title={`${unread} unread in Inbox`}
+          aria-label={`${unread} unread in Inbox`}
+        >
+          {unreadLabel}
+        </span>
+      )}
+      {queuedLabel && (
+        <span
+          className={`${pill} -bottom-2 bg-secondary text-secondary-foreground border border-border`}
+          title={`${queued} queued`}
+          aria-label={`${queued} queued`}
+        >
+          {queuedLabel}
+        </span>
+      )}
+    </>
+  );
+}
 
+/**
+ * Toggle button for pausing/resuming task distribution. Reflects the daemon's
+ * real state (`/api/status` → `paused`, polled by NavBar): it used to assume
+ * "running" on every page load, so a paused daemon showed a pause button that
+ * paused nothing.
+ */
+function PauseButton({ paused, onToggled }: { paused: boolean; onToggled: () => void }) {
   const toggle = async () => {
     const endpoint = paused ? "/api/control/resume" : "/api/control/pause";
     await apiPost(endpoint, {});
-    refetch();
+    onToggled();
   };
 
   return (

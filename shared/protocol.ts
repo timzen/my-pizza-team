@@ -59,6 +59,12 @@ export interface StatusResponse {
   stories: { total: number; open: number; done: number };
   tasks: { total: number; byStatus: Record<string, number> };
   members: { total: number; working: number; idle: number };
+  /** Task distribution paused (control/pause). */
+  paused: boolean;
+  /** READY WorkItems — queued, not yet picked up (Pizza Team link badge). */
+  queuedCount: number;
+  /** Unread COMPLETE/FAILED WorkItems — the Inbox's unread count (Pizza Team link badge). */
+  unreadInboxCount: number;
   defaultWorkflow: string;
   workflows: Record<string, WorkflowConfig>;
   workflow?: WorkflowConfig;

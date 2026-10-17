@@ -13,6 +13,7 @@
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { notifyInboxChanged } from "@/lib/inbox";
 import { hasThreadTab, workItemPath } from "@/lib/work-item-link";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Inbox as InboxIcon } from "lucide-react";
@@ -70,11 +71,13 @@ export function InboxPage() {
   const markRead = async (id: string, read: boolean) => {
     await apiPost(`/api/work-items/${encodeURIComponent(id)}/read?read=${read}`, {});
     refetch();
+    notifyInboxChanged();
   };
 
   const markAllRead = async () => {
     await Promise.all(items.filter(i => !i.read).map(i => apiPost(`/api/work-items/${encodeURIComponent(i.id)}/read`, {})));
     refetch();
+    notifyInboxChanged();
   };
 
   return (

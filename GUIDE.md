@@ -72,7 +72,7 @@ The nav bar has five destinations, plus pause / **usage** / help / config / them
 
 The highlighted destination is the section you're in, detail pages included: a Solitary task's page lights **Tasks**, a scheduled job's lights **Schedule**, a story or board task lights **Board**. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
-The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
+The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. The pizza logo carries two small count badges, each hidden at zero: a **neutral** one (bottom corner) for WorkItems **queued** and not yet picked up, and an **accent** one (top corner) for **unread** Inbox items. Hover a badge for what it counts. They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark, refresh every ~10 seconds, and update right away when you mark Inbox items read or unread. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
 
 ### Queue
 
