@@ -86,7 +86,7 @@ marked done; moving one back out reopens it.
 - `main.ts` — Entry point for `deno task dev`/`start`: a thin call into `start.ts`, so the dev daemon is the real daemon.
 - `app.ts` — `createApp(teamDir)`: merges `config.json` over `DEFAULT_CONFIG`, constructs the Store, loads from disk, starts timers, builds the app. Without a team dir, a health-only app.
 - `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, the feature gates (`registerFeatureGates`, ahead of every route), and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
-- `features.ts` — Feature toggles (see "Feature toggles"): `registerFeatureGates` (one `requireFeature` middleware per kind; 403 `feature '<name>' is disabled`), `featureForWorkDef` / `featureForProposalKind` / `isWorkDefVisible`, and the turn-off guard — `activeFeatureItems` (active, non-archived items of a kind) and `resolveFeaturesUpdate` (validates a `PUT /api/config` `features` value; 409 while items remain).
+- `features.ts` — Feature toggles (see "Feature toggles"): `registerFeatureGates` (one `requireFeature` middleware per kind; 403 `feature '<name>' is disabled`), `featureForWorkDef` / `featureForProposalKind` / `isWorkDefVisible`, and the turn-off guard — `activeFeatureItems` (active, non-archived items of a kind; `featureUsage` for all of them) and `resolveFeaturesUpdate` (validates a `PUT /api/config` `features` value; 409 while items remain).
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
 - `static.ts` — Serves `ui/dist/` (or `UI_DIST`) with SPA fallback to `index.html`.
 - `lifecycle.ts` — PID file, SIGTERM/SIGINT handling, flush-and-close on exit, and `redirectOutputToLog` (a background daemon's console → `daemon.log`, the previous run's kept as `daemon.log.1`, uncaught errors included).
@@ -165,6 +165,21 @@ the **phone shell** (`mobile/`, below), and sends a phone (`lib/mobile.ts`
 `PHONE_QUERY`) landing on `/` there unless it chose the desktop view
 (`shouldRedirectToMobile`, `mpt.mobile.view` in `localStorage`).
 
+**Feature toggles** (see "Feature toggles"). `hooks/useFeatures.ts` holds the resolved
+toggles from `/api/status` in one module-level cache (`useSyncExternalStore`; refetched
+on `notifyFeaturesChanged()` after a Config save, and every 30s while subscribed);
+`null` until loaded, and gated things stay hidden until then. `lib/features.ts` is the
+pure, tested half (tests/features-ui.test.ts): hand-mirrored names/defaults,
+`featureForPath`, `featureForProposalKind`, and `filterByFeatures` (used by the NavBar
+links and `lib/start-work.ts`, whose entries carry a `feature`).
+`components/FeatureGate.tsx`: `App.tsx` wraps every page of a gated kind in
+`FeatureRoute` (or `WorkDefFormRoute` for `/work-defs/new?type=`), which renders
+`FeatureOffNotice` ("turned off — enable it in Config") instead of the page;
+`/work-defs/:id` isn't wrapped (its kind is known only once loaded), so
+`WorkDefDetailPage` shows the notice on the daemon's 403. The triage page disables
+Accept/Edit for a proposal of a disabled kind. The phone view has no work-kind entry
+points, so it's unaffected.
+
 - `components/NavBar.tsx` — Center-column nav: **Thoughts · Board · Tasks · Schedule · Context**, then pause/resume, Usage, Help, Config, and the theme toggle. The Pizza Team (home) link's icon carries two count badges — `queuedCount` (READY, neutral) and `unreadInboxCount` (unread COMPLETE/FAILED, accent) from one shared `/api/status` poll (10s, also feeding the pause toggle), hidden at zero, capped at 99+ (`lib/inbox.ts` `badgeLabel`); the Inbox fires `lib/inbox.ts` `INBOX_CHANGED_EVENT` after read/unread so they refetch at once. The lit tab comes from `lib/nav-section.ts` `navSectionForPath` (first-segment match, so `/tasks` isn't Board's `/task`); on `/work-defs/:id` the bar fetches the WorkDef's type to pick the section (Solitary → Tasks, Scheduled → Schedule), and `/work-defs/new` uses `?type=`. The same module gives the WorkDef pages' Back fallback (`workDefHomePath`) and `BackButton`'s in-app-history test (`canGoBackInApp`, from the router's `history.state.idx`).
 - `components/RouteTabs.tsx` — Route-driven segmented tabs, used by RootPage (Queue/Inbox), `board/BoardTabs.tsx` (Board/Backlog/Archive/Workflows), `TasksTabs.tsx` (Items/Templates), and ConfigPage (General/Teammates/Theme).
 - `components/dock/SideDock.tsx` — The dock: header row (`NewWorkMenu` `+` → `lib/start-work.ts` destinations; `queue/QueueSummary.tsx` counts + hover preview; collapse), tab row (Assistant with presence dot + unread badge; Team with online count + amber dot; the active tab's actions), both bodies kept mounted, drag-resize (300–560px), collapsed icon rail, floating panel below `lg`. Owns `useAssistantStream`, `useTeamData`, and `useQueue` so badges stay live. `SideDockProvider.tsx` + `hooks/useSideDock.ts` hold open/tab state in `localStorage`.
@@ -192,7 +207,7 @@ the **phone shell** (`mobile/`, below), and sends a phone (`lib/mobile.ts`
 - `pages/ThoughtsPage.tsx` — Thoughts: owns the notes, groups, and every mutation, and switches between two views (**Canvas | List**, `mpt.thoughts.view` in `localStorage`), carrying the selection across. Both sit under one shared toolbar row the page renders — **+ Note** first, then the view's own tools (canvas: Group, Tidy, Select, Map; list: Folder), and at the right zoom (canvas only), Archived, and the switch — so the fixed controls never move when you change view. The **canvas** is this page: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer; geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`. The **list** is `thoughts/ThoughtsList.tsx`: folders (groups, alphabetical, collapsible — `mpt.thoughts.collapsedFolders`) then ungrouped notes, search, ↑/↓, drag a row onto a folder to file it, and the selected note in a pane. Its rules (titles/snippets, ordering, search, keyboard order, and where a note lands on the canvas when the list files it — `placeForGroupChange`, `slotInPlate`, `slotBelowAll`) are pure in `lib/thoughtList.ts`. Both views edit through `thoughts/NoteEditor.tsx`: framed by `thoughts/NoteDialog.tsx` on the canvas (saves on close) and inline in the list (autosaves). `thoughts/CopyId.tsx` is the copy-id chip.
 - `pages/UsagePage.tsx` — Tiles, a 53-week contribution grid, the split by kind, and a collapsed glossary. Token figures exclude cache reads unless "Include cached" is on (localStorage `mpt.usage.includeCached`); pure helpers (`tokensOf`, `metricOf`, `peakDay`, grid math) in `lib/usage.ts`.
 - `pages/TeammatePage.tsx` — A teammate's live transcript (`transcript/TranscriptView.tsx`, `hooks/useTranscriptStream.ts`, `lib/transcript-types.ts`) with Pair (`transcript/PairComposer.tsx`) and Resume / Complete / Fail.
-- `pages/ConfigPage.tsx` — **General** (port, tmux session, max/min teammates, default workflow, readiness probe, favorite directories — saved immediately via `/api/directories/favorites`, autosave), **Teammates** (name nouns; the `exclusiveDirectories` "One teammate per directory" checkbox; experimental harnesses + default harness — off resets the default to Pi), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
+- `pages/ConfigPage.tsx` — **General** (the **Work items** feature toggles — a toggle that's on and in use is disabled with `featureUsage`'s "archive or delete … first", a 409 is shown inline, and `features` is only sent when a toggle changed so an unrelated save doesn't write the block; port, tmux session, max/min teammates, default workflow, readiness probe, favorite directories — saved immediately via `/api/directories/favorites`, autosave), **Teammates** (name nouns; the `exclusiveDirectories` "One teammate per directory" checkbox; experimental harnesses + default harness — off resets the default to Pi), **Theme** (palette; client-side via `lib/theme.ts` and `ThemeToggle.tsx`).
 - `pages/HelpPage.tsx` — Renders `GUIDE.md`, copied to `src/content/guide.md` by the `prebuild` script.
 
 **Phone view** (`/m`, docs/DESIGN.md "A Phone Is a Peek"). Its own shell, built from
@@ -409,7 +424,10 @@ archived WorkDefs and stories don't. The message names the count ("Can't turn of
 stories: archive or delete 3 stories first"). An already-off kind staying off, and
 turning a kind on, are never refused. An object is a partial update stored in full;
 `null` removes the block (all on). The resolved toggles are on `GET /api/status` and
-`GET /api/config` as `features`.
+`GET /api/config` as `features`; `GET /api/config` also carries `featureUsage`
+(`featureUsage(store)`: each kind's `activeFeatureItems`), which the Config page uses
+to disable a toggle the guard would refuse. The web UI's side is under "ui/src/"
+(Feature toggles).
 
 ## Scheduler readiness gating
 
@@ -432,7 +450,7 @@ switched-off kind answers 403 (see "Feature toggles").
 | GET | `/health` | `status`, `uptime`, `agents` (online), `queueDepth`, `memory`, `lastCommitTime`, `tmuxSession`, `leaderPresent`, `notReady` (readiness when not ready, else null), `spawning` (spawn capability) |
 | GET | `/api/status` | Story/task/member counts, `paused`, `queuedCount` (READY WorkItems), `unreadInboxCount` (unread COMPLETE/FAILED), `defaultWorkflow`, `workflows`, `features` (resolved toggles) |
 | POST | `/api/control/pause` \| `/api/control/resume` | Pause/resume distribution (next-work returns null while paused) |
-| GET | `/api/config` | Config + loaded `workflows` + `defaultNouns`; `features` is the resolved toggles |
+| GET | `/api/config` | Config + loaded `workflows` + `defaultNouns`; `features` is the resolved toggles; `featureUsage` is each kind's active items (`{ count, description }`, `activeFeatureItems`) |
 | GET | `/api/directories` | `{ favorites, recent }` — favorites in the user's order; recent = online teammates' dirs, then recent WorkItem dirs, then story dirs (normalized, deduped, favorites excluded, max 20) |
 | POST | `/api/directories/favorites` | `{ directory }` — append a favorite (normalized; no-op if present); 400 if empty |
 | PUT | `/api/directories/favorites` | `{ directories }` — replace/reorder the list; 400 unless an array of non-empty strings |

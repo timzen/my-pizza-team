@@ -416,6 +416,12 @@ always on, so "everything off" is still a working team: notes in, triage out.
   and a WorkDef's thread are never gated. The guard makes this rare (a kind is only
   turned off empty), but a hand-edited config must not leave a claimed item unable
   to complete.
+- **The UI hides entry points and explains dead ends.** Nav links, quick-create,
+  and triage Accept drop out for a disabled kind, but its pages show a "turned off —
+  enable it in Config" notice rather than redirecting: a bookmark or an Inbox link
+  should say why it's gone, not silently land somewhere else. The Config page asks
+  for the active-item counts up front, so the toggle you can't turn off is greyed
+  out with what to clear, instead of failing on Save.
 
 ## Task Ordering: the Story Owns It
 

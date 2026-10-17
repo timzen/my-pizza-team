@@ -70,6 +70,8 @@ The nav bar has five destinations, plus pause / **usage** / help / config / them
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
+Board, Tasks, and Schedule only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)).
+
 The highlighted destination is the section you're in, detail pages included: a Solitary task's page lights **Tasks**, a scheduled job's lights **Schedule**, a story or board task lights **Board**. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
 The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. The pizza logo carries two small count badges, each hidden at zero: a **neutral** one (bottom corner) for WorkItems **queued** and not yet picked up, and an **accent** one (top corner) for **unread** Inbox items. Hover a badge for what it counts. They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark, refresh every ~10 seconds, and update right away when you mark Inbox items read or unread. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
@@ -375,9 +377,24 @@ The ledger is saved **in the team directory**, committed with your stories and c
 
 Visit `/config`:
 
-- **General** — port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
+- **General** — the **Work items** toggles, port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
+
+### Work items (feature toggles)
+
+**Config → General → Work items** picks the kinds of work your team uses: **Stories** (the Board, with Backlog, Archive, and Workflows), **Tasks** (standalone Solitary tasks *and* Templates), and **Schedules** (the Schedule page). A brand-new team starts with Tasks only; a team that existed before the toggles has everything on. Tick or untick, then **Save Configuration** — it applies right away, no restart.
+
+When a kind is off:
+
+- its nav link (**Board**, **Tasks**, or **Schedule**) disappears, and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
+- its pages — lists, detail pages, and create forms — show a "turned off" notice with a link back here, even from a bookmark;
+- a triage proposal of that kind can only be **Rejected** (Accept and Edit are disabled until you turn the kind back on);
+- the API, the `mpt` CLI, and the assistant's tools refuse it too.
+
+**Thoughts**, **Context**, the **Queue**, and the **Inbox** are always there — even with every kind off — and finished work stays in the Inbox.
+
+You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Backlogged stories and drafts count; archived ones don't. Turning a kind back on is always allowed.
 
 ### Readiness probe
 
@@ -413,7 +430,8 @@ the team, not the whole app. Four tabs along the bottom:
 The strip under the header is the queue summary, and ⏸ shows when distribution is
 paused. 🖥 switches this device to the full UI, and it stays there until you open
 `/m` again. Boards, tasks, schedules, workflows, team size, and config are only in the
-full UI.
+full UI (so the Work items toggles don't change the phone view; **Open full** on an
+item of a switched-off kind shows the "turned off" notice).
 
 **Getting to it from your phone.** MPT listens only on the machine it runs on. To
 reach it from a phone, put a tunnel in front of it that handles login (for example,

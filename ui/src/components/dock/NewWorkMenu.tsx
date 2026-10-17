@@ -5,16 +5,21 @@
  * It sits immediately left of the queue summary on purpose — `+ | Queue …` reads
  * as "add work to the queue", which is what creating work does. Replaced the
  * "Start work" button row that used to sit at the bottom of the dock (under the
- * chat composer).
+ * chat composer). Only the kinds the team has switched on are offered; with
+ * all three off the button is hidden (docs/DESIGN.md "Feature Toggles").
  */
 
 import { useNavigate } from "react-router-dom";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { START_WORK } from "@/lib/start-work";
+import { filterByFeatures } from "@/lib/features";
+import { useFeatures } from "@/hooks/useFeatures";
 import { Plus } from "lucide-react";
 
 export function NewWorkMenu() {
   const navigate = useNavigate();
+  const items = filterByFeatures(START_WORK, useFeatures());
+  if (items.length === 0) return null;
   return (
     <DropdownMenu>
       <DropdownMenuTrigger
@@ -25,7 +30,7 @@ export function NewWorkMenu() {
         <Plus className="h-4 w-4" />
       </DropdownMenuTrigger>
       <DropdownMenuContent className="w-44">
-        {START_WORK.map((item) => (
+        {items.map((item) => (
           <DropdownMenuItem key={item.to} onClick={() => navigate(item.to)}>
             <item.icon className="h-4 w-4" />{item.label}
           </DropdownMenuItem>

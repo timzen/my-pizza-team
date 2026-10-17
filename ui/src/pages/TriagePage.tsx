@@ -14,7 +14,9 @@
  * story task enters its story's workflow like any other). **Edit** is the same
  * thing with the fields opened up first — it sends your edits as overrides, so the
  * decision still records this proposal. **Reject** is one click and no reason: to
- * steer the next analysis, edit the note.
+ * steer the next analysis, edit the note. A proposal of a kind the team has
+ * switched off (Config → Work items) can only be rejected: the daemon would refuse
+ * to create it, so Accept/Edit are disabled with the reason.
  */
 
 import { useState } from "react";
@@ -31,6 +33,8 @@ import { BackButton } from "@/components/ui/back-button";
 import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { noteClass } from "@/lib/thoughtColors";
+import { FEATURE_LABELS, featureForProposalKind } from "@/lib/features";
+import { useFeatures } from "@/hooks/useFeatures";
 import {
   analysesWithDecisions, editableFields, kindLabel, outcomeLabel, triageNowBlocked,
   type TriageProposal, type TriageProposalState, type TriageView,
@@ -43,6 +47,7 @@ export function TriagePage() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [editing, setEditing] = useState<string | null>(null);
+  const features = useFeatures();
 
   if (!data) return <p className="p-6 text-sm text-muted-foreground">Loading…</p>;
   const { note, entries, pending, latestOutcome, skipReason } = data;
@@ -64,6 +69,12 @@ export function TriagePage() {
     if (!res.success) { setError(res.error || `Could not ${action} that proposal`); return; }
     setEditing(null);
     refetch();
+  };
+
+  /** Why a proposal can't be accepted: its kind is switched off (null when it can). */
+  const offReason = (kind: string): string | null => {
+    const feature = featureForProposalKind(kind);
+    return features && !features[feature] ? `${FEATURE_LABELS[feature]} are turned off in Config` : null;
   };
 
   const triageNow = async () => {
@@ -155,6 +166,7 @@ export function TriagePage() {
               onEdit={() => setEditing(editing === state.proposal.id ? null : state.proposal.id)}
               onAccept={(overrides) => decide(state.proposal.id, "accept", overrides)}
               onReject={() => decide(state.proposal.id, "reject")}
+              offReason={offReason(state.proposal.kind)}
             />
           ))}
 
@@ -215,10 +227,12 @@ function DecisionRow({ decision, proposals }: { decision: TriageView["entries"][
 }
 
 /** A pending proposal: what it would create, and the three ways to answer it. */
-function ProposalCard({ state, busy, editing, onEdit, onAccept, onReject }: {
+function ProposalCard({ state, busy, editing, onEdit, onAccept, onReject, offReason }: {
   state: TriageProposalState;
   busy: boolean;
   editing: boolean;
+  /** Set when the proposal's kind is switched off: Accept/Edit are disabled. */
+  offReason: string | null;
   onEdit: () => void;
   onAccept: (overrides?: Partial<TriageProposal>) => void;
   onReject: () => void;
@@ -304,17 +318,19 @@ function ProposalCard({ state, busy, editing, onEdit, onAccept, onReject }: {
         )}
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button size="sm" disabled={busy} onClick={() => onAccept(editing ? draft : undefined)}>
+          <Button size="sm" disabled={busy || !!offReason} title={offReason ?? undefined} onClick={() => onAccept(editing ? draft : undefined)}>
             <Check className="mr-1 h-4 w-4" />{editing ? "Create it" : "Accept"}
           </Button>
-          <Button size="sm" variant="outline" disabled={busy} onClick={onEdit}>
+          <Button size="sm" variant="outline" disabled={busy || !!offReason} title={offReason ?? undefined} onClick={onEdit}>
             <Pencil className="mr-1 h-4 w-4" />{editing ? "Cancel edit" : "Edit"}
           </Button>
           <Button size="sm" variant="ghost" className="text-destructive" disabled={busy} onClick={onReject}>
             <X className="mr-1 h-4 w-4" />Reject
           </Button>
           <span className="ml-auto text-[11px] text-muted-foreground">
-            Accepting creates it; nothing runs until the work's own rules say so.
+            {offReason
+              ? <>{offReason} — turn them on under <Link to="/config" className="text-primary underline">Config → Work items</Link> to accept.</>
+              : "Accepting creates it; nothing runs until the work's own rules say so."}
           </span>
         </div>
       </CardContent>

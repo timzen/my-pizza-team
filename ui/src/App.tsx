@@ -12,6 +12,11 @@
  * before either shell mounts, so the phone never mounts the dock (a second chat
  * stream, and the floating panel over everything), and a phone landing on the
  * home page is sent to `/m` before the desktop shell renders.
+ *
+ * Pages of a work-item kind the team switched off (docs/DESIGN.md "Feature
+ * Toggles") are wrapped in a FeatureRoute, which shows a "turned off" notice
+ * instead. `/work-defs/:id` isn't wrapped: its kind is only known once loaded,
+ * so the page itself shows the notice on the daemon's 403.
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
@@ -41,6 +46,7 @@ import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { HelpPage } from "./pages/HelpPage";
 import { TeammatePage } from "./pages/TeammatePage";
 import { UsagePage } from "./pages/UsagePage";
+import { FeatureRoute, WorkDefFormRoute } from "./components/FeatureGate";
 import { MobileShell } from "./mobile/MobileShell";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { MOBILE_ROOT, PHONE_QUERY, isMobilePath, readViewPref, shouldRedirectToMobile } from "./lib/mobile";
@@ -89,23 +95,23 @@ function DesktopShell() {
             <Route path="/thoughts/:id/triage" element={<TriagePage />} />
             <Route path="/queue" element={<RootPage />} />
             <Route path="/context" element={<ContextPage />} />
-            <Route path="/board" element={<BoardPage />} />
-            <Route path="/tasks" element={<TasksPage />} />
-            <Route path="/templates" element={<TemplatesPage />} />
-            <Route path="/templates/:id" element={<TemplateDetailPage />} />
-            <Route path="/schedule" element={<SchedulePage />} />
-            <Route path="/work-defs/new" element={<NewWorkDefPage />} />
+            <Route path="/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
+            <Route path="/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
+            <Route path="/templates" element={<FeatureRoute feature="tasks"><TemplatesPage /></FeatureRoute>} />
+            <Route path="/templates/:id" element={<FeatureRoute feature="tasks"><TemplateDetailPage /></FeatureRoute>} />
+            <Route path="/schedule" element={<FeatureRoute feature="schedules"><SchedulePage /></FeatureRoute>} />
+            <Route path="/work-defs/new" element={<WorkDefFormRoute><NewWorkDefPage /></WorkDefFormRoute>} />
             <Route path="/work-defs/:id" element={<WorkDefDetailPage />} />
-            <Route path="/task/:storyId/:taskId" element={<TaskDetailPage />} />
-            <Route path="/story/:id" element={<StoryDetailPage />} />
-            <Route path="/stories/new" element={<NewStoryPage />} />
-            <Route path="/story/:id/tasks/new" element={<NewTaskPage />} />
-            <Route path="/backlog" element={<BacklogPage />} />
-            <Route path="/archived" element={<ArchivedPage />} />
+            <Route path="/task/:storyId/:taskId" element={<FeatureRoute feature="stories"><TaskDetailPage /></FeatureRoute>} />
+            <Route path="/story/:id" element={<FeatureRoute feature="stories"><StoryDetailPage /></FeatureRoute>} />
+            <Route path="/stories/new" element={<FeatureRoute feature="stories"><NewStoryPage /></FeatureRoute>} />
+            <Route path="/story/:id/tasks/new" element={<FeatureRoute feature="stories"><NewTaskPage /></FeatureRoute>} />
+            <Route path="/backlog" element={<FeatureRoute feature="stories"><BacklogPage /></FeatureRoute>} />
+            <Route path="/archived" element={<FeatureRoute feature="stories"><ArchivedPage /></FeatureRoute>} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/config/:tab" element={<ConfigPage />} />
-            <Route path="/workflows" element={<WorkflowsPage />} />
-            <Route path="/workflows/:name" element={<WorkflowDetailPage />} />
+            <Route path="/workflows" element={<FeatureRoute feature="stories"><WorkflowsPage /></FeatureRoute>} />
+            <Route path="/workflows/:name" element={<FeatureRoute feature="stories"><WorkflowDetailPage /></FeatureRoute>} />
             <Route path="/help" element={<HelpPage />} />
             {/* A teammate's live view, opened from the sidebar (docs/DESIGN.md "Watching and Pairing with a Teammate"). */}
             <Route path="/teammates/:id" element={<TeammatePage />} />

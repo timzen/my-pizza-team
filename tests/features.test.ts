@@ -232,6 +232,19 @@ Deno.test("turning stories off is refused while active stories exist, allowed on
   } finally { cleanup(); }
 });
 
+Deno.test("GET /api/config reports each kind's active items (featureUsage)", async () => {
+  const { app, store, cleanup } = setup();
+  try {
+    let usage = (await (await app.request("/api/config")).json()).featureUsage;
+    assertEquals(usage.stories, { count: 0, description: "0 stories" });
+    assertEquals(usage.tasks.count, 0);
+    assertEquals(usage.schedules.count, 0);
+    store.createStory("s1", "S1", "d", "open", [], [{ title: "t", description: "d" }]);
+    usage = (await (await app.request("/api/config")).json()).featureUsage;
+    assertEquals(usage.stories, { count: 1, description: "1 story" });
+  } finally { cleanup(); }
+});
+
 Deno.test("backlogged stories block turning stories off", async () => {
   const { app, store, config, cleanup } = setup();
   try {

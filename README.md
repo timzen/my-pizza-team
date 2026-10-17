@@ -190,7 +190,11 @@ Inbox are always on, so every kind can be off at once.
   kind off while it has active items — e.g. "Can't turn off stories: archive or
   delete 3 stories first". Backlogged stories and drafts count; archived items
   don't. Turning a kind on is always allowed.
-- `GET /api/status` and `GET /api/config` report the resolved toggles as `features`.
+- `GET /api/status` and `GET /api/config` report the resolved toggles as `features`;
+  `GET /api/config` also reports each kind's active items as `featureUsage`.
+- **In the web UI** the toggles are **Config → General → Work items**. A kind that's
+  off loses its nav link and quick-create entry, its pages show a "turned off"
+  notice, and its triage proposals can only be rejected.
 
 ### Environment Variables
 

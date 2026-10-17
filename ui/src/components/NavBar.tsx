@@ -1,6 +1,8 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
  * The links, left to right: Thoughts (ideas), Board, Tasks, Schedule, Context.
+ * Board, Tasks and Schedule are hidden while their kind (Stories, Tasks,
+ * Schedules) is switched off in Config (hooks/useFeatures).
  * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
  * help, config, theme.
  *
@@ -32,6 +34,8 @@ import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn } from "lucide-re
 import { apiPost, useApi } from "@/hooks/useApi";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
+import { filterByFeatures, type FeatureName } from "@/lib/features";
+import { useFeatures } from "@/hooks/useFeatures";
 
 /** The slice of `/api/status` the bar reads (shared/protocol.ts StatusResponse). */
 interface NavStatus {
@@ -40,12 +44,15 @@ interface NavStatus {
   unreadInboxCount?: number;
 }
 
-/** Primary nav items always visible in the bar */
-const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection }> = [
+/**
+ * Primary nav items. Board, Tasks and Schedule each belong to a work-item kind
+ * and are hidden while the team has it switched off (lib/features.ts).
+ */
+const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; feature?: FeatureName }> = [
   { path: "/thoughts", label: "Thoughts", section: "thoughts" },
-  { path: "/board", label: "Board", section: "board" },
-  { path: "/tasks", label: "Tasks", section: "tasks" },
-  { path: "/schedule", label: "Schedule", section: "schedule" },
+  { path: "/board", label: "Board", section: "board", feature: "stories" },
+  { path: "/tasks", label: "Tasks", section: "tasks", feature: "tasks" },
+  { path: "/schedule", label: "Schedule", section: "schedule", feature: "schedules" },
   { path: "/context", label: "Context", section: "context" },
 ];
 
@@ -53,6 +60,7 @@ export function NavBar() {
   const location = useLocation();
   const workDefType = useWorkDefTypeForPath(location.pathname);
   const activeSection = navSectionForPath(location.pathname, { search: location.search, workDefType });
+  const navItems = filterByFeatures(NAV_ITEMS, useFeatures());
   // One status poll feeds both the home-link badges and the pause toggle.
   const { data: status, refetch: refetchStatus } = useApi<NavStatus>("/api/status", [], { pollInterval: 10_000 });
   useEffect(() => {
@@ -79,7 +87,7 @@ export function NavBar() {
         </Link>
 
         <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
-          {NAV_ITEMS.map((item) => (
+          {navItems.map((item) => (
             <Link key={item.path} to={item.path} className={`shrink-0 whitespace-nowrap ${linkClass(item.section)}`}>
               {item.label}
             </Link>

@@ -71,9 +71,9 @@ by Pi. It prints every change before making it, and `mpt setup --uninstall` undo
 them.
 
 A new team starts with **Tasks** only: Stories and Schedules are switched off until
-you turn them on with `"features"` in `.my-pizza-team/config.json` (see
-[Feature toggles](README.md#feature-toggles)). A team directory that already existed
-keeps everything on.
+you turn them on under **Config → General → Work items** (or with `"features"` in
+`.my-pizza-team/config.json`; see [Feature toggles](README.md#feature-toggles)). A
+team directory that already existed keeps everything on.
 
 ## 4. Start the daemon
 
@@ -113,7 +113,7 @@ something seems off.
   teammates online, starting them in tmux windows you can watch with
   `tmux attach -t my-pizza-team`. The person-plus icon adds a one-off teammate in a specific
   directory — teammates prefer work in their own directory.
-- **Create a story** — turn Stories on (`"features": { "stories": true }`), then
+- **Create a story** — turn Stories on (**Config → General → Work items**), then
   **New Story** on the home page (pick a workflow), and add tasks to it.
 - **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for
   cron-driven ones.

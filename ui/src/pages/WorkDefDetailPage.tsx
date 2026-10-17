@@ -16,11 +16,14 @@
  * attachments`), so they work for Solitary and Scheduled work just like board
  * tasks. The header's run-count badge (`executionCount`, with the last run on
  * hover) is derived by the daemon from the WorkItem table (docs/DESIGN.md
- * "Execution Count: Derived, not Counted").
+ * "Execution Count: Derived, not Counted"). A WorkDef whose kind the team has
+ * switched off answers 403, and the page shows the "turned off" notice
+ * (components/FeatureGate).
  */
 
 import { useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
+import { FeatureOffNotice } from "@/components/FeatureGate";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -71,7 +74,7 @@ interface Attachment {
 export function WorkDefDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
-  const { data, refetch } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
+  const { data, refetch, error: loadError } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/work-defs/${id}/comments`, [id], { pollInterval: 10_000 });
   const { data: attachData, refetch: refetchAttachments } = useApi<{ attachments: Attachment[] }>(`/api/work-defs/${id}/attachments`, [id]);
   const def = data?.workDef;
@@ -94,6 +97,8 @@ export function WorkDefDetailPage() {
     setCron(schedData.schedule.cron || "");
   }
 
+  // 403 = its kind (Tasks/Schedules/Stories) is switched off (daemon/features.ts).
+  if (!def && loadError === "HTTP 403") return <FeatureOffNotice />;
   if (!def) {
     return (
       <div className="container mx-auto p-6">

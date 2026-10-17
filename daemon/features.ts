@@ -183,6 +183,14 @@ export function activeFeatureItems(store: Store, feature: FeatureName): ActiveFe
 }
 
 /**
+ * Every kind's active items (`activeFeatureItems`), for `GET /api/config`: the
+ * Config page uses it to pre-disable a toggle that the turn-off guard would refuse.
+ */
+export function featureUsage(store: Store): Record<FeatureName, ActiveFeatureItems> {
+  return Object.fromEntries(FEATURE_NAMES.map((name) => [name, activeFeatureItems(store, name)])) as Record<FeatureName, ActiveFeatureItems>;
+}
+
+/**
  * The `features` a `PUT /api/config` would leave in place, or why it's refused.
  *
  * Absent keeps the current value; `null` clears the block (everything on). An

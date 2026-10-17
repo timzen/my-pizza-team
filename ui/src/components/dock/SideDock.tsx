@@ -29,7 +29,8 @@
  * Three presentations, one dock:
  *  - `lg+` expanded — a resizable column (drag the inner edge, 300–560px, width
  *    remembered in localStorage).
- *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), quick-create,
+ *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), quick-create
+ *    (only the kinds switched on in Config),
  *    the team buttons, teammate avatars (linking to their live view), and the
  *    queue count (linking to the Queue tab; amber when anything is at risk).
  *  - below `lg` — a floating corner button that pops the dock open in place,
@@ -56,6 +57,8 @@ import { QueueSummary } from "@/components/queue/QueueSummary";
 import { SessionMenu } from "@/components/assistant/SessionMenu";
 import { NewWorkMenu } from "./NewWorkMenu";
 import { START_WORK } from "@/lib/start-work";
+import { filterByFeatures } from "@/lib/features";
+import { useFeatures } from "@/hooks/useFeatures";
 import { useQueue } from "@/hooks/useQueue";
 import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
@@ -84,6 +87,8 @@ export function SideDock() {
   const [sizeOpen, setSizeOpen] = useState(false);
   const [spawnOpen, setSpawnOpen] = useState(false);
   const viewingTeammate = useMatch("/teammates/:id")?.params.id ?? null;
+  // Quick-create offers only the kinds switched on in Config.
+  const startWork = filterByFeatures(START_WORK, useFeatures());
 
   // Opening, closing, and switching tabs are all "I looked at it" moments.
   const { seenAt, markSeen } = useSeenMarker();
@@ -197,7 +202,7 @@ export function SideDock() {
             <MessageSquare className="h-4 w-4" />
             <UnreadBadge count={unread} />
           </button>
-          {START_WORK.map((item) => (
+          {startWork.map((item) => (
             <Button key={item.to} variant="outline" size="icon" className="h-8 w-8 shrink-0" title={item.label} render={<Link to={item.to} />}>
               <item.icon className="h-4 w-4" />
             </Button>

@@ -69,7 +69,8 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
     fetch("/api/stories")
       .then((r) => r.json())
       .then((data: { stories: Array<{ directory?: string }> }) => {
-        const dirs = data.stories.filter((s) => typeof s.directory === "string").map((s) => s.directory as string);
+        // `stories` is absent when Stories are switched off (403); no candidates then.
+        const dirs = (data.stories ?? []).filter((s) => typeof s.directory === "string").map((s) => s.directory as string);
         setStoryDirs([...new Set(dirs)]);
       })
       .catch(() => {});

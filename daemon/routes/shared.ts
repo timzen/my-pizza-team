@@ -10,7 +10,7 @@
 import type { RouteContext } from "./types.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
 import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness, resolveFeatures } from "../../shared/types.ts";
-import { resolveFeaturesUpdate } from "../features.ts";
+import { featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
@@ -109,8 +109,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // ─── Config ────────────────────────────────────────────────────────
 
   // `features` is the resolved view (absent ⇒ all on), not the raw block.
+  // `featureUsage` counts each kind's active items, so the Config page can say
+  // "archive or delete 3 stories first" before a save is refused.
   app.get("/api/config", (c) => c.json({
     ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS, features: resolveFeatures(config),
+    featureUsage: featureUsage(store),
   }));
 
   app.put("/api/config", async (c) => {

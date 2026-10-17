@@ -1,6 +1,7 @@
 /**
- * ConfigPage — Edit daemon configuration with tabs for General (incl. favorite
- * directories, which save immediately via /api/directories/favorites), Teammates
+ * ConfigPage — Edit daemon configuration with tabs for General (incl. the Work
+ * items feature toggles, and favorite directories, which save immediately via
+ * /api/directories/favorites), Teammates
  * (name nouns, one-teammate-per-directory, experimental harnesses), and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
  * `/config/theme`) via the
  * shared RouteTabs control, so each tab is deep-linkable and consistent with
@@ -11,6 +12,8 @@
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
+import { notifyFeaturesChanged } from "@/hooks/useFeatures";
+import { FEATURE_DESCRIPTIONS, FEATURE_LABELS, FEATURE_NAMES, type FeatureName, type Features } from "@/lib/features";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { FAVORITES_CHANGED_EVENT, notifyFavoritesChanged } from "@/lib/directories";
 import { RouteTabs, SegmentedTabs } from "@/components/RouteTabs";
@@ -50,6 +53,10 @@ interface ConfigData {
   harnesses?: Record<string, { teammate: string; leader?: string }>;
   /** One teammate per directory (exclusive directory leases). Unset = on. */
   exclusiveDirectories?: boolean;
+  /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */
+  features?: Features;
+  /** Read-only: each kind's active items, which block switching it off. */
+  featureUsage?: Record<FeatureName, { count: number; description: string }>;
 }
 
 type Tab = "general" | "teammates" | "theme";
@@ -73,6 +80,8 @@ export function ConfigPage() {
   const activeTab = tabFromPath(useLocation().pathname);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
+  // A refused feature toggle (409 "Can't turn off …") is also shown in its section.
+  const [featureError, setFeatureError] = useState<string | null>(null);
 
   // Seed the editable draft from the fetched config. Adjusting state during
   // render (guarded by a "last seeded" marker) is React's recommended pattern
@@ -93,13 +102,16 @@ export function ConfigPage() {
 
   const handleSave = async () => {
     setSaving(true);
+    setFeatureError(null);
     try {
-      const res = await apiPut<{ success: boolean; error?: string }>("/api/config", config);
+      const res = await apiPut<{ success: boolean; error?: string }>("/api/config", configBody(config, data));
       if (res.success) {
         showToast("✓ Configuration saved");
         refetch();
+        notifyFeaturesChanged();
       } else {
         showToast(res.error || "Save failed", true);
+        if (res.error && /turn off|feature/i.test(res.error)) setFeatureError(res.error);
       }
     } catch (e) {
       showToast("Network error: " + (e as Error).message, true);
@@ -118,7 +130,9 @@ export function ConfigPage() {
       <RouteTabs tabs={TABS} />
 
       {/* Tab content */}
-      {activeTab === "general" && <GeneralTab config={config} setConfig={setConfig} />}
+      {activeTab === "general" && (
+        <GeneralTab config={config} setConfig={setConfig} saved={data} featureError={featureError} />
+      )}
       {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
       {activeTab === "theme" && <ThemeTab />}
 
@@ -140,15 +154,36 @@ export function ConfigPage() {
   );
 }
 
+/**
+ * The PUT body for a draft: drops the read-only `featureUsage`, and sends
+ * `features` only when a toggle changed — so saving an unrelated field doesn't
+ * write a `features` block into an existing team's config.json (absent = all on).
+ */
+function configBody(draft: ConfigData, saved: ConfigData | null): ConfigData {
+  const body = { ...draft };
+  delete body.featureUsage;
+  const features = draft.features;
+  const changed = features && FEATURE_NAMES.some((name) => features[name] !== saved?.features?.[name]);
+  if (!changed) delete body.features;
+  return body;
+}
+
 // --- General Tab ---
 
-function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
+function GeneralTab({ config, setConfig, saved, featureError }: {
+  config: ConfigData;
+  setConfig: (c: ConfigData) => void;
+  saved: ConfigData | null;
+  featureError: string | null;
+}) {
   const update = (field: string, value: unknown) => {
     setConfig({ ...config, [field]: value });
   };
 
   return (
     <div className="space-y-4">
+      <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} />
+
       <Card>
         <CardContent className="p-4 space-y-3">
           <h2 className="font-semibold">Server</h2>
@@ -251,6 +286,66 @@ function GeneralTab({ config, setConfig }: { config: ConfigData; setConfig: (c: 
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+// --- Work items: feature toggles (docs/DESIGN.md "Feature Toggles") ---
+
+/**
+ * Switch the Stories, Tasks (incl. Templates), and Schedules kinds on or off,
+ * saved with the page. A kind that's on and still has active items can't be
+ * switched off — the daemon would refuse (409) — so its checkbox is disabled with
+ * what to archive or delete first (`featureUsage` from GET /api/config). A
+ * refusal that slips through (items created meanwhile) shows as `error`.
+ */
+function WorkItemFeatures({ config, setConfig, saved, error }: {
+  config: ConfigData;
+  setConfig: (c: ConfigData) => void;
+  saved: ConfigData | null;
+  error: string | null;
+}) {
+  const features: Features = { stories: true, tasks: true, schedules: true, ...config.features };
+  const set = (name: FeatureName, on: boolean) => setConfig({ ...config, features: { ...features, [name]: on } });
+
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Work items</h2>
+        <p className="text-xs text-muted-foreground">
+          The kinds of work your team uses. A kind that's off disappears from the nav and the quick-create
+          menu, and its pages, API, CLI and assistant tools are refused. Thoughts, Context and the Inbox are
+          always on. Takes effect as soon as you save.
+        </p>
+        <div className="space-y-2">
+          {FEATURE_NAMES.map((name) => {
+            const usage = config.featureUsage?.[name];
+            // Only a kind that's on (as saved) and still in use is locked on.
+            const locked = saved?.features?.[name] !== false && features[name] && (usage?.count ?? 0) > 0;
+            return (
+              <div key={name} className="space-y-0.5">
+                <label className={`flex items-center gap-2 text-sm ${locked ? "opacity-70" : ""}`}>
+                  <input
+                    id={`feature-${name}`}
+                    type="checkbox"
+                    checked={features[name]}
+                    disabled={locked}
+                    onChange={(e) => set(name, e.target.checked)}
+                  />
+                  <span className="font-medium">{FEATURE_LABELS[name]}</span>
+                  <span className="text-xs text-muted-foreground">{FEATURE_DESCRIPTIONS[name]}</span>
+                </label>
+                {locked && usage && (
+                  <p className="pl-6 text-xs text-muted-foreground">
+                    To turn {FEATURE_LABELS[name]} off, archive or delete {usage.description} first.
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+        {error && <p className="text-xs text-destructive">{error}</p>}
+      </CardContent>
+    </Card>
   );
 }
 
