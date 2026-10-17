@@ -8,7 +8,9 @@
  * story id, so foreign cards don't even highlight). The implicit todo/done
  * bucket columns can be hidden per story (persisted in localStorage) to give
  * the workflow's own states more room; hidden buckets surface their counts in
- * the header.
+ * the header. The chevron at the left of the header collapses the lane to
+ * just its header row (title + actions); that state is owned by BoardPage
+ * (`hooks/useStoryCollapse.ts`) so Expand all / Collapse all stay in sync.
  */
 
 import { useState } from "react";
@@ -17,7 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { TaskCard } from "./TaskCard";
 import { taskDragType } from "./task-drag";
-import { Archive, FolderMinus, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, FolderMinus, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 interface StoryData {
@@ -49,9 +51,14 @@ interface StorySwimlaneProps {
   onArchive?: (storyId: string) => void;
   onBacklog?: (storyId: string) => void;
   onStatusChange?: () => void;
+  /** Collapsed lanes show only the header row (default: expanded). */
+  collapsed?: boolean;
+  /** Called with the new collapsed state when the chevron is clicked. */
+  onToggleCollapsed?: (collapsed: boolean) => void;
 }
 
-export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusChange }: StorySwimlaneProps) {
+/** One story's swimlane: header (title, badges, actions) and, unless collapsed, its task columns. */
+export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusChange, collapsed = false, onToggleCollapsed }: StorySwimlaneProps) {
   /** The column currently hovered by a same-story drag (for highlight). */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -106,7 +113,17 @@ export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusCha
   return (
     <div className="border border-border rounded-lg overflow-hidden">
       {/* Story header (distinct panel color; edit lives on the story page) */}
-      <div className="bg-muted px-4 py-2 border-b border-border flex items-center gap-2">
+      <div className={`bg-muted pl-2 pr-4 py-2 flex items-center gap-2 ${collapsed ? "" : "border-b border-border"}`}>
+        <Button
+          variant="ghost"
+          size="icon"
+          className="h-6 w-6"
+          onClick={() => onToggleCollapsed?.(!collapsed)}
+          aria-expanded={!collapsed}
+          title={collapsed ? "Expand story" : "Collapse story"}
+        >
+          {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
+        </Button>
         <Link
           to={`/story/${story.id}`}
           className="font-medium text-sm hover:underline"
@@ -124,18 +141,21 @@ export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusCha
         )}
         <div className="ml-auto flex items-center gap-1">
           {/* Hidden buckets still exist — surface their counts so nothing feels lost. */}
-          {!showBuckets && (todoCount > 0 || doneCount > 0) && (
+          {!collapsed && !showBuckets && (todoCount > 0 || doneCount > 0) && (
             <span className="text-xs text-muted-foreground mr-1">{todoCount} todo · {doneCount} done</span>
           )}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="h-7 w-7"
-            onClick={toggleBuckets}
-            title={showBuckets ? "Hide todo/done columns" : "Show todo/done columns"}
-          >
-            {showBuckets ? <FoldHorizontal className="h-3.5 w-3.5" /> : <UnfoldHorizontal className="h-3.5 w-3.5" />}
-          </Button>
+          {/* Column toggle only matters while the columns are shown. */}
+          {!collapsed && (
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7"
+              onClick={toggleBuckets}
+              title={showBuckets ? "Hide todo/done columns" : "Show todo/done columns"}
+            >
+              {showBuckets ? <FoldHorizontal className="h-3.5 w-3.5" /> : <UnfoldHorizontal className="h-3.5 w-3.5" />}
+            </Button>
+          )}
           <Button variant="ghost" size="icon" className="h-7 w-7" title="Add task" render={<Link to={`/story/${story.id}/tasks/new`} />}>
             <Plus className="h-3.5 w-3.5" />
           </Button>
@@ -150,33 +170,37 @@ export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusCha
         </div>
       </div>
 
-      {/* Column headers */}
-      <div className="grid overflow-x-auto border-b border-border" style={{ gridTemplateColumns: `repeat(${visibleStates.length}, minmax(180px, 1fr))` }}>
-        {visibleStates.map(state => (
-          <div key={state} className="px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
-            {state.replace(/_/g, " ")}
+      {!collapsed && (
+        <>
+          {/* Column headers */}
+          <div className="grid overflow-x-auto border-b border-border" style={{ gridTemplateColumns: `repeat(${visibleStates.length}, minmax(180px, 1fr))` }}>
+            {visibleStates.map(state => (
+              <div key={state} className="px-2 py-1 text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                {state.replace(/_/g, " ")}
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
 
-      {/* Task columns (drop targets for same-story drags) */}
-      <div className="grid overflow-x-auto" style={{ gridTemplateColumns: `repeat(${visibleStates.length}, minmax(180px, 1fr))` }}>
-        {visibleStates.map(state => (
-          <div
-            key={state}
-            className={`p-2 min-h-[80px] border-r border-border last:border-r-0 transition-colors ${dropTarget === state ? "bg-accent/50" : ""}`}
-            onDragOver={handleDragOver(state)}
-            onDragLeave={() => setDropTarget(prev => (prev === state ? null : prev))}
-            onDrop={handleDrop(state)}
-          >
-            <div className="flex flex-col gap-2">
-              {(tasksByStatus.get(state) || []).map(task => (
-                <TaskCard key={task.id} task={task} storyId={story.id} />
-              ))}
-            </div>
+          {/* Task columns (drop targets for same-story drags) */}
+          <div className="grid overflow-x-auto" style={{ gridTemplateColumns: `repeat(${visibleStates.length}, minmax(180px, 1fr))` }}>
+            {visibleStates.map(state => (
+              <div
+                key={state}
+                className={`p-2 min-h-[80px] border-r border-border last:border-r-0 transition-colors ${dropTarget === state ? "bg-accent/50" : ""}`}
+                onDragOver={handleDragOver(state)}
+                onDragLeave={() => setDropTarget(prev => (prev === state ? null : prev))}
+                onDrop={handleDrop(state)}
+              >
+                <div className="flex flex-col gap-2">
+                  {(tasksByStatus.get(state) || []).map(task => (
+                    <TaskCard key={task.id} task={task} storyId={story.id} />
+                  ))}
+                </div>
+              </div>
+            ))}
           </div>
-        ))}
-      </div>
+        </>
+      )}
     </div>
   );
 }

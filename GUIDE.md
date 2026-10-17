@@ -114,6 +114,10 @@ The board is for glancing and light triage; editing happens on the task page.
 - **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Publish** it while it's a [draft](#drafts--write-first-publish-when-its-right) — move, delete, read comments, upload/review files)
 - **Edit a story** — click the story title to open its page (title, description, directory, context, paused)
 
+### Expanding and collapsing stories
+
+Every story starts **expanded** (its task columns showing). The chevron at the left of a story's header collapses it to just the header row — the title and its actions (`+`, archive, backlog) — and clicking it again expands it. **Expand all** / **Collapse all** in the toolbar (next to search and sort) apply to the stories currently shown, so with a search active they only touch the matching stories. Searching doesn't expand collapsed stories. The board remembers each story's choice in this browser.
+
 A card shows its title/ID, assignee, cost (if tracked), and a small chip when it has an active WorkItem: **queued** (READY), **working** (IN_PROGRESS), or **at risk** (MORIBUND).
 
 ---

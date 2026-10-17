@@ -8,6 +8,9 @@
  * - Links to the full-page create forms (/stories/new, /story/:id/tasks/new)
  *   — no modals; viewing/editing stories and tasks lives on their pages
  * - Archive and backlog buttons per story
+ * - Expand/collapse per story (chevron) plus Expand all / Collapse all over the
+ *   visible stories; state is lifted here (`useStoryCollapse`) and persisted
+ *   per story in localStorage. Search does not auto-expand collapsed stories.
  * - Board/Backlog/Archive tabs (one surface, three lifecycle views)
  */
 
@@ -19,7 +22,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
 import { BoardTabs } from "@/components/board/BoardTabs";
-import { Search, Plus } from "lucide-react";
+import { useStoryCollapse } from "@/hooks/useStoryCollapse";
+import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 
 interface StoryView {
   id: string;
@@ -58,6 +62,7 @@ export function BoardPage() {
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
+  const { isCollapsed, setCollapsed, setAllCollapsed } = useStoryCollapse();
 
   const stories = useMemo(() => storiesData?.stories || [], [storiesData]);
   const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
@@ -145,6 +150,25 @@ export function BoardPage() {
             <SelectItem value="status">Status</SelectItem>
           </SelectContent>
         </Select>
+        {/* Bulk expand/collapse applies to the stories currently shown (after search). */}
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setAllCollapsed(sorted.map(s => s.id), false)}
+          disabled={sorted.length === 0}
+          title="Expand all visible stories"
+        >
+          <ChevronsUpDown className="h-4 w-4 mr-1" /> Expand all
+        </Button>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => setAllCollapsed(sorted.map(s => s.id), true)}
+          disabled={sorted.length === 0}
+          title="Collapse all visible stories"
+        >
+          <ChevronsDownUp className="h-4 w-4 mr-1" /> Collapse all
+        </Button>
         <AddStoryButton />
       </div>
 
@@ -158,6 +182,8 @@ export function BoardPage() {
             onArchive={handleArchive}
             onBacklog={handleBacklog}
             onStatusChange={refetch}
+            collapsed={isCollapsed(story.id)}
+            onToggleCollapsed={c => setCollapsed(story.id, c)}
           />
         ))}
         {sorted.length === 0 && (
