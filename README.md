@@ -255,6 +255,12 @@ the draft and locks the definition; from then on revisions go through the thread
 plus a re-run. Existing WorkDefs are published. See
 [docs/DESIGN.md](docs/DESIGN.md#drafts-write-review-publish).
 
+**Run counts.** Every WorkDef view from `/api/work-defs` carries `executionCount`
+(WorkItems created for it, CANCELED ones excluded) and `lastRunAt`, derived from the
+WorkItem table on each read. The Tasks page shows the count per row, sorts by it, and
+filters to **Never run** (count 0) — the work you haven't started. See
+[docs/DESIGN.md](docs/DESIGN.md#execution-count-derived-not-counted).
+
 **Personas.** A markdown file named after an agent state
 (`workflows/<name>/<state>.md`) is role framing injected into that state's prompt:
 
@@ -468,7 +474,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 | Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
 | Stories | `/api/stories/*`, `/api/archived`, `/api/backlog/*` | CRUD, archive, backlog |
 | Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |
-| WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while a draft), publish, enqueue, archive, comments, attachments, usage |
+| WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while a draft), publish, enqueue, archive, comments, attachments, usage; each view carries its run count (`executionCount`, `lastRunAt`) |
 | Schedules | `/api/schedules/*` | Cron parents |
 | Templates | `/api/templates/*` | Reusable molds for Solitary tasks (never enqueue) |
 | Directories | `GET /api/directories`, `POST/PUT/DELETE /api/directories/favorites` | Picker suggestions (favorites, then recent); edit favorites |

@@ -5,7 +5,9 @@
  * WorkItem each time the cron fires (see the daemon's scheduler). This page
  * lists the jobs with a human-readable cron, when they last ran, and a
  * "Run now" escape hatch. Polls /api/work-defs and filters to type=Scheduled.
- * Supports archive/restore for retired jobs.
+ * Supports archive/restore for retired jobs. Each row shows the job's run count
+ * (`executionCount`, derived from the WorkItem table — docs/DESIGN.md "Execution
+ * Count: Derived, not Counted") and its latest run.
  */
 
 import { Link } from "react-router-dom";
@@ -15,6 +17,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { DraftBadge } from "@/components/WorkDefDefinition";
+import { runCountLabel } from "@/lib/run-count";
 import { Plus, Play, CalendarClock, FolderOpen, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
 
 interface WorkDef {
@@ -26,6 +29,8 @@ interface WorkDef {
   directory?: string | null;
   draft?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
+  executionCount?: number;
+  lastRunAt?: string | null;
 }
 
 interface Schedule {
@@ -105,7 +110,8 @@ export function SchedulePage() {
         {defs.map(def => {
           const sched = def.parent?.kind === "schedule" ? schedById.get(def.parent.id) : undefined;
           const cron = sched?.cron;
-          const lastEnqueuedAt = sched?.lastEnqueuedAt;
+          // Latest run of any kind (cron or Run now); the Schedule's cursor is the fallback.
+          const lastRun = def.lastRunAt ?? sched?.lastEnqueuedAt;
           return (
           <Card key={def.id} className="hover:border-primary/50 transition-colors">
             <CardContent className="p-4 flex items-center gap-3">
@@ -118,7 +124,7 @@ export function SchedulePage() {
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
-                  <span>{lastEnqueuedAt ? `last run ${new Date(lastEnqueuedAt).toLocaleString()}` : "never run"}</span>
+                  <span>{runCountLabel(def.executionCount)}{lastRun && (def.executionCount ?? 0) > 0 ? ` · last ${new Date(lastRun).toLocaleString()}` : ""}</span>
                   {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
                     <span className="font-mono" title="Total cost across all runs">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
                   )}

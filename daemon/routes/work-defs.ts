@@ -12,6 +12,9 @@
  * thread plus Run. A Scheduled job's cron lives on its Schedule, not the
  * definition, so a cron-only PUT is still accepted after publishing.
  *
+ * Every view carries `executionCount` / `lastRunAt`, derived from the WorkItem
+ * table (CANCELED excluded) — docs/DESIGN.md "Execution Count: Derived, not Counted".
+ *
  * **A triage WorkDef is not editable here.** It's an empty container owned by its
  * note (TODO.md "Auto Triage"): its content comes from `triage.md` plus the note,
  * its lifecycle follows the note, and a run is started with
@@ -25,8 +28,15 @@ import { workDefType, type WorkDef } from "../../shared/types.ts";
 import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, PublishWorkDefRequest, PublishWorkDefResponse } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
+import type { WorkDefExecutionStats } from "../store.ts";
 
-function view(d: WorkDef, store: RouteContext["store"]) {
+/**
+ * The API shape of a WorkDef. `stats` is passed in by the list route, which
+ * fetches every def's execution stats in one aggregate query; single-def routes
+ * omit it and look up just this one.
+ */
+function view(d: WorkDef, store: RouteContext["store"], stats?: Map<string, WorkDefExecutionStats>) {
+  const exec = stats ? (stats.get(d.id) ?? { executionCount: 0, lastRunAt: null }) : store.getExecutionStatsFor(d.id);
   return {
     id: d.id, title: d.title, type: workDefType(d.parent), parent: d.parent,
     goal: d.goal, acceptanceCriteria: d.acceptanceCriteria,
@@ -34,6 +44,8 @@ function view(d: WorkDef, store: RouteContext["store"]) {
     draft: d.draft === true,
     // Aggregate cost/tokens across this def's runs (recorded on the ref).
     tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
+    executionCount: exec.executionCount,
+    lastRunAt: exec.lastRunAt,
   };
 }
 
@@ -62,7 +74,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const status = c.req.query("status");
     // Default to active-only (unlike thoughts which default to all)
     const filter = status === "archived" ? "archived" : status === "all" ? undefined : "active";
-    return c.json({ workDefs: store.getWorkDefs(filter).map((d) => view(d, store)) } satisfies WorkDefsResponse);
+    const stats = store.getExecutionStats();
+    return c.json({ workDefs: store.getWorkDefs(filter).map((d) => view(d, store, stats)) } satisfies WorkDefsResponse);
   });
 
   app.get("/api/work-defs/:id", (c) => {

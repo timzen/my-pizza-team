@@ -122,8 +122,10 @@ A card shows its title/ID, assignee, cost (if tracked), and a small chip when it
 
 Not all work belongs on the board. Two pages manage standalone WorkDefs:
 
-- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies"). Drafts show **Publish** instead of Run; the **All / Drafts / Published** buttons filter the list.
-- **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately.
+- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies"). Drafts show **Publish** instead of Run; the **All / Drafts / Published** buttons filter the list. Each row shows how many times the task has run ("never run", "1 run", "3 runs" — hover for the last run); **Never run** narrows the list to the ones you haven't started yet, and the sort menu orders by **Fewest runs** / **Most runs**. A run is any WorkItem created for the task — queued, running, done, or failed — except one you **canceled** before it ran.
+- **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately. Each row shows its run count and last run.
+
+A task's or job's page (and a board task's page) shows the same run count in its header. Templates have none — they never run.
 
 A failed run leaves the WorkDef in place — read its Thread, add a comment with what to change, and **Run** it again (a published definition is locked; see [Drafts](#drafts--write-first-publish-when-its-right)).
 

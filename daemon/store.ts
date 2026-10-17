@@ -128,6 +128,17 @@ export function isPoolTeammate(name: string): boolean {
  * the story's `tasks: [{id, status}]` (see docs/DESIGN.md "WorkDefs & Parents"). The
  * WorkDef body's Goal is surfaced as `description` for the (pre-unification) API.
  */
+/**
+ * How often a WorkDef has run, derived from `work_items` (CANCELED excluded) —
+ * see `Store.getExecutionStats` and docs/DESIGN.md "Execution Count: Derived, not Counted".
+ */
+export interface WorkDefExecutionStats {
+  /** WorkItems created for the WorkDef, excluding CANCELED ones. */
+  executionCount: number;
+  /** When the latest counted WorkItem was enqueued (ISO), or null if never run. */
+  lastRunAt: string | null;
+}
+
 export interface Task {
   id: string;
   title: string;
@@ -595,6 +606,10 @@ export class Store {
 
     this.dropRetiredColumns();
     this.cancelRetiredDirectives();
+    // After the column migrations, so `work_def_id` is guaranteed to exist. Serves
+    // the per-WorkDef execution-count aggregate (getExecutionStats) and the
+    // active-item lookup.
+    this.db.exec("CREATE INDEX IF NOT EXISTS idx_work_items_work_def ON work_items(work_def_id)");
   }
 
   /**
@@ -1188,6 +1203,40 @@ export class Store {
       `SELECT * FROM work_items WHERE work_def_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
     ).get(workDefId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
     return row ? this.rowToWorkItem(row) : null;
+  }
+
+  /**
+   * Execution stats for every WorkDef that has any: how many WorkItems were
+   * created for it and when the latest was enqueued. One `GROUP BY` over
+   * `work_items`, so a list endpoint pays one query, not one per row.
+   *
+   * Derived, not stored (docs/DESIGN.md "Execution Count: Derived, not Counted"):
+   * every WorkItem already lands in `work_items` through `enqueueFor`, so a
+   * counter would be a second copy that could drift, and `workdef.md` must stay
+   * authored-only. **CANCELED items are excluded** — a cancel withdraws an
+   * attempt before (or instead of) it running, so it isn't a run. Every other
+   * state counts, READY and IN_PROGRESS included: queued or running work is not
+   * "never run". A WorkDef with no entry here has zero runs.
+   */
+  getExecutionStats(): Map<string, WorkDefExecutionStats> {
+    const rows = this.db.prepare(
+      `SELECT work_def_id AS id, COUNT(*) AS n, MAX(enqueued_at) AS last FROM work_items
+       WHERE work_def_id IS NOT NULL AND state != 'CANCELED' GROUP BY work_def_id`
+    ).all() as Array<{ id: string; n: number; last: number | null }>;
+    const out = new Map<string, WorkDefExecutionStats>();
+    for (const r of rows) {
+      out.set(r.id, { executionCount: r.n, lastRunAt: r.last ? new Date(r.last).toISOString() : null });
+    }
+    return out;
+  }
+
+  /** Execution stats for one WorkDef (zero runs → `{ executionCount: 0, lastRunAt: null }`). */
+  getExecutionStatsFor(workDefId: string): WorkDefExecutionStats {
+    const r = this.db.prepare(
+      `SELECT COUNT(*) AS n, MAX(enqueued_at) AS last FROM work_items
+       WHERE work_def_id = ? AND state != 'CANCELED'`
+    ).get(workDefId) as { n: number; last: number | null };
+    return { executionCount: r.n, lastRunAt: r.last ? new Date(r.last).toISOString() : null };
   }
 
   private getActiveWorkItemForRef(ref: WorkItemRef): WorkItem | null {

@@ -370,6 +370,14 @@ export interface WorkDefView {
   draft: boolean;
   /** Aggregate token usage/cost across this def's runs (recorded on the ref). */
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
+  /**
+   * How many WorkItems were created for this def, CANCELED ones excluded — 0 means
+   * "never run". Derived from the WorkItem table on every read, never stored
+   * (docs/DESIGN.md "Execution Count: Derived, not Counted").
+   */
+  executionCount: number;
+  /** When the latest counted WorkItem was enqueued (ISO), or null if never run. */
+  lastRunAt: string | null;
 }
 export interface WorkDefsResponse { workDefs: WorkDefView[] }
 export interface WorkDefResponse { workDef?: WorkDefView; success?: boolean; error?: string }

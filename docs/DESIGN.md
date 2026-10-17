@@ -269,6 +269,31 @@ authored document in the same place, with the same thread and attachments: you
 may want to discuss it before it runs. Only *whether its parent may enqueue it*
 changes, and that is exactly the one question `enqueueFor` answers.
 
+## Execution Count: Derived, not Counted
+
+Every WorkDef view carries `executionCount` — how many WorkItems were created for
+it — and `lastRunAt`, the latest one's enqueue time. The Tasks page uses them to
+find the work nobody has started yet: count 0 is "never run".
+
+- **Derived from `work_items`, never stored.** `enqueueFor` is already the single
+  WorkItem creator, so the WorkItem table *is* the record of every run; one
+  `GROUP BY work_def_id` (indexed) answers the whole list in a single query. A
+  stored counter would be a second copy that has to be kept in step on every
+  enqueue, cancel, and delete, and the obvious place for it — `workdef.md` — is
+  off limits by the "authored content only" invariant ("WorkDefs & Parents").
+- **CANCELED doesn't count; everything else does.** A cancel withdraws an attempt
+  (a human cancels a READY item; a board move cancels the item it supersedes), so
+  it isn't a run of the work. READY and in-flight items *do* count: work that is
+  queued or running is not "something to do". FAILED counts — it ran.
+- **Archiving changes nothing.** An archived WorkDef keeps its count; the lists
+  already decide whether to show archived defs.
+- **It is as durable as the WorkItem table.** WorkItems are runtime state in
+  `state.db`, kept across restarts but not rebuilt from the team dir (the same
+  holds for the Inbox's history). Deleting `state.db` resets every count to 0,
+  which is acceptable for a sort/filter aid; the usage ledger remains the durable
+  record of what ran.
+- **Templates have none.** A template never emits WorkItems ("Task Templates").
+
 ## Auto Triage: a Note Is a Parent
 
 A teammate reads each note you've changed and replies with an analysis of it. The

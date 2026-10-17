@@ -8,6 +8,10 @@
  * Drafts carry a **Draft** badge and a **Publish** button instead of Run, and
  * the All / Drafts / Published filter (lib/drafts.ts) narrows the list
  * (docs/DESIGN.md "Drafts: Write, Review, Publish").
+ * Each row shows its run count (`executionCount`, derived by the daemon from the
+ * WorkItem table); the **Never run** toggle keeps only count-0 tasks — the "things
+ * to do" — and the sort menu orders by run count (lib/run-count.ts; docs/DESIGN.md
+ * "Execution Count: Derived, not Counted").
  */
 
 import { Link } from "react-router-dom";
@@ -20,6 +24,7 @@ import { TasksTabs } from "@/components/TasksTabs";
 import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
 import { DraftBadge } from "@/components/WorkDefDefinition";
 import { DRAFT_FILTERS, countDrafts, filterByDraft, type DraftFilter } from "@/lib/drafts";
+import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type RunFilter, type RunSort } from "@/lib/run-count";
 import { Plus, Play, Send, Zap, FolderOpen, FileText, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
 
 interface WorkDef {
@@ -30,6 +35,8 @@ interface WorkDef {
   directory?: string | null;
   draft?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
+  executionCount?: number;
+  lastRunAt?: string | null;
 }
 
 export function TasksPage() {
@@ -37,8 +44,11 @@ export function TasksPage() {
   const { data: archivedData, refetch: refetchArchived } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs?status=archived", [], { pollInterval: 30_000 });
   const allDefs = (data?.workDefs || []).filter(d => d.type === "Solitary");
   const [draftFilter, setDraftFilter] = useState<DraftFilter>("all");
-  const defs = filterByDraft(allDefs, draftFilter);
+  const [runFilter, setRunFilter] = useState<RunFilter>("all");
+  const [runSort, setRunSort] = useState<RunSort>("default");
+  const defs = sortByRuns(filterByRuns(filterByDraft(allDefs, draftFilter), runFilter), runSort);
   const draftCount = countDrafts(allDefs);
+  const neverRunCount = countNeverRun(allDefs);
   const archivedDefs = (archivedData?.workDefs || []).filter(d => d.type === "Solitary");
   const [pickerOpen, setPickerOpen] = useState(false);
   const [showArchived, setShowArchived] = useState(false);
@@ -92,11 +102,31 @@ export function TasksPage() {
           ))}
         </div>
       </div>
+      <div className="flex items-center justify-end gap-2">
+        <Button
+          size="sm"
+          variant={runFilter === "never" ? "default" : "outline"}
+          aria-pressed={runFilter === "never"}
+          onClick={() => setRunFilter(f => f === "never" ? "all" : "never")}
+          title="Show only tasks that have never run"
+        >
+          Never run{neverRunCount > 0 ? ` (${neverRunCount})` : ""}
+        </Button>
+        <select
+          value={runSort}
+          onChange={(e) => setRunSort(e.target.value as RunSort)}
+          className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+          aria-label="Sort tasks"
+          title="Sort by run count"
+        >
+          {RUN_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+        </select>
+      </div>
 
       {defs.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
           <Zap className="h-8 w-8" />
-          <p className="text-sm">{draftFilter === "drafts" ? "No drafts." : draftFilter === "published" ? "No published tasks." : "No solitary tasks yet."}</p>
+          <p className="text-sm">{runFilter === "never" ? "Every task here has run at least once." : draftFilter === "drafts" ? "No drafts." : draftFilter === "published" ? "No published tasks." : "No solitary tasks yet."}</p>
         </div>
       )}
 
@@ -111,6 +141,9 @@ export function TasksPage() {
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
+                  <span title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this task yet"}>
+                    {runCountLabel(def.executionCount)}
+                  </span>
                   {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
                     <span className="font-mono" title="Total cost across all runs">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
                   )}

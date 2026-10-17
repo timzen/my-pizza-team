@@ -17,7 +17,9 @@
  *
  * Comments live on the WorkDef's ref (same comments.jsonl the agents append
  * completion summaries to). Attachments remain clickable — opening the diff/
- * file viewer with line-level review.
+ * file viewer with line-level review. The header's run-count badge
+ * (`executionCount`) counts this task's WorkItems, rework runs included
+ * (docs/DESIGN.md "Execution Count: Derived, not Counted").
  */
 
 import { useState, useRef } from "react";
@@ -28,6 +30,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, DraftBadge } from "@/components/WorkDefDefinition";
+import { runCountLabel } from "@/lib/run-count";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { Trash2, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
@@ -43,6 +46,8 @@ interface WorkDef {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string | null;
+  executionCount?: number;
+  lastRunAt?: string | null;
 }
 
 interface Comment {
@@ -198,6 +203,9 @@ export function TaskDetailPage() {
         <BackButton fallback="/board" title="Back to board" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
         {def.draft && <DraftBadge />}
+        <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
+          {runCountLabel(def.executionCount)}
+        </Badge>
         <Badge variant="secondary">{task.status.replace(/_/g, " ")}</Badge>
       </div>
       <div className="flex items-center justify-between gap-2">

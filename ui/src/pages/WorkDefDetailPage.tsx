@@ -14,7 +14,9 @@
  * clickable (open the diff/file viewer with line-level review) and the composer
  * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
  * attachments`), so they work for Solitary and Scheduled work just like board
- * tasks.
+ * tasks. The header's run-count badge (`executionCount`, with the last run on
+ * hover) is derived by the daemon from the WorkItem table (docs/DESIGN.md
+ * "Execution Count: Derived, not Counted").
  */
 
 import { useState, useRef } from "react";
@@ -32,6 +34,7 @@ import { FileViewer } from "@/components/viewer/FileViewer";
 import { Save, Trash2, Play, CalendarClock, Zap, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
+import { runCountLabel } from "@/lib/run-count";
 
 interface WorkDef {
   id: string;
@@ -45,6 +48,8 @@ interface WorkDef {
   directory?: string | null;
   draft?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
+  executionCount?: number;
+  lastRunAt?: string | null;
 }
 
 interface Schedule { id: string; cron: string; lastEnqueuedAt?: string | null }
@@ -182,6 +187,9 @@ export function WorkDefDetailPage() {
         {def.draft && <DraftBadge />}
         <Badge variant="outline" className="flex items-center gap-1">
           {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
+        </Badge>
+        <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
+          {runCountLabel(def.executionCount)}
         </Badge>
         {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
           <Badge variant="secondary" className="font-mono" title={`${def.tokenUsage.totalInputTokens.toLocaleString()} in / ${def.tokenUsage.totalOutputTokens.toLocaleString()} out tokens across all runs`}>
