@@ -24,6 +24,7 @@ import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-ed
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { ContextSelector } from "@/components/board/ContextSelector";
 import { BackButton } from "@/components/ui/back-button";
+import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
 
 type WorkDefType = "Solitary" | "Scheduled" | "Template";
@@ -83,7 +84,7 @@ export function NewWorkDefPage() {
     setContextRefs(t.contextRefs ? [...t.contextRefs] : []);
   }
 
-  const backTo = type === "Scheduled" ? "/schedule" : type === "Template" ? "/templates" : "/tasks";
+  const backTo = workDefHomePath(type);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -108,11 +109,12 @@ export function NewWorkDefPage() {
       // Templates are their own resource (never enqueued); everything else is a WorkDef.
       if (type === "Template") {
         const res = await apiPost<{ success: boolean; error?: string; template?: { id: string } }>("/api/templates", body);
-        if (res.success && res.template) navigate(`/templates/${encodeURIComponent(res.template.id)}`);
+        // replace: the submitted form shouldn't be what Back returns to.
+        if (res.success && res.template) navigate(`/templates/${encodeURIComponent(res.template.id)}`, { replace: true });
         else setError(res.error || "Failed to create template");
       } else {
         const res = await apiPost<{ success: boolean; error?: string; workDef?: { id: string } }>("/api/work-defs", body);
-        if (res.success && res.workDef) navigate(`/work-defs/${encodeURIComponent(res.workDef.id)}`);
+        if (res.success && res.workDef) navigate(`/work-defs/${encodeURIComponent(res.workDef.id)}`, { replace: true });
         else setError(res.error || "Failed to create work");
       }
     } finally {

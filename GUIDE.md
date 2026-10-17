@@ -62,6 +62,8 @@ The nav bar has five destinations, plus pause / **usage** / help / config / them
 - **Schedule** — cron-driven Scheduled jobs.
 - **Context** — the reusable context library.
 
+The highlighted destination is the section you're in, detail pages included: a Solitary task's page lights **Tasks**, a scheduled job's lights **Schedule**, a story or board task lights **Board**. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
+
 The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
 
 ### Queue

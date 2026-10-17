@@ -732,6 +732,14 @@ and whatever put it there is highlighted* — a nav tab for pages, a teammate ro
 a teammate's live view. The center is a container-query context, so the nav adapts
 to the room the dock leaves rather than to the viewport.
 
+**A page's section is what it *is*, not its URL.** `/work-defs/:id` is shared by
+Solitary and Scheduled work, so the nav lights the tab for the WorkDef's type
+(Solitary → Tasks, Scheduled → Schedule). **Back means back**: it returns to the
+page you came from (router history); only with no in-app history (a fresh tab)
+does it fall back — to that same section's list — and pages you've just created
+or deleted replace their history entry so Back never lands on a stale form or a
+deleted item (`ui/src/lib/nav-section.ts`).
+
 ## A Phone Is a Peek
 
 On a phone the app is a **separate shell at `/m`** (`ui/src/mobile/`), not the

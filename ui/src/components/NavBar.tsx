@@ -13,31 +13,36 @@
  * Config is shown as a gear icon beside the theme toggle. Backlog/Archive/
  * Workflows are tabs within the Board surface (see BoardTabs), so the Board
  * link highlights for those routes (and story/task detail) too.
+ *
+ * Which link is lit comes from lib/nav-section.ts. `/work-defs/*` is shared by
+ * several sections, so on a WorkDef page the bar looks up the WorkDef's type
+ * (Solitary → Tasks, Scheduled → Schedule).
  */
 
+import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
 import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn } from "lucide-react";
 import { apiPost, useApi } from "@/hooks/useApi";
+import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 
 /** Primary nav items always visible in the bar */
-const NAV_ITEMS = [
-  { path: "/thoughts", label: "Thoughts", prefixes: [] },
-  // prefixes: routes that count as "within" this section for highlighting.
-  // /work-defs routes are intentionally NOT claimed by any single tab because
-  // they are shared across Tasks (Solitary), Schedule (Scheduled), and Templates.
-  { path: "/board", label: "Board", prefixes: ["/backlog", "/archived", "/workflows", "/story", "/stories", "/task"] },
-  { path: "/tasks", label: "Tasks", prefixes: ["/templates"] },
-  { path: "/schedule", label: "Schedule", prefixes: [] },
-  { path: "/context", label: "Context", prefixes: [] },
+const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection }> = [
+  { path: "/thoughts", label: "Thoughts", section: "thoughts" },
+  { path: "/board", label: "Board", section: "board" },
+  { path: "/tasks", label: "Tasks", section: "tasks" },
+  { path: "/schedule", label: "Schedule", section: "schedule" },
+  { path: "/context", label: "Context", section: "context" },
 ];
 
 export function NavBar() {
   const location = useLocation();
+  const workDefType = useWorkDefTypeForPath(location.pathname);
+  const activeSection = navSectionForPath(location.pathname, { search: location.search, workDefType });
 
-  const linkClass = (path: string, prefixes: string[] = []) =>
+  const linkClass = (section: NavSection) =>
     `px-2 @2xl:px-3 py-1.5 text-sm rounded-md transition-colors ${
-      location.pathname === path || prefixes.some((p) => location.pathname.startsWith(p))
+      activeSection === section
         ? "bg-accent text-accent-foreground font-medium"
         : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
     }`;
@@ -52,7 +57,7 @@ export function NavBar() {
 
         <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
           {NAV_ITEMS.map((item) => (
-            <Link key={item.path} to={item.path} className={`shrink-0 whitespace-nowrap ${linkClass(item.path, item.prefixes)}`}>
+            <Link key={item.path} to={item.path} className={`shrink-0 whitespace-nowrap ${linkClass(item.section)}`}>
               {item.label}
             </Link>
           ))}
@@ -100,6 +105,32 @@ export function NavBar() {
       </div>
     </header>
   );
+}
+
+/**
+ * On `/work-defs/:id`, the WorkDef's type (Solitary/Scheduled/…), which decides
+ * the lit nav section; null elsewhere or until it loads. Fetched here (rather
+ * than pushed up from the page) so deep links highlight correctly too.
+ */
+function useWorkDefTypeForPath(pathname: string): string | null {
+  const match = /^\/work-defs\/([^/]+)\/?$/.exec(pathname);
+  const id = match?.[1] && match[1] !== "new" ? decodeURIComponent(match[1]) : null;
+  const [loaded, setLoaded] = useState<{ id: string; type: string | null } | null>(null);
+
+  useEffect(() => {
+    if (!id) return;
+    let cancelled = false;
+    fetch(`/api/work-defs/${encodeURIComponent(id)}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((json: { workDef?: { type?: string } } | null) => {
+        if (!cancelled) setLoaded({ id, type: json?.workDef?.type ?? null });
+      })
+      .catch(() => { if (!cancelled) setLoaded({ id, type: null }); });
+    return () => { cancelled = true; };
+  }, [id]);
+
+  // Ignore a result for a different WorkDef (stale until the new fetch lands).
+  return id && loaded?.id === id ? loaded.type : null;
 }
 
 /**

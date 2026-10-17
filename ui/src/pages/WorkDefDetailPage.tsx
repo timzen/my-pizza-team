@@ -31,11 +31,12 @@ import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { FileViewer } from "@/components/viewer/FileViewer";
 import { Save, Trash2, Play, CalendarClock, Zap, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
+import { workDefHomePath } from "@/lib/nav-section";
 
 interface WorkDef {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled" | "Board";
+  type: "Solitary" | "Scheduled" | "Board" | "Triage";
   parent?: { kind: "story" | "schedule"; id: string };
   goal: string;
   acceptanceCriteria?: string;
@@ -114,7 +115,9 @@ export function WorkDefDetailPage() {
     );
   }
 
-  const backTo = def.type === "Scheduled" ? "/schedule" : "/tasks";
+  // Back fallback / post-delete landing: the list this WorkDef type lives on
+  // (the same section the NavBar highlights for it).
+  const backTo = workDefHomePath(def.type);
 
   const handleSave = async () => {
     setError("");
@@ -137,7 +140,8 @@ export function WorkDefDetailPage() {
   const remove = async () => {
     if (!confirm(`Delete "${def.title}"? This can't be undone.`)) return;
     await apiDelete(`/api/work-defs/${def.id}`);
-    navigate(backTo);
+    // replace: the deleted page must not be a Back target.
+    navigate(backTo, { replace: true });
   };
 
   const addComment = async () => {

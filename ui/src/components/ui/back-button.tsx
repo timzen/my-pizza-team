@@ -3,14 +3,18 @@
  *
  * Uses the router history (`navigate(-1)`) so, e.g., a task opened from the
  * backlog goes back to the backlog rather than always to the board. On a fresh
- * page load (no in-app history — `location.key === "default"`), it falls back to
- * the provided `fallback` route so the button is never a dead end.
+ * page load (no in-app history), it falls back to the provided `fallback` route
+ * so the button is never a dead end. "In-app history" is read from the router's
+ * `history.state.idx` (lib/nav-section.ts `canGoBackInApp`), not `location.key`:
+ * the key changes on any replace (e.g. switching Details/Thread), which made a
+ * fresh-load Back leave the app instead of using the fallback.
  *
  * Two shapes: icon-only (default) or with a text `label`.
  */
 
-import { useNavigate, useLocation } from "react-router-dom";
+import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
+import { canGoBackInApp } from "@/lib/nav-section";
 
 export function BackButton({
   fallback,
@@ -26,11 +30,12 @@ export function BackButton({
   className?: string;
 }) {
   const navigate = useNavigate();
-  const location = useLocation();
 
   const goBack = () => {
-    if (location.key !== "default") navigate(-1);
-    else navigate(fallback);
+    if (canGoBackInApp(globalThis.history?.state)) navigate(-1);
+    // replace: the fallback stands in for "back", so it shouldn't leave this
+    // page behind as a forward-only entry the next Back would bounce into.
+    else navigate(fallback, { replace: true });
   };
 
   const base = label

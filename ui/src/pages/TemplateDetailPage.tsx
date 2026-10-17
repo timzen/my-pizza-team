@@ -82,7 +82,7 @@ export function TemplateDetailPage() {
   const remove = async () => {
     if (!confirm(`Delete template "${tpl.title}"? This can't be undone.`)) return;
     await apiDelete(`/api/templates/${tpl.id}`);
-    navigate("/templates");
+    navigate("/templates", { replace: true });
   };
 
   return (

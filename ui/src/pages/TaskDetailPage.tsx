@@ -161,7 +161,7 @@ export function TaskDetailPage() {
     // Delete via the task endpoint: it drops the task from the story's list and
     // frees the CONWIP token (the plain WorkDef delete wouldn't).
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (res.success) navigate("/board");
+    if (res.success) navigate("/board", { replace: true });
     else setEditError(res.error || "Failed to delete");
   };
 

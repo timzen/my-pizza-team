@@ -85,7 +85,7 @@ export function StoryDetailPage() {
   const handleDelete = async () => {
     if (!confirm(`Delete story "${story.id}"?`)) return;
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/stories/${story.id}`);
-    if (res.success) navigate("/board");
+    if (res.success) navigate("/board", { replace: true });
     else setError(res.error || "Failed to delete");
   };
 
