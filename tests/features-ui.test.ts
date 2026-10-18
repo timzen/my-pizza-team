@@ -28,14 +28,14 @@ Deno.test("featureForProposalKind matches the daemon's gate", () => {
 });
 
 Deno.test("featureForPath: each kind's pages, and ungated ones", () => {
-  for (const p of ["/work-items/board", "/board", "/config/workflows", "/config/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
+  for (const p of ["/work/board", "/board", "/config/workflows", "/config/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
     assertEquals(featureForPath(p), "stories", p);
   }
-  for (const p of ["/work-items/tasks", "/tasks", "/templates", "/templates/atlas"]) assertEquals(featureForPath(p), "tasks", p);
-  assertEquals(featureForPath("/work-items/schedule"), "schedules");
+  for (const p of ["/work/tasks", "/tasks", "/templates", "/templates/atlas"]) assertEquals(featureForPath(p), "tasks", p);
+  assertEquals(featureForPath("/work/schedule"), "schedules");
   assertEquals(featureForPath("/schedule"), "schedules");
   // Work's Pending and Archived tabs mix every kind, so they aren't gated on one.
-  for (const p of ["/work-items", "/work-items/pending", "/work-items/archived", "/pending", "/backlog", "/archived"]) {
+  for (const p of ["/work", "/work/pending", "/work/archived", "/pending", "/backlog", "/archived"]) {
     assertEquals(featureForPath(p), null, p);
   }
   for (const p of ["/", "/queue", "/thoughts", "/thoughts/n1/triage", "/config", "/config/context", "/config/triage", "/config/theme", "/help", "/usage", "/work-defs/w1"]) {

@@ -1,5 +1,5 @@
 /**
- * SchedulePage — Work → Schedule (`/work-items/schedule`): active
+ * SchedulePage — Work → Schedule (`/work/schedule`): active
  * Scheduled WorkDefs.
  *
  * Scheduled work is cron-driven: the daemon's scheduler enqueues a fresh

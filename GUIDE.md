@@ -70,11 +70,11 @@ The nav bar has two destinations, plus pause / **usage** / help / config / theme
 
 - **Thoughts** — sticky notes, where ideas start: a canvas, or a list with folders.
 - **Work** — all your work, in five tabs:
-  - **Board** (`/work-items/board`) — active stories as swimlanes.
-  - **Tasks** (`/work-items/tasks`) — active standalone Solitary tasks.
-  - **Schedule** (`/work-items/schedule`) — active cron-driven Scheduled jobs.
-  - **Pending** (`/work-items/pending`) — everything held back until you activate it: stories, tasks, and scheduled jobs, in one list.
-  - **Archived** (`/work-items/archived`) — retired stories, tasks, and jobs, in one list (restore or delete tasks and jobs here).
+  - **Board** (`/work/board`) — active stories as swimlanes.
+  - **Tasks** (`/work/tasks`) — active standalone Solitary tasks.
+  - **Schedule** (`/work/schedule`) — active cron-driven Scheduled jobs.
+  - **Pending** (`/work/pending`) — everything held back until you activate it: stories, tasks, and scheduled jobs, in one list.
+  - **Archived** (`/work/archived`) — retired stories, tasks, and jobs, in one list (restore or delete tasks and jobs here).
 
 **Pending** and **Archived** are each one mixed list. Every row has a type badge (**Story**, **Task**, or **Schedule**), its title, its directory, and a time when there is one (when a story was archived, otherwise when the task or job last ran) — newest first; rows with no time come last, by title. Click a row to open it. The chips at the top — **Stories · Tasks · Schedules**, each with its count — narrow the list (all on to start; click to turn one off or on), and the search box matches a title, id, or directory. On **Pending**, each row has **Activate** and an archive button; on **Archived**, tasks and jobs have **Restore** and **Delete**. Archived stories can't be restored — click one to read its synopsis. Board tasks aren't listed on their own: a pending board task waits in its story's swimlane on the **Board** (open it there to **Activate** it).
 
@@ -110,7 +110,7 @@ If a teammate's model call kept failing (say, Bedrock was unavailable) the item 
 
 ## The Board
 
-The board (**Work → Board**, `/work-items/board`) shows active stories as horizontal swimlanes with task cards arranged by workflow state.
+The board (**Work → Board**, `/work/board`) shows active stories as horizontal swimlanes with task cards arranged by workflow state.
 
 ### Creating a Story
 

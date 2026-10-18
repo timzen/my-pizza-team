@@ -1,6 +1,6 @@
 /**
- * LifecyclePage — Work → Pending (`/work-items/pending`) and Work →
- * Archived (`/work-items/archived`): one mixed list of the stories, standalone
+ * LifecyclePage — Work → Pending (`/work/pending`) and Work →
+ * Archived (`/work/archived`): one mixed list of the stories, standalone
  * tasks, and scheduled jobs in that state (docs/DESIGN.md "Pending: Write,
  * Review, Activate"). Board, Tasks, and Schedule list active work only, so
  * this is where held-back work is activated and retired work restored.

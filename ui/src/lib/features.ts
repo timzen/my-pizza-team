@@ -93,7 +93,7 @@ export function featureForPath(pathname: string, search = ""): FeatureName | nul
   if (first === "work-defs") return segments[1] === "new" ? featureForWorkDefForm(search) : null;
   // Config's Workflows tab (and a workflow's detail) only applies to stories.
   if (first === "config") return segments[1] === "workflows" ? "stories" : null;
-  if (first === "work-items") return WORK_ITEMS_TAB_FEATURES[segments[1] ?? ""] ?? null;
+  if (first === "work") return WORK_ITEMS_TAB_FEATURES[segments[1] ?? ""] ?? null;
   return SEGMENT_FEATURES[first] ?? null;
 }
 

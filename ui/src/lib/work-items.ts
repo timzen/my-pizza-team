@@ -1,18 +1,18 @@
 /**
  * lib/work-items.ts — The Work surface: its sub-tabs (Board · Tasks ·
  * Schedule · Pending · Archived), which of them a team's feature toggles show,
- * where `/work-items` lands, where the pre-Work-Items URLs now live, and the
+ * where `/work` lands, where the pre-Work-Items URLs now live, and the
  * "active only" rule the Schedule tab lists by (standalone tasks use
  * lib/pending.ts `filterByPending`).
  *
  * One top-nav item ("Work") replaced the separate Board, Tasks, and
- * Schedule links; each became a route-driven sub-tab (`/work-items/<tab>`).
+ * Schedule links; each became a route-driven sub-tab (`/work/<tab>`).
  * Board, Tasks, and Schedule show **active** work only — pending and archived
  * work of every kind lives on the Pending and Archived tabs (docs/DESIGN.md
  * "Pending: Write, Review, Activate").
  *
  * **External sources** (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins")
- * get one generic, read-only tab each — `/work-items/source/<id>`, labelled by
+ * get one generic, read-only tab each — `/work/source/<id>`, labelled by
  * the source — between Schedule and Pending, and none at all when no external
  * source is registered (`/api/status` `externalSources`). They aren't feature
  * toggles: a registered source's tab always shows.
@@ -27,7 +27,7 @@ import type { FeatureName, Features } from "./features.ts";
 export type WorkItemsTab = "board" | "tasks" | "schedule" | "pending" | "archived";
 
 /** The surface's base route; each tab lives at `${WORK_ITEMS_ROOT}/<tab>`. */
-export const WORK_ITEMS_ROOT = "/work-items";
+export const WORK_ITEMS_ROOT = "/work";
 
 /** A sub-tab's route, label, and the work-item kinds it shows. */
 export interface WorkItemsTabDef {
@@ -58,7 +58,7 @@ export interface ExternalSourceInfo {
   label: string;
 }
 
-/** The path segment under the root for external-source tabs (`/work-items/source/<id>`). */
+/** The path segment under the root for external-source tabs (`/work/source/<id>`). */
 const SOURCE_SEGMENT = "source";
 
 /** An external source's tab route. */
@@ -66,10 +66,10 @@ export function externalSourcePath(sourceId: string): string {
   return `${WORK_ITEMS_ROOT}/${SOURCE_SEGMENT}/${encodeURIComponent(sourceId)}`;
 }
 
-/** The external source a `/work-items/source/<id>` route shows, or null for any other route. */
+/** The external source a `/work/source/<id>` route shows, or null for any other route. */
 export function externalSourceIdFromPath(pathname: string): string | null {
   const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "work-items" || segments[1] !== SOURCE_SEGMENT || segments.length !== 3) return null;
+  if (segments[0] !== "work" || segments[1] !== SOURCE_SEGMENT || segments.length !== 3) return null;
   try {
     return decodeURIComponent(segments[2]!);
   } catch {
@@ -106,7 +106,7 @@ export function workItemsTabLinks(features: Features | null, sources: readonly E
   return [...visible.filter((t) => !lifecycle(t)).map(toLink), ...external, ...visible.filter(lifecycle).map(toLink)];
 }
 
-/** The route of one sub-tab (e.g. `workItemsPath("board")` → `/work-items/board`). */
+/** The route of one sub-tab (e.g. `workItemsPath("board")` → `/work/board`). */
 export function workItemsPath(tab: WorkItemsTab): string {
   return `${WORK_ITEMS_ROOT}/${tab}`;
 }
@@ -131,17 +131,17 @@ export function hasAnyWorkItemsFeature(features: Features | null, sources: reado
 }
 
 /**
- * Where `/work-items` lands: the first tab shown, or null while the toggles are
+ * Where `/work` lands: the first tab shown, or null while the toggles are
  * loading or when every kind is off and no external source is registered.
  */
 export function defaultWorkItemsPath(features: Features | null, sources: readonly ExternalSourceInfo[] | null = null): string | null {
   return workItemsTabLinks(features, sources)[0]?.path ?? null;
 }
 
-/** The sub-tab a `/work-items/<tab>` route shows, or null for any other route. */
+/** The sub-tab a `/work/<tab>` route shows, or null for any other route. */
 export function workItemsTabFromPath(pathname: string): WorkItemsTab | null {
   const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] !== "work-items" || segments.length !== 2) return null;
+  if (segments[0] !== "work" || segments.length !== 2) return null;
   return WORK_ITEMS_TABS.find((t) => t.tab === segments[1])?.tab ?? null;
 }
 
@@ -156,6 +156,8 @@ export function workItemsTabFromPath(pathname: string): WorkItemsTab | null {
 export function legacyWorkItemsPath(pathname: string): string | null {
   const segments = pathname.split("/").filter(Boolean);
   const [first] = segments;
+  // The surface's old root: `/work-items[/...]` → `/work[/...]`, rest kept as-is.
+  if (first === "work-items") return [WORK_ITEMS_ROOT, ...segments.slice(1)].join("/");
   if (first === "templates" && segments.length <= 2) return workItemsPath("tasks");
   if (segments.length !== 1) return null;
   switch (first) {

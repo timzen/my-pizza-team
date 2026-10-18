@@ -425,7 +425,7 @@ content hash as the revision) is the only one, registered by tests or by
   another. (This is in-process isolation; running a plugin in a Worker or
   subprocess is part of the deferred package-loading work.)
 - **A generic UI.** Each registered external source gets a read-only Work
-  tab (`/work-items/source/<id>`): its mirrors with the external link, last
+  tab (`/work/source/<id>`): its mirrors with the external link, last
   revision, latest WorkItem state, and run count. A mirror's detail is the
   ordinary WorkDef page with editing off and **Open in <source>**. No source,
   no tab.

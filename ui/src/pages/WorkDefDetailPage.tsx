@@ -114,7 +114,7 @@ export function WorkDefDetailPage() {
   if (!def) {
     return (
       <div className="container mx-auto p-6">
-        <p className="text-muted-foreground">Work not found. <Link to="/work-items/tasks" className="underline">Back to Tasks</Link></p>
+        <p className="text-muted-foreground">Work not found. <Link to="/work/tasks" className="underline">Back to Tasks</Link></p>
       </div>
     );
   }

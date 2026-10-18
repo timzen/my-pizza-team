@@ -11,7 +11,7 @@
  * - Expand/collapse per story (chevron) plus Expand all / Collapse all over the
  *   visible stories; state is lifted here (`useStoryCollapse`) and persisted
  *   per story in localStorage. Search does not auto-expand collapsed stories.
- * - Lives at Work → Board (`/work-items/board`, under the WorkItemsTabs
+ * - Lives at Work → Board (`/work/board`, under the WorkItemsTabs
  *   bar) and shows **active** stories only. Pending and archived stories are
  *   rows of the mixed lists on Work → Pending / Archived
  *   (pages/LifecyclePage.tsx).

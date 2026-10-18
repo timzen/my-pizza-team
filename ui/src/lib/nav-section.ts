@@ -15,7 +15,7 @@
  * Board, Tasks, and Schedule used to be three nav sections; they are now
  * sub-tabs of the one **Work** section (lib/work-items.ts), which also
  * claims story/task/WorkDef detail pages. The old top-level list URLs redirect
- * into `/work-items/*` but are still mapped here, so the redirect's first
+ * into `/work/*` but are still mapped here, so the redirect's first
  * render lights the right item.
  */
 
@@ -34,11 +34,13 @@ export type WorkDefKind = "Solitary" | "Scheduled" | "Board" | "Triage" | "Templ
  */
 const SEGMENT_SECTIONS: Record<string, NavSection> = {
   thoughts: "thoughts",
+  work: "work-items",
+  // The surface's old root (`/work-items/*` redirects to `/work/*`).
   "work-items": "work-items",
   story: "work-items",
   stories: "work-items",
   task: "work-items",
-  // Legacy list routes (redirect into /work-items/*).
+  // Legacy list routes (redirect into /work/*).
   board: "work-items",
   tasks: "work-items",
   schedule: "work-items",

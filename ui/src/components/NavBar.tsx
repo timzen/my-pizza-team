@@ -4,7 +4,7 @@
  * into Config → Context; see lib/config-tabs.ts.)
  * Work replaced the separate Board, Tasks, and Schedule links: they are
  * its sub-tabs now (Board · Tasks · Schedule · Pending · Archived — see
- * WorkItemsTabs, lib/work-items.ts). It links to `/work-items`, which lands on
+ * WorkItemsTabs, lib/work-items.ts). It links to `/work`, which lands on
  * the first enabled tab, and is hidden only while all three kinds (Stories,
  * Tasks, Schedules) are switched off in Config (hooks/useFeatures).
  * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
@@ -24,7 +24,7 @@
  * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
  * Config is shown as a gear icon beside the theme toggle, lit for every
  * `/config/*` route — including its Workflows and Context tabs. Work is
- * lit for every `/work-items/*` tab and for story/task detail pages.
+ * lit for every `/work/*` tab and for story/task detail pages.
  *
  * Which link is lit comes from lib/nav-section.ts. `/work-defs/*` is shared by
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type

@@ -1,14 +1,14 @@
 /**
  * WorkItemsTabs — The Work surface's sub-tab bar (Board · Tasks ·
  * Schedule · Pending · Archived), rendered with the shared RouteTabs control so
- * every tab is a deep-linkable `/work-items/<tab>` route. Replaced the old
+ * every tab is a deep-linkable `/work/<tab>` route. Replaced the old
  * BoardTabs (Board/Pending/Archive) and TasksTabs (Items/Templates).
  *
  * Which tabs show follows the feature toggles (lib/work-items.ts
  * `visibleWorkItemsTabs`): Board needs Stories, Tasks needs Tasks, Schedule
  * needs Schedules; Pending and Archived mix every kind, so they stay while any
  * kind is on. Each registered external Work Source adds a read-only tab of its
- * own (`/work-items/source/<id>`, before Pending); none registered, none shown.
+ * own (`/work/source/<id>`, before Pending); none registered, none shown.
  *
  * `WorkItemsLayout` frames every Work tab with the shared
  * TabbedPageLayout (title + this tab bar pinned upper-left), so the header sits

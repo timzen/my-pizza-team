@@ -67,7 +67,7 @@ export function StoryDetailPage() {
   if (!story) {
     return (
       <div className="container mx-auto p-6">
-        <p className="text-muted-foreground">Story not found. <Link to="/work-items/board" className="underline">Back to board</Link></p>
+        <p className="text-muted-foreground">Story not found. <Link to="/work/board" className="underline">Back to board</Link></p>
       </div>
     );
   }
@@ -86,7 +86,7 @@ export function StoryDetailPage() {
   const handleDelete = async () => {
     if (!confirm(`Delete story "${story.id}"?`)) return;
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/stories/${story.id}`);
-    if (res.success) navigate("/work-items/board", { replace: true });
+    if (res.success) navigate("/work/board", { replace: true });
     else setError(res.error || "Failed to delete");
   };
 
@@ -95,14 +95,14 @@ export function StoryDetailPage() {
     setError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, {});
     if (res.success) {
-      navigate("/work-items/board");
+      navigate("/work/board");
       return;
     }
     // If the error indicates not all tasks are done, offer force-archive
     if (res.error && res.error.includes("Not all tasks are done")) {
       if (!confirm("Not all tasks are done. Archive anyway?")) return;
       const forceRes = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, { force: true });
-      if (forceRes.success) navigate("/work-items/board");
+      if (forceRes.success) navigate("/work/board");
       else setError(forceRes.error || "Failed to archive");
     } else {
       setError(res.error || "Failed to archive");
@@ -144,7 +144,7 @@ export function StoryDetailPage() {
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       {/* Top bar: back to board + save/delete actions */}
       <div className="flex items-center justify-between">
-        <BackButton fallback="/work-items/board" label="Back to board" />
+        <BackButton fallback="/work/board" label="Back to board" />
         <div className="flex items-center gap-1">
           <Button variant="ghost" size="icon" onClick={handleSave} title="Save changes">
             <Save className="h-4 w-4" />

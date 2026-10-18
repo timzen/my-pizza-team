@@ -22,10 +22,10 @@
  * `/config/workflows[/:name]`); their old top-level URLs redirect there with
  * `replace` (lib/config-tabs.ts `legacyConfigPath`).
  *
- * Board, Tasks, and Schedule are sub-tabs of **Work** (`/work-items/board
- * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work-items` lands on
+ * Board, Tasks, and Schedule are sub-tabs of **Work** (`/work/board
+ * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work` lands on
  * the first enabled tab. Each registered external Work Source adds a read-only
- * tab at `/work-items/source/:sourceId` (pages/ExternalSourcePage). Their old top-level URLs (`/board`, `/tasks`,
+ * tab at `/work/source/:sourceId` (pages/ExternalSourcePage). Their old top-level URLs (`/board`, `/tasks`,
  * `/schedule`, `/pending`, `/backlog`, `/archived`) redirect there with
  * `replace`. Templates are hidden from the UI (being deprecated — the daemon's
  * template API and data are untouched); `/templates[/:id]` redirects to Tasks.
@@ -105,16 +105,17 @@ function DesktopShell() {
             <Route path="/thoughts/:id/triage" element={<TriagePage />} />
             <Route path="/queue" element={<RootPage />} />
             {/* Work: Board · Tasks · Schedule · Pending · Archived (lib/work-items.ts). */}
-            <Route path="/work-items" element={<WorkItemsIndexRedirect />} />
-            <Route path="/work-items/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
-            <Route path="/work-items/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
-            <Route path="/work-items/schedule" element={<FeatureRoute feature="schedules"><SchedulePage /></FeatureRoute>} />
+            <Route path="/work" element={<WorkItemsIndexRedirect />} />
+            <Route path="/work/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
+            <Route path="/work/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
+            <Route path="/work/schedule" element={<FeatureRoute feature="schedules"><SchedulePage /></FeatureRoute>} />
             {/* Pending and Archived: one mixed list each; a switched-off kind's rows and chip are hidden. */}
-            <Route path="/work-items/pending" element={<LifecyclePage key="pending" state="pending" />} />
-            <Route path="/work-items/archived" element={<LifecyclePage key="archived" state="archived" />} />
+            <Route path="/work/pending" element={<LifecyclePage key="pending" state="pending" />} />
+            <Route path="/work/archived" element={<LifecyclePage key="archived" state="archived" />} />
             {/* One generic, read-only tab per external (pull-only) Work Source (docs/DESIGN.md "Work Sources"). */}
-            <Route path="/work-items/source/:sourceId" element={<ExternalSourcePage />} />
+            <Route path="/work/source/:sourceId" element={<ExternalSourcePage />} />
             {/* The pre-Work-Items URLs (and the hidden Templates) keep working. */}
+            <Route path="/work-items/*" element={<LegacyWorkItemsRedirect />} />
             <Route path="/board" element={<LegacyWorkItemsRedirect />} />
             <Route path="/tasks" element={<LegacyWorkItemsRedirect />} />
             <Route path="/schedule" element={<LegacyWorkItemsRedirect />} />
@@ -165,11 +166,11 @@ function LegacyConfigRedirect() {
  */
 function LegacyWorkItemsRedirect() {
   const { pathname, search } = useLocation();
-  return <Navigate to={(legacyWorkItemsPath(pathname) ?? "/work-items") + search} replace />;
+  return <Navigate to={(legacyWorkItemsPath(pathname) ?? "/work") + search} replace />;
 }
 
 /**
- * `/work-items` → its first enabled sub-tab. Nothing until the toggles load;
+ * `/work` → its first enabled sub-tab. Nothing until the toggles load;
  * with every kind switched off, the "turned off" notice.
  */
 function WorkItemsIndexRedirect() {

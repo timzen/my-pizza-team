@@ -20,7 +20,7 @@ import {
 } from "../ui/src/lib/nav-section.ts";
 
 Deno.test("navSectionForPath: list pages map to their own section only", () => {
-  for (const p of ["/work-items", "/work-items/board", "/work-items/tasks", "/work-items/schedule", "/work-items/pending", "/work-items/archived"]) {
+  for (const p of ["/work", "/work/board", "/work/tasks", "/work/schedule", "/work/pending", "/work/archived"]) {
     assertEquals(navSectionForPath(p), "work-items", p);
   }
   assertEquals(navSectionForPath("/thoughts"), "thoughts");
@@ -62,13 +62,13 @@ Deno.test("sectionForWorkDefType: unknown types have no section", () => {
 });
 
 Deno.test("workDefHomePath: Back fallback is the WorkDef's Work sub-tab", () => {
-  assertEquals(workDefHomePath("Solitary"), "/work-items/tasks");
-  assertEquals(workDefHomePath("Scheduled"), "/work-items/schedule");
+  assertEquals(workDefHomePath("Solitary"), "/work/tasks");
+  assertEquals(workDefHomePath("Scheduled"), "/work/schedule");
   // Templates are hidden from the UI; their Back lands on Tasks.
-  assertEquals(workDefHomePath("Template"), "/work-items/tasks");
-  assertEquals(workDefHomePath("Board"), "/work-items/board");
+  assertEquals(workDefHomePath("Template"), "/work/tasks");
+  assertEquals(workDefHomePath("Board"), "/work/board");
   assertEquals(workDefHomePath("Triage"), "/thoughts");
-  assertEquals(workDefHomePath(undefined), "/work-items/tasks");
+  assertEquals(workDefHomePath(undefined), "/work/tasks");
   // The fallback's section is the same one the NavBar highlights for that type.
   for (const t of ["Solitary", "Scheduled", "Template", "Board", "Triage"]) {
     assertEquals(navSectionForPath(workDefHomePath(t)), sectionForWorkDefType(t), t);

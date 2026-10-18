@@ -1,5 +1,5 @@
 /**
- * TasksPage — Work → Tasks (`/work-items/tasks`): active Solitary WorkDefs.
+ * TasksPage — Work → Tasks (`/work/tasks`): active Solitary WorkDefs.
  *
  * Solitary work is standalone one-shot work that doesn't live on the board:
  * define it once, enqueue it (now or later), review the outcome in the Inbox.

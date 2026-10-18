@@ -1,5 +1,5 @@
 /**
- * ExternalSourcePage — Work → <source> (`/work-items/source/:sourceId`):
+ * ExternalSourcePage — Work → <source> (`/work/source/:sourceId`):
  * the generic, read-only view of one external (pull-only) Work Source.
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins" (external sources).
  *
