@@ -59,7 +59,7 @@ my-pizza-team/
 ├── shared/                   # Types, protocol, utilities
 ├── harnesses/
 │   └── pi/                   # The Pi extension (its own package.json; npm test)
-├── scripts/                  # build, publish, sync-version
+├── scripts/                  # publish, macOS app packaging, sync-version
 └── tests/                    # Fast tests (npm test, node:test); tests/e2e/ is the slow suite
                               #   (npm run test:e2e) — real git, tmux, and shell
 ```

@@ -12,7 +12,9 @@ A system tray app for Windows that manages the mpt daemon.
 
 ## Usage
 
-1. Place `mpt.exe` (from the release) in this directory
+1. Install mpt: `npm i -g my-pizza-team` (Node.js 24+). The tray app runs the
+   `mpt` npm puts on PATH. It is not a release asset any more; copy `tray.ps1` and
+   `My Pizza Team.bat` from this directory.
 2. Double-click `My Pizza Team.bat`
 
 Or run directly:
@@ -25,7 +27,7 @@ powershell -ExecutionPolicy Bypass -File tray.ps1
 To start automatically when you log in:
 
 1. Press `Win+R`, type `shell:startup`, press Enter
-2. Copy `My Pizza Team.bat` (and `mpt.exe` + `tray.ps1`) into that folder
+2. Copy `My Pizza Team.bat` (and `tray.ps1`) into that folder
 
 Or create a shortcut to the bat file in the startup folder.
 

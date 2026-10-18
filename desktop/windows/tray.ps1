@@ -10,7 +10,8 @@
     - Status display (running/stopped)
 
 .NOTES
-    Place mpt.exe in the same directory as this script, or ensure it's in PATH.
+    Install mpt with `npm i -g my-pizza-team` (puts mpt.cmd on PATH), or place a
+    legacy mpt.exe in the same directory as this script.
     Run: powershell -ExecutionPolicy Bypass -File tray.ps1
 #>
 
@@ -29,9 +30,11 @@ function Find-MptBinary {
     $local = Join-Path $PSScriptRoot "mpt.exe"
     if (Test-Path $local) { return $local }
 
-    # In PATH
-    $inPath = Get-Command "mpt.exe" -ErrorAction SilentlyContinue
-    if ($inPath) { return $inPath.Source }
+    # In PATH: npm's shim (mpt.cmd) for the npm package, or a legacy mpt.exe
+    foreach ($name in @("mpt.cmd", "mpt.exe")) {
+        $inPath = Get-Command $name -ErrorAction SilentlyContinue
+        if ($inPath) { return $inPath.Source }
+    }
 
     return $null
 }
@@ -41,7 +44,7 @@ function Start-Daemon {
     $binary = Find-MptBinary
     if (-not $binary) {
         [System.Windows.Forms.MessageBox]::Show(
-            "mpt.exe not found. Place it next to this script or add to PATH.",
+            "mpt not found. Install it with: npm i -g my-pizza-team",
             "My Pizza Team", "OK", "Error")
         return
     }

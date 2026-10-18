@@ -5,7 +5,8 @@
  * - Starting/stopping the daemon subprocess
  * - Health check polling
  * - Preferences persistence (teamDir, port)
- * - Finding the mpt binary (bundled or in PATH)
+ * - Finding mpt: the saved Node (~/.config/mpt/runtime.json) running the
+ *   installed npm package, else `mpt` on the login shell's PATH
  */
 
 import Foundation
@@ -27,6 +28,8 @@ class DaemonManager {
     /// Whether a leader coordinator is connected (from /health).
     var leaderPresent: Bool = false
     var lastError: String?
+    /// Set when the last start found no mpt to run; the menu shows it instead of a log error.
+    var installHint: String?
     private var process: Process?
 
     /// Built-in leader launch command. Runs via the user's login shell.
@@ -100,45 +103,150 @@ class DaemonManager {
             .replacingOccurrences(of: "{url}", with: "http://localhost:\(port)")
     }
 
-    /// Find the mpt binary path
-    private func findBinary() -> String? {
-        // Check alongside this app bundle
-        if let bundlePath = Bundle.main.executableURL?.deletingLastPathComponent().appendingPathComponent("mpt") {
-            if FileManager.default.isExecutableFile(atPath: bundlePath.path) {
-                return bundlePath.path
-            }
+    // MARK: - Finding mpt
+
+    /// How to run mpt: the executable, the arguments before mpt's own (the package
+    /// entry when launching through node), and the PATH to give it.
+    struct MptLaunch {
+        let executable: String
+        let leadingArguments: [String]
+        let path: String?
+    }
+
+    /// Shown in the menu when mpt can't be found at all.
+    static let installHintText = "mpt not found. Install with `npm i -g my-pizza-team`, then run `mpt setup`"
+
+    /// Find how to launch mpt. mpt is an npm package run by Node, so the app no
+    /// longer bundles a binary. In order:
+    ///   1. The saved Node (`MPT_NODE`, else `~/.config/mpt/runtime.json`, written by
+    ///      `mpt setup`/`install`/`upgrade`), running the package entry found next to
+    ///      it — the same Node the launchd service and `mpt upgrade` use.
+    ///   2. `mpt` on the login shell's PATH (a node shebang script; it runs because
+    ///      that PATH also has node).
+    private func findMpt() -> MptLaunch? {
+        let shellPath = loginShellPath()
+
+        if let node = savedNode(), let entry = packageEntry(forNode: node) {
+            let nodeDir = (node as NSString).deletingLastPathComponent
+            // Put the saved Node's directory first so whatever the daemon spawns
+            // (`pi`, other node shebang scripts) finds the same Node.
+            let path = [nodeDir, shellPath ?? ProcessInfo.processInfo.environment["PATH"] ?? ""]
+                .filter { !$0.isEmpty }.joined(separator: ":")
+            return MptLaunch(executable: node, leadingArguments: [entry], path: path)
         }
 
-        // Check /usr/local/bin
-        let usrLocal = "/usr/local/bin/mpt"
-        if FileManager.default.isExecutableFile(atPath: usrLocal) {
-            return usrLocal
+        if let bin = loginShellWhichMpt() {
+            return MptLaunch(executable: bin, leadingArguments: [], path: shellPath)
         }
-
-        // Check in PATH via `which`
-        let which = Process()
-        which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
-        which.arguments = ["mpt"]
-        let pipe = Pipe()
-        which.standardOutput = pipe
-        which.standardError = FileHandle.nullDevice
-        try? which.run()
-        which.waitUntilExit()
-        if which.terminationStatus == 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let path = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !path.isEmpty { return path }
-        }
-
         return nil
     }
 
+    /// The Node that runs mpt: `MPT_NODE`, else the "node" key of
+    /// `~/.config/mpt/runtime.json` (see shared/runtime-config.ts). Kept as written,
+    /// never symlink-resolved, so a Homebrew `/opt/homebrew/bin/node` survives upgrades.
+    private func savedNode() -> String? {
+        let fm = FileManager.default
+        if let env = ProcessInfo.processInfo.environment["MPT_NODE"], !env.isEmpty,
+           fm.isExecutableFile(atPath: env) {
+            return env
+        }
+        let file = fm.homeDirectoryForCurrentUser
+            .appendingPathComponent(".config/mpt/runtime.json")
+        guard let data = try? Data(contentsOf: file),
+              let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let node = json["node"] as? String, !node.isEmpty,
+              fm.isExecutableFile(atPath: node) else {
+            return nil
+        }
+        return node
+    }
+
+    /// The installed package's entry (`.../my-pizza-team/dist/main.js`) for `node`.
+    /// First the `mpt` bin npm links next to node (`<dirname(node)>/mpt` → realpath),
+    /// then — for a custom npm prefix — the global root reported by that Node's npm.
+    private func packageEntry(forNode node: String) -> String? {
+        let fm = FileManager.default
+        let nodeDir = (node as NSString).deletingLastPathComponent
+
+        let bin = (nodeDir as NSString).appendingPathComponent("mpt")
+        if fm.fileExists(atPath: bin) {
+            let real = (bin as NSString).resolvingSymlinksInPath
+            if real.hasSuffix(".js") && fm.fileExists(atPath: real) { return real }
+        }
+
+        // npm is a JS script next to node; run it with this exact node, so the answer
+        // is the prefix `mpt upgrade` installs into.
+        let npm = (nodeDir as NSString).appendingPathComponent("npm")
+        if fm.fileExists(atPath: npm),
+           let root = run(node, [npm, "root", "-g"], path: nodeDir + ":/usr/bin:/bin"),
+           !root.isEmpty {
+            let entry = (root as NSString).appendingPathComponent("my-pizza-team/dist/main.js")
+            if fm.fileExists(atPath: entry) { return entry }
+        }
+        return nil
+    }
+
+    /// The login shell's PATH (GUI apps get a minimal one), the same way App.swift
+    /// runs the leader command through `$SHELL -lc`.
+    private func loginShellPath() -> String? {
+        // A marker, because profile scripts may print their own output.
+        guard let out = runLoginShell("printf '__MPT_PATH__=%s\\n' \"$PATH\"") else { return nil }
+        return markedValue(out, "__MPT_PATH__=")
+    }
+
+    /// `command -v mpt` in the login shell.
+    private func loginShellWhichMpt() -> String? {
+        guard let out = runLoginShell("printf '__MPT_BIN__=%s\\n' \"$(command -v mpt)\"") else { return nil }
+        guard let bin = markedValue(out, "__MPT_BIN__="),
+              FileManager.default.isExecutableFile(atPath: bin) else { return nil }
+        return bin
+    }
+
+    private func runLoginShell(_ command: String) -> String? {
+        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
+        return run(shell, ["-lc", command], path: nil)
+    }
+
+    /// The non-empty value after `marker` on the last line that starts with it.
+    private func markedValue(_ output: String, _ marker: String) -> String? {
+        let line = output.components(separatedBy: "\n").last { $0.hasPrefix(marker) }
+        guard let value = line?.dropFirst(marker.count), !value.isEmpty else { return nil }
+        return String(value)
+    }
+
+    /// Run a command and return its trimmed stdout, or nil if it couldn't run or failed.
+    private func run(_ executable: String, _ arguments: [String], path: String?) -> String? {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: executable)
+        p.arguments = arguments
+        if let path = path {
+            var env = ProcessInfo.processInfo.environment
+            env["PATH"] = path
+            p.environment = env
+        }
+        let pipe = Pipe()
+        p.standardOutput = pipe
+        p.standardError = FileHandle.nullDevice
+        p.standardInput = FileHandle.nullDevice
+        do { try p.run() } catch { return nil }
+        // Read before waiting, so a full pipe can't deadlock the child.
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        p.waitUntilExit()
+        guard p.terminationStatus == 0 else { return nil }
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    // MARK: - Lifecycle
+
     func start() {
         guard !isRunning else { return }
-        guard let binary = findBinary() else {
-            NSLog("mpt binary not found")
+        // Re-resolved on every start, so installing mpt while the app runs just works.
+        guard let mpt = findMpt() else {
+            NSLog("mpt not found")
+            installHint = DaemonManager.installHintText
             return
         }
+        installHint = nil
 
         // Validate team dir exists or can be created
         if !teamDir.isEmpty && !FileManager.default.fileExists(atPath: teamDir) {
@@ -151,9 +259,10 @@ class DaemonManager {
         }
 
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: binary)
-        proc.arguments = ["start"]
+        proc.executableURL = URL(fileURLWithPath: mpt.executable)
+        proc.arguments = mpt.leadingArguments + ["start"]
         var env = ProcessInfo.processInfo.environment
+        if let path = mpt.path { env["PATH"] = path }
         if !teamDir.isEmpty {
             env["TEAM_DIR"] = teamDir
         }
@@ -177,7 +286,7 @@ class DaemonManager {
         do {
             try proc.run()
             self.process = proc
-            NSLog("mpt daemon started (PID: \(proc.processIdentifier)), log: \(logFile)")
+            NSLog("mpt daemon started via \(mpt.executable) (PID: \(proc.processIdentifier)), log: \(logFile)")
         } catch {
             NSLog("Failed to start mpt: \(error)")
         }

@@ -2,43 +2,32 @@
 
 Get a π pizza team running in about five minutes.
 
-You'll need **tmux** (teammates run in tmux windows) and **Node.js 22.19+** (for Pi).
+You'll need **tmux** (teammates run in tmux windows) and **Node.js 24+** (for mpt; Pi itself needs 22.19+).
 Everything below runs in **your project folder** — the repository you want the team
 to work on.
 
 ## 1. Install `mpt`
 
-Download the binary for your platform from
-[GitHub Releases](https://github.com/timzen/my-pizza-team/releases/latest). You need
-**mpt 0.20.0 or later** — earlier releases don't have `setup`, `doctor`, or `lead`.
-
-| Platform | Asset |
-|----------|-------|
-| macOS (Apple Silicon) | `mpt-darwin-arm64` |
-| macOS (Intel) | `mpt-darwin-x64` |
-| Linux (x64) | `mpt-linux-x64` |
-| Linux (ARM64) | `mpt-linux-arm64` |
-| Windows (x64) | `mpt-windows-x64.exe` — daemon and web UI; teammates need tmux, so run them under WSL |
+mpt is an npm package and needs **Node.js 24 or later**:
 
 ```bash
-# Example: macOS Apple Silicon
-curl -L -o mpt https://github.com/timzen/my-pizza-team/releases/latest/download/mpt-darwin-arm64
-chmod +x mpt
-sudo mv mpt /usr/local/bin/
+npm i -g my-pizza-team
 ```
 
-<details>
-<summary>Or build it from source</summary>
+Windows works too (daemon and web UI, no background service); teammates need tmux,
+so run them under WSL. On macOS there is also an optional menu bar app (the DMG on
+[GitHub Releases](https://github.com/timzen/my-pizza-team/releases/latest)); it runs
+the mpt you installed with npm.
 
-Needs [Deno](https://deno.com) 2 and Node.js (the web UI and the daemon's npm dependencies are installed with npm).
+<details>
+<summary>Or run it from source</summary>
 
 ```bash
 git clone https://github.com/timzen/my-pizza-team.git
 cd my-pizza-team
-npm ci                     # the daemon's npm dependencies (hono)
-(cd ui && npm ci)
-deno task compile          # produces ./mpt, with the web UI and Pi extension inside
-sudo mv mpt /usr/local/bin/
+npm ci
+npm run build              # web UI + compiled JS in dist/
+npm i -g .                 # or: npm pack && npm i -g ./my-pizza-team-*.tgz
 ```
 
 </details>

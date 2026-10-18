@@ -2,10 +2,14 @@
 #
 # scripts/package-macos-menubar.sh — Build the macOS menu bar app.
 #
-# Compiles the SwiftUI menu bar app and bundles the mpt binary alongside it.
+# Compiles the SwiftUI menu bar app (universal: arm64 + x86_64) into an .app bundle.
+# The app is only the menu UI: it does not bundle mpt. It runs the npm-installed
+# package with the saved Node (~/.config/mpt/runtime.json), so users install mpt with
+# `npm i -g my-pizza-team` and `mpt setup` (desktop/macos/Sources/DaemonManager.swift).
 # No-ops gracefully on non-macOS platforms.
 #
-# Output: dist/My Pizza Team.app
+# Output: desktop/macos/dist/My Pizza Team.app — not the root dist/, which is the npm
+# package's compiled JS and is wiped by every `npm run build`.
 #
 # Usage:
 #   ./scripts/package-macos-menubar.sh
@@ -22,32 +26,25 @@ if [ "$(uname -s)" != "Darwin" ]; then
   exit 0
 fi
 
-DIST_DIR="$PROJECT_ROOT/dist"
 MACOS_APP_DIR="$PROJECT_ROOT/desktop/macos"
+DIST_DIR="$MACOS_APP_DIR/dist"
 APP_NAME="My Pizza Team"
-BINARY="$DIST_DIR/mpt-darwin-arm64"
-
-# Ensure the mpt binary exists
-if [ ! -f "$BINARY" ]; then
-  echo "❌ mpt binary not found at $BINARY"
-  echo "   Run ./scripts/build.sh darwin-arm64 first"
-  exit 1
-fi
 
 echo "🔨 Building menu bar app..."
 
-# Version shown in the app (menu + Get Info), sourced from deno.json so it
-# stays in sync with the daemon rather than drifting.
-APP_VERSION="$(grep -m1 '"version"' "$PROJECT_ROOT/deno.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+# Version shown in the app (menu + Get Info), sourced from the root package.json so
+# it stays in sync with the npm package rather than drifting.
+APP_VERSION="$(grep -m1 '"version"' "$PROJECT_ROOT/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 if [ -z "$APP_VERSION" ]; then APP_VERSION="0.0.0"; fi
 echo "   Version: $APP_VERSION"
 
-# Build the Swift package
+# Build the Swift package, universal. Possible now that no Deno binary is bundled
+# (lipo broke Deno's V8 memory mapping, which kept the old app arm64-only).
 cd "$MACOS_APP_DIR"
-swift build -c release 2>&1
+swift build -c release --arch arm64 --arch x86_64 2>&1
 
-# Get the built binary
-SWIFT_BINARY="$MACOS_APP_DIR/.build/release/MyPizzaTeamMenu"
+# Get the built binary (multi-arch builds land under .build/apple/)
+SWIFT_BINARY="$(swift build -c release --arch arm64 --arch x86_64 --show-bin-path)/MyPizzaTeamMenu"
 if [ ! -f "$SWIFT_BINARY" ]; then
   echo "❌ Swift build failed — binary not found"
   exit 1
@@ -59,11 +56,9 @@ rm -rf "$APP_DIR"
 mkdir -p "$APP_DIR/Contents/MacOS"
 mkdir -p "$APP_DIR/Contents/Resources"
 
-# Copy binaries
+# Copy the app binary
 cp "$SWIFT_BINARY" "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
-cp "$BINARY" "$APP_DIR/Contents/MacOS/mpt"
 chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
-chmod +x "$APP_DIR/Contents/MacOS/mpt"
 
 # Copy icon
 ICON_FILE="$MACOS_APP_DIR/Resources/AppIcon.icns"
@@ -124,5 +119,6 @@ echo ""
 echo "   To run:"
 echo "     open \"$APP_DIR\""
 echo ""
-echo "   The 🍕 icon will appear in your menu bar."
+echo "   The 🍕 icon will appear in your menu bar. It runs the npm-installed mpt:"
+echo "     npm i -g my-pizza-team && mpt setup"
 echo "   Use it to start/stop the daemon, pick a team dir, and open the UI."

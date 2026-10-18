@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Publish script: sets the next version, updates deno.json (and the generated copies
 # derived from it), commits, creates a git tag, and pushes it. The tag triggers the
-# release workflow.
+# release workflow (.github/workflows/release.yml), which runs the gates and
+# publishes the npm package (`npm publish --provenance`), then creates the GitHub
+# release with the macOS menu bar app's DMG. Nothing is published from this machine.
 #
 # Usage:
 #   ./scripts/publish.sh            # PATCH bump (default)
@@ -99,9 +101,9 @@ fi
 # Propagate to the npm manifests (the Pi extension and the root package). The daemon and the extension are one
 # protocol (docs/DESIGN.md "One Protocol, One Version") and must carry one version; deno.json is
 # the source and harnesses/pi/package.json, package.json and package-lock.json are generated copies.
-deno task sync-version
+npm run sync-version
 # Regenerate the extension's shared constants from shared/types.ts (P1c-7).
-deno task sync-shared
+npm run sync-shared
 
 # Commit the version bump
 git add deno.json package.json package-lock.json harnesses/pi/package.json harnesses/pi/src/shared/types.ts

@@ -102,6 +102,8 @@ all need a Node that is still there after this shell closes, so `mpt setup`,
   again (or fails with a clear message when there's no terminal). `mpt doctor`
   reports the saved Node, its version and where the setting came from, and warns
   if the service or the running mpt uses a different Node.
+- The macOS menu bar app reads the same file and runs `<node> <package entry>`; if
+  it finds no mpt it says to `npm i -g my-pizza-team` and run `mpt setup`.
 
 ### Service
 
@@ -665,10 +667,32 @@ if either is out of step.
 ```bash
 npm run build                  # UI + tsc → dist/ (the npm package's JS; `npm pack` runs it via prepack)
 npm pack                       # my-pizza-team-<version>.tgz; install with `npm i -g ./my-pizza-team-*.tgz`
-deno task compile              # ./mpt for this platform, with the UI and Pi extension embedded
-deno task compile:all          # all platforms → dist/
-./scripts/publish.sh [x.y.z]   # bump, tag, push — the tag triggers the release workflow
+./scripts/package-macos-menubar.sh   # macOS: the menu bar app → desktop/macos/dist/ (universal)
 ```
+
+## Releasing
+
+```bash
+./scripts/publish.sh [MAJOR|MINOR|PATCH|x.y.z]   # bump the version, sync copies, commit, tag, push
+```
+
+The `v*` tag runs `.github/workflows/release.yml` on Node 24: it checks the tag
+matches `package.json`, runs `npm ci`, `npm run check` and `npm test`, smoke-tests
+the `npm pack` tarball (installs it into a scratch prefix and runs
+`mpt setup --dry-run`), then `npm publish --provenance --access public`. A
+best-effort job builds the macOS menu bar app, signs and notarizes it, and the
+GitHub Release gets generated notes plus the DMG. There are no per-platform
+binaries or checksums any more; users install with `npm i -g my-pizza-team` and
+upgrade with `mpt upgrade`.
+
+Repository secrets:
+
+- `NPM_TOKEN` — **required**: an npm automation (or granular, publish-scoped) token
+  for the `my-pizza-team` package. Provenance needs no secret; the workflow's
+  `id-token: write` permission covers it.
+- `APPLE_CERTIFICATE_P12`, `APPLE_CERTIFICATE_PASSWORD`, `MPT_SIGNATURE`,
+  `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID` — optional: Developer ID
+  signing and notarization of the DMG (otherwise it is ad-hoc signed).
 
 ---
 

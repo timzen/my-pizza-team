@@ -56,13 +56,22 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         // Status line
         let statusText = daemon.isRunning
             ? "✅ Running (port \(daemon.port))"
+            : daemon.installHint != nil ? "⚠️ mpt not found"
             : daemon.lastError != nil ? "❌ Failed to start" : "⏹ Stopped"
         let statusItem = NSMenuItem(title: statusText, action: nil, keyEquivalent: "")
         statusItem.isEnabled = false
         menu.addItem(statusItem)
 
-        // Show error if daemon failed
-        if !daemon.isRunning, let error = daemon.lastError {
+        // mpt isn't installed (or its saved Node moved): say how to fix it. The app
+        // no longer bundles mpt; it runs the npm package (DaemonManager.findMpt).
+        if !daemon.isRunning, daemon.installHint != nil {
+            for line in ["   Install with `npm i -g my-pizza-team`,", "   then run `mpt setup`"] {
+                let hintItem = NSMenuItem(title: line, action: nil, keyEquivalent: "")
+                hintItem.isEnabled = false
+                menu.addItem(hintItem)
+            }
+        } else if !daemon.isRunning, let error = daemon.lastError {
+            // Show error if daemon failed
             let errorItem = NSMenuItem(title: "   \(error)", action: nil, keyEquivalent: "")
             errorItem.isEnabled = false
             menu.addItem(errorItem)
@@ -162,7 +171,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
         daemon.start()
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) { [weak self] in
             self?.daemon.checkStatus()
-            if !(self?.daemon.isRunning ?? false) {
+            if !(self?.daemon.isRunning ?? false) && self?.daemon.installHint == nil {
                 self?.daemon.checkLogForErrors()
             }
             self?.updateMenu()
@@ -185,7 +194,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
             self.daemon.start()
             DispatchQueue.main.asyncAfter(deadline: .now() + 2.0) {
                 self.daemon.checkStatus()
-                if !self.daemon.isRunning { self.daemon.checkLogForErrors() }
+                if !self.daemon.isRunning && self.daemon.installHint == nil { self.daemon.checkLogForErrors() }
                 self.updateMenu()
             }
         }

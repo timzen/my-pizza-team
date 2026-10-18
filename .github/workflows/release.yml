@@ -1,17 +1,25 @@
-# .github/workflows/release.yml — Build and release cross-compiled binaries.
+# .github/workflows/release.yml — Publish the npm package and create the GitHub Release.
 #
-# Triggered on version tags (v*). Builds mpt binaries for all platforms,
-# the macOS menu bar app, and creates a GitHub Release with artifacts.
+# Triggered on version tags (v*), which scripts/publish.sh creates. mpt ships as an
+# npm package (`npm i -g my-pizza-team`, Node >=24) — compiled JS in dist/ plus the
+# built web UI and the Pi extension (package.json "files"); there are no per-platform
+# binaries any more.
 #
-# Targets:
-#   - mpt-darwin-arm64  (macOS Apple Silicon, signed)
-#   - mpt-darwin-x64    (macOS Intel — cross-compiled on the Apple Silicon runner)
-#   - mpt-linux-x64     (Linux x86_64)
-#   - mpt-linux-arm64   (Linux ARM64)
-#   - mpt-windows-x64   (Windows)
-#   - My Pizza Team.dmg (macOS menu bar app, arm64 only — lipo breaks Deno V8)
-#                       BEST-EFFORT: if this job fails (disk pressure, notary
-#                       flakiness) the release still publishes without the DMG.
+# Jobs:
+#   - publish    Node 24 → npm ci → gates → smoke-test the packed tarball →
+#                `npm publish --provenance`. Required.
+#   - macos-app  The menu bar app's DMG (universal). The app is only the menu UI: it
+#                runs the npm-installed mpt with the saved Node. BEST-EFFORT: if it
+#                fails (disk pressure, notary flakiness) the release still goes out
+#                without the DMG.
+#   - release    The GitHub Release: generated notes and the DMG.
+#
+# Secrets:
+#   - NPM_TOKEN  npm automation (or granular publish) token for the my-pizza-team
+#                package. Required by `publish`.
+#   - APPLE_CERTIFICATE_P12, APPLE_CERTIFICATE_PASSWORD, MPT_SIGNATURE, APPLE_ID,
+#     APPLE_APP_PASSWORD, APPLE_TEAM_ID — optional; sign and notarize the DMG. Without
+#     them the app is ad-hoc signed.
 
 name: Release
 
@@ -24,192 +32,91 @@ permissions:
   contents: write
 
 env:
-  DENO_VERSION: '2.x'
-  # Matches ci.yml. Node 20 reached end of life in April 2026.
-  NODE_VERSION: '22'
+  # Matches ci.yml and package.json "engines" (node:sqlite, type stripping).
+  NODE_VERSION: '24'
 
 jobs:
-  build:
-    name: Build ${{ matrix.target }}
-    runs-on: ${{ matrix.os }}
-    strategy:
-      matrix:
-        include:
-          - target: darwin-arm64
-            deno-target: aarch64-apple-darwin
-            os: macos-latest
-          - target: darwin-x64
-            deno-target: x86_64-apple-darwin
-            os: macos-latest
-          - target: linux-x64
-            deno-target: x86_64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: linux-arm64
-            deno-target: aarch64-unknown-linux-gnu
-            os: ubuntu-latest
-          - target: windows-x64
-            deno-target: x86_64-pc-windows-msvc
-            os: windows-latest
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # npm provenance: the registry records which workflow run built the package.
+      id-token: write
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
-      - name: Setup Deno
-        uses: denoland/setup-deno@v2
-        with:
-          deno-version: ${{ env.DENO_VERSION }}
 
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
           node-version: ${{ env.NODE_VERSION }}
-          cache: 'npm'
-          cache-dependency-path: ui/package-lock.json
+          registry-url: 'https://registry.npmjs.org'
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            ui/package-lock.json
 
-      - name: Build UI
-        shell: bash
+      - name: Tag matches the package version
+        # publish.sh bumps the version and tags in one commit; a hand-made tag that
+        # disagrees would publish a version nobody asked for.
         run: |
-          cd ui
-          npm ci
-          npm run build
+          version="$(node -p 'require("./package.json").version')"
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Tag $GITHUB_REF_NAME does not match package.json version $version"
+            exit 1
+          fi
 
-      - name: Install root npm dependencies
-        # hono and @hono/node-server come from the root package.json; deno compile
-        # resolves them through node_modules/.
-        shell: bash
-        run: npm ci
+      - run: npm ci
 
-      - name: Compile binary
-        # Through scripts/build.sh rather than an inline `deno compile`, so there is one
-        # definition of what goes into the binary. This step used to carry its own copy
-        # of the flags, and when the Pi extension was added to the embedded files
-        # (deno.json and build.sh) this copy was missed — a release built from it would
-        # have shipped a binary whose `mpt setup` fails for every user.
-        shell: bash
-        env:
-          MPT_BUILD_SKIP_PACKAGING: '1'
-        run: ./scripts/build.sh ${{ matrix.target }}
-
-      - name: Verify the Pi extension is embedded
-        # The check the missed flag would have failed. Run on the native-arch targets,
-        # where the binary can execute; each builds with the same script and flags.
-        if: matrix.target == 'darwin-arm64' || matrix.target == 'linux-x64'
-        shell: bash
+      - name: Gates
         run: |
+          npm run check
+          npm test
+
+      - name: Smoke-test the packed package
+        # Install the exact tarball that will be published into a scratch prefix and
+        # check that `mpt setup` finds the bundled Pi extension — the check that used
+        # to guard the compiled binary's embedded files. `npm pack` runs prepack
+        # (`npm run build`: UI + tsc → dist/).
+        run: |
+          npm pack
           sandbox="$(mktemp -d)"
-          mkdir -p "$sandbox/home/.pi/agent" "$sandbox/project"
+          mkdir -p "$sandbox/prefix" "$sandbox/home/.pi/agent" "$sandbox/project"
+          npm install -g --prefix "$sandbox/prefix" ./my-pizza-team-*.tgz
           cd "$sandbox/project"
-          HOME="$sandbox/home" MPT_HOME="$sandbox/home" \
+          HOME="$sandbox/home" MPT_HOME="$sandbox/home" MPT_NODE="$(command -v node)" \
             PI_CODING_AGENT_DIR="$sandbox/home/.pi/agent" TEAM_DIR="$sandbox/project/.my-pizza-team" \
-            "$GITHUB_WORKSPACE/dist/mpt-${{ matrix.target }}" setup --dry-run | tee out.txt
+            "$sandbox/prefix/bin/mpt" setup --dry-run | tee out.txt
           grep -q "write the bundled Pi extension" out.txt
 
-      - name: Sign macOS binary
-        if: runner.os == 'macOS' && env.P12_BASE64 != ''
+      - name: Publish
+        # prepack rebuilds dist/ from this checkout, so what is published is what the
+        # smoke test installed.
+        run: npm publish --provenance --access public
         env:
-          P12_BASE64: ${{ secrets.APPLE_CERTIFICATE_P12 }}
-          P12_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
-          MPT_SIGNATURE: ${{ secrets.MPT_SIGNATURE }}
-        run: |
-          echo "$P12_BASE64" | base64 --decode > cert.p12
-          security create-keychain -p "" build.keychain
-          security import cert.p12 -k build.keychain -P "$P12_PASSWORD" -T /usr/bin/codesign
-          security set-key-partition-list -S apple-tool:,apple: -s -k "" build.keychain
-          security default-keychain -s build.keychain
-          security unlock-keychain -p "" build.keychain
-          # V8 JIT requires allow-jit and allow-unsigned-executable-memory entitlements
-          codesign --force --options runtime \
-            --entitlements desktop/macos/Resources/mpt.entitlements \
-            --sign "$MPT_SIGNATURE" dist/mpt-${{ matrix.target }}
-          codesign --verify --strict dist/mpt-${{ matrix.target }}
-          echo "✅ Binary signed with JIT entitlements"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: mpt-${{ matrix.target }}
-          path: dist/mpt-${{ matrix.target }}*
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
   # The macOS menu bar app is the most fragile part of the release (runner disk
   # pressure, Apple notary service flakiness). It is explicitly best-effort: a
-  # failure here must not block the release of the other artifacts. See the
-  # `release` job's `if:` gate — it only requires `build` and `windows-app`.
+  # failure here must not block the release. See the `release` job's `if:` gate.
   macos-app:
     name: Build macOS Menu Bar App
     runs-on: macos-latest
-    needs: build
     continue-on-error: true
     env:
       HAS_SIGNING_CERT: ${{ secrets.APPLE_CERTIFICATE_P12 != '' }}
+      APP_DIR: 'desktop/macos/dist/My Pizza Team.app'
+      DMG: 'desktop/macos/dist/My-Pizza-Team-macos.dmg'
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Download arm64 binary
-        uses: actions/download-artifact@v4
-        with:
-          name: mpt-darwin-arm64
-          path: dist/
-
-      - name: Use arm64 mpt binary (lipo breaks Deno V8 memory mapping)
-        run: |
-          chmod +x dist/mpt-darwin-arm64
-          cp dist/mpt-darwin-arm64 dist/mpt
-          file dist/mpt
-
-      - name: Build SwiftUI menu bar app
-        run: |
-          cd desktop/macos
-          swift build -c release --arch arm64
-
-      - name: Package .app bundle
-        run: |
-          APP_DIR="dist/My Pizza Team.app"
-          mkdir -p "$APP_DIR/Contents/MacOS"
-          mkdir -p "$APP_DIR/Contents/Resources"
-
-          # Copy binaries
-          cp desktop/macos/.build/release/MyPizzaTeamMenu "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
-          cp dist/mpt "$APP_DIR/Contents/MacOS/mpt"
-          chmod +x "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
-          chmod +x "$APP_DIR/Contents/MacOS/mpt"
-
-          # Copy icon
-          cp desktop/macos/Resources/AppIcon.icns "$APP_DIR/Contents/Resources/AppIcon.icns"
-
-          # Create Info.plist
-          cat > "$APP_DIR/Contents/Info.plist" << 'EOF'
-          <?xml version="1.0" encoding="UTF-8"?>
-          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
-          <plist version="1.0">
-          <dict>
-            <key>CFBundleName</key>
-            <string>My Pizza Team</string>
-            <key>CFBundleDisplayName</key>
-            <string>My Pizza Team</string>
-            <key>CFBundleIdentifier</key>
-            <string>com.my-pizza-team.menubar</string>
-            <key>CFBundleVersion</key>
-            <string>${GITHUB_REF_NAME#v}</string>
-            <key>CFBundleShortVersionString</key>
-            <string>${GITHUB_REF_NAME#v}</string>
-            <key>CFBundleExecutable</key>
-            <string>MyPizzaTeamMenu</string>
-            <key>CFBundlePackageType</key>
-            <string>APPL</string>
-            <key>LSMinimumSystemVersion</key>
-            <string>13.0</string>
-            <key>LSUIElement</key>
-            <true/>
-            <key>CFBundleIconFile</key>
-            <string>AppIcon</string>
-            <key>NSHighResolutionCapable</key>
-            <true/>
-          </dict>
-          </plist>
-          EOF
+      - name: Build the .app bundle (universal)
+        # One definition of the bundle (Info.plist, icon, version from package.json).
+        run: ./scripts/package-macos-menubar.sh
 
       - name: Install Apple signing certificate
         env:
@@ -218,12 +125,8 @@ jobs:
         run: |
           if [ -z "$P12_BASE64" ]; then
             echo "No signing certificate configured — using ad-hoc signing"
-            # mpt needs JIT entitlements even with ad-hoc signing
-            codesign --force --options runtime \
-              --entitlements desktop/macos/Resources/mpt.entitlements \
-              --sign - "dist/My Pizza Team.app/Contents/MacOS/mpt"
-            codesign --force --sign - "dist/My Pizza Team.app/Contents/MacOS/MyPizzaTeamMenu"
-            codesign --force --sign - "dist/My Pizza Team.app"
+            codesign --force --sign - "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+            codesign --force --sign - "$APP_DIR"
             exit 0
           fi
           echo "$P12_BASE64" | base64 --decode > cert.p12
@@ -238,52 +141,26 @@ jobs:
         env:
           MPT_SIGNATURE: ${{ secrets.MPT_SIGNATURE }}
         run: |
-          # Sign inner binaries first (inside-out), then the bundle
-          # --deep is unreliable; explicit per-binary signing is required
-          # mpt needs JIT entitlements for V8 engine memory mapping
-          codesign --force --options runtime \
-            --entitlements desktop/macos/Resources/mpt.entitlements \
-            --sign "$MPT_SIGNATURE" \
-            "dist/My Pizza Team.app/Contents/MacOS/mpt"
-          codesign --force --options runtime \
-            --sign "$MPT_SIGNATURE" \
-            "dist/My Pizza Team.app/Contents/MacOS/MyPizzaTeamMenu"
-          codesign --force --options runtime \
-            --sign "$MPT_SIGNATURE" \
-            "dist/My Pizza Team.app"
-
-          # Verify
-          codesign --verify --deep --strict "dist/My Pizza Team.app"
-          echo "✅ Signature verified with JIT entitlements"
-
-      - name: Free disk space before DMG
-        run: |
-          echo "Disk before cleanup:"
-          df -h /
-          # These are no longer needed at this point — the .app bundle already
-          # contains its own copies. Reclaim the space so hdiutil has room.
-          rm -rf desktop/macos/.build
-          rm -f dist/mpt dist/mpt-darwin-arm64
-          echo "Disk after cleanup:"
-          df -h /
+          # Inside-out: the executable, then the bundle (--deep is unreliable). No
+          # entitlements: the app no longer embeds a V8 runtime; mpt runs under the
+          # user's own Node.
+          codesign --force --options runtime --sign "$MPT_SIGNATURE" \
+            "$APP_DIR/Contents/MacOS/MyPizzaTeamMenu"
+          codesign --force --options runtime --sign "$MPT_SIGNATURE" "$APP_DIR"
+          codesign --verify --deep --strict "$APP_DIR"
+          echo "✅ Signature verified"
 
       - name: Create DMG
         run: |
-          # Stage the DMG contents under RUNNER_TEMP (separate headroom from the
-          # repo checkout) to avoid "No space left on device" on tight runners.
+          # Stage under RUNNER_TEMP (separate headroom from the checkout) to avoid
+          # "No space left on device" on tight runners.
           STAGE="$RUNNER_TEMP/dmg-stage"
           rm -rf "$STAGE"
           mkdir -p "$STAGE"
-          cp -R "dist/My Pizza Team.app" "$STAGE/"
-          # Create a symlink to /Applications for drag-and-drop install
+          cp -R "$APP_DIR" "$STAGE/"
+          # A symlink to /Applications for drag-and-drop install
           ln -s /Applications "$STAGE/Applications"
-
-          # Create the DMG
-          hdiutil create -volname "My Pizza Team" \
-            -srcfolder "$STAGE" \
-            -ov -format UDZO \
-            "dist/My-Pizza-Team-macos-arm64.dmg"
-
+          hdiutil create -volname "My Pizza Team" -srcfolder "$STAGE" -ov -format UDZO "$DMG"
           rm -rf "$STAGE"
           echo "✅ DMG created"
 
@@ -297,101 +174,60 @@ jobs:
           APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
           APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
-          # Submit the DMG directly for notarization
-          xcrun notarytool submit "dist/My-Pizza-Team-macos-arm64.dmg" \
+          xcrun notarytool submit "$DMG" \
             --apple-id "$APPLE_ID" \
             --password "$APPLE_APP_PASSWORD" \
             --team-id "$APPLE_TEAM_ID" \
             --wait --timeout 60m
-
-          # Staple the notarization ticket to the DMG
-          xcrun stapler staple "dist/My-Pizza-Team-macos-arm64.dmg"
+          xcrun stapler staple "$DMG"
           echo "✅ DMG notarized and stapled"
 
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: macos-app-arm64
-          path: dist/My-Pizza-Team-macos-arm64.dmg
+          name: macos-app
+          path: ${{ env.DMG }}
           if-no-files-found: warn
-
-  windows-app:
-    name: Package Windows Tray App
-    runs-on: windows-latest
-    needs: build
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download mpt binary
-        uses: actions/download-artifact@v4
-        with:
-          name: mpt-windows-x64
-          path: dist/
-
-      - name: Package Windows app
-        shell: pwsh
-        run: |
-          $outDir = "dist/My-Pizza-Team-windows"
-          New-Item -ItemType Directory -Force -Path $outDir
-          Copy-Item "dist/mpt-windows-x64.exe" "$outDir/mpt.exe"
-          Copy-Item "desktop/windows/tray.ps1" "$outDir/tray.ps1"
-          Copy-Item "desktop/windows/My Pizza Team.bat" "$outDir/My Pizza Team.bat"
-          Copy-Item "desktop/windows/README.md" "$outDir/README.md"
-          Compress-Archive -Path "$outDir/*" -DestinationPath "dist/My-Pizza-Team-windows-x64.zip"
-
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: windows-app
-          path: dist/My-Pizza-Team-windows-x64.zip
 
   release:
     name: Create Release
-    needs: [build, macos-app, windows-app]
-    # Run even when macos-app failed or was skipped — the DMG is simply omitted
-    # from the release. The binaries and Windows app are required.
-    if: always() && needs.build.result == 'success' && needs.windows-app.result == 'success'
+    needs: [publish, macos-app]
+    # Run even when macos-app failed — the DMG is simply omitted. The npm publish is
+    # required: a GitHub release for a version that isn't on npm would mislead.
+    if: always() && needs.publish.result == 'success'
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Download all artifacts
+      - name: Download the DMG
         uses: actions/download-artifact@v4
+        continue-on-error: true
         with:
-          path: artifacts/
+          name: macos-app
+          path: release/
 
-      - name: Prepare release assets
+      - name: Check release assets
+        id: assets
         run: |
+          echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           mkdir -p release/
-          # Copy binaries
-          for dir in artifacts/mpt-*/; do
-            cp "$dir"* release/
-          done
-          # Copy macOS arm64 .app dmg (best-effort job — may be absent)
-          if [ -d artifacts/macos-app-arm64 ] && [ -n "$(ls -A artifacts/macos-app-arm64)" ]; then
-            cp artifacts/macos-app-arm64/* release/
-          else
+          if [ -z "$(ls -A release/)" ]; then
             echo "::warning::macOS menu bar app (.dmg) missing from this release — the Build macOS Menu Bar App job produced no artifact."
           fi
-          # Copy Windows app zip
-          if [ -d artifacts/windows-app ]; then
-            cp artifacts/windows-app/* release/
-          fi
-          # Make binaries executable
-          chmod +x release/mpt-* 2>/dev/null || true
-          # Generate checksums
-          cd release
-          sha256sum * > checksums.sha256 2>/dev/null || shasum -a 256 * > checksums.sha256
-          cat checksums.sha256
+          ls -l release/
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           generate_release_notes: true
           fail_on_unmatched_files: false
+          body: |
+            Install or upgrade (Node.js >=24):
+
+            ```bash
+            npm i -g my-pizza-team@${{ steps.assets.outputs.version }}   # or: mpt upgrade
+            mpt setup
+            ```
+
+            The macOS menu bar app (DMG) runs the npm-installed `mpt`; install the package first.
           files: |
             release/*
