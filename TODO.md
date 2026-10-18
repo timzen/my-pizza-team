@@ -11,6 +11,44 @@ number. Delete an item when it's done.
   mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
   move the member's in-flight items to MORIBUND in `removeMember`.
 
+## Work Sources as plugins — package loading (deferred)
+
+The Work Sources story turns Task / Story / Schedule / Thought into built-in
+`WorkSource` plugins behind one interface, plus a generic UI for plugin-sourced work.
+**Loading third-party plugin packages is deferred**: we may move the daemon from
+Deno to Node, and that changes how plugin code loads. Notes so they aren't lost:
+
+- **Config shape, like pi's `packages`:** a `packages` array of `npm:<name>[@ver]`,
+  `git:`/`ssh://`/`https://` git URLs (optional `@ref`; tags and commits pinned), or
+  local paths. The object form `{ source, config: {...} }` carries per-plugin settings.
+  Secrets are referenced by env var name (`tokenEnv: "JIRA_TOKEN"`), never stored inline.
+- **Manifest:** the package's `package.json` declares its entries, e.g.
+  `"mpt": { "sources": ["./dist/index.js"] }`. Each entry default-exports a
+  `WorkSource` with an `apiVersion`; the daemon refuses an unknown version.
+- **Install:** `mpt install <source>` / `mpt list` / `mpt remove <source>` /
+  `mpt update`. Clone or `npm pack` into the team dir (e.g. `<teamDir>/packages/`), then
+  `npm install && npm run build` for git sources (node is already on every host for
+  pi). Local paths load in place without copying. Identity is the npm name, the git
+  URL without the ref, or the resolved absolute path, so nothing loads twice.
+- **Deno findings (spike, deno 2.9.5):** a `deno compile`d binary *can*
+  `await import("file:///…/mod.ts")` a self-contained TS file at runtime. It *cannot*
+  resolve `npm:` specifiers or bare imports from the plugin's own `node_modules`. An
+  esbuild-bundled ESM `dist/index.js` loads fine. So under Deno, plugins must ship a
+  bundled entry. Under Node this mostly goes away (plain `import()` + node_modules;
+  jiti/tsx for TS entries, the way pi loads extensions).
+- **Isolation:** plugins run with the daemon's full permissions, and a slow `sync()`
+  could stall the daemon. Consider one Worker per plugin (Deno Worker or Node
+  `worker_threads`), or a subprocess speaking JSON-RPC over stdio (as with ACP in
+  `agent/acp.ts`). Either way, plugins only reach the daemon through `SourceContext`.
+- **Host-provided types:** publish the `WorkSource` / `SourceContext` types as a small
+  package (`peerDependencies: "*"`, like pi's host packages) so plugins don't bundle a
+  copy.
+- **Open:** should `packages` live per team (`config.json`) or per machine?
+  Undecided.
+- **First external plugins once loading lands:** a markdown-folder reference source,
+  then Jira / Asana / Taskei. These pull only: no creating external issues from MPT,
+  but comments and status write back through `onComment` / `onItemTerminal`.
+
 ## Auto Triage — built
 
 A teammate reads each note whose text you've changed and proposes what should become
