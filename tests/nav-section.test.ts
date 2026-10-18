@@ -27,7 +27,7 @@ Deno.test("navSectionForPath: list pages map to their own section only", () => {
 });
 
 Deno.test("navSectionForPath: board surface and its detail pages", () => {
-  for (const p of ["/board", "/backlog", "/archived", "/story/s1", "/stories/new", "/task/s1/t1"]) {
+  for (const p of ["/board", "/pending", "/backlog", "/archived", "/story/s1", "/stories/new", "/task/s1/t1"]) {
     assertEquals(navSectionForPath(p), "board", p);
   }
 });

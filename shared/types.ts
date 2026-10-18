@@ -480,8 +480,14 @@ export interface Story {
    * precedence; this is the story-wide fallback, copied onto the WorkItem.
    */
   directory?: string;
-  /** When true, the story's tasks are not handed out to agents (temporal gate). */
-  paused?: boolean;
+  /**
+   * When true the story is **pending**: none of its tasks are admitted or handed
+   * out (an in-flight task finishes; nothing new starts), and stories that
+   * `dependsOn` it wait. Reversible (active ⇄ pending). Replaces the old
+   * `paused` flag and the `backlog/` directory, both migrated on load. See
+   * docs/DESIGN.md "Pending: Write, Review, Activate".
+   */
+  pending?: boolean;
   workflow?: string;
   /** Context-library entry ids attached to this story (injected into every child's prompt). */
   context?: string[];
@@ -806,7 +812,6 @@ export function resolveMinTeammates(config: Pick<TeamConfig, "maxTeammates" | "m
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
 export const ARCHIVED_DIR = "archived";
-export const BACKLOG_DIR = "backlog";
 export const WORKFLOWS_DIR = "workflows";
 /** Directory holding every WorkDef (`tasks/<id>/workdef.md` + comments + attachments). */
 export const WORKDEFS_DIR = "tasks";

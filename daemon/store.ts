@@ -87,6 +87,7 @@ import { isCronDue, isValidCron } from "./cron.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
+import { migrateLegacyStoryFiles } from "./store/story-migration.ts";
 import { migrateUsageColumns, recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
@@ -171,7 +172,7 @@ function serializeStory(story: Story): Story {
     tasks: story.tasks || [],
   };
   if (story.directory) data.directory = story.directory;
-  if (story.paused) data.paused = true;
+  if (story.pending) data.pending = true;
   if (story.workflow) data.workflow = story.workflow;
   if (story.context && story.context.length > 0) data.context = story.context;
   if (story.archivedAt) data.archivedAt = story.archivedAt;
@@ -403,7 +404,7 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'open',
         depends_on TEXT DEFAULT '[]',
-        paused INTEGER DEFAULT 0,
+        pending INTEGER DEFAULT 0,
         workflow TEXT,
         context TEXT DEFAULT '[]',
         task_order TEXT DEFAULT '[]',
@@ -558,8 +559,10 @@ export class Store {
     if (!storyColumns.some((col) => col.name === "context")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN context TEXT DEFAULT '[]'");
     }
-    if (!storyColumns.some((col) => col.name === "paused")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN paused INTEGER DEFAULT 0");
+    // Pending stories (docs/DESIGN.md "Pending: Write, Review, Activate"); the
+    // `paused` column it replaced is dropped in dropRetiredColumns.
+    if (!storyColumns.some((col) => col.name === "pending")) {
+      this.db.exec("ALTER TABLE stories ADD COLUMN pending INTEGER DEFAULT 0");
     }
     if (!storyColumns.some((col) => col.name === "task_order")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN task_order TEXT DEFAULT '[]'");
@@ -659,7 +662,8 @@ export class Store {
    * Drop columns from models the daemon no longer has, from databases created
    * before they went: capability matching (`requirements`, `capabilities`), work
    * modes (`work_mode`, `assigned_story_id`), task substatus and read tracking
-   * (`substatus`, `last_read_at`), story `categories` (replaced by context), and the
+   * (`substatus`, `last_read_at`), story `categories` (replaced by context), story
+   * `paused` (replaced by `pending`; the cache is rebuilt from files), and the
    * old task|workdef WorkItem ref (`ref_kind`, `story_id`, `task_id`). Nothing reads
    * or writes them, but a column that still exists invites someone to.
    *
@@ -674,7 +678,7 @@ export class Store {
       this.db.exec("UPDATE work_items SET work_def_id = task_id WHERE work_def_id IS NULL AND task_id IS NOT NULL");
     }
     const retired: Array<[string, string]> = [
-      ["stories", "requirements"], ["stories", "categories"],
+      ["stories", "requirements"], ["stories", "categories"], ["stories", "paused"],
       ["tasks", "substatus"], ["tasks", "last_read_at"],
       ["members", "capabilities"], ["members", "work_mode"], ["members", "assigned_story_id"],
       ["work_items", "ref_kind"], ["work_items", "story_id"], ["work_items", "task_id"],
@@ -688,6 +692,12 @@ export class Store {
 
   loadFromDisk(): void {
     const storiesDir = path.join(this.teamDir, STORIES_DIR);
+
+    // Old story files first: `paused` and `backlog/` become pending (idempotent).
+    const migrated = migrateLegacyStoryFiles(this.teamDir);
+    if (migrated.conflicts.length > 0) {
+      console.warn(`[store] backlog/ stories not migrated (an active story already has that id): ${migrated.conflicts.join(", ")}`);
+    }
 
     // Read flat story files (stories/<id>.json).
     const stories: Story[] = [];
@@ -764,12 +774,12 @@ export class Store {
 
   private upsertStory(story: Story): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, paused, workflow, context, task_order, directory, dir_path)
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, pending, workflow, context, task_order, directory, dir_path)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
       JSON.stringify(story.dependsOn),
-      story.paused ? 1 : 0,
+      story.pending ? 1 : 0,
       story.workflow || null, JSON.stringify(story.context || []),
       JSON.stringify((story.tasks || []).map((t) => t.id)), story.directory || null,
       path.join(this.teamDir, STORIES_DIR),
@@ -805,7 +815,7 @@ export class Store {
       description: row.description as string,
       status: row.status as "open" | "done",
       dependsOn: JSON.parse(row.depends_on as string),
-      paused: row.paused ? true : undefined,
+      pending: row.pending ? true : undefined,
       workflow: (row.workflow as string) || undefined,
       context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       directory: (row.directory as string) || undefined,
@@ -850,12 +860,12 @@ export class Store {
     tasks?: Array<{ title: string; description: string; context?: string[]; pending?: boolean }>,
     workflow?: string,
     context?: string[],
-    paused?: boolean,
+    pending?: boolean,
     directory?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
     const storyData: Story = { id, title, description, status, dependsOn, tasks: [] };
     if (directory) storyData.directory = normalizeDirectory(directory);
-    if (paused) storyData.paused = true;
+    if (pending) storyData.pending = true;
     if (workflow) storyData.workflow = workflow;
     if (context && context.length > 0) storyData.context = context;
 
@@ -895,7 +905,7 @@ export class Store {
     this.writeStory(storyData);
     this.upsertStory(storyData);
 
-    // Admit the first task into the pipeline (no-op for paused/dependent stories).
+    // Admit the first task into the pipeline (no-op for pending/dependent stories).
     this.runAdmission(id);
 
     return { story: storyData, tasks: createdTasks };
@@ -955,7 +965,7 @@ export class Store {
     description?: string;
     status?: "open" | "done";
     dependsOn?: string[];
-    paused?: boolean;
+    pending?: boolean;
     workflow?: string | null;
     context?: string[] | null;
     directory?: string | null;
@@ -967,7 +977,7 @@ export class Store {
     const newDescription = updates.description ?? story.description;
     const newStatus = updates.status ?? story.status;
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
-    const newPaused = updates.paused !== undefined ? updates.paused : (story.paused || false);
+    const newPending = updates.pending !== undefined ? updates.pending : (story.pending || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
     const newContext = updates.context !== undefined ? (updates.context || []) : (story.context || []);
     const newDirectory = updates.directory !== undefined
@@ -975,8 +985,8 @@ export class Store {
       : (story.directory || null);
 
     this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, paused = ?, workflow = ?, context = ?, directory = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPaused ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
+      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, pending = ?, workflow = ?, context = ?, directory = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPending ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
 
     // Write back to disk
     this.writeStory({
@@ -986,18 +996,31 @@ export class Store {
       status: newStatus,
       dependsOn: newDependsOn,
       directory: newDirectory || undefined,
-      paused: newPaused,
+      pending: newPending,
       workflow: newWorkflow || undefined,
       context: newContext,
       tasks: story.tasks,
     });
 
-    // Unpausing (or dependency edits) may make the story admissible.
+    // Activating (or dependency edits) may make the story admissible. Going
+    // pending needs nothing here: admission and getNextWorkItem both skip a
+    // pending story, so an in-flight task finishes and nothing new starts.
     this.runAdmission(storyId);
     // Marking it done (by edit) unblocks its dependents.
     if (newStatus === "done" && story.status !== "done") this.admitDependents(storyId);
 
     return true;
+  }
+
+  /**
+   * Move a story active ⇄ pending (docs/DESIGN.md "Pending: Write, Review,
+   * Activate"). Pending stops new work only: a task already IN_PROGRESS
+   * finishes, but nothing further is admitted or handed out, and stories that
+   * depend on it wait. Activating re-runs admission, and READY items the story
+   * already had become eligible again. Returns false when the story is missing.
+   */
+  setStoryPending(storyId: string, pending: boolean): boolean {
+    return this.updateStoryDetails(storyId, { pending });
   }
 
   updateStoryStatus(storyId: string, status: "open" | "done"): void {
@@ -1014,7 +1037,7 @@ export class Store {
    * missing dependency counts as satisfied). Without this, a dependent sat
    * `ready` with no WorkItem until a restart or a story edit. Safe to call
    * repeatedly: `runAdmission` is idempotent (it returns once the CONWIP token
-   * is taken) and gates on paused/done/ready itself, and admitting a task never
+   * is taken) and gates on pending/done/ready itself, and admitting a task never
    * marks its story done, so this can't recurse. See docs/DESIGN.md "Admission
    * (CONWIP, WIP = 1 per story)".
    */
@@ -1347,7 +1370,7 @@ export class Store {
   /**
    * Pick the next READY WorkItem for a polling agent using directory affinity
    * (docs/DESIGN.md "Work Matching: Directory Affinity"). Eligibility: task refs must belong to a ready,
-   * unpaused story. Priority tiers:
+   * active (not pending) story. Priority tiers:
    *   1. item.directory == agent.directory  (my repo's work)
    *   2. item has no directory              (anyone's)
    *   3. item.directory != agent.directory AND no online agent has that dir
@@ -1404,7 +1427,9 @@ export class Store {
     const task = this.getTask(wi.ref.workDefId);
     if (task) {
       const story = this.getStory(task.storyId);
-      if (!story || story.paused || !this.isStoryReady(story.id)) return false;
+      // A pending story hands out nothing new (its in-flight item, already
+      // IN_PROGRESS, isn't READY and so finishes normally).
+      if (!story || story.pending || !this.isStoryReady(story.id)) return false;
       const wf = this.getWorkflowForStory(story.id);
       return isAgentState(wf, task.status);
     }
@@ -1635,7 +1660,7 @@ export class Store {
    */
   runAdmission(storyId: string, excludeTaskId?: string): void {
     const story = this.getStory(storyId);
-    if (!story || story.status !== "open" || story.paused) return;
+    if (!story || story.status !== "open" || story.pending) return;
     if (!this.isStoryReady(storyId)) return;
 
     const wf = this.getWorkflowForStory(storyId);
@@ -2758,97 +2783,6 @@ export class Store {
     const task = this.getTask(taskId);
     if (!task) return this.workflows[this.config.defaultWorkflow]!;
     return this.getWorkflowForStory(task.storyId);
-  }
-
-  // --- Backlog ---
-
-  /**
-   * Move a story to the backlog. Also moves any stories that depend on it
-   * (transitively) to prevent broken dependency chains on the active board.
-   */
-  moveToBacklog(storyId: string): string[] {
-    const story = this.getStory(storyId);
-    if (!story) throw new Error(`Story "${storyId}" not found`);
-
-    const tasks = this.getTasksForStory(storyId);
-    const activeTasks = tasks.filter((t) => !!this.getAssignment(t.id));
-    if (activeTasks.length > 0) {
-      throw new Error(`Cannot backlog story "${storyId}": ${activeTasks.length} task(s) are currently assigned`);
-    }
-
-    const toMove = this.getDependentStoriesTransitive(storyId);
-    toMove.unshift(storyId);
-
-    const backlogDir = path.join(this.teamDir, "backlog");
-    Deno.mkdirSync(backlogDir, { recursive: true });
-
-    for (const id of toMove) {
-      const src = this.storyFile(id);
-      if (!existsSync(src)) continue;
-      const data = JSON.parse(Deno.readTextFileSync(src)) as Record<string, unknown>;
-      data.backloggedAt = new Date().toISOString();
-      Deno.writeTextFileSync(path.join(backlogDir, `${id}.json`), JSON.stringify(data, null, 2) + "\n");
-      Deno.removeSync(src);
-      this.removeStoryFromDb(id);
-    }
-
-    return toMove;
-  }
-
-  /** Move a story from backlog back to active stories. */
-  moveFromBacklog(storyId: string): void {
-    const src = path.join(this.teamDir, "backlog", `${storyId}.json`);
-    if (!existsSync(src)) {
-      throw new Error(`Story "${storyId}" not found in backlog`);
-    }
-    const data = JSON.parse(Deno.readTextFileSync(src)) as Record<string, unknown>;
-    delete data.backloggedAt;
-    Deno.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
-    Deno.writeTextFileSync(this.storyFile(storyId), JSON.stringify(data, null, 2) + "\n");
-    Deno.removeSync(src);
-    this.loadFromDisk();
-  }
-
-  /** Get all stories in the backlog */
-  getBacklogStories(): Array<{ id: string; title: string; description: string; dependsOn: string[]; backloggedAt?: string }> {
-    const backlogDir = path.join(this.teamDir, "backlog");
-    if (!existsSync(backlogDir)) return [];
-
-    const results: Array<{ id: string; title: string; description: string; dependsOn: string[]; backloggedAt?: string }> = [];
-    for (const entry of Deno.readDirSync(backlogDir)) {
-      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
-      try {
-        const data = JSON.parse(Deno.readTextFileSync(path.join(backlogDir, entry.name)));
-        results.push({
-          id: data.id,
-          title: data.title,
-          description: data.description || "",
-          dependsOn: data.dependsOn || [],
-          backloggedAt: data.backloggedAt,
-        });
-      } catch { /* skip malformed */ }
-    }
-    return results;
-  }
-
-  /** Find all stories that transitively depend on the given story */
-  private getDependentStoriesTransitive(storyId: string): string[] {
-    const allStories = this.getStories();
-    const result: string[] = [];
-    const visited = new Set<string>();
-
-    const findDependents = (id: string) => {
-      for (const s of allStories) {
-        if (s.dependsOn.includes(id) && !visited.has(s.id)) {
-          visited.add(s.id);
-          result.push(s.id);
-          findDependents(s.id);
-        }
-      }
-    };
-
-    findDependents(storyId);
-    return result;
   }
 
   // --- Assistant Conversation (chat v2) ---

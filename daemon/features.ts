@@ -138,8 +138,8 @@ export function registerFeatureGates(ctx: RouteContext): void {
     for (const p of paths) app.use(p, mw);
   };
   // Stories and their board tasks (create-in-story, reorder, move, delete),
-  // the backlog and the archive.
-  gate(["/api/stories", "/api/stories/*", "/api/tasks/*", "/api/archived", "/api/backlog", "/api/backlog/*"], "stories");
+  // pending/activate, and the archive.
+  gate(["/api/stories", "/api/stories/*", "/api/tasks/*", "/api/archived"], "stories");
   // Templates are molds for Solitary tasks, so the Tasks toggle owns them.
   gate(["/api/templates", "/api/templates/*"], "tasks");
   gate(["/api/schedules", "/api/schedules/*"], "schedules");
@@ -162,12 +162,12 @@ function plural(n: number, one: string, many: string): string {
 
 /**
  * Active (non-archived) items of one kind. Archived items never block turning a
- * kind off; backlogged stories do (they aren't archived, just shelved), and
- * pending WorkDefs do (they're work in progress).
+ * kind off; pending stories and pending WorkDefs do (they're work in
+ * progress, just held).
  */
 export function activeFeatureItems(store: Store, feature: FeatureName): ActiveFeatureItems {
   if (feature === "stories") {
-    const count = store.getStories().length + store.getBacklogStories().length;
+    const count = store.getStories().length; // pending stories included
     return { count, description: plural(count, "story", "stories") };
   }
   const defs = store.getWorkDefs("active").filter((d) => featureForWorkDef(d) === feature);

@@ -7,11 +7,14 @@
  * - Sort by title, status, or readiness
  * - Links to the full-page create forms (/stories/new, /story/:id/tasks/new)
  *   — no modals; viewing/editing stories and tasks lives on their pages
- * - Archive and backlog buttons per story
+ * - Archive and pending ⇄ active buttons per story
  * - Expand/collapse per story (chevron) plus Expand all / Collapse all over the
  *   visible stories; state is lifted here (`useStoryCollapse`) and persisted
  *   per story in localStorage. Search does not auto-expand collapsed stories.
- * - Board/Backlog/Archive tabs (one surface, three lifecycle views)
+ * - Board/Pending/Archive tabs (one surface, three lifecycle views). The
+ *   Board tab (`view="active"`) shows active stories; the Pending tab
+ *   (pages/PendingPage.tsx, `view="pending"`) is this same board filtered to
+ *   pending stories, so a task finishing in a just-paused story stays visible.
  */
 
 import { useState, useMemo } from "react";
@@ -33,7 +36,7 @@ interface StoryView {
   dependsOn: string[];
   ready: boolean;
   directory?: string;
-  paused?: boolean;
+  pending?: boolean;
   workflow?: string;
   context?: string[];
   tasks: Array<{
@@ -57,14 +60,21 @@ interface StatusData {
 type SortOption = "title" | "status" | "ready";
 
 
-export function BoardPage() {
+/** Which lifecycle view of the stories this board shows. */
+export type BoardView = "active" | "pending";
+
+export function BoardPage({ view = "active" }: { view?: BoardView } = {}) {
   const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories", [], { pollInterval: 5000 });
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
   const { isCollapsed, setCollapsed, setAllCollapsed } = useStoryCollapse();
 
-  const stories = useMemo(() => storiesData?.stories || [], [storiesData]);
+  // The Board shows active stories, the Pending tab pending ones.
+  const stories = useMemo(
+    () => (storiesData?.stories || []).filter(s => !!s.pending === (view === "pending")),
+    [storiesData, view],
+  );
   const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
   const workflows = statusData?.workflows || {};
@@ -113,9 +123,10 @@ export function BoardPage() {
     refetch();
   };
 
-  const handleBacklog = async (storyId: string) => {
-    if (!confirm(`Move "${storyId}" to backlog?`)) return;
-    await apiPost(`/api/stories/${storyId}/backlog`);
+  /** Pending ⇄ active. Pending stops new work only; an in-flight task finishes. */
+  const handleTogglePending = async (storyId: string, pending: boolean) => {
+    if (pending && !confirm(`Make "${storyId}" pending? Nothing new is handed out until it's activated (a task already running finishes).`)) return;
+    await apiPost(`/api/stories/${storyId}/${pending ? "pending" : "activate"}`);
     refetch();
   };
 
@@ -180,7 +191,7 @@ export function BoardPage() {
             story={story}
             states={getStatesForStory(story)}
             onArchive={handleArchive}
-            onBacklog={handleBacklog}
+            onTogglePending={handleTogglePending}
             onStatusChange={refetch}
             collapsed={isCollapsed(story.id)}
             onToggleCollapsed={c => setCollapsed(story.id, c)}
@@ -188,7 +199,11 @@ export function BoardPage() {
         ))}
         {sorted.length === 0 && (
           <p className="text-center text-muted-foreground py-12">
-            {search ? "No stories match your search." : "No stories yet. Create one to get started."}
+            {search
+              ? "No stories match your search."
+              : view === "pending"
+                ? "No pending stories. Make a story pending to hold it without losing its place."
+                : "No stories yet. Create one to get started."}
           </p>
         )}
       </div>

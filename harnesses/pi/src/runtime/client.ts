@@ -908,7 +908,8 @@ export class DaemonClient {
     dependsOn?: string[];
     /** Where the work happens — story data; teammates cd here (directory affinity). */
     directory?: string;
-    paused?: boolean;
+    /** Create the story pending: nothing is handed out until it is activated. */
+    pending?: boolean;
     workflow?: string;
     /** Context-library entry ids to attach to the whole story (injected into every task prompt). */
     context?: string[];

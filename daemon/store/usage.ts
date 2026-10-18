@@ -11,7 +11,7 @@
  *   - `other`    anything else a teammate ran (e.g. between work items)
  *
  * **It's a ledger: rows are never deleted.** Spend happened whether or not its
- * story is later archived, backlogged, or deleted — archiving used to wipe a
+ * story is later archived or deleted — archiving used to wipe a
  * story's usage, so finished work vanished from any history. Each row keeps a
  * `title` snapshot of what it was for, so it stays readable after its ref is
  * gone.

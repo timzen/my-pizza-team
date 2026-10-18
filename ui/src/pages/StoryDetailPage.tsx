@@ -2,7 +2,10 @@
  * StoryDetailPage — Full story view and editor at /story/:id.
  *
  * This page is the home for story *editing* (title, description, directory,
- * paused). The board only links here; all story edits happen on this page.
+ * context). The board only links here; all story edits happen on this page.
+ * The header's Pending ⇄ Active toggle applies at once (docs/DESIGN.md
+ * "Pending: Write, Review, Activate"): pending holds the story — a running
+ * task finishes, nothing new is handed out, dependents wait.
  */
 
 import { useState } from "react";
@@ -15,7 +18,7 @@ import { DirectoryInput } from "@/components/ui/directory-input";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
 import { ContextSelector } from "@/components/board/ContextSelector";
-import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive } from "lucide-react";
+import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 
 interface StoryTask {
@@ -30,7 +33,7 @@ interface StoryView {
   description: string;
   status?: "open" | "done";
   directory?: string;
-  paused?: boolean;
+  pending?: boolean;
   workflow?: string;
   context?: string[];
   tasks: StoryTask[];
@@ -46,7 +49,6 @@ export function StoryDetailPage() {
   const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
   const [context, setContext] = useState<string[]>([]);
-  const [paused, setPaused] = useState(false);
   const [error, setError] = useState("");
 
   // Seed edit fields when the story loads/changes. Adjusting state during
@@ -59,7 +61,7 @@ export function StoryDetailPage() {
     setDescription(story.description);
     setDirectory(story.directory || "");
     setContext(story.context ? [...story.context] : []);
-    setPaused(!!story.paused); setError("");
+    setError("");
   }
 
   if (!story) {
@@ -76,7 +78,6 @@ export function StoryDetailPage() {
       title, description,
       directory: directory.trim() || null,
       context,
-      paused,
     });
     if (res.success) refetch();
     else setError(res.error || "Failed to update");
@@ -108,14 +109,12 @@ export function StoryDetailPage() {
     }
   };
 
-  /** Toggle paused immediately (like the task page's status moves). */
-  const togglePause = async () => {
-    const next = !paused;
-    setPaused(next);
+  /** Pending ⇄ active, applied immediately (like the task page's status moves). */
+  const togglePending = async () => {
     setError("");
-    const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, { paused: next });
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/${story.pending ? "activate" : "pending"}`);
     if (res.success) refetch();
-    else { setPaused(!next); setError(res.error || "Failed to update"); }
+    else setError(res.error || "Failed to update");
   };
 
   /** Move a task up/down and persist the new order. */
@@ -170,19 +169,24 @@ export function StoryDetailPage() {
         <TitleField label="Title" value={title} onChange={setTitle} required />
         <div className="flex items-center justify-between gap-2">
           <Badge variant="secondary" className="font-mono">/{story.id}</Badge>
-          <Badge variant="secondary">{story.paused ? "paused" : (story.status || "open")}</Badge>
+          <div className="flex items-center gap-2">
+            {story.pending && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">pending</Badge>}
+            <Badge variant="secondary">{story.status || "open"}</Badge>
+            <Button
+              type="button"
+              size="sm"
+              variant={story.pending ? "default" : "outline"}
+              onClick={togglePending}
+              title={story.pending ? "Hand out this story's tasks again" : "Hold this story: a running task finishes, nothing new starts"}
+            >
+              {story.pending ? <><Play className="h-3.5 w-3.5 mr-1" />Activate</> : <><Hourglass className="h-3.5 w-3.5 mr-1" />Make pending</>}
+            </Button>
+          </div>
         </div>
       </div>
 
       <div className="space-y-4">
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={4} required />
-
-        {/* Pause toggle (below the description, right-aligned) */}
-        <div className="flex items-center justify-end">
-          <Button type="button" size="sm" variant={paused ? "default" : "outline"} onClick={togglePause}>
-            {paused ? "Unpause" : "Pause"}
-          </Button>
-        </div>
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><p className="text-xs text-muted-foreground mb-2">Where the work happens — teammates cd here and read its AGENTS.md before starting.</p><DirectoryInput placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
 

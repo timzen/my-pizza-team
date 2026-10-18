@@ -184,7 +184,7 @@ most of it is editable on the **Config** page. Minimal:
 ### Feature toggles
 
 `features` switches whole work-item kinds on or off: **`stories`** (stories and their
-board tasks, backlog, archive), **`tasks`** (Solitary tasks *and* Task Templates), and
+board tasks, pending stories, archive), **`tasks`** (Solitary tasks *and* Task Templates), and
 **`schedules`** (Scheduled tasks and their cron). Thoughts, Context, the Queue and the
 Inbox are always on, so every kind can be off at once.
 
@@ -199,7 +199,7 @@ Inbox are always on, so every kind can be off at once.
   readable.
 - **Turning one off needs it empty.** `PUT /api/config` refuses (409) to switch a
   kind off while it has active items — e.g. "Can't turn off stories: archive or
-  delete 3 stories first". Backlogged stories and pending WorkDefs count; archived items
+  delete 3 stories first". Pending stories and pending WorkDefs count; archived items
   don't. Turning a kind on is always allowed.
 - `GET /api/status` and `GET /api/config` report the resolved toggles as `features`;
   `GET /api/config` also reports each kind's active items as `featureUsage`.
@@ -257,7 +257,6 @@ Inbox are always on, so every kind can be off at once.
 ├── templates/           # reusable molds for Solitary tasks (never enqueued)
 │   └── investigate-ticket/template.md
 ├── archived/            # archived stories (with a synopsis)
-├── backlog/             # backlogged stories
 ├── context/             # context library: reusable prompt/context markdown
 ├── assistant/
 │   └── sessions/        # one markdown transcript per chat session
@@ -310,6 +309,18 @@ on revisions go through the thread plus a re-run. Existing WorkDefs are active, 
 files with the old `draft: true` load as pending. For one release the API still
 accepts the old `draft` request field and `POST …/publish` as deprecated aliases.
 See [docs/DESIGN.md](docs/DESIGN.md#pending-write-review-activate).
+
+**Pending stories.** A story is active or **pending**, and unlike a WorkDef it can go
+back and forth (`pending: true` on create or `PUT /api/stories/:id`, or `POST
+/api/stories/:id/pending` / `…/activate`; the Board's **Pending** tab, the story
+page's **Make pending** / **Activate**, and the assistant's `create_story` /
+`edit_story` `pending`). A pending story hands out nothing new — a task already
+running finishes, but no task is admitted and no READY item is offered — and stories
+that `dependsOn` it wait. Activating resumes it where it was. Pending replaced the old
+story `paused` flag and the `backlog/` directory: on load, `paused: true` becomes
+`pending: true` and `backlog/<id>.json` moves back to `stories/` as pending
+(`backloggedAt` dropped). For one release the API still accepts `paused` as an
+alias of `pending`.
 
 **Run counts.** Every WorkDef view from `/api/work-defs` carries `executionCount`
 (WorkItems created for it, CANCELED ones excluded) and `lastRunAt`, derived from the
@@ -528,7 +539,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 | Status / control | `GET /api/status`, `POST /api/control/pause\|resume` | Summary; pause/resume work distribution |
 | Config | `GET/PUT /api/config`, `GET/PUT /api/teammate-pool` | Config and workflows; the declared team size |
 | Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
-| Stories | `/api/stories/*`, `/api/archived`, `/api/backlog/*` | CRUD, archive, backlog |
+| Stories | `/api/stories/*` (incl. `POST /:id/pending\|activate`), `/api/archived` | CRUD, pending ⇄ active, archive |
 | Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |
 | WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while pending), activate, enqueue, archive, comments, attachments, usage; each view carries its run count (`executionCount`, `lastRunAt`) |
 | Schedules | `/api/schedules/*` | Cron parents |

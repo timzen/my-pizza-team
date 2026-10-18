@@ -86,7 +86,8 @@ export interface StoryView {
   ready: boolean;
   /** Where the work happens (soft affinity bias; agents cd here). */
   directory?: string;
-  paused?: boolean;
+  /** A pending story: nothing new is admitted or handed out; dependents wait. Reversible. */
+  pending?: boolean;
   workflow?: string;
   context?: string[];
   tasks: TaskView[];
@@ -115,7 +116,11 @@ export interface PostCommentResponse { success: boolean }
 export interface CommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
 
 // POST /api/stories
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[]; pending?: boolean; /** @deprecated use `pending` */ draft?: boolean }> }
+/**
+ * `pending` creates the story pending (nothing runs until it is activated). The
+ * legacy `paused` field is still accepted as a deprecated alias (one release).
+ */
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; pending?: boolean; /** @deprecated use `pending` */ paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[]; pending?: boolean; /** @deprecated use `pending` */ draft?: boolean }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // POST /api/stories/:storyId/tasks
@@ -145,7 +150,8 @@ export interface TokenUsageResponse { success: boolean; costUsd?: number; error?
 
 
 // PUT /api/stories/:id
-export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string | null; paused?: boolean; workflow?: string | null; context?: string[] | null }
+/** `pending` moves the story active ⇄ pending; `paused` is a deprecated alias (one release). */
+export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string | null; pending?: boolean; /** @deprecated use `pending` */ paused?: boolean; workflow?: string | null; context?: string[] | null }
 export interface UpdateStoryResponse { success: boolean; error?: string }
 
 // DELETE /api/stories/:id
@@ -153,6 +159,9 @@ export interface DeleteStoryResponse { success: boolean; error?: string }
 
 // POST /api/stories/:id/archive
 export interface ArchiveStoryResponse { success: boolean; synopsis?: string; error?: string }
+
+// POST /api/stories/:id/pending, POST /api/stories/:id/activate
+export interface SetStoryPendingResponse { success: boolean; pending?: boolean; error?: string }
 
 // --- Capabilities removed: matching is now directory-affinity only (docs/DESIGN.md "Work Matching: Directory Affinity"). ---
 

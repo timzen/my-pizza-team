@@ -3,7 +3,7 @@
  *
  * `RouteTabs` is route-driven: each tab is a react-router link, so every tab
  * stays deep-linkable and the active tab follows the current route. Used by
- * the Board surface (Board/Backlog/Archive), the Root page (Queue/Inbox), the
+ * the Board surface (Board/Pending/Archive), the Root page (Queue/Inbox), the
  * Tasks surface (Items/Templates), and the Config page (General/Teammates/
  * Workflows/Context/Triage/Theme — lib/config-tabs.ts; its tabs pass `isActive`
  * so a workflow's detail route keeps Workflows lit).

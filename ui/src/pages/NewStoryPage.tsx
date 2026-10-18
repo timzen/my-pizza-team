@@ -5,7 +5,8 @@
  * context, inline tasks). On success, lands on the new story's detail page.
  * **Save tasks as pending** creates the inline tasks as pending, so the story
  * starts but nothing runs until they're activated (docs/DESIGN.md "Pending:
- * Write, Review, Activate").
+ * Write, Review, Activate"). The **Pending** checkbox instead creates the
+ * whole story pending (reversible: activate it from its page or the board).
  */
 
 import { useState } from "react";
@@ -34,7 +35,7 @@ export function NewStoryPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
-  const [paused, setPaused] = useState(false);
+  const [pending, setPending] = useState(false);
   const [workflow, setWorkflow] = useState("");
   const [context, setContext] = useState<string[]>([]);
   const [tasks, setTasks] = useState<Array<{ title: string; description: string; context: string[] }>>([]);
@@ -57,20 +58,21 @@ export function NewStoryPage() {
     setTasks(updated);
   };
 
-  // `pending` comes from which submit button was pressed.
+  // Task-level `pending` comes from which submit button was pressed; the
+  // story-level one from the checkbox.
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const pending = submitter?.value === "pending";
+    const tasksPending = submitter?.value === "pending";
     setError("");
     if (!effectiveWorkflow) { setError("Please select a workflow"); return; }
     const body: Record<string, unknown> = { id, title, description, workflow: effectiveWorkflow };
     // The working directory is plain story data — agents cd to it and it biases
     // which teammate picks up the work (directory affinity).
     if (directory.trim()) body.directory = directory.trim();
-    if (paused) body.paused = true;
+    if (pending) body.pending = true;
     if (context.length > 0) body.context = context;
-    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined, pending: pending || undefined }));
+    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined, pending: tasksPending || undefined }));
 
     const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
     if (res.success) navigate(`/story/${encodeURIComponent(id)}`);
@@ -87,7 +89,7 @@ export function NewStoryPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-id">ID</Label></div><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
-          <div className="flex items-end pb-1"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={paused} onChange={e => setPaused(e.target.checked)} /> Paused (don't hand out tasks yet)</label></div>
+          <div className="flex items-end pb-1"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pending} onChange={e => setPending(e.target.checked)} /> Pending (hand out nothing until activated)</label></div>
         </div>
         <div>
           <div className="mb-2 pb-1 border-b border-border"><Label>Workflow</Label></div>

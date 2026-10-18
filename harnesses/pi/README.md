@@ -121,8 +121,8 @@ are realized by queueing these.
 Tools are registered per-role (all proxy to the daemon API):
 
 ### Leader Tools
-- **`create_story`** — Create a new story (id, title, description, directory?, skills?, paused?, workflow?, dependsOn?)
-- **`edit_story`** — Edit an existing story's fields
+- **`create_story`** — Create a new story (id, title, description, directory?, pending?, workflow?, dependsOn?)
+- **`edit_story`** — Edit an existing story's fields (incl. `pending`: true holds it, false activates it)
 - **`add_task`** — Add a task to a story (optionally as `pending`)
 - **`team_status`** — Get current team status summary
 

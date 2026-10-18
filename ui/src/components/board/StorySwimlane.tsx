@@ -11,6 +11,9 @@
  * the header. The chevron at the left of the header collapses the lane to
  * just its header row (title + actions); that state is owned by BoardPage
  * (`hooks/useStoryCollapse.ts`) so Expand all / Collapse all stay in sync.
+ * A pending story shows a `pending` badge and a ▶ Activate action; an active
+ * one an ⏸-style "Make pending" action (docs/DESIGN.md "Pending: Write,
+ * Review, Activate").
  */
 
 import { useState } from "react";
@@ -19,7 +22,7 @@ import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { TaskCard } from "./TaskCard";
 import { taskDragType } from "./task-drag";
-import { Archive, ChevronDown, ChevronRight, FolderMinus, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
+import { Archive, ChevronDown, ChevronRight, Hourglass, Play, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
 
 interface StoryData {
@@ -30,7 +33,8 @@ interface StoryData {
   ready: boolean;
   /** Where the work happens (plain story data; teammates cd here). */
   directory?: string;
-  paused?: boolean;
+  /** Pending: nothing new is handed out; reversible. */
+  pending?: boolean;
   workflow?: string;
   tasks: Array<{
     id: string;
@@ -49,7 +53,8 @@ interface StorySwimlaneProps {
   story: StoryData;
   states: string[];
   onArchive?: (storyId: string) => void;
-  onBacklog?: (storyId: string) => void;
+  /** Move the story to `pending` (true) or back to active (false). */
+  onTogglePending?: (storyId: string, pending: boolean) => void;
   onStatusChange?: () => void;
   /** Collapsed lanes show only the header row (default: expanded). */
   collapsed?: boolean;
@@ -58,7 +63,7 @@ interface StorySwimlaneProps {
 }
 
 /** One story's swimlane: header (title, badges, actions) and, unless collapsed, its task columns. */
-export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusChange, collapsed = false, onToggleCollapsed }: StorySwimlaneProps) {
+export function StorySwimlane({ story, states, onArchive, onTogglePending, onStatusChange, collapsed = false, onToggleCollapsed }: StorySwimlaneProps) {
   /** The column currently hovered by a same-story drag (for highlight). */
   const [dropTarget, setDropTarget] = useState<string | null>(null);
 
@@ -133,8 +138,8 @@ export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusCha
         {!story.ready && (
           <Badge variant="outline" className="text-xs">blocked</Badge>
         )}
-        {story.paused && (
-          <Badge variant="outline" className="text-xs">paused</Badge>
+        {story.pending && (
+          <Badge variant="outline" className="text-xs border-amber-500/50 text-amber-700 dark:text-amber-400">pending</Badge>
         )}
         {story.directory && (
           <Badge variant="secondary" className="text-xs font-mono">{story.directory}</Badge>
@@ -164,9 +169,15 @@ export function StorySwimlane({ story, states, onArchive, onBacklog, onStatusCha
               <Archive className="h-3.5 w-3.5" />
             </Button>
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onBacklog?.(story.id)} title="Move to backlog">
-            <FolderMinus className="h-3.5 w-3.5" />
-          </Button>
+          {story.pending ? (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onTogglePending?.(story.id, false)} title="Activate (hand out its tasks again)">
+              <Play className="h-3.5 w-3.5" />
+            </Button>
+          ) : (
+            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onTogglePending?.(story.id, true)} title="Make pending (hold: nothing new is handed out)">
+              <Hourglass className="h-3.5 w-3.5" />
+            </Button>
+          )}
         </div>
       </div>
 

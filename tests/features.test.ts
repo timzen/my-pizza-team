@@ -97,7 +97,7 @@ Deno.test("all on (no features key): every kind's routes work", async () => {
   } finally { cleanup(); }
 });
 
-Deno.test("stories off: story, board-task, backlog and archive routes refuse", async () => {
+Deno.test("stories off: story, board-task, pending and archive routes refuse", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     store.createStory("s1", "S", "d", "open", [], [{ title: "t", description: "d" }]);
@@ -109,7 +109,8 @@ Deno.test("stories off: story, board-task, backlog and archive routes refuse", a
     await assertDisabled(await app.request("/api/stories/s1", put({ title: "x" })), "stories");
     await assertDisabled(await app.request("/api/stories/s1/tasks", post({ title: "t", description: "d" })), "stories");
     await assertDisabled(await app.request(`/api/tasks/${boardTask}/move`, post({ position: "done" })), "stories");
-    await assertDisabled(await app.request("/api/backlog"), "stories");
+    await assertDisabled(await app.request("/api/stories/s1/pending", post({})), "stories");
+    await assertDisabled(await app.request("/api/stories/s1/activate", post({})), "stories");
     await assertDisabled(await app.request("/api/archived"), "stories");
     // A board WorkDef through the generic routes is a story's too…
     await assertDisabled(await app.request(`/api/work-defs/${boardTask}`), "stories");
@@ -245,11 +246,11 @@ Deno.test("GET /api/config reports each kind's active items (featureUsage)", asy
   } finally { cleanup(); }
 });
 
-Deno.test("backlogged stories block turning stories off", async () => {
+Deno.test("pending stories block turning stories off", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "t", description: "d" }]);
-    store.moveToBacklog("s1");
+    store.setStoryPending("s1", true);
     const res = await app.request("/api/config", put(configBody(config, { stories: false })));
     assertEquals(res.status, 409);
     assertStringIncludes((await res.json()).error, "1 story first");

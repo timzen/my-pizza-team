@@ -5,7 +5,7 @@
  * Feature toggles (daemon/features.ts) are middleware installed ahead of every
  * route module. Routes are organized into modules by concern:
  *   - shared: health, status, config, control, readiness, workflows
- *   - stories: story CRUD, archive, backlog
+ *   - stories: story CRUD, pending/activate, archive
  *   - tasks: story-parent task operations — create-in-story, reorder, move, delete
  *   - work-defs: every WorkDef (board, Solitary, Scheduled): CRUD, enqueue,
  *     archive/restore, comments, attachments, token usage

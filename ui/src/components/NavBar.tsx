@@ -20,7 +20,7 @@
  * The status poll is shared with the pause toggle; an Inbox read/unread action
  * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
  * Config is shown as a gear icon beside the theme toggle, lit for every
- * `/config/*` route — including its Workflows and Context tabs. Backlog/Archive
+ * `/config/*` route — including its Workflows and Context tabs. Pending/Archive
  * are tabs within the Board surface (see BoardTabs), so the Board link
  * highlights for those routes (and story/task detail) too.
  *

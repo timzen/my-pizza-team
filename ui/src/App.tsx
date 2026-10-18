@@ -40,7 +40,7 @@ import { TemplateDetailPage } from "./pages/TemplateDetailPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { NewWorkDefPage } from "./pages/NewWorkDefPage";
 import { WorkDefDetailPage } from "./pages/WorkDefDetailPage";
-import { BacklogPage } from "./pages/BacklogPage";
+import { PendingPage } from "./pages/PendingPage";
 import { ArchivedPage } from "./pages/ArchivedPage";
 import { NewStoryPage } from "./pages/NewStoryPage";
 import { NewTaskPage } from "./pages/NewTaskPage";
@@ -107,7 +107,9 @@ function DesktopShell() {
             <Route path="/story/:id" element={<FeatureRoute feature="stories"><StoryDetailPage /></FeatureRoute>} />
             <Route path="/stories/new" element={<FeatureRoute feature="stories"><NewStoryPage /></FeatureRoute>} />
             <Route path="/story/:id/tasks/new" element={<FeatureRoute feature="stories"><NewTaskPage /></FeatureRoute>} />
-            <Route path="/backlog" element={<FeatureRoute feature="stories"><BacklogPage /></FeatureRoute>} />
+            <Route path="/pending" element={<FeatureRoute feature="stories"><PendingPage /></FeatureRoute>} />
+            {/* The Backlog tab became Pending (backlogged stories migrate to pending). */}
+            <Route path="/backlog" element={<Navigate to="/pending" replace />} />
             <Route path="/archived" element={<FeatureRoute feature="stories"><ArchivedPage /></FeatureRoute>} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/config/:tab" element={<ConfigPage />} />

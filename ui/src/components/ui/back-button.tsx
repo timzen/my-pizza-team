@@ -2,7 +2,7 @@
  * BackButton — A back control that returns to wherever you actually came from.
  *
  * Uses the router history (`navigate(-1)`) so, e.g., a task opened from the
- * backlog goes back to the backlog rather than always to the board. On a fresh
+ * Pending tab goes back to the Pending tab rather than always to the board. On a fresh
  * page load (no in-app history), it falls back to the provided `fallback` route
  * so the button is never a dead end. "In-app history" is read from the router's
  * `history.state.idx` (lib/nav-section.ts `canGoBackInApp`), not `location.key`:

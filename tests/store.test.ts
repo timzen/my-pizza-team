@@ -652,26 +652,25 @@ Deno.test("Store: editing a board task via updateWorkDefDetails syncs the tasks 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: backlog/restore + archive + delete use flat story files (not dirPath)", () => {
+Deno.test("Store: pending/activate + archive + delete use flat story files (not dirPath)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
     store.createStory("s-a", "A", "desc a", "open", [], [{ title: "T1", description: "d" }], "default", undefined, false);
     store.createStory("s-b", "B", "desc b", "open", [], [{ title: "T1", description: "d" }], "default", undefined, false);
 
-    // Backlog s-a: its flat file moves to backlog/, board no longer lists it,
-    // and the OTHER story's file is untouched (regression: dirPath was the
-    // whole stories/ dir, so this used to move/lose everything).
-    store.moveToBacklog("s-a");
-    assertEquals(store.getStory("s-a"), null);
-    assertEquals(store.getStory("s-b")!.id, "s-b"); // sibling survived
+    // Pending s-a: it stays in stories/ (pending is a flag, not a directory),
+    // its file records pending, and the OTHER story's file is untouched.
+    store.setStoryPending("s-a", true);
+    assertEquals(store.getStory("s-a")!.pending, true);
+    assertEquals(JSON.parse(Deno.readTextFileSync(path.join(teamDir, "stories", "s-a.json"))).pending, true);
+    assertEquals(store.getStory("s-b")!.pending, undefined); // sibling untouched
     assertEquals(Deno.statSync(path.join(teamDir, "stories", "s-b.json")).isFile, true);
-    assertEquals(store.getBacklogStories().map((s) => s.id), ["s-a"]);
 
-    // Restore brings it back to the active board.
-    store.moveFromBacklog("s-a");
-    assertEquals(store.getStory("s-a")!.id, "s-a");
-    assertEquals(store.getBacklogStories().length, 0);
+    // Activate brings it back; the file drops the flag.
+    store.setStoryPending("s-a", false);
+    assertEquals(store.getStory("s-a")!.pending, undefined);
+    assertEquals(JSON.parse(Deno.readTextFileSync(path.join(teamDir, "stories", "s-a.json"))).pending, undefined);
 
     // Archive s-b (mark its task done first).
     const bTask = store.getTasksForStory("s-b")[0]!;
@@ -795,7 +794,7 @@ Deno.test("Store: archiving or deleting a dependency admits its dependent", () =
     store.createStory("arc-b", "B", "B", "open", ["arc-a"], [{ title: "B1", description: "b" }], undefined, undefined, true);
     finishOnlyTask(store, "arc-a-1");
     store.updateStoryDetails("arc-a", { status: "open" });
-    store.updateStoryDetails("arc-b", { paused: false });
+    store.updateStoryDetails("arc-b", { pending: false });
     assertEquals(store.getTask("arc-b-1")!.status, "todo");
     store.archiveStory("arc-a");
     assertEquals(store.getTask("arc-b-1")!.status, "in_progress");
@@ -832,14 +831,14 @@ Deno.test("Store: a dependent with two dependencies waits for both", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: a paused or pending dependent is not admitted when its dependency completes", () => {
+Deno.test("Store: a pending dependent (story or first task) is not admitted when its dependency completes", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
     store.registerMember("m1", "swift-ripley", "/tmp/repo");
     store.createStory("hold-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
-    store.createStory("hold-p", "P", "Paused", "open", ["hold-a"], [{ title: "P1", description: "p" }], undefined, undefined, true);
-    store.createStory("hold-d", "D", "Pending", "open", ["hold-a"], [{ title: "D1", description: "d", pending: true }]);
+    store.createStory("hold-p", "P", "Pending story", "open", ["hold-a"], [{ title: "P1", description: "p" }], undefined, undefined, true);
+    store.createStory("hold-d", "D", "Pending task", "open", ["hold-a"], [{ title: "D1", description: "d", pending: true }]);
 
     finishOnlyTask(store, "hold-a-1");
     assertEquals(store.getTask("hold-p-1")!.status, "todo");
@@ -847,8 +846,8 @@ Deno.test("Store: a paused or pending dependent is not admitted when its depende
     assertEquals(store.getTask("hold-d-1")!.status, "todo");
     assertEquals(store.getActiveWorkItemForTask("hold-d-1"), null);
 
-    // Unpausing then admits it (the existing trigger still works).
-    store.updateStoryDetails("hold-p", { paused: false });
+    // Activating then admits it (the existing trigger still works).
+    store.updateStoryDetails("hold-p", { pending: false });
     assertEquals(store.getTask("hold-p-1")!.status, "in_progress");
     store.close();
   } finally { cleanupDir(teamDir); }

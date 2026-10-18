@@ -163,10 +163,11 @@ test("edit_story calls client.updateStory", () => {
   assert.ok(src.includes("client.updateStory("));
 });
 
-test("story tools use directory affinity (directory/paused), not a capability model", () => {
+test("story tools use directory affinity (directory/pending), not a capability model", () => {
   // Matching is directory-affinity only: no skills/requirements/dir legacy.
   assert.ok(src.includes("directory:"));
-  assert.ok(src.includes("paused:"));
+  assert.ok(src.includes("pending:"));
+  assert.ok(!src.includes("paused:"));
   assert.ok(!src.includes("buildRequirements("));
   assert.ok(!src.includes("skills:"));
   assert.ok(!/\bdir:/.test(src)); // no legacy dir field

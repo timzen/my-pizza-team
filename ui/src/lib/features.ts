@@ -30,7 +30,7 @@ export const FEATURE_LABELS: Record<FeatureName, string> = {
 
 /** What each toggle covers, for the Config page. */
 export const FEATURE_DESCRIPTIONS: Record<FeatureName, string> = {
-  stories: "Multi-step stories on the Board (with Backlog and Archive), and their Workflows.",
+  stories: "Multi-step stories on the Board (with Pending and Archive), and their Workflows.",
   tasks: "Standalone (Solitary) tasks and Task Templates.",
   schedules: "Recurring jobs on the Schedule page.",
 };
@@ -56,7 +56,8 @@ export function featureForWorkDefForm(search: string): FeatureName {
 /** First path segment → the feature its pages belong to. */
 const SEGMENT_FEATURES: Record<string, FeatureName> = {
   board: "stories",
-  backlog: "stories",
+  pending: "stories",
+  backlog: "stories", // legacy route, redirects to /pending
   archived: "stories",
   story: "stories",
   stories: "stories",

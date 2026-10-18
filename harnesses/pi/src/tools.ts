@@ -266,6 +266,7 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       "Use create_story to create stories when the user discusses new features, epics, or work items for the team.",
       "After creating a story with create_story, use add_task to add tasks to it.",
       "Story IDs should be short slugs (lowercase, hyphens, e.g., 'auth-refactor').",
+      "Pass pending: true when the story should wait (e.g. for a review or a decision) — nothing is handed out until it's activated with edit_story pending: false.",
     ],
     parameters: Type.Object({
       id: Type.String({ description: "Story ID slug (lowercase, hyphens, e.g., 'auth-refactor')" }),
@@ -273,7 +274,7 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       description: Type.String({ description: "Full description of what this story accomplishes" }),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "Array of story IDs this story depends on" })),
       directory: Type.Optional(Type.String({ description: "Where the work happens (e.g., '~/Workspace/my-project'). Teammates biased to this directory pick it up and cd here." })),
-      paused: Type.Optional(Type.Boolean({ description: "If true, the story's tasks are not handed out until unpaused" })),
+      pending: Type.Optional(Type.Boolean({ description: "If true, the story is created pending: none of its tasks are handed out until it is activated (edit_story pending: false)" })),
       workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default). Use list_workflows to see valid names." })),
       context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to the whole story (injected into every task's prompt). Use list_context to find ids." })),
     }),
@@ -284,7 +285,7 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
         description: params.description,
         dependsOn: params.dependsOn,
         directory: params.directory,
-        paused: params.paused,
+        pending: params.pending,
         workflow: params.workflow,
         context: params.context,
       });
@@ -309,7 +310,9 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Edit Story",
     description:
       "Edit an existing story on the pi-pizza-team kanban board. Can update title, description, status, " +
-      "dependencies, working directory, paused state, and workflow.",
+      "dependencies, working directory, pending state, and workflow. A story is active or pending (reversible): " +
+      "pending: true holds it (an in-flight task finishes, nothing new starts, stories depending on it wait); " +
+      "pending: false activates it again.",
     promptSnippet: "Edit an existing story on the pi-pizza-team board",
     promptGuidelines: [
       "Use edit_story to modify existing stories.",
@@ -323,7 +326,7 @@ function registerEditStory(pi: ExtensionAPI, client: DaemonClient): void {
       status: Type.Optional(Type.Union([Type.Literal("open"), Type.Literal("done")], { description: "New status" })),
       dependsOn: Type.Optional(Type.Array(Type.String(), { description: "New dependency list" })),
       directory: Type.Optional(Type.String({ description: "Where the work happens (empty string to clear). Teammates cd here." })),
-      paused: Type.Optional(Type.Boolean({ description: "Whether the story's tasks are withheld from agents" })),
+      pending: Type.Optional(Type.Boolean({ description: "true makes the story pending (nothing new is handed out); false activates it" })),
       workflow: Type.Optional(Type.String({ description: "New workflow name (empty for default)" })),
     }),
     async execute(_toolCallId, params) {

@@ -51,7 +51,7 @@ from `todo` into the first active state *only when the story has no task anywher
 in the active section.* One task in flight per story stops commits stacking up
 while an earlier task awaits (or fails) review. Rework keeps the token: moving a
 task backward never admits another. Admission runs after completion/advance,
-judgment moves, task creation/deletion, story unpause, and daemon load — and, for
+judgment moves, task creation/deletion, a story's activation (pending → active), and daemon load — and, for
 every story that `dependsOn` it, whenever a story reaches `done` or is archived or
 deleted (a missing dependency counts as satisfied). A judgment
 move excludes the just-moved task from the admission it triggers — moving a task to
@@ -151,7 +151,7 @@ compare time in `getNextWorkItem`, so rows stored before resolution (or before
 the path existed) still match without a migration.
 
 Tier 3 is presence-based, not timed: if an online agent with the matching
-directory exists, the item waits for it. `Story.paused` and unmet story
+directory exists, the item waits for it. `Story.pending` and unmet story
 dependencies are independent gates (their items are never offered).
 
 ### Exclusive directory leases: one teammate per directory
@@ -313,6 +313,38 @@ see "Old spellings" below.)
 same authored document in the same place, with the same thread and attachments:
 you may want to discuss it before it runs. Only *whether its parent may enqueue
 it* changes, and that is exactly the one question `enqueueFor` answers.
+
+### Pending stories: the same word, reversible
+
+A story has the same three-stage lifecycle as everything else — **pending →
+active → archived** — but for a story pending is a **hold**, so it goes both ways
+(active ⇄ pending). It replaced two older mechanisms: the story `paused` flag and
+the **backlog** (a `backlog/` directory a story — and every story that
+transitively depended on it — was moved into).
+
+- **Pending stops new work, not running work.** `runAdmission` admits nothing
+  for a pending story and `getNextWorkItem` never offers its READY items. A task
+  already IN_PROGRESS is left alone: it finishes, its COMPLETE advances it as
+  usual, and a READY item that advance creates simply waits. Cancelling the
+  in-flight run would throw away work for no gain; the hold is about what comes
+  *next*.
+- **Dependents just wait.** A story that `dependsOn` a pending story isn't ready
+  (its dependency isn't done), so it waits on the board where it is. The backlog
+  instead moved the whole dependency chain off the board so nothing looked
+  broken; a waiting dependent isn't broken, and moving it lost its place.
+- **A flag in `stories/<id>.json`, not a directory.** Pending is a state of a
+  live story, so it stays in `stories/`, loaded and indexed like any other — the
+  Board's **Pending** tab is the same board filtered, and toggling is one field
+  write, not a file move plus a reload. The UI, API (`pending` on create/PUT,
+  `POST …/pending|activate`), and the assistant's `create_story` / `edit_story`
+  all say *pending*.
+- **Migrated on load, once.** `loadFromDisk` first rewrites old files
+  (`store/story-migration.ts`): `paused: true` → `pending: true`, and
+  `backlog/<id>.json` back to `stories/` as pending with `backloggedAt` dropped
+  (a board task's WorkDef never moved, so nothing else is needed). Old fields and
+  the empty directory are removed, so it's idempotent. A backlog file whose id is
+  already a live story is left alone and warned about — never clobber live work.
+  For one release the API also accepts `paused` as an alias of `pending`.
 
 ## Execution Count: Derived, not Counted
 

@@ -85,7 +85,7 @@ Deno.test("usage: days bucket by the client's local timezone", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("usage: the ledger survives removing a story's live data (archive/backlog/delete)", () => {
+Deno.test("usage: the ledger survives removing a story's live data (archive/delete)", () => {
   const { store, teamDir } = setup();
   try {
     const { tasks } = store.createStory("s1", "S", "desc", "open", [], [{ title: "T", description: "t" }], "default");

@@ -28,6 +28,8 @@ While it's pending, you and the assistant can both revise it: open it and press 
 
 Everything created before pending existed counts as active. (Pending used to be called *draft*, and Activate was *Publish*; old drafts show up as pending.)
 
+**Stories can be pending too — and back again.** A whole story can be **pending**: tick **Pending** on New Story, press **Make pending** on its page (or the ⌛ on its swimlane), or ask the assistant. Unlike a task, a story goes back and forth: **Activate** (▶) resumes it where it left off. While a story is pending, a task that's already running finishes normally, but nothing new is handed out, and stories that depend on it wait. Pending stories live on the Board's **Pending** tab. (This replaces the old story *pause* and the *Backlog*: paused and backlogged stories show up as pending.)
+
 ### Stories
 
 A story groups related board tasks and gives them order + a workflow. Each story has an **ID**, **Title**, **Description**, a **Workflow**, an optional **Directory** (where the work happens), **Dependencies** (other stories that must finish first), and an ordered list of its tasks with each task's current status.
@@ -65,7 +67,7 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 The nav bar has four destinations, plus pause / **usage** / help / config / theme icons:
 
 - **Thoughts** — sticky notes, where ideas start: a canvas, or a list with folders.
-- **Board** — story swimlanes; sub-tabs for Backlog and Archive.
+- **Board** — story swimlanes; sub-tabs for **Pending** (held stories) and Archive.
 - **Tasks** — standalone Solitary WorkDefs, with a **Templates** tab.
 - **Schedule** — cron-driven Scheduled jobs.
 
@@ -82,7 +84,7 @@ The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — w
 The Queue is work **in flight** — every WorkItem that hasn't finished — grouped by what it needs from you:
 
 - **At risk** (MORIBUND, amber) — its teammate went silent mid-work. Nothing retries it automatically: **Force-fail** it, or **Re-enqueue** a fresh attempt.
-- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy). Work in a paused story, or one waiting on a dependency, isn't offered to anyone. An item whose directory is busy reads **waiting — directory busy (teammate, item)**. It starts when that item finishes. If the busy item is *at risk*, force-fail it to free the directory.
+- **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy). Work in a pending story, or one waiting on a dependency, isn't offered to anyone. An item whose directory is busy reads **waiting — directory busy (teammate, item)**. It starts when that item finishes. If the busy item is *at risk*, force-fail it to free the directory.
 - **Working** (IN_PROGRESS) — which teammate has it (click through to watch it) and for how long.
 
 An item marked **retry · attempt 2 · in 4m** is an automatic retry: the teammate's model call failed last time (a service outage, expired credentials), so it runs again after a short backoff — and only once the readiness probe passes. Each failed attempt leaves an amber **[retry]** comment on the work's thread.
@@ -119,11 +121,12 @@ The board is for glancing and light triage; editing happens on the task page.
 - **Add a task** — the `+` on a story swimlane
 - **Move a task** — drag its card to another column (that's how you send to review, approve, or send back for rework)
 - **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Activate** it while it's [pending](#pending--write-first-activate-when-its-right) — move, delete, read comments, upload/review files)
-- **Edit a story** — click the story title to open its page (title, description, directory, context, paused)
+- **Edit a story** — click the story title to open its page (title, description, directory, context; **Make pending** / **Activate**)
+- **Hold a story** — the ⌛ on its swimlane makes it [pending](#pending--write-first-activate-when-its-right) (it moves to the **Pending** tab); ▶ there activates it again
 
 ### Expanding and collapsing stories
 
-Every story starts **expanded** (its task columns showing). The chevron at the left of a story's header collapses it to just the header row — the title and its actions (`+`, archive, backlog) — and clicking it again expands it. **Expand all** / **Collapse all** in the toolbar (next to search and sort) apply to the stories currently shown, so with a search active they only touch the matching stories. Searching doesn't expand collapsed stories. The board remembers each story's choice in this browser.
+Every story starts **expanded** (its task columns showing). The chevron at the left of a story's header collapses it to just the header row — the title and its actions (`+`, archive, pending/activate) — and clicking it again expands it. **Expand all** / **Collapse all** in the toolbar (next to search and sort) apply to the stories currently shown, so with a search active they only touch the matching stories. Searching doesn't expand collapsed stories. The board remembers each story's choice in this browser.
 
 A card shows its title/ID, assignee, cost (if tracked), and a small chip when it has an active WorkItem: **queued** (READY), **working** (IN_PROGRESS), or **at risk** (MORIBUND).
 
@@ -274,7 +277,7 @@ message saying so.
 
 ### Pausing distribution
 
-The **pause button** (⏸) in the navbar stops the daemon from handing out new WorkItems; in-flight work continues. Use it while reorganizing. It isn't saved — restarting the daemon resumes distribution. To hold just one story, mark it **paused** on its page.
+The **pause button** (⏸) in the navbar stops the daemon from handing out new WorkItems; in-flight work continues. Use it while reorganizing. It isn't saved — restarting the daemon resumes distribution. To hold just one story, make it **pending** on its page.
 
 ---
 
@@ -393,7 +396,7 @@ Each tab has its own address (`/config/teammates`, `/config/workflows`, `/config
 
 ### Work items (feature toggles)
 
-**Config → General → Work items** picks the kinds of work your team uses: **Stories** (the Board, with Backlog and Archive, plus Config → Workflows), **Tasks** (standalone Solitary tasks *and* Templates), and **Schedules** (the Schedule page). A brand-new team starts with Tasks only; a team that existed before the toggles has everything on. Tick or untick, then **Save Configuration** — it applies right away, no restart.
+**Config → General → Work items** picks the kinds of work your team uses: **Stories** (the Board, with Pending and Archive, plus Config → Workflows), **Tasks** (standalone Solitary tasks *and* Templates), and **Schedules** (the Schedule page). A brand-new team starts with Tasks only; a team that existed before the toggles has everything on. Tick or untick, then **Save Configuration** — it applies right away, no restart.
 
 When a kind is off:
 
@@ -405,7 +408,7 @@ When a kind is off:
 
 **Thoughts**, **Context**, the **Queue**, and the **Inbox** are always there — even with every kind off — and finished work stays in the Inbox.
 
-You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Backlogged stories and pending tasks count; archived ones don't. Turning a kind back on is always allowed.
+You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Pending stories and pending tasks count; archived ones don't. Turning a kind back on is always allowed.
 
 ### Readiness probe
 

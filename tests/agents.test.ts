@@ -90,12 +90,12 @@ Deno.test("createStory admits the first task and enqueues a READY WorkItem; the 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("paused stories admit nothing until unpaused", () => {
+Deno.test("pending stories admit nothing until activated", () => {
   const { store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default", undefined, true);
     assertEquals(store.getTask("s1-1")?.status, "todo");
-    store.updateStoryDetails("s1", { paused: false });
+    store.updateStoryDetails("s1", { pending: false });
     assertEquals(store.getTask("s1-1")?.status, "in_progress");
   } finally { cleanup(teamDir, store); }
 });

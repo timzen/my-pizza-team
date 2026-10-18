@@ -210,7 +210,7 @@ while any agent there needs it (§8).
 ## Boundaries
 
 Anything about *persistence* — stories/tasks/comments storage, workflows,
-archiving, backlog, knowledge-base indexing, git checkpointing — is the **daemon's**
+archiving, pending stories, knowledge-base indexing, git checkpointing — is the **daemon's**
 design, documented in the my-pizza-team repo. This extension only consumes the
 daemon's HTTP API and turns intent into local action (tmux, Pi messages,
 permissions).

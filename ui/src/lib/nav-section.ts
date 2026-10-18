@@ -26,7 +26,8 @@ export type WorkDefKind = "Solitary" | "Scheduled" | "Board" | "Triage" | "Templ
 const SEGMENT_SECTIONS: Record<string, NavSection> = {
   thoughts: "thoughts",
   board: "board",
-  backlog: "board",
+  pending: "board",
+  backlog: "board", // legacy route, redirects to /pending
   archived: "board",
   story: "board",
   stories: "board",
