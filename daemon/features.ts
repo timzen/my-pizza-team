@@ -163,7 +163,7 @@ function plural(n: number, one: string, many: string): string {
 /**
  * Active (non-archived) items of one kind. Archived items never block turning a
  * kind off; backlogged stories do (they aren't archived, just shelved), and
- * drafts do (they're work in progress).
+ * pending WorkDefs do (they're work in progress).
  */
 export function activeFeatureItems(store: Store, feature: FeatureName): ActiveFeatureItems {
   if (feature === "stories") {

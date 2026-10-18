@@ -7,6 +7,7 @@
 
 import type { RouteContext } from "./types.ts";
 import { DONE_STATE } from "../../shared/types.ts";
+import { requestsPending } from "./work-defs.ts";
 import type {
   CreateStoryRequest, CreateStoryResponse, UpdateStoryRequest, UpdateStoryResponse,
   DeleteStoryResponse, ArchiveStoryResponse, ArchivedStoriesResponse,
@@ -38,7 +39,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
             const assignment = store.getAssignment(task.id);
             const tokenSummary = store.getTokenUsageSummary(task.id);
             const activeItem = store.getActiveWorkItemForTask(task.id);
-            return { id: task.id, seq: task.seq, title: task.title, status: task.status, draft: store.isDraft(task.id), workItemState: activeItem?.state ?? null, description: task.description, context: task.context, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
+            return { id: task.id, seq: task.seq, title: task.title, status: task.status, pending: store.isPending(task.id), workItemState: activeItem?.state ?? null, description: task.description, context: task.context, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
           }),
         };
       }),
@@ -55,8 +56,8 @@ export function registerStoryRoutes(ctx: RouteContext): void {
     if (!store.getWorkflows()[body.workflow]) return c.json({ success: false, error: `Workflow '${body.workflow}' not found` } satisfies CreateStoryResponse, 400);
     if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
 
-    const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], body.tasks, body.workflow, body.context, body.paused, body.directory);
-    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), directory: story.directory, paused: story.paused, workflow: story.workflow, context: story.context, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, draft: store.isDraft(t.id), assignee: null })) } } satisfies CreateStoryResponse, 201);
+    const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], Array.isArray(body.tasks) ? body.tasks.map((t) => ({ title: t.title, description: t.description, context: t.context, pending: requestsPending(t) })) : undefined, body.workflow, body.context, body.paused, body.directory);
+    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), directory: story.directory, paused: story.paused, workflow: story.workflow, context: story.context, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, pending: store.isPending(t.id), assignee: null })) } } satisfies CreateStoryResponse, 201);
   });
 
   app.put("/api/stories/:id", async (c) => {

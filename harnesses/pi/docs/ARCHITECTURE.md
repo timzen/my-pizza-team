@@ -320,7 +320,7 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 |-------|--------|---------|
 | `/api/stories` | POST | Create story (accepts `context`: entry ids attached story-wide) |
 | `/api/stories/:id` | PUT | Update story |
-| `/api/stories/:storyId/tasks` | POST | Add task to story (accepts `context`: entry ids for that task; `draft`) |
+| `/api/stories/:storyId/tasks` | POST | Add task to story (accepts `context`: entry ids for that task; `pending`) |
 | `/api/workflows` | GET | List workflows for the `list_workflows` tool (name, counts, isDefault) |
 | `/api/context` | GET | List context-library entries for the `list_context` tool |
 | `/api/assistant/messages` | POST | Send a message to the assistant |
@@ -337,10 +337,10 @@ The assistant also bridges the **Thoughts** board into work: `list_thought_group
 sticky-note workspace, while `create_task` (Solitary WorkDef) and
 `create_schedule` (Scheduled WorkDef on a cron) turn what it finds into work
 that flows to the Inbox. Every work-creating tool (`add_task`, `create_task`,
-`create_schedule`) takes an optional `draft`, so the assistant can write work up
-for review; `get_task` / `edit_task` revise a draft and `publish_task` releases it
-when the user asks (my-pizza-team docs/DESIGN.md "Drafts: Write, Review,
-Publish"). It can also **write** to the board — `create_thought`
+`create_schedule`) takes an optional `pending`, so the assistant can write work up
+for review; `get_task` / `edit_task` revise a pending task and `activate_task`
+releases it when the user asks (my-pizza-team docs/DESIGN.md "Pending: Write,
+Review, Activate"). It can also **write** to the board — `create_thought`
 (capture a follow-up/summary), `edit_thought` (annotate/append), `archive_thought`
 (clear a note it acted on), and `group_thoughts` (organize) — closing the
 thoughts → tasks → inbox → new-thoughts loop. This replaced the old
@@ -357,7 +357,7 @@ keeps the gated tools in `pi.getActiveTools()` only for kinds that are on:
 | `stories` | `create_story`, `edit_story`, `add_task`, `list_workflows`, `list_context` |
 | `tasks` | `create_task` |
 | `schedules` | `create_schedule` |
-| any of the three | `get_task`, `edit_task`, `publish_task` |
+| any of the three | `get_task`, `edit_task`, `activate_task` |
 
 Other tools are never touched, and `setActiveTools` is only called on a change.
 `before_agent_start` appends `featurePromptNote(features)` (empty when all on) to
@@ -382,9 +382,9 @@ switched-off kind (pass-through if the status read fails); `team_status` and
 | `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`) |
 | `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed |
 | `/api/thoughts` | GET | Read the user's Thoughts board + groups for the list_thoughts / get_thought tools |
-| `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools (`draft: true` for a draft) |
-| `/api/work-defs/:id` | GET / PUT | Read a WorkDef (get_task) / edit a draft's definition (edit_task; 409 once published) |
-| `/api/work-defs/:id/publish` | POST | Publish a draft (publish_task) |
+| `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools (`pending: true` to save it pending) |
+| `/api/work-defs/:id` | GET / PUT | Read a WorkDef (get_task) / edit a pending WorkDef's definition (edit_task; 409 once active) |
+| `/api/work-defs/:id/activate` | POST | Activate a pending WorkDef (activate_task) |
 
 ### Transcript (teammate watch view)
 | Route | Method | Purpose |

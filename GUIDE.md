@@ -20,13 +20,13 @@ Everything a teammate does is defined by a **WorkDef**: a small authored documen
 - **Solitary** — a standalone one-shot you run on demand (the **Tasks** page).
 - **Scheduled** — driven by a cron **Schedule** (the **Schedule** page).
 
-### Drafts — write first, publish when it's right
+### Pending — write first, activate when it's right
 
-Any WorkDef can start as a **draft**: **Save as draft** on the create forms (**Save tasks as drafts** on New Story), or ask the assistant to write tasks up "as drafts" for you to review. A draft carries an amber **Draft** badge and **never runs** — no Run, no cron, and on the board it **holds its place**: the story waits at that task (later tasks don't jump ahead) until you publish it.
+Any WorkDef can start as **pending**: **Save as pending** on the create forms (**Save tasks as pending** on New Story), or ask the assistant to write tasks up "as pending" for you to review. A pending task carries an amber **Pending** badge and **never runs** — no Run, no cron, and on the board it **holds its place**: the story waits at that task (later tasks don't jump ahead) until you activate it.
 
-While it's a draft, you and the assistant can both revise it: open it and press **Edit** (Save draft / Cancel). When it's right, press **Publish**. Publishing is one-way and **locks the definition**: a Solitary task is enqueued straight away, a board task is picked up when its story reaches it, and a scheduled job fires on its next cron time. To change published work, do what you always do — add a comment on its **Thread** and **Run** it again (for a board task, move it back into an agent state); the comments go into the next attempt's prompt. A scheduled job's **cron** stays editable after publishing — it belongs to the schedule, not the definition.
+While it's pending, you and the assistant can both revise it: open it and press **Edit** (Save / Cancel). When it's right, press **Activate**. Activating is one-way and **locks the definition**: a Solitary task is enqueued straight away, a board task is picked up when its story reaches it, and a scheduled job fires on its next cron time. To change active work, do what you always do — add a comment on its **Thread** and **Run** it again (for a board task, move it back into an agent state); the comments go into the next attempt's prompt. A scheduled job's **cron** stays editable after activating — it belongs to the schedule, not the definition.
 
-Everything created before drafts existed counts as published.
+Everything created before pending existed counts as active. (Pending used to be called *draft*, and Activate was *Publish*; old drafts show up as pending.)
 
 ### Stories
 
@@ -118,7 +118,7 @@ The board is for glancing and light triage; editing happens on the task page.
 
 - **Add a task** — the `+` on a story swimlane
 - **Move a task** — drag its card to another column (that's how you send to review, approve, or send back for rework)
-- **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Publish** it while it's a [draft](#drafts--write-first-publish-when-its-right) — move, delete, read comments, upload/review files)
+- **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Activate** it while it's [pending](#pending--write-first-activate-when-its-right) — move, delete, read comments, upload/review files)
 - **Edit a story** — click the story title to open its page (title, description, directory, context, paused)
 
 ### Expanding and collapsing stories
@@ -133,12 +133,12 @@ A card shows its title/ID, assignee, cost (if tracked), and a small chip when it
 
 Not all work belongs on the board. Two pages manage standalone WorkDefs:
 
-- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies"). Drafts show **Publish** instead of Run; the **All / Drafts / Published** buttons filter the list. Each row shows how many times the task has run ("never run", "1 run", "3 runs" — hover for the last run); **Never run** narrows the list to the ones you haven't started yet, and the sort menu orders by **Fewest runs** / **Most runs**. A run is any WorkItem created for the task — queued, running, done, or failed — except one you **canceled** before it ran.
+- **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies"). Pending tasks show **Activate** instead of Run; the **All / Pending / Active** buttons filter the list. Each row shows how many times the task has run ("never run", "1 run", "3 runs" — hover for the last run); **Never run** narrows the list to the ones you haven't started yet, and the sort menu orders by **Fewest runs** / **Most runs**. A run is any WorkItem created for the task — queued, running, done, or failed — except one you **canceled** before it ran.
 - **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately. Each row shows its run count and last run.
 
 A task's or job's page (and a board task's page) shows the same run count in its header. Templates have none — they never run.
 
-A failed run leaves the WorkDef in place — read its Thread, add a comment with what to change, and **Run** it again (a published definition is locked; see [Drafts](#drafts--write-first-publish-when-its-right)).
+A failed run leaves the WorkDef in place — read its Thread, add a comment with what to change, and **Run** it again (an active definition is locked; see [Pending](#pending--write-first-activate-when-its-right)).
 
 ### Templates
 
@@ -405,7 +405,7 @@ When a kind is off:
 
 **Thoughts**, **Context**, the **Queue**, and the **Inbox** are always there — even with every kind off — and finished work stays in the Inbox.
 
-You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Backlogged stories and drafts count; archived ones don't. Turning a kind back on is always allowed.
+You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Backlogged stories and pending tasks count; archived ones don't. Turning a kind back on is always allowed.
 
 ### Readiness probe
 

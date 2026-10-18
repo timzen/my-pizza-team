@@ -243,7 +243,7 @@ export interface CreateStoryResponse {
 /** Response from POST /api/stories/:storyId/tasks */
 export interface CreateTaskResponse {
   success: boolean;
-  task?: { id: string; seq: number; title: string; draft?: boolean };
+  task?: { id: string; seq: number; title: string; pending?: boolean };
   error?: string;
 }
 
@@ -258,8 +258,8 @@ export interface WorkDefSummary {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string;
-  /** Still a draft: editable, never dispatched until published. */
-  draft: boolean;
+  /** Still pending: editable, never dispatched until activated. */
+  pending: boolean;
 }
 
 /** Response from POST /api/agents/work-items/:id/attachments */
@@ -827,25 +827,25 @@ export class DaemonClient {
    * Create a standalone WorkDef. Solitary by default (enqueued immediately so it
    * lands in the Inbox when done); pass `type: "Scheduled"` + `cron` to create a
    * recurring job instead. This is how the assistant turns thoughts into work.
-   * `draft: true` saves it for review instead: never enqueued until published.
+   * `pending: true` saves it for review instead: never enqueued until activated.
    */
   async createWorkDef(body: {
     title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string;
     directory?: string; contextRefs?: string[]; type?: "Solitary" | "Scheduled"; cron?: string; enqueue?: boolean;
-    draft?: boolean;
+    pending?: boolean;
   }): Promise<{ success: boolean; workDef?: { id: string; title: string }; error?: string }> {
     return this.post("/api/work-defs", body);
   }
 
-  /** Read any WorkDef (board task, Solitary, Scheduled) by id, including its `draft` flag. */
+  /** Read any WorkDef (board task, Solitary, Scheduled) by id, including its `pending` flag. */
   async getWorkDef(id: string): Promise<{ workDef?: WorkDefSummary; success?: boolean; error?: string }> {
     return this.get(`/api/work-defs/${encodeURIComponent(id)}`);
   }
 
   /**
    * Edit a WorkDef's definition. The daemon only accepts this while the WorkDef
-   * is a draft; once published it answers 409 (thrown as a DaemonError), since a
-   * published definition is locked — revise it with a comment and a re-run.
+   * is pending; once active it answers 409 (thrown as a DaemonError), since an
+   * active definition is locked — revise it with a comment and a re-run.
    */
   async updateWorkDef(id: string, updates: {
     title?: string; goal?: string; acceptanceCriteria?: string; additionalContext?: string | null;
@@ -855,11 +855,11 @@ export class DaemonClient {
   }
 
   /**
-   * Publish a draft WorkDef: locks its definition and lets the daemon enqueue it
+   * Activate a pending WorkDef: locks its definition and lets the daemon enqueue it
    * (Solitary now, a board task when its story admits it, Scheduled on its cron).
    */
-  async publishWorkDef(id: string): Promise<{ success: boolean; workDef?: WorkDefSummary; workItemId?: string | null; error?: string }> {
-    return this.post(`/api/work-defs/${encodeURIComponent(id)}/publish`, {});
+  async activateWorkDef(id: string): Promise<{ success: boolean; workDef?: WorkDefSummary; workItemId?: string | null; error?: string }> {
+    return this.post(`/api/work-defs/${encodeURIComponent(id)}/activate`, {});
   }
 
   // ─── Thoughts: write (the assistant refines the board) ─────────────────
@@ -935,13 +935,13 @@ export class DaemonClient {
    *
    * Tasks are sequential within a story — the daemon assigns the next
    * sequence number automatically. `context` attaches context-library entry
-   * ids to this task (injected into its prompt). `draft` creates it as a draft:
-   * it holds its place in the story and gets no WorkItem until published.
+   * ids to this task (injected into its prompt). `pending` creates it as pending:
+   * it holds its place in the story and gets no WorkItem until activated.
    */
-  async createTask(storyId: string, title: string, description: string, context?: string[], draft?: boolean): Promise<CreateTaskResponse> {
+  async createTask(storyId: string, title: string, description: string, context?: string[], pending?: boolean): Promise<CreateTaskResponse> {
     return this.post<CreateTaskResponse>(
       `/api/stories/${encodeURIComponent(storyId)}/tasks`,
-      { title, description, context, draft }
+      { title, description, context, pending }
     );
   }
 

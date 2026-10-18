@@ -16,7 +16,7 @@ import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { DraftBadge } from "@/components/WorkDefDefinition";
+import { PendingBadge } from "@/components/WorkDefDefinition";
 import { runCountLabel } from "@/lib/run-count";
 import { Plus, Play, CalendarClock, FolderOpen, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
 
@@ -27,7 +27,7 @@ interface WorkDef {
   parent?: { kind: "story" | "schedule"; id: string };
   goal: string;
   directory?: string | null;
-  draft?: boolean;
+  pending?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
   executionCount?: number;
   lastRunAt?: string | null;
@@ -118,7 +118,7 @@ export function SchedulePage() {
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                  {def.draft && <DraftBadge className="text-[10px]" />}
+                  {def.pending && <PendingBadge className="text-[10px]" />}
                   <Badge variant="outline" className="text-[10px] flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" />{describeCron(cron)}</Badge>
                   {cron && <code className="text-[10px] bg-muted px-1 rounded">{cron}</code>}
                   {def.directory && (
@@ -131,7 +131,7 @@ export function SchedulePage() {
                 </div>
               </Link>
               <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this job"><Archive className="h-3.5 w-3.5" /></Button>
-              <Button variant="outline" size="sm" onClick={() => run(def.id)} disabled={def.draft} title={def.draft ? "Draft — publish it from its page first" : "Enqueue a run now"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+              <Button variant="outline" size="sm" onClick={() => run(def.id)} disabled={def.pending} title={def.pending ? "Pending — activate it from its page first" : "Enqueue a run now"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
             </CardContent>
           </Card>
           );

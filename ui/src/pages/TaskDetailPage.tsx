@@ -10,10 +10,10 @@
  * and delete (which routes through the task endpoint so the story's task list +
  * CONWIP token are cleaned up).
  *
- * The definition is `WorkDefDefinition`: a **draft** task can be edited and
- * published (it holds its place in the story until then); a published one is
+ * The definition is `WorkDefDefinition`: a **pending** task can be edited and
+ * activated (it holds its place in the story until then); an active one is
  * locked — rework goes through the Thread and a move back into an agent state
- * (docs/DESIGN.md "Drafts: Write, Review, Publish").
+ * (docs/DESIGN.md "Pending: Write, Review, Activate").
  *
  * Comments live on the WorkDef's ref (same comments.jsonl the agents append
  * completion summaries to). Attachments remain clickable — opening the diff/
@@ -29,7 +29,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { WorkDefDefinition, DraftBadge } from "@/components/WorkDefDefinition";
+import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { runCountLabel } from "@/lib/run-count";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { Trash2, Upload } from "lucide-react";
@@ -41,7 +41,7 @@ interface WorkDef {
   id: string;
   title: string;
   type: "Solitary" | "Scheduled" | "Board";
-  draft?: boolean;
+  pending?: boolean;
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
@@ -203,7 +203,7 @@ export function TaskDetailPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback="/board" title="Back to board" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
-        {def.draft && <DraftBadge />}
+        {def.pending && <PendingBadge />}
         <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
           {runCountLabel(def.executionCount)}
         </Badge>

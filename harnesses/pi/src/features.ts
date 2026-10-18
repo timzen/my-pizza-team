@@ -39,7 +39,7 @@ export const FEATURE_TOOLS: Readonly<Record<FeatureName, readonly string[]>> = {
  * active while at least one kind is on. The daemon still refuses a def whose own
  * kind is off.
  */
-export const ANY_FEATURE_TOOLS: readonly string[] = ["get_task", "edit_task", "publish_task"];
+export const ANY_FEATURE_TOOLS: readonly string[] = ["get_task", "edit_task", "activate_task"];
 
 /** Every tool this module may switch off. Everything else is never touched. */
 export function gatedToolNames(): string[] {

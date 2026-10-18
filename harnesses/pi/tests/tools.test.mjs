@@ -192,22 +192,23 @@ test("create_story and add_task accept and forward a context param", () => {
   assert.ok(src.includes("params.storyId, params.title, params.description, params.context"));
 });
 
-test("work-creating tools take an optional draft param and forward it", () => {
-  // Drafts let the assistant write work for review (my-pizza-team DESIGN.md "Drafts").
-  assert.ok(src.includes("const DRAFT_PARAM = Type.Optional(Type.Boolean("));
-  assert.equal((src.match(/draft: DRAFT_PARAM/g) || []).length, 3, "add_task, create_task, create_schedule");
-  assert.ok(src.includes("params.context, params.draft)"));
-  assert.ok(src.includes("draft: p.draft"));
+test("work-creating tools take an optional pending param and forward it", () => {
+  // Pending lets the assistant write work for review (my-pizza-team DESIGN.md "Pending: Write, Review, Activate").
+  assert.ok(src.includes("const PENDING_PARAM = Type.Optional(Type.Boolean("));
+  assert.equal((src.match(/pending: PENDING_PARAM/g) || []).length, 3, "add_task, create_task, create_schedule");
+  assert.ok(src.includes("params.context, params.pending)"));
+  assert.ok(src.includes("pending: p.pending"));
+  assert.ok(!/\bdraft\b/i.test(src), "the old draft vocabulary is gone");
 });
 
-test("draft tools: get_task, edit_task, publish_task are leader tools on the WorkDef API", () => {
+test("pending tools: get_task, edit_task, activate_task are leader tools on the WorkDef API", () => {
   const leaderFn = src.slice(src.indexOf("function registerLeaderTools"), src.indexOf("function registerTeammateTools"));
-  for (const fn of ["registerGetTask", "registerEditTask", "registerPublishTask"]) assert.ok(leaderFn.includes(fn), `missing ${fn}`);
+  for (const fn of ["registerGetTask", "registerEditTask", "registerActivateTask"]) assert.ok(leaderFn.includes(fn), `missing ${fn}`);
   assert.ok(src.includes('name: "get_task"') && src.includes("client.getWorkDef("));
   assert.ok(src.includes('name: "edit_task"') && src.includes("client.updateWorkDef("));
-  assert.ok(src.includes('name: "publish_task"') && src.includes("client.publishWorkDef("));
-  // Publishing is the user's review gate: the tool must say so.
-  assert.ok(src.includes("Only use publish_task when the user explicitly asks"));
+  assert.ok(src.includes('name: "activate_task"') && src.includes("client.activateWorkDef("));
+  // Activating is the user's review gate: the tool must say so.
+  assert.ok(src.includes("Only use activate_task when the user explicitly asks"));
 });
 
 test("context tools are gone (daemon vends context, agents don't CRUD it)", () => {

@@ -37,7 +37,7 @@ interface StoryData {
     seq: number;
     title: string;
     status: string;
-    draft?: boolean;
+    pending?: boolean;
     workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
     description?: string;
     assignee: string | null;

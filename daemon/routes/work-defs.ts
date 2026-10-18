@@ -5,12 +5,17 @@
  * cron work), stored as markdown on disk. Creating one enqueues a WorkItem by
  * default; "save without enqueueing" passes `enqueue: false`. See the plan.
  *
- * **Drafts** (docs/DESIGN.md "Drafts: Write, Review, Publish"). `draft: true` on
- * create saves a WorkDef that is never enqueued. Its definition is editable with
- * PUT only while it is a draft; `POST /:id/publish` ends the draft, after which a
- * PUT that touches the definition is refused (409) — revisions go through the
- * thread plus Run. A Scheduled job's cron lives on its Schedule, not the
- * definition, so a cron-only PUT is still accepted after publishing.
+ * **Pending** (docs/DESIGN.md "Pending: Write, Review, Activate"). `pending: true`
+ * on create saves a WorkDef that is never enqueued. Its definition is editable
+ * with PUT only while it is pending; `POST /:id/activate` ends pending, after
+ * which a PUT that touches the definition is refused (409) — revisions go through
+ * the thread plus Run. A Scheduled job's cron lives on its Schedule, not the
+ * definition, so a cron-only PUT is still accepted after activating.
+ *
+ * **Deprecated aliases (one release).** Requests may still say `draft: true`
+ * (read as `pending: true`) and `POST /:id/publish` (same as `/activate`), so an
+ * older Pi extension keeps working across the rename. Responses only carry
+ * `pending`.
  *
  * Every view carries `executionCount` / `lastRunAt`, derived from the WorkItem
  * table (CANCELED excluded) — docs/DESIGN.md "Execution Count: Derived, not Counted".
@@ -29,7 +34,7 @@
 
 import type { RouteContext } from "./types.ts";
 import { workDefType, type WorkDef } from "../../shared/types.ts";
-import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, PublishWorkDefRequest, PublishWorkDefResponse } from "../../shared/protocol.ts";
+import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
@@ -46,7 +51,7 @@ function view(d: WorkDef, store: RouteContext["store"], stats?: Map<string, Work
     id: d.id, title: d.title, type: workDefType(d.parent), parent: d.parent,
     goal: d.goal, acceptanceCriteria: d.acceptanceCriteria,
     additionalContext: d.additionalContext, contextRefs: d.contextRefs, directory: d.directory,
-    draft: d.draft === true,
+    pending: d.pending === true,
     // Aggregate cost/tokens across this def's runs (recorded on the ref).
     tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
     executionCount: exec.executionCount,
@@ -60,10 +65,19 @@ function triageOwned(store: RouteContext["store"], id: string): { kind: "thought
   return parent?.kind === "thought" ? { kind: "thought", id: parent.id } : null;
 }
 
-/** Why a PUT to a published WorkDef's definition is refused. */
-const PUBLISHED_LOCKED_ERROR =
-  "This WorkDef is published, so its definition is locked. To revise it, add a comment " +
-  "to its thread and Run it again (or create a new draft).";
+/** Why a PUT to an active WorkDef's definition is refused. */
+const ACTIVE_LOCKED_ERROR =
+  "This WorkDef is active, so its definition is locked. To revise it, add a comment " +
+  "to its thread and Run it again (or create a new pending one).";
+
+/**
+ * Does a create request ask for a pending WorkDef? `pending: true`, or the
+ * deprecated pre-rename `draft: true` (accepted for one release — see the file
+ * header). Shared by every route that creates WorkDefs.
+ */
+export function requestsPending(body: { pending?: unknown; draft?: unknown } | null | undefined): boolean {
+  return body?.pending === true || body?.draft === true;
+}
 
 /** The UpdateWorkDefRequest fields that are the authored definition (everything but cron). */
 const DEFINITION_FIELDS = ["title", "goal", "acceptanceCriteria", "additionalContext", "contextRefs", "directory"] as const;
@@ -106,7 +120,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const def = store.createWorkDef({
       title: body.title, parent, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria || "",
       additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
-      draft: body.draft === true,
+      pending: requestsPending(body),
     }, body.enqueue !== false && !scheduled);
     return c.json({ success: true, workDef: view(def, store) } satisfies SaveWorkDefResponse, 201);
   });
@@ -118,10 +132,10 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     if (!existing) return c.json({ success: false, error: "WorkDef not found" } satisfies SaveWorkDefResponse, 404);
     const owned = triageOwned(store, id);
     if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) } satisfies SaveWorkDefResponse, 409);
-    // Published ⇒ locked: only a draft's definition may change.
+    // Active ⇒ locked: only a pending WorkDef's definition may change.
     const touchesDefinition = DEFINITION_FIELDS.some((f) => body[f] !== undefined);
-    if (touchesDefinition && !existing.draft) {
-      return c.json({ success: false, error: PUBLISHED_LOCKED_ERROR } satisfies SaveWorkDefResponse, 409);
+    if (touchesDefinition && !existing.pending) {
+      return c.json({ success: false, error: ACTIVE_LOCKED_ERROR } satisfies SaveWorkDefResponse, 409);
     }
     if (body.cron !== undefined && body.cron !== null && !isValidCron(body.cron)) return c.json({ success: false, error: "Invalid 'cron' expression" } satisfies SaveWorkDefResponse, 400);
     // A cron edit updates the WorkDef's parent Schedule, not the WorkDef itself.
@@ -158,16 +172,19 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     return c.json({ success: true, workDef: view(updated, store) });
   });
 
-  // Publish a draft: locks its definition and lets its parent enqueue it
+  // Activate a pending WorkDef: locks its definition and lets its parent enqueue it
   // (Solitary: now, unless `enqueue: false`; Board: admission; Scheduled: next cron).
-  app.post("/api/work-defs/:id/publish", async (c) => {
-    const id = c.req.param("id");
-    const body = (await c.req.json().catch(() => ({}))) as PublishWorkDefRequest;
-    const res = store.publishWorkDef(id, { enqueue: body.enqueue });
-    if (!res) return c.json({ success: false, error: "WorkDef not found" } satisfies PublishWorkDefResponse, 404);
-    if ("error" in res) return c.json({ success: false, error: res.error } satisfies PublishWorkDefResponse, 409);
-    return c.json({ success: true, workDef: view(res.def, store), workItemId: res.workItem?.id ?? null } satisfies PublishWorkDefResponse);
-  });
+  // `/publish` is the deprecated pre-rename alias, kept for one release.
+  for (const action of ["activate", "publish"]) {
+    app.post(`/api/work-defs/:id/${action}`, async (c) => {
+      const id = c.req.param("id");
+      const body = (await c.req.json().catch(() => ({}))) as ActivateWorkDefRequest;
+      const res = store.activateWorkDef(id, { enqueue: body.enqueue });
+      if (!res) return c.json({ success: false, error: "WorkDef not found" } satisfies ActivateWorkDefResponse, 404);
+      if ("error" in res) return c.json({ success: false, error: res.error } satisfies ActivateWorkDefResponse, 409);
+      return c.json({ success: true, workDef: view(res.def, store), workItemId: res.workItem?.id ?? null } satisfies ActivateWorkDefResponse);
+    });
+  }
 
   // Enqueue a READY WorkItem for this def (manual trigger / "save then enqueue").
   app.post("/api/work-defs/:id/enqueue", (c) => {
@@ -179,8 +196,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
         ? c.json({ success: true, workItemId: res.workItem.id })
         : c.json({ success: false, error: res.error }, 409);
     }
-    if (store.isDraft(c.req.param("id"))) {
-      return c.json({ success: false, error: "This WorkDef is a draft; publish it before running it" }, 409);
+    if (store.isPending(c.req.param("id"))) {
+      return c.json({ success: false, error: "This WorkDef is pending; activate it before running it" }, 409);
     }
     const item = store.enqueueWorkDef(c.req.param("id"));
     if (!item) return c.json({ success: false, error: "Unknown WorkDef, or one is already in flight" }, 400);

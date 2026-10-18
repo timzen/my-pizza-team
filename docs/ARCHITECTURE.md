@@ -40,7 +40,7 @@ committed by autosave.
 | `workflows/<name>/workflow.json` | `{ states: [{name, type}] }` | file |
 | `workflows/<name>/<state>.md` | Persona for an agent state | file |
 | `stories/<id>.json` | Story: title, description, workflow, directory, context, paused, dependsOn, `tasks: [{id, status}]` | file (indexed in SQLite) |
-| `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, contextRefs, `status: archived`, `draft: true` while a draft) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
+| `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, contextRefs, `status: archived`, `pending: true` while pending — legacy `draft: true` reads as pending) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
 | `tasks/<id>/comments.jsonl`, `attachments/` | The WorkDef's thread and files (append-only comments) | file |
 | `schedules/<id>.json` | Cron parent: cron, lastEnqueuedAt, `heldForReadiness?` | file |
 | `templates/<id>/template.md` | Task Template (WorkDef format, never enqueued) | file |
@@ -70,12 +70,12 @@ READY ──claim──▶ IN_PROGRESS ──▶ COMPLETE | FAILED        (termi
 ```
 
 A board task's position changes cancel its active WorkItem; landing in an agent
-state enqueues a new one. A **draft** WorkDef never gets a WorkItem:
-`enqueueFor` refuses it, the scheduler skips it, and admission stops at a draft
-`todo` task (holding the story's slot) — `publishWorkDef` clears the flag and
+state enqueues a new one. A **pending** WorkDef never gets a WorkItem:
+`enqueueFor` refuses it, the scheduler skips it, and admission stops at a pending
+`todo` task (holding the story's slot) — `activateWorkDef` clears the flag and
 then enqueues (Solitary), re-runs admission or enqueues in place (Board), or
-leaves it to the next cron firing (Scheduled). See DESIGN.md "Drafts: Write,
-Review, Publish". When every task in a story reaches `done` the story is
+leaves it to the next cron firing (Scheduled). See DESIGN.md "Pending: Write,
+Review, Activate". When every task in a story reaches `done` the story is
 marked done; moving one back out reopens it.
 
 ## Module Map
@@ -90,8 +90,8 @@ marked done; moving one back out reopens it.
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
 - `static.ts` — Serves `ui/dist/` (or `UI_DIST`) with SPA fallback to `index.html`.
 - `lifecycle.ts` — PID file, SIGTERM/SIGINT handling, flush-and-close on exit, and `redirectOutputToLog` (a background daemon's console → `daemon.log`, the previous run's kept as `daemon.log.1`, uncaught errors included).
-- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, CONWIP admission and advance (`setTaskPosition`, `advanceTask`), the **WorkItem queue** (`enqueueFor` — the single creator, which refuses drafts; `getNextWorkItem` — directory affinity, skipping items blocked by an exclusive directory lease; `claimWorkItem` — re-checks the lease in a `BEGIN IMMEDIATE` transaction; `getDirectoryBlocker` — the in-flight item holding an overlapping directory; `setWorkItemState`; `failWorkItemForSessionError` — an errored agent session: `[retry]` comment + a backoff-held retry item (`attempt`, `retry_at`), or `[failed]` once `resolveRetry`'s retries run out, DESIGN.md "Errored Sessions Retry"; cancel/force-fail/re-enqueue; `getExecutionStats` / `getExecutionStatsFor` — per-WorkDef run count and last run, one aggregate over `work_items` with CANCELED excluded, DESIGN.md "Execution Count: Derived, not Counted"), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness and the cron scheduler (`runScheduler`, readiness-gated), archive/backlog, attachments, context resolution (`resolveTaskContext`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s scheduler tick. Self-contained concerns live in `store/`:
-  - `store/workdefs.ts` — WorkDef markdown IO (`serializeWorkDef`/`parseWorkDef`, including the `draft` flag) and per-def comments.
+- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, CONWIP admission and advance (`setTaskPosition`, `advanceTask`), the **WorkItem queue** (`enqueueFor` — the single creator, which refuses pending WorkDefs; `getNextWorkItem` — directory affinity, skipping items blocked by an exclusive directory lease; `claimWorkItem` — re-checks the lease in a `BEGIN IMMEDIATE` transaction; `getDirectoryBlocker` — the in-flight item holding an overlapping directory; `setWorkItemState`; `failWorkItemForSessionError` — an errored agent session: `[retry]` comment + a backoff-held retry item (`attempt`, `retry_at`), or `[failed]` once `resolveRetry`'s retries run out, DESIGN.md "Errored Sessions Retry"; cancel/force-fail/re-enqueue; `getExecutionStats` / `getExecutionStatsFor` — per-WorkDef run count and last run, one aggregate over `work_items` with CANCELED excluded, DESIGN.md "Execution Count: Derived, not Counted"), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness and the cron scheduler (`runScheduler`, readiness-gated), archive/backlog, attachments, context resolution (`resolveTaskContext`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s scheduler tick. Self-contained concerns live in `store/`:
+  - `store/workdefs.ts` — WorkDef markdown IO (`serializeWorkDef`/`parseWorkDef`, including the `pending` flag, reading legacy `draft: true` as pending) and per-def comments.
   - `store/schedules.ts` — Schedule JSON files.
   - `store/templates.ts` — Template IO (reuses the WorkDef serializer; files only, no index).
   - `store/context.ts` — Context-library markdown entries.
@@ -116,7 +116,7 @@ marked done; moving one back out reopens it.
 - `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows and takes `features` through `resolveFeaturesUpdate`), the teammate pool, readiness, and workflows.
 - `routes/stories.ts` — Story CRUD, archive, backlog/restore.
 - `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move, delete.
-- `routes/work-defs.ts` — WorkDef CRUD (every view carries `executionCount`/`lastRunAt`; the list fetches all stats in one query) (PUT of the definition only while a draft — 409 once published; a cron-only PUT is always allowed), publish, enqueue (409 for a draft), archive/restore, and the ref-scoped surface for **every** WorkDef: comments, attachments, token usage.
+- `routes/work-defs.ts` — WorkDef CRUD (every view carries `executionCount`/`lastRunAt`; the list fetches all stats in one query) (PUT of the definition only while pending — 409 once active; a cron-only PUT is always allowed), activate (plus the deprecated `/publish` alias; `requestsPending` also reads the deprecated `draft` request field), enqueue (409 while pending), archive/restore, and the ref-scoped surface for **every** WorkDef: comments, attachments, token usage.
 - `routes/work.ts` — WorkItem queue reads (list/one) and recovery actions (cancel, force-fail, read, re-enqueue).
 - `routes/schedules.ts` — Schedule CRUD (children are WorkDefs).
 - `routes/templates.ts` — Template CRUD.
@@ -197,14 +197,14 @@ points, so it's unaffected.
 - `pages/BoardPage.tsx` — Story swimlanes (`board/StorySwimlane.tsx`) of task cards (`board/TaskCard.tsx`: title, assignee, cost, WorkItem chip, `details →`). Drag-to-move posts `/api/tasks/:id/move`; the drag MIME type (`board/task-drag.ts`) carries the story id so lanes only accept their own tasks. Todo/done bucket columns can be hidden per story (`localStorage`). Lanes collapse to their header row via a chevron, with **Expand all / Collapse all** in the toolbar; that state is lifted into the page (`hooks/useStoryCollapse.ts`) so bulk changes reach every lane, and persisted per story by `lib/storyCollapse.ts` (tested in `tests/story-collapse.test.ts`).
 - `pages/BacklogPage.tsx`, `pages/ArchivedPage.tsx` — Board sub-tabs.
 - `pages/WorkflowsPage.tsx`, `pages/WorkflowDetailPage.tsx` — Config's **Workflows** tab (`/config/workflows`, `/config/workflows/:name`): list/create workflows and edit states (saved through `PUT /api/config`), set the default, and edit personas (`workflow/PersonaEditor.tsx`, via the instructions API with lint warnings).
-- `pages/NewStoryPage.tsx`, `pages/StoryDetailPage.tsx`, `pages/NewTaskPage.tsx` — Story creation (workflow, directory, context, inline tasks; **Save tasks as drafts**), story editing (title, description, directory, context, paused, task order, archive, delete), and task creation in a story (**Save as draft**). The draft buttons are a second submit button; the handler reads `SubmitEvent.submitter`.
-- `components/WorkDefDefinition.tsx` — The Details tab's definition section shared by both WorkDef pages: read-only when published (with the "comment + re-run" hint), and for a draft a banner with **Edit** (the form, `PUT /api/work-defs/:id`) and **Publish** (`POST …/publish`). Also `DraftBadge`, used on headers, list rows, and board cards (`board/TaskCard.tsx`).
+- `pages/NewStoryPage.tsx`, `pages/StoryDetailPage.tsx`, `pages/NewTaskPage.tsx` — Story creation (workflow, directory, context, inline tasks; **Save tasks as pending**), story editing (title, description, directory, context, paused, task order, archive, delete), and task creation in a story (**Save as pending**). The pending buttons are a second submit button; the handler reads `SubmitEvent.submitter`.
+- `components/WorkDefDefinition.tsx` — The Details tab's definition section shared by both WorkDef pages: read-only when active (with the "comment + re-run" hint), and while pending a banner with **Edit** (the form, `PUT /api/work-defs/:id`) and **Activate** (`POST …/activate`). Also `PendingBadge`, used on headers, list rows, and board cards (`board/TaskCard.tsx`).
 - `pages/TaskDetailPage.tsx` — A board task (a WorkDef with a story parent): **Details** / **Thread** tabs (`ui/detail-tabs.tsx`, `?tab=`), the definition via `WorkDefDefinition`, plus breadcrumb, workflow status + move, and delete (`DELETE /api/tasks/:id`).
-- `pages/TasksPage.tsx`, `pages/SchedulePage.tsx` — Solitary and Scheduled WorkDefs (filtered by derived type), with Run / Run now (Publish for a Solitary draft; disabled for a Scheduled one), per-row cost, Draft badges, Archive, and an Archived drawer. Tasks has the **All / Drafts / Published** filter (`lib/drafts.ts`, tested in `tests/drafts-ui.test.ts`), a per-row run count, the **Never run** filter, and a run-count sort (`lib/run-count.ts`, tested in `tests/run-count.test.ts`). Schedule joins `/api/schedules` for cron and shows the run count and last run (falling back to the Schedule's `lastEnqueuedAt`). `WorkDefDetailPage` and `TaskDetailPage` show the count as a header badge.
+- `pages/TasksPage.tsx`, `pages/SchedulePage.tsx` — Solitary and Scheduled WorkDefs (filtered by derived type), with Run / Run now (Activate for a pending Solitary task; disabled for a pending Scheduled one), per-row cost, Pending badges, Archive, and an Archived drawer. Tasks has the **All / Pending / Active** filter (`lib/pending.ts`, tested in `tests/pending-ui.test.ts`), a per-row run count, the **Never run** filter, and a run-count sort (`lib/run-count.ts`, tested in `tests/run-count.test.ts`). Schedule joins `/api/schedules` for cron and shows the run count and last run (falling back to the Schedule's `lastEnqueuedAt`). `WorkDefDetailPage` and `TaskDetailPage` show the count as a header badge.
 - `pages/TemplatesPage.tsx`, `pages/TemplateDetailPage.tsx`, `components/TemplatePickerDialog.tsx` — Templates list/edit and the "task from template" picker.
 - `pages/NewWorkDefPage.tsx` — Shared create form (`/work-defs/new?type=Solitary|Scheduled|Template`, `&template=<id>` to pre-fill): cron presets and auto-created Schedule for Scheduled, "enqueue now" for Solitary. Acceptance criteria use `ui/acceptance-criteria-editor.tsx` (RFC 2119 scoring).
-- `pages/WorkDefDetailPage.tsx` — Standalone WorkDef page with Details (`WorkDefDefinition`, plus a separately saved cron for Scheduled) / Thread tabs and Run now (disabled for a draft).
-- `pages/NewWorkDefPage.tsx` also offers **Save as draft** for Solitary and Scheduled (not Templates).
+- `pages/WorkDefDetailPage.tsx` — Standalone WorkDef page with Details (`WorkDefDefinition`, plus a separately saved cron for Scheduled) / Thread tabs and Run now (disabled while pending).
+- `pages/NewWorkDefPage.tsx` also offers **Save as pending** for Solitary and Scheduled (not Templates).
 - `pages/ContextPage.tsx` — Config's **Context** tab (`/config/context`): the context library (`board/ContextSelector.tsx` attaches entries elsewhere).
 - `pages/TriagePage.tsx` — A note's triage page (`/thoughts/:id/triage`): where a note becomes work — the note, the latest analysis, Accept / Edit / Reject per proposal, earlier rounds, Triage now. See "Thoughts" above.
 - `pages/ThoughtsPage.tsx` — Thoughts: owns the notes, groups, and every mutation, and switches between two views (**Canvas | List**, `mpt.thoughts.view` in `localStorage`), carrying the selection across. Both sit under one shared toolbar row the page renders — **+ Note** first, then the view's own tools (canvas: Group, Tidy, Select, Map; list: Folder), and at the right zoom (canvas only), Archived, and the switch — so the fixed controls never move when you change view. The **canvas** is this page: pan/zoom (`lib/wheelGesture.ts`), drag/multi-select/marquee, keyboard shortcuts, minimap + group chips, uniform cards, group plates, drag-and-drop membership, Tidy, archived drawer; geometry in `lib/thoughtGeometry.ts`, colors in `lib/thoughtColors.ts`, checklist toggling in `lib/taskMarkers.ts`. The **list** is `thoughts/ThoughtsList.tsx`: folders (groups, alphabetical, collapsible — `mpt.thoughts.collapsedFolders`) then ungrouped notes, search, ↑/↓, drag a row onto a folder to file it, and the selected note in a pane. Its rules (titles/snippets, ordering, search, keyboard order, and where a note lands on the canvas when the list files it — `placeForGroupChange`, `slotInPlate`, `slotBelowAll`) are pure in `lib/thoughtList.ts`. Both views edit through `thoughts/NoteEditor.tsx`: framed by `thoughts/NoteDialog.tsx` on the canvas (saves on close) and inline in the list (autosaves). `thoughts/CopyId.tsx` is the copy-id chip.
@@ -251,7 +251,7 @@ src/
 ├── leader.ts       — Leader: registration, directive polling (fallback spawns, reset-session → /new), /ppt-* commands, the chat mirror
 ├── teammate.ts     — TeammateLoop: poll → claim → run the prompt → comment → set state; pairing and fresh sessions
 ├── chat.ts         — ChatMirror: daemon inbox → Pi (steer), Pi prose → bubbles, terminal input → chat
-├── tools.ts        — LLM tools (role-specific): fail, stories/tasks/schedules (each with an optional `draft`), get/edit/publish a draft, thoughts, workflows, context, team status, attachments
+├── tools.ts        — LLM tools (role-specific): fail, stories/tasks/schedules (each with an optional `pending`), get/edit/activate a pending task, thoughts, workflows, context, team status, attachments
 ├── features.ts     — Feature toggles: the leader tools each kind owns, `applyFeatureTools` (keeps a switched-off kind's tools out of `pi.setActiveTools`), `featurePromptNote`
 ├── permissions.ts  — Autonomous permission handling via @gotgenes/pi-permission-system (optional; warns when absent)
 ├── runtime/        — Harness-agnostic protocol code: no external imports, no relative value imports,
@@ -408,7 +408,7 @@ false, schedules: false }` — when it creates a team dir. A team dir with no
 
 | Feature | Gated routes |
 |---|---|
-| `stories` | `/api/stories*` (incl. `/:storyId/tasks*`), `/api/tasks/*`, `/api/backlog*`, `/api/archived`; `/api/work-defs/:id` (+ `archive`/`restore`/`publish`/`enqueue`) for a Board WorkDef; accepting a `story`/`story-task` proposal |
+| `stories` | `/api/stories*` (incl. `/:storyId/tasks*`), `/api/tasks/*`, `/api/backlog*`, `/api/archived`; `/api/work-defs/:id` (+ `archive`/`restore`/`activate`/`enqueue`) for a Board WorkDef; accepting a `story`/`story-task` proposal |
 | `tasks` | `/api/templates*`; `POST /api/work-defs` (not Scheduled); `/api/work-defs/:id…` for a Solitary WorkDef; accepting a `task` proposal |
 | `schedules` | `/api/schedules*`; `POST /api/work-defs` with `type: "Scheduled"`; `/api/work-defs/:id…` for a Scheduled WorkDef; accepting a `schedule` proposal |
 
@@ -423,7 +423,7 @@ config per request, so a `PUT /api/config` applies without a restart.
 
 **Turning a kind off** through `PUT /api/config` is refused with **409** while it has
 active items (`activeFeatureItems`): stories in `stories/` or `backlog/`; active
-Solitary WorkDefs plus every Template; active Scheduled WorkDefs. Drafts count;
+Solitary WorkDefs plus every Template; active Scheduled WorkDefs. Pending WorkDefs count;
 archived WorkDefs and stories don't. The message names the count ("Can't turn off
 stories: archive or delete 3 stories first"). An already-off kind staying off, and
 turning a kind on, are never refused. An object is a partial update stored in full;
@@ -437,7 +437,7 @@ to disable a toggle the guard would refuse. The web UI's side is under "ui/src/"
 out of the model's active set (`harnesses/pi/src/features.ts`: Stories →
 `create_story`/`edit_story`/`add_task`/`list_workflows`/`list_context`, Tasks →
 `create_task`, Schedules → `create_schedule`, all off → also `get_task`/`edit_task`/
-`publish_task`), re-reading `/api/status` at session start, before every run, and
+`activate_task`), re-reading `/api/status` at session start, before every run, and
 on its 10s poll, and adds a system-prompt note naming what's off; `propose_work`
 refuses proposals of a switched-off kind. `DaemonClient` turns the 403 into
 `DaemonError.feature` + "Stories are disabled — enable them in Config
@@ -501,7 +501,7 @@ switched-off kind answers 403 (see "Feature toggles").
 | POST | `/api/stories/:id/backlog` | Move to backlog (with dependents; refused while tasks are assigned) |
 | GET | `/api/archived`, `/api/backlog` | List archived / backlogged stories |
 | POST | `/api/backlog/:id/restore` | Restore from backlog |
-| POST | `/api/stories/:storyId/tasks` | Create a board task in a story (`draft:true` → a draft that holds its place). `GET /api/stories` task views carry `draft` |
+| POST | `/api/stories/:storyId/tasks` | Create a board task in a story (`pending:true` → a pending task that holds its place; deprecated alias `draft:true`). `GET /api/stories` task views carry `pending` |
 | POST | `/api/stories/:storyId/tasks/reorder` | `{ order: [taskId, …] }` |
 | POST | `/api/tasks/:taskId/move` | Judgment move to any position (buckets included) |
 | DELETE | `/api/tasks/:taskId` | Delete (drops it from the story; frees the CONWIP token) |
@@ -510,10 +510,10 @@ switched-off kind answers 403 (see "Feature toggles").
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET/POST | `/api/work-defs` | List (`?status=active` default, `archived`, `all`; each view has `draft`, `executionCount` — WorkItems created for it, CANCELED excluded — and `lastRunAt`, ISO or null) / create (enqueues unless `enqueue:false`; `draft:true` saves a draft, never enqueued) |
-| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete any WorkDef. PUT of a definition field is 409 unless it's a draft; a cron-only PUT is always accepted |
-| POST | `/api/work-defs/:id/publish` | End a draft (409 if not one): locks it; Solitary is enqueued unless `{enqueue:false}`, Board runs admission (or enqueues in place), Scheduled waits for its cron. Returns `workItemId` (or null) |
-| POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem (409 for a draft) |
+| GET/POST | `/api/work-defs` | List (`?status=active` default, `archived`, `all`; each view has `pending`, `executionCount` — WorkItems created for it, CANCELED excluded — and `lastRunAt`, ISO or null) / create (enqueues unless `enqueue:false`; `pending:true` saves it pending, never enqueued; deprecated alias `draft:true`) |
+| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete any WorkDef. PUT of a definition field is 409 unless it's pending; a cron-only PUT is always accepted |
+| POST | `/api/work-defs/:id/activate` | End pending (409 if not pending; `/publish` is a deprecated alias for one release): locks it; Solitary is enqueued unless `{enqueue:false}`, Board runs admission (or enqueues in place), Scheduled waits for its cron. Returns `workItemId` (or null) |
+| POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem (409 while pending) |
 | POST | `/api/work-defs/:id/archive` \| `/restore` | Archive (also stops cron firing) / restore |
 | GET | `/api/work-defs/:id/comments` | The thread |
 | POST | `/api/work-defs/:id/comment` | Add a comment |

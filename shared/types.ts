@@ -334,13 +334,14 @@ export interface WorkDef {
   /** Lifecycle status: active (default) or archived. */
   status?: "active" | "archived";
   /**
-   * Draft: still being written (docs/DESIGN.md "Drafts: Write, Review, Publish").
+   * Pending: still being written (docs/DESIGN.md "Pending: Write, Review, Activate").
    * While true the definition is editable and the daemon never creates a WorkItem
-   * for it — not on Run, not on cron, not on board admission. Publishing clears it
+   * for it — not on Run, not on cron, not on board admission. Activating clears it
    * (one-way), which locks the definition and lets its parent enqueue it. Absent =
-   * published, so every WorkDef written before drafts existed is published.
+   * active, so every WorkDef written before pending existed is active. Files that
+   * still carry the legacy `draft: true` load as pending.
    */
-  draft?: boolean;
+  pending?: boolean;
   /**
    * Where this WorkDef came from, when it wasn't authored directly: the note and
    * proposal whose acceptance created it (docs/DESIGN.md "Auto Triage"). Structural

@@ -3,9 +3,9 @@
  * (/stories/new). Replaces the old AddStoryDialog modal: creation is a real
  * destination with room for the form's sections (workflow, directory,
  * context, inline tasks). On success, lands on the new story's detail page.
- * **Save tasks as drafts** creates the inline tasks as drafts, so the story
- * starts but nothing runs until they're published (docs/DESIGN.md "Drafts:
- * Write, Review, Publish").
+ * **Save tasks as pending** creates the inline tasks as pending, so the story
+ * starts but nothing runs until they're activated (docs/DESIGN.md "Pending:
+ * Write, Review, Activate").
  */
 
 import { useState } from "react";
@@ -57,11 +57,11 @@ export function NewStoryPage() {
     setTasks(updated);
   };
 
-  // `drafts` comes from which submit button was pressed.
+  // `pending` comes from which submit button was pressed.
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const drafts = submitter?.value === "drafts";
+    const pending = submitter?.value === "pending";
     setError("");
     if (!effectiveWorkflow) { setError("Please select a workflow"); return; }
     const body: Record<string, unknown> = { id, title, description, workflow: effectiveWorkflow };
@@ -70,7 +70,7 @@ export function NewStoryPage() {
     if (directory.trim()) body.directory = directory.trim();
     if (paused) body.paused = true;
     if (context.length > 0) body.context = context;
-    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined, draft: drafts || undefined }));
+    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined, pending: pending || undefined }));
 
     const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
     if (res.success) navigate(`/story/${encodeURIComponent(id)}`);
@@ -127,7 +127,7 @@ export function NewStoryPage() {
         <div className="flex gap-2">
           <Button type="submit" value="create">Create Story</Button>
           {tasks.length > 0 && (
-            <Button type="submit" value="drafts" variant="secondary" title="Create the story with its tasks as drafts: nothing runs until you publish them">Save tasks as drafts</Button>
+            <Button type="submit" value="pending" variant="secondary" title="Create the story with its tasks pending: nothing runs until you activate them">Save tasks as pending</Button>
           )}
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>

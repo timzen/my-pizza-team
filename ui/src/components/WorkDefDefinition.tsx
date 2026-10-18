@@ -2,12 +2,13 @@
  * WorkDefDefinition — The Details tab's definition section, shared by the
  * standalone WorkDef page and the board task page.
  *
- * Drafts (docs/DESIGN.md "Drafts: Write, Review, Publish"): a **draft** shows a
- * banner with **Edit** and **Publish**; Edit swaps the read-only view for the form
- * (Save / Cancel, via `PUT /api/work-defs/:id`). A **published** definition is
- * locked — the daemon refuses edits — so it renders read-only with a hint that
- * revisions go through the Thread plus a re-run. Publishing posts
- * `/api/work-defs/:id/publish`, after which the daemon may enqueue it.
+ * Pending (docs/DESIGN.md "Pending: Write, Review, Activate"): a **pending**
+ * definition shows a banner with **Edit** and **Activate**; Edit swaps the
+ * read-only view for the form (Save / Cancel, via `PUT /api/work-defs/:id`). An
+ * **active** definition is locked — the daemon refuses edits — so it renders
+ * read-only with a hint that revisions go through the Thread plus a re-run.
+ * Activating posts `/api/work-defs/:id/activate`, after which the daemon may
+ * enqueue it.
  */
 
 import { useState, type ReactNode } from "react";
@@ -33,37 +34,37 @@ export interface WorkDefDefinitionData {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string | null;
-  draft?: boolean;
+  pending?: boolean;
 }
 
 interface Props {
   def: WorkDefDefinitionData;
   /** Label for the goal field ("Goal"; board tasks historically say "Description"). */
   goalLabel?: string;
-  /** Called after a successful save or publish, so the host can refetch. */
+  /** Called after a successful save or activate, so the host can refetch. */
   onChanged: () => void;
   /** Host actions rendered beside Edit/Save (e.g. Delete). */
   actions?: ReactNode;
 }
 
-/** What publishing does for each type, shown on the Publish button's tooltip. */
-function publishHint(type: WorkDefDefinitionData["type"]): string {
+/** What activating does for each type, shown on the Activate button's tooltip. */
+function activateHint(type: WorkDefDefinitionData["type"]): string {
   if (type === "Board") return "Lock the definition; the story admits it when it reaches this task";
   if (type === "Scheduled") return "Lock the definition; the job fires on its next cron time";
   return "Lock the definition and enqueue it now";
 }
 
-/** How to revise published work: the thread carries the change, a re-run applies it. */
+/** How to revise active work: the thread carries the change, a re-run applies it. */
 function lockedHint(type: WorkDefDefinitionData["type"]): string {
   if (type === "Board") return "To revise it, add a comment on the Thread and move the task back into an agent state.";
   return "To revise the work, add a comment on the Thread and run it again.";
 }
 
-/** Small "Draft" badge used on headers, list rows, and board cards. */
-export function DraftBadge({ className = "" }: { className?: string }) {
+/** Small "Pending" badge used on headers, list rows, and board cards. */
+export function PendingBadge({ className = "" }: { className?: string }) {
   return (
-    <Badge variant="outline" className={`border-amber-500/60 text-amber-600 ${className}`} title="Draft — not dispatched until published">
-      Draft
+    <Badge variant="outline" className={`border-amber-500/60 text-amber-600 ${className}`} title="Pending — not dispatched until activated">
+      Pending
     </Badge>
   );
 }
@@ -105,13 +106,13 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions 
     } finally { setBusy(false); }
   };
 
-  const publish = async () => {
-    if (editing && !confirm("Publish without saving your edits?")) return;
+  const activate = async () => {
+    if (editing && !confirm("Activate without saving your edits?")) return;
     setError("");
     setBusy(true);
     try {
-      const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-defs/${encodeURIComponent(def.id)}/publish`, {});
-      if (!res.success) { setError(res.error || "Failed to publish"); return; }
+      const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-defs/${encodeURIComponent(def.id)}/activate`, {});
+      if (!res.success) { setError(res.error || "Failed to activate"); return; }
       setEditing(false);
       onChanged();
     } finally { setBusy(false); }
@@ -119,18 +120,18 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions 
 
   return (
     <div className="space-y-4">
-      {def.draft ? (
+      {def.pending ? (
         <div className="flex items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
-          <DraftBadge />
+          <PendingBadge />
           <p className="text-sm text-muted-foreground flex-1">
-            Teammates won't pick this up until you publish it. Once published, the definition is locked.
+            Teammates won't pick this up until you activate it. Once active, the definition is locked.
           </p>
           {!editing && <Button size="sm" variant="outline" onClick={startEdit}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>}
-          <Button size="sm" onClick={publish} disabled={busy} title={publishHint(def.type)}><Send className="h-3.5 w-3.5 mr-1" />Publish</Button>
+          <Button size="sm" onClick={activate} disabled={busy} title={activateHint(def.type)}><Send className="h-3.5 w-3.5 mr-1" />Activate</Button>
         </div>
       ) : (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
-          <Lock className="h-3 w-3" />Published — the definition is locked. {lockedHint(def.type)}
+          <Lock className="h-3 w-3" />Active — the definition is locked. {lockedHint(def.type)}
         </p>
       )}
 
@@ -164,7 +165,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions 
       <div className="flex gap-2">
         {editing && (
           <>
-            <Button onClick={save} disabled={busy}><Save className="h-4 w-4 mr-1" />Save draft</Button>
+            <Button onClick={save} disabled={busy}><Save className="h-4 w-4 mr-1" />Save</Button>
             <Button variant="outline" onClick={() => setEditing(false)}><X className="h-4 w-4 mr-1" />Cancel</Button>
           </>
         )}

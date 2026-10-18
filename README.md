@@ -199,7 +199,7 @@ Inbox are always on, so every kind can be off at once.
   readable.
 - **Turning one off needs it empty.** `PUT /api/config` refuses (409) to switch a
   kind off while it has active items — e.g. "Can't turn off stories: archive or
-  delete 3 stories first". Backlogged stories and drafts count; archived items
+  delete 3 stories first". Backlogged stories and pending WorkDefs count; archived items
   don't. Turning a kind on is always allowed.
 - `GET /api/status` and `GET /api/config` report the resolved toggles as `features`;
   `GET /api/config` also reports each kind's active items as `featureUsage`.
@@ -209,7 +209,7 @@ Inbox are always on, so every kind can be off at once.
 - **For the assistant** (the Pi leader) a kind that's off takes its tools out of
   the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
   `list_workflows`, `list_context`; Tasks: `create_task`; Schedules:
-  `create_schedule`; with all three off, `get_task` / `edit_task` / `publish_task`
+  `create_schedule`; with all three off, `get_task` / `edit_task` / `activate_task`
   too — and the system prompt says what's off. The leader re-reads the toggles
   before every run and on its 10-second status poll, so a change applies without
   restarting Pi. A triage teammate's `propose_work` refuses proposals of a kind
@@ -301,13 +301,15 @@ When a task lands in an agent state the daemon enqueues a `READY` WorkItem for i
 a teammate claims it and, on COMPLETE, the task advances. On FAILED it stays put
 until you move it (moving it back into an agent state enqueues a fresh attempt).
 
-**Drafts.** Any WorkDef can be created as a draft (`draft: true`; **Save as draft**
-in the UI; the assistant's `add_task` / `create_task` / `create_schedule` take
-`draft` too). A draft is editable and never gets a WorkItem — a draft board task
-holds its place, so its story waits there. `POST /api/work-defs/:id/publish` ends
-the draft and locks the definition; from then on revisions go through the thread
-plus a re-run. Existing WorkDefs are published. See
-[docs/DESIGN.md](docs/DESIGN.md#drafts-write-review-publish).
+**Pending.** Any WorkDef can be created as pending (`pending: true`; **Save as
+pending** in the UI; the assistant's `add_task` / `create_task` / `create_schedule`
+take `pending` too). A pending WorkDef is editable and never gets a WorkItem — a
+pending board task holds its place, so its story waits there.
+`POST /api/work-defs/:id/activate` ends pending and locks the definition; from then
+on revisions go through the thread plus a re-run. Existing WorkDefs are active, and
+files with the old `draft: true` load as pending. For one release the API still
+accepts the old `draft` request field and `POST …/publish` as deprecated aliases.
+See [docs/DESIGN.md](docs/DESIGN.md#pending-write-review-activate).
 
 **Run counts.** Every WorkDef view from `/api/work-defs` carries `executionCount`
 (WorkItems created for it, CANCELED ones excluded) and `lastRunAt`, derived from the
@@ -528,7 +530,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 | Readiness | `GET/POST /api/readiness` | Team readiness (the daemon probes; a harness may report) |
 | Stories | `/api/stories/*`, `/api/archived`, `/api/backlog/*` | CRUD, archive, backlog |
 | Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |
-| WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while a draft), publish, enqueue, archive, comments, attachments, usage; each view carries its run count (`executionCount`, `lastRunAt`) |
+| WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while pending), activate, enqueue, archive, comments, attachments, usage; each view carries its run count (`executionCount`, `lastRunAt`) |
 | Schedules | `/api/schedules/*` | Cron parents |
 | Templates | `/api/templates/*` | Reusable molds for Solitary tasks (never enqueue) |
 | Directories | `GET /api/directories`, `POST/PUT/DELETE /api/directories/favorites` | Picker suggestions (favorites, then recent); edit favorites |

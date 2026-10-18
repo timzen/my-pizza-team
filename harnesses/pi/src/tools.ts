@@ -6,17 +6,17 @@
 // Two registration functions for role-specific tool sets:
 //   - registerTeammateTools: upload_attachment, fail, propose_work
 //   - registerLeaderTools: create_story, edit_story, add_task, create_task,
-//                          create_schedule, get_task, edit_task, publish_task,
+//                          create_schedule, get_task, edit_task, activate_task,
 //                          list_workflows, list_context,
 //                          team_status, list_thought_groups, list_thoughts,
 //                          get_thought, create_thought, edit_thought,
 //                          archive_thought, group_thoughts
 //
-// Drafts: add_task / create_task / create_schedule take `draft: true` so the
-// assistant can write work for the user to review before anything runs; while a
-// draft, get_task / edit_task revise it, and publish_task (or the UI's Publish)
-// releases it — after which its definition is locked (my-pizza-team
-// docs/DESIGN.md "Drafts: Write, Review, Publish").
+// Pending: add_task / create_task / create_schedule take `pending: true` so the
+// assistant can write work for the user to review before anything runs; while
+// pending, get_task / edit_task revise it, and activate_task (or the UI's
+// Activate) releases it — after which its definition is locked (my-pizza-team
+// docs/DESIGN.md "Pending: Write, Review, Activate").
 //
 // Feature toggles: every leader tool is registered, and features.ts keeps the
 // ones owned by a switched-off kind (create_story, create_task, …) out of the
@@ -58,7 +58,7 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
   registerCreateSchedule(pi, client);
   registerGetTask(pi, client);
   registerEditTask(pi, client);
-  registerPublishTask(pi, client);
+  registerActivateTask(pi, client);
   registerListWorkflows(pi, client);
   registerListContext(pi, client);
   registerTeamStatus(pi, client);
@@ -240,16 +240,16 @@ function registerFailWorkItem(
 // TOOL IMPLEMENTATIONS
 // ═══════════════════════════════════════════════════════════════════════
 
-/** The optional `draft` parameter shared by every work-creating tool. */
-const DRAFT_PARAM = Type.Optional(Type.Boolean({
-  description: "Save as a DRAFT for the user to review: nothing is dispatched until it is published " +
-    "(from the UI, or publish_task when the user asks). While a draft you can revise it with edit_task. " +
-    "Omit or false to publish immediately (a published definition is locked).",
+/** The optional `pending` parameter shared by every work-creating tool. */
+const PENDING_PARAM = Type.Optional(Type.Boolean({
+  description: "Save as PENDING for the user to review: nothing is dispatched until it is activated " +
+    "(from the UI, or activate_task when the user asks). While pending you can revise it with edit_task. " +
+    "Omit or false to activate immediately (an active definition is locked).",
 }));
 
-/** Guideline text shared by the creating tools: when to draft. */
-const DRAFT_GUIDELINE =
-  "Pass draft: true when the user wants to review the work before it runs, when you're unsure the " +
+/** Guideline text shared by the creating tools: when to save as pending. */
+const PENDING_GUIDELINE =
+  "Pass pending: true when the user wants to review the work before it runs, when you're unsure the " +
   "spec is right, or when you've been asked to write tasks up rather than start them.";
 
 // ─── create_story ────────────────────────────────────────────────────
@@ -353,30 +353,30 @@ function registerAddTask(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Add Task",
     description:
       "Add a task to an existing story on the pi-pizza-team board. Tasks are executed sequentially within a story. " +
-      "With draft: true the task is saved for review: it holds its place in the story (later tasks wait behind it) " +
-      "and gets no work item until it is published.",
-    promptSnippet: "Add a task to a pi-pizza-team story (optionally as a draft)",
+      "With pending: true the task is saved for review: it holds its place in the story (later tasks wait behind it) " +
+      "and gets no work item until it is activated.",
+    promptSnippet: "Add a task to a pi-pizza-team story (optionally as pending)",
     promptGuidelines: [
       "Use add_task when breaking a story into tasks or planning work.",
       "Call add_task multiple times to add multiple sequential tasks.",
       "The task description should be a complete prompt for autonomous execution.",
-      DRAFT_GUIDELINE,
+      PENDING_GUIDELINE,
     ],
     parameters: Type.Object({
       storyId: Type.String({ description: "ID of the story to add the task to" }),
       title: Type.String({ description: "Short title for the task" }),
       description: Type.String({ description: "Full task description/prompt for the teammate to execute" }),
       context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to this task (injected into its prompt). Use list_context to find ids." })),
-      draft: DRAFT_PARAM,
+      pending: PENDING_PARAM,
     }),
     async execute(_toolCallId, params) {
-      const result = await client.createTask(params.storyId, params.title, params.description, params.context, params.draft);
+      const result = await client.createTask(params.storyId, params.title, params.description, params.context, params.pending);
       if (!result.success) throw new Error(result.error || "Failed to add task");
 
-      const suffix = params.draft ? ` as a DRAFT (${result.task?.id}) — it won't run until published` : "";
+      const suffix = params.pending ? ` as PENDING (${result.task?.id}) — it won't run until activated` : "";
       return {
         content: [{ type: "text", text: `Added task "${params.title}" to story "${params.storyId}"${suffix}` }],
-        details: { storyId: params.storyId, taskId: result.task?.id, draft: params.draft === true },
+        details: { storyId: params.storyId, taskId: result.task?.id, pending: params.pending === true },
       };
     },
   });
@@ -392,12 +392,12 @@ function registerCreateTask(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Create Task",
     description:
       "Create a standalone one-off task (a Solitary WorkDef). It is enqueued immediately and, when a teammate " +
-      "finishes it, lands in the user's Inbox — unless draft: true, which saves it for the user to review and " +
-      "publish first. Use this for a single unit of work that doesn't belong to a story " +
+      "finishes it, lands in the user's Inbox — unless pending: true, which saves it for the user to review and " +
+      "activate first. Use this for a single unit of work that doesn't belong to a story " +
       "(e.g. turning a thought into an actionable task).",
-    promptSnippet: "Create a standalone one-off task (optionally as a draft)",
+    promptSnippet: "Create a standalone one-off task (optionally as pending)",
     promptGuidelines: [
-      DRAFT_GUIDELINE,
+      PENDING_GUIDELINE,
       "Use create_task for a single actionable item; use create_story + add_task (when available) when work needs multiple sequential steps.",
       "Write goal as a complete prompt the teammate can execute autonomously; put concrete, checkable acceptance criteria in acceptanceCriteria.",
       "Pass directory when the work targets a specific repo/folder so a teammate biased there picks it up.",
@@ -408,18 +408,18 @@ function registerCreateTask(pi: ExtensionAPI, client: DaemonClient): void {
       acceptanceCriteria: Type.Optional(Type.String({ description: "Checkable done criteria (markdown list; RFC-2119 MUST/SHOULD encouraged)" })),
       additionalContext: Type.Optional(Type.String({ description: "Any extra background the teammate should have" })),
       directory: Type.Optional(Type.String({ description: "Working directory the task targets (e.g. '~/Workspace/proj')" })),
-      draft: DRAFT_PARAM,
+      pending: PENDING_PARAM,
     }),
     async execute(_toolCallId, params) {
-      const p = params as { title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string; directory?: string; draft?: boolean };
-      const res = await client.createWorkDef({ title: p.title, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, additionalContext: p.additionalContext, directory: p.directory, draft: p.draft });
+      const p = params as { title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string; directory?: string; pending?: boolean };
+      const res = await client.createWorkDef({ title: p.title, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, additionalContext: p.additionalContext, directory: p.directory, pending: p.pending });
       if (!res.success) throw new Error(res.error || "Failed to create task");
-      const text = p.draft
-        ? `Created DRAFT task "${p.title}" (${res.workDef?.id}) — not enqueued; it runs once published.`
+      const text = p.pending
+        ? `Created PENDING task "${p.title}" (${res.workDef?.id}) — not enqueued; it runs once activated.`
         : `Created task "${p.title}" (${res.workDef?.id}) — enqueued; it'll appear in the Inbox when done.`;
       return {
         content: [{ type: "text", text }],
-        details: { workDefId: res.workDef?.id, draft: p.draft === true },
+        details: { workDefId: res.workDef?.id, pending: p.pending === true },
       };
     },
   });
@@ -434,10 +434,10 @@ function registerCreateSchedule(pi: ExtensionAPI, client: DaemonClient): void {
     description:
       "Create a recurring scheduled job: a WorkDef that the daemon enqueues on a 5-field cron. Use this when the " +
       "user wants work to run on a schedule (e.g. 'every weekday at 9am, summarize my open thoughts'). " +
-      "With draft: true the job never fires until the user publishes it.",
-    promptSnippet: "Create a recurring scheduled job (cron), optionally as a draft",
+      "With pending: true the job never fires until the user activates it.",
+    promptSnippet: "Create a recurring scheduled job (cron), optionally as pending",
     promptGuidelines: [
-      DRAFT_GUIDELINE,
+      PENDING_GUIDELINE,
       "Confirm the cadence with the user and translate it to a standard 5-field cron (MIN HOUR DOM MON DOW).",
       "goal is the prompt the teammate runs each time; keep it self-contained since each run starts fresh.",
     ],
@@ -447,28 +447,28 @@ function registerCreateSchedule(pi: ExtensionAPI, client: DaemonClient): void {
       goal: Type.String({ description: "The prompt the teammate executes on each run" }),
       acceptanceCriteria: Type.Optional(Type.String({ description: "Checkable done criteria for each run" })),
       directory: Type.Optional(Type.String({ description: "Working directory the job targets" })),
-      draft: DRAFT_PARAM,
+      pending: PENDING_PARAM,
     }),
     async execute(_toolCallId, params) {
-      const p = params as { title: string; cron: string; goal: string; acceptanceCriteria?: string; directory?: string; draft?: boolean };
-      const res = await client.createWorkDef({ type: "Scheduled", title: p.title, cron: p.cron, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, directory: p.directory, draft: p.draft });
+      const p = params as { title: string; cron: string; goal: string; acceptanceCriteria?: string; directory?: string; pending?: boolean };
+      const res = await client.createWorkDef({ type: "Scheduled", title: p.title, cron: p.cron, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, directory: p.directory, pending: p.pending });
       if (!res.success) throw new Error(res.error || "Failed to create schedule");
-      const suffix = p.draft ? " as a DRAFT — it won't fire until published" : "";
+      const suffix = p.pending ? " as PENDING — it won't fire until activated" : "";
       return {
         content: [{ type: "text", text: `Created scheduled job "${p.title}" (${res.workDef?.id}) on cron \`${p.cron}\`${suffix}.` }],
-        details: { workDefId: res.workDef?.id, draft: p.draft === true },
+        details: { workDefId: res.workDef?.id, pending: p.pending === true },
       };
     },
   });
 }
 
-// ─── get_task / edit_task / publish_task (drafts) ─────────────────────
+// ─── get_task / edit_task / activate_task (pending) ──────────────────
 
 /** Render a WorkDef as markdown for the model. */
 function formatWorkDef(d: WorkDefSummary): string {
   const lines = [
     `# ${d.title} (${d.id})`,
-    `Type: ${d.type}${d.parent ? ` (parent ${d.parent.kind} ${d.parent.id})` : ""} · ${d.draft ? "DRAFT (editable)" : "published (locked)"}`,
+    `Type: ${d.type}${d.parent ? ` (parent ${d.parent.kind} ${d.parent.id})` : ""} · ${d.pending ? "PENDING (editable)" : "active (locked)"}`,
   ];
   if (d.directory) lines.push(`Directory: ${d.directory}`);
   if (d.contextRefs && d.contextRefs.length > 0) lines.push(`Context: ${d.contextRefs.join(", ")}`);
@@ -483,10 +483,10 @@ function registerGetTask(pi: ExtensionAPI, client: DaemonClient): void {
     label: "Get Task",
     description:
       "Read a task's definition by id — a board task (e.g. 'auth-refactor-2'), a standalone task, or a scheduled " +
-      "job — including whether it is still a draft. Use it before edit_task to see what the user may have changed.",
-    promptSnippet: "Read a task (board, standalone, or scheduled) and its draft status",
+      "job — including whether it is still pending. Use it before edit_task to see what the user may have changed.",
+    promptSnippet: "Read a task (board, standalone, or scheduled) and its pending status",
     promptGuidelines: [
-      "Use get_task to review a draft before revising or publishing it.",
+      "Use get_task to review a pending task before revising or activating it.",
     ],
     parameters: Type.Object({
       id: Type.String({ description: "The task / WorkDef id" }),
@@ -496,7 +496,7 @@ function registerGetTask(pi: ExtensionAPI, client: DaemonClient): void {
       if (!res.workDef) throw new Error(res.error || `Task "${params.id}" not found`);
       return {
         content: [{ type: "text", text: formatWorkDef(res.workDef) }],
-        details: { workDefId: res.workDef.id, draft: res.workDef.draft },
+        details: { workDefId: res.workDef.id, pending: res.workDef.pending },
       };
     },
   });
@@ -505,18 +505,18 @@ function registerGetTask(pi: ExtensionAPI, client: DaemonClient): void {
 function registerEditTask(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
     name: "edit_task",
-    label: "Edit Draft Task",
+    label: "Edit Pending Task",
     description:
-      "Revise a DRAFT task's definition (title, goal, acceptance criteria, additional context, directory). Only " +
-      "drafts can be edited: once published a definition is locked, and the way to change what a teammate does " +
+      "Revise a PENDING task's definition (title, goal, acceptance criteria, additional context, directory). Only " +
+      "pending tasks can be edited: once active a definition is locked, and the way to change what a teammate does " +
       "is a comment on its thread plus a re-run.",
-    promptSnippet: "Edit a draft task's definition",
+    promptSnippet: "Edit a pending task's definition",
     promptGuidelines: [
-      "Use edit_task to revise drafts you or the user wrote; only the fields you pass change.",
-      "If edit_task says the task is published, don't retry — tell the user it's locked and suggest a comment + Run, or a new draft.",
+      "Use edit_task to revise pending tasks you or the user wrote; only the fields you pass change.",
+      "If edit_task says the task is active, don't retry — tell the user it's locked and suggest a comment + Run, or a new pending task.",
     ],
     parameters: Type.Object({
-      id: Type.String({ description: "The draft task / WorkDef id" }),
+      id: Type.String({ description: "The pending task / WorkDef id" }),
       title: Type.Optional(Type.String({ description: "New title" })),
       goal: Type.Optional(Type.String({ description: "New goal (for a board task, its description)" })),
       acceptanceCriteria: Type.Optional(Type.String({ description: "New acceptance criteria" })),
@@ -531,33 +531,33 @@ function registerEditTask(pi: ExtensionAPI, client: DaemonClient): void {
       const res = await client.updateWorkDef(id, updates);
       if (!res.success) throw new Error(res.error || "Failed to edit task");
       return {
-        content: [{ type: "text", text: `Updated draft "${id}": changed ${Object.keys(updates).join(", ") || "nothing"}.` }],
+        content: [{ type: "text", text: `Updated pending task "${id}": changed ${Object.keys(updates).join(", ") || "nothing"}.` }],
         details: { workDefId: id, updatedFields: Object.keys(updates) },
       };
     },
   });
 }
 
-function registerPublishTask(pi: ExtensionAPI, client: DaemonClient): void {
+function registerActivateTask(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "publish_task",
-    label: "Publish Draft Task",
+    name: "activate_task",
+    label: "Activate Pending Task",
     description:
-      "Publish a DRAFT task: its definition is locked and the daemon may now dispatch it (a standalone task is " +
+      "Activate a PENDING task: its definition is locked and the daemon may now dispatch it (a standalone task is " +
       "enqueued now, a board task when its story reaches it, a scheduled job on its next cron firing).",
-    promptSnippet: "Publish a draft task so it can run",
+    promptSnippet: "Activate a pending task so it can run",
     promptGuidelines: [
-      "Only use publish_task when the user explicitly asks you to publish — drafts exist so the user can review first.",
+      "Only use activate_task when the user explicitly asks you to activate — pending tasks exist so the user can review first.",
     ],
     parameters: Type.Object({
-      id: Type.String({ description: "The draft task / WorkDef id" }),
+      id: Type.String({ description: "The pending task / WorkDef id" }),
     }),
     async execute(_toolCallId, params) {
-      const res = await client.publishWorkDef(params.id);
-      if (!res.success) throw new Error(res.error || "Failed to publish task");
+      const res = await client.activateWorkDef(params.id);
+      if (!res.success) throw new Error(res.error || "Failed to activate task");
       const queued = res.workItemId ? " and enqueued it" : "";
       return {
-        content: [{ type: "text", text: `Published "${params.id}"${queued}. Its definition is now locked.` }],
+        content: [{ type: "text", text: `Activated "${params.id}"${queued}. Its definition is now locked.` }],
         details: { workDefId: params.id, workItemId: res.workItemId ?? null },
       };
     },

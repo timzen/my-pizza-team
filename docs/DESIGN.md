@@ -243,7 +243,7 @@ lives elsewhere — workflow status on the Story (`tasks: [{id, status}]`), cron
 `lastEnqueuedAt` on the Schedule — so the daemon never rewrites a `workdef.md`
 except on an explicit edit. Frontmatter carries only structural metadata (title,
 `parent`, directory, contextRefs, `status: archived` when archived, and
-`draft: true` while a draft — publishing is itself an explicit edit).
+`pending: true` while pending — activating is itself an explicit edit).
 
 **One route family per concern.** WorkDef operations — get/update/delete, enqueue,
 comments, attachments, token usage — live under `/api/work-defs/:id` for *every*
@@ -257,31 +257,33 @@ attachments, and routes for no gain. Each WorkItem is self-contained — story-l
 context plus the WorkDef's own goal and criteria carry continuity, so there is no
 "result" field or "previous task" context threaded between tasks.
 
-## Drafts: Write, Review, Publish
+## Pending: Write, Review, Activate
 
-A WorkDef can be saved as a **draft**: written, read, and revised by you or the
+A WorkDef can be saved as **pending**: written, read, and revised by you or the
 assistant, but invisible to the machinery that turns work into WorkItems. Then
-**Publish** ends the draft, in one direction only, and locks the definition.
+**Activate** ends pending, in one direction only, and locks the definition.
+(Until this was renamed it was called a *draft*, and Activate was *Publish*;
+see "Old spellings" below.)
 
-- **A draft never gets a WorkItem, and the refusal lives in one place.**
-  `enqueueFor` is already the single WorkItem creator, so it refuses a draft —
-  which covers Run, the scheduler, board admission, a move into an agent state,
-  boot-time reconcile, and re-enqueue, including any path added later. The
-  routes and the scheduler also check for drafts so they can give a clear reason
-  (a Run on a draft is a 409 that says "publish it first"; a draft cron child
-  doesn't hold its schedule for readiness).
-- **On the board a draft holds its place.** Admission takes a story's next `todo`
-  task in order. If that task is a draft, nothing is admitted and the story waits.
-  Tasks in a story are *sequential*: step N+1 may assume step N's commit, so
-  skipping past a draft would run work out of order — the failure CONWIP exists to
-  prevent. A draft dragged straight into an agent state keeps the CONWIP token
-  with no WorkItem, which is the same "hold" made visible on its card.
-- **Publishing hands it to its parent's normal rule** rather than inventing a
+- **A pending WorkDef never gets a WorkItem, and the refusal lives in one place.**
+  `enqueueFor` is already the single WorkItem creator, so it refuses a pending
+  WorkDef — which covers Run, the scheduler, board admission, a move into an
+  agent state, boot-time reconcile, and re-enqueue, including any path added
+  later. The routes and the scheduler also check for pending so they can give a
+  clear reason (a Run on a pending WorkDef is a 409 that says "activate it first";
+  a pending cron child doesn't hold its schedule for readiness).
+- **On the board a pending task holds its place.** Admission takes a story's next
+  `todo` task in order. If that task is pending, nothing is admitted and the story
+  waits. Tasks in a story are *sequential*: step N+1 may assume step N's commit,
+  so skipping past a pending task would run work out of order — the failure CONWIP
+  exists to prevent. A pending task dragged straight into an agent state keeps the
+  CONWIP token with no WorkItem, which is the same "hold" made visible on its card.
+- **Activating hands it to its parent's normal rule** rather than inventing a
   new one: a Solitary task is enqueued (the default for creating one;
-  `enqueue: false` publishes without running), a board task re-runs admission (or,
+  `enqueue: false` activates without running), a board task re-runs admission (or,
   if it already sits in an agent state, gets its WorkItem there), and a Scheduled
   job waits for its next cron firing.
-- **Published means locked.** After publishing, a PUT that touches the
+- **Active means locked.** After activating, a PUT that touches the
   definition (title, goal, criteria, context, directory) is refused. The
   definition is what a WorkItem *ran*: editing it afterwards would make the thread
   and Inbox describe work nobody did. Revisions go where they already went —
@@ -289,19 +291,26 @@ assistant, but invisible to the machinery that turns work into WorkItems. Then
   next attempt's prompt carries the change on top of an unchanged definition. A
   scheduled job's cron lives on its Schedule, not the definition, so it stays
   editable.
-- **Absent means published.** Only drafts write `draft: true`, so every WorkDef
-  from before drafts is published with no migration. Triage containers are never
-  drafts — their note is their definition.
-- **The assistant drafts; you publish.** `add_task`, `create_task`, and
-  `create_schedule` take `draft`, and `get_task` / `edit_task` revise a draft, so
-  the assistant can write work up for review. `publish_task` exists, but its
-  guidance is to use it only when you ask: the point of a draft is that a human
-  reads it first.
+- **Absent means active.** Only pending WorkDefs write `pending: true`, so every
+  WorkDef from before pending existed is active with no migration. Triage
+  containers are never pending — their note is their definition.
+- **The assistant writes pending work; you activate it.** `add_task`,
+  `create_task`, and `create_schedule` take `pending`, and `get_task` /
+  `edit_task` revise a pending task, so the assistant can write work up for
+  review. `activate_task` exists, but its guidance is to use it only when you
+  ask: the point of pending is that a human reads it first.
+- **Old spellings.** A `workdef.md` with the pre-rename `draft: true` loads as
+  pending and is rewritten as `pending: true` on its next save — no migration
+  pass. For one release the API also accepts `draft: true` in create requests
+  (WorkDefs, board tasks, a story's inline `tasks[]`) and `POST
+  /api/work-defs/:id/publish` as aliases, so an older Pi extension keeps working
+  against a newer daemon; responses only carry `pending`. Both aliases go in the
+  next release.
 
-*Why a flag and not another parent or a separate store?* A draft is the same
-authored document in the same place, with the same thread and attachments: you
-may want to discuss it before it runs. Only *whether its parent may enqueue it*
-changes, and that is exactly the one question `enqueueFor` answers.
+*Why a flag and not another parent or a separate store?* A pending WorkDef is the
+same authored document in the same place, with the same thread and attachments:
+you may want to discuss it before it runs. Only *whether its parent may enqueue
+it* changes, and that is exactly the one question `enqueueFor` answers.
 
 ## Execution Count: Derived, not Counted
 

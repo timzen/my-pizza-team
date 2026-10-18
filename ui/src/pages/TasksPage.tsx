@@ -5,9 +5,9 @@
  * define it once, enqueue it (now or later), review the outcome in the Inbox.
  * Each row links to the WorkDef detail page and can be re-run on demand.
  * Polls /api/work-defs and filters to type=Solitary. Supports archive/restore.
- * Drafts carry a **Draft** badge and a **Publish** button instead of Run, and
- * the All / Drafts / Published filter (lib/drafts.ts) narrows the list
- * (docs/DESIGN.md "Drafts: Write, Review, Publish").
+ * Pending tasks carry a **Pending** badge and an **Activate** button instead of Run, and
+ * the All / Pending / Active filter (lib/pending.ts) narrows the list
+ * (docs/DESIGN.md "Pending: Write, Review, Activate").
  * Each row shows its run count (`executionCount`, derived by the daemon from the
  * WorkItem table); the **Never run** toggle keeps only count-0 tasks — the "things
  * to do" — and the sort menu orders by run count (lib/run-count.ts; docs/DESIGN.md
@@ -22,8 +22,8 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { TasksTabs } from "@/components/TasksTabs";
 import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
-import { DraftBadge } from "@/components/WorkDefDefinition";
-import { DRAFT_FILTERS, countDrafts, filterByDraft, type DraftFilter } from "@/lib/drafts";
+import { PendingBadge } from "@/components/WorkDefDefinition";
+import { PENDING_FILTERS, countPending, filterByPending, type PendingFilter } from "@/lib/pending";
 import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type RunFilter, type RunSort } from "@/lib/run-count";
 import { Plus, Play, Send, Zap, FolderOpen, FileText, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
 
@@ -33,7 +33,7 @@ interface WorkDef {
   type: "Solitary" | "Scheduled" | "Board";
   goal: string;
   directory?: string | null;
-  draft?: boolean;
+  pending?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
   executionCount?: number;
   lastRunAt?: string | null;
@@ -43,11 +43,11 @@ export function TasksPage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });
   const { data: archivedData, refetch: refetchArchived } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs?status=archived", [], { pollInterval: 30_000 });
   const allDefs = (data?.workDefs || []).filter(d => d.type === "Solitary");
-  const [draftFilter, setDraftFilter] = useState<DraftFilter>("all");
+  const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [runSort, setRunSort] = useState<RunSort>("default");
-  const defs = sortByRuns(filterByRuns(filterByDraft(allDefs, draftFilter), runFilter), runSort);
-  const draftCount = countDrafts(allDefs);
+  const defs = sortByRuns(filterByRuns(filterByPending(allDefs, pendingFilter), runFilter), runSort);
+  const pendingCount = countPending(allDefs);
   const neverRunCount = countNeverRun(allDefs);
   const archivedDefs = (archivedData?.workDefs || []).filter(d => d.type === "Solitary");
   const [pickerOpen, setPickerOpen] = useState(false);
@@ -58,8 +58,8 @@ export function TasksPage() {
     refetch();
   };
 
-  const publish = async (id: string) => {
-    await apiPost(`/api/work-defs/${encodeURIComponent(id)}/publish`, {});
+  const activate = async (id: string) => {
+    await apiPost(`/api/work-defs/${encodeURIComponent(id)}/activate`, {});
     refetch();
   };
 
@@ -94,10 +94,10 @@ export function TasksPage() {
       </div>
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
-        <div className="flex items-center gap-1" role="group" aria-label="Filter by draft status">
-          {DRAFT_FILTERS.map(f => (
-            <Button key={f.value} size="sm" variant={draftFilter === f.value ? "default" : "outline"} onClick={() => setDraftFilter(f.value)}>
-              {f.label}{f.value === "drafts" && draftCount > 0 ? ` (${draftCount})` : ""}
+        <div className="flex items-center gap-1" role="group" aria-label="Filter by pending status">
+          {PENDING_FILTERS.map(f => (
+            <Button key={f.value} size="sm" variant={pendingFilter === f.value ? "default" : "outline"} onClick={() => setPendingFilter(f.value)}>
+              {f.label}{f.value === "pending" && pendingCount > 0 ? ` (${pendingCount})` : ""}
             </Button>
           ))}
         </div>
@@ -126,7 +126,7 @@ export function TasksPage() {
       {defs.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
           <Zap className="h-8 w-8" />
-          <p className="text-sm">{runFilter === "never" ? "Every task here has run at least once." : draftFilter === "drafts" ? "No drafts." : draftFilter === "published" ? "No published tasks." : "No solitary tasks yet."}</p>
+          <p className="text-sm">{runFilter === "never" ? "Every task here has run at least once." : pendingFilter === "pending" ? "No pending tasks." : pendingFilter === "active" ? "No active tasks." : "No solitary tasks yet."}</p>
         </div>
       )}
 
@@ -137,7 +137,7 @@ export function TasksPage() {
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                  {def.draft && <DraftBadge className="text-[10px]" />}
+                  {def.pending && <PendingBadge className="text-[10px]" />}
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
@@ -150,8 +150,8 @@ export function TasksPage() {
                 </div>
               </Link>
               <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this task"><Archive className="h-3.5 w-3.5" /></Button>
-              {def.draft
-                ? <Button size="sm" onClick={() => publish(def.id)} title="Lock the definition and enqueue it"><Send className="h-3.5 w-3.5 mr-1" />Publish</Button>
+              {def.pending
+                ? <Button size="sm" onClick={() => activate(def.id)} title="Lock the definition and enqueue it"><Send className="h-3.5 w-3.5 mr-1" />Activate</Button>
                 : <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>}
             </CardContent>
           </Card>

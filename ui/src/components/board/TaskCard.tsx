@@ -6,8 +6,8 @@
  * the task page is the one place to read/edit a task). Changing state is done by
  * **dragging** the card to another column (the column already names the
  * state, so the card carries no state badge — only the WorkItem chip that shows
- * whether an agent WorkItem is queued / working / at-risk). A draft task shows a
- * **Draft** badge: it holds its place and gets no WorkItem until published.
+ * whether an agent WorkItem is queued / working / at-risk). A pending task shows a
+ * **Pending** badge: it holds its place and gets no WorkItem until activated.
  */
 
 import { Link } from "react-router-dom";
@@ -15,7 +15,7 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
 import { User } from "lucide-react";
 import { taskDragType } from "./task-drag";
-import { DraftBadge } from "@/components/WorkDefDefinition";
+import { PendingBadge } from "@/components/WorkDefDefinition";
 
 interface TaskCardProps {
   task: {
@@ -23,8 +23,8 @@ interface TaskCardProps {
     seq: number;
     title: string;
     status: string;
-    /** Still a draft (docs/DESIGN.md "Drafts: Write, Review, Publish"). */
-    draft?: boolean;
+    /** Still pending (docs/DESIGN.md "Pending: Write, Review, Activate"). */
+    pending?: boolean;
     /** State of the active WorkItem for this task, if any (queued/working/at-risk). */
     workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
     description?: string;
@@ -72,7 +72,7 @@ export function TaskCard({ task, storyId }: TaskCardProps) {
             state, so no state badge here — just whether an agent WorkItem is
             queued / working / at-risk on this task. */}
         <div className="flex items-center mt-2 pt-2 border-t border-border">
-          {task.draft && <DraftBadge className="text-[10px] px-1 py-0 mr-1" />}
+          {task.pending && <PendingBadge className="text-[10px] px-1 py-0 mr-1" />}
           {task.workItemState && <WorkItemChip state={task.workItemState} />}
           {/* Explicit navigation — the task page is the one place to read/edit */}
           {storyId && (

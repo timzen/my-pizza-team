@@ -6,10 +6,10 @@
  * context, directory) and **Thread** (the run thread — comments, including the
  * completion summaries agents post after each run, newest first). Details is
  * the default; the Inbox deep-links to `?tab=thread`. The definition section is
- * `WorkDefDefinition`: a **draft** can be edited and published; a published one
- * is locked (revise it with a comment and Run — docs/DESIGN.md "Drafts: Write,
- * Review, Publish"). A Scheduled job's cron lives on its Schedule, so it stays
- * editable either way. "Run now" enqueues a fresh WorkItem (not for a draft). Comments live on the ref, not on any
+ * `WorkDefDefinition`: a **pending** one can be edited and activated; an active
+ * one is locked (revise it with a comment and Run — docs/DESIGN.md "Pending:
+ * Write, Review, Activate"). A Scheduled job's cron lives on its Schedule, so it stays
+ * editable either way. "Run now" enqueues a fresh WorkItem (not while pending). Comments live on the ref, not on any
  * individual WorkItem (see docs/DESIGN.md "Comments"). Thread attachments are
  * clickable (open the diff/file viewer with line-level review) and the composer
  * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
@@ -31,7 +31,7 @@ import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { WorkDefDefinition, DraftBadge } from "@/components/WorkDefDefinition";
+import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { FileViewer } from "@/components/viewer/FileViewer";
 import { Save, Trash2, Play, CalendarClock, Zap, Upload } from "lucide-react";
@@ -50,7 +50,7 @@ interface WorkDef {
   additionalContext?: string;
   contextRefs?: string[];
   directory?: string | null;
-  draft?: boolean;
+  pending?: boolean;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
   executionCount?: number;
   lastRunAt?: string | null;
@@ -113,7 +113,7 @@ export function WorkDefDetailPage() {
   const backTo = workDefHomePath(def.type);
 
   // The cron is the parent Schedule's, not the definition's, so a cron-only PUT
-  // is accepted even after publishing.
+  // is accepted even after activating.
   const saveCron = async () => {
     setError("");
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}`, { cron: cron.trim() });
@@ -190,7 +190,7 @@ export function WorkDefDetailPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
-        {def.draft && <DraftBadge />}
+        {def.pending && <PendingBadge />}
         <Badge variant="outline" className="flex items-center gap-1">
           {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
         </Badge>
@@ -202,7 +202,7 @@ export function WorkDefDetailPage() {
             ${def.tokenUsage.totalCostUsd.toFixed(3)}
           </Badge>
         )}
-        <Button variant="outline" size="sm" onClick={run} disabled={def.draft} title={def.draft ? "Publish the draft before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+        <Button variant="outline" size="sm" onClick={run} disabled={def.pending} title={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
       </div>
 
       <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />

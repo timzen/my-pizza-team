@@ -1,10 +1,10 @@
 /**
  * NewTaskPage — Full-page form for adding a task to a story
  * (/story/:id/tasks/new). Replaces the old AddTaskDialog modal. On success,
- * returns to wherever you came from (board or story page). **Save as draft**
- * creates it as a draft: it holds its place in the story (later tasks wait
- * behind it) and gets no WorkItem until published from the task page
- * (docs/DESIGN.md "Drafts: Write, Review, Publish").
+ * returns to wherever you came from (board or story page). **Save as pending**
+ * creates it as pending: it holds its place in the story (later tasks wait
+ * behind it) and gets no WorkItem until activated from the task page
+ * (docs/DESIGN.md "Pending: Write, Review, Activate").
  */
 
 import { useState } from "react";
@@ -29,8 +29,8 @@ export function NewTaskPage() {
     e.preventDefault();
     if (!storyId) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
-    const draft = submitter?.value === "draft";
-    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, context: context.length > 0 ? context : undefined, draft: draft || undefined });
+    const pending = submitter?.value === "pending";
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, context: context.length > 0 ? context : undefined, pending: pending || undefined });
     if (res.success) navigate(-1);
     else setError(res.error || "Failed to create task");
   };
@@ -49,7 +49,7 @@ export function NewTaskPage() {
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button type="submit" value="add">Add Task</Button>
-          <Button type="submit" value="draft" variant="secondary" title="Hold its place in the story; nothing runs until you publish it">Save as draft</Button>
+          <Button type="submit" value="pending" variant="secondary" title="Hold its place in the story; nothing runs until you activate it">Save as pending</Button>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>
