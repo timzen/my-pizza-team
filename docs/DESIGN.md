@@ -51,7 +51,9 @@ from `todo` into the first active state *only when the story has no task anywher
 in the active section.* One task in flight per story stops commits stacking up
 while an earlier task awaits (or fails) review. Rework keeps the token: moving a
 task backward never admits another. Admission runs after completion/advance,
-judgment moves, task creation/deletion, story unpause, and daemon load. A judgment
+judgment moves, task creation/deletion, story unpause, and daemon load — and, for
+every story that `dependsOn` it, whenever a story reaches `done` or is archived or
+deleted (a missing dependency counts as satisfied). A judgment
 move excludes the just-moved task from the admission it triggers — moving a task to
 `todo` shelves it rather than bouncing it straight back in.
 

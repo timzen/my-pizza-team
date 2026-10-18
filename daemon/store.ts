@@ -994,6 +994,8 @@ export class Store {
 
     // Unpausing (or dependency edits) may make the story admissible.
     this.runAdmission(storyId);
+    // Marking it done (by edit) unblocks its dependents.
+    if (newStatus === "done" && story.status !== "done") this.admitDependents(storyId);
 
     return true;
   }
@@ -1002,6 +1004,24 @@ export class Store {
     this.db.prepare("UPDATE stories SET status = ? WHERE id = ?").run(status, storyId);
     const story = this.getStory(storyId);
     if (story) this.writeStory({ ...story, status });
+    if (status === "done") this.admitDependents(storyId);
+  }
+
+  /**
+   * Re-run admission for every active story that `dependsOn` the given one.
+   * Called whenever a story stops blocking its dependents in `isStoryReady`'s
+   * eyes: it reaches `done`, or it leaves the active set (archive/delete — a
+   * missing dependency counts as satisfied). Without this, a dependent sat
+   * `ready` with no WorkItem until a restart or a story edit. Safe to call
+   * repeatedly: `runAdmission` is idempotent (it returns once the CONWIP token
+   * is taken) and gates on paused/done/ready itself, and admitting a task never
+   * marks its story done, so this can't recurse. See docs/DESIGN.md "Admission
+   * (CONWIP, WIP = 1 per story)".
+   */
+  private admitDependents(storyId: string): void {
+    for (const s of this.getStories()) {
+      if (s.id !== storyId && s.dependsOn.includes(storyId)) this.runAdmission(s.id);
+    }
   }
 
   // --- Tasks ---
@@ -2645,6 +2665,8 @@ export class Store {
     this.removeStoryFromDb(storyId);
     const file = this.storyFile(storyId);
     if (existsSync(file)) Deno.removeSync(file);
+    // A missing dependency counts as satisfied (isStoryReady).
+    this.admitDependents(storyId);
 
     return true;
   }
@@ -2681,6 +2703,9 @@ export class Store {
     if (existsSync(src)) Deno.removeSync(src);
 
     this.removeStoryFromDb(storyId);
+    // Archived = done for its dependents (isStoryReady); normally they were
+    // admitted when it reached done, but this covers stories that never did.
+    this.admitDependents(storyId);
   }
 
   getArchivedStories(): Array<{ id: string; title: string; synopsis: string }> {

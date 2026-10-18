@@ -747,3 +747,109 @@ Deno.test("Store: WorkDef archive + restore lifecycle", () => {
     store.close();
   } finally { cleanupDir(teamDir); }
 });
+
+// --- Dependency admission: a story reaching done (or leaving the active set)
+// admits the stories that depend on it, with no restart. See docs/DESIGN.md
+// "Admission (CONWIP, WIP = 1 per story)".
+
+/** Drive a story's single task to done the way a run does: claim → COMPLETE → review → done. */
+function finishOnlyTask(store: Store, taskId: string): void {
+  const item = store.getActiveWorkItemForTask(taskId);
+  assertExists(item);
+  assertEquals(store.claimWorkItem(item.id, "m1"), true);
+  assertEquals(store.setWorkItemState(item.id, "COMPLETE").ok, true);
+  store.moveTask(taskId, "done");
+}
+
+Deno.test("Store: completing a dependency's last task admits its dependent", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, TEST_CONFIG);
+    store.registerMember("m1", "swift-ripley", "/tmp/repo");
+    store.createStory("dep-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
+    store.createStory("dep-b", "B", "B", "open", ["dep-a"], [{ title: "B1", description: "b" }]);
+    assertEquals(store.getTask("dep-b-1")!.status, "todo");
+    assertEquals(store.getActiveWorkItemForTask("dep-b-1"), null);
+
+    finishOnlyTask(store, "dep-a-1");
+    assertEquals(store.getStory("dep-a")!.status, "done");
+    assertEquals(store.getTask("dep-b-1")!.status, "in_progress");
+    const wi = store.getActiveWorkItemForTask("dep-b-1");
+    assertExists(wi);
+    assertEquals(wi.state, "READY");
+    // Idempotent: re-running admission doesn't double-enqueue.
+    store.runAdmission("dep-b");
+    assertEquals(store.getActiveWorkItemForTask("dep-b-1")!.id, wi.id);
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: archiving or deleting a dependency admits its dependent", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, TEST_CONFIG);
+    store.registerMember("m1", "swift-ripley", "/tmp/repo");
+    // Archive: A's tasks are done but the story was reopened (so done-admission
+    // never fired for B); archiving A is what satisfies B.
+    store.createStory("arc-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
+    store.createStory("arc-b", "B", "B", "open", ["arc-a"], [{ title: "B1", description: "b" }], undefined, undefined, true);
+    finishOnlyTask(store, "arc-a-1");
+    store.updateStoryDetails("arc-a", { status: "open" });
+    store.updateStoryDetails("arc-b", { paused: false });
+    assertEquals(store.getTask("arc-b-1")!.status, "todo");
+    store.archiveStory("arc-a");
+    assertEquals(store.getTask("arc-b-1")!.status, "in_progress");
+    assertExists(store.getActiveWorkItemForTask("arc-b-1"));
+
+    // Delete: an open dependency removed from the board stops blocking.
+    store.createStory("del-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
+    store.createStory("del-b", "B", "B", "open", ["del-a"], [{ title: "B1", description: "b" }]);
+    assertEquals(store.getTask("del-b-1")!.status, "todo");
+    assertEquals(store.deleteStory("del-a"), true);
+    assertEquals(store.getTask("del-b-1")!.status, "in_progress");
+    assertExists(store.getActiveWorkItemForTask("del-b-1"));
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: a dependent with two dependencies waits for both", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, TEST_CONFIG);
+    store.registerMember("m1", "swift-ripley", "/tmp/repo");
+    store.createStory("two-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
+    store.createStory("two-c", "C", "C", "open", [], [{ title: "C1", description: "c" }]);
+    store.createStory("two-b", "B", "B", "open", ["two-a", "two-c"], [{ title: "B1", description: "b" }]);
+
+    finishOnlyTask(store, "two-a-1");
+    assertEquals(store.getTask("two-b-1")!.status, "todo");
+    assertEquals(store.getActiveWorkItemForTask("two-b-1"), null);
+
+    finishOnlyTask(store, "two-c-1");
+    assertEquals(store.getTask("two-b-1")!.status, "in_progress");
+    assertExists(store.getActiveWorkItemForTask("two-b-1"));
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
+
+Deno.test("Store: a paused or pending dependent is not admitted when its dependency completes", () => {
+  const teamDir = createTempTeamDir();
+  try {
+    const store = new Store(teamDir, TEST_CONFIG);
+    store.registerMember("m1", "swift-ripley", "/tmp/repo");
+    store.createStory("hold-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
+    store.createStory("hold-p", "P", "Paused", "open", ["hold-a"], [{ title: "P1", description: "p" }], undefined, undefined, true);
+    store.createStory("hold-d", "D", "Pending", "open", ["hold-a"], [{ title: "D1", description: "d", pending: true }]);
+
+    finishOnlyTask(store, "hold-a-1");
+    assertEquals(store.getTask("hold-p-1")!.status, "todo");
+    assertEquals(store.getActiveWorkItemForTask("hold-p-1"), null);
+    assertEquals(store.getTask("hold-d-1")!.status, "todo");
+    assertEquals(store.getActiveWorkItemForTask("hold-d-1"), null);
+
+    // Unpausing then admits it (the existing trigger still works).
+    store.updateStoryDetails("hold-p", { paused: false });
+    assertEquals(store.getTask("hold-p-1")!.status, "in_progress");
+    store.close();
+  } finally { cleanupDir(teamDir); }
+});
