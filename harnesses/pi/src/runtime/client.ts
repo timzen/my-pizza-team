@@ -862,6 +862,16 @@ export class DaemonClient {
     return this.post(`/api/work-defs/${encodeURIComponent(id)}/activate`, {});
   }
 
+  /**
+   * Make a Schedule pending (its cron stops firing) or active again (it resumes
+   * at its next cron occurrence; skipped runs are not back-filled). Reversible,
+   * unlike a WorkDef's pending. Takes the Schedule id (a Scheduled WorkDef's
+   * `parent.id`).
+   */
+  async setSchedulePending(scheduleId: string, pending: boolean): Promise<{ success: boolean; schedule?: { id: string; cron: string; pending: boolean }; error?: string }> {
+    return this.post(`/api/schedules/${encodeURIComponent(scheduleId)}/${pending ? "pending" : "activate"}`, {});
+  }
+
   // ─── Thoughts: write (the assistant refines the board) ─────────────────
 
   /** Create a sticky note. `createdBy` attributes it (e.g. "assistant"). */

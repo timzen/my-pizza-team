@@ -30,6 +30,8 @@ Everything created before pending existed counts as active. (Pending used to be 
 
 **Stories can be pending too — and back again.** A whole story can be **pending**: tick **Pending** on New Story, press **Make pending** on its page (or the ⌛ on its swimlane), or ask the assistant. Unlike a task, a story goes back and forth: **Activate** (▶) resumes it where it left off. While a story is pending, a task that's already running finishes normally, but nothing new is handed out, and stories that depend on it wait. Pending stories live on the Board's **Pending** tab. (This replaces the old story *pause* and the *Backlog*: paused and backlogged stories show up as pending.)
 
+**Schedules go back and forth too.** Once a scheduled job is active, its schedule can be paused: press **Make pending** on its row on the **Schedule** page or in the job page's header (or ask the assistant). The job shows **Pending** and its cron stops firing; **Activate** turns it back on. It picks up at its **next** scheduled time — runs it missed while pending are *not* made up, so a long pause never comes back as a burst. **Run now** still works on a pending schedule. A job runs on its cron only when both the schedule and the job itself are active: a job you saved as pending stays pending until you **Activate** it from its page.
+
 ### Stories
 
 A story groups related board tasks and gives them order + a workflow. Each story has an **ID**, **Title**, **Description**, a **Workflow**, an optional **Directory** (where the work happens), **Dependencies** (other stories that must finish first), and an ordered list of its tasks with each task's current status.

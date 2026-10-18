@@ -42,7 +42,7 @@ committed by autosave.
 | `stories/<id>.json` | Story: title, description, workflow, directory, context, `pending: true` while pending, dependsOn, `tasks: [{id, status}]` (legacy `paused` is migrated on load) | file (indexed in SQLite) |
 | `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, contextRefs, `status: archived`, `pending: true` while pending — legacy `draft: true` reads as pending) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
 | `tasks/<id>/comments.jsonl`, `attachments/` | The WorkDef's thread and files (append-only comments) | file |
-| `schedules/<id>.json` | Cron parent: cron, lastEnqueuedAt, `heldForReadiness?` | file |
+| `schedules/<id>.json` | Cron parent: cron, lastEnqueuedAt, `heldForReadiness?`, `pending?` (reversible), `resumedAt?` (last reactivation) | file |
 | `templates/<id>/template.md` | Task Template (WorkDef format, never enqueued) | file |
 | `archived/<id>.json` | Archived stories (with synopsis). A legacy `backlog/<id>.json` is moved back to `stories/` as pending on load (`store/story-migration.ts`) | file |
 | `context/<id>.md` | Context-library entry (title/description/tags frontmatter) | file |
@@ -208,7 +208,7 @@ points, so it's unaffected.
 - `pages/NewStoryPage.tsx`, `pages/StoryDetailPage.tsx`, `pages/NewTaskPage.tsx` — Story creation (workflow, directory, context, inline tasks; **Save tasks as pending**), story editing (title, description, directory, context, task order, archive, delete; a header **Make pending** / **Activate** toggle that applies at once), and task creation in a story (**Save as pending**). The pending buttons are a second submit button; the handler reads `SubmitEvent.submitter`.
 - `components/WorkDefDefinition.tsx` — The Details tab's definition section shared by both WorkDef pages: read-only when active (with the "comment + re-run" hint), and while pending a banner with **Edit** (the form, `PUT /api/work-defs/:id`) and **Activate** (`POST …/activate`). Also `PendingBadge`, used on headers, list rows, and board cards (`board/TaskCard.tsx`).
 - `pages/TaskDetailPage.tsx` — A board task (a WorkDef with a story parent): **Details** / **Thread** tabs (`ui/detail-tabs.tsx`, `?tab=`), the definition via `WorkDefDefinition`, plus breadcrumb, workflow status + move, and delete (`DELETE /api/tasks/:id`).
-- `pages/TasksPage.tsx`, `pages/SchedulePage.tsx` — Solitary and Scheduled WorkDefs (filtered by derived type), with Run / Run now (Activate for a pending Solitary task; disabled for a pending Scheduled one), per-row cost, Pending badges, Archive, and an Archived drawer. Tasks has the **All / Pending / Active** filter (`lib/pending.ts`, tested in `tests/pending-ui.test.ts`), a per-row run count, the **Never run** filter, and a run-count sort (`lib/run-count.ts`, tested in `tests/run-count.test.ts`). Schedule joins `/api/schedules` for cron and shows the run count and last run (falling back to the Schedule's `lastEnqueuedAt`). `WorkDefDetailPage` and `TaskDetailPage` show the count as a header badge.
+- `pages/TasksPage.tsx`, `pages/SchedulePage.tsx` — Solitary and Scheduled WorkDefs (filtered by derived type), with Run / Run now (Activate for a pending Solitary task; disabled for a pending Scheduled one), per-row cost, Pending badges, Archive, and an Archived drawer. Tasks has the **All / Pending / Active** filter (`lib/pending.ts`, tested in `tests/pending-ui.test.ts`), a per-row run count, the **Never run** filter, and a run-count sort (`lib/run-count.ts`, tested in `tests/run-count.test.ts`). Schedule joins `/api/schedules` for cron and shows the run count and last run (falling back to the Schedule's `lastEnqueuedAt`); its rows show Pending when the definition *or* the Schedule is pending, with a **Make pending / Activate** toggle for the Schedule once the definition is active (`WorkDefDetailPage` has the same toggle in its header). `WorkDefDetailPage` and `TaskDetailPage` show the count as a header badge.
 - `pages/TemplatesPage.tsx`, `pages/TemplateDetailPage.tsx`, `components/TemplatePickerDialog.tsx` — Templates list/edit and the "task from template" picker.
 - `pages/NewWorkDefPage.tsx` — Shared create form (`/work-defs/new?type=Solitary|Scheduled|Template`, `&template=<id>` to pre-fill): cron presets and auto-created Schedule for Scheduled, "enqueue now" for Solitary. Acceptance criteria use `ui/acceptance-criteria-editor.tsx` (RFC 2119 scoring).
 - `pages/WorkDefDetailPage.tsx` — Standalone WorkDef page with Details (`WorkDefDefinition`, plus a separately saved cron for Scheduled) / Thread tabs and Run now (disabled while pending).
@@ -444,7 +444,7 @@ to disable a toggle the guard would refuse. The web UI's side is under "ui/src/"
 **Clients.** The Pi leader registers every tool but keeps a switched-off kind's
 out of the model's active set (`harnesses/pi/src/features.ts`: Stories →
 `create_story`/`edit_story`/`add_task`/`list_workflows`/`list_context`, Tasks →
-`create_task`, Schedules → `create_schedule`, all off → also `get_task`/`edit_task`/
+`create_task`, Schedules → `create_schedule`/`set_schedule_pending`, all off → also `get_task`/`edit_task`/
 `activate_task`), re-reading `/api/status` at session start, before every run, and
 on its 10s poll, and adds a system-prompt note naming what's off; `propose_work`
 refuses proposals of a switched-off kind. `DaemonClient` turns the 403 into
@@ -460,6 +460,14 @@ or the team is ready (`TeamReadiness`, set by the daemon's probe or
 `POST /api/readiness`; unreported = ready). Otherwise the Schedule is marked
 `heldForReadiness` without advancing its cursor, and fires once on recovery.
 Rationale: DESIGN.md "Readiness Gating".
+
+A **pending** Schedule is skipped before any of this: no firing, no hold, no
+cursor advance; going pending clears `heldForReadiness`. The cron cursor is
+`scheduleCursor(sched)` — the later of `lastEnqueuedAt` and `resumedAt` (stamped
+on pending → active by `store/schedules.ts updateSchedule`) — so a reactivated
+Schedule resumes at its next occurrence with no catch-up. A child WorkDef that is
+itself pending is left out of an active Schedule's firing. Rationale: DESIGN.md
+"Pending schedules: reversible, no catch-up".
 
 The same readiness gates **automatic retries**: `getNextWorkItem` skips a READY item
 with `attempt > 1` until its `retry_at` passes and the team is ready
@@ -527,8 +535,9 @@ switched-off kind answers 403 (see "Feature toggles").
 | GET/POST | `/api/work-defs/:id/attachments` | List / upload |
 | GET/DELETE | `/api/work-defs/:id/attachments/:filename` | Serve raw / delete |
 | POST | `/api/work-defs/:id/token-usage` | Record usage on the ref (prefers harness `costUsd`) |
-| GET | `/api/schedules`, `/api/schedules/:id` | List / get (`id, title, cron, lastEnqueuedAt`) |
-| PUT/DELETE | `/api/schedules/:id` | Update (cron validated) / delete |
+| GET | `/api/schedules`, `/api/schedules/:id` | List / get (`id, title, cron, lastEnqueuedAt, pending`) |
+| PUT/DELETE | `/api/schedules/:id` | Update (`title`, `cron` validated, `pending` boolean) / delete |
+| POST | `/api/schedules/:id/pending`, `/api/schedules/:id/activate` | Make the Schedule pending / active (reversible; activating resumes at the next cron occurrence). Returns `{ success, schedule }` |
 | GET/POST | `/api/templates` | List / create |
 | GET/PUT/DELETE | `/api/templates/:id` | Get / update / delete |
 | GET | `/api/work-items` | List (`?state=`, `?read=`, `?limit=&offset=`) — Queue, Inbox, dock. A READY item held back by a directory lease carries `blockedBy: { workItemId, title, directory, memberId, memberName }` |

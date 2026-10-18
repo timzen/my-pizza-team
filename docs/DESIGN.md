@@ -346,6 +346,42 @@ transitively depended on it — was moved into).
   already a live story is left alone and warned about — never clobber live work.
   For one release the API also accepts `paused` as an alias of `pending`.
 
+### Pending schedules: reversible, no catch-up
+
+A **Schedule** (the cron parent of a Scheduled job) is pending the way a story
+is: a reversible hold (active ⇄ pending), a `pending: true` field in
+`schedules/<id>.json`. It is how you pause a recurring job without deleting it.
+
+- **Two flags, one rule: a job fires only when both are active.** The Schedule's
+  `pending` is the reversible "don't fire" switch; the child WorkDef's `pending`
+  is the one-way "definition still under review" state from above. Either one
+  stops the job. They're checked in that order — `runScheduler` skips a pending
+  Schedule outright, then leaves pending children out of an active Schedule's
+  firing — so a pending Schedule wins over any active child, and a pending child
+  never fires through an active Schedule. Creating a job "as pending" (New
+  Scheduled Job's **Save as pending**, `create_schedule` with `pending: true`)
+  still means a pending *definition*: that's the reviewable, editable state, and
+  its one **Activate** is all it takes to start. The Schedule toggle (**Make
+  pending / Activate** on the Schedule page and the job's page, `POST
+  /api/schedules/:id/pending|activate`, the assistant's `set_schedule_pending`)
+  is for pausing and resuming an active job afterwards. **Run now** is a manual
+  run, not the cron, so a pending Schedule doesn't block it (a pending
+  definition does).
+- **Pending means invisible to the scheduler.** No cron firing, no
+  `lastEnqueuedAt` advance, and no readiness hold — a held occurrence is cleared
+  the moment the Schedule goes pending, so it can't come back as a catch-up run.
+- **Reactivating resumes at the next occurrence; nothing is back-filled.** The
+  scheduler never replays missed minutes anyway (`isCronDue` only asks "does
+  *this* minute match?"), but two edges could still fire something skipped:
+  the held-for-readiness marker (cleared above) and the activation minute itself
+  (a 09:00 cron activated at 09:00:20 would otherwise fire on the 09:00:30 tick,
+  though 09:00 was passed over while pending). So activating stamps
+  `resumedAt`, and the cron cursor is the later of `lastEnqueuedAt` and
+  `resumedAt`: only a minute strictly after it can fire. A week of pending is
+  zero runs, then the next scheduled one.
+- **Absent means active.** Schedules written before this have no `pending`
+  field and keep firing; there is nothing to migrate.
+
 ## Execution Count: Derived, not Counted
 
 Every WorkDef view carries `executionCount` — how many WorkItems were created for

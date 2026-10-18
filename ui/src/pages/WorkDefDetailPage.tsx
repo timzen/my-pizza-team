@@ -9,7 +9,12 @@
  * `WorkDefDefinition`: a **pending** one can be edited and activated; an active
  * one is locked (revise it with a comment and Run — docs/DESIGN.md "Pending:
  * Write, Review, Activate"). A Scheduled job's cron lives on its Schedule, so it stays
- * editable either way. "Run now" enqueues a fresh WorkItem (not while pending). Comments live on the ref, not on any
+ * editable either way. Its Schedule also has a reversible **pending** flag: the
+ * header's Make pending / Activate toggles it (once the definition is active),
+ * and while it is set the cron doesn't fire — reactivating resumes at the next
+ * occurrence, with no catch-up (docs/DESIGN.md "Pending schedules: reversible,
+ * no catch-up"). "Run now" enqueues a fresh WorkItem (not while the definition is
+ * pending; a pending Schedule only stops the cron). Comments live on the ref, not on any
  * individual WorkItem (see docs/DESIGN.md "Comments"). Thread attachments are
  * clickable (open the diff/file viewer with line-level review) and the composer
  * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
@@ -34,7 +39,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { FileViewer } from "@/components/viewer/FileViewer";
-import { Save, Trash2, Play, CalendarClock, Zap, Upload } from "lucide-react";
+import { Save, Trash2, Play, Pause, CalendarClock, Zap, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { runCountLabel } from "@/lib/run-count";
@@ -56,7 +61,7 @@ interface WorkDef {
   lastRunAt?: string | null;
 }
 
-interface Schedule { id: string; cron: string; lastEnqueuedAt?: string | null }
+interface Schedule { id: string; cron: string; lastEnqueuedAt?: string | null; pending?: boolean }
 
 interface Comment {
   from: string;
@@ -81,7 +86,7 @@ export function WorkDefDetailPage() {
   const def = data?.workDef;
   // Cron lives on the parent Schedule, not the WorkDef.
   const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
-  const { data: schedData } = useApi<{ schedule?: Schedule }>(scheduleId ? `/api/schedules/${scheduleId}` : "/api/schedules?none", [scheduleId]);
+  const { data: schedData, refetch: refetchSchedule } = useApi<{ schedule?: Schedule }>(scheduleId ? `/api/schedules/${scheduleId}` : "/api/schedules?none", [scheduleId]);
 
   const [cron, setCron] = useState("");
   const [error, setError] = useState("");
@@ -119,6 +124,16 @@ export function WorkDefDetailPage() {
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}`, { cron: cron.trim() });
     if (res.success) refetch();
     else setError(res.error || "Failed to save schedule");
+  };
+
+  // Reversible schedule-level pending (the definition's own pending is one-way, via WorkDefDefinition).
+  const schedule = schedData?.schedule;
+  const setSchedulePending = async (pending: boolean) => {
+    if (!schedule) return;
+    setError("");
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/schedules/${encodeURIComponent(schedule.id)}/${pending ? "pending" : "activate"}`, {});
+    if (!res.success) setError(res.error || "Failed to update schedule");
+    refetchSchedule();
   };
 
   const run = async () => {
@@ -190,7 +205,7 @@ export function WorkDefDetailPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
-        {def.pending && <PendingBadge />}
+        {(def.pending || schedule?.pending) && <PendingBadge />}
         <Badge variant="outline" className="flex items-center gap-1">
           {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
         </Badge>
@@ -202,6 +217,9 @@ export function WorkDefDetailPage() {
             ${def.tokenUsage.totalCostUsd.toFixed(3)}
           </Badge>
         )}
+        {schedule && !def.pending && (schedule.pending
+          ? <Button variant="outline" size="sm" onClick={() => setSchedulePending(false)} title="Resume the schedule at its next cron time (missed runs are not back-filled)"><Play className="h-3.5 w-3.5 mr-1" />Activate</Button>
+          : <Button variant="ghost" size="sm" onClick={() => setSchedulePending(true)} title="Stop firing this job until you activate it again"><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button>)}
         <Button variant="outline" size="sm" onClick={run} disabled={def.pending} title={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
       </div>
 

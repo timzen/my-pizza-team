@@ -6,7 +6,8 @@
 // Two registration functions for role-specific tool sets:
 //   - registerTeammateTools: upload_attachment, fail, propose_work
 //   - registerLeaderTools: create_story, edit_story, add_task, create_task,
-//                          create_schedule, get_task, edit_task, activate_task,
+//                          create_schedule, set_schedule_pending, get_task,
+//                          edit_task, activate_task,
 //                          list_workflows, list_context,
 //                          team_status, list_thought_groups, list_thoughts,
 //                          get_thought, create_thought, edit_thought,
@@ -16,7 +17,10 @@
 // assistant can write work for the user to review before anything runs; while
 // pending, get_task / edit_task revise it, and activate_task (or the UI's
 // Activate) releases it — after which its definition is locked (my-pizza-team
-// docs/DESIGN.md "Pending: Write, Review, Activate").
+// docs/DESIGN.md "Pending: Write, Review, Activate"). A scheduled job's
+// *Schedule* also has a reversible pending flag — set_schedule_pending pauses
+// and resumes its cron (resuming at the next occurrence, no catch-up; my-pizza-team
+// docs/DESIGN.md "Pending schedules: reversible, no catch-up").
 //
 // Feature toggles: every leader tool is registered, and features.ts keeps the
 // ones owned by a switched-off kind (create_story, create_task, …) out of the
@@ -56,6 +60,7 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
   registerAddTask(pi, client);
   registerCreateTask(pi, client);
   registerCreateSchedule(pi, client);
+  registerSetSchedulePending(pi, client);
   registerGetTask(pi, client);
   registerEditTask(pi, client);
   registerActivateTask(pi, client);
@@ -461,6 +466,43 @@ function registerCreateSchedule(pi: ExtensionAPI, client: DaemonClient): void {
         content: [{ type: "text", text: `Created scheduled job "${p.title}" (${res.workDef?.id}) on cron \`${p.cron}\`${suffix}.` }],
         details: { workDefId: res.workDef?.id, pending: p.pending === true },
       };
+    },
+  });
+}
+
+// ─── set_schedule_pending (reversible pause/resume) ───────────────────
+
+function registerSetSchedulePending(pi: ExtensionAPI, client: DaemonClient): void {
+  pi.registerTool({
+    name: "set_schedule_pending",
+    label: "Set Schedule Pending",
+    description:
+      "Pause or resume a scheduled job's cron. pending: true stops it firing; pending: false resumes it at its next " +
+      "cron occurrence (runs missed while pending are not back-filled). Reversible, and separate from a task's " +
+      "one-way pending: a job whose definition is still pending needs activate_task instead.",
+    promptSnippet: "Pause (pending) or resume (active) a scheduled job's cron",
+    promptGuidelines: [
+      "Use set_schedule_pending when the user wants a recurring job to stop or start firing without deleting it.",
+    ],
+    parameters: Type.Object({
+      id: Type.String({ description: "The scheduled job's task / WorkDef id (or its Schedule id)" }),
+      pending: Type.Boolean({ description: "true = pending (stop firing); false = active (resume at the next occurrence)" }),
+    }),
+    async execute(_toolCallId, params) {
+      const p = params as { id: string; pending: boolean };
+      // Accept the job's WorkDef id (what create_schedule returns) and map it to
+      // its parent Schedule; anything else is taken as a Schedule id.
+      let scheduleId = p.id;
+      try {
+        const res = await client.getWorkDef(p.id);
+        if (res.workDef?.parent?.kind === "schedule") scheduleId = res.workDef.parent.id;
+      } catch { /* not a WorkDef id — treat it as a Schedule id */ }
+      const res = await client.setSchedulePending(scheduleId, p.pending);
+      if (!res.success) throw new Error(res.error || "Failed to update schedule");
+      const text = p.pending
+        ? `Schedule "${scheduleId}" is now PENDING — it won't fire until activated.`
+        : `Schedule "${scheduleId}" is active again; it resumes at its next cron occurrence (missed runs are not back-filled).`;
+      return { content: [{ type: "text", text }], details: { scheduleId, pending: p.pending } };
     },
   });
 }

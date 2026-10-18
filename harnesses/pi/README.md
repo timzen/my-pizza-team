@@ -130,7 +130,7 @@ Tools are registered per-role (all proxy to the daemon API):
 > (my-pizza-team `config.features`). The leader then takes that kind's tools out
 > of the model's tool list — Stories: `create_story` / `edit_story` / `add_task` /
 > `list_workflows` / `list_context`; Tasks: `create_task`; Schedules:
-> `create_schedule`; all three off also hides `get_task` / `edit_task` /
+> `create_schedule` / `set_schedule_pending`; all three off also hides `get_task` / `edit_task` /
 > `activate_task` — and tells the model what's off. It re-checks at session start,
 > before every run, and every 10s, so a Config change needs no restart. A call the
 > daemon refuses reads "Stories are disabled — enable them in Config
@@ -154,7 +154,8 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`add_task`** — Add tasks to stories
 - **`create_task`** — Create a standalone one-off task (Solitary WorkDef); enqueued, lands in the Inbox when done
 - **`create_schedule`** — Create a recurring scheduled job (Scheduled WorkDef on a cron)
-- All three take an optional **`pending: true`**: the work is saved for the user to review and nothing runs until it's activated (a pending board task holds its place in the story). See my-pizza-team docs/DESIGN.md "Pending: Write, Review, Activate".
+- **`set_schedule_pending`** — Pause (`pending: true`) or resume (`pending: false`) a scheduled job's cron; reversible, and resuming picks up at the next occurrence with no catch-up runs (my-pizza-team docs/DESIGN.md "Pending schedules: reversible, no catch-up"). Takes the job's id or its Schedule id
+- `add_task` / `create_task` / `create_schedule` take an optional **`pending: true`**: the work is saved for the user to review and nothing runs until it's activated (a pending board task holds its place in the story). See my-pizza-team docs/DESIGN.md "Pending: Write, Review, Activate".
 - **`get_task`** — Read any task/WorkDef by id, including whether it's pending
 - **`edit_task`** — Revise a pending task's definition (refused once active — revise active work with a comment + re-run)
 - **`activate_task`** — Activate a pending task (only when the user asks; activating locks the definition and lets it run)

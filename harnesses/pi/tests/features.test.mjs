@@ -20,7 +20,7 @@ const { featuresFromStatus, featureDisabledMessage, ALL_FEATURES_ON } = await im
 
 /** Every tool registerLeaderTools registers (kept in sync by the source check below). */
 const LEADER_TOOLS = [
-  "create_story", "edit_story", "add_task", "create_task", "create_schedule", "get_task", "edit_task",
+  "create_story", "edit_story", "add_task", "create_task", "create_schedule", "set_schedule_pending", "get_task", "edit_task",
   "activate_task", "list_workflows", "list_context", "team_status", "list_thought_groups", "list_thoughts",
   "get_thought", "create_thought", "edit_thought", "archive_thought", "group_thoughts",
 ];

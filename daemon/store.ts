@@ -66,7 +66,7 @@ import {
 import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
-import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
+import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule, scheduleCursor } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
 import {
@@ -2228,6 +2228,14 @@ export class Store {
    * `heldForReadiness` so it re-attempts every tick (independent of the cron
    * window) until the host recovers — firing exactly one catch-up run instead of
    * a per-occurrence backlog.
+   *
+   * Pending (docs/DESIGN.md "Pending schedules: reversible, no catch-up"): a
+   * job fires only when both its Schedule and its WorkDef are active. A pending
+   * Schedule is skipped outright — no cron firing, no readiness hold, no cursor
+   * advance; a pending child WorkDef is left out of its (active) Schedule's
+   * firing. The cron cursor is the later of `lastEnqueuedAt` and `resumedAt`,
+   * so a reactivated Schedule resumes at its next occurrence and never
+   * back-fires what it skipped while pending.
    */
   runScheduler(now: Date = new Date()): void {
     // Group WorkDefs by their schedule parent (skip archived ones).
@@ -2241,7 +2249,8 @@ export class Store {
       childrenBySchedule.set(def.parent.id, arr);
     }
     for (const sched of listSchedules(this.teamDir)) {
-      const due = isCronDue(sched.cron, now, sched.lastEnqueuedAt);
+      if (sched.pending) continue; // a pending schedule never fires nor holds for readiness
+      const due = isCronDue(sched.cron, now, scheduleCursor(sched));
       const held = sched.heldForReadiness === true;
       // A schedule is worked either when its cron fires, or when it has work held
       // back for readiness that we keep retrying until the host recovers.
@@ -3409,8 +3418,16 @@ export class Store {
   // Schedules (cron parents that own WorkDefs via parent = {kind:schedule,id}).
   getSchedules(): Schedule[] { return listSchedules(this.teamDir); }
   getSchedule(id: string): Schedule | null { return getSchedule(this.teamDir, id); }
-  createSchedule(input: { id?: string; title?: string; cron: string }): Schedule { return saveSchedule(this.teamDir, input); }
-  updateScheduleDetails(id: string, updates: { title?: string | null; cron?: string }): Schedule | null { return updateSchedule(this.teamDir, id, updates); }
+  createSchedule(input: { id?: string; title?: string; cron: string; pending?: boolean }): Schedule { return saveSchedule(this.teamDir, input); }
+  /** Edit a Schedule's title/cron and/or toggle its reversible `pending` (see store/schedules.ts updateSchedule). */
+  updateScheduleDetails(id: string, updates: { title?: string | null; cron?: string; pending?: boolean }): Schedule | null { return updateSchedule(this.teamDir, id, updates); }
+  /**
+   * Make a Schedule pending (it stops firing) or active again (it resumes at its
+   * next cron occurrence, with no catch-up). Returns the updated Schedule, or
+   * null if it doesn't exist. See docs/DESIGN.md "Pending schedules: reversible,
+   * no catch-up". `now` is the activation time recorded as `resumedAt` (tests pin it).
+   */
+  setSchedulePending(id: string, pending: boolean, now: Date = new Date()): Schedule | null { return updateSchedule(this.teamDir, id, { pending }, now); }
   deleteSchedule(id: string): boolean {
     // Orphan its children (drop their parent) so they don't dangle a ref.
     for (const def of listWorkDefs(this.teamDir)) {

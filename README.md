@@ -209,7 +209,7 @@ Inbox are always on, so every kind can be off at once.
 - **For the assistant** (the Pi leader) a kind that's off takes its tools out of
   the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
   `list_workflows`, `list_context`; Tasks: `create_task`; Schedules:
-  `create_schedule`; with all three off, `get_task` / `edit_task` / `activate_task`
+  `create_schedule`, `set_schedule_pending`; with all three off, `get_task` / `edit_task` / `activate_task`
   too — and the system prompt says what's off. The leader re-reads the toggles
   before every run and on its 10-second status poll, so a change applies without
   restarting Pi. A triage teammate's `propose_work` refuses proposals of a kind
@@ -321,6 +321,16 @@ story `paused` flag and the `backlog/` directory: on load, `paused: true` become
 `pending: true` and `backlog/<id>.json` moves back to `stories/` as pending
 (`backloggedAt` dropped). For one release the API still accepts `paused` as an
 alias of `pending`.
+
+**Pending schedules.** A Schedule (a Scheduled job's cron parent) can also go
+active ⇄ pending (`PUT /api/schedules/:id { pending }`, `POST
+/api/schedules/:id/pending` / `…/activate`; **Make pending** / **Activate** on the
+Schedule page and the job's page; the assistant's `set_schedule_pending`). A pending
+Schedule never fires and is never held for readiness; reactivating resumes at its
+next cron occurrence and never back-fills the runs it skipped. A job fires only when
+both its Schedule and its WorkDef are active — creating a job "as pending" makes the
+WorkDef pending (one-way, editable). See
+[docs/DESIGN.md](docs/DESIGN.md#pending-schedules-reversible-no-catch-up).
 
 **Run counts.** Every WorkDef view from `/api/work-defs` carries `executionCount`
 (WorkItems created for it, CANCELED ones excluded) and `lastRunAt`, derived from the
@@ -542,7 +552,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 | Stories | `/api/stories/*` (incl. `POST /:id/pending\|activate`), `/api/archived` | CRUD, pending ⇄ active, archive |
 | Board tasks | `/api/stories/:id/tasks[/reorder]`, `/api/tasks/:id/move`, `DELETE /api/tasks/:id` | Story-parent operations |
 | WorkDefs | `/api/work-defs/*` | Every unit of work: CRUD (edits only while pending), activate, enqueue, archive, comments, attachments, usage; each view carries its run count (`executionCount`, `lastRunAt`) |
-| Schedules | `/api/schedules/*` | Cron parents |
+| Schedules | `/api/schedules/*` | Cron parents (get/update/delete; `…/pending`, `…/activate`) |
 | Templates | `/api/templates/*` | Reusable molds for Solitary tasks (never enqueue) |
 | Directories | `GET /api/directories`, `POST/PUT/DELETE /api/directories/favorites` | Picker suggestions (favorites, then recent); edit favorites |
 | WorkItems | `GET /api/work-items[/:id]`, `POST .../cancel\|force-fail\|read`, `POST /api/work-items/re-enqueue` | The queue and its recovery actions |

@@ -476,8 +476,13 @@ export interface UpdateTemplateRequest {
 export interface SaveTemplateResponse { success: boolean; template?: TemplateView; error?: string }
 
 // --- Schedules (cron parents) ---
-export interface ScheduleView { id: string; title?: string; cron: string; lastEnqueuedAt?: string }
+/** `pending` is the Schedule's reversible pending flag (docs/DESIGN.md "Pending schedules: reversible, no catch-up"). */
+export interface ScheduleView { id: string; title?: string; cron: string; lastEnqueuedAt?: string; pending: boolean }
 export interface SchedulesResponse { schedules: ScheduleView[] }
+// PUT /api/schedules/:id
+export interface UpdateScheduleRequest { title?: string | null; cron?: string; pending?: boolean }
+// POST /api/schedules/:id/pending, POST /api/schedules/:id/activate
+export interface SetSchedulePendingResponse { success: boolean; schedule?: ScheduleView; error?: string }
 // --- Leader Directives (the single daemon->leader work queue) ---
 
 /** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */

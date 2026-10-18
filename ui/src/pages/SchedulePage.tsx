@@ -8,6 +8,12 @@
  * Supports archive/restore for retired jobs. Each row shows the job's run count
  * (`executionCount`, derived from the WorkItem table — docs/DESIGN.md "Execution
  * Count: Derived, not Counted") and its latest run.
+ *
+ * **Pending.** A job is shown pending when its definition is pending (one-way:
+ * activate it from its page) *or* its Schedule is pending (reversible: the row's
+ * Make pending / Activate toggle). A pending job never fires; reactivating a
+ * Schedule resumes at its next cron occurrence without back-filling the ones it
+ * skipped (docs/DESIGN.md "Pending schedules: reversible, no catch-up").
  */
 
 import { Link } from "react-router-dom";
@@ -18,7 +24,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { PendingBadge } from "@/components/WorkDefDefinition";
 import { runCountLabel } from "@/lib/run-count";
-import { Plus, Play, CalendarClock, FolderOpen, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
+import { Plus, Play, Pause, CalendarClock, FolderOpen, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
 
 interface WorkDef {
   id: string;
@@ -38,6 +44,8 @@ interface Schedule {
   title?: string;
   cron: string;
   lastEnqueuedAt?: string | null;
+  /** Reversible schedule-level pending (the job doesn't fire while set). */
+  pending?: boolean;
 }
 
 /** Best-effort human phrasing for the common cron shapes; falls back to raw. */
@@ -56,7 +64,7 @@ function describeCron(cron?: string | null): string {
 export function SchedulePage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });
   const { data: archivedData, refetch: refetchArchived } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs?status=archived", [], { pollInterval: 30_000 });
-  const { data: schedData } = useApi<{ schedules: Schedule[] }>("/api/schedules", [], { pollInterval: 10_000 });
+  const { data: schedData, refetch: refetchSchedules } = useApi<{ schedules: Schedule[] }>("/api/schedules", [], { pollInterval: 10_000 });
   const defs = (data?.workDefs || []).filter(d => d.type === "Scheduled");
   const archivedDefs = (archivedData?.workDefs || []).filter(d => d.type === "Scheduled");
   const schedById = new Map((schedData?.schedules || []).map(s => [s.id, s]));
@@ -65,6 +73,12 @@ export function SchedulePage() {
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
     refetch();
+  };
+
+  /** Toggle a Schedule active ⇄ pending (reversible; activating resumes at the next occurrence). */
+  const setSchedulePending = async (scheduleId: string, pending: boolean) => {
+    await apiPost(`/api/schedules/${encodeURIComponent(scheduleId)}/${pending ? "pending" : "activate"}`, {});
+    refetchSchedules();
   };
 
   const archive = async (id: string) => {
@@ -118,7 +132,7 @@ export function SchedulePage() {
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                  {def.pending && <PendingBadge className="text-[10px]" />}
+                  {(def.pending || sched?.pending) && <PendingBadge className="text-[10px]" />}
                   <Badge variant="outline" className="text-[10px] flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" />{describeCron(cron)}</Badge>
                   {cron && <code className="text-[10px] bg-muted px-1 rounded">{cron}</code>}
                   {def.directory && (
@@ -131,6 +145,10 @@ export function SchedulePage() {
                 </div>
               </Link>
               <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this job"><Archive className="h-3.5 w-3.5" /></Button>
+              {/* Schedule-level toggle; a pending definition is activated from its page instead. */}
+              {sched && !def.pending && (sched.pending
+                ? <Button variant="outline" size="sm" onClick={() => setSchedulePending(sched.id, false)} title="Resume the schedule at its next cron time (missed runs are not back-filled)"><Play className="h-3.5 w-3.5 mr-1" />Activate</Button>
+                : <Button variant="ghost" size="sm" onClick={() => setSchedulePending(sched.id, true)} title="Stop firing this job until you activate it again"><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button>)}
               <Button variant="outline" size="sm" onClick={() => run(def.id)} disabled={def.pending} title={def.pending ? "Pending — activate it from its page first" : "Enqueue a run now"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
             </CardContent>
           </Card>

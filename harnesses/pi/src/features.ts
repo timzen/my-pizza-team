@@ -31,7 +31,7 @@ import type { FeatureName, Features } from "./runtime/client.js";
 export const FEATURE_TOOLS: Readonly<Record<FeatureName, readonly string[]>> = {
   stories: ["create_story", "edit_story", "add_task", "list_workflows", "list_context"],
   tasks: ["create_task"],
-  schedules: ["create_schedule"],
+  schedules: ["create_schedule", "set_schedule_pending"],
 };
 
 /**

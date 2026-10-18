@@ -401,6 +401,22 @@ export interface Schedule {
    * docs/ARCHITECTURE.md "Scheduler readiness gating".
    */
   heldForReadiness?: boolean;
+  /**
+   * When true the Schedule is **pending**: the scheduler never fires it (cron
+   * matches are skipped) and never holds it for readiness. Reversible
+   * (active ⇄ pending), like a story — unlike a WorkDef's one-way `pending`.
+   * A child WorkDef fires only when *both* its Schedule and the WorkDef itself
+   * are active. See docs/DESIGN.md "Pending schedules: reversible, no catch-up".
+   */
+  pending?: boolean;
+  /**
+   * ISO timestamp of the last pending → active transition. Together with
+   * `lastEnqueuedAt` it is the scheduler's cursor: only a cron minute strictly
+   * after the minute of both can fire, so reactivating resumes at the *next*
+   * occurrence (never the activation minute itself) and never back-fires the
+   * ones skipped while pending.
+   */
+  resumedAt?: string;
 }
 
 /**

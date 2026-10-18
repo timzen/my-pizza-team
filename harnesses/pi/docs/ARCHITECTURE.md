@@ -340,7 +340,9 @@ that flows to the Inbox. Every work-creating tool (`add_task`, `create_task`,
 `create_schedule`) takes an optional `pending`, so the assistant can write work up
 for review; `get_task` / `edit_task` revise a pending task and `activate_task`
 releases it when the user asks (my-pizza-team docs/DESIGN.md "Pending: Write,
-Review, Activate"). It can also **write** to the board — `create_thought`
+Review, Activate"). A scheduled job's cron can be paused and resumed with
+`set_schedule_pending` (reversible Schedule pending; resumes at the next
+occurrence, no catch-up). It can also **write** to the board — `create_thought`
 (capture a follow-up/summary), `edit_thought` (annotate/append), `archive_thought`
 (clear a note it acted on), and `group_thoughts` (organize) — closing the
 thoughts → tasks → inbox → new-thoughts loop. This replaced the old
@@ -356,7 +358,7 @@ keeps the gated tools in `pi.getActiveTools()` only for kinds that are on:
 |---|---|
 | `stories` | `create_story`, `edit_story`, `add_task`, `list_workflows`, `list_context` |
 | `tasks` | `create_task` |
-| `schedules` | `create_schedule` |
+| `schedules` | `create_schedule`, `set_schedule_pending` |
 | any of the three | `get_task`, `edit_task`, `activate_task` |
 
 Other tools are never touched, and `setActiveTools` is only called on a change.
@@ -385,6 +387,7 @@ switched-off kind (pass-through if the status read fails); `team_status` and
 | `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools (`pending: true` to save it pending) |
 | `/api/work-defs/:id` | GET / PUT | Read a WorkDef (get_task) / edit a pending WorkDef's definition (edit_task; 409 once active) |
 | `/api/work-defs/:id/activate` | POST | Activate a pending WorkDef (activate_task) |
+| `/api/schedules/:id/pending`, `/api/schedules/:id/activate` | POST | Make a Schedule pending / active (set_schedule_pending) |
 
 ### Transcript (teammate watch view)
 | Route | Method | Purpose |

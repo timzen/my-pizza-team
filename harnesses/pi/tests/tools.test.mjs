@@ -212,6 +212,17 @@ test("pending tools: get_task, edit_task, activate_task are leader tools on the 
   assert.ok(src.includes("Only use activate_task when the user explicitly asks"));
 });
 
+test("set_schedule_pending is a schedules leader tool that toggles a Schedule's reversible pending", () => {
+  // my-pizza-team DESIGN.md "Pending schedules: reversible, no catch-up".
+  const leaderFn = src.slice(src.indexOf("function registerLeaderTools"), src.indexOf("function registerTeammateTools"));
+  assert.ok(leaderFn.includes("registerSetSchedulePending"));
+  assert.ok(src.includes('name: "set_schedule_pending"') && src.includes("client.setSchedulePending(scheduleId, p.pending)"));
+  // A scheduled job's WorkDef id maps to its parent Schedule.
+  assert.ok(src.includes('res.workDef?.parent?.kind === "schedule"'));
+  const client = fs.readFileSync(new URL("../src/runtime/client.ts", import.meta.url), "utf8");
+  assert.ok(client.includes('`/api/schedules/${encodeURIComponent(scheduleId)}/${pending ? "pending" : "activate"}`'));
+});
+
 test("context tools are gone (daemon vends context, agents don't CRUD it)", () => {
   assert.ok(!src.includes("registerSaveContext"));
   assert.ok(!src.includes("registerSearchContext"));
