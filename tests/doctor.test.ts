@@ -24,6 +24,8 @@ import {
   compareVersions,
   type DoctorFacts,
   evaluate,
+  type NodeFacts,
+  nodeChecks,
   PERMISSION_SYSTEM_PACKAGE,
   report,
   TESTED_PI_VERSION,
@@ -55,7 +57,6 @@ function healthy(over: Partial<DoctorFacts> = {}): DoctorFacts {
     leaderConnected: true,
     spawning: { canSpawn: true },
     serviceInstalled: true,
-    githubTokenSet: true,
     ...over,
   };
 }
@@ -256,11 +257,10 @@ test("no spawning check when the daemon isn't running to report it", () => {
   assertEquals(checks.some((c) => c.name === "Spawning"), false);
 });
 
-test("an uninstalled service and an unset token are not problems", () => {
-  // Both are genuinely optional; flagging them would dilute the real findings.
-  const checks = evaluate(healthy({ serviceInstalled: false, githubTokenSet: false }));
+test("an uninstalled service is not a problem", () => {
+  // Genuinely optional; flagging it would dilute the real findings.
+  const checks = evaluate(healthy({ serviceInstalled: false }));
   assertEquals(find(checks, "Service").status, "ok");
-  assertEquals(find(checks, "GITHUB_TOKEN").status, "ok");
 });
 
 test("unparseable Pi settings fail and promise not to overwrite them", () => {
@@ -306,4 +306,71 @@ test("experimental harnesses are reported only when opted in, and never fail doc
   assertEquals(kiro?.status, "ok");
   assertEquals(claude?.status, "warn");
   assertEquals(claude?.fix, "mpt setup --harness claude");
+});
+
+// ─── The saved Node (shared/runtime-config.ts) ───────────────────────
+
+function nodeFacts(over: Partial<NodeFacts> = {}): NodeFacts {
+  return {
+    configured: { path: "/opt/homebrew/bin/node", source: "/h/.config/mpt/runtime.json", version: "24.1.0", problem: null, pinnedWarning: null },
+    required: "24.0.0",
+    runningNode: "/opt/homebrew/Cellar/node/24.1.0/bin/node",
+    runningMatchesConfigured: true,
+    service: { node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" },
+    expectedEntry: "/pkg/dist/main.js",
+    serviceEntryMatches: true,
+    ...over,
+  };
+}
+
+test("node: a healthy setup reports path, version and source, nothing else", () => {
+  const checks = nodeChecks(nodeFacts());
+  assertEquals(checks.length, 1);
+  assertEquals(checks[0]!.status, "ok");
+  assertStringIncludes(checks[0]!.detail, "/opt/homebrew/bin/node (v24.1.0, from /h/.config/mpt/runtime.json)");
+});
+
+test("node: evaluate includes the node checks when gathered", () => {
+  assertEquals(find(evaluate(healthy({ node: nodeFacts() })), "Node").status, "ok");
+});
+
+test("node: nothing saved warns and points at setup", () => {
+  const c = find(nodeChecks(nodeFacts({ configured: null })), "Node");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.fix!, "mpt setup");
+});
+
+test("node: missing or too-old saved Node warns with the minimum", () => {
+  const c = find(nodeChecks(nodeFacts({
+    configured: { path: "/gone/node", source: "MPT_NODE", version: null, problem: "/gone/node does not exist", pinnedWarning: null },
+  })), "Node");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.detail, "does not exist");
+  assertStringIncludes(c.detail, "MPT_NODE");
+  assertStringIncludes(c.fix!, ">=24.0.0");
+});
+
+test("node: a version-pinned path warns", () => {
+  const c = find(nodeChecks(nodeFacts({
+    configured: { path: "/h/.nvm/versions/node/v24/bin/node", source: "--node", version: "24.0.0", problem: null, pinnedWarning: "pinned by nvm" },
+  })), "Node path");
+  assertEquals(c.status, "warn");
+});
+
+test("node: the service running another Node or entry warns", () => {
+  const checks = nodeChecks(nodeFacts({ service: { node: "/usr/bin/node", entry: "/old/dist/main.js" }, serviceEntryMatches: false }));
+  assertEquals(find(checks, "Service Node").status, "warn");
+  assertStringIncludes(find(checks, "Service Node").fix!, "mpt install");
+  assertStringIncludes(find(checks, "Service entry").detail, "/old/dist/main.js");
+});
+
+test("node: no service means no service checks", () => {
+  const checks = nodeChecks(nodeFacts({ service: null }));
+  assertEquals(checks.some((c) => c.name.startsWith("Service")), false);
+});
+
+test("node: this process on a different Node warns", () => {
+  const c = find(nodeChecks(nodeFacts({ runningMatchesConfigured: false, runningNode: "/usr/bin/node" })), "Running Node");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.detail, "/usr/bin/node");
 });

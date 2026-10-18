@@ -39,18 +39,16 @@ function run(cmd: string, args: string[]): Promise<{ code: number; stderr: strin
 }
 
 /**
- * The argv the service runs: this Node binary, the CLI entry script
+ * The argv the service runs: the configured Node (shared/runtime-config.ts — the
+ * saved ~/.config/mpt/runtime.json, or MPT_NODE / --node), the CLI entry script
  * (shared/paths.ts — cli/main.ts from source, the package's dist/main.js when
  * installed), `start`.
  *
- * `process.execPath` as-is, never symlink-resolved, so a stable launcher path
- * such as /opt/homebrew/bin/node survives `brew upgrade`.
- *
- * TODO(node-runtime): use the saved Node (~/.config/mpt/runtime.json, MPT_NODE,
- * --node) instead of `process.execPath`.
+ * `node` is used as given, never symlink-resolved, so a stable launcher path such
+ * as /opt/homebrew/bin/node survives `brew upgrade`.
  */
-export function serviceProgramArguments(): string[] {
-  return [process.execPath, cliEntryScript(), "start"];
+export function serviceProgramArguments(node: string, entry: string = cliEntryScript()): string[] {
+  return [node, entry, "start"];
 }
 
 /**
@@ -72,9 +70,13 @@ export function generateLaunchdPlist(opts: {
   teamDir: string;
   port: number;
   logDir: string;
+  /** The Node that runs the daemon (the configured one). */
+  node: string;
+  /** The CLI entry script (defaults to this copy's). */
+  entry?: string;
 }): string {
   const programArgs = `    <array>
-${serviceProgramArguments().map((a) => `      <string>${a}</string>`).join("\n")}
+${serviceProgramArguments(opts.node, opts.entry).map((a) => `      <string>${a}</string>`).join("\n")}
     </array>`;
   const envEntries = serviceEnv(opts.teamDir, opts.port)
     .map(([k, v]) => `    <key>${k}</key>\n    <string>${v}</string>`)
@@ -127,7 +129,7 @@ function getPlistPath(): string {
   return path.join(getLaunchAgentsDir(), `${SERVICE_LABEL}.plist`);
 }
 
-async function installLaunchd(teamDir: string, port: number): Promise<void> {
+async function installLaunchd(teamDir: string, port: number, node: string): Promise<void> {
   const home = process.env["HOME"]!;
   const logDir = path.join(home, ".local", "share", "my-pizza-team", "logs");
 
@@ -142,7 +144,7 @@ async function installLaunchd(teamDir: string, port: number): Promise<void> {
     fs.mkdirSync(launchAgentsDir, { recursive: true });
   }
 
-  const plistContent = generateLaunchdPlist({ teamDir, port, logDir });
+  const plistContent = generateLaunchdPlist({ teamDir, port, logDir, node });
   const plistPath = getPlistPath();
 
   // Write plist file
@@ -200,9 +202,13 @@ async function uninstallLaunchd(): Promise<void> {
 export function generateSystemdUnit(opts: {
   teamDir: string;
   port: number;
+  /** The Node that runs the daemon (the configured one). */
+  node: string;
+  /** The CLI entry script (defaults to this copy's). */
+  entry?: string;
 }): string {
   // systemd splits ExecStart on whitespace; quote any argument that contains it.
-  const execStart = serviceProgramArguments().map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
+  const execStart = serviceProgramArguments(opts.node, opts.entry).map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(" ");
   const environment = serviceEnv(opts.teamDir, opts.port).map(([k, v]) => `Environment="${k}=${v}"`).join("\n");
 
   return `[Unit]
@@ -231,7 +237,7 @@ function getUnitPath(): string {
   return path.join(getSystemdUserDir(), SYSTEMD_UNIT_NAME);
 }
 
-async function installSystemd(teamDir: string, port: number): Promise<void> {
+async function installSystemd(teamDir: string, port: number, node: string): Promise<void> {
   const unitDir = getSystemdUserDir();
 
   // Ensure unit directory exists
@@ -239,7 +245,7 @@ async function installSystemd(teamDir: string, port: number): Promise<void> {
     fs.mkdirSync(unitDir, { recursive: true });
   }
 
-  const unitContent = generateSystemdUnit({ teamDir, port });
+  const unitContent = generateSystemdUnit({ teamDir, port, node });
   const unitPath = getUnitPath();
 
   // Write unit file
@@ -307,20 +313,23 @@ async function uninstallSystemd(): Promise<void> {
 // --- Public API ---
 
 /**
- * Install the mpt daemon as a system service (auto-start on login).
+ * Install the mpt daemon as a system service (auto-start on login), run by `node`
+ * (the configured Node — cli/node-choice.ts `ensureNodeConfigured`).
  * Detects platform and generates appropriate service configuration.
  */
-export async function install(teamDir: string, port: number): Promise<void> {
+export async function install(teamDir: string, port: number, node: string): Promise<void> {
   const platform = getPlatform();
   console.log(`Installing mpt daemon as ${platform === "darwin" ? "launchd" : "systemd"} service...`);
   console.log(`   Team dir: ${teamDir}`);
   console.log(`   Port: ${port}`);
+  console.log(`   Node: ${node}`);
+  console.log(`   Entry: ${cliEntryScript()}`);
   console.log();
 
   if (platform === "darwin") {
-    await installLaunchd(teamDir, port);
+    await installLaunchd(teamDir, port, node);
   } else {
-    await installSystemd(teamDir, port);
+    await installSystemd(teamDir, port, node);
   }
 }
 
@@ -368,6 +377,20 @@ function toProgram(argv: string[]): ServiceProgram | null {
   return { node, entry };
 }
 
+/** What a launchd plist's ProgramArguments launch (generateLaunchdPlist's inverse). */
+export function parsePlistProgram(xml: string): ServiceProgram | null {
+  // The <string>s inside ProgramArguments: the executable, then its arguments.
+  const array = xml.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? "";
+  return toProgram([...array.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]!));
+}
+
+/** What a systemd unit's ExecStart launches (generateSystemdUnit's inverse). */
+export function parseSystemdProgram(unit: string): ServiceProgram | null {
+  const line = unit.match(/^ExecStart=(.*)$/m)?.[1] ?? "";
+  // Arguments are space-separated, double-quoted when they contain spaces.
+  return toProgram([...line.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]!));
+}
+
 /**
  * Detect an installed mpt service (launchd plist / systemd unit) on this host.
  * Returns null when none is installed (or the platform is unsupported).
@@ -379,10 +402,7 @@ export function detectInstalledService(): InstalledService | null {
     if (!existsSync(plistPath)) return null;
     let programPath: ServiceProgram | null = null;
     try {
-      const xml = fs.readFileSync(plistPath, "utf8");
-      // The <string>s inside ProgramArguments: the executable, then its arguments.
-      const array = xml.match(/<key>ProgramArguments<\/key>\s*<array>([\s\S]*?)<\/array>/)?.[1] ?? "";
-      programPath = toProgram([...array.matchAll(/<string>([^<]*)<\/string>/g)].map((m) => m[1]!));
+      programPath = parsePlistProgram(fs.readFileSync(plistPath, "utf8"));
     } catch { /* ignore */ }
     const uid = process.getuid?.() ?? null;
     const target = uid != null ? `gui/${uid}/${SERVICE_LABEL}` : SERVICE_LABEL;
@@ -402,10 +422,7 @@ export function detectInstalledService(): InstalledService | null {
     if (!existsSync(unitPath)) return null;
     let programPath: ServiceProgram | null = null;
     try {
-      const unit = fs.readFileSync(unitPath, "utf8");
-      const line = unit.match(/^ExecStart=(.*)$/m)?.[1] ?? "";
-      // Arguments are space-separated, double-quoted when they contain spaces.
-      programPath = toProgram([...line.matchAll(/"([^"]*)"|(\S+)/g)].map((m) => m[1] ?? m[2]!));
+      programPath = parseSystemdProgram(fs.readFileSync(unitPath, "utf8"));
     } catch { /* ignore */ }
     return {
       manager: "systemd",

@@ -46,13 +46,18 @@ Commands:
   lead [--no-attach]    Start the leader in tmux and attach to it
   stop                  Stop the running daemon
   status                Check if the daemon is running + show a summary
-  upgrade [--check]     Update mpt *and* its Pi extension (--check only reports)
+  upgrade [--check]     Update mpt (npm) *and* its Pi extension, restart the service
+                        (--check only reports)
   install               Install as a user service (launchd/systemd; starts on login)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
   setup --harness <h>   Prepare an experimental harness (kiro, claude)
   agent --harness <h>   Run an experimental teammate (the daemon starts these)
   --version, --help
+
+Options:
+  --node <path>         The Node that runs mpt (saved by setup/install/upgrade)
+  --yes, -y             setup/install/upgrade: don't ask which Node, use the current one
 ```
 
 `mpt setup` prints every change before making it and records what it did, so
@@ -71,27 +76,65 @@ commands that create or edit stories, tasks, or schedules (that's the web UI and
 the assistant); a daemon refusal it does meet is shown as "Stories are disabled —
 enable them in Config (features.stories)".
 
-### Upgrading
+### Which Node runs mpt
 
-mpt is moving from a compiled binary to an npm package, and upgrading through npm
-isn't built yet: for now `mpt upgrade` only says so and exits non-zero. Running from
-source, `git pull`, then `mpt setup` (rewrites the managed Pi extension to match) and
-restart the daemon. **Restart running agents afterwards** — they keep the old
-extension until their Pi restarts; the Team tab flags them and can restart them for
-you.
+mpt is an npm package (`npm i -g my-pizza-team`, Node >=24), so "mpt" is really
+`<node> <package>/dist/main.js`. The service, teammate callbacks and `mpt upgrade`
+all need a Node that is still there after this shell closes, so `mpt setup`,
+`mpt install` and `mpt upgrade` ask once and save it to
+`~/.config/mpt/runtime.json` (`$XDG_CONFIG_HOME/mpt/` on Linux if set):
 
-`mpt upgrade --check` still reports whether a newer release exists. It uses the
-GitHub API, which allows **60 unauthenticated requests per hour per IP** — easily
-exhausted on a shared-egress machine (`HTTP 403`). When the API fails, it falls back
-to plain `github.com` release links, which aren't rate limited. Setting a token
-skips the fallback:
-
-```bash
-export GITHUB_TOKEN=ghp_xxxx   # or MPT_GITHUB_TOKEN / GH_TOKEN
+```json
+{ "node": "/opt/homebrew/bin/node", "chosenAt": "2025-06-01T12:00:00.000Z" }
 ```
 
-A **no-scope** Personal Access Token is enough (public repo, read-only). It is only
-ever sent to `api.github.com`.
+- The suggestion is the Node you're running, spelled the stable way when there is
+  one (e.g. `/opt/homebrew/bin/node` rather than its versioned Cellar path). Press
+  Enter to accept or type another path; it must run and be >=24.
+- The path is saved **as typed, never symlink-resolved**, so `/opt/homebrew/bin/node`
+  keeps working across `brew upgrade`.
+- Version-manager paths (`~/.nvm/versions/…`, fnm, volta, asdf, mise) work but get a
+  warning: the service breaks when that version is removed.
+- No terminal, or `--yes`: the current Node is used without asking (and printed).
+- Overrides, strongest first: `--node <path>` (any command), `MPT_NODE`, the file.
+  `mpt setup --node /usr/local/bin/node` changes the saved choice.
+- If the saved Node disappears or is too old, the next setup/install/upgrade asks
+  again (or fails with a clear message when there's no terminal). `mpt doctor`
+  reports the saved Node, its version and where the setting came from, and warns
+  if the service or the running mpt uses a different Node.
+
+### Service
+
+`mpt install` writes a user service that starts the daemon on login:
+
+- **macOS:** `~/Library/LaunchAgents/com.my-pizza-team.daemon.plist` (launchd).
+- **Linux:** `~/.config/systemd/user/my-pizza-team.service` (systemd, with lingering).
+
+It runs `<saved node> <abs path to the installed package's dist/main.js> start`
+(`cli/main.ts` when installed from a checkout), with `TEAM_DIR`, `PORT` and your
+shell's `PATH` captured, since launchd/systemd start services with a bare PATH.
+Re-run `mpt install` after changing the saved Node or moving the install — `mpt
+doctor` warns when the service's Node or entry differs. `mpt uninstall` removes it.
+
+### Upgrading
+
+```bash
+mpt upgrade --check   # is a newer version published?
+mpt upgrade           # install it, refresh the Pi extension, restart the service
+```
+
+`mpt upgrade` reads the latest version from the npm registry (your `npm config get
+registry`), then runs `npm install -g my-pizza-team@<latest>` with **the saved
+Node's own npm** (`<dir of node>/npm`), so the copy the service runs is the one that
+moves. If the mpt you ran isn't that copy, it says so. On a permission error it
+prints the exact command to rerun (with `sudo`, or fix npm's global prefix) and
+exits non-zero. After installing, the new copy rewrites the managed Pi extension and
+the installed service is restarted. **Restart running agents afterwards** — they
+keep the old extension until their Pi restarts; the Team tab flags them and can
+restart them for you.
+
+Running from source, `mpt upgrade` just points you at `git pull` (then `npm
+install`, `mpt setup` to rewrite the managed extension, and restart the daemon).
 
 ---
 
@@ -227,7 +270,7 @@ Inbox are always on, so every kind can be off at once.
 | `PORT` | `7437` | Daemon HTTP port |
 | `HOST` | `127.0.0.1` | Bind address (anything else requires an API token) |
 | `MPT_API_TOKEN` | — | Overrides `config.apiToken` |
-| `MPT_GITHUB_TOKEN` / `GITHUB_TOKEN` / `GH_TOKEN` | — | Authenticates `mpt upgrade`'s GitHub API call |
+| `MPT_NODE` | — | The Node that runs mpt; overrides `~/.config/mpt/runtime.json` (`--node <path>` overrides both) |
 | `MPT_HOME` | `$HOME` | Where the managed extension lives (`$MPT_HOME/.my-pizza-team/pi-extension/`) |
 | `MPT_PI_EXTENSION` | — | Use this extension source instead of the embedded one |
 | `PI_CODING_AGENT_DIR` | `~/.pi/agent` | Pi's settings directory (setup/doctor read and write it) |

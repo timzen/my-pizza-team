@@ -11,6 +11,10 @@ import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { install, uninstall, detectInstalledService } from "./service.ts";
+import { defaultUpgradeDeps, runUpgrade } from "./upgrade.ts";
+import { ensureNodeForCommand } from "./node-choice.ts";
+import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/runtime-config.ts";
+import { isRunningFromSource, packageRoot } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import {
   listWindows,
@@ -48,9 +52,6 @@ import denoConfig from "../deno.json" with { type: "json" };
 
 const VERSION = denoConfig.version;
 const PID_FILENAME = "daemon.pid";
-// Where `mpt upgrade --check` looks for the latest release (see
-// .github/workflows/release.yml).
-const RELEASE_REPO = "timzen/my-pizza-team";
 
 function getTeamDir(): string {
   return resolveTeamDir();
@@ -227,10 +228,12 @@ function cmdRotateToken(): void {
   console.log(`\n   ⚠️  Restart the daemon for the new token to take effect.`);
 }
 
-async function cmdInstall(): Promise<void> {
+async function cmdInstall(args: string[]): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
-  await install(teamDir, port);
+  // The service outlives this shell, so it needs a Node that will still be there.
+  const node = await ensureNodeForCommand(args);
+  await install(teamDir, port, node.path);
 }
 
 async function cmdUninstall(): Promise<void> {
@@ -239,217 +242,16 @@ async function cmdUninstall(): Promise<void> {
 
 // --- Self-update (`mpt upgrade`) ---
 
-/** True if `latest` (X.Y.Z) is strictly newer than `current` (X.Y.Z). */
-function isNewerVersion(latest: string, current: string): boolean {
-  const parse = (v: string) => v.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
-  const a = parse(latest);
-  const b = parse(current);
-  for (let i = 0; i < Math.max(a.length, b.length); i++) {
-    const diff = (a[i] ?? 0) - (b[i] ?? 0);
-    if (diff !== 0) return diff > 0;
-  }
-  return false;
-}
-
-/**
- * Build a helpful error message for a failed GitHub API response. A 403 with an
- * exhausted rate limit is the common cloud-desktop failure (shared egress IP),
- * so we distinguish it from other 403s and point at the token remedy.
- */
-export function githubErrorMessage(res: Response, hadToken?: string): string {
-  if (res.status === 403 && res.headers.get("x-ratelimit-remaining") === "0") {
-    const resetSec = Number(res.headers.get("x-ratelimit-reset"));
-    const resetAt = Number.isFinite(resetSec) && resetSec > 0 ? new Date(resetSec * 1000).toLocaleTimeString() : "soon";
-    const remedy = hadToken
-      ? "Your token's rate limit is exhausted."
-      : "On a shared-IP cloud desktop the unauthenticated 60/hr limit is easily exhausted. Set GITHUB_TOKEN (a no-scope PAT works) to raise it to 5000/hr — see the README.";
-    return `GitHub API rate limit exceeded (resets around ${resetAt}). ${remedy}`;
-  }
-  return `GitHub API returned HTTP ${res.status}`;
-}
-
-/** Latest release info, however it was resolved (API or HTML redirect). */
-type LatestRelease = {
-  /** Version tag without the leading "v" (e.g. "1.4.2"). */
-  version: string;
-  /** Human-facing release page URL. */
-  htmlUrl: string;
-  /** Resolve an asset's download URL by file name, or null when absent. */
-  assetUrl: (name: string) => string | null;
-};
-
-/**
- * Extract the version tag from a GitHub release page URL, e.g.
- * "https://github.com/o/r/releases/tag/v1.2.3" → "1.2.3". Returns null when the
- * URL isn't a /releases/tag/ URL (e.g. the redirect wasn't followed).
- */
-export function versionFromReleaseUrl(url: string): string | null {
-  const m = /\/releases\/tag\/([^/?#]+)/.exec(url);
-  if (!m?.[1]) return null;
-  return decodeURIComponent(m[1]).replace(/^v/, "") || null;
-}
-
-/**
- * Resolve the latest release without the GitHub REST API.
- *
- * github.com/<repo>/releases/latest 302-redirects to the tagged release page,
- * and that host is *not* subject to the api.github.com 60/hr-per-IP limit. Asset
- * URLs under /releases/download/<tag>/<name> are fully predictable, so we can
- * upgrade fine without ever listing assets. This is the fallback that keeps
- * `mpt upgrade` working on shared-IP cloud desktops with no token.
- */
-async function resolveLatestViaRedirect(): Promise<LatestRelease> {
-  const url = `https://github.com/${RELEASE_REPO}/releases/latest`;
-  const res = await fetch(url, { headers: { "User-Agent": "mpt-cli", "Accept": "text/html" } });
-  // Drain the body so the connection isn't left dangling.
-  await res.body?.cancel();
-  if (!res.ok) throw new Error(`github.com returned HTTP ${res.status}`);
-  const version = versionFromReleaseUrl(res.url);
-  if (!version) throw new Error("could not determine the latest version from github.com");
-  const tag = `v${version}`;
-  return {
-    version,
-    htmlUrl: `https://github.com/${RELEASE_REPO}/releases/tag/${tag}`,
-    // No asset listing here, so assume the conventional name exists; a wrong
-    // guess surfaces as a download HTTP 404 with the asset name in the message.
-    assetUrl: (name) => `https://github.com/${RELEASE_REPO}/releases/download/${tag}/${encodeURIComponent(name)}`,
-  };
-}
-
-/**
- * Resolve the latest release, preferring the REST API (authoritative asset list)
- * and falling back to the unauthenticated-friendly HTML redirect when the API is
- * unavailable — most often HTTP 403 from an exhausted per-IP rate limit.
- */
-async function resolveLatestRelease(token?: string): Promise<LatestRelease> {
-  const apiHeaders: Record<string, string> = { "Accept": "application/vnd.github+json", "User-Agent": "mpt-cli" };
-  if (token) apiHeaders["Authorization"] = `Bearer ${token}`;
-  try {
-    const res = await fetch(`https://api.github.com/repos/${RELEASE_REPO}/releases/latest`, { headers: apiHeaders });
-    if (!res.ok) {
-      await res.body?.cancel();
-      throw new Error(githubErrorMessage(res, token));
-    }
-    const rel = await res.json() as {
-      tag_name?: string;
-      html_url?: string;
-      assets?: Array<{ name: string; browser_download_url: string }>;
-    };
-    const version = String(rel.tag_name || "").replace(/^v/, "");
-    if (!version) throw new Error("latest release has no version tag");
-    const assets = rel.assets || [];
-    return {
-      version,
-      htmlUrl: rel.html_url || `https://github.com/${RELEASE_REPO}/releases/tag/v${version}`,
-      assetUrl: (name) => assets.find((a) => a.name === name)?.browser_download_url ?? null,
-    };
-  } catch (e) {
-    const why = (e as Error).message;
-    const fallback = await resolveLatestViaRedirect().catch((e2) => {
-      // Both paths failed — report the API reason, which is the actionable one.
-      throw new Error(`${why} (github.com fallback also failed: ${(e2 as Error).message})`);
-    });
-    console.log(`   ⚠️  GitHub API unavailable (${why})`);
-    console.log("      Falling back to github.com release links.");
-    return fallback;
-  }
-}
-
-/**
- * `mpt upgrade [--check]`.
- *
- * `--check` reports whether a newer release exists. Upgrading itself used to
- * download a compiled binary and replace the running executable; under Node there
- * is no such binary, and upgrading through npm is not built yet.
- *
- * TODO(node-runtime): install the new version with the saved Node's own npm, then
- * `refreshManagedExtension` and `restartServiceAfterUpgrade`.
- */
+/** `mpt upgrade [--check]` — see cli/upgrade.ts. */
 async function cmdUpgrade(args: string[]): Promise<void> {
-  if (!args.includes("--check")) {
-    console.error("⚠️  `mpt upgrade` can't install updates yet — upgrading via npm is coming.");
-    console.error("    Running from source? Update the checkout instead:  git pull");
-    console.error("    Then run `mpt setup` to refresh the Pi extension, and restart the daemon.");
-    process.exit(1);
-  }
-
-  console.log("Checking for the latest release…");
-  // Authenticate the GitHub API call when a token is available. Unauthenticated
-  // requests are limited to 60/hr *per IP*, which a shared-egress cloud desktop
-  // burns through quickly (→ HTTP 403). A token — even a no-scope PAT, since
-  // reading a public repo's releases needs no permissions — is keyed to the
-  // user and raises the limit to 5000/hr. See README "Upgrading".
-  const token = process.env["MPT_GITHUB_TOKEN"] || process.env["GITHUB_TOKEN"] || process.env["GH_TOKEN"];
-  let rel: LatestRelease;
-  try {
-    rel = await resolveLatestRelease(token);
-  } catch (e) {
-    console.error(`❌ Could not check for updates: ${(e as Error).message}`);
-    process.exit(1);
-  }
-
-  const latest = rel.version;
-  if (!isNewerVersion(latest, VERSION)) {
-    console.log(`✅ Already up to date (v${VERSION}${latest !== VERSION ? `; latest release is v${latest}` : ""}).`);
-    return;
-  }
-  console.log(`⬆️  Update available: v${VERSION} → v${latest}`);
-  console.log(`   ${rel.htmlUrl}`);
-}
-
-/**
- * After an upgrade, move the *other half* with mpt: rewrite the managed Pi
- * extension. The daemon and the extension are one protocol (DESIGN.md "One
- * Protocol, One Version"); upgrading only mpt is exactly the skew to avoid.
- *
- * `invocation` must run the *new* mpt (e.g. `[node, <new entry>]`), because this
- * process still holds the old code and would write the old extension.
- *
- * Pi loads a local package from its path without copying, so rewriting the
- * directory is the whole job — no re-registration. Running agents keep the old
- * code until their Pi restarts, which the version handshake makes visible.
- */
-export function refreshManagedExtension(invocation: string[]): void {
-  if (!existsSync(managedExtensionDir())) return;
-  const [exe, ...exeArgs] = invocation;
-  const out = spawnSync(exe!, [...exeArgs, "write-extension-internal"], { stdio: ["ignore", "inherit", "inherit"] });
-  if (out.error) {
-    console.warn(`   ⚠️  Could not refresh the Pi extension (${out.error.message}) — run \`mpt setup\` to finish.`);
-  } else if (out.status !== 0) {
-    console.warn("   ⚠️  Could not refresh the Pi extension — run `mpt setup` to finish.");
-  } else {
-    console.log("   Restart running agents to pick it up (`mpt doctor` shows which are behind).");
-  }
-}
-
-/** Resolve symlinks when the path exists, so two spellings of one file compare equal. */
-function realOrResolved(p: string): string {
-  try { return fs.realpathSync(p); } catch { return path.resolve(p); }
-}
-
-/**
- * After an upgrade, restart the installed service (if any) so it runs `version`.
- *
- * The service launches a specific entry script, so when that isn't the copy
- * `upgradedEntry` names, say so instead of restarting the wrong one.
- */
-export async function restartServiceAfterUpgrade(version: string, upgradedEntry: string): Promise<void> {
-  const svc = detectInstalledService();
-  if (!svc) {
-    console.log(`   Restart the daemon to run the new version:  mpt stop && mpt start --daemon`);
-    return;
-  }
-  const serviceEntry = svc.programPath?.entry;
-  if (serviceEntry && realOrResolved(serviceEntry) !== realOrResolved(upgradedEntry)) {
-    console.log(`\n⚠️  Your ${svc.manager} service runs a different copy of mpt:`);
-    console.log(`     service:  ${svc.programPath!.node} ${serviceEntry}`);
-    console.log(`     upgraded: ${upgradedEntry}`);
-    console.log(`   Re-run upgrade from that copy, or re-point the service:  mpt install`);
-    return;
-  }
-  console.log(`   Restarting the ${svc.manager} service…`);
-  const ok = await svc.restart();
-  console.log(ok ? `   ✅ Service restarted on v${version}.` : `   ⚠️  Couldn't restart automatically. Run:  ${svc.restartHint}`);
+  const code = await runUpgrade(args, defaultUpgradeDeps({
+    currentVersion: VERSION,
+    fromSource: isRunningFromSource(),
+    packageRoot: packageRoot(),
+    ensureNode: () => ensureNodeForCommand(args),
+    checkNode: () => configuredNode()?.path ?? process.execPath,
+  }));
+  if (code !== 0) process.exit(code);
 }
 
 function printHelp(): void {
@@ -468,19 +270,24 @@ Commands:
   lead [--no-attach]    Start the leader in tmux and attach to it
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if the daemon is running and show a summary
-  upgrade [--check]     Update mpt *and* its Pi extension (--check only reports)
+  upgrade [--check]     Update mpt (npm) *and* its Pi extension, restart the service
+                        (--check only reports)
   install               Install as a user service (launchd/systemd; starts on login)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
   agent --harness <h>   Run a non-Pi teammate (kiro, claude) — experimental; the daemon starts these
   --version, --help
 
+Options:
+  --node <path>         The Node that runs mpt (saved by setup/install/upgrade)
+  --yes, -y             setup/install/upgrade: don't ask which Node, use the current one
+
 Environment:
   TEAM_DIR              Team directory, or its parent (default: ./${TEAM_DIR})
   PORT                  Daemon port (default: 7437)
   HOST                  Bind address (default: 127.0.0.1; anything else needs an API token)
   MPT_API_TOKEN         Overrides config.json's apiToken
-  GITHUB_TOKEN          Authenticates mpt upgrade's GitHub API call (optional)
+  MPT_NODE              The Node that runs mpt (overrides ~/.config/mpt/runtime.json)
 
 Getting started (in your project folder):
   mpt setup && mpt start --daemon && mpt lead
@@ -694,6 +501,16 @@ async function cmdSetup(args: string[]): Promise<void> {
     process.exit(1);
   }
 
+  // Which Node runs mpt (the service, teammates, upgrades): asked once, then saved
+  // to ~/.config/mpt/runtime.json. A dry run only says what is saved.
+  if (dryRun) {
+    const node = configuredNode();
+    console.log(node ? `   ·  Node: ${node.path}` : "   →  ask which Node runs mpt, and save it");
+  } else {
+    await ensureNodeForCommand(args);
+    console.log();
+  }
+
   if (isNoOp(plan)) {
     console.log("✅ Already set up — nothing to change.");
     for (const note of plan.respected) console.log(`   ·  ${note}`);
@@ -838,13 +655,15 @@ function cmdSetupUninstall(args: string[]): void {
 async function cmdDoctor(): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
+  const service = detectInstalledService();
   const facts = await gather({
     teamDir,
     // Trust is asked about the *project* folder, which is the team dir's parent.
     projectDir: path.dirname(teamDir),
     daemonVersion: VERSION,
     daemonUrl: `http://localhost:${port}`,
-    serviceInstalled: detectInstalledService() !== null,
+    serviceInstalled: service !== null,
+    service: service?.programPath ?? null,
   });
   process.exit(report(evaluate(facts)));
 }
@@ -852,7 +671,21 @@ async function cmdDoctor(): Promise<void> {
 // --- Exported main ---
 
 export async function main(): Promise<void> {
-  const args = process.argv.slice(2);
+  // `--node <path>` works with any command; it overrides the saved Node
+  // (shared/runtime-config.ts). Exported as MPT_NODE too, so children this process
+  // starts (the --daemon child, teammates) agree with it.
+  let args: string[];
+  try {
+    const parsed = extractNodeFlag(process.argv.slice(2));
+    args = parsed.args;
+    if (parsed.node) {
+      setNodeFlagOverride(parsed.node);
+      process.env["MPT_NODE"] = path.resolve(parsed.node);
+    }
+  } catch (e) {
+    console.error(`❌ ${(e as Error).message}`);
+    process.exit(1);
+  }
   const command = args[0];
 
   switch (command) {
@@ -880,7 +713,7 @@ export async function main(): Promise<void> {
       cmdRotateToken();
       break;
     case "install":
-      await cmdInstall();
+      await cmdInstall(args.slice(1));
       break;
     case "uninstall":
       await cmdUninstall();

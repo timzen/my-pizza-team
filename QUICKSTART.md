@@ -69,7 +69,9 @@ mpt setup               # do it
 `mpt setup` installs the Pi extension that ships inside `mpt` (so the two always match
 versions), creates the team directory `.my-pizza-team/`, and marks the folder trusted
 by Pi. It prints every change before making it, and `mpt setup --uninstall` undoes
-them.
+them. The first time, it also asks which Node should run mpt (press Enter for the
+one you're using) and saves it to `~/.config/mpt/runtime.json` — see
+[Which Node runs mpt](README.md#which-node-runs-mpt).
 
 A new team starts with **Tasks** only: Stories and Schedules are switched off until
 you turn them on under **Config → General → Work items** (or with `"features"` in

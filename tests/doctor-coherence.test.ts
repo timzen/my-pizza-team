@@ -80,7 +80,6 @@ function toFacts(c: Combo): DoctorFacts | null {
     leaderConnected: c.leaderConnected,
     spawning: c.spawning as DoctorFacts["spawning"],
     serviceInstalled: true,
-    githubTokenSet: true,
   };
 }
 

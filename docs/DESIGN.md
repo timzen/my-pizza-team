@@ -901,15 +901,25 @@ row marker plus a banner that can restart the skewed agents. A missing
 `protocolVersion` means a pre-handshake harness: accepted and flagged, so upgrading
 the daemon first doesn't strand a running team.
 
-**`mpt upgrade` moves both halves.** After replacing the binary it rewrites the
-managed extension by invoking the **newly installed** binary (the hidden
-`mpt write-extension-internal`) — the running process still carries the old
-embedded copy. Pi loads a local package from its path without copying, so no
+**`mpt upgrade` moves both halves.** After `npm install -g` (with the configured
+Node's own npm — see "One Node, Saved Once") it rewrites the managed extension by
+invoking the **newly installed** copy (the hidden `mpt write-extension-internal`) —
+the running process still carries the old bundled copy. Pi loads a local package from its path without copying, so no
 re-registration or `npm install` is needed (the extension has no `dependencies`;
 its peers are supplied by Pi). Only an existing managed directory is refreshed: a
 developer on a registered checkout, or someone who never ran setup, doesn't get a
 managed install created behind their back. Running agents keep the old code until
 their Pi restarts, which the handshake surfaces.
+
+**One Node, saved once.** mpt is `<node> <package entry>`, and several things
+outlive the shell that installed it: the launchd/systemd service, teammate
+callbacks (`{mpt}`), the next `mpt upgrade`. They must agree on a Node that will
+still exist next month, so the choice is asked once (setup/install/upgrade) and
+saved to `~/.config/mpt/runtime.json`, with `MPT_NODE`/`--node` as overrides. The
+path is kept as typed, never symlink-resolved — `/opt/homebrew/bin/node` survives
+`brew upgrade`, its Cellar target doesn't — and version-manager paths (nvm, fnm,
+volta, …) are warned about, not refused. Upgrades use *that* Node's npm, because a
+global install only lands where the service looks if the same Node's npm did it.
 
 ## Setup Is One Command
 

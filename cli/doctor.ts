@@ -37,6 +37,17 @@ import {
 } from "./pi-config.ts";
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
 import { tmuxAvailable } from "../daemon/tmux.ts";
+import {
+  checkNode,
+  configuredNode,
+  describeNodeSource,
+  pinnedNodeWarning,
+  requiredNodeVersionString,
+  sameFile,
+  stableNodeAlternative,
+} from "../shared/runtime-config.ts";
+import { cliEntryScript } from "../shared/paths.ts";
+import type { ServiceProgram } from "./service.ts";
 
 /** The Pi release this build was tested against. See DESIGN.md "One Protocol, One Version" — advisory, not a gate. */
 export const TESTED_PI_VERSION = "0.87.1";
@@ -78,12 +89,41 @@ export interface DoctorFacts {
   /** Which path realizes spawns, as reported by the running daemon. */
   spawning: { canSpawn: boolean; reason?: string; fix?: string } | null;
   serviceInstalled: boolean;
-  githubTokenSet: boolean;
+  /** Which Node runs mpt, and how that compares to the service and this process. Absent = not checked. */
+  node?: NodeFacts;
   /**
    * The experimental ACP harnesses, when the team has `experimental.harnesses` on
    * (absent otherwise): whether each could start on this machine.
    */
   experimentalHarnesses?: Record<string, { ready: boolean; missing?: string; fix?: string }>;
+}
+
+/** The Node facts (shared/runtime-config.ts), gathered so the checks stay pure. */
+export interface NodeFacts {
+  /** The configured Node, or null when nothing is saved or overridden. */
+  configured: {
+    path: string;
+    /** Where the setting came from: "--node", "MPT_NODE", or the settings file's path. */
+    source: string;
+    /** Its version when it ran, else null. */
+    version: string | null;
+    /** Why it can't run mpt (missing, not executable, too old), or null when fine. */
+    problem: string | null;
+    /** The version-pinned-path warning (shared/runtime-config.ts pinnedNodeWarning), or null. */
+    pinnedWarning: string | null;
+  } | null;
+  /** The minimum Node version (package.json engines). */
+  required: string;
+  /** The Node running this process (`process.execPath`). */
+  runningNode: string;
+  /** Does the running Node name the same binary as the configured one (following symlinks)? */
+  runningMatchesConfigured: boolean;
+  /** What the installed service launches, or null (no service, or unreadable). */
+  service: ServiceProgram | null;
+  /** The entry script this copy of mpt would install (shared/paths.ts cliEntryScript). */
+  expectedEntry: string;
+  /** Does the service's entry name the same file as `expectedEntry`? */
+  serviceEntryMatches: boolean;
 }
 
 /** Compare dotted versions numerically. Null when either is unparseable. */
@@ -259,14 +299,73 @@ export function evaluate(f: DoctorFacts): Check[] {
       : { name: `${name} (experimental)`, status: "warn", detail: h.missing ?? "not ready", fix: h.fix ?? `mpt setup --harness ${name}` });
   }
 
-  if (!f.githubTokenSet) {
+  if (f.node) checks.push(...nodeChecks(f.node));
+
+  return checks;
+}
+
+/**
+ * The Node checks: the configured Node itself, then whether the service and this
+ * process agree with it. All warnings — a mismatch works today and breaks later.
+ */
+export function nodeChecks(n: NodeFacts): Check[] {
+  const checks: Check[] = [];
+  const c = n.configured;
+  if (!c) {
     checks.push({
-      name: "GITHUB_TOKEN",
-      status: "ok",
-      detail: "unset (only needed if `mpt upgrade` hits a rate limit on a shared IP)",
+      name: "Node",
+      status: "warn",
+      detail: `no Node saved for mpt (this process runs ${n.runningNode})`,
+      fix: "mpt setup (asks which Node runs mpt and saves it)",
     });
+  } else if (c.problem) {
+    checks.push({
+      name: "Node",
+      status: "warn",
+      detail: `${c.problem} (from ${c.source})`,
+      fix: `mpt setup --node <path to Node >=${n.required}>`,
+    });
+  } else {
+    checks.push({ name: "Node", status: "ok", detail: `${c.path} (v${c.version}, from ${c.source})` });
+  }
+  if (c?.pinnedWarning) {
+    checks.push({ name: "Node path", status: "warn", detail: c.pinnedWarning, fix: "mpt setup --node <stable path>, then mpt install" });
   }
 
+  if (c && n.service) {
+    if (n.service.node !== c.path) {
+      checks.push({
+        name: "Service Node",
+        status: "warn",
+        detail: `the service runs ${n.service.node}, not the configured ${c.path}`,
+        fix: "mpt install (rewrites the service with the configured Node)",
+      });
+    }
+    if (n.service.entry && !n.serviceEntryMatches) {
+      checks.push({
+        name: "Service entry",
+        status: "warn",
+        detail: `the service runs ${n.service.entry}, not this copy (${n.expectedEntry})`,
+        fix: "mpt install from the copy you want the service to run",
+      });
+    } else if (!n.service.entry) {
+      checks.push({
+        name: "Service entry",
+        status: "warn",
+        detail: `the service launches ${n.service.node} directly (an old compiled-binary install)`,
+        fix: "mpt install",
+      });
+    }
+  }
+
+  if (c && !c.problem && !n.runningMatchesConfigured) {
+    checks.push({
+      name: "Running Node",
+      status: "warn",
+      detail: `this mpt runs on ${n.runningNode}, not the configured ${c.path}`,
+      fix: "fine for a one-off; otherwise run mpt with the configured Node, or mpt setup --node <path>",
+    });
+  }
   return checks;
 }
 
@@ -349,6 +448,34 @@ export interface GatherOptions {
   daemonVersion: string;
   daemonUrl: string;
   serviceInstalled: boolean;
+  /** What the installed service launches (cli/service.ts detectInstalledService), for the Node checks. */
+  service?: ServiceProgram | null;
+}
+
+/** Gather the Node facts: the configured Node (run once for its version), the service, this process. */
+export function gatherNodeFacts(service: ServiceProgram | null): NodeFacts {
+  const configured = configuredNode();
+  let facts: NodeFacts["configured"] = null;
+  if (configured) {
+    const result = checkNode(configured.path);
+    facts = {
+      path: configured.path,
+      source: describeNodeSource(configured.source),
+      version: result.ok ? result.version : result.version ?? null,
+      problem: result.ok ? null : result.problem,
+      pinnedWarning: pinnedNodeWarning(configured.path, stableNodeAlternative()),
+    };
+  }
+  const expectedEntry = cliEntryScript();
+  return {
+    configured: facts,
+    required: requiredNodeVersionString(),
+    runningNode: process.execPath,
+    runningMatchesConfigured: configured ? sameFile(process.execPath, configured.path) : true,
+    service,
+    expectedEntry,
+    serviceEntryMatches: service?.entry ? sameFile(service.entry, expectedEntry) : false,
+  };
 }
 
 export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
@@ -399,7 +526,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     leaderConnected,
     spawning,
     serviceInstalled: opts.serviceInstalled,
-    githubTokenSet: Boolean(process.env["GITHUB_TOKEN"]),
+    node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
   };
 }
