@@ -1,24 +1,39 @@
 /**
  * daemon/self.ts — How to run *this* mpt again, as an argv.
  *
- * The compiled binary is its own executable. From source, `Deno.execPath()` is
- * `deno`, so re-running needs `run`, the permissions `deno task mpt` grants, and the
- * CLI script. Used by `mpt start --daemon` (the background child) and by spawn
- * templates' `{mpt}` placeholder (`mpt agent` teammates).
+ * From source, the runtime binary (`process.execPath`) runs the CLI script:
+ * `node cli/main.ts`. A legacy compiled binary is its own executable. Used by
+ * `mpt start --daemon` (the background child) and by spawn templates' `{mpt}`
+ * placeholder (`mpt agent` teammates).
+ *
+ * TODO(node-runtime): use the saved Node setting (~/.config/mpt/runtime.json,
+ * MPT_NODE, --node) and the installed package's compiled entry point instead of
+ * `process.execPath` + the source tree. Drop the Deno branch once the CLI is
+ * ported and the Deno toolchain is removed.
  */
 
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Running from source (`deno run cli/main.ts`) rather than the compiled binary? */
-export function isRunningFromSource(execPath: string = Deno.execPath()): boolean {
-  const base = path.basename(execPath).toLowerCase();
-  return base === "deno" || base === "deno.exe";
+/** The runtime binary's name, without directory or `.exe`, lower-cased. */
+function runtimeName(execPath: string): string {
+  return path.basename(execPath).toLowerCase().replace(/\.exe$/, "");
 }
 
-/** The argv that runs the mpt CLI: `[binary]`, or `[deno, run, …perms, cli/main.ts]`. */
-export function mptInvocation(execPath: string = Deno.execPath()): string[] {
+/** Running from source (`node cli/main.ts`) rather than a compiled binary? */
+export function isRunningFromSource(execPath: string = process.execPath): boolean {
+  const base = runtimeName(execPath);
+  return base === "node" || base === "deno";
+}
+
+/** The argv that runs the mpt CLI: `[node, cli/main.ts]`, or `[binary]` when compiled. */
+export function mptInvocation(execPath: string = process.execPath): string[] {
   if (!isRunningFromSource(execPath)) return [execPath];
   const cli = fileURLToPath(new URL("../cli/main.ts", import.meta.url));
-  return [execPath, "run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", cli];
+  // Still on the Deno toolchain (the CLI isn't ported yet): `deno` needs `run` and
+  // the permissions `deno task mpt` grants.
+  if (runtimeName(execPath) === "deno") {
+    return [execPath, "run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", cli];
+  }
+  return [execPath, cli];
 }

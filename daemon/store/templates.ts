@@ -11,6 +11,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { slugify, type Template, TEMPLATES_DIR } from "../../shared/types.ts";
 import { serializeWorkDef, parseWorkDef } from "./workdefs.ts";
@@ -42,8 +43,8 @@ export function listTemplates(teamDir: string): Template[] {
   const dir = templatesDir(teamDir);
   if (!existsSync(dir)) return [];
   const out: Template[] = [];
-  for (const entry of Deno.readDirSync(dir)) {
-    if (!entry.isDirectory) continue;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
     const tpl = getTemplate(teamDir, entry.name);
     if (tpl) out.push(tpl);
   }
@@ -53,15 +54,15 @@ export function listTemplates(teamDir: string): Template[] {
 export function getTemplate(teamDir: string, id: string): Template | null {
   const file = path.join(templateDir(teamDir, id), FILE);
   if (!existsSync(file)) return null;
-  return toTemplate(id, Deno.readTextFileSync(file));
+  return toTemplate(id, fs.readFileSync(file, "utf8"));
 }
 
 export function writeTemplate(teamDir: string, tpl: Template): void {
   const dir = templateDir(teamDir, tpl.id);
-  Deno.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
   // A Template is a parent-less WorkDef, so it round-trips through the WorkDef
   // markdown serializer (Goal / Acceptance Criteria / Additional Context).
-  Deno.writeTextFileSync(path.join(dir, FILE), serializeWorkDef({ ...tpl }) + "\n");
+  fs.writeFileSync(path.join(dir, FILE), serializeWorkDef({ ...tpl }) + "\n");
 }
 
 /** Create a Template; id derived from title (deduped) unless one is supplied. */
@@ -103,6 +104,6 @@ export function updateTemplate(teamDir: string, id: string, updates: {
 export function deleteTemplate(teamDir: string, id: string): boolean {
   const dir = templateDir(teamDir, id);
   if (!existsSync(dir)) return false;
-  Deno.removeSync(dir, { recursive: true });
+  fs.rmSync(dir, { recursive: true });
   return true;
 }

@@ -10,6 +10,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 
 export interface AcpHarness {
@@ -35,7 +36,7 @@ export const CLAUDE_ADAPTER_PACKAGE = "@agentclientprotocol/claude-agent-acp";
 export const CLAUDE_ADAPTER_VERSION = "0.81.2";
 
 /** Where `mpt setup` installs ACP adapters (beside the managed Pi extension). */
-export function acpAdapterDir(name: string, env: (k: string) => string | undefined = (k) => Deno.env.get(k)): string {
+export function acpAdapterDir(name: string, env: (k: string) => string | undefined = (k) => process.env[k]): string {
   const home = env("MPT_HOME") ?? env("HOME") ?? env("USERPROFILE") ?? ".";
   return path.join(home, ".my-pizza-team", "acp", name);
 }
@@ -48,10 +49,10 @@ export function claudeAdapterEntry(): string | null {
 
 /** Find an executable on PATH. */
 export function which(cmd: string): string | null {
-  for (const dir of (Deno.env.get("PATH") ?? "").split(path.delimiter)) {
+  for (const dir of (process.env["PATH"] ?? "").split(path.delimiter)) {
     if (!dir) continue;
     const p = path.join(dir, cmd);
-    try { if (Deno.statSync(p).isFile) return p; } catch { /* not here */ }
+    try { if (fs.statSync(p).isFile()) return p; } catch { /* not here */ }
   }
   return null;
 }

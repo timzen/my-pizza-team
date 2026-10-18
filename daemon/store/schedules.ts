@@ -15,6 +15,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { slugify, type Schedule, SCHEDULES_DIR } from "../../shared/types.ts";
 
@@ -30,10 +31,10 @@ export function listSchedules(teamDir: string): Schedule[] {
   const d = dir(teamDir);
   if (!existsSync(d)) return [];
   const out: Schedule[] = [];
-  for (const entry of Deno.readDirSync(d)) {
-    if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+  for (const entry of fs.readdirSync(d, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
     try {
-      out.push(JSON.parse(Deno.readTextFileSync(path.join(d, entry.name))) as Schedule);
+      out.push(JSON.parse(fs.readFileSync(path.join(d, entry.name), "utf8")) as Schedule);
     } catch {
       // Skip malformed schedule files.
     }
@@ -45,15 +46,15 @@ export function getSchedule(teamDir: string, id: string): Schedule | null {
   const f = file(teamDir, id);
   if (!existsSync(f)) return null;
   try {
-    return JSON.parse(Deno.readTextFileSync(f)) as Schedule;
+    return JSON.parse(fs.readFileSync(f, "utf8")) as Schedule;
   } catch {
     return null;
   }
 }
 
 export function writeSchedule(teamDir: string, sched: Schedule): void {
-  Deno.mkdirSync(dir(teamDir), { recursive: true });
-  Deno.writeTextFileSync(file(teamDir, sched.id), JSON.stringify(sched, null, 2) + "\n");
+  fs.mkdirSync(dir(teamDir), { recursive: true });
+  fs.writeFileSync(file(teamDir, sched.id), JSON.stringify(sched, null, 2) + "\n");
 }
 
 /** Create a Schedule; id derived from title (deduped) unless supplied. */
@@ -109,7 +110,7 @@ export function updateSchedule(teamDir: string, id: string, updates: { title?: s
 export function deleteSchedule(teamDir: string, id: string): boolean {
   const f = file(teamDir, id);
   if (!existsSync(f)) return false;
-  Deno.removeSync(f);
+  fs.rmSync(f);
   return true;
 }
 

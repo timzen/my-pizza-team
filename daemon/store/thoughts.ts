@@ -15,6 +15,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import {
   type Thought,
@@ -93,8 +94,8 @@ export function listThoughts(teamDir: string): Thought[] {
   const dir = thoughtsDir(teamDir);
   if (!existsSync(dir)) return [];
   const out: Thought[] = [];
-  for (const entry of Deno.readDirSync(dir)) {
-    if (!entry.isFile || !entry.name.endsWith(".md")) continue;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
     const id = entry.name.slice(0, -3);
     const t = getThought(teamDir, id);
     if (t) out.push(t);
@@ -105,20 +106,20 @@ export function listThoughts(teamDir: string): Thought[] {
 export function getThought(teamDir: string, id: string): Thought | null {
   const file = thoughtFile(teamDir, id);
   if (!existsSync(file)) return null;
-  return parseThought(id, Deno.readTextFileSync(file));
+  return parseThought(id, fs.readFileSync(file, "utf8"));
 }
 
 /** Write a thought's file (crash-safe: temp then rename). */
 export function writeThought(teamDir: string, t: Thought): void {
   const dir = thoughtsDir(teamDir);
-  Deno.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
   atomicWrite(thoughtFile(teamDir, t.id), serializeThought(t) + "\n");
 }
 
 export function deleteThoughtFile(teamDir: string, id: string): boolean {
   const file = thoughtFile(teamDir, id);
   if (!existsSync(file)) return false;
-  Deno.removeSync(file);
+  fs.rmSync(file);
   return true;
 }
 
@@ -128,7 +129,7 @@ export function listThoughtGroups(teamDir: string): ThoughtGroup[] {
   const file = path.join(teamDir, THOUGHT_GROUPS_FILE);
   if (!existsSync(file)) return [];
   try {
-    const parsed = JSON.parse(Deno.readTextFileSync(file));
+    const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
     if (!Array.isArray(parsed)) return [];
     const n = (v: unknown, d: number) => (typeof v === "number" && Number.isFinite(v) ? v : d);
     const validOpacity = (v: unknown): ThoughtGroup["plateOpacity"] =>
@@ -158,12 +159,12 @@ export function writeThoughtGroups(teamDir: string, groups: ThoughtGroup[]): voi
 
 /** Crash-safe write: temp file then rename (atomic on POSIX). */
 function atomicWrite(filePath: string, data: string): void {
-  const tmp = `${filePath}.tmp-${Deno.pid}`;
-  Deno.writeTextFileSync(tmp, data);
+  const tmp = `${filePath}.tmp-${process.pid}`;
+  fs.writeFileSync(tmp, data);
   try {
-    Deno.renameSync(tmp, filePath);
+    fs.renameSync(tmp, filePath);
   } catch (err) {
-    try { Deno.removeSync(tmp); } catch { /* already gone */ }
+    try { fs.rmSync(tmp); } catch { /* already gone */ }
     throw err;
   }
 }

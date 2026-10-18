@@ -7,7 +7,7 @@ What is where, and how the pieces talk. The rationale behind these choices is in
 
 my-pizza-team is one repository producing one binary, `mpt`:
 
-- **daemon/** — HTTP API server: [Hono](https://hono.dev/) on `Deno.serve()`, a SQLite runtime index over plain files, tmux supervision, and timers (heartbeat reaper, scheduler, autosave, readiness probe, spawn realization).
+- **daemon/** — HTTP API server: [Hono](https://hono.dev/) served by `@hono/node-server`, a SQLite runtime index over plain files, tmux supervision, and timers (heartbeat reaper, scheduler, autosave, readiness probe, spawn realization).
 - **cli/** — the `mpt` command: start/stop the daemon, `setup`, `doctor`, `lead`, `upgrade`, service install.
 - **ui/** — the web UI (React + Vite + shadcn/ui), built into `ui/dist/` and served by the daemon.
 - **shared/** — types, protocol contracts, and constants shared by the daemon, CLI, and (via generation) the Pi extension.

@@ -1,7 +1,7 @@
 /**
- * daemon/server.ts — HTTP API server for the team lead (Deno port).
+ * daemon/server.ts — HTTP API server for the team lead.
  *
- * Serves the REST API for teammates and the lead. Built with Hono on Deno.serve().
+ * Serves the REST API for teammates and the lead. Built with Hono, served by @hono/node-server.
  * Feature toggles (daemon/features.ts) are middleware installed ahead of every
  * route module. Routes are organized into modules by concern:
  *   - shared: health, status, config, control, readiness, workflows

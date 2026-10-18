@@ -12,6 +12,7 @@ import { Store } from "./store.ts";
 import { FixtureSource } from "./sources/fixture.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 
 export interface AppContext {
@@ -24,7 +25,7 @@ export function createApp(teamDir?: string): AppContext {
   if (teamDir && existsSync(teamDir)) {
     const configFile = path.join(teamDir, "config.json");
     const userConfig = existsSync(configFile)
-      ? JSON.parse(Deno.readTextFileSync(configFile))
+      ? JSON.parse(fs.readFileSync(configFile, "utf8"))
       : {};
 
     // Merge with defaults so missing fields don't crash

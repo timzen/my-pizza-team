@@ -13,6 +13,10 @@
  * other harnesses".
  */
 
+import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
+import { constants as osConstants } from "node:os";
+import type { Readable } from "node:stream";
+
 /** Anything the agent sends that isn't a response to one of our requests. */
 export interface AcpIncoming {
   method: string;
@@ -61,23 +65,35 @@ export class AcpConnection {
   private pending = new Map<number, Pending>();
   private notificationHandlers: Array<(msg: AcpIncoming) => void> = [];
   private requestHandler: AcpRequestHandler = () => undefined;
-  private writer: WritableStreamDefaultWriter<Uint8Array>;
-  private encoder = new TextEncoder();
   private closedError: Error | null = null;
 
   /** Resolves with the exit code when the agent process ends. */
   readonly exited: Promise<number>;
 
-  private child: Deno.ChildProcess;
+  private child: ChildProcessWithoutNullStreams;
   private onStderr: (line: string) => void;
 
-  private constructor(child: Deno.ChildProcess, onStderr: (line: string) => void) {
+  private constructor(child: ChildProcessWithoutNullStreams, onStderr: (line: string) => void) {
     this.child = child;
     this.onStderr = onStderr;
-    this.writer = child.stdin.getWriter();
-    this.exited = child.status.then((s) => {
-      this.failAll(new Error(`agent exited (code ${s.code})`));
-      return s.code;
+    // A write to an agent that has gone away fails that send (see `send`); the
+    // stream's own error event must not crash the process too.
+    child.stdin.on("error", () => {});
+    this.exited = new Promise<number>((resolve) => {
+      let settled = false;
+      const finish = (code: number, err: Error) => {
+        if (settled) return;
+        settled = true;
+        this.failAll(err);
+        resolve(code);
+      };
+      // "error" without "exit": the command couldn't be started at all.
+      child.once("error", (e) => finish(-1, new Error(`agent failed to start: ${e.message}`)));
+      child.once("exit", (code, signal) => {
+        // A signal death reports as 128 + signal number, as a shell would.
+        const c = code ?? 128 + (signal ? osConstants.signals[signal] ?? 0 : 0);
+        finish(c, new Error(`agent exited (code ${c})`));
+      });
     });
     void this.readLines(child.stdout, (line) => this.handleLine(line));
     void this.readLines(child.stderr, (line) => this.onStderr(line));
@@ -90,14 +106,12 @@ export class AcpConnection {
   ): AcpConnection {
     const [cmd, ...args] = command;
     if (!cmd) throw new Error("no agent command");
-    const child = new Deno.Command(cmd, {
-      args,
+    // `env` adds to (and overrides) the inherited environment rather than replacing it.
+    const child = spawn(cmd, args, {
       cwd: opts.cwd,
-      env: opts.env,
-      stdin: "piped",
-      stdout: "piped",
-      stderr: "piped",
-    }).spawn();
+      env: opts.env ? { ...process.env, ...opts.env } : process.env,
+      stdio: ["pipe", "pipe", "pipe"],
+    });
     return new AcpConnection(child, opts.onStderr ?? (() => {}));
   }
 
@@ -178,14 +192,18 @@ export class AcpConnection {
   // ─── Transport ───────────────────────────────────────────────────────
 
   private async send(msg: Record<string, unknown>): Promise<void> {
-    await this.writer.write(this.encoder.encode(JSON.stringify(msg) + "\n"));
+    const stdin = this.child.stdin;
+    await new Promise<void>((resolve, reject) => {
+      if (!stdin.writable) return reject(new Error("agent stdin is closed"));
+      stdin.write(JSON.stringify(msg) + "\n", (err) => (err ? reject(err) : resolve()));
+    });
   }
 
-  private async readLines(stream: ReadableStream<Uint8Array>, onLine: (line: string) => void): Promise<void> {
+  private async readLines(stream: Readable, onLine: (line: string) => void): Promise<void> {
     const decoder = new TextDecoder();
     let buf = "";
     try {
-      for await (const chunk of stream) {
+      for await (const chunk of stream as AsyncIterable<Buffer>) {
         buf += decoder.decode(chunk, { stream: true });
         let nl: number;
         while ((nl = buf.indexOf("\n")) >= 0) {

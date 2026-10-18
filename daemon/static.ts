@@ -5,12 +5,13 @@
  * In production (or compiled binary), this middleware serves the built
  * UI files and falls back to index.html for client-side routing.
  *
- * The UI dist path is resolved relative to the main module, or can be
+ * The UI dist path is resolved relative to the entry script, or can be
  * overridden with the UI_DIST environment variable.
  */
 
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { Context, Next } from "hono";
 
@@ -31,21 +32,30 @@ const MIME_TYPES: Record<string, string> = {
 /** Resolve the UI dist directory path */
 export function resolveDistDir(): string | null {
   // Check env override first
-  const envDist = Deno.env.get("UI_DIST");
+  const envDist = process.env["UI_DIST"];
   if (envDist && existsSync(envDist)) return envDist;
 
   // Try relative to CWD (typical for development)
-  const cwdDist = path.join(Deno.cwd(), "ui", "dist");
+  const cwdDist = path.join(process.cwd(), "ui", "dist");
   if (existsSync(cwdDist)) return cwdDist;
 
-  // Try relative to the main module (for compiled binary)
-  const mainDir = path.dirname(fileURLToPath(Deno.mainModule));
-  const relDist = path.join(mainDir, "..", "ui", "dist");
-  if (existsSync(relDist)) return relDist;
+  // Try relative to the entry script (daemon/main.ts, cli/main.ts or main.ts).
+  // A symlinked entry (a global `mpt` bin) is followed back to the package.
+  const entry = process.argv[1];
+  if (entry) {
+    let mainDir = path.dirname(entry);
+    try { mainDir = path.dirname(fs.realpathSync(entry)); } catch { /* keep the path as given */ }
+    const relDist = path.join(mainDir, "..", "ui", "dist");
+    if (existsSync(relDist)) return relDist;
 
-  // Try embedded path (deno compile --include puts files relative to binary)
-  const embeddedDist = path.join(mainDir, "ui", "dist");
-  if (existsSync(embeddedDist)) return embeddedDist;
+    // The root main.ts sits beside ui/ (also where `deno compile --include` puts it).
+    const siblingDist = path.join(mainDir, "ui", "dist");
+    if (existsSync(siblingDist)) return siblingDist;
+  }
+
+  // Try relative to this module: <root>/daemon/static.ts → <root>/ui/dist.
+  const moduleDist = fileURLToPath(new URL("../ui/dist", import.meta.url));
+  if (existsSync(moduleDist)) return moduleDist;
 
   return null;
 }
@@ -68,9 +78,9 @@ export function staticMiddleware(distDir: string) {
     const filePath = path.join(distDir, reqPath);
     if (existsSync(filePath)) {
       try {
-        const stat = Deno.statSync(filePath);
-        if (stat.isFile) {
-          const content = Deno.readFileSync(filePath);
+        const stat = fs.statSync(filePath);
+        if (stat.isFile()) {
+          const content = fs.readFileSync(filePath);
           const ext = path.extname(filePath);
           const contentType = MIME_TYPES[ext] || "application/octet-stream";
           return new Response(content, {
@@ -88,7 +98,7 @@ export function staticMiddleware(distDir: string) {
     // SPA fallback: serve index.html for all non-file routes
     const indexPath = path.join(distDir, "index.html");
     if (existsSync(indexPath)) {
-      const content = Deno.readFileSync(indexPath);
+      const content = fs.readFileSync(indexPath);
       return new Response(content, {
         headers: { "Content-Type": "text/html", "Cache-Control": "no-cache" },
       });

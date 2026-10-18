@@ -16,6 +16,7 @@
  * this is a visible fact rather than spawns mysteriously not happening.
  */
 
+import * as fs from "node:fs";
 import {
   DEFAULT_HARNESS,
   DEFAULT_HARNESS_TEMPLATES,
@@ -259,7 +260,7 @@ function realizeSpawn(
   // A cwd that doesn't exist would leave the agent in the shell's default directory,
   // silently working on the wrong thing — worth refusing.
   try {
-    if (!Deno.statSync(cwd).isDirectory) throw new Error("not a directory");
+    if (!fs.statSync(cwd).isDirectory()) throw new Error("not a directory");
   } catch {
     throw new Error(`spawn cwd ${cwd} is not a directory`);
   }

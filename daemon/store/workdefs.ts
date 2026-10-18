@@ -20,6 +20,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { slugify, type WorkDef, type WorkDefOrigin, type WorkDefParent, type WorkDefParentKind, WORKDEFS_DIR } from "../../shared/types.ts";
 
@@ -127,8 +128,8 @@ export function listWorkDefs(teamDir: string): WorkDef[] {
   const dir = defsDir(teamDir);
   if (!existsSync(dir)) return [];
   const out: WorkDef[] = [];
-  for (const entry of Deno.readDirSync(dir)) {
-    if (!entry.isDirectory) continue;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
     const def = getWorkDef(teamDir, entry.name);
     if (def) out.push(def);
   }
@@ -138,7 +139,7 @@ export function listWorkDefs(teamDir: string): WorkDef[] {
 export function getWorkDef(teamDir: string, id: string): WorkDef | null {
   const file = path.join(workDefDir(teamDir, id), FILE);
   if (!existsSync(file)) return null;
-  return parseWorkDef(id, Deno.readTextFileSync(file));
+  return parseWorkDef(id, fs.readFileSync(file, "utf8"));
 }
 
 /** Create a WorkDef; id derived from title (deduped) unless one is supplied. */
@@ -198,14 +199,14 @@ export function updateWorkDef(teamDir: string, id: string, updates: {
 export function deleteWorkDef(teamDir: string, id: string): boolean {
   const dir = workDefDir(teamDir, id);
   if (!existsSync(dir)) return false;
-  Deno.removeSync(dir, { recursive: true });
+  fs.rmSync(dir, { recursive: true });
   return true;
 }
 
 export function writeWorkDef(teamDir: string, def: WorkDef): void {
   const dir = workDefDir(teamDir, def.id);
-  Deno.mkdirSync(dir, { recursive: true });
-  Deno.writeTextFileSync(path.join(dir, FILE), serializeWorkDef(def) + "\n");
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, FILE), serializeWorkDef(def) + "\n");
 }
 
 // ─── frontmatter/body helpers ──────────────────────────────────────

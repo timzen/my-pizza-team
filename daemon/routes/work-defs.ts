@@ -38,6 +38,7 @@
  * attachments), Run, and archive/restore work as for any WorkDef.
  */
 
+import * as fs from "node:fs";
 import type { RouteContext } from "./types.ts";
 import { workDefType, type WorkDef } from "../../shared/types.ts";
 import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse } from "../../shared/protocol.ts";
@@ -278,7 +279,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     if (!store.getWorkDef(id)) return c.json({ error: "WorkDef not found", id }, 404);
     const filePath = store.getAttachmentPathForRef({ workDefId: id }, filename);
     if (!filePath) return c.json({ error: "Attachment not found", id, filename }, 404);
-    const content = Deno.readFileSync(filePath);
+    const content = fs.readFileSync(filePath);
     const ext = filename.split(".").pop()?.toLowerCase() || "";
     return new Response(content, { headers: { "Content-Type": MIME_TYPES[ext] || "application/octet-stream" } });
   });

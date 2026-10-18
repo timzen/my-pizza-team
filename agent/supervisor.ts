@@ -86,7 +86,7 @@ export class AgentSupervisor {
 
   constructor(opts: SupervisorOptions) {
     this.opts = opts;
-    this.out = opts.out ?? ((t) => { Deno.stdout.writeSync(new TextEncoder().encode(t)); });
+    this.out = opts.out ?? ((t) => { process.stdout.write(t); });
     this.mirror = new TranscriptMirror(opts.client, { instance: `${opts.harness.name}-${Date.now()}` });
   }
 
@@ -97,7 +97,7 @@ export class AgentSupervisor {
 
     this.acp = AcpConnection.spawn(launch.command, {
       cwd,
-      env: { ...Deno.env.toObject(), ...launch.env, ...this.opts.agentEnv },
+      env: { ...launch.env, ...this.opts.agentEnv }, // on top of the inherited environment
       onStderr: () => {},
     });
     this.acp.onNotification((m) => this.onNotification(m));

@@ -14,6 +14,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { SourceKv } from "../sources/types.ts";
 
@@ -28,7 +29,7 @@ function read(teamDir: string, sourceId: string): Record<string, string> {
   const f = file(teamDir, sourceId);
   if (!existsSync(f)) return {};
   try {
-    const parsed = JSON.parse(Deno.readTextFileSync(f));
+    const parsed = JSON.parse(fs.readFileSync(f, "utf8"));
     if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
     // Keep only string values: the store is string-typed, and a hand edit
     // shouldn't hand a source a number where it expects a revision string.
@@ -40,10 +41,10 @@ function read(teamDir: string, sourceId: string): Record<string, string> {
 
 function write(teamDir: string, sourceId: string, data: Record<string, string>): void {
   const f = file(teamDir, sourceId);
-  Deno.mkdirSync(path.dirname(f), { recursive: true });
+  fs.mkdirSync(path.dirname(f), { recursive: true });
   // Sorted keys so the committed file diffs cleanly.
   const sorted = Object.fromEntries(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
-  Deno.writeTextFileSync(f, JSON.stringify(sorted, null, 2) + "\n");
+  fs.writeFileSync(f, JSON.stringify(sorted, null, 2) + "\n");
 }
 
 /** The file-backed key/value store for one source (`sources/<sourceId>.json`). */

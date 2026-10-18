@@ -18,6 +18,7 @@
  * connected — which is precisely when the answer counts.
  */
 
+import { spawn } from "node:child_process";
 import type { TeamConfig } from "../shared/types.ts";
 
 export interface ProbeResult {
@@ -38,20 +39,30 @@ export const PROBE_INTERVAL_MS = 30_000;
 export const shellRunner: ProbeRunner = async (command, timeoutMs) => {
   // A probe is user-supplied config, and the point is to run it as they wrote it —
   // pipes, `&&` and all — so this is the one place a shell is intentional.
-  let child: Deno.ChildProcess;
-  try {
-    child = new Deno.Command("sh", { args: ["-c", command], stdout: "piped", stderr: "piped" }).spawn();
-  } catch (e) {
-    return { code: -1, stdout: "", stderr: (e as Error).message }; // sh itself unavailable
-  }
+  const child = spawn("sh", ["-c", command], { stdio: ["inherit", "pipe", "pipe"] });
+  const stdout: Buffer[] = [];
+  const stderr: Buffer[] = [];
+  child.stdout?.on("data", (b: Buffer) => stdout.push(b));
+  child.stderr?.on("data", (b: Buffer) => stderr.push(b));
+  // Resolves when the process exits *and* its pipes close ("close", not "exit"), so
+  // all output is in; a spawn failure ("error", e.g. sh itself unavailable) resolves
+  // with code -1 and the error message.
+  const finished = new Promise<{ code: number; stdout: string; stderr: string }>((resolve) => {
+    child.once("error", (e) => resolve({ code: -1, stdout: "", stderr: e.message }));
+    child.once("close", (code) => resolve({
+      code: code ?? 1, // null means killed by a signal
+      stdout: Buffer.concat(stdout).toString("utf8"),
+      stderr: Buffer.concat(stderr).toString("utf8"),
+    }));
+  });
 
   // Race the probe against the deadline, and on timeout *stop waiting* rather than
   // waiting for the pipes to close.
   //
   // That distinction is the bug this fixes. The earlier version passed an
-  // AbortSignal to `output()`, which kills `sh` — but on Linux `sh` is dash, which
+  // AbortSignal to the output wait, which kills `sh` — but on Linux `sh` is dash, which
   // doesn't exec its last command, so a child like `sleep` survives, keeps stdout
-  // open, and `output()` waits for it regardless. A probe that hung would stall the
+  // open, and the output wait blocks on it regardless. A probe that hung would stall the
   // readiness loop forever, freezing the team's readiness at its last value. On
   // macOS the shell happened to exec the command, so the bug only showed on Linux —
   // found by running the e2e suite in an Ubuntu container.
@@ -59,22 +70,19 @@ export const shellRunner: ProbeRunner = async (command, timeoutMs) => {
   const timedOut = new Promise<"timeout">((resolve) => {
     timer = setTimeout(() => resolve("timeout"), timeoutMs);
   });
-  const finished = child.output();
   const winner = await Promise.race([finished, timedOut]);
   clearTimeout(timer);
 
   if (winner === "timeout") {
     try { child.kill("SIGKILL"); } catch { /* already exited */ }
     // Don't await `finished`: an orphaned grandchild may hold the pipes for as long
-    // as it likes. Swallow its eventual rejection so it can't surface unhandled.
-    finished.catch(() => {});
+    // as it likes. Drop our ends of the pipes so they can't keep the process alive.
+    child.stdout?.destroy();
+    child.stderr?.destroy();
+    child.unref();
     return { code: -1, stdout: "", stderr: `readiness probe timed out after ${Math.round(timeoutMs / 1000)}s` };
   }
-  return {
-    code: winner.code,
-    stdout: new TextDecoder().decode(winner.stdout),
-    stderr: new TextDecoder().decode(winner.stderr),
-  };
+  return winner;
 };
 
 const firstLine = (s: string): string | undefined => s.split("\n").map((l) => l.trim()).find((l) => l.length > 0);

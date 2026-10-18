@@ -24,6 +24,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { Comment, WorkDef, WorkItem } from "../../shared/types.ts";
 import { parseWorkDef } from "../store/workdefs.ts";
@@ -99,9 +100,9 @@ export class FixtureSource implements WorkSource {
   async sync(): Promise<ExternalDef[]> {
     if (!existsSync(this.opts.dir)) throw new Error(`fixture folder ${this.opts.dir} does not exist`);
     const out: ExternalDef[] = [];
-    for (const entry of [...Deno.readDirSync(this.opts.dir)].sort((a, b) => a.name.localeCompare(b.name))) {
-      if (!entry.isFile || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue;
-      const raw = await Deno.readTextFile(path.join(this.opts.dir, entry.name));
+    for (const entry of [...fs.readdirSync(this.opts.dir, { withFileTypes: true })].sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue;
+      const raw = await fs.promises.readFile(path.join(this.opts.dir, entry.name), "utf8");
       const externalId = entry.name.slice(0, -".md".length);
       out.push({ ...parseItem(externalId, raw), revision: await sha256(raw) });
     }
@@ -123,7 +124,7 @@ export class FixtureSource implements WorkSource {
     this.writeBacks.push(call);
     try {
       if (!existsSync(this.opts.dir)) return;
-      Deno.writeTextFileSync(path.join(this.opts.dir, FIXTURE_WRITEBACK_FILE), JSON.stringify({ at: new Date().toISOString(), ...call }) + "\n", { append: true });
+      fs.appendFileSync(path.join(this.opts.dir, FIXTURE_WRITEBACK_FILE), JSON.stringify({ at: new Date().toISOString(), ...call }) + "\n");
     } catch (e) {
       ctx.log(`could not record write-back: ${e instanceof Error ? e.message : String(e)}`);
     }

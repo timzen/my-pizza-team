@@ -12,7 +12,10 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { inspect } from "node:util";
+import type { ServerType } from "@hono/node-server";
 import type { Store } from "./store.ts";
 
 const PID_FILENAME = "daemon.pid";
@@ -21,7 +24,7 @@ export const LOG_FILENAME = "daemon.log";
 
 export interface DaemonContext {
   store: Store | null;
-  server: Deno.HttpServer | null;
+  server: ServerType | null;
   teamDir: string;
   pidFile: string;
 }
@@ -29,7 +32,7 @@ export interface DaemonContext {
 /** Write the PID file. Returns the path written. */
 export function writePidFile(teamDir: string): string {
   const pidFile = path.join(teamDir, PID_FILENAME);
-  Deno.writeTextFileSync(pidFile, String(Deno.pid));
+  fs.writeFileSync(pidFile, String(process.pid));
   return pidFile;
 }
 
@@ -37,10 +40,10 @@ export function writePidFile(teamDir: string): string {
 export function removePidFile(pidFile: string): void {
   try {
     if (existsSync(pidFile)) {
-      const content = Deno.readTextFileSync(pidFile).trim();
+      const content = fs.readFileSync(pidFile, "utf8").trim();
       // Only remove if it's our PID (safety check)
-      if (content === String(Deno.pid)) {
-        Deno.removeSync(pidFile);
+      if (content === String(process.pid)) {
+        fs.rmSync(pidFile);
       }
     }
   } catch {
@@ -54,12 +57,12 @@ export function isAlreadyRunning(teamDir: string): { running: boolean; pid?: num
   if (!existsSync(pidFile)) return { running: false };
 
   try {
-    const pid = parseInt(Deno.readTextFileSync(pidFile).trim(), 10);
+    const pid = parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
     if (isNaN(pid)) return { running: false };
 
     // Check if process exists by sending signal 0 (no-op, just checks existence)
     try {
-      Deno.kill(pid, "SIGCONT");
+      process.kill(pid, 0);
       return { running: true, pid };
     } catch {
       // Process doesn't exist — stale PID file
@@ -83,7 +86,10 @@ export function shutdown(ctx: DaemonContext): void {
 
   try {
     if (ctx.server) {
-      ctx.server.shutdown();
+      // Stop accepting, then drop open connections (keep-alive, SSE streams) so
+      // nothing holds the close open; the process exits right after anyway.
+      ctx.server.close();
+      if ("closeAllConnections" in ctx.server) ctx.server.closeAllConnections();
     }
   } catch {
     // Server may already be closed
@@ -108,11 +114,11 @@ export function shutdown(ctx: DaemonContext): void {
 export function registerSignalHandlers(ctx: DaemonContext): void {
   const handler = () => {
     shutdown(ctx);
-    Deno.exit(0);
+    process.exit(0);
   };
 
-  Deno.addSignalListener("SIGTERM", handler);
-  Deno.addSignalListener("SIGINT", handler);
+  process.on("SIGTERM", handler);
+  process.on("SIGINT", handler);
 }
 
 /**
@@ -127,14 +133,13 @@ export function registerSignalHandlers(ctx: DaemonContext): void {
  */
 export function redirectOutputToLog(teamDir: string): string {
   const logPath = path.join(teamDir, LOG_FILENAME);
-  try { Deno.renameSync(logPath, `${logPath}.1`); } catch { /* no previous log */ }
-  const file = Deno.openSync(logPath, { write: true, create: true, truncate: true });
-  const encoder = new TextEncoder();
+  try { fs.renameSync(logPath, `${logPath}.1`); } catch { /* no previous log */ }
+  const fd = fs.openSync(logPath, "w");
   const write = (level: string, args: unknown[]) => {
     // Leading newlines are terminal spacing; in a log they'd split a line from its timestamp.
-    const text = args.map((a) => (typeof a === "string" ? a : Deno.inspect(a, { colors: false, depth: 6 }))).join(" ").replace(/^\n+/, "");
+    const text = args.map((a) => (typeof a === "string" ? a : inspect(a, { colors: false, depth: 6 }))).join(" ").replace(/^\n+/, "");
     try {
-      file.writeSync(encoder.encode(`${new Date().toISOString()} ${level} ${text}\n`));
+      fs.writeSync(fd, `${new Date().toISOString()} ${level} ${text}\n`);
     } catch { /* a full disk must not take the daemon down */ }
   };
   console.log = (...a: unknown[]) => write("info ", a);
@@ -142,7 +147,10 @@ export function redirectOutputToLog(teamDir: string): string {
   console.debug = (...a: unknown[]) => write("debug", a);
   console.warn = (...a: unknown[]) => write("warn ", a);
   console.error = (...a: unknown[]) => write("error", a);
-  globalThis.addEventListener("error", (e) => write("fatal", [e.error ?? e.message]));
-  globalThis.addEventListener("unhandledrejection", (e) => write("fatal", ["unhandled rejection:", e.reason]));
+  // A monitor only observes: the process still crashes as it would have. Unhandled
+  // rejections arrive here too (Node raises them as uncaught exceptions by default).
+  process.on("uncaughtExceptionMonitor", (err, origin) => {
+    write("fatal", origin === "unhandledRejection" ? ["unhandled rejection:", err] : [err]);
+  });
   return logPath;
 }

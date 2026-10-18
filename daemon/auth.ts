@@ -83,7 +83,7 @@ export function createAuthMiddleware(token: string | null): ((c: Context, next: 
  * Priority: MPT_API_TOKEN env > config.apiToken
  */
 export function resolveToken(configToken?: string): string | null {
-  return Deno.env.get("MPT_API_TOKEN") || configToken || null;
+  return process.env["MPT_API_TOKEN"] || configToken || null;
 }
 
 /**

@@ -20,6 +20,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { STORIES_DIR } from "../../shared/types.ts";
 
@@ -62,7 +63,7 @@ function normalizeStoryData(data: Record<string, unknown>, forcePending: boolean
 /** Read a JSON object file, or null when it's missing or malformed. */
 function readJsonObject(file: string): Record<string, unknown> | null {
   try {
-    const data = JSON.parse(Deno.readTextFileSync(file));
+    const data = JSON.parse(fs.readFileSync(file, "utf8"));
     return data && typeof data === "object" && !Array.isArray(data) ? data as Record<string, unknown> : null;
   } catch {
     return null;
@@ -70,7 +71,7 @@ function readJsonObject(file: string): Record<string, unknown> | null {
 }
 
 function writeJson(file: string, data: Record<string, unknown>): void {
-  Deno.writeTextFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
 }
 
 /**
@@ -83,8 +84,8 @@ export function migrateLegacyStoryFiles(teamDir: string): StoryMigrationResult {
 
   // 1. paused → pending in the live stories.
   if (existsSync(storiesDir)) {
-    for (const entry of Deno.readDirSync(storiesDir)) {
-      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+    for (const entry of fs.readdirSync(storiesDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const file = path.join(storiesDir, entry.name);
       const data = readJsonObject(file);
       if (!data || !normalizeStoryData(data, false)) continue;
@@ -97,9 +98,9 @@ export function migrateLegacyStoryFiles(teamDir: string): StoryMigrationResult {
   // under tasks/ and never moved with the story, so the file move is all it takes.
   const backlogDir = path.join(teamDir, LEGACY_BACKLOG_DIR);
   if (existsSync(backlogDir)) {
-    Deno.mkdirSync(storiesDir, { recursive: true });
-    for (const entry of Deno.readDirSync(backlogDir)) {
-      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+    fs.mkdirSync(storiesDir, { recursive: true });
+    for (const entry of fs.readdirSync(backlogDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       const src = path.join(backlogDir, entry.name);
       const data = readJsonObject(src);
       if (!data) continue; // malformed: leave it for a human, like loadFromDisk skips it
@@ -108,11 +109,11 @@ export function migrateLegacyStoryFiles(teamDir: string): StoryMigrationResult {
       if (existsSync(dest)) { result.conflicts.push(id); continue; }
       normalizeStoryData(data, true);
       writeJson(dest, data);
-      Deno.removeSync(src);
+      fs.rmSync(src);
       result.unbacklogged.push(id);
     }
     // Drop the directory once nothing is left in it (conflicts keep it).
-    if ([...Deno.readDirSync(backlogDir)].length === 0) Deno.removeSync(backlogDir);
+    if (fs.readdirSync(backlogDir).length === 0) fs.rmdirSync(backlogDir);
   }
 
   return result;

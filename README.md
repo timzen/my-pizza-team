@@ -575,7 +575,7 @@ Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 ```
 my-pizza-team/
 ├── main.ts            # Entry point of the compiled binary (→ cli/main.ts)
-├── daemon/            # HTTP server (Hono on Deno.serve), Store, tmux supervisor
+├── daemon/            # HTTP server (Hono on @hono/node-server), Store, tmux supervisor
 │   ├── server.ts      # Route orchestrator
 │   ├── store.ts       # SQLite index + file sync (self-contained parts in store/)
 │   └── routes/        # Route modules

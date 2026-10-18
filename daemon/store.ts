@@ -1,7 +1,7 @@
 /**
- * daemon/store.ts — SQLite store + JSON file sync (Deno port).
+ * daemon/store.ts — SQLite store + JSON file sync.
  *
- * Core data layer for the team lead. Uses Deno's built-in node:sqlite
+ * Core data layer for the team lead. Uses Node's built-in node:sqlite
  * (DatabaseSync) — no external FFI .so required. Maintains the same schema,
  * CRUD operations, migrations, workflow loading, and JSON file sync as the
  * original.
@@ -99,6 +99,7 @@ import { TeammatePairing } from "./store/pairing.ts";
 import { migrateLegacyStoryFiles } from "./store/story-migration.ts";
 import { migrateUsageColumns, recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 
 /**
@@ -565,13 +566,13 @@ export class Store {
     this.workflows = {};
 
     if (existsSync(workflowsDir)) {
-      for (const entry of Deno.readDirSync(workflowsDir)) {
-        if (!entry.isDirectory) continue;
+      for (const entry of fs.readdirSync(workflowsDir, { withFileTypes: true })) {
+        if (!entry.isDirectory()) continue;
         const wfDir = path.join(workflowsDir, entry.name);
         const wfFile = path.join(wfDir, "workflow.json");
         if (!existsSync(wfFile)) continue;
         try {
-          const wf: WorkflowConfig = JSON.parse(Deno.readTextFileSync(wfFile));
+          const wf: WorkflowConfig = JSON.parse(fs.readFileSync(wfFile, "utf8"));
           // Only accept the ordered-states shape (see docs/DESIGN.md "The Work Model");
           // malformed or legacy transition-matrix files are skipped.
           if (validateWorkflow(wf) === null) this.workflows[entry.name] = wf;
@@ -601,8 +602,8 @@ export class Store {
   saveWorkflow(name: string, wf: WorkflowConfig): void {
     const workflowsDir = path.join(this.teamDir, "workflows");
     const wfDir = path.join(workflowsDir, name);
-    Deno.mkdirSync(wfDir, { recursive: true });
-    Deno.writeTextFileSync(path.join(wfDir, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(path.join(wfDir, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
     this.workflows[name] = wf;
   }
 
@@ -610,7 +611,7 @@ export class Store {
   deleteWorkflow(name: string): boolean {
     const wfDir = path.join(this.teamDir, "workflows", name);
     if (!existsSync(wfDir)) return false;
-    Deno.removeSync(wfDir, { recursive: true });
+    fs.rmSync(wfDir, { recursive: true });
     delete this.workflows[name];
     return true;
   }
@@ -921,9 +922,9 @@ export class Store {
     // Read flat story files (stories/<id>.json).
     const stories: Story[] = [];
     if (existsSync(storiesDir)) {
-      for (const entry of Deno.readDirSync(storiesDir)) {
-        if (!entry.isFile || !entry.name.endsWith(".json")) continue;
-        try { stories.push(JSON.parse(Deno.readTextFileSync(path.join(storiesDir, entry.name))) as Story); }
+      for (const entry of fs.readdirSync(storiesDir, { withFileTypes: true })) {
+        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+        try { stories.push(JSON.parse(fs.readFileSync(path.join(storiesDir, entry.name), "utf8")) as Story); }
         catch { /* skip malformed */ }
       }
     }
@@ -969,8 +970,8 @@ export class Store {
 
   /** Write a story to its flat json file. */
   private writeStory(story: Story): void {
-    Deno.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
-    Deno.writeTextFileSync(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
+    fs.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
+    fs.writeFileSync(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
   }
 
   private upsertStory(story: Story): void {
@@ -1847,7 +1848,7 @@ export class Store {
 
     const commentsFile = path.join(task.dirPath, "comments.jsonl");
     if (existsSync(commentsFile)) {
-      const content = Deno.readTextFileSync(commentsFile);
+      const content = fs.readFileSync(commentsFile, "utf8");
       const lines = content.split("\n").filter(Boolean);
       const insert = this.db.prepare(
         "INSERT INTO comments (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)"
@@ -1867,7 +1868,7 @@ export class Store {
     if (!task) return [];
     const commentsFile = path.join(task.dirPath, "comments.jsonl");
     if (!existsSync(commentsFile)) return [];
-    const content = Deno.readTextFileSync(commentsFile);
+    const content = fs.readFileSync(commentsFile, "utf8");
     const lines = content.split("\n").filter(Boolean);
     return lines.map((line) => JSON.parse(line) as Comment);
   }
@@ -1883,7 +1884,7 @@ export class Store {
       const commentsFile = path.join(task.dirPath, "comments.jsonl");
       const comment: Comment = { from, body, at: new Date(now).toISOString() };
       if (attachments && attachments.length > 0) comment.attachments = attachments;
-      Deno.writeTextFileSync(commentsFile, JSON.stringify(comment) + "\n", { append: true });
+      fs.appendFileSync(commentsFile, JSON.stringify(comment) + "\n");
     }
   }
 
@@ -1919,7 +1920,7 @@ export class Store {
     const filePath = this.getAttachmentPath(taskId, storedName);
     if (!filePath) return false;
     try {
-      Deno.removeSync(filePath);
+      fs.rmSync(filePath);
       return true;
     } catch {
       return false;
@@ -1929,12 +1930,12 @@ export class Store {
   // Shared attachment-directory primitives (used by both the task-scoped and
   // ref-scoped helpers — a board task's dir IS its WorkDef ref dir).
   private saveAttachmentInDir(attachDir: string, filename: string, data: Uint8Array | string): string {
-    Deno.mkdirSync(attachDir, { recursive: true });
+    fs.mkdirSync(attachDir, { recursive: true });
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
     const storedName = `${Date.now()}-${safeName}`;
     const filePath = path.join(attachDir, storedName);
-    if (typeof data === "string") Deno.writeTextFileSync(filePath, data);
-    else Deno.writeFileSync(filePath, data);
+    if (typeof data === "string") fs.writeFileSync(filePath, data);
+    else fs.writeFileSync(filePath, data);
     return storedName;
   }
 
@@ -1951,9 +1952,9 @@ export class Store {
   private listAttachmentsInDir(attachDir: string): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
     if (!existsSync(attachDir)) return [];
     const results: Array<{ name: string; storedName: string; size: number; addedAt: number }> = [];
-    for (const entry of Deno.readDirSync(attachDir)) {
-      if (!entry.isFile) continue;
-      const stat = Deno.statSync(path.join(attachDir, entry.name));
+    for (const entry of fs.readdirSync(attachDir, { withFileTypes: true })) {
+      if (!entry.isFile()) continue;
+      const stat = fs.statSync(path.join(attachDir, entry.name));
       const displayName = entry.name.replace(/^\d+-/, "");
       const tsPrefix = entry.name.match(/^(\d+)-/);
       const addedAt = tsPrefix ? Number(tsPrefix[1]) : (stat.mtime?.getTime() ?? 0);
@@ -2215,7 +2216,7 @@ export class Store {
         // Ensure task directory exists before writing
         const taskDir = path.dirname(taskFile);
         if (!existsSync(taskDir)) {
-          Deno.mkdirSync(taskDir, { recursive: true });
+          fs.mkdirSync(taskDir, { recursive: true });
         }
         const tokenUsage = this.getTokenUsage(row.id as string);
         const taskData: Record<string, unknown> = {
@@ -2231,7 +2232,7 @@ export class Store {
         if (tokenUsage.length > 0) {
           taskData.tokenUsage = tokenUsage;
         }
-        Deno.writeTextFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
+        fs.writeFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
       } catch {
         // Task directory may have been removed externally; skip
       }
@@ -2424,7 +2425,7 @@ export class Store {
     const file = path.join(this.teamDir, TRIAGE_INSTRUCTIONS_FILE);
     try {
       if (!existsSync(file)) return undefined;
-      const content = Deno.readTextFileSync(file);
+      const content = fs.readFileSync(file, "utf8");
       return content.trim() ? content : undefined;
     } catch {
       return undefined;
@@ -2435,10 +2436,10 @@ export class Store {
   setTriageInstructions(content: string): void {
     const file = path.join(this.teamDir, TRIAGE_INSTRUCTIONS_FILE);
     if (content.trim() === "") {
-      try { Deno.removeSync(file); } catch { /* already absent */ }
+      try { fs.rmSync(file); } catch { /* already absent */ }
       return;
     }
-    Deno.writeTextFileSync(file, content.endsWith("\n") ? content : content + "\n");
+    fs.writeFileSync(file, content.endsWith("\n") ? content : content + "\n");
   }
 
   /**
@@ -2647,7 +2648,7 @@ export class Store {
     const cached = this.transitionInstructionsCache.get(cacheKey);
     if (cached) {
       try {
-        const stat = Deno.statSync(filePath);
+        const stat = fs.statSync(filePath);
         const mtime = stat.mtime?.getTime() ?? 0;
         if (mtime === cached.mtime && Date.now() - cached.cachedAt < this.transitionCacheTTL) {
           return cached.content;
@@ -2660,8 +2661,8 @@ export class Store {
 
     try {
       if (!existsSync(filePath)) return undefined;
-      const content = Deno.readTextFileSync(filePath);
-      const stat = Deno.statSync(filePath);
+      const content = fs.readFileSync(filePath, "utf8");
+      const stat = fs.statSync(filePath);
       const mtime = stat.mtime?.getTime() ?? 0;
       this.transitionInstructionsCache.set(cacheKey, { content, mtime, cachedAt: Date.now() });
       return content;
@@ -2737,7 +2738,7 @@ export class Store {
     for (const t of tasks) deleteWorkDef(this.teamDir, t.id);
     this.removeStoryFromDb(storyId);
     const file = this.storyFile(storyId);
-    if (existsSync(file)) Deno.removeSync(file);
+    if (existsSync(file)) fs.rmSync(file);
     // A missing dependency counts as satisfied (isStoryReady).
     this.admitDependents(storyId);
 
@@ -2759,7 +2760,7 @@ export class Store {
     if (!story) throw new Error(`Story "${storyId}" not found`);
 
     const archivedDir = path.join(this.teamDir, "archived");
-    Deno.mkdirSync(archivedDir, { recursive: true });
+    fs.mkdirSync(archivedDir, { recursive: true });
     const archivedAt = new Date().toISOString();
     const tasks = this.getTasksForStory(storyId);
 
@@ -2768,12 +2769,12 @@ export class Store {
     // story leaves stories/); getArchivedStoryContext reads them back by id.
     const src = this.storyFile(storyId);
     const data = existsSync(src)
-      ? JSON.parse(Deno.readTextFileSync(src)) as Record<string, unknown>
+      ? JSON.parse(fs.readFileSync(src, "utf8")) as Record<string, unknown>
       : serializeStory(story) as unknown as Record<string, unknown>;
     data.archivedAt = archivedAt;
     data.synopsis = this.buildSynopsis(story, tasks, archivedAt);
-    Deno.writeTextFileSync(path.join(archivedDir, `${storyId}.json`), JSON.stringify(data, null, 2) + "\n");
-    if (existsSync(src)) Deno.removeSync(src);
+    fs.writeFileSync(path.join(archivedDir, `${storyId}.json`), JSON.stringify(data, null, 2) + "\n");
+    if (existsSync(src)) fs.rmSync(src);
 
     this.removeStoryFromDb(storyId);
     // Archived = done for its dependents (isStoryReady); normally they were
@@ -2786,10 +2787,10 @@ export class Store {
     if (!existsSync(archivedDir)) return [];
 
     const results: Array<{ id: string; title: string; synopsis: string }> = [];
-    for (const entry of Deno.readDirSync(archivedDir)) {
-      if (!entry.isFile || !entry.name.endsWith(".json")) continue;
+    for (const entry of fs.readdirSync(archivedDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       try {
-        const data = JSON.parse(Deno.readTextFileSync(path.join(archivedDir, entry.name)));
+        const data = JSON.parse(fs.readFileSync(path.join(archivedDir, entry.name), "utf8"));
         results.push({ id: data.id, title: data.title, synopsis: data.synopsis || data.description || "" });
       } catch { /* skip malformed */ }
     }
@@ -2800,7 +2801,7 @@ export class Store {
     const file = path.join(this.teamDir, "archived", `${storyId}.json`);
     if (!existsSync(file)) return null;
 
-    const story = JSON.parse(Deno.readTextFileSync(file));
+    const story = JSON.parse(fs.readFileSync(file, "utf8"));
     const tasks: Record<string, unknown>[] = [];
     const comments: Record<string, Comment[]> = {};
 
@@ -2811,7 +2812,7 @@ export class Store {
       if (def) tasks.push({ id: def.id, title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria, status: t.status });
       const commentsFile = path.join(workDefDir(this.teamDir, t.id), "comments.jsonl");
       if (existsSync(commentsFile)) {
-        const lines = Deno.readTextFileSync(commentsFile).split("\n").filter(Boolean);
+        const lines = fs.readFileSync(commentsFile, "utf8").split("\n").filter(Boolean);
         comments[t.id] = lines.map((line: string) => JSON.parse(line) as Comment);
       }
     }
@@ -3275,10 +3276,7 @@ export class Store {
    * about (see serializeConfig).
    */
   saveConfig(): void {
-    Deno.writeTextFileSync(
-      path.join(this.teamDir, CONFIG_FILE),
-      JSON.stringify(serializeConfig(this.config), null, 2) + "\n",
-    );
+    fs.writeFileSync(path.join(this.teamDir, CONFIG_FILE), JSON.stringify(serializeConfig(this.config), null, 2) + "\n");
   }
 
   // --- Directory suggestions (docs/DESIGN.md "Favorite Directories") ---
@@ -3734,7 +3732,7 @@ export class Store {
     const file = path.join(dir, "comments.jsonl");
     if (!existsSync(file)) return [];
     const out: ThreadEntry[] = [];
-    for (const line of Deno.readTextFileSync(file).split("\n")) {
+    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
       if (!line.trim()) continue;
       // A malformed line must not take the whole thread down with it.
       try { out.push(JSON.parse(line) as ThreadEntry); } catch { /* skip */ }
@@ -3746,18 +3744,18 @@ export class Store {
   private appendThreadEntry(ref: WorkItemRef, entry: ThreadEntry): boolean {
     const dir = this.refDir(ref);
     if (!dir) return false;
-    Deno.mkdirSync(dir, { recursive: true });
-    Deno.writeTextFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(entry) + "\n", { append: true });
+    fs.mkdirSync(dir, { recursive: true });
+    fs.appendFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(entry) + "\n");
     return true;
   }
 
   addCommentForRef(ref: WorkItemRef, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
     const dir = this.refDir(ref);
     if (!dir) return;
-    Deno.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     const comment: Comment = { from, body, at: new Date().toISOString() };
     if (attachments && attachments.length > 0) comment.attachments = attachments;
-    Deno.writeTextFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(comment) + "\n", { append: true });
+    fs.appendFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(comment) + "\n");
     this.notifyComment(ref, comment);
   }
 
@@ -3806,7 +3804,7 @@ export class Store {
   deleteAttachmentForRef(ref: WorkItemRef, storedName: string): boolean {
     const filePath = this.getAttachmentPathForRef(ref, storedName);
     if (!filePath) return false;
-    try { Deno.removeSync(filePath); return true; } catch { return false; }
+    try { fs.rmSync(filePath); return true; } catch { return false; }
   }
 
   // Token usage on the ref (works for any WorkDef; token_usage is keyed by the

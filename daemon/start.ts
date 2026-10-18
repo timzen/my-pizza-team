@@ -21,14 +21,16 @@ import { harnessCapability, probeTmuxCapability, realizePending } from "./spawne
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { TEAM_DIR } from "../shared/types.ts";
+import { serve } from "@hono/node-server";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 
 /**
  * The team directory from the environment: `TEAM_DIR` names the directory itself
  * or its parent; unset means `.my-pizza-team` in the current directory.
  */
-export function resolveTeamDir(env: string | undefined = Deno.env.get("TEAM_DIR"), cwd: string = Deno.cwd()): string {
+export function resolveTeamDir(env: string | undefined = process.env["TEAM_DIR"], cwd: string = process.cwd()): string {
   if (env) {
     if (env.endsWith(TEAM_DIR)) return env;
     if (existsSync(path.join(env, TEAM_DIR))) return path.join(env, TEAM_DIR);
@@ -48,7 +50,7 @@ export async function startDaemonInProcess(
 ): Promise<void> {
   // Ensure team directory exists
   if (!existsSync(teamDir)) {
-    Deno.mkdirSync(teamDir, { recursive: true });
+    fs.mkdirSync(teamDir, { recursive: true });
   }
 
   // Check if another daemon is already running
@@ -57,7 +59,7 @@ export async function startDaemonInProcess(
     console.error(
       `❌ Daemon already running (PID ${existing.pid}). Stop it first or remove ${teamDir}/daemon.pid`,
     );
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // Create the app and store
@@ -75,23 +77,30 @@ export async function startDaemonInProcess(
     } else {
       console.error(`   This often means SQLite failed to load. Ensure libsqlite3 is available.`);
     }
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // Validate bind safety: refuse 0.0.0.0 without a token
   const configPath = path.join(teamDir, "config.json");
   const configToken = existsSync(configPath)
-    ? (JSON.parse(Deno.readTextFileSync(configPath)).apiToken as string | undefined)
+    ? (JSON.parse(fs.readFileSync(configPath, "utf8")).apiToken as string | undefined)
     : undefined;
   const token = resolveToken(configToken);
   const bindCheck = validateBindSafety(hostname, token);
   if (!bindCheck.safe) {
     console.error(`❌ ${bindCheck.reason}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
-  // Start the HTTP server
-  const server = Deno.serve({ port, hostname }, app.fetch);
+  // Start the HTTP server, and wait until it is listening: a bind failure (port in
+  // use, address unavailable) surfaces here as a thrown error, before the PID file
+  // is written, rather than as an uncaught event later.
+  const server = serve({ fetch: app.fetch, port, hostname });
+  await new Promise<void>((resolve, reject) => {
+    server.once("listening", resolve);
+    server.once("error", reject);
+  });
+  const closed = new Promise<void>((resolve) => server.once("close", () => resolve()));
 
   // Write PID file
   const pidFile = writePidFile(teamDir);
@@ -157,13 +166,13 @@ export async function startDaemonInProcess(
   if (stopReadiness) console.log("   Readiness: daemon-probed");
 
   console.log(`🍕 my-pizza-team daemon listening on http://localhost:${port}`);
-  console.log(`   PID: ${Deno.pid} (${pidFile})`);
+  console.log(`   PID: ${process.pid} (${pidFile})`);
   console.log(`   Team dir: ${teamDir}`);
   console.log(`   Press Ctrl+C to stop.`);
 
   // Keep alive — wait for server to close
   try {
-    await server.finished;
+    await closed;
   } finally {
     if (spawnTimer !== undefined) clearInterval(spawnTimer);
     stopReadiness?.();

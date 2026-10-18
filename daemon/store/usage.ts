@@ -33,6 +33,7 @@
 
 import type { DatabaseSync } from "node:sqlite";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { USAGE_DIR } from "../../shared/types.ts";
 
@@ -301,18 +302,18 @@ function monthFile(teamDir: string, at: number): string {
 
 function appendUsageLine(teamDir: string, e: UsageEntry): void {
   const file = monthFile(teamDir, e.at ?? Date.now());
-  Deno.mkdirSync(path.dirname(file), { recursive: true });
-  Deno.writeTextFileSync(file, JSON.stringify(toLine(e)) + "\n", { append: true });
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.appendFileSync(file, JSON.stringify(toLine(e)) + "\n");
 }
 
 /** Every entry in the ledger files, oldest file first. Malformed lines are skipped. */
 function readUsageFiles(teamDir: string): UsageEntry[] {
   const dir = path.join(teamDir, USAGE_DIR);
   if (!existsSync(dir)) return [];
-  const files = [...Deno.readDirSync(dir)].filter((f) => f.isFile && f.name.endsWith(".jsonl")).map((f) => f.name).sort();
+  const files = [...fs.readdirSync(dir, { withFileTypes: true })].filter((f) => f.isFile() && f.name.endsWith(".jsonl")).map((f) => f.name).sort();
   const out: UsageEntry[] = [];
   for (const name of files) {
-    for (const line of Deno.readTextFileSync(path.join(dir, name)).split("\n")) {
+    for (const line of fs.readFileSync(path.join(dir, name), "utf8").split("\n")) {
       if (!line.trim()) continue;
       try {
         const e = fromLine(JSON.parse(line));
@@ -325,11 +326,11 @@ function readUsageFiles(teamDir: string): UsageEntry[] {
 
 /** Every `task.json` under the team dir (live and archived board tasks). */
 function findTaskJsonFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of Deno.readDirSync(dir)) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     if (entry.name.startsWith(".") || entry.name === USAGE_DIR) continue;
     const p = path.join(dir, entry.name);
-    if (entry.isDirectory) findTaskJsonFiles(p, out);
-    else if (entry.isFile && entry.name === "task.json") out.push(p);
+    if (entry.isDirectory()) findTaskJsonFiles(p, out);
+    else if (entry.isFile() && entry.name === "task.json") out.push(p);
   }
   return out;
 }
@@ -339,7 +340,7 @@ function readTaskJsonUsage(teamDir: string): UsageEntry[] {
   const out: UsageEntry[] = [];
   for (const file of findTaskJsonFiles(teamDir)) {
     try {
-      const data = JSON.parse(Deno.readTextFileSync(file)) as { id?: string; title?: string; tokenUsage?: Array<Record<string, unknown>> };
+      const data = JSON.parse(fs.readFileSync(file, "utf8")) as { id?: string; title?: string; tokenUsage?: Array<Record<string, unknown>> };
       for (const u of data.tokenUsage ?? []) {
         const e = fromLine({ ...u, kind: "work", refId: data.id ?? path.basename(path.dirname(file)), title: data.title ?? null } as Partial<UsageLine>);
         if (e) out.push(e);
@@ -395,7 +396,7 @@ export function syncUsageLedger(db: DatabaseSync, teamDir: string): number {
       merged.push(e);
     }
     merged.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
-    Deno.mkdirSync(dir, { recursive: true });
+    fs.mkdirSync(dir, { recursive: true });
     for (const e of merged) appendUsageLine(teamDir, e);
   }
   const entries = readUsageFiles(teamDir);

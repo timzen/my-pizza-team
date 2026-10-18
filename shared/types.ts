@@ -6,6 +6,8 @@
  * harnesses/pi/src/shared/types.ts by `deno task sync-shared`.
  */
 
+import * as fs from "node:fs";
+
 /** Standard API response envelope. */
 export interface ApiResponse<T = unknown> {
   status: "ok" | "error";
@@ -479,12 +481,12 @@ export interface Schedule {
  * they would with the lease off.
  */
 export function normalizeDirectory(dir: string): string {
-  const expanded = dir.replace(/^~(?=$|\/)/, Deno.env.get("HOME") || "~");
+  const expanded = dir.replace(/^~(?=$|\/)/, process.env["HOME"] || "~");
   // Keep a bare "/" as-is rather than stripping it to the empty string.
   const stripped = expanded.replace(/\/+$/, "") || (expanded ? "/" : "");
   if (!stripped) return stripped;
   try {
-    return Deno.realPathSync(stripped);
+    return fs.realpathSync(stripped);
   } catch {
     // Missing, unreadable, or no --allow-read: fall back to the string form.
     return stripped;

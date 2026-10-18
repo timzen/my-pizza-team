@@ -16,7 +16,12 @@ import { externalSourceViews } from "./work-sources.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
 
 export function registerSharedRoutes(ctx: RouteContext): void {
   const { app, store, config, teamDir, setPaused, isPaused, startedAt } = ctx;
@@ -28,21 +33,13 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     const members = store.getMembers();
     const onlineAgents = members.filter(m => m.status === "working" || m.status === "idle").length;
     const queueDepth = store.getWorkItems({ states: ["READY"] }).total;
-    const mem = Deno.memoryUsage();
+    const mem = process.memoryUsage();
 
     let lastCommitTime: string | null = null;
     try {
-      const cmd = new Deno.Command("git", {
-        args: ["log", "-1", "--format=%aI"],
-        cwd: teamDir,
-        stdout: "piped",
-        stderr: "null",
-      });
-      const result = await cmd.output();
-      if (result.code === 0) {
-        const output = new TextDecoder().decode(result.stdout).trim();
-        if (output) lastCommitTime = output;
-      }
+      const { stdout } = await execFileAsync("git", ["log", "-1", "--format=%aI"], { cwd: teamDir });
+      const output = stdout.trim();
+      if (output) lastCommitTime = output;
     } catch { /* git not available */ }
 
     return c.json({
@@ -296,7 +293,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     if (!store.getWorkflows()[name]) return c.json({ error: `Workflow "${name}" not found` }, 404);
     const filePath = path.join(teamDir, "workflows", name, `${filename}.md`);
     if (!existsSync(filePath)) return c.json({ error: `Instruction file "${filename}.md" not found` }, 404);
-    return c.json({ content: Deno.readTextFileSync(filePath) });
+    return c.json({ content: fs.readFileSync(filePath, "utf8") });
   });
 
   app.put("/api/workflows/:name/instructions/:filename", async (c) => {
@@ -313,8 +310,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       return c.json({ success: false, error: errors.join(" "), errors, warnings }, 400);
     }
     const wfDir = path.join(teamDir, "workflows", name);
-    Deno.mkdirSync(wfDir, { recursive: true });
-    Deno.writeTextFileSync(path.join(wfDir, `${filename}.md`), body.content);
+    fs.mkdirSync(wfDir, { recursive: true });
+    fs.writeFileSync(path.join(wfDir, `${filename}.md`), body.content);
     return c.json({ success: true, warnings });
   });
 }

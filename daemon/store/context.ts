@@ -10,6 +10,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { parseFrontmatter, serializeFrontmatter, type ContextMeta } from "../../shared/frontmatter.ts";
 
@@ -32,8 +33,8 @@ function slugify(title: string): string {
 function readEntry(dir: string, fileName: string): ContextEntry | null {
   if (!fileName.endsWith(".md")) return null;
   const filePath = path.join(dir, fileName);
-  const stat = Deno.statSync(filePath);
-  const raw = Deno.readTextFileSync(filePath);
+  const stat = fs.statSync(filePath);
+  const raw = fs.readFileSync(filePath, "utf8");
   const id = fileName.replace(/\.md$/, "");
   const { meta, body } = parseFrontmatter(raw);
   // Fall back to the first markdown heading, then the id, for legacy files.
@@ -45,8 +46,9 @@ function readEntry(dir: string, fileName: string): ContextEntry | null {
     description: meta.description,
     tags: meta.tags,
     content: body,
-    createdAt: (stat.birthtime ?? stat.mtime ?? new Date()).toISOString(),
-    updatedAt: (stat.mtime ?? new Date()).toISOString(),
+    // Filesystems without birth times report the epoch; fall back to mtime.
+    createdAt: (stat.birthtimeMs > 0 ? stat.birthtime : stat.mtime).toISOString(),
+    updatedAt: stat.mtime.toISOString(),
   };
 }
 
@@ -54,8 +56,8 @@ function readEntry(dir: string, fileName: string): ContextEntry | null {
 export function listContextEntries(teamDir: string): ContextEntry[] {
   const dir = path.join(teamDir, "context");
   if (!existsSync(dir)) return [];
-  return [...Deno.readDirSync(dir)]
-    .filter((e) => e.isFile && e.name.endsWith(".md"))
+  return [...fs.readdirSync(dir, { withFileTypes: true })]
+    .filter((e) => e.isFile() && e.name.endsWith(".md"))
     .sort((a, b) => a.name.localeCompare(b.name))
     .map((e) => readEntry(dir, e.name))
     .filter((e): e is ContextEntry => e !== null);
@@ -74,7 +76,7 @@ export function saveContextEntry(
   input: { title: string; description?: string; tags?: string[]; content: string },
 ): ContextEntry {
   const dir = path.join(teamDir, "context");
-  Deno.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
   const id = slugify(input.title);
   const filePath = path.join(dir, `${id}.md`);
   const meta: ContextMeta = {
@@ -82,7 +84,7 @@ export function saveContextEntry(
     description: input.description ?? "",
     tags: input.tags ?? [],
   };
-  Deno.writeTextFileSync(filePath, serializeFrontmatter(meta, input.content));
+  fs.writeFileSync(filePath, serializeFrontmatter(meta, input.content));
   return getContextEntry(teamDir, id)!;
 }
 
@@ -101,7 +103,7 @@ export function updateContextEntry(
     tags: updates.tags ?? existing.tags,
   };
   const body = updates.content ?? existing.content;
-  Deno.writeTextFileSync(filePath, serializeFrontmatter(meta, body));
+  fs.writeFileSync(filePath, serializeFrontmatter(meta, body));
   return getContextEntry(teamDir, id);
 }
 
@@ -109,6 +111,6 @@ export function updateContextEntry(
 export function deleteContextEntry(teamDir: string, id: string): boolean {
   const filePath = path.join(teamDir, "context", `${id}.md`);
   if (!existsSync(filePath)) return false;
-  Deno.removeSync(filePath);
+  fs.rmSync(filePath);
   return true;
 }

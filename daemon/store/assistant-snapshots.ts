@@ -15,6 +15,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR } from "../../shared/types.ts";
 
@@ -52,7 +53,7 @@ export function readSnapshot(teamDir: string, sessionId: string): string | null 
   const file = snapshotPath(teamDir, sessionId);
   if (!existsSync(file)) return null;
   try {
-    return Deno.readTextFileSync(file);
+    return fs.readFileSync(file, "utf8");
   } catch {
     return null;
   }
@@ -70,9 +71,9 @@ export function writeSnapshot(
   messages: SnapshotMessage[],
 ): string {
   const dir = sessionsDir(teamDir);
-  Deno.mkdirSync(dir, { recursive: true });
+  fs.mkdirSync(dir, { recursive: true });
   const file = snapshotPath(teamDir, session.id);
-  Deno.writeTextFileSync(file, renderSnapshot(session, messages));
+  fs.writeFileSync(file, renderSnapshot(session, messages));
   return file;
 }
 

@@ -9,7 +9,7 @@
  *
  * Two deliberate differences from the extension's version:
  *
- *   1. **No shell.** Every tmux call goes through `Deno.Command` with an argv array,
+ *   1. **No shell.** Every tmux call goes through `spawnSync` with an argv array,
  *      so nothing is interpolated into a command line. The extension sanitised
  *      arguments with `s.replace(/[^a-zA-Z0-9._~/:@-]/g, "")`, which *strips*
  *      offending characters rather than quoting them — so a project at
@@ -20,6 +20,8 @@
  *      shell string; `shellQuote` wraps it in single quotes properly instead of
  *      deleting characters from it.
  */
+
+import { spawnSync } from "node:child_process";
 
 /** Result of one tmux invocation. */
 export interface ExecResult {
@@ -33,17 +35,10 @@ export type TmuxExec = (args: string[]) => ExecResult;
 
 /** The real thing: `tmux` with an argv array, never a shell. */
 export const realTmux: TmuxExec = (args) => {
-  try {
-    const out = new Deno.Command("tmux", { args, stdout: "piped", stderr: "piped" }).outputSync();
-    return {
-      ok: out.success,
-      stdout: new TextDecoder().decode(out.stdout),
-      stderr: new TextDecoder().decode(out.stderr),
-    };
-  } catch (e) {
-    // tmux missing entirely, or not executable.
-    return { ok: false, stdout: "", stderr: (e as Error).message };
-  }
+  const out = spawnSync("tmux", args, { encoding: "utf8", stdio: ["ignore", "pipe", "pipe"], maxBuffer: Infinity });
+  // tmux missing entirely, or not executable.
+  if (out.error) return { ok: false, stdout: "", stderr: out.error.message };
+  return { ok: out.status === 0, stdout: out.stdout, stderr: out.stderr };
 };
 
 /** Is tmux available at all? Reported by `mpt doctor`. */
