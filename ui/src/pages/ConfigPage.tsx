@@ -17,6 +17,10 @@
  * - **Theme** (`/config/theme`) — a client-side preference (localStorage,
  *   applied immediately) rather than daemon config.
  *
+ * Every tab renders inside TabbedPageLayout, so the title and tab bar sit in
+ * the same spot on each; narrow tabs cap the body at max-w-3xl, Workflows and
+ * Context at max-w-5xl (left-aligned, never centered).
+ *
  * The global Save button only shows on the tabs that edit the config.json draft
  * (General, Teammates, Triage); Workflows and Context keep their own save flows.
  * The draft lives above the tabs and survives switching them (the `/config*`
@@ -33,6 +37,7 @@ import { DirectoryInput } from "@/components/ui/directory-input";
 import { FAVORITES_CHANGED_EVENT, notifyFavoritesChanged } from "@/lib/directories";
 import { RouteTabs, SegmentedTabs } from "@/components/RouteTabs";
 import { FeatureOffNotice } from "@/components/FeatureGate";
+import { TabbedPageLayout } from "@/components/TabbedPageLayout";
 import { WorkflowsPage } from "@/pages/WorkflowsPage";
 import { WorkflowDetailPage } from "@/pages/WorkflowDetailPage";
 import { ContextPage } from "@/pages/ContextPage";
@@ -142,7 +147,7 @@ export function ConfigPage() {
   if (activeTab === "workflows") {
     // Workflows only apply to stories (docs/DESIGN.md "Feature Toggles").
     if (!features) content = null;
-    else if (!features.stories) content = <FeatureOffNotice feature="stories" />;
+    else if (!features.stories) content = <FeatureOffNotice feature="stories" embedded />;
     // Second segment is the tab; a third is the workflow's name.
     else content = pathname.split("/").filter(Boolean).length > 2 ? <WorkflowDetailPage /> : <WorkflowsPage />;
   } else if (activeTab === "context") {
@@ -160,21 +165,23 @@ export function ConfigPage() {
   }
 
   return (
-    <div className={`container mx-auto p-6 space-y-4 ${wide ? "max-w-5xl" : "max-w-3xl"}`}>
-      <div className="flex items-center gap-2">
-        <Settings className="h-5 w-5" />
-        <h1 className="text-2xl font-bold">Configuration</h1>
-      </div>
-
-      {/* Tab bar (route-driven); the Workflows tab stays lit on a workflow's detail. */}
-      <RouteTabs
-        tabs={tabs.map((t) => ({
-          path: t.path,
-          label: t.label,
-          isActive: (p: string) => configTabFromPath(p) === t.tab,
-        }))}
-      />
-
+    // The shared frame pins the title + tab bar upper-left on every tab; only
+    // the (left-aligned) body's max width varies.
+    <TabbedPageLayout
+      icon={<Settings className="h-5 w-5" />}
+      title="Configuration"
+      bodyClassName={wide ? "max-w-5xl" : "max-w-3xl"}
+      tabs={
+        // Route-driven; the Workflows tab stays lit on a workflow's detail.
+        <RouteTabs
+          tabs={tabs.map((t) => ({
+            path: t.path,
+            label: t.label,
+            isActive: (p: string) => configTabFromPath(p) === t.tab,
+          }))}
+        />
+      }
+    >
       {content}
 
       {/* Save bar: only on tabs that edit the daemon config (lib/config-tabs.ts). */}
@@ -191,7 +198,7 @@ export function ConfigPage() {
           </Button>
         </div>
       )}
-    </div>
+    </TabbedPageLayout>
   );
 }
 

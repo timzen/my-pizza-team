@@ -25,7 +25,7 @@ import { useApi, apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { WorkItemsTabs } from "@/components/WorkItemsTabs";
+import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { runCountLabel } from "@/lib/run-count";
 import { isActiveScheduledJob } from "@/lib/work-items";
 import { Plus, Play, Pause, CalendarClock, FolderOpen, Archive } from "lucide-react";
@@ -90,12 +90,11 @@ export function SchedulePage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
+    <WorkItemsLayout bodyClassName="max-w-3xl">
       <div className="flex items-center justify-between gap-3">
-        <WorkItemsTabs />
+        <p className="text-sm text-muted-foreground">Cron-driven jobs. The daemon enqueues a run each time the schedule fires.</p>
         <Button size="sm" render={<Link to="/work-defs/new?type=Scheduled" />}><Plus className="h-4 w-4 mr-1" />New Job</Button>
       </div>
-      <p className="text-sm text-muted-foreground">Cron-driven jobs. The daemon enqueues a run each time the schedule fires.</p>
 
       {defs.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
@@ -136,6 +135,6 @@ export function SchedulePage() {
           );
         })}
       </div>
-    </div>
+    </WorkItemsLayout>
   );
 }

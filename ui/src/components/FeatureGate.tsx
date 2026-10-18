@@ -35,10 +35,14 @@ export function WorkDefFormRoute({ children }: { children: ReactNode }) {
  * "This kind is turned off" with a link to Config. Without a `feature` (a page
  * that only got a 403) it speaks generically.
  */
-export function FeatureOffNotice({ feature }: { feature?: FeatureName }) {
+export function FeatureOffNotice({ feature, embedded }: {
+  feature?: FeatureName;
+  /** Inside a tabbed page's body (Config → Workflows): no own padding or centering, so it stays left-aligned with the header. */
+  embedded?: boolean;
+}) {
   const name = feature ? FEATURE_LABELS[feature] : "This kind of work";
   return (
-    <div className="container mx-auto max-w-xl p-6">
+    <div className={embedded ? "max-w-xl" : "container mx-auto max-w-xl p-6"}>
       <Card>
         <CardContent className="space-y-2 p-6 text-sm">
           <h1 className="flex items-center gap-2 font-semibold"><Power className="h-4 w-4" />{name} {feature ? "are" : "is"} turned off</h1>

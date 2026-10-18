@@ -24,7 +24,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
-import { WorkItemsTabs } from "@/components/WorkItemsTabs";
+import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { useStoryCollapse } from "@/hooks/useStoryCollapse";
 import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 
@@ -62,10 +62,9 @@ type SortOption = "title" | "status" | "ready";
 /** Work Items → Board: the tab bar over the board of active stories. */
 export function BoardPage() {
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      <WorkItemsTabs />
+    <WorkItemsLayout>
       <StoryBoard />
-    </div>
+    </WorkItemsLayout>
   );
 }
 

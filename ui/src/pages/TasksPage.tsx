@@ -22,7 +22,7 @@ import { useApi, apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { WorkItemsTabs } from "@/components/WorkItemsTabs";
+import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { filterByPending } from "@/lib/pending";
 import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type RunFilter, type RunSort } from "@/lib/run-count";
 import { Plus, Play, Zap, FolderOpen, Archive } from "lucide-react";
@@ -59,11 +59,7 @@ export function TasksPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
-      <div className="flex items-center justify-between gap-3">
-        <WorkItemsTabs />
-        <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
-      </div>
+    <WorkItemsLayout bodyClassName="max-w-3xl">
       <div className="flex items-center justify-between gap-2">
         <p className="mr-auto text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
         <Button
@@ -84,6 +80,7 @@ export function TasksPage() {
         >
           {RUN_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
         </select>
+        <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
       </div>
 
       {defs.length === 0 && (
@@ -117,6 +114,6 @@ export function TasksPage() {
           </Card>
         ))}
       </div>
-    </div>
+    </WorkItemsLayout>
   );
 }

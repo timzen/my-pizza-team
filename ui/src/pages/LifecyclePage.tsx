@@ -33,7 +33,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
-import { WorkItemsTabs } from "@/components/WorkItemsTabs";
+import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import {
   KIND_BADGES, LIFECYCLE_KINDS, archivedRows, countByKind, enabledKinds, filterRows, pendingRows, sortNewestFirst, toggleKind,
   type ActivateTarget, type ArchivedStoryLike, type LifecycleKind, type LifecycleRow, type LifecycleState, type ScheduleLike, type StoryLike, type WorkDefLike,
@@ -105,10 +105,9 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
   };
 
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      <WorkItemsTabs />
+    <WorkItemsLayout bodyClassName="max-w-3xl">
       <p className="text-sm text-muted-foreground">{INTRO[state]}</p>
-      <div className="flex items-center gap-2 flex-wrap max-w-3xl">
+      <div className="flex items-center gap-2 flex-wrap">
         {LIFECYCLE_KINDS.filter(k => enabled.includes(k.kind)).map(({ kind, label }) => (
           <Button
             key={kind}
@@ -127,7 +126,7 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
         </div>
       </div>
 
-      <div className="grid gap-3 max-w-3xl">
+      <div className="grid gap-3">
         {shown.map(row => (
           <LifecycleRowCard key={`${row.kind}:${row.id}`} row={row}>
             {state === "pending" ? (
@@ -153,7 +152,7 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
           </p>
         )}
       </div>
-    </div>
+    </WorkItemsLayout>
   );
 }
 
