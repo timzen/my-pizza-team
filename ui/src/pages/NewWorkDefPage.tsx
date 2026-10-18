@@ -1,14 +1,13 @@
 /**
- * NewWorkDefPage — Create a standalone WorkDef or a Task Template
- * (`/work-defs/new`).
+ * NewWorkDefPage — Create a standalone WorkDef (`/work-defs/new`).
  *
  * WorkDefs are work that doesn't live on the board: Solitary one-shots and
- * Scheduled cron jobs. The `?type=Solitary|Scheduled|Template` query param picks
- * the mode (Scheduled adds a cron field with friendly presets). `type=Template`
- * creates a reusable mold instead of work — it posts to /api/templates and never
- * enqueues. A Solitary create may pre-fill from an existing template via
- * `?template=<id>`. Solitary work is enqueued immediately by default; Scheduled
- * work waits for its cron. **Save as pending** (WorkDefs only) saves it without
+ * Scheduled cron jobs. The `?type=Solitary|Scheduled` query param picks the
+ * mode (Scheduled adds a cron field with friendly presets; anything else —
+ * including the retired `type=Template` — is Solitary). Templates are hidden
+ * from the UI (being deprecated), so there is no template mode or
+ * pre-fill-from-template here. Solitary work is enqueued immediately by
+ * default; Scheduled work waits for its cron. **Save as pending** saves it without
  * letting anything run — no enqueue, no cron — until it's activated from its
  * detail page (docs/DESIGN.md "Pending: Write, Review, Activate"). On success,
  * lands on the created item's detail page.
@@ -18,7 +17,6 @@
 
 import { useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
-import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -30,17 +28,7 @@ import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
 
-type WorkDefType = "Solitary" | "Scheduled" | "Template";
-
-interface Template {
-  id: string;
-  title: string;
-  goal: string;
-  acceptanceCriteria?: string;
-  additionalContext?: string;
-  contextRefs?: string[];
-  directory?: string | null;
-}
+type WorkDefType = "Solitary" | "Scheduled";
 
 /** Friendly cron presets so a human rarely has to hand-write one. */
 const CRON_PRESETS: Array<{ label: string; cron: string }> = [
@@ -55,13 +43,9 @@ export function NewWorkDefPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // The `?type=` param drives the mode; there's no in-UI type switch (you reach
-  // this page from the Tasks, Schedule, or Templates page, and the back arrow
-  // returns you there).
-  const typeParam = searchParams.get("type");
-  const type: WorkDefType = typeParam === "Scheduled" ? "Scheduled" : typeParam === "Template" ? "Template" : "Solitary";
-  // Optional template to pre-fill a new Solitary task from.
-  const templateId = type === "Solitary" ? searchParams.get("template") : null;
-  const { data: tplData } = useApi<{ template?: Template }>(templateId ? `/api/templates/${templateId}` : "/api/templates?none", [templateId]);
+  // this page from Work Items → Tasks or Schedule, or quick-create, and the
+  // back arrow returns you there).
+  const type: WorkDefType = searchParams.get("type") === "Scheduled" ? "Scheduled" : "Solitary";
 
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
@@ -74,19 +58,6 @@ export function NewWorkDefPage() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
-  // Seed the form from the chosen template once it loads (derive-in-render).
-  const [seededTpl, setSeededTpl] = useState<string | null>(null);
-  if (tplData?.template && tplData.template.id !== seededTpl) {
-    const t = tplData.template;
-    setSeededTpl(t.id);
-    setTitle(t.title);
-    setGoal(t.goal);
-    setAcceptanceCriteria(t.acceptanceCriteria || "");
-    setAdditionalContext(t.additionalContext || "");
-    setDirectory(t.directory || "");
-    setContextRefs(t.contextRefs ? [...t.contextRefs] : []);
-  }
-
   const backTo = workDefHomePath(type);
 
   // `pending` comes from which submit button was pressed (Create vs Save as pending).
@@ -96,7 +67,7 @@ export function NewWorkDefPage() {
     const pending = submitter?.value === "pending";
     setError("");
     if (!title.trim()) { setError("Title is required"); return; }
-    if (type !== "Template" && !goal.trim()) { setError("Goal is required"); return; }
+    if (!goal.trim()) { setError("Goal is required"); return; }
 
     const body: Record<string, unknown> = {
       title: title.trim(),
@@ -109,28 +80,21 @@ export function NewWorkDefPage() {
     };
     if (type === "Scheduled") body.cron = cron.trim();
     else if (type === "Solitary") body.enqueue = enqueueNow;
-    if (pending && type !== "Template") body.pending = true;
+    if (pending) body.pending = true;
 
     setSaving(true);
     try {
-      // Templates are their own resource (never enqueued); everything else is a WorkDef.
-      if (type === "Template") {
-        const res = await apiPost<{ success: boolean; error?: string; template?: { id: string } }>("/api/templates", body);
-        // replace: the submitted form shouldn't be what Back returns to.
-        if (res.success && res.template) navigate(`/templates/${encodeURIComponent(res.template.id)}`, { replace: true });
-        else setError(res.error || "Failed to create template");
-      } else {
-        const res = await apiPost<{ success: boolean; error?: string; workDef?: { id: string } }>("/api/work-defs", body);
-        if (res.success && res.workDef) navigate(`/work-defs/${encodeURIComponent(res.workDef.id)}`, { replace: true });
-        else setError(res.error || "Failed to create work");
-      }
+      const res = await apiPost<{ success: boolean; error?: string; workDef?: { id: string } }>("/api/work-defs", body);
+      // replace: the submitted form shouldn't be what Back returns to.
+      if (res.success && res.workDef) navigate(`/work-defs/${encodeURIComponent(res.workDef.id)}`, { replace: true });
+      else setError(res.error || "Failed to create work");
     } finally {
       setSaving(false);
     }
   };
 
-  const heading = type === "Scheduled" ? "New Scheduled Job" : type === "Template" ? "New Template" : "New Solitary Task";
-  const submitLabel = type === "Scheduled" ? "Job" : type === "Template" ? "Template" : "Task";
+  const heading = type === "Scheduled" ? "New Scheduled Job" : "New Solitary Task";
+  const submitLabel = type === "Scheduled" ? "Job" : "Task";
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
@@ -142,7 +106,7 @@ export function NewWorkDefPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-title">Title</Label></div><Input id="wd-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
 
-        <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} required={type !== "Template"} defaultEditing />
+        <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} required defaultEditing />
         <div>
           <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
           <div className="mt-1">
@@ -176,9 +140,7 @@ export function NewWorkDefPage() {
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button type="submit" value="create" disabled={saving}>{saving ? "Creating…" : `Create ${submitLabel}`}</Button>
-          {type !== "Template" && (
-            <Button type="submit" value="pending" variant="secondary" disabled={saving} title="Save it for review: nothing runs until you activate it">Save as pending</Button>
-          )}
+          <Button type="submit" value="pending" variant="secondary" disabled={saving} title="Save it for review: nothing runs until you activate it">Save as pending</Button>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>

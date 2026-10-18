@@ -30,9 +30,9 @@ export const FEATURE_LABELS: Record<FeatureName, string> = {
 
 /** What each toggle covers, for the Config page. */
 export const FEATURE_DESCRIPTIONS: Record<FeatureName, string> = {
-  stories: "Multi-step stories on the Board (with Pending and Archive), and their Workflows.",
-  tasks: "Standalone (Solitary) tasks and Task Templates.",
-  schedules: "Recurring jobs on the Schedule page.",
+  stories: "Multi-step stories on Work Items → Board, and their Workflows.",
+  tasks: "Standalone (Solitary) tasks on Work Items → Tasks.",
+  schedules: "Recurring jobs on Work Items → Schedule.",
 };
 
 /**
@@ -53,12 +53,14 @@ export function featureForWorkDefForm(search: string): FeatureName {
   return type === "Scheduled" ? "schedules" : "tasks";
 }
 
-/** First path segment → the feature its pages belong to. */
+/**
+ * First path segment → the feature its pages belong to. The legacy list routes
+ * (`/board`, `/tasks`, `/templates`, `/schedule`) redirect to the matching Work
+ * Items sub-tab and keep its feature; `/pending` and `/archived` redirect to
+ * the mixed tabs, which aren't gated on one kind.
+ */
 const SEGMENT_FEATURES: Record<string, FeatureName> = {
   board: "stories",
-  pending: "stories",
-  backlog: "stories", // legacy route, redirects to /pending
-  archived: "stories",
   story: "stories",
   stories: "stories",
   task: "stories",
@@ -68,8 +70,19 @@ const SEGMENT_FEATURES: Record<string, FeatureName> = {
 };
 
 /**
+ * Work Items sub-tab → its feature. Pending and Archived mix every kind, so
+ * they're absent (ungated; each kind's section hides itself inside).
+ */
+const WORK_ITEMS_TAB_FEATURES: Record<string, FeatureName> = {
+  board: "stories",
+  tasks: "tasks",
+  schedule: "schedules",
+};
+
+/**
  * The feature a route's page needs, or null when it isn't gated (home, Thoughts,
- * Config and its Context tab, …); Config's Workflows tab needs Stories.
+ * Config and its Context tab, Work Items' mixed Pending/Archived tabs, …);
+ * Config's Workflows tab needs Stories.
  * `/work-defs/:id` returns null: its kind is only known once the WorkDef loads,
  * and the daemon's 403 covers it (the page shows the notice).
  */
@@ -80,6 +93,7 @@ export function featureForPath(pathname: string, search = ""): FeatureName | nul
   if (first === "work-defs") return segments[1] === "new" ? featureForWorkDefForm(search) : null;
   // Config's Workflows tab (and a workflow's detail) only applies to stories.
   if (first === "config") return segments[1] === "workflows" ? "stories" : null;
+  if (first === "work-items") return WORK_ITEMS_TAB_FEATURES[segments[1] ?? ""] ?? null;
   return SEGMENT_FEATURES[first] ?? null;
 }
 

@@ -184,7 +184,7 @@ most of it is editable on the **Config** page. Minimal:
 ### Feature toggles
 
 `features` switches whole work-item kinds on or off: **`stories`** (stories and their
-board tasks, pending stories, archive), **`tasks`** (Solitary tasks *and* Task Templates), and
+board tasks, pending stories, archive), **`tasks`** (Solitary tasks *and* Task Templates — templates are hidden from the web UI), and
 **`schedules`** (Scheduled tasks and their cron). Thoughts, Context, the Queue and the
 Inbox are always on, so every kind can be off at once.
 
@@ -204,8 +204,8 @@ Inbox are always on, so every kind can be off at once.
 - `GET /api/status` and `GET /api/config` report the resolved toggles as `features`;
   `GET /api/config` also reports each kind's active items as `featureUsage`.
 - **In the web UI** the toggles are **Config → General → Work items**. A kind that's
-  off loses its nav link and quick-create entry, its pages show a "turned off"
-  notice, and its triage proposals can only be rejected.
+  off loses its Work Items sub-tab (the Work Items nav item goes when all three are
+  off) and quick-create entry, its pages show a "turned off" notice, and its triage proposals can only be rejected.
 - **For the assistant** (the Pi leader) a kind that's off takes its tools out of
   the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
   `list_workflows`, `list_context`; Tasks: `create_task`; Schedules:
@@ -312,7 +312,7 @@ See [docs/DESIGN.md](docs/DESIGN.md#pending-write-review-activate).
 
 **Pending stories.** A story is active or **pending**, and unlike a WorkDef it can go
 back and forth (`pending: true` on create or `PUT /api/stories/:id`, or `POST
-/api/stories/:id/pending` / `…/activate`; the Board's **Pending** tab, the story
+/api/stories/:id/pending` / `…/activate`; Work Items → **Pending**, the story
 page's **Make pending** / **Activate**, and the assistant's `create_story` /
 `edit_story` `pending`). A pending story hands out nothing new — a task already
 running finishes, but no task is admitted and no READY item is offered — and stories
@@ -324,8 +324,8 @@ alias of `pending`.
 
 **Pending schedules.** A Schedule (a Scheduled job's cron parent) can also go
 active ⇄ pending (`PUT /api/schedules/:id { pending }`, `POST
-/api/schedules/:id/pending` / `…/activate`; **Make pending** / **Activate** on the
-Schedule page and the job's page; the assistant's `set_schedule_pending`). A pending
+/api/schedules/:id/pending` / `…/activate`; **Make pending** on Work Items →
+Schedule, **Activate** on Work Items → Pending, both on the job's page; the assistant's `set_schedule_pending`). A pending
 Schedule never fires and is never held for readiness; reactivating resumes at its
 next cron occurrence and never back-fills the runs it skipped. A job fires only when
 both its Schedule and its WorkDef are active — creating a job "as pending" makes the
@@ -334,7 +334,7 @@ WorkDef pending (one-way, editable). See
 
 **Run counts.** Every WorkDef view from `/api/work-defs` carries `executionCount`
 (WorkItems created for it, CANCELED ones excluded) and `lastRunAt`, derived from the
-WorkItem table on each read. The Tasks page shows the count per row, sorts by it, and
+WorkItem table on each read. Work Items → Tasks shows the count per row, sorts by it, and
 filters to **Never run** (count 0) — the work you haven't started. See
 [docs/DESIGN.md](docs/DESIGN.md#execution-count-derived-not-counted).
 

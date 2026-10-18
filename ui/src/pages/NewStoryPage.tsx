@@ -82,7 +82,7 @@ export function NewStoryPage() {
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       <div className="flex items-center gap-3">
-        <BackButton fallback="/board" title="Back to board" />
+        <BackButton fallback="/work-items/board" title="Back to board" />
         <h1 className="text-2xl font-bold">New Story</h1>
       </div>
 

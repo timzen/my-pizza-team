@@ -1,9 +1,12 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
- * The links, left to right: Thoughts (ideas), Board, Tasks, Schedule. (Context
- * moved into Config → Context; see lib/config-tabs.ts.)
- * Board, Tasks and Schedule are hidden while their kind (Stories, Tasks,
- * Schedules) is switched off in Config (hooks/useFeatures).
+ * The links, left to right: Thoughts (ideas) and Work Items. (Context moved
+ * into Config → Context; see lib/config-tabs.ts.)
+ * Work Items replaced the separate Board, Tasks, and Schedule links: they are
+ * its sub-tabs now (Board · Tasks · Schedule · Pending · Archived — see
+ * WorkItemsTabs, lib/work-items.ts). It links to `/work-items`, which lands on
+ * the first enabled tab, and is hidden only while all three kinds (Stories,
+ * Tasks, Schedules) are switched off in Config (hooks/useFeatures).
  * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
  * help, config, theme.
  *
@@ -20,13 +23,12 @@
  * The status poll is shared with the pause toggle; an Inbox read/unread action
  * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
  * Config is shown as a gear icon beside the theme toggle, lit for every
- * `/config/*` route — including its Workflows and Context tabs. Pending/Archive
- * are tabs within the Board surface (see BoardTabs), so the Board link
- * highlights for those routes (and story/task detail) too.
+ * `/config/*` route — including its Workflows and Context tabs. Work Items is
+ * lit for every `/work-items/*` tab and for story/task detail pages.
  *
  * Which link is lit comes from lib/nav-section.ts. `/work-defs/*` is shared by
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type
- * (Solitary → Tasks, Scheduled → Schedule).
+ * (Solitary/Scheduled/Board → Work Items, Triage → Thoughts).
  */
 
 import { useEffect, useState } from "react";
@@ -36,7 +38,7 @@ import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn } from "lucide-re
 import { apiPost, useApi } from "@/hooks/useApi";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
-import { filterByFeatures, type FeatureName } from "@/lib/features";
+import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
 import { useFeatures } from "@/hooks/useFeatures";
 
 /** The slice of `/api/status` the bar reads (shared/protocol.ts StatusResponse). */
@@ -47,21 +49,20 @@ interface NavStatus {
 }
 
 /**
- * Primary nav items. Board, Tasks and Schedule each belong to a work-item kind
- * and are hidden while the team has it switched off (lib/features.ts).
+ * Primary nav items. Work Items needs at least one work-item kind switched on
+ * (`workItems`); it's hidden when the team has all three off (lib/work-items.ts).
  */
-const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; feature?: FeatureName }> = [
+const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; workItems?: boolean }> = [
   { path: "/thoughts", label: "Thoughts", section: "thoughts" },
-  { path: "/board", label: "Board", section: "board", feature: "stories" },
-  { path: "/tasks", label: "Tasks", section: "tasks", feature: "tasks" },
-  { path: "/schedule", label: "Schedule", section: "schedule", feature: "schedules" },
+  { path: WORK_ITEMS_ROOT, label: "Work Items", section: "work-items", workItems: true },
 ];
 
 export function NavBar() {
   const location = useLocation();
   const workDefType = useWorkDefTypeForPath(location.pathname);
   const activeSection = navSectionForPath(location.pathname, { search: location.search, workDefType });
-  const navItems = filterByFeatures(NAV_ITEMS, useFeatures());
+  const showWorkItems = hasAnyWorkItemsFeature(useFeatures());
+  const navItems = NAV_ITEMS.filter((item) => !item.workItems || showWorkItems);
   // One status poll feeds both the home-link badges and the pause toggle.
   const { data: status, refetch: refetchStatus } = useApi<NavStatus>("/api/status", [], { pollInterval: 10_000 });
   useEffect(() => {

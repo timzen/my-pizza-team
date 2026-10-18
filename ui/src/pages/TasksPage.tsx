@@ -1,13 +1,15 @@
 /**
- * TasksPage — Solitary WorkDefs (`/tasks`).
+ * TasksPage — Work Items → Tasks (`/work-items/tasks`): active Solitary WorkDefs.
  *
  * Solitary work is standalone one-shot work that doesn't live on the board:
  * define it once, enqueue it (now or later), review the outcome in the Inbox.
  * Each row links to the WorkDef detail page and can be re-run on demand.
- * Polls /api/work-defs and filters to type=Solitary. Supports archive/restore.
- * Pending tasks carry a **Pending** badge and an **Activate** button instead of Run, and
- * the All / Pending / Active filter (lib/pending.ts) narrows the list
- * (docs/DESIGN.md "Pending: Write, Review, Activate").
+ * Polls /api/work-defs and filters to type=Solitary, **active only**
+ * (lib/pending.ts): pending tasks live on Work Items → Pending, archived ones on
+ * Work Items → Archived (where they're restored or deleted). A row's archive
+ * button moves it there (docs/DESIGN.md "Pending: Write, Review, Activate").
+ * Templates are hidden from the UI (being deprecated), so there is no "Task
+ * from Template" entry point.
  * Each row shows its run count (`executionCount`, derived by the daemon from the
  * WorkItem table); the **Never run** toggle keeps only count-0 tasks — the "things
  * to do" — and the sort menu orders by run count (lib/run-count.ts; docs/DESIGN.md
@@ -16,16 +18,14 @@
 
 import { Link } from "react-router-dom";
 import { useState } from "react";
-import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
+import { useApi, apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
-import { TasksTabs } from "@/components/TasksTabs";
-import { TemplatePickerDialog } from "@/components/TemplatePickerDialog";
-import { PendingBadge } from "@/components/WorkDefDefinition";
-import { PENDING_FILTERS, countPending, filterByPending, type PendingFilter } from "@/lib/pending";
+import { WorkItemsTabs } from "@/components/WorkItemsTabs";
+import { filterByPending } from "@/lib/pending";
 import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type RunFilter, type RunSort } from "@/lib/run-count";
-import { Plus, Play, Send, Zap, FolderOpen, FileText, Archive, ArchiveRestore, Trash2, X } from "lucide-react";
+import { Plus, Play, Zap, FolderOpen, Archive } from "lucide-react";
 
 interface WorkDef {
   id: string;
@@ -41,68 +41,31 @@ interface WorkDef {
 
 export function TasksPage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });
-  const { data: archivedData, refetch: refetchArchived } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs?status=archived", [], { pollInterval: 30_000 });
-  const allDefs = (data?.workDefs || []).filter(d => d.type === "Solitary");
-  const [pendingFilter, setPendingFilter] = useState<PendingFilter>("all");
+  // Active only: pending tasks are on the Pending tab.
+  const activeDefs = filterByPending((data?.workDefs || []).filter(d => d.type === "Solitary"), "active");
   const [runFilter, setRunFilter] = useState<RunFilter>("all");
   const [runSort, setRunSort] = useState<RunSort>("default");
-  const defs = sortByRuns(filterByRuns(filterByPending(allDefs, pendingFilter), runFilter), runSort);
-  const pendingCount = countPending(allDefs);
-  const neverRunCount = countNeverRun(allDefs);
-  const archivedDefs = (archivedData?.workDefs || []).filter(d => d.type === "Solitary");
-  const [pickerOpen, setPickerOpen] = useState(false);
-  const [showArchived, setShowArchived] = useState(false);
+  const defs = sortByRuns(filterByRuns(activeDefs, runFilter), runSort);
+  const neverRunCount = countNeverRun(activeDefs);
 
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
     refetch();
   };
 
-  const activate = async (id: string) => {
-    await apiPost(`/api/work-defs/${encodeURIComponent(id)}/activate`, {});
-    refetch();
-  };
-
   const archive = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/archive`, {});
     refetch();
-    refetchArchived();
-  };
-
-  const restore = async (id: string) => {
-    await apiPost(`/api/work-defs/${encodeURIComponent(id)}/restore`, {});
-    refetch();
-    refetchArchived();
-  };
-
-  const remove = async (id: string) => {
-    await apiDelete(`/api/work-defs/${encodeURIComponent(id)}`);
-    refetchArchived();
   };
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       <div className="flex items-center justify-between gap-3">
-        <TasksTabs />
-        <div className="flex items-center gap-2">
-          <Button variant="outline" size="sm" onClick={() => setShowArchived(s => !s)} className={showArchived ? "bg-accent" : ""}>
-            <Archive className="h-4 w-4 mr-1" />Archived{archivedDefs.length > 0 ? ` (${archivedDefs.length})` : ""}
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => setPickerOpen(true)}><FileText className="h-4 w-4 mr-1" />Task from Template</Button>
-          <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
-        </div>
+        <WorkItemsTabs />
+        <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
       </div>
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
-        <div className="flex items-center gap-1" role="group" aria-label="Filter by pending status">
-          {PENDING_FILTERS.map(f => (
-            <Button key={f.value} size="sm" variant={pendingFilter === f.value ? "default" : "outline"} onClick={() => setPendingFilter(f.value)}>
-              {f.label}{f.value === "pending" && pendingCount > 0 ? ` (${pendingCount})` : ""}
-            </Button>
-          ))}
-        </div>
-      </div>
-      <div className="flex items-center justify-end gap-2">
+      <div className="flex items-center justify-between gap-2">
+        <p className="mr-auto text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
         <Button
           size="sm"
           variant={runFilter === "never" ? "default" : "outline"}
@@ -126,7 +89,7 @@ export function TasksPage() {
       {defs.length === 0 && (
         <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
           <Zap className="h-8 w-8" />
-          <p className="text-sm">{runFilter === "never" ? "Every task here has run at least once." : pendingFilter === "pending" ? "No pending tasks." : pendingFilter === "active" ? "No active tasks." : "No solitary tasks yet."}</p>
+          <p className="text-sm">{runFilter === "never" ? "Every task here has run at least once." : "No active solitary tasks."}</p>
         </div>
       )}
 
@@ -137,7 +100,6 @@ export function TasksPage() {
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
-                  {def.pending && <PendingBadge className="text-[10px]" />}
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
@@ -150,37 +112,11 @@ export function TasksPage() {
                 </div>
               </Link>
               <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this task"><Archive className="h-3.5 w-3.5" /></Button>
-              {def.pending
-                ? <Button size="sm" onClick={() => activate(def.id)} title="Lock the definition and enqueue it"><Send className="h-3.5 w-3.5 mr-1" />Activate</Button>
-                : <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>}
+              <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>
             </CardContent>
           </Card>
         ))}
       </div>
-
-      {/* Archived drawer */}
-      {showArchived && (
-        <div className="fixed right-0 top-0 z-40 flex h-full w-80 flex-col border-l border-border bg-card shadow-lg">
-          <div className="flex items-center justify-between border-b border-border p-3">
-            <span className="font-medium">Archived Tasks</span>
-            <button onClick={() => setShowArchived(false)} className="rounded p-1 hover:bg-accent/50"><X className="h-4 w-4" /></button>
-          </div>
-          <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {archivedDefs.length === 0 && <p className="text-sm text-muted-foreground">Nothing archived.</p>}
-            {archivedDefs.map((def) => (
-              <div key={def.id} className="rounded-md border p-2">
-                <p className="mb-1 text-sm font-medium truncate">{def.title}</p>
-                <div className="flex gap-1">
-                  <button onClick={() => restore(def.id)} className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs hover:bg-accent"><ArchiveRestore className="h-3 w-3" /> Restore</button>
-                  <button onClick={() => remove(def.id)} className="flex items-center gap-1 rounded bg-muted px-1.5 py-0.5 text-xs hover:bg-accent text-destructive"><Trash2 className="h-3 w-3" /> Delete</button>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <TemplatePickerDialog open={pickerOpen} onOpenChange={setPickerOpen} />
     </div>
   );
 }

@@ -140,7 +140,7 @@ export function TaskDetailPage() {
     // Delete via the task endpoint: it drops the task from the story's list and
     // frees the CONWIP token (the plain WorkDef delete wouldn't).
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (res.success) navigate("/board", { replace: true });
+    if (res.success) navigate("/work-items/board", { replace: true });
     else setEditError(res.error || "Failed to delete");
   };
 
@@ -192,7 +192,7 @@ export function TaskDetailPage() {
   if (!def || !task) {
     return (
       <div className="container mx-auto p-6">
-        <p className="text-muted-foreground">Task not found. <Link to="/board" className="underline">Back to board</Link></p>
+        <p className="text-muted-foreground">Task not found. <Link to="/work-items/board" className="underline">Back to board</Link></p>
       </div>
     );
   }
@@ -201,7 +201,7 @@ export function TaskDetailPage() {
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
       {/* Top bar: breadcrumb + status + save/delete */}
       <div className="flex items-center gap-3">
-        <BackButton fallback="/board" title="Back to board" />
+        <BackButton fallback="/work-items/board" title="Back to board" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
         {def.pending && <PendingBadge />}
         <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>

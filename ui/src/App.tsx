@@ -21,10 +21,19 @@
  * Context and Workflows are tabs of the Config page (`/config/context`,
  * `/config/workflows[/:name]`); their old top-level URLs redirect there with
  * `replace` (lib/config-tabs.ts `legacyConfigPath`).
+ *
+ * Board, Tasks, and Schedule are sub-tabs of **Work Items** (`/work-items/board
+ * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work-items` lands on
+ * the first enabled tab. Their old top-level URLs (`/board`, `/tasks`,
+ * `/schedule`, `/pending`, `/backlog`, `/archived`) redirect there with
+ * `replace`. Templates are hidden from the UI (being deprecated — the daemon's
+ * template API and data are untouched); `/templates[/:id]` redirects to Tasks.
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { legacyConfigPath } from "./lib/config-tabs";
+import { defaultWorkItemsPath, legacyWorkItemsPath } from "./lib/work-items";
+import { useFeatures } from "./hooks/useFeatures";
 import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
@@ -35,8 +44,6 @@ import { BoardPage } from "./pages/BoardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
 import { TasksPage } from "./pages/TasksPage";
-import { TemplatesPage } from "./pages/TemplatesPage";
-import { TemplateDetailPage } from "./pages/TemplateDetailPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { NewWorkDefPage } from "./pages/NewWorkDefPage";
 import { WorkDefDetailPage } from "./pages/WorkDefDetailPage";
@@ -48,7 +55,7 @@ import { ConfigPage } from "./pages/ConfigPage";
 import { HelpPage } from "./pages/HelpPage";
 import { TeammatePage } from "./pages/TeammatePage";
 import { UsagePage } from "./pages/UsagePage";
-import { FeatureRoute, WorkDefFormRoute } from "./components/FeatureGate";
+import { FeatureOffNotice, FeatureRoute, WorkDefFormRoute } from "./components/FeatureGate";
 import { MobileShell } from "./mobile/MobileShell";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { MOBILE_ROOT, PHONE_QUERY, isMobilePath, readViewPref, shouldRedirectToMobile } from "./lib/mobile";
@@ -96,21 +103,29 @@ function DesktopShell() {
             {/* A note's triage page: where it becomes work (docs/DESIGN.md "Auto Triage"). */}
             <Route path="/thoughts/:id/triage" element={<TriagePage />} />
             <Route path="/queue" element={<RootPage />} />
-            <Route path="/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
-            <Route path="/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
-            <Route path="/templates" element={<FeatureRoute feature="tasks"><TemplatesPage /></FeatureRoute>} />
-            <Route path="/templates/:id" element={<FeatureRoute feature="tasks"><TemplateDetailPage /></FeatureRoute>} />
-            <Route path="/schedule" element={<FeatureRoute feature="schedules"><SchedulePage /></FeatureRoute>} />
+            {/* Work Items: Board · Tasks · Schedule · Pending · Archived (lib/work-items.ts). */}
+            <Route path="/work-items" element={<WorkItemsIndexRedirect />} />
+            <Route path="/work-items/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
+            <Route path="/work-items/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
+            <Route path="/work-items/schedule" element={<FeatureRoute feature="schedules"><SchedulePage /></FeatureRoute>} />
+            {/* Pending and Archived mix every kind; each hides its switched-off kinds' sections. */}
+            <Route path="/work-items/pending" element={<PendingPage />} />
+            <Route path="/work-items/archived" element={<ArchivedPage />} />
+            {/* The pre-Work-Items URLs (and the hidden Templates) keep working. */}
+            <Route path="/board" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/tasks" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/schedule" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/pending" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/backlog" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/archived" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/templates" element={<LegacyWorkItemsRedirect />} />
+            <Route path="/templates/:id" element={<LegacyWorkItemsRedirect />} />
             <Route path="/work-defs/new" element={<WorkDefFormRoute><NewWorkDefPage /></WorkDefFormRoute>} />
             <Route path="/work-defs/:id" element={<WorkDefDetailPage />} />
             <Route path="/task/:storyId/:taskId" element={<FeatureRoute feature="stories"><TaskDetailPage /></FeatureRoute>} />
             <Route path="/story/:id" element={<FeatureRoute feature="stories"><StoryDetailPage /></FeatureRoute>} />
             <Route path="/stories/new" element={<FeatureRoute feature="stories"><NewStoryPage /></FeatureRoute>} />
             <Route path="/story/:id/tasks/new" element={<FeatureRoute feature="stories"><NewTaskPage /></FeatureRoute>} />
-            <Route path="/pending" element={<FeatureRoute feature="stories"><PendingPage /></FeatureRoute>} />
-            {/* The Backlog tab became Pending (backlogged stories migrate to pending). */}
-            <Route path="/backlog" element={<Navigate to="/pending" replace />} />
-            <Route path="/archived" element={<FeatureRoute feature="stories"><ArchivedPage /></FeatureRoute>} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/config/:tab" element={<ConfigPage />} />
             {/* A workflow's detail, inside Config's Workflows tab (gated there on Stories). */}
@@ -138,6 +153,27 @@ function DesktopShell() {
 function LegacyConfigRedirect() {
   const { pathname, search } = useLocation();
   return <Navigate to={(legacyConfigPath(pathname) ?? "/config") + search} replace />;
+}
+
+/**
+ * `/board`, `/tasks`, `/schedule`, `/pending`, `/backlog`, `/archived`,
+ * `/templates[/:id]` → their Work Items sub-tab, keeping any query string.
+ * `replace`, so Back doesn't bounce into the redirect.
+ */
+function LegacyWorkItemsRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={(legacyWorkItemsPath(pathname) ?? "/work-items") + search} replace />;
+}
+
+/**
+ * `/work-items` → its first enabled sub-tab. Nothing until the toggles load;
+ * with every kind switched off, the "turned off" notice.
+ */
+function WorkItemsIndexRedirect() {
+  const features = useFeatures();
+  if (!features) return null;
+  const to = defaultWorkItemsPath(features);
+  return to ? <Navigate to={to} replace /> : <FeatureOffNotice />;
 }
 
 /**

@@ -11,10 +11,11 @@
  * - Expand/collapse per story (chevron) plus Expand all / Collapse all over the
  *   visible stories; state is lifted here (`useStoryCollapse`) and persisted
  *   per story in localStorage. Search does not auto-expand collapsed stories.
- * - Board/Pending/Archive tabs (one surface, three lifecycle views). The
- *   Board tab (`view="active"`) shows active stories; the Pending tab
- *   (pages/PendingPage.tsx, `view="pending"`) is this same board filtered to
- *   pending stories, so a task finishing in a just-paused story stays visible.
+ * - Lives at Work Items → Board (`/work-items/board`, under the WorkItemsTabs
+ *   bar) and shows **active** stories only. Work Items → Pending
+ *   (pages/PendingPage.tsx) embeds the same board as `StoryBoard
+ *   view="pending"`, so a task finishing in a just-paused story stays visible;
+ *   archived stories are on Work Items → Archived.
  */
 
 import { useState, useMemo } from "react";
@@ -24,7 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
-import { BoardTabs } from "@/components/board/BoardTabs";
+import { WorkItemsTabs } from "@/components/WorkItemsTabs";
 import { useStoryCollapse } from "@/hooks/useStoryCollapse";
 import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 
@@ -63,7 +64,21 @@ type SortOption = "title" | "status" | "ready";
 /** Which lifecycle view of the stories this board shows. */
 export type BoardView = "active" | "pending";
 
-export function BoardPage({ view = "active" }: { view?: BoardView } = {}) {
+/** Work Items → Board: the tab bar over the board of active stories. */
+export function BoardPage() {
+  return (
+    <div className="container mx-auto p-4 space-y-4">
+      <WorkItemsTabs />
+      <StoryBoard view="active" />
+    </div>
+  );
+}
+
+/**
+ * The story board itself — counts, toolbar, and swimlanes — for one lifecycle
+ * view: active stories (the Board tab) or pending ones (the Pending tab).
+ */
+export function StoryBoard({ view }: { view: BoardView }) {
   const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories", [], { pollInterval: 5000 });
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
@@ -131,16 +146,8 @@ export function BoardPage({ view = "active" }: { view?: BoardView } = {}) {
   };
 
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      {/* Header: lifecycle tabs + story/task counts */}
-      <div className="flex items-center justify-between">
-        <BoardTabs />
-        <div className="text-sm text-muted-foreground">
-          {stories.length} {stories.length === 1 ? "story" : "stories"} · {taskCount} {taskCount === 1 ? "task" : "tasks"}
-        </div>
-      </div>
-
-      {/* Toolbar */}
+    <div className="space-y-4">
+      {/* Toolbar (story/task counts at the right) */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
@@ -181,6 +188,9 @@ export function BoardPage({ view = "active" }: { view?: BoardView } = {}) {
           <ChevronsDownUp className="h-4 w-4 mr-1" /> Collapse all
         </Button>
         <AddStoryButton />
+        <div className="ml-auto text-sm text-muted-foreground">
+          {stories.length} {stories.length === 1 ? "story" : "stories"} · {taskCount} {taskCount === 1 ? "task" : "tasks"}
+        </div>
       </div>
 
       {/* Swimlanes */}

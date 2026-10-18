@@ -506,6 +506,24 @@ WorkDef model (a fourth parent kind, a "don't enqueue" flag) would leak a non-wo
 concept into the listing, matching, and lifecycle machinery a template must stay
 out of. Sharing the file format avoids drift without coupling the concepts.
 
+*Being deprecated:* the web UI no longer shows templates — no Templates tab, no
+"task from template" entry point. The daemon's template API and files are left
+as they are until the deprecation finishes.
+
+## Work Items: One Surface, Lifecycle Tabs
+
+Board, Tasks, and Schedule were three nav items; they are now sub-tabs of one
+**Work Items** item, next to **Pending** and **Archived**. The kind tabs (Board,
+Tasks, Schedule) show **active** work only; Pending and Archived gather every
+kind's held and retired work in one place.
+
+*Why:* "what's waiting for me to activate?" and "where did that retired job go?"
+are questions about lifecycle, not kind. Answering them per kind meant a Pending
+tab for stories, a filter for tasks, a badge for schedules, and an Archived drawer
+on two pages. Splitting by lifecycle once keeps every kind tab about the work in
+play, and each tab hides with its feature toggle (Pending/Archived while any kind
+is on; the nav item when none is).
+
 ## Feature Toggles: Start Small, Never Strand Work
 
 A team can switch the **Stories**, **Tasks** (Solitary tasks and Templates), and
@@ -977,8 +995,8 @@ a teammate's live view. The center is a container-query context, so the nav adap
 to the room the dock leaves rather than to the viewport.
 
 **A page's section is what it *is*, not its URL.** `/work-defs/:id` is shared by
-Solitary and Scheduled work, so the nav lights the tab for the WorkDef's type
-(Solitary → Tasks, Scheduled → Schedule). **Back means back**: it returns to the
+standalone work and triage runs, so the nav lights the item for the WorkDef's type
+(Solitary/Scheduled → Work Items, Triage → Thoughts). **Back means back**: it returns to the
 page you came from (router history); only with no in-app history (a fresh tab)
 does it fall back — to that same section's list — and pages you've just created
 or deleted replace their history entry so Back never lands on a stale form or a
