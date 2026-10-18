@@ -118,8 +118,8 @@ something seems off.
 - **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for
   cron-driven ones.
 - **Review results** — completed work lands in the **Inbox** on the home page.
-- **Configure workflows** — the Workflows tab (under Board) customises states and
-  their personas.
+- **Configure workflows** — **Config → Workflows** customises states and their
+  personas.
 - **Try other agents (experimental)** — Kiro and Claude Code can run as teammates too:
   `mpt setup --harness kiro` (or `claude`), then turn on **Config → Teammates →
   Experimental Harnesses** and pick the harness in the **Spawn** dialog. See

@@ -6,6 +6,10 @@
  * the pipeline, lets you edit the states (add/remove/reorder, agent|manual
  * type), and edit each agent state's persona markdown (the former "state
  * instructions" — same files, injected into that state's claim prompt).
+ *
+ * Rendered inside the Config page's Workflows tab at `/config/workflows/:name`
+ * (ConfigPage supplies the tab bar and outer layout); the old `/workflows/:name`
+ * URL redirects here.
  */
 
 import { useState } from "react";
@@ -41,8 +45,8 @@ export function WorkflowDetailPage() {
   const { data: configData, refetch: refetchConfig } = useApi<ConfigData>("/api/config");
   const [editing, setEditing] = useState(false);
 
-  if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
-  if (!data) return <div className="container mx-auto p-6 text-muted-foreground">Workflow not found.</div>;
+  if (loading) return <div className="text-muted-foreground">Loading...</div>;
+  if (!data) return <div className="text-muted-foreground">Workflow not found.</div>;
 
   const isDefault = configData?.defaultWorkflow === name;
   const agentCount = data.states.filter(s => s.type === "agent").length;
@@ -54,13 +58,13 @@ export function WorkflowDetailPage() {
   };
 
   return (
-    <div className="container mx-auto p-6 space-y-6 max-w-5xl">
+    <div className="space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
-          <BackButton fallback="/workflows" title="Back to workflows" />
+          <BackButton fallback="/config/workflows" title="Back to workflows" />
           <GitBranch className="h-5 w-5" />
-          <h1 className="text-2xl font-bold">{name}</h1>
+          <h2 className="text-xl font-bold">{name}</h2>
           <span className="text-sm text-muted-foreground">
             {data.states.length} states · {agentCount} agent · {data.states.length - agentCount} manual
             {isDefault && " · default"}

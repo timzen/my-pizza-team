@@ -1,6 +1,7 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
- * The links, left to right: Thoughts (ideas), Board, Tasks, Schedule, Context.
+ * The links, left to right: Thoughts (ideas), Board, Tasks, Schedule. (Context
+ * moved into Config → Context; see lib/config-tabs.ts.)
  * Board, Tasks and Schedule are hidden while their kind (Stories, Tasks,
  * Schedules) is switched off in Config (hooks/useFeatures).
  * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
@@ -18,9 +19,10 @@
  * pizza icon, so they survive the wordmark hiding when the center is narrow.
  * The status poll is shared with the pause toggle; an Inbox read/unread action
  * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
- * Config is shown as a gear icon beside the theme toggle. Backlog/Archive/
- * Workflows are tabs within the Board surface (see BoardTabs), so the Board
- * link highlights for those routes (and story/task detail) too.
+ * Config is shown as a gear icon beside the theme toggle, lit for every
+ * `/config/*` route — including its Workflows and Context tabs. Backlog/Archive
+ * are tabs within the Board surface (see BoardTabs), so the Board link
+ * highlights for those routes (and story/task detail) too.
  *
  * Which link is lit comes from lib/nav-section.ts. `/work-defs/*` is shared by
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type
@@ -53,7 +55,6 @@ const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; featu
   { path: "/board", label: "Board", section: "board", feature: "stories" },
   { path: "/tasks", label: "Tasks", section: "tasks", feature: "tasks" },
   { path: "/schedule", label: "Schedule", section: "schedule", feature: "schedules" },
-  { path: "/context", label: "Context", section: "context" },
 ];
 
 export function NavBar() {

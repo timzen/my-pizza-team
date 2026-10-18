@@ -3,8 +3,10 @@
  *
  * `RouteTabs` is route-driven: each tab is a react-router link, so every tab
  * stays deep-linkable and the active tab follows the current route. Used by
- * the Board surface (Board/Backlog/Archive/Workflows), the Root page (Queue/
- * Inbox), and the Config page (General/Teammates/Theme).
+ * the Board surface (Board/Backlog/Archive), the Root page (Queue/Inbox), the
+ * Tasks surface (Items/Templates), and the Config page (General/Teammates/
+ * Workflows/Context/Triage/Theme — lib/config-tabs.ts; its tabs pass `isActive`
+ * so a workflow's detail route keeps Workflows lit).
  *
  * `SegmentedTabs` is the controlled (state-driven) variant with identical
  * styling, for selections that aren't routes (e.g. the assistant persona

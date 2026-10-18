@@ -2,7 +2,9 @@
  * WorkflowsPage — Lists all workflows with summary info (state count, agent /
  * manual states, default status). Links to individual workflow detail pages.
  * Includes a "New Workflow" form that creates a workflow with default states.
- * Rendered as a tab of the Board surface (see BoardTabs).
+ * Rendered as the Workflows tab of the Config page (`/config/workflows`;
+ * ConfigPage supplies the tab bar and layout, and hides the tab while Stories
+ * are off). Each card opens `/config/workflows/:name` (lib/config-tabs.ts).
  */
 
 import { useState } from "react";
@@ -12,7 +14,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, ArrowRight } from "lucide-react";
-import { BoardTabs } from "@/components/board/BoardTabs";
+import { workflowPath } from "@/lib/config-tabs";
 
 interface WorkflowSummary {
   name: string;
@@ -85,18 +87,14 @@ export function WorkflowsPage() {
   };
 
   return (
-    <div className="container mx-auto p-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <BoardTabs />
-      </div>
-      <div className="space-y-4 max-w-3xl">
+    <div className="space-y-4 max-w-3xl">
       {/* Workflow cards */}
       <div className="grid gap-3">
         {data?.map((wf) => (
           <Card
             key={wf.name}
             className="cursor-pointer hover:border-primary/50 transition-colors"
-            onClick={() => navigate(`/workflows/${wf.name}`)}
+            onClick={() => navigate(workflowPath(wf.name))}
           >
             <CardContent className="p-4 flex items-center justify-between">
               <div className="flex items-center gap-3">
@@ -147,7 +145,6 @@ export function WorkflowsPage() {
           {error && <p className="text-xs text-destructive">{error}</p>}
         </CardContent>
       </Card>
-      </div>
     </div>
   );
 }

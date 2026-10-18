@@ -28,12 +28,12 @@ Deno.test("featureForProposalKind matches the daemon's gate", () => {
 });
 
 Deno.test("featureForPath: each kind's pages, and ungated ones", () => {
-  for (const p of ["/board", "/backlog", "/archived", "/workflows", "/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
+  for (const p of ["/board", "/backlog", "/archived", "/config/workflows", "/config/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
     assertEquals(featureForPath(p), "stories", p);
   }
   for (const p of ["/tasks", "/templates", "/templates/atlas"]) assertEquals(featureForPath(p), "tasks", p);
   assertEquals(featureForPath("/schedule"), "schedules");
-  for (const p of ["/", "/queue", "/thoughts", "/thoughts/n1/triage", "/context", "/config", "/help", "/usage", "/work-defs/w1"]) {
+  for (const p of ["/", "/queue", "/thoughts", "/thoughts/n1/triage", "/config", "/config/context", "/config/triage", "/config/theme", "/help", "/usage", "/work-defs/w1"]) {
     assertEquals(featureForPath(p), null, p);
   }
   // The new-WorkDef form's kind comes from ?type= (Template belongs to Tasks).

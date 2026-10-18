@@ -320,7 +320,7 @@ you finish — the task advances automatically.
 ```
 
 Manual states need no persona. Create workflows, edit their states, and edit
-personas on the **Workflows** tab (under Board); every story names its workflow at
+personas under **Config → Workflows** (`/config/workflows`); every story names its workflow at
 creation. With no workflows on disk, a built-in `default` (`in_progress` →
 `review`) is used.
 

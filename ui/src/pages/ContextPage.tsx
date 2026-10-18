@@ -7,6 +7,10 @@
  * description, tags) lives in the left quarter, the markdown body in the right
  * three-quarters. The collection is expected to stay small, so search and tag
  * filtering are done entirely client-side.
+ *
+ * Rendered as the Context tab of the Config page (`/config/context`; ConfigPage
+ * supplies the tab bar and outer layout). The old `/context` URL redirects here.
+ * Entries save on their own (per card), not with Config's Save button.
  */
 
 import { useMemo, useState } from "react";
@@ -68,10 +72,10 @@ export function ContextPage() {
   }, [entries, query, activeTag]);
 
   return (
-    <div className="container mx-auto p-6 space-y-4">
+    <div className="space-y-4">
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-2xl font-bold">Context</h1>
+          <h2 className="text-xl font-bold">Context</h2>
           <p className="text-sm text-muted-foreground">Reusable prompts and context to inject into teammates or the assistant.</p>
         </div>
         <div className="flex items-center gap-2">

@@ -1,22 +1,41 @@
 /**
- * ConfigPage — Edit daemon configuration with tabs for General (incl. the Work
- * items feature toggles, and favorite directories, which save immediately via
- * /api/directories/favorites), Teammates
- * (name nouns, one-teammate-per-directory, experimental harnesses), and Theme. Tabs are route-driven (`/config`, `/config/teammates`,
- * `/config/theme`) via the
- * shared RouteTabs control, so each tab is deep-linkable and consistent with
- * the Board and Root page tabs. The Theme tab is a client-side preference
- * (localStorage, applied immediately) rather than daemon config.
+ * ConfigPage — Team configuration, as route-driven tabs (lib/config-tabs.ts;
+ * the shared RouteTabs control, so each tab is deep-linkable and consistent
+ * with the Board and Root page tabs):
+ *
+ * - **General** (`/config`) — the Work items feature toggles, server,
+ *   scheduling, autosave, and favorite directories (which save immediately via
+ *   /api/directories/favorites).
+ * - **Teammates** (`/config/teammates`) — name nouns, one-teammate-per-directory,
+ *   experimental harnesses.
+ * - **Workflows** (`/config/workflows`, detail `/config/workflows/:name`) — the
+ *   WorkflowsPage / WorkflowDetailPage, embedded. Hidden (and refused with the
+ *   "turned off" notice) while Stories are off: workflows only apply to stories.
+ * - **Context** (`/config/context`) — the context library (ContextPage, embedded).
+ * - **Triage** (`/config/triage`) — auto-triage settings (saved with the page)
+ *   and the `triage.md` instructions (own save, /api/triage/instructions).
+ * - **Theme** (`/config/theme`) — a client-side preference (localStorage,
+ *   applied immediately) rather than daemon config.
+ *
+ * The global Save button only shows on the tabs that edit the config.json draft
+ * (General, Teammates, Triage); Workflows and Context keep their own save flows.
+ * The draft lives above the tabs and survives switching them (the `/config*`
+ * routes share this element), so edits on several tabs save together.
  */
 
 import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
-import { notifyFeaturesChanged } from "@/hooks/useFeatures";
+import { notifyFeaturesChanged, useFeatures } from "@/hooks/useFeatures";
 import { FEATURE_DESCRIPTIONS, FEATURE_LABELS, FEATURE_NAMES, type FeatureName, type Features } from "@/lib/features";
+import { configTabFromPath, tabSavesConfig, visibleConfigTabs } from "@/lib/config-tabs";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { FAVORITES_CHANGED_EVENT, notifyFavoritesChanged } from "@/lib/directories";
 import { RouteTabs, SegmentedTabs } from "@/components/RouteTabs";
+import { FeatureOffNotice } from "@/components/FeatureGate";
+import { WorkflowsPage } from "@/pages/WorkflowsPage";
+import { WorkflowDetailPage } from "@/pages/WorkflowDetailPage";
+import { ContextPage } from "@/pages/ContextPage";
 import { PALETTES, getStoredPalette, applyPalette } from "@/lib/theme";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -59,25 +78,16 @@ interface ConfigData {
   featureUsage?: Record<FeatureName, { count: number; description: string }>;
 }
 
-type Tab = "general" | "teammates" | "theme";
-
-const TABS = [
-  { path: "/config", label: "General" },
-  { path: "/config/teammates", label: "Teammates" },
-  { path: "/config/theme", label: "Theme" },
-];
-
-/** Resolve the active tab from the current pathname (unknown → general). */
-function tabFromPath(pathname: string): Tab {
-  if (pathname === "/config/teammates") return "teammates";
-  if (pathname === "/config/theme") return "theme";
-  return "general";
-}
-
 export function ConfigPage() {
+  const { pathname } = useLocation();
+  const activeTab = configTabFromPath(pathname);
+  const features = useFeatures();
+  const tabs = visibleConfigTabs(features);
+
+  // The config.json draft lives here, above the tabs, so an edit on one tab
+  // (General, Teammates, Triage) is still in the draft after visiting another.
   const { data, loading, refetch } = useApi<ConfigData>("/api/config");
   const [config, setConfig] = useState<ConfigData | null>(null);
-  const activeTab = tabFromPath(useLocation().pathname);
   const [saving, setSaving] = useState(false);
   const [toast, setToast] = useState<{ msg: string; error?: boolean } | null>(null);
   // A refused feature toggle (409 "Can't turn off …") is also shown in its section.
@@ -92,19 +102,24 @@ export function ConfigPage() {
     setConfig(structuredClone(data));
   }
 
-  if (loading) return <div className="container mx-auto p-6 text-muted-foreground">Loading...</div>;
-  if (!config) return <div className="container mx-auto p-6 text-muted-foreground">Cannot load config.</div>;
-
   const showToast = (msg: string, error = false) => {
     setToast({ msg, error });
     setTimeout(() => setToast(null), 3000);
   };
 
   const handleSave = async () => {
+    if (!config) return;
     setSaving(true);
     setFeatureError(null);
     try {
-      const res = await apiPut<{ success: boolean; error?: string }>("/api/config", configBody(config, data));
+      // The PUT re-saves every workflow it carries, and the draft's copy may be
+      // stale: the Workflows tab edits them through its own saves while this
+      // draft lives on. So send the daemon's current workflows, not the draft's.
+      const current = await fetch("/api/config").then((r) => r.json() as Promise<ConfigData>);
+      const res = await apiPut<{ success: boolean; error?: string }>(
+        "/api/config",
+        { ...configBody(config, data), workflows: current.workflows },
+      );
       if (res.success) {
         showToast("✓ Configuration saved");
         refetch();
@@ -119,25 +134,51 @@ export function ConfigPage() {
     setSaving(false);
   };
 
+  // Workflows and Context bring their own data and layout, and are wider
+  // (pipelines, two-column cards) than the config forms.
+  const wide = activeTab === "workflows" || activeTab === "context";
+
+  let content;
+  if (activeTab === "workflows") {
+    // Workflows only apply to stories (docs/DESIGN.md "Feature Toggles").
+    if (!features) content = null;
+    else if (!features.stories) content = <FeatureOffNotice feature="stories" />;
+    // Second segment is the tab; a third is the workflow's name.
+    else content = pathname.split("/").filter(Boolean).length > 2 ? <WorkflowDetailPage /> : <WorkflowsPage />;
+  } else if (activeTab === "context") {
+    content = <ContextPage />;
+  } else if (activeTab === "theme") {
+    content = <ThemeTab />;
+  } else if (!config) {
+    content = <div className="text-muted-foreground">{loading ? "Loading..." : "Cannot load config."}</div>;
+  } else if (activeTab === "teammates") {
+    content = <TeammatesTab config={config} setConfig={setConfig} />;
+  } else if (activeTab === "triage") {
+    content = <TriageSettings config={config} setConfig={setConfig} />;
+  } else {
+    content = <GeneralTab config={config} setConfig={setConfig} saved={data} featureError={featureError} />;
+  }
+
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
+    <div className={`container mx-auto p-6 space-y-4 ${wide ? "max-w-5xl" : "max-w-3xl"}`}>
       <div className="flex items-center gap-2">
         <Settings className="h-5 w-5" />
         <h1 className="text-2xl font-bold">Configuration</h1>
       </div>
 
-      {/* Tab bar (route-driven) */}
-      <RouteTabs tabs={TABS} />
+      {/* Tab bar (route-driven); the Workflows tab stays lit on a workflow's detail. */}
+      <RouteTabs
+        tabs={tabs.map((t) => ({
+          path: t.path,
+          label: t.label,
+          isActive: (p: string) => configTabFromPath(p) === t.tab,
+        }))}
+      />
 
-      {/* Tab content */}
-      {activeTab === "general" && (
-        <GeneralTab config={config} setConfig={setConfig} saved={data} featureError={featureError} />
-      )}
-      {activeTab === "teammates" && <TeammatesTab config={config} setConfig={setConfig} />}
-      {activeTab === "theme" && <ThemeTab />}
+      {content}
 
-      {/* Save bar (theme is client-side and applies immediately — no save) */}
-      {activeTab !== "theme" && (
+      {/* Save bar: only on tabs that edit the daemon config (lib/config-tabs.ts). */}
+      {config && tabSavesConfig(activeTab) && (
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
           {toast && (
             <span className={`text-sm ${toast.error ? "text-destructive" : "text-green-600 dark:text-green-400"}`}>
@@ -179,6 +220,10 @@ function GeneralTab({ config, setConfig, saved, featureError }: {
   const update = (field: string, value: unknown) => {
     setConfig({ ...config, [field]: value });
   };
+  // Fetched on mount (not read from the draft) so a workflow just created on
+  // the Workflows tab is offered here without reloading the page.
+  const { data: workflowList } = useApi<Array<{ name: string }>>("/api/workflows");
+  const workflowNames = workflowList?.map((w) => w.name) ?? Object.keys(config.workflows);
 
   return (
     <div className="space-y-4">
@@ -219,7 +264,7 @@ function GeneralTab({ config, setConfig, saved, featureError }: {
             <Select value={config.defaultWorkflow} onValueChange={(v) => update("defaultWorkflow", v)}>
               <SelectTrigger className="max-w-[200px]"><SelectValue /></SelectTrigger>
               <SelectContent>
-                {Object.keys(config.workflows).map((n) => (
+                {workflowNames.map((n) => (
                   <SelectItem key={n} value={n}>{n}</SelectItem>
                 ))}
               </SelectContent>
@@ -246,9 +291,6 @@ function GeneralTab({ config, setConfig, saved, featureError }: {
           </p>
         </CardContent>
       </Card>
-
-      {/* Auto triage: a teammate reads each changed note and proposes work. */}
-      <TriageSettings config={config} setConfig={setConfig} />
 
       {/* Favorites save immediately (own endpoint), not with the Save button. */}
       <FavoriteDirectories />
@@ -352,8 +394,8 @@ function WorkItemFeatures({ config, setConfig, saved, error }: {
 // --- Auto triage (docs/DESIGN.md "Auto Triage") ---
 
 /**
- * The sweep's settings plus the instructions it follows (`triage.md`). The
- * instructions save on their own — they're a file, not part of config.json — like
+ * The Triage tab: the sweep's settings (saved with the page's Save button) plus
+ * the instructions it follows (`triage.md`). The instructions save on their own — they're a file, not part of config.json — like
  * a workflow persona.
  */
 function TriageSettings({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {

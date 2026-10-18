@@ -7,6 +7,7 @@
  * is empty.
  */
 
+import { Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 
@@ -32,7 +33,12 @@ export function ContextSelector({ value, onChange }: ContextSelectorProps) {
   };
 
   if (entries.length === 0) {
-    return <p className="text-xs text-muted-foreground italic">No context entries yet — add some on the Context page.</p>;
+    return (
+      <p className="text-xs text-muted-foreground italic">
+        No context entries yet — add some under{" "}
+        <Link to="/config/context" className="text-primary underline">Config → Context</Link>.
+      </p>
+    );
   }
 
   return (

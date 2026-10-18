@@ -24,11 +24,10 @@ Deno.test("navSectionForPath: list pages map to their own section only", () => {
   assertEquals(navSectionForPath("/schedule"), "schedule");
   assertEquals(navSectionForPath("/thoughts"), "thoughts");
   assertEquals(navSectionForPath("/thoughts/t1/triage"), "thoughts");
-  assertEquals(navSectionForPath("/context"), "context");
 });
 
 Deno.test("navSectionForPath: board surface and its detail pages", () => {
-  for (const p of ["/board", "/backlog", "/archived", "/workflows", "/workflows/coding", "/story/s1", "/stories/new", "/task/s1/t1"]) {
+  for (const p of ["/board", "/backlog", "/archived", "/story/s1", "/stories/new", "/task/s1/t1"]) {
     assertEquals(navSectionForPath(p), "board", p);
   }
 });
@@ -56,7 +55,7 @@ Deno.test("navSectionForPath: /work-defs/new follows ?type (default Solitary)", 
 });
 
 Deno.test("navSectionForPath: non-section routes light nothing", () => {
-  for (const p of ["/", "/queue", "/help", "/config", "/config/theme", "/usage", "/teammates/a1"]) {
+  for (const p of ["/", "/queue", "/help", "/config", "/config/theme", "/config/workflows", "/config/workflows/coding", "/config/context", "/usage", "/teammates/a1"]) {
     assertEquals(navSectionForPath(p), null, p);
   }
 });

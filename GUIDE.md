@@ -62,17 +62,18 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 
 ## Navigation
 
-The nav bar has five destinations, plus pause / **usage** / help / config / theme icons:
+The nav bar has four destinations, plus pause / **usage** / help / config / theme icons:
 
 - **Thoughts** — sticky notes, where ideas start: a canvas, or a list with folders.
-- **Board** — story swimlanes; sub-tabs for Backlog, Archive, and Workflows.
+- **Board** — story swimlanes; sub-tabs for Backlog and Archive.
 - **Tasks** — standalone Solitary WorkDefs, with a **Templates** tab.
 - **Schedule** — cron-driven Scheduled jobs.
-- **Context** — the reusable context library.
+
+Workflows and the context library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Context**.
 
 Board, Tasks, and Schedule only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)).
 
-The highlighted destination is the section you're in, detail pages included: a Solitary task's page lights **Tasks**, a scheduled job's lights **Schedule**, a story or board task lights **Board**. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
+The highlighted destination is the section you're in, detail pages included: a Solitary task's page lights **Tasks**, a scheduled job's lights **Schedule**, a story or board task lights **Board**, and every Config tab (Workflows and Context included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
 The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. The pizza logo carries two small count badges, each hidden at zero: a **neutral** one (bottom corner) for WorkItems **queued** and not yet picked up, and an **accent** one (top corner) for **unread** Inbox items. Hover a badge for what it counts. They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark, refresh every ~10 seconds, and update right away when you mark Inbox items read or unread. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
 
@@ -145,7 +146,7 @@ Both pages use the same create form (`New Solitary Task` / `New Scheduled Job`).
 
 ## Workflows
 
-The **Workflows** tab (under Board) lists workflow definitions.
+**Config → Workflows** (`/config/workflows`) lists workflow definitions. It only appears while Stories are switched on — workflows only apply to stories. (The old `/workflows` address still works and takes you there.)
 
 ### Viewing / editing a workflow
 
@@ -286,7 +287,7 @@ When a teammate completes an agent state, the task advances to the next state. I
 
 ## Context Library
 
-The **Context** page stores reusable prompt/context entries to inject into teammates or the assistant.
+**Config → Context** (`/config/context`) stores reusable prompt/context entries to inject into teammates or the assistant. Each entry saves on its own — no Save Configuration needed. (The old `/context` address still works and takes you there.)
 
 - **Metadata** — title, short description, tags
 - **Filter** — tag chips + free-text search (client-side; the collection is meant to stay small)
@@ -350,7 +351,7 @@ A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sti
 
   Then it's **your turn** — and your turn is the note: edit it and the next sweep re-reads it. That's how you answer a question, and how you steer a proposal you didn't like; the next analysis is told what you accepted and rejected, so it won't offer the same thing twice. Accepting and rejecting aren't turns, so they don't trigger a fresh run.
 
-  A run that fails isn't retried on its own — **Triage now**, on the triage page, forces one. Turn triage off, change its timing, or rewrite the instructions it follows in **Config → General**. Archiving a note stops its triage; deleting one removes its analysis with it.
+  A run that fails isn't retried on its own — **Triage now**, on the triage page, forces one. Turn triage off, change its timing, or rewrite the instructions it follows in **Config → Triage**. Archiving a note stops its triage; deleting one removes its analysis with it.
 
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
@@ -378,16 +379,21 @@ The ledger is saved **in the team directory**, committed with your stories and c
 Visit `/config`:
 
 - **General** — the **Work items** toggles, port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
-- **Teammates** — the nouns used to name teammates, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
+- **Teammates** — the nouns used to name teammates, **One teammate per directory**, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
+- **Workflows** — your story workflows and their state personas (see [Workflows](#workflows)); hidden while Stories are off
+- **Context** — the context library (see [Context Library](#context-library))
+- **Triage** — [auto triage](#thoughts): on/off, the sweep interval, the quiet period, and the instructions every run follows (`triage.md`, with its own **Save instructions** button)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
+
+Each tab has its own address (`/config/teammates`, `/config/workflows`, `/config/context`, `/config/triage`, `/config/theme`). **Save Configuration** appears on General, Teammates, and Triage — it saves the edits from all three at once. Workflows and Context save as you go, and Theme applies immediately.
 
 ### Work items (feature toggles)
 
-**Config → General → Work items** picks the kinds of work your team uses: **Stories** (the Board, with Backlog, Archive, and Workflows), **Tasks** (standalone Solitary tasks *and* Templates), and **Schedules** (the Schedule page). A brand-new team starts with Tasks only; a team that existed before the toggles has everything on. Tick or untick, then **Save Configuration** — it applies right away, no restart.
+**Config → General → Work items** picks the kinds of work your team uses: **Stories** (the Board, with Backlog and Archive, plus Config → Workflows), **Tasks** (standalone Solitary tasks *and* Templates), and **Schedules** (the Schedule page). A brand-new team starts with Tasks only; a team that existed before the toggles has everything on. Tick or untick, then **Save Configuration** — it applies right away, no restart.
 
 When a kind is off:
 
-- its nav link (**Board**, **Tasks**, or **Schedule**) disappears, and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
+- its nav link (**Board**, **Tasks**, or **Schedule**) disappears (for Stories, so does Config's **Workflows** tab), and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
 - its pages — lists, detail pages, and create forms — show a "turned off" notice with a link back here, even from a bookmark;
 - a triage proposal of that kind can only be **Rejected** (Accept and Edit are disabled until you turn the kind back on);
 - the assistant stops offering it: its tools for that kind leave its tool list (within about 10 seconds, or at its next reply) and it will tell you the kind is off if you ask for one;

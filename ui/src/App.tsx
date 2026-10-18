@@ -17,9 +17,14 @@
  * Toggles") are wrapped in a FeatureRoute, which shows a "turned off" notice
  * instead. `/work-defs/:id` isn't wrapped: its kind is only known once loaded,
  * so the page itself shows the notice on the daemon's 403.
+ *
+ * Context and Workflows are tabs of the Config page (`/config/context`,
+ * `/config/workflows[/:name]`); their old top-level URLs redirect there with
+ * `replace` (lib/config-tabs.ts `legacyConfigPath`).
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { legacyConfigPath } from "./lib/config-tabs";
 import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
@@ -29,8 +34,6 @@ import { TriagePage } from "./pages/TriagePage";
 import { BoardPage } from "./pages/BoardPage";
 import { TaskDetailPage } from "./pages/TaskDetailPage";
 import { StoryDetailPage } from "./pages/StoryDetailPage";
-import { ContextPage } from "./pages/ContextPage";
-import { WorkflowsPage } from "./pages/WorkflowsPage";
 import { TasksPage } from "./pages/TasksPage";
 import { TemplatesPage } from "./pages/TemplatesPage";
 import { TemplateDetailPage } from "./pages/TemplateDetailPage";
@@ -42,7 +45,6 @@ import { ArchivedPage } from "./pages/ArchivedPage";
 import { NewStoryPage } from "./pages/NewStoryPage";
 import { NewTaskPage } from "./pages/NewTaskPage";
 import { ConfigPage } from "./pages/ConfigPage";
-import { WorkflowDetailPage } from "./pages/WorkflowDetailPage";
 import { HelpPage } from "./pages/HelpPage";
 import { TeammatePage } from "./pages/TeammatePage";
 import { UsagePage } from "./pages/UsagePage";
@@ -94,7 +96,6 @@ function DesktopShell() {
             {/* A note's triage page: where it becomes work (docs/DESIGN.md "Auto Triage"). */}
             <Route path="/thoughts/:id/triage" element={<TriagePage />} />
             <Route path="/queue" element={<RootPage />} />
-            <Route path="/context" element={<ContextPage />} />
             <Route path="/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
             <Route path="/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
             <Route path="/templates" element={<FeatureRoute feature="tasks"><TemplatesPage /></FeatureRoute>} />
@@ -110,8 +111,12 @@ function DesktopShell() {
             <Route path="/archived" element={<FeatureRoute feature="stories"><ArchivedPage /></FeatureRoute>} />
             <Route path="/config" element={<ConfigPage />} />
             <Route path="/config/:tab" element={<ConfigPage />} />
-            <Route path="/workflows" element={<FeatureRoute feature="stories"><WorkflowsPage /></FeatureRoute>} />
-            <Route path="/workflows/:name" element={<FeatureRoute feature="stories"><WorkflowDetailPage /></FeatureRoute>} />
+            {/* A workflow's detail, inside Config's Workflows tab (gated there on Stories). */}
+            <Route path="/config/workflows/:name" element={<ConfigPage />} />
+            {/* Context and Workflows moved under Config; keep the old URLs working. */}
+            <Route path="/context" element={<LegacyConfigRedirect />} />
+            <Route path="/workflows" element={<LegacyConfigRedirect />} />
+            <Route path="/workflows/:name" element={<LegacyConfigRedirect />} />
             <Route path="/help" element={<HelpPage />} />
             {/* A teammate's live view, opened from the sidebar (docs/DESIGN.md "Watching and Pairing with a Teammate"). */}
             <Route path="/teammates/:id" element={<TeammatePage />} />
@@ -122,6 +127,15 @@ function DesktopShell() {
     </div>
     </SideDockProvider>
   );
+}
+
+/**
+ * `/context`, `/workflows`, `/workflows/:name` → their Config tab, keeping any
+ * query string. `replace`, so Back doesn't bounce into the redirect.
+ */
+function LegacyConfigRedirect() {
+  const { pathname, search } = useLocation();
+  return <Navigate to={(legacyConfigPath(pathname) ?? "/config") + search} replace />;
 }
 
 /**

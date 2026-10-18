@@ -30,7 +30,7 @@ export const FEATURE_LABELS: Record<FeatureName, string> = {
 
 /** What each toggle covers, for the Config page. */
 export const FEATURE_DESCRIPTIONS: Record<FeatureName, string> = {
-  stories: "Multi-step stories on the Board, with Backlog, Archive, and Workflows.",
+  stories: "Multi-step stories on the Board (with Backlog and Archive), and their Workflows.",
   tasks: "Standalone (Solitary) tasks and Task Templates.",
   schedules: "Recurring jobs on the Schedule page.",
 };
@@ -58,7 +58,6 @@ const SEGMENT_FEATURES: Record<string, FeatureName> = {
   board: "stories",
   backlog: "stories",
   archived: "stories",
-  workflows: "stories",
   story: "stories",
   stories: "stories",
   task: "stories",
@@ -69,14 +68,17 @@ const SEGMENT_FEATURES: Record<string, FeatureName> = {
 
 /**
  * The feature a route's page needs, or null when it isn't gated (home, Thoughts,
- * Context, Config, …). `/work-defs/:id` returns null: its kind is only known once
- * the WorkDef loads, and the daemon's 403 covers it (the page shows the notice).
+ * Config and its Context tab, …); Config's Workflows tab needs Stories.
+ * `/work-defs/:id` returns null: its kind is only known once the WorkDef loads,
+ * and the daemon's 403 covers it (the page shows the notice).
  */
 export function featureForPath(pathname: string, search = ""): FeatureName | null {
   const segments = pathname.split("/").filter(Boolean);
   const first = segments[0];
   if (!first) return null;
   if (first === "work-defs") return segments[1] === "new" ? featureForWorkDefForm(search) : null;
+  // Config's Workflows tab (and a workflow's detail) only applies to stories.
+  if (first === "config") return segments[1] === "workflows" ? "stories" : null;
   return SEGMENT_FEATURES[first] ?? null;
 }
 

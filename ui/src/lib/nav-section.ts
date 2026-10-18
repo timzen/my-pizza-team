@@ -14,25 +14,26 @@
  */
 
 /** The top-nav sections (NavBar links). */
-export type NavSection = "thoughts" | "board" | "tasks" | "schedule" | "context";
+export type NavSection = "thoughts" | "board" | "tasks" | "schedule";
 
 /** WorkDef types as the API reports them, plus "Template" (the new-WorkDef form's mode). */
 export type WorkDefKind = "Solitary" | "Scheduled" | "Board" | "Triage" | "Template";
 
-/** First path segment → section. Segment (not prefix) matching so `/tasks` ≠ `/task`. */
+/**
+ * First path segment → section. Segment (not prefix) matching so `/tasks` ≠ `/task`.
+ * Workflows and Context live under `/config` (lit by the gear, not a section).
+ */
 const SEGMENT_SECTIONS: Record<string, NavSection> = {
   thoughts: "thoughts",
   board: "board",
   backlog: "board",
   archived: "board",
-  workflows: "board",
   story: "board",
   stories: "board",
   task: "board",
   tasks: "tasks",
   templates: "tasks",
   schedule: "schedule",
-  context: "context",
 };
 
 /** The section a WorkDef of this type belongs to (Solitary/Template → Tasks, Scheduled → Schedule). */

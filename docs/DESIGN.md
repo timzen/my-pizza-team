@@ -825,7 +825,7 @@ time.
 | Column | What's there |
 | --- | --- |
 | **Dock** (`SideDock`) — a header, then two tabs | Header: `+` (New Story / Solitary Task / Scheduled Job) then the queue summary. Tabs: **Assistant** (the chat with the leader) and **Team** (the teammates; team size, spawn) |
-| **Center** (nav + `<main>`) | board, tasks, schedule, context, thoughts, task detail, inbox, a teammate's live view, config |
+| **Center** (nav + `<main>`) | board, tasks, schedule, thoughts, task detail, inbox, a teammate's live view, config (incl. workflows and context) |
 
 *Why a dock, not a page:* talking to the assistant and watching the team happen
 alongside whatever is in the center. `/assistant` is just a redirect that opens
