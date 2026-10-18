@@ -14,8 +14,8 @@
  * store.ts, exactly as workdefs.ts relates to store.ts.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import {
   type Thought,
   type ThoughtGroup,

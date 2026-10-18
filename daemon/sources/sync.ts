@@ -49,15 +49,20 @@ function emptyOutcome(extra: Partial<SyncOutcome> = {}): SyncOutcome {
 export class SyncRunner {
   private states = new Map<string, SourceSyncState>();
   private stopped = false;
+  private ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome;
+  private backoff: SyncBackoff;
 
   /**
    * @param ingest applies a good sync result (the Store: mirror, enqueue, archive).
    * @param backoff how long to wait after consecutive failures.
    */
   constructor(
-    private ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome,
-    private backoff: SyncBackoff = DEFAULT_SYNC_BACKOFF,
-  ) {}
+    ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome,
+    backoff: SyncBackoff = DEFAULT_SYNC_BACKOFF,
+  ) {
+    this.ingest = ingest;
+    this.backoff = backoff;
+  }
 
   private state(id: string): SourceSyncState {
     let s = this.states.get(id);

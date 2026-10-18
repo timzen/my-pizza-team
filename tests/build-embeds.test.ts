@@ -13,9 +13,10 @@
  */
 
 import { assertEquals } from "@std/assert";
-import * as path from "@std/path";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
-const ROOT = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "..");
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REQUIRED = ["ui/dist/", "harnesses/pi/package.json", "harnesses/pi/src/"];
 
 /** A file's text without comment lines, so prose *about* `deno compile` doesn't count. */

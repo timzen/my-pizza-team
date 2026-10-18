@@ -48,6 +48,10 @@ build_ui() {
   npm run build
   cd "$PROJECT_ROOT"
   echo "✅ UI built"
+  # The daemon's npm deps (hono, @hono/node-server): deno compile resolves them
+  # through the root node_modules/.
+  echo "📦 Installing root npm dependencies..."
+  npm ci --silent 2>/dev/null || npm install --silent
 }
 
 compile_target() {

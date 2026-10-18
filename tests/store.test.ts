@@ -8,7 +8,7 @@ import { assert, assertEquals, assertExists } from "@std/assert";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { normalizeDirectory, workDefType } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 function createTempTeamDir(): string {
   const dir = Deno.makeTempDirSync({ prefix: "mpt-store-test-" });

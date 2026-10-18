@@ -98,8 +98,8 @@ import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
 import { migrateLegacyStoryFiles } from "./store/story-migration.ts";
 import { migrateUsageColumns, recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 
 /**
  * Directive actions an agent realizes itself rather than via its host leader.

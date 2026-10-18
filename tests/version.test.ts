@@ -25,6 +25,17 @@ Deno.test("the extension manifest matches deno.json's version", async () => {
   );
 });
 
+Deno.test("the root npm package and its lockfile match deno.json's version", async () => {
+  // The Node build (package.json / package-lock.json) is another generated copy.
+  const { version } = await read("deno.json");
+  const pkg = await read("package.json");
+  const lock = await read("package-lock.json");
+  const fix = "out of step — run `deno task sync-version`";
+  assertEquals(pkg.version, version, `package.json is ${fix}`);
+  assertEquals(lock.version, version, `package-lock.json is ${fix}`);
+  assertEquals(lock.packages?.[""]?.version, version, `package-lock.json packages[""] is ${fix}`);
+});
+
 Deno.test("the extension's generated shared constants are in step", async () => {
   // harnesses/pi/src/shared/types.ts is generated from shared/types.ts. Using the
   // generator's own `render()` rather than reimplementing it here is the point: a

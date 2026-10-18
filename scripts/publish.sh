@@ -96,15 +96,15 @@ else
   sed -i "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
 fi
 
-# Propagate to the Pi extension's manifest. The daemon and the extension are one
+# Propagate to the npm manifests (the Pi extension and the root package). The daemon and the extension are one
 # protocol (docs/DESIGN.md "One Protocol, One Version") and must carry one version; deno.json is
-# the source and harnesses/pi/package.json is a generated copy.
+# the source and harnesses/pi/package.json, package.json and package-lock.json are generated copies.
 deno task sync-version
 # Regenerate the extension's shared constants from shared/types.ts (P1c-7).
 deno task sync-shared
 
 # Commit the version bump
-git add deno.json harnesses/pi/package.json harnesses/pi/src/shared/types.ts
+git add deno.json package.json package-lock.json harnesses/pi/package.json harnesses/pi/src/shared/types.ts
 git commit -m "chore: bump version to ${NEW_VERSION}"
 
 # Create and push the tag

@@ -65,7 +65,11 @@ export class ThoughtSource implements WorkSource {
   readonly apiVersion = 1 as const;
   private context: SourceContext | null = null;
 
-  constructor(private deps: ThoughtSourceDeps) {}
+  private deps: ThoughtSourceDeps;
+
+  constructor(deps: ThoughtSourceDeps) {
+    this.deps = deps;
+  }
 
   /**
    * The cursor for `enqueueRevision`: a note's `triagedVersion` frontmatter, so

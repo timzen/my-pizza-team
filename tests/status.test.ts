@@ -10,7 +10,7 @@ import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { type TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { badgeLabel } from "../ui/src/lib/inbox.ts";
 
 Deno.test("status: `paused` follows control/pause and control/resume", async () => {

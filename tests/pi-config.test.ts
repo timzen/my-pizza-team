@@ -10,7 +10,7 @@
  */
 
 import { assertEquals } from "@std/assert";
-import * as path from "@std/path";
+import * as path from "node:path";
 import {
   EXTENSION_PACKAGE_NAME,
   findExtensionRegistrations,

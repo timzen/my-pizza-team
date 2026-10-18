@@ -23,12 +23,13 @@
  * daemon, no tmux server, and no temp directory behind.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import type { TmuxExec } from "../../daemon/tmux.ts";
 import { TESTED_PI_VERSION } from "../../cli/doctor.ts";
 
-const REPO = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "..", "..");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = path.join(REPO, "cli", "main.ts");
 /** The source entry point `deno task dev` / `start` run. */
 const DAEMON_MAIN = path.join(REPO, "daemon", "main.ts");

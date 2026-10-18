@@ -18,8 +18,8 @@
  *     pollers, two heartbeats per agent.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 
 /** The extension's package name, used to recognise our own registrations. */
 export const EXTENSION_PACKAGE_NAME = "pi-pizza-team";
@@ -78,7 +78,7 @@ export function isProjectTrusted(dir: string, agentDir = piAgentDir()): boolean 
     for (const [trusted, value] of Object.entries(trust)) {
       if (value !== true) continue;
       const t = path.resolve(trusted);
-      if (target === t || target.startsWith(t + path.SEPARATOR)) return true;
+      if (target === t || target.startsWith(t + path.sep)) return true;
     }
     return false;
   } catch {

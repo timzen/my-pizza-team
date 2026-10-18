@@ -595,6 +595,7 @@ my-pizza-team/
 ## Development
 
 ```bash
+npm install            # Once: the daemon's npm dependencies (hono), which Deno reads from node_modules/
 deno task dev          # Auto-reload daemon (the same daemon `mpt start` runs)
 deno task mpt <cmd>    # Run the CLI from source
 deno task ui:dev       # Vite dev server for the UI
@@ -611,8 +612,8 @@ deno task test:ext       # the Pi extension's suites
 (cd ui && npx tsc -b)    # the web UI
 ```
 
-The extension's version is generated from `deno.json` (`deno task sync-version`)
-and its shared constants from `shared/types.ts` (`deno task sync-shared`); CI fails
+The extension's and the root npm package's versions are generated from `deno.json`
+(`deno task sync-version`), and its shared constants from `shared/types.ts` (`deno task sync-shared`); CI fails
 if either is out of step.
 
 ## Building

@@ -13,8 +13,8 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import type { ExtensionRegistration, RegistrationKind } from "../cli/pi-config.ts";
 import { isProjectTrusted, readPiSettings, resolveLocalPackage } from "../cli/pi-config.ts";
 import {

@@ -13,7 +13,7 @@ import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, type TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-test-" });

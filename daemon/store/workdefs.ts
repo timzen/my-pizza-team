@@ -19,8 +19,8 @@
  * by its source's sync (daemon/sources/mirror.ts) — never by an MPT edit.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { slugify, type WorkDef, type WorkDefOrigin, type WorkDefParent, type WorkDefParentKind, WORKDEFS_DIR } from "../../shared/types.ts";
 
 const FILE = "workdef.md";

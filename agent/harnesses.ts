@@ -9,8 +9,8 @@
  * TODO.md); a stand-in speaking the same protocol drives the tests.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 
 export interface AcpHarness {
   name: string;
@@ -48,7 +48,7 @@ export function claudeAdapterEntry(): string | null {
 
 /** Find an executable on PATH. */
 export function which(cmd: string): string | null {
-  for (const dir of (Deno.env.get("PATH") ?? "").split(path.DELIMITER)) {
+  for (const dir of (Deno.env.get("PATH") ?? "").split(path.delimiter)) {
     if (!dir) continue;
     const p = path.join(dir, cmd);
     try { if (Deno.statSync(p).isFile) return p; } catch { /* not here */ }

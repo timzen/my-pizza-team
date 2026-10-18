@@ -30,11 +30,12 @@ sudo mv mpt /usr/local/bin/
 <details>
 <summary>Or build it from source</summary>
 
-Needs [Deno](https://deno.com) 2 and Node.js (the web UI is built with npm).
+Needs [Deno](https://deno.com) 2 and Node.js (the web UI and the daemon's npm dependencies are installed with npm).
 
 ```bash
 git clone https://github.com/timzen/my-pizza-team.git
 cd my-pizza-team
+npm ci                     # the daemon's npm dependencies (hono)
 (cd ui && npm ci)
 deno task compile          # produces ./mpt, with the web UI and Pi extension inside
 sudo mv mpt /usr/local/bin/

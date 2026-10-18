@@ -17,7 +17,7 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { commitTeamDir, ensureTeamGitignore, RUNTIME_FILES } from "../../daemon/store/git-sync.ts";
 
 const AUTOSAVE = {

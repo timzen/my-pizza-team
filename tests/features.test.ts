@@ -14,7 +14,7 @@ import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { initTeamConfig } from "../cli/setup.ts";
 import { DEFAULT_CONFIG, NEW_TEAM_FEATURES, newTeamConfig, resolveFeatures, type FeaturesConfig, type TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { TASK_SOURCE_ID } from "../daemon/sources/registry.ts";
 import type { WorkSource } from "../daemon/sources/types.ts";
 

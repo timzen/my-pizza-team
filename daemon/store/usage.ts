@@ -32,8 +32,8 @@
  */
 
 import type { DatabaseSync } from "node:sqlite";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { USAGE_DIR } from "../../shared/types.ts";
 
 export type UsageKind = "work" | "pairing" | "chat" | "other";

@@ -13,8 +13,8 @@
  */
 
 import { assertEquals, assertExists } from "@std/assert";
-import { existsSync } from "@std/fs";
-import * as path from "@std/path";
+import { existsSync } from "node:fs";
+import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";

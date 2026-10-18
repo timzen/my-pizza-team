@@ -10,7 +10,7 @@ import { TeammatePairing } from "../daemon/store/pairing.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { type TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 Deno.test("pairing: pair → send → poll drains messages exactly once", () => {
   const p = new TeammatePairing(() => 1000);

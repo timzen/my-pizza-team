@@ -74,6 +74,12 @@ jobs:
           npm ci
           npm run build
 
+      - name: Install root npm dependencies
+        # hono and @hono/node-server come from the root package.json; deno compile
+        # resolves them through node_modules/.
+        shell: bash
+        run: npm ci
+
       - name: Compile binary
         # Through scripts/build.sh rather than an inline `deno compile`, so there is one
         # definition of what goes into the binary. This step used to carry its own copy

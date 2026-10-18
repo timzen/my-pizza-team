@@ -9,8 +9,9 @@
  * Enables auto-start on login. `mpt uninstall` removes the service and disables auto-start.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 const SERVICE_LABEL = "com.my-pizza-team.daemon";
 const SYSTEMD_UNIT_NAME = "my-pizza-team.service";
@@ -42,7 +43,7 @@ function generateLaunchdPlist(opts: {
   logDir: string;
 }): string {
   const isCompiled = Deno.execPath().endsWith("mpt");
-  const projectRoot = path.dirname(path.dirname(path.fromFileUrl(import.meta.url)));
+  const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
   let programArgs: string;
   if (isCompiled) {
@@ -201,7 +202,7 @@ function generateSystemdUnit(opts: {
   port: number;
 }): string {
   const isCompiled = Deno.execPath().endsWith("mpt");
-  const projectRoot = path.dirname(path.dirname(path.fromFileUrl(import.meta.url)));
+  const projectRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
   let execStart: string;
   if (isCompiled) {

@@ -12,11 +12,12 @@
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import { sandbox, type Sandbox } from "./_sandbox.ts";
 
-const REPO = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "..", "..");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const DEV_CHECKOUT = path.join(REPO, "harnesses", "pi");
 
 /** The user settings a real machine has, which setup must never disturb. */

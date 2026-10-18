@@ -15,8 +15,8 @@ import { resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./work-sources.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 
 export function registerSharedRoutes(ctx: RouteContext): void {
   const { app, store, config, teamDir, setPaused, isPaused, startedAt } = ctx;

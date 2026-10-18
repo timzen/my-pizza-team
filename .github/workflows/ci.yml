@@ -26,6 +26,10 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
+      - name: Install npm dependencies
+        # hono and @hono/node-server come from the root package.json, which Deno
+        # resolves through node_modules/.
+        run: npm ci
       - name: Type check
         run: deno task check
       - name: Fast tests
@@ -48,6 +52,10 @@ jobs:
       - uses: denoland/setup-deno@v2
         with:
           deno-version: ${{ env.DENO_VERSION }}
+      - name: Install npm dependencies
+        # hono and @hono/node-server come from the root package.json, which Deno
+        # resolves through node_modules/.
+        run: npm ci
       - name: Install tmux
         # The e2e suite drives a real (private, per-test) tmux server. Without tmux
         # those tests skip, and a skip in CI would read as a pass.

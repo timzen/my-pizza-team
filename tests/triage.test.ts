@@ -21,7 +21,7 @@ import {
   triageWorkItemTitle,
 } from "../daemon/triage.ts";
 import { resolveTriage, type TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 // ─── The pure rules ──────────────────────────────────────────────────
 

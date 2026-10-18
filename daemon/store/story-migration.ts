@@ -19,8 +19,8 @@
  * can be resolved by hand.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { STORIES_DIR } from "../../shared/types.ts";
 
 /** The retired backlog directory (`<teamDir>/backlog/`). Only migration reads it. */

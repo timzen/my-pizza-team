@@ -14,8 +14,8 @@
  * Pure IO over a team directory — no database, no shared state.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR } from "../../shared/types.ts";
 
 /** The session fields a snapshot needs. Mirrors the stored session row. */

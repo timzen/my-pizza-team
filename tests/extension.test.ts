@@ -9,8 +9,8 @@
  */
 
 import { assertEquals, assertStringIncludes, assertThrows } from "@std/assert";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import {
   EXTENSION_PAYLOAD,
   managedExtensionDir,

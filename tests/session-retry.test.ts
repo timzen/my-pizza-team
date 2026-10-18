@@ -19,7 +19,7 @@ import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
 import { resolveRetry, retryBackoffMs, type TeamConfig, type WorkItem } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 const ERR = "Service unavailable: Bedrock is unable to process your request.";
 const MIN = 60_000;

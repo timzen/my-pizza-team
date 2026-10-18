@@ -21,8 +21,8 @@
  */
 
 import { ACP_HARNESSES } from "../agent/harnesses.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import {
   findExtensionRegistrations,
   hasPackage,

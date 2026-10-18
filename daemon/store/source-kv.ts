@@ -13,8 +13,8 @@
  * hand edit or a git pull visible without a reload.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import type { SourceKv } from "../sources/types.ts";
 
 /** The team-dir subdirectory holding one JSON file per source. */

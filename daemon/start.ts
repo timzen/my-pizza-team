@@ -21,8 +21,8 @@ import { harnessCapability, probeTmuxCapability, realizePending } from "./spawne
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { TEAM_DIR } from "../shared/types.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 
 /**
  * The team directory from the environment: `TEAM_DIR` names the directory itself

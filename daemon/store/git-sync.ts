@@ -7,8 +7,8 @@
  * commit, offline, auth) — this is a best-effort convenience.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import type { AutosaveConfig } from "../../shared/types.ts";
 
 /**

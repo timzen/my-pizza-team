@@ -13,7 +13,7 @@
  */
 
 import { ACP_HARNESSES, acpAdapterDir, CLAUDE_ADAPTER_PACKAGE, CLAUDE_ADAPTER_VERSION, claudeAdapterEntry, which } from "../agent/harnesses.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { AgentSupervisor } from "../agent/supervisor.ts";
 import { DaemonClient } from "../harnesses/pi/src/runtime/client.ts";
 import { mptInvocation } from "../daemon/self.ts";

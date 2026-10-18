@@ -16,7 +16,7 @@ import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
 import { directoriesOverlap, type TeamConfig, type WorkItem } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 function setup(overrides: Partial<TeamConfig> = {}) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-lease-test-" });

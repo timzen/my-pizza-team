@@ -23,8 +23,8 @@
  * or a test registering it directly; never by default.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import type { Comment, WorkDef, WorkItem } from "../../shared/types.ts";
 import { parseWorkDef } from "../store/workdefs.ts";
 import type { ExternalDef, SourceContext, WorkSource } from "./types.ts";
@@ -81,7 +81,10 @@ export class FixtureSource implements WorkSource {
   readonly writeBacks: FixtureWriteBack[] = [];
   private readonly everyMs: number | null;
 
-  constructor(private opts: FixtureSourceOptions) {
+  private opts: FixtureSourceOptions;
+
+  constructor(opts: FixtureSourceOptions) {
+    this.opts = opts;
     this.id = opts.id ?? FIXTURE_SOURCE_ID;
     this.label = opts.label ?? "Fixture";
     this.everyMs = opts.syncEveryMs === undefined ? 60_000 : opts.syncEveryMs;

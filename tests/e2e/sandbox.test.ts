@@ -10,8 +10,8 @@
  */
 
 import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { hasTmux, sandbox, sandboxLeftovers } from "./_sandbox.ts";
 
 const REAL_PI_SETTINGS = path.join(Deno.env.get("HOME") ?? "", ".pi", "agent", "settings.json");

@@ -12,8 +12,8 @@
  * itself, so setup must guarantee exactly one registration rather than hope.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import {
   type ExtensionRegistration,
   packageSource,

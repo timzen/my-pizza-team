@@ -13,7 +13,7 @@ import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import type { TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 /** Every persistable field set to a non-default value, so a dropped one shows. */
 const FULL: Partial<TeamConfig> = {

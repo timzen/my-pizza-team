@@ -10,7 +10,7 @@
  */
 
 import { assert, assertEquals, assertThrows } from "@std/assert";
-import * as path from "@std/path";
+import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";

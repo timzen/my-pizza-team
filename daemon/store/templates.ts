@@ -10,8 +10,8 @@
  * Schedules/Thoughts — no SQLite index). See docs/ARCHITECTURE.md "Templates".
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { slugify, type Template, TEMPLATES_DIR } from "../../shared/types.ts";
 import { serializeWorkDef, parseWorkDef } from "./workdefs.ts";
 

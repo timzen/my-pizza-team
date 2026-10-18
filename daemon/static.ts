@@ -9,8 +9,9 @@
  * overridden with the UI_DIST environment variable.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 import type { Context, Next } from "hono";
 
 const MIME_TYPES: Record<string, string> = {
@@ -38,7 +39,7 @@ export function resolveDistDir(): string | null {
   if (existsSync(cwdDist)) return cwdDist;
 
   // Try relative to the main module (for compiled binary)
-  const mainDir = path.dirname(path.fromFileUrl(Deno.mainModule));
+  const mainDir = path.dirname(fileURLToPath(Deno.mainModule));
   const relDist = path.join(mainDir, "..", "ui", "dist");
   if (existsSync(relDist)) return relDist;
 

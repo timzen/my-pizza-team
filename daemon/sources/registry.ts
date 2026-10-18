@@ -43,8 +43,12 @@ export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 export class SourceRegistry {
   private entries = new Map<string, SourceEntry>();
 
+  private makeContext: (sourceId: string) => SourceContext;
+
   /** @param makeContext builds the daemon-side context for a source id (the Store supplies it). */
-  constructor(private makeContext: (sourceId: string) => SourceContext) {}
+  constructor(makeContext: (sourceId: string) => SourceContext) {
+    this.makeContext = makeContext;
+  }
 
   /**
    * Register a source and run its `init`. Refuses a duplicate id or an

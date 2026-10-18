@@ -1,0 +1,42 @@
+// Type-checks the daemon, CLI, shared code, scripts and tests for Node.
+//
+// Node (>=24) runs these .ts sources directly by stripping types, so every
+// option here keeps the code inside what type stripping can run:
+// `erasableSyntaxOnly` rejects enums, namespaces and parameter properties, and
+// `verbatimModuleSyntax` keeps type-only imports explicit so stripping them
+// leaves no dangling runtime import. Imports keep their `.ts` extensions
+// (`allowImportingTsExtensions`); `rewriteRelativeImportExtensions` turns them
+// into `.js` when the npm package is compiled to dist/ by a separate build
+// config. This config only checks.
+{
+  "compilerOptions": {
+    "target": "es2024",
+    "lib": ["es2024"],
+    "module": "nodenext",
+    "moduleResolution": "nodenext",
+
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "resolveJsonModule": true,
+
+    // Same strictness as deno.json's compilerOptions.
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "forceConsistentCasingInFileNames": true,
+
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": [
+    "main.ts",
+    "agent/**/*.ts",
+    "cli/**/*.ts",
+    "daemon/**/*.ts",
+    "shared/**/*.ts",
+    "scripts/**/*.ts",
+    "tests/**/*.ts"
+  ]
+}

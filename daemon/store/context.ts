@@ -9,8 +9,8 @@
  * directory — no database, no shared state.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { parseFrontmatter, serializeFrontmatter, type ContextMeta } from "../../shared/frontmatter.ts";
 
 export interface ContextEntry {

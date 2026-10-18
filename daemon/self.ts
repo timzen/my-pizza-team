@@ -7,7 +7,8 @@
  * templates' `{mpt}` placeholder (`mpt agent` teammates).
  */
 
-import * as path from "@std/path";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Running from source (`deno run cli/main.ts`) rather than the compiled binary? */
 export function isRunningFromSource(execPath: string = Deno.execPath()): boolean {
@@ -18,6 +19,6 @@ export function isRunningFromSource(execPath: string = Deno.execPath()): boolean
 /** The argv that runs the mpt CLI: `[binary]`, or `[deno, run, …perms, cli/main.ts]`. */
 export function mptInvocation(execPath: string = Deno.execPath()): string[] {
   if (!isRunningFromSource(execPath)) return [execPath];
-  const cli = path.fromFileUrl(new URL("../cli/main.ts", import.meta.url));
+  const cli = fileURLToPath(new URL("../cli/main.ts", import.meta.url));
   return [execPath, "run", "--allow-net", "--allow-read", "--allow-write", "--allow-env", "--allow-run", cli];
 }

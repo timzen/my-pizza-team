@@ -92,7 +92,11 @@ export class StorySource implements WorkSource {
   };
   private context: SourceContext | null = null;
 
-  constructor(private deps: StorySourceDeps) {}
+  private deps: StorySourceDeps;
+
+  constructor(deps: StorySourceDeps) {
+    this.deps = deps;
+  }
 
   private get ctx(): SourceContext {
     if (!this.context) throw new Error("Story source used before it was registered");

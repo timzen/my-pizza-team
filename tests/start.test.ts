@@ -5,7 +5,7 @@
 
 import { assertEquals } from "@std/assert";
 import { resolveTeamDir } from "../daemon/start.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 Deno.test("TEAM_DIR may name the team directory, or its parent", () => {
   const parent = Deno.makeTempDirSync({ prefix: "mpt-start-test-" });

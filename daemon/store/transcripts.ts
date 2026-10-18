@@ -96,8 +96,12 @@ export class TeammateTranscripts {
   private members = new Map<string, MemberTranscript>();
   private seq = 0;
 
+  private now: () => number;
+
   /** Injectable clock, so the watch grace is testable. */
-  constructor(private now: () => number = Date.now) {}
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+  }
 
   private get(memberId: string): MemberTranscript {
     let t = this.members.get(memberId);

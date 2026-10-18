@@ -29,8 +29,9 @@
  * `node_modules/` (455M of devDependencies for type-checking) nor `tests/`.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
 
 /** Files and directories that make up a usable extension package. */
 export const EXTENSION_PAYLOAD = ["package.json", "src"] as const;
@@ -55,7 +56,7 @@ export function resolveExtensionSourceDir(): string | null {
   candidates.push(path.join(Deno.cwd(), "harnesses", "pi"));
 
   try {
-    const mainDir = path.dirname(path.fromFileUrl(Deno.mainModule));
+    const mainDir = path.dirname(fileURLToPath(Deno.mainModule));
     candidates.push(path.join(mainDir, "harnesses", "pi"));
     candidates.push(path.join(mainDir, "..", "harnesses", "pi"));
   } catch {

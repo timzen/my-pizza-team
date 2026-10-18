@@ -30,8 +30,13 @@ interface Pending {
 
 /** An error the agent returned for one of our requests. */
 export class AcpError extends Error {
-  constructor(readonly code: number, message: string, readonly data?: unknown) {
+  readonly code: number;
+  readonly data?: unknown;
+
+  constructor(code: number, message: string, data?: unknown) {
     super(data !== undefined ? `${message}: ${typeof data === "string" ? data : JSON.stringify(data)}` : message);
+    this.code = code;
+    this.data = data;
   }
 }
 
@@ -63,7 +68,12 @@ export class AcpConnection {
   /** Resolves with the exit code when the agent process ends. */
   readonly exited: Promise<number>;
 
-  private constructor(private child: Deno.ChildProcess, private onStderr: (line: string) => void) {
+  private child: Deno.ChildProcess;
+  private onStderr: (line: string) => void;
+
+  private constructor(child: Deno.ChildProcess, onStderr: (line: string) => void) {
+    this.child = child;
+    this.onStderr = onStderr;
     this.writer = child.stdin.getWriter();
     this.exited = child.status.then((s) => {
       this.failAll(new Error(`agent exited (code ${s.code})`));

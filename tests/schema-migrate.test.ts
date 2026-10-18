@@ -10,7 +10,7 @@ import { assert, assertEquals } from "@std/assert";
 import { DatabaseSync } from "node:sqlite";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import * as path from "@std/path";
+import * as path from "node:path";
 
 const RETIRED: Record<string, string[]> = {
   stories: ["requirements", "categories"],

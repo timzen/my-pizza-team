@@ -45,7 +45,12 @@ export class TeammatePairing {
   private states = new Map<string, PairState>();
   private counter = 0;
 
-  constructor(private now: () => number = Date.now) {}
+  private now: () => number;
+
+  /** @param now injectable clock, so pairing timestamps are testable. */
+  constructor(now: () => number = Date.now) {
+    this.now = now;
+  }
 
   private get(memberId: string): PairState {
     let s = this.states.get(memberId);

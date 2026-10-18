@@ -11,8 +11,8 @@
  * This allows CLI tools to detect if the daemon is running and send signals.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import type { Store } from "./store.ts";
 
 const PID_FILENAME = "daemon.pid";

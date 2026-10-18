@@ -881,8 +881,8 @@ links. Agents read and write them through `/api/agents/comments/:workItemId`
 ## One Protocol, One Version
 
 The daemon and the Pi extension are one protocol shipped as one artifact. They
-live in one repo, `deno.json` owns the version, `harnesses/pi/package.json` is
-generated from it (`deno task sync-version`, enforced by `tests/version.test.ts`),
+live in one repo, `deno.json` owns the version, `harnesses/pi/package.json` (and the root
+`package.json` / `package-lock.json`) are generated from it (`deno task sync-version`, enforced by `tests/version.test.ts`),
 shared constants are generated into the extension (`deno task sync-shared`), and the
 `mpt` binary **embeds the extension's source** and writes it out on `mpt setup`.
 

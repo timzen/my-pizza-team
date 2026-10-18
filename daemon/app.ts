@@ -11,8 +11,8 @@ import { buildApp } from "./server.ts";
 import { Store } from "./store.ts";
 import { FixtureSource } from "./sources/fixture.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 
 export interface AppContext {
   app: Hono;

@@ -6,8 +6,8 @@
  */
 
 import { DEFAULT_CONFIG, DEFAULT_HARNESS, DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, TEAM_DIR } from "../shared/types.ts";
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { install, uninstall, detectInstalledService } from "./service.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import {

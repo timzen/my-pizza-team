@@ -82,7 +82,10 @@ export class AgentSupervisor {
   private readonly done = new Promise<void>((r) => { this.stopped = r; });
   private readonly out: (text: string) => void;
 
-  constructor(private opts: SupervisorOptions) {
+  private opts: SupervisorOptions;
+
+  constructor(opts: SupervisorOptions) {
+    this.opts = opts;
     this.out = opts.out ?? ((t) => { Deno.stdout.writeSync(new TextEncoder().encode(t)); });
     this.mirror = new TranscriptMirror(opts.client, { instance: `${opts.harness.name}-${Date.now()}` });
   }

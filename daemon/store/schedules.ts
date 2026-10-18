@@ -14,8 +14,8 @@
  * (PUT, /pending, /activate) gets them.
  */
 
-import * as path from "@std/path";
-import { existsSync } from "@std/fs";
+import * as path from "node:path";
+import { existsSync } from "node:fs";
 import { slugify, type Schedule, SCHEDULES_DIR } from "../../shared/types.ts";
 
 function dir(teamDir: string): string {

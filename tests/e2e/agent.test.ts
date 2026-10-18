@@ -10,10 +10,11 @@
  */
 
 import { assert, assertEquals, assertStringIncludes } from "@std/assert";
-import * as path from "@std/path";
+import * as path from "node:path";
+import { fileURLToPath } from "node:url";
 import { sandbox, type Sandbox } from "./_sandbox.ts";
 
-const REPO = path.resolve(path.dirname(path.fromFileUrl(import.meta.url)), "..", "..");
+const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = path.join(REPO, "cli", "main.ts");
 const FAKE = path.join(REPO, "tests", "fixtures", "fake-acp-agent.ts");
 const FAKE_CMD = JSON.stringify([Deno.execPath(), "run", "--allow-run", FAKE]);
