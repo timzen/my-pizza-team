@@ -23,7 +23,10 @@
  * hover) is derived by the daemon from the WorkItem table (docs/DESIGN.md
  * "Execution Count: Derived, not Counted"). A WorkDef whose kind the team has
  * switched off answers 403, and the page shows the "turned off" notice
- * (components/FeatureGate).
+ * (components/FeatureGate). A **mirrored** (External) def — a read-only copy of
+ * an external source's item — reuses this page with editing and Delete off,
+ * an "Open in <source>" link, and Back to its source's Work Items tab; its
+ * Thread, attachments, and Run work as for any WorkDef (docs/DESIGN.md "Work Sources").
  */
 
 import { useState, useRef } from "react";
@@ -39,17 +42,20 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { FileViewer } from "@/components/viewer/FileViewer";
-import { Save, Trash2, Play, Pause, CalendarClock, Zap, Upload } from "lucide-react";
+import { Save, Trash2, Play, Pause, CalendarClock, Zap, Upload, ExternalLink, FolderSync } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { runCountLabel } from "@/lib/run-count";
 import { commentToneClass } from "@/lib/retry";
+import { mirroredDefHomePath, openInLabel, readOnlyHint, type MirrorInfo } from "@/lib/external-sources";
 
 interface WorkDef {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled" | "Board" | "Triage";
-  parent?: { kind: "story" | "schedule"; id: string };
+  type: "Solitary" | "Scheduled" | "Board" | "Triage" | "External";
+  parent?: { kind: "story" | "schedule" | "thought" | "external"; id: string; source?: string };
+  /** Mirrored (External) defs only: where it comes from (lib/external-sources.ts). */
+  mirror?: MirrorInfo;
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
@@ -115,7 +121,9 @@ export function WorkDefDetailPage() {
 
   // Back fallback / post-delete landing: the list this WorkDef type lives on
   // (the same section the NavBar highlights for it).
-  const backTo = workDefHomePath(def.type);
+  // A mirrored def lives on its external source's tab.
+  const mirror = def.mirror;
+  const backTo = mirror ? mirroredDefHomePath(mirror) : workDefHomePath(def.type);
 
   // The cron is the parent Schedule's, not the definition's, so a cron-only PUT
   // is accepted even after activating.
@@ -207,8 +215,14 @@ export function WorkDefDetailPage() {
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
         {(def.pending || schedule?.pending) && <PendingBadge />}
         <Badge variant="outline" className="flex items-center gap-1">
-          {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : <Zap className="h-3 w-3" />}{def.type}
+          {def.type === "Scheduled" ? <CalendarClock className="h-3 w-3" /> : mirror ? <FolderSync className="h-3 w-3" /> : <Zap className="h-3 w-3" />}
+          {mirror ? mirror.sourceLabel : def.type}
         </Badge>
+        {mirror?.url && (
+          <Button variant="outline" size="sm" render={<a href={mirror.url} target="_blank" rel="noreferrer" />} title={`${mirror.sourceLabel} ${mirror.externalId}`}>
+            <ExternalLink className="h-3.5 w-3.5 mr-1" />{openInLabel(mirror.sourceLabel)}
+          </Button>
+        )}
         <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
           {runCountLabel(def.executionCount)}
         </Badge>
@@ -227,10 +241,12 @@ export function WorkDefDetailPage() {
 
       {tab === "details" && (
       <div className="space-y-4">
+        {/* A mirrored def is read-only (pull only): no Edit, no Delete — sync archives what vanishes. */}
         <WorkDefDefinition
           def={def}
           onChanged={refetch}
-          actions={<Button variant="destructive" onClick={remove}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>}
+          readOnlyNote={mirror ? readOnlyHint(mirror.sourceLabel) : undefined}
+          actions={mirror ? undefined : <Button variant="destructive" onClick={remove}><Trash2 className="h-4 w-4 mr-1" />Delete</Button>}
         />
         {def.type === "Scheduled" && (
           <div>

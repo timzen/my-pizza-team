@@ -8,10 +8,15 @@
  * anything is subscribed, in case the config changed elsewhere (CLI, a hand edit).
  * `null` means "not loaded yet" — callers keep gated things hidden until then
  * (lib/features.ts `filterByFeatures`).
+ *
+ * The same `/api/status` answer also carries the registered external Work
+ * Sources (`externalSources`), served by `useExternalSources` from this cache,
+ * so the Work Items tabs and the NavBar learn of them without another request.
  */
 
 import { useSyncExternalStore } from "react";
 import { resolveFeatures, type Features } from "@/lib/features";
+import type { ExternalSourceInfo } from "@/lib/work-items";
 
 /** Window event: the toggles changed (fired by the Config page after a save). */
 const FEATURES_CHANGED_EVENT = "mpt:features-changed";
@@ -19,6 +24,7 @@ const FEATURES_CHANGED_EVENT = "mpt:features-changed";
 const POLL_MS = 30_000;
 
 let current: Features | null = null;
+let currentSources: ExternalSourceInfo[] | null = null;
 const listeners = new Set<() => void>();
 let pollTimer: ReturnType<typeof setInterval> | null = null;
 
@@ -26,16 +32,24 @@ async function load(): Promise<void> {
   try {
     const res = await fetch("/api/status");
     if (!res.ok) return;
-    const next = resolveFeatures((await res.json() as { features?: Record<string, unknown> }).features);
+    const body = await res.json() as { features?: Record<string, unknown>; externalSources?: ExternalSourceInfo[] };
+    const next = resolveFeatures(body.features);
+    // A daemon too old to report sources has none.
+    const nextSources = Array.isArray(body.externalSources) ? body.externalSources : [];
     // Only notify on a real change, so subscribers don't re-render every poll.
-    if (current && sameFeatures(current, next)) return;
+    if (current && sameFeatures(current, next) && currentSources && sameSources(currentSources, nextSources)) return;
     current = next;
+    currentSources = nextSources;
     for (const l of listeners) l();
   } catch { /* offline: keep the last known toggles */ }
 }
 
 function sameFeatures(a: Features, b: Features): boolean {
   return a.stories === b.stories && a.tasks === b.tasks && a.schedules === b.schedules;
+}
+
+function sameSources(a: ExternalSourceInfo[], b: ExternalSourceInfo[]): boolean {
+  return a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.label === b[i]!.label);
 }
 
 function onChanged() { void load(); }
@@ -60,6 +74,11 @@ function subscribe(listener: () => void): () => void {
 /** The resolved toggles, or null until the first `/api/status` answer. */
 export function useFeatures(): Features | null {
   return useSyncExternalStore(subscribe, () => current, () => null);
+}
+
+/** The registered external Work Sources, or null until the first `/api/status` answer. */
+export function useExternalSources(): ExternalSourceInfo[] | null {
+  return useSyncExternalStore(subscribe, () => currentSources, () => null);
 }
 
 /** Tell every `useFeatures` consumer to refetch (call after saving the config). */

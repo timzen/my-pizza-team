@@ -9,9 +9,10 @@
 
 import type { RouteContext } from "./types.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
-import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness, resolveFeatures } from "../../shared/types.ts";
-import { featureUsage, resolveFeaturesUpdate } from "../features.ts";
+import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness } from "../../shared/types.ts";
+import { enabledFeatures, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
+import { externalSourceViews } from "./work-sources.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import * as path from "@std/path";
@@ -95,8 +96,12 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       workflows: store.getWorkflows(),
       workflow: store.getWorkflows()[config.defaultWorkflow],
       // Which work-item kinds are on (defaults applied), so the nav, CLI and the
-      // Pi tools can hide what the team has switched off.
-      features: resolveFeatures(config),
+      // Pi tools can hide what the team has switched off. One flag per
+      // toggleable Work Source (daemon/features.ts).
+      features: enabledFeatures(store, config),
+      // The registered external (pull-only) Work Sources, so the UI shows a
+      // read-only Work Items tab per source — none, no tab.
+      externalSources: externalSourceViews(store),
     });
   });
 
@@ -112,7 +117,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // `featureUsage` counts each kind's active items, so the Config page can say
   // "archive or delete 3 stories first" before a save is refused.
   app.get("/api/config", (c) => c.json({
-    ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS, features: resolveFeatures(config),
+    ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS, features: enabledFeatures(store, config),
     featureUsage: featureUsage(store),
   }));
 

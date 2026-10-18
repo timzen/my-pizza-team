@@ -50,7 +50,6 @@ import {
   type MemberSessionStats,
   type WorkDefOrigin,
   isTriageDecision,
-  resolveTriage,
   resolveRetry,
   retryBackoffMs,
   type ThreadEntry,
@@ -63,15 +62,15 @@ import {
   type TeamReadiness,
   type Assignment,
 } from "../shared/types.ts";
-import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
+import { validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
 import {
-  decisionSummary, foldProposals, isTriageDue, latestAnalysis, pendingProposals, triageBadge,
-  triageSkipReason, triageWorkDefId, triageWorkDefTitle, triageWorkItemTitle, validateAnalysis,
+  decisionSummary, foldProposals, latestAnalysis, pendingProposals, triageBadge,
+  triageWorkDefId, validateAnalysis,
   type TriageSkipReason,
 } from "./triage.ts";
 import {
@@ -84,9 +83,16 @@ import {
   type InboxMessage,
 } from "./store/assistant-chat.ts";
 import { isValidCron } from "./cron.ts";
-import { type SourceEntry, SourceRegistry } from "./sources/registry.ts";
-import type { SourceContext, WorkSource } from "./sources/types.ts";
+import { type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
+import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource } from "./sources/types.ts";
+import { mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
+import { DEFAULT_SYNC_EVERY_MS, SyncRunner } from "./sources/sync.ts";
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
+import { runSolitary, taskSource } from "./sources/task.ts";
+import { ThoughtSource } from "./sources/thought.ts";
+import { StorySource } from "./sources/story.ts";
+import { enqueueRevision, kvRevisionCursor } from "./sources/revision.ts";
+import { fileSourceKv } from "./store/source-kv.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
@@ -259,8 +265,10 @@ export class Store {
   private flushTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null;
-  private schedulerTimer: ReturnType<typeof setInterval> | null = null;
-  private triageTimer: ReturnType<typeof setInterval> | null = null;
+  /** One interval per ticking Work Source (Schedule every 30s, Thought every triage interval). */
+  private sourceTimers: Array<ReturnType<typeof setInterval>> = [];
+  /** External sources' sync timers (and their first, prompt run), cleared by `stopTimers`. */
+  private syncTimers: Array<ReturnType<typeof setInterval>> = [];
   private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
   private transitionCacheTTL = 30000; // 30 seconds
   /**
@@ -313,6 +321,53 @@ export class Store {
    * kind; a kind with no registered source keeps the inline default.
    */
   private sources = new SourceRegistry((sourceId) => this.makeSourceContext(sourceId));
+  /**
+   * The sync loop for external (pull-only) sources: timeout, backoff, and
+   * isolation (daemon/sources/sync.ts); a good result comes back to
+   * `ingestExternalDefs`.
+   */
+  private syncRunner = new SyncRunner((entry, defs) => this.ingestExternalDefs(entry, defs));
+  /**
+   * The built-in Thought (auto-triage) source, kept by reference because the
+   * Store's triage methods (sweep, Triage now, status) delegate to it.
+   */
+  private thoughtSource = new ThoughtSource({
+    getThought: (id) => this.getThought(id),
+    getActiveThoughts: () => this.getThoughts("active"),
+    getThoughtGroup: (id) => this.getThoughtGroup(id),
+    leaderDirectory: () => this.getLeader()?.directory,
+    getTriageInstructions: () => this.getTriageInstructions(),
+    getOpenStories: () => this.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
+    getComments: (workDefId) => this.getCommentsForRef({ workDefId }),
+    decisionSummary: (thoughtId) => this.triageDecisionSummary(thoughtId),
+  });
+
+  /**
+   * The built-in Story (board) source, kept by reference because the Store's
+   * board methods (move, admission, position changes) delegate to its policy.
+   * Story persistence stays here; these deps are how the source reaches it.
+   */
+  private storySource = new StorySource({
+    getStory: (id) => this.getStory(id),
+    getStories: () => this.getStories(),
+    isStoryReady: (id) => this.isStoryReady(id),
+    getTask: (id) => this.getTask(id),
+    getTasksForStory: (id) => this.getTasksForStory(id),
+    getWorkflowForStory: (id) => this.getWorkflowForStory(id),
+    isPending: (id) => this.isPending(id),
+    writeTaskPosition: (taskId, status) => this.writeTaskPosition(taskId, status),
+    setStoryStatus: (id, status) => this.updateStoryStatus(id, status),
+    getActiveItem: (defId) => this.getActiveWorkItemForTask(defId),
+    cancelActiveItem: (defId) => this.abandonActiveWorkItem(defId),
+    recordAssignment: (taskId, memberId) => {
+      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
+      this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(taskId, memberId, Date.now());
+    },
+    releaseAssignment: (taskId) => this.releaseTask(taskId),
+    getStatePersona: (workflow, state) => this.getStatePersona(workflow, state),
+    resolveContext: (storyContext, defContext) => this.resolveTaskContext(storyContext, defContext),
+    getComments: (defId) => this.getCommentsForRef({ workDefId: defId }),
+  });
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -329,7 +384,13 @@ export class Store {
     syncUsageLedger(this.db, teamDir);
     this.resetConnectionsForBoot();
     this.loadWorkflows();
+    // The built-in kinds. Thought is always on — it declares no toggle — so
+    // it's always registered; the toggleable ones are too (a toggle gates
+    // routes, not the queue: docs/DESIGN.md "Feature Toggles").
+    this.sources.register(taskSource);
+    this.sources.register(this.storySource);
     this.sources.register(scheduleSource);
+    this.sources.register(this.thoughtSource);
   }
 
   // --- Work Sources (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins") ---
@@ -340,14 +401,21 @@ export class Store {
    * directory normalization for free.
    */
   private makeSourceContext(sourceId: string): SourceContext {
+    const hasActiveItem = (defId: string) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null;
+    const enqueue = (defId: string) => this.enqueueFor(defId);
+    const kv = fileSourceKv(this.teamDir, sourceId);
+    const defaultCursor = kvRevisionCursor(kv);
     return {
       sourceId,
       teamDir: this.teamDir,
       config: () => this.config,
       log: (message) => console.warn(`[source:${sourceId}] ${message}`),
       listWorkDefs: () => listWorkDefs(this.teamDir),
-      hasActiveItem: (defId) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null,
-      enqueue: (defId) => this.enqueueFor(defId),
+      hasActiveItem,
+      enqueue,
+      enqueueRevision: (defId, revision, opts) => enqueueRevision({ hasActiveItem, enqueue }, defaultCursor, defId, revision, opts),
+      upsertDef: (def) => upsertMirror(this.teamDir, sourceId, kv, def)?.def ?? null,
+      kv,
       readiness: { canEnqueueNow: () => this.canScheduleNow() },
     };
   }
@@ -361,14 +429,115 @@ export class Store {
     this.sources.register(source);
   }
 
+  /**
+   * Remove a registered Work Source (a test seam: swap a built-in for a fixture).
+   * Its kind then falls back to the Store's inline defaults. False if none was registered.
+   */
+  unregisterWorkSource(id: string): boolean {
+    return this.sources.unregister(id);
+  }
+
   /** The registered source that owns a WorkDef (by `parent.kind`; none = "task"), if any. */
   getWorkSourceFor(def: Pick<WorkDef, "parent">): SourceEntry | undefined {
     return this.sources.forWorkDef(def);
   }
 
+  /** Every registered Work Source with its context, in registration order (daemon/features.ts reads the toggles). */
+  listWorkSources(): SourceEntry[] {
+    return this.sources.all();
+  }
+
   /** Run every source's periodic `tick` now (the 30s timer calls this). */
   tickWorkSources(now: Date = new Date()): void {
     this.sources.tickAll(now);
+  }
+
+  /** The external (pull-only) sources — those with a `sync` — in registration order. */
+  listExternalSources(): SourceEntry[] {
+    return this.sources.external();
+  }
+
+  /**
+   * Run one external source's sync now (its timer calls this; so do tests).
+   * Never rejects: a failure is logged and backs the source off (`force`
+   * ignores the backoff). See daemon/sources/sync.ts.
+   */
+  syncWorkSource(id: string, opts: { now?: number; force?: boolean } = {}): Promise<SyncOutcome> {
+    const entry = this.sources.get(id);
+    if (!entry?.source.sync) {
+      return Promise.resolve({ ok: false, error: `No external source "${id}"`, mirrored: [], enqueued: [], archived: [], held: [] });
+    }
+    return this.syncRunner.run(entry, opts);
+  }
+
+  /** Consecutive sync failures of an external source (0 when healthy). */
+  syncFailures(id: string): number {
+    return this.syncRunner.failures(id);
+  }
+
+  /**
+   * A mirrored def's runtime state, from its source's kv (`sources/<id>.json`) —
+   * read straight from disk, so it answers even if the source isn't registered
+   * any more: the revision last mirrored, and whether sync archived it for vanishing.
+   */
+  getMirrorState(def: WorkDef): { revision?: string; vanished: boolean } {
+    if (def.parent?.kind !== "external") return { vanished: false };
+    const kv = fileSourceKv(this.teamDir, sourceIdForWorkDef(def));
+    return { revision: kv.get(mirrorRevisionKey(def.id)), vanished: kv.get(vanishedKey(def.id)) !== undefined };
+  }
+
+  /** The newest WorkItem's state for a WorkDef (CANCELED included), or null if it never had one. */
+  getLatestWorkItemState(defId: string): WorkItemState | null {
+    const row = this.db.prepare("SELECT state FROM work_items WHERE work_def_id = ? ORDER BY enqueued_at DESC, rowid DESC LIMIT 1")
+      .get(defId) as { state: WorkItemState } | undefined;
+    return row?.state ?? null;
+  }
+
+  /**
+   * Apply one good sync result (docs/DESIGN.md "Work Sources" — external sources):
+   *   1. mirror every reported item (read-only; a no-op for an unchanged revision);
+   *   2. enqueue one WorkItem per new revision via `enqueueRevision` (in flight →
+   *      wait for the next sync; the daemon not ready → held, and since nothing
+   *      was stamped, the next sync after it recovers enqueues it). A mirror a
+   *      person archived is left alone;
+   *   3. archive — never delete — the mirrors of items no longer reported (their
+   *      thread is history), withdrawing a still-READY item. One reported again
+   *      comes back (daemon/sources/mirror.ts).
+   */
+  private ingestExternalDefs(entry: SourceEntry, defs: ExternalDef[]): SyncOutcome {
+    const { source, ctx } = entry;
+    const out: SyncOutcome = { ok: true, mirrored: [], enqueued: [], archived: [], held: [] };
+    const seen = new Set<string>();
+    for (const ext of defs) {
+      const res = upsertMirror(this.teamDir, source.id, ctx.kv, ext);
+      if (!res) {
+        ctx.log(`skipped an invalid item from sync: ${JSON.stringify(ext)?.slice(0, 200)}`);
+        continue;
+      }
+      const { def, changed } = res;
+      seen.add(def.id);
+      if (changed) out.mirrored.push(def.id);
+      if (def.status === "archived") continue;
+      const handedOver = kvRevisionCursor(ctx.kv).get(def.id) === ext.revision;
+      if (handedOver || ctx.hasActiveItem(def.id)) continue;
+      // Readiness gating, as a Schedule holds its firing (docs/DESIGN.md "Readiness Gating").
+      if (!ctx.readiness.canEnqueueNow()) {
+        out.held.push(def.id);
+        continue;
+      }
+      const item = ctx.enqueueRevision(def.id, ext.revision);
+      if (item) out.enqueued.push(item.id);
+    }
+    for (const def of listWorkDefs(this.teamDir)) {
+      if (sourceIdForWorkDef(def) !== source.id || def.parent?.kind !== "external") continue;
+      if (def.status === "archived" || seen.has(def.id)) continue;
+      const active = this.getActiveWorkItemForRef({ workDefId: def.id });
+      if (active?.state === "READY") this.cancelWorkItem(active.id);
+      updateWorkDef(this.teamDir, def.id, { status: "archived" });
+      ctx.kv.set(vanishedKey(def.id), new Date().toISOString());
+      out.archived.push(def.id);
+    }
+    return out;
   }
 
   /**
@@ -787,11 +956,10 @@ export class Store {
       }
     }
 
-    // Run admission so every ready story has its one in-flight task (CONWIP),
-    // then reconcile the WorkItem queue: every task in an agent state must have
-    // an active (READY/IN_PROGRESS/MORIBUND) WorkItem (rebuilds after a restart).
-    for (const story of this.getStories()) this.runAdmission(story.id);
-    this.reconcileQueue();
+    // Let each source bring the queue in line with its own state (hook:
+    // reconcile). Story: admission so every ready story has its one in-flight
+    // task (CONWIP), then an active WorkItem for every task in an agent state.
+    this.sources.reconcileAll();
   }
 
   /** Absolute path of a story's flat json file (`stories/<id>.json`). */
@@ -803,23 +971,6 @@ export class Store {
   private writeStory(story: Story): void {
     Deno.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
     Deno.writeTextFileSync(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
-  }
-
-  /**
-   * Ensure every task currently in an agent state has an active WorkItem. Creates
-   * a READY item for any agent-state task that has none (e.g. after a restart, a
-   * hand-edit, or a task admitted before the queue existed). Never touches tasks
-   * in buckets/manual states, and never resurrects terminal WorkItems.
-   */
-  private reconcileQueue(): void {
-    for (const story of this.getStories()) {
-      const wf = this.getWorkflowForStory(story.id);
-      for (const task of this.getTasksForStory(story.id)) {
-        if (isAgentState(wf, task.status) && !this.getActiveWorkItemForTask(task.id)) {
-          this.enqueueFor(task.id);
-        }
-      }
-    }
   }
 
   private upsertStory(story: Story): void {
@@ -1092,9 +1243,7 @@ export class Store {
    * (CONWIP, WIP = 1 per story)".
    */
   private admitDependents(storyId: string): void {
-    for (const s of this.getStories()) {
-      if (s.id !== storyId && s.dependsOn.includes(storyId)) this.runAdmission(s.id);
-    }
+    this.storySource.admitDependents(storyId);
   }
 
   // --- Tasks ---
@@ -1145,76 +1294,35 @@ export class Store {
   }
 
   /**
-   * Low-level position setter: writes status [+ result], keeps the story's
-   * open/done status in sync, and ensures the WorkItem queue reflects the new
-   * position. All position changes flow through here.
-   *
-   * WorkItem sync: landing in an agent state creates a READY WorkItem (unless
-   * one is already active for the task). Leaving an agent state (or any
-   * non-agent landing) abandons the task's active WorkItem as CANCELED — a
-   * position change out from under an in-flight attempt is a human override.
-   * `keepWorkItem` skips that abandonment (used by the WorkItem's own COMPLETE
-   * advance, which already terminated the item).
+   * Persist a task's workflow position: the task cache row and the story's
+   * owned `tasks[]` on disk. No queue side effects — the board policy (the
+   * Story source's `setPosition`) owns those, and every position change flows
+   * through it.
    */
-  private setTaskPosition(taskId: string, status: string, keepWorkItem = false): void {
-    const before = this.getTask(taskId);
+  private writeTaskPosition(taskId: string, status: string): void {
     this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
-
     const task = this.getTask(taskId);
-    if (!task) return;
-    const story = this.getStory(task.storyId);
-    if (!story) return;
-    const wf = this.getWorkflowForStory(task.storyId);
-
-    // Persist the new position to the story's owned tasks[] on disk.
-    this.writeStory(story);
-
-    // Abandon a now-stale WorkItem when the task's position changed out from
-    // under it (unless the caller already handled the item).
-    if (!keepWorkItem && before && before.status !== status) {
-      this.abandonActiveWorkItem(taskId);
-    }
-    // Landing in an agent state ⇒ ensure a READY WorkItem exists.
-    if (isAgentState(wf, status) && !this.getActiveWorkItemForTask(taskId)) {
-      this.enqueueFor(taskId);
-    }
-
-    if (status === DONE_STATE) {
-      const tasks = this.getTasksForStory(task.storyId);
-      if (tasks.every((t) => t.status === DONE_STATE)) this.updateStoryStatus(task.storyId, "done");
-    } else if (story.status === "done") {
-      // A task moved back out of `done` reopens the story.
-      this.updateStoryStatus(task.storyId, "open");
-    }
+    const story = task ? this.getStory(task.storyId) : null;
+    if (story) this.writeStory(story);
   }
 
   /**
    * Set a task's status. (Compatibility wrapper; judgment moves should use
-   * `moveTask`.)
+   * `moveTask`.) Queue effects as for any position change (daemon/sources/story.ts).
    */
   updateTaskStatus(taskId: string, status: string): void {
     if (!this.getTask(taskId)) return;
-    this.setTaskPosition(taskId, status);
+    this.storySource.setPosition(taskId, status);
   }
 
   /**
    * Judgment move (human or leader agent): put a task anywhere in its
-   * workflow's positions. Any active WorkItem is abandoned (CANCELED) and,
-   * when entering an agent state, a fresh READY WorkItem is created — re-entry
-   * ≡ first entry (rework path). Runs admission excluding the moved task, so
-   * shelving a task to `todo` doesn't bounce it straight back in.
+   * workflow's positions. Re-entry ≡ first entry: any active WorkItem is
+   * abandoned and entering an agent state enqueues a fresh one (the board
+   * policy lives in daemon/sources/story.ts).
    */
   moveTask(taskId: string, newStatus: string): { ok: boolean; error?: string } {
-    const task = this.getTask(taskId);
-    if (!task) return { ok: false, error: "Task not found" };
-    const wf = this.getWorkflowForStory(task.storyId);
-    if (!isValidPosition(wf, newStatus)) {
-      return { ok: false, error: `"${newStatus}" is not a state in this story's workflow` };
-    }
-    this.setTaskPosition(taskId, newStatus);
-    this.releaseTask(taskId);
-    this.runAdmission(task.storyId, taskId);
-    return { ok: true };
+    return this.storySource.moveTask(taskId, newStatus);
   }
 
   deleteTask(taskId: string): boolean {
@@ -1369,9 +1477,10 @@ export class Store {
   }
 
   /**
-   * The single WorkItem creator: enqueue a READY item for any WorkDef (board,
-   * Solitary, or Scheduled). Board WorkDefs inherit their story's directory
-   * when they don't set one. Caller ensures none is already active.
+   * The single WorkItem creator: enqueue a READY item for any WorkDef, of any
+   * kind. The item takes the def's title and directory unless its source
+   * overrides them (hook: resolveItem — a board task falls back to its story's
+   * directory). Caller ensures none is already active.
    *
    * A pending WorkDef never gets a WorkItem: refusing here, at the one creator,
    * is what guarantees no path (Run, cron, admission, reconcile, re-enqueue)
@@ -1382,19 +1491,8 @@ export class Store {
     if (!def || def.pending) return null;
     let directory = def.directory;
     let title = def.title;
-    if (!directory && def.parent?.kind === "story") {
-      directory = this.getStory(def.parent.id)?.directory;
-    }
-    if (def.parent?.kind === "thought") {
-      // A triage WorkDef is an empty container: its title and where it runs are
-      // resolved now, from the note and the leader (TODO.md "Auto Triage").
-      const note = this.getThought(def.parent.id);
-      if (note) title = triageWorkItemTitle(note);
-      // The leader's repo is the one place with project context; with no leader
-      // registered the item has no directory, so any teammate may take it.
-      directory = directory || this.getLeader()?.directory;
-    }
-    // A registered source may override where/what the item is (hook: resolveItem).
+    // A registered source may override where/what the item is (hook: resolveItem;
+    // e.g. a triage item takes the note's title and the leader's directory).
     const src = this.sources.forWorkDef(def);
     const resolved = src?.source.resolveItem?.(def, src.ctx);
     if (resolved?.title !== undefined) title = resolved.title;
@@ -1419,13 +1517,15 @@ export class Store {
   /** Cancel a task's active WorkItem (internal override on position changes). */
   private abandonActiveWorkItem(taskId: string): void {
     const item = this.getActiveWorkItemForTask(taskId);
-    if (item) this.setWorkItemStateRow(item.id, "CANCELED");
+    if (!item) return;
+    this.setWorkItemStateRow(item.id, "CANCELED");
+    this.notifyItemTerminal(item.id);
   }
 
   /**
    * Pick the next READY WorkItem for a polling agent using directory affinity
-   * (docs/DESIGN.md "Work Matching: Directory Affinity"). Eligibility: task refs must belong to a ready,
-   * active (not pending) story. Priority tiers:
+   * (docs/DESIGN.md "Work Matching: Directory Affinity"). Eligibility is the
+   * owning source's (`isWorkItemEligible`). Priority tiers:
    *   1. item.directory == agent.directory  (my repo's work)
    *   2. item has no directory              (anyone's)
    *   3. item.directory != agent.directory AND no online agent has that dir
@@ -1479,33 +1579,19 @@ export class Store {
 
   /** A READY WorkItem is eligible if its backing work still wants doing. */
   private isWorkItemEligible(wi: WorkItem): boolean {
-    const task = this.getTask(wi.ref.workDefId);
-    if (task) {
-      const story = this.getStory(task.storyId);
-      // A pending story hands out nothing new (its in-flight item, already
-      // IN_PROGRESS, isn't READY and so finishes normally).
-      if (!story || story.pending || !this.isStoryReady(story.id)) return false;
-      const wf = this.getWorkflowForStory(story.id);
-      return isAgentState(wf, task.status);
-    }
     const def = this.getWorkDef(wi.ref.workDefId);
     if (!def) return false;
-    // A registered source decides for its own defs (hook: isEligible).
+    // A registered source decides for its own defs (hook: isEligible; Story:
+    // its story active and ready, the task in an agent state).
     const src = this.sources.forWorkDef(def);
     if (src?.source.isEligible) return src.source.isEligible(def, src.ctx);
-    // Triage: only while its note is still there and active (archiving a note
-    // archives its WorkDef, but an in-flight item must stop being handed out).
-    if (def.parent?.kind === "thought") {
-      const note = this.getThought(def.parent.id);
-      return note !== null && note.status === "active";
-    }
-    // Standalone (Solitary/Scheduled) WorkDef: eligible while it exists.
+    // No hook (e.g. Scheduled): eligible while it exists.
     return true;
   }
 
   /**
-   * Lease a READY WorkItem to a member (→ IN_PROGRESS). Board tasks also get an
-   * assignment row. Refused (false) if the item isn't READY or its directory is
+   * Lease a READY WorkItem to a member (→ IN_PROGRESS), then tell its source
+   * (hook: onItemClaimed — Story records the board's assignment row). Refused (false) if the item isn't READY or its directory is
    * busy: the lease is re-checked here, inside one IMMEDIATE transaction, so two
    * agents that were both offered items for one directory can't both claim
    * (docs/DESIGN.md "Work Matching: Directory Affinity").
@@ -1519,10 +1605,9 @@ export class Store {
         return false;
       }
       this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
-      if (this.getTask(item.ref.workDefId)) {
-        this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
-        this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(item.ref.workDefId, memberId, Date.now());
-      }
+      const def = this.getWorkDef(item.ref.workDefId);
+      const src = def ? this.sources.forWorkDef(def) : undefined;
+      if (def && src?.source.onItemClaimed) src.source.onItemClaimed(def, { ...item, state: "IN_PROGRESS", memberId }, memberId, src.ctx);
       this.db.exec("COMMIT");
       return true;
     } catch (e) {
@@ -1575,11 +1660,12 @@ export class Store {
   }
 
   /**
-   * Agent-facing terminal transition (the single state-setter). COMPLETE on a
-   * board task advances it; FAILED leaves it stuck. The daemon posts NO comment
-   * — the agent composes its own completion/failure comment (via the comment
-   * routes) before setting state. Returns the resulting task position for board
-   * tasks.
+   * Agent-facing terminal transition (the single state-setter). The item's
+   * assignment row (if any) is released and its source is told (hook:
+   * onItemTerminal — COMPLETE on a board task advances it; FAILED leaves it
+   * stuck). The daemon posts NO comment — the agent composes its own
+   * completion/failure comment (via the comment routes) before setting state.
+   * Returns whatever the source reports back (a board task's new position).
    */
   setWorkItemState(id: string, state: "COMPLETE" | "FAILED"): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
     const item = this.getWorkItem(id);
@@ -1588,53 +1674,35 @@ export class Store {
       return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
     }
     this.setWorkItemStateRow(id, state);
-    this.notifyItemTerminal(id);
+    this.releaseTask(item.ref.workDefId);
     // The daemon posts nothing: the agent composes its own completion/failure
     // comment (see the teammate loop / fail tool) before calling this.
-    if (this.getTask(item.ref.workDefId)) {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
-      if (state === "COMPLETE") {
-        const advance = this.advanceTask(item.ref.workDefId);
-        return { ok: true, ...advance };
-      }
-      // FAILED: leave the task in place (stuck) with no active WorkItem.
-    }
-    return { ok: true };
+    const outcome = this.notifyItemTerminal(id);
+    return { ok: true, ...outcome };
   }
 
   /**
-   * Tell the item's source it reached a terminal state (hook: onItemTerminal).
-   * Fire-and-forget: a source's failure (sync or async) is logged, never
-   * allowed to undo the state change the agent just made.
+   * Tell the item's source it reached a terminal state (hook: onItemTerminal):
+   * COMPLETE/FAILED from the agent, and CANCELED / force-FAILED from a person
+   * or a board move. A synchronous hook's outcome (e.g. a board task's new position) is
+   * returned; an async one is fire-and-forget. A source's failure (sync or
+   * async) is logged, never allowed to undo the state change the agent just made.
    */
-  private notifyItemTerminal(itemId: string): void {
+  private notifyItemTerminal(itemId: string): ItemTerminalOutcome {
     const item = this.getWorkItem(itemId);
     const def = item ? this.getWorkDef(item.ref.workDefId) : null;
-    if (!item || !def) return;
+    if (!item || !def) return {};
     const src = this.sources.forWorkDef(def);
-    if (!src?.source.onItemTerminal) return;
+    if (!src?.source.onItemTerminal) return {};
     const fail = (e: unknown) => src.ctx.log(`onItemTerminal failed: ${e instanceof Error ? e.message : String(e)}`);
     try {
       const r = src.source.onItemTerminal(def, item, src.ctx);
       if (r instanceof Promise) r.catch(fail);
+      else if (r) return r;
     } catch (e) {
       fail(e);
     }
-  }
-
-  /**
-   * Advance a task out of its current agent state to the next state (or `done`),
-   * then re-run admission (finishing the last state frees the CONWIP token).
-   * `keepWorkItem` on setTaskPosition avoids abandoning the item we just closed.
-   */
-  private advanceTask(taskId: string): { newStatus?: string; completed?: boolean } {
-    const task = this.getTask(taskId);
-    if (!task) return {};
-    const wf = this.getWorkflowForStory(task.storyId);
-    const next = nextState(wf, task.status);
-    this.setTaskPosition(taskId, next, true);
-    this.runAdmission(task.storyId);
-    return { newStatus: next, completed: next === DONE_STATE };
+    return {};
   }
 
   /**
@@ -1700,7 +1768,8 @@ export class Store {
     const item = this.getWorkItem(id);
     if (!item || item.state !== "READY") return false;
     this.setWorkItemStateRow(id, "CANCELED");
-    if (this.getTask(item.ref.workDefId)) this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
+    this.releaseTask(item.ref.workDefId);
+    this.notifyItemTerminal(id);
     return true;
   }
 
@@ -1709,7 +1778,8 @@ export class Store {
     const item = this.getWorkItem(id);
     if (!item || item.state !== "MORIBUND") return { ok: false, error: "WorkItem is not moribund" };
     this.setWorkItemStateRow(id, "FAILED");
-    if (this.getTask(item.ref.workDefId)) this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(item.ref.workDefId);
+    this.releaseTask(item.ref.workDefId);
+    this.notifyItemTerminal(id);
     let newItem: WorkItem | null = null;
     if (reEnqueue) newItem = this.reEnqueueRef(item.ref);
     return { ok: true, newItem };
@@ -1730,38 +1800,24 @@ export class Store {
   }
 
   // --- Mechanical rules: admission (CONWIP) + advance ---
+  //
+  // The board policy lives in the Story source (daemon/sources/story.ts); these
+  // are the Store's entry points into it.
 
   /**
-   * CONWIP admission: pull the next task (story order) from `todo` into the
-   * workflow's first active state — but only when the story has no task
-   * anywhere in its active section (WIP = 1 per story). `excludeTaskId` keeps
-   * a just-shelved task from being re-admitted by its own move.
+   * CONWIP admission (WIP = 1 per story): pull the story's next `todo` task into
+   * its workflow's first active state if nothing is in flight. `excludeTaskId`
+   * keeps a just-shelved task from being re-admitted by its own move.
    */
   runAdmission(storyId: string, excludeTaskId?: string): void {
-    const story = this.getStory(storyId);
-    if (!story || story.status !== "open" || story.pending) return;
-    if (!this.isStoryReady(storyId)) return;
-
-    const wf = this.getWorkflowForStory(storyId);
-    const first = firstActiveState(wf);
-    if (!first) return; // empty workflow: nothing to admit into
-
-    const tasks = this.getTasksForStory(storyId);
-    // Token taken: something is already in the active section.
-    if (tasks.some((t) => isActiveState(wf, t.status))) return;
-
-    const candidate = tasks.find((t) => t.status === TODO_STATE && t.id !== excludeTaskId);
-    if (!candidate) return;
-    // A pending task holds its place: tasks are sequential, so admitting the one
-    // after it would run step N+1 before step N exists. The story waits until
-    // the task is activated (docs/DESIGN.md "Pending: Write, Review, Activate").
-    if (this.isPending(candidate.id)) return;
-
-    // setTaskPosition creates the READY WorkItem when landing in an agent state.
-    this.setTaskPosition(candidate.id, first);
+    this.storySource.runAdmission(storyId, excludeTaskId);
   }
 
-  /** Release a task's assignment row (does not change its position). */
+  /**
+   * Release a WorkDef's assignment row (does not change its position). Only
+   * board tasks have one (the Story source records it at claim); for any other
+   * WorkDef this is a no-op, so the queue releases it unconditionally.
+   */
   releaseTask(taskId: string): void {
     this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
   }
@@ -2214,17 +2270,26 @@ export class Store {
       this.reconcileTeammatePool();
     }, 30_000);
 
-    // Work Source tick, every 30s: the Schedule source enqueues due Scheduled
-    // WorkDefs here (matching is minute-granular and deduped per minute; see
-    // cron.ts and daemon/sources/schedule.ts).
-    this.schedulerTimer = setInterval(() => this.tickWorkSources(), 30_000);
+    // Work Source ticks, one timer per ticking source at the interval it asks
+    // for (`tickEveryMs`, default 30s): the Schedule source enqueues due
+    // Scheduled WorkDefs every 30s (minute-granular, deduped per minute; see
+    // cron.ts and daemon/sources/schedule.ts); the Thought source sweeps the
+    // notes every triage `intervalMinutes`, and has no timer when triage is off
+    // (TODO.md "Auto Triage"; daemon/sources/thought.ts).
+    for (const { id, everyMs } of this.sources.tickSchedule(30_000)) {
+      this.sourceTimers.push(setInterval(() => this.sources.tick(id, new Date()), everyMs));
+    }
 
-    // Auto-triage sweep: one pass over the notes every `intervalMinutes`. Its own
-    // timer rather than a Schedule, because a Schedule enqueues one WorkDef and a
-    // sweep enqueues many (TODO.md "Auto Triage").
-    const triage = resolveTriage(this.config);
-    if (triage.enabled) {
-      this.triageTimer = setInterval(() => this.runTriageSweep(), triage.intervalMinutes * 60 * 1000);
+    // External sources' sync, one timer each at `syncEveryMs` (default 60s), plus
+    // a prompt first run so a restarted daemon catches up without waiting a full
+    // interval. SyncRunner isolates them: a slow or failing source never blocks
+    // the timer, the daemon, or another source (daemon/sources/sync.ts).
+    for (const entry of this.sources.external()) {
+      const everyMs = entry.source.syncEveryMs ? entry.source.syncEveryMs(entry.ctx) : DEFAULT_SYNC_EVERY_MS;
+      if (everyMs === null || everyMs <= 0) continue;
+      const run = () => void this.syncRunner.run(entry);
+      this.syncTimers.push(setTimeout(run, 1_000));
+      this.syncTimers.push(setInterval(run, everyMs));
     }
   }
 
@@ -2232,8 +2297,11 @@ export class Store {
     if (this.flushTimer) clearInterval(this.flushTimer);
     if (this.commitTimer) clearInterval(this.commitTimer);
     if (this.heartbeatCheckTimer) clearInterval(this.heartbeatCheckTimer);
-    if (this.schedulerTimer) clearInterval(this.schedulerTimer);
-    if (this.triageTimer) clearInterval(this.triageTimer);
+    for (const t of this.sourceTimers) clearInterval(t);
+    this.sourceTimers = [];
+    // clearInterval also clears the first-run timeouts (one timer id space).
+    for (const t of this.syncTimers) clearInterval(t);
+    this.syncTimers = [];
   }
 
   /** The team's config, as resolved at startup. */
@@ -2316,98 +2384,35 @@ export class Store {
   // time. The turn rule (only a content edit is the author's turn) is in
   // daemon/triage.ts; the note's frontmatter holds the version last handed over.
 
+  // The sweep, Triage now, and the due rule live in the Thought Work Source
+  // (daemon/sources/thought.ts); these are the Store's entry points into it.
+
   /**
    * One triage pass over the notes: enqueue a WorkItem for every note whose text
-   * has moved on since its last analysis. Returns the items enqueued.
-   *
-   * Every non-archived, non-empty note is eligible and there is no per-sweep cap,
-   * so the first sweep after enabling triage covers the whole board (Decisions 1–2).
+   * has moved on since its last analysis. Returns the items enqueued. (The
+   * Thought source's timer calls the same sweep.)
    */
   runTriageSweep(now: number = Date.now()): WorkItem[] {
-    const { enabled, quietMinutes } = resolveTriage(this.config);
-    if (!enabled) return [];
-    const out: WorkItem[] = [];
-    for (const note of this.getThoughts("active")) {
-      if (!isTriageDue({ note, inFlight: this.hasTriageInFlight(note.id), now, quietMinutes })) continue;
-      const item = this.enqueueTriage(note.id);
-      if (item) out.push(item);
-    }
-    return out;
+    return this.thoughtSource.sweep(now);
   }
 
   /**
    * Enqueue a triage run for one note now, skipping the quiet period and the
-   * "unchanged" rule — this is the **Triage now** button, and the only way to
-   * retry a note whose last run failed (its version was already stamped).
-   * Refuses only when a run is already in flight, or the note can't be triaged.
+   * "unchanged" rule — the **Triage now** button. Refuses only when a run is
+   * already in flight, or the note can't be triaged.
    */
   triageNow(thoughtId: string): { ok: true; workItem: WorkItem } | { ok: false; error: string } {
-    const note = this.getThought(thoughtId);
-    if (!note) return { ok: false, error: `Thought "${thoughtId}" not found` };
-    const reason = triageSkipReason({ note, inFlight: this.hasTriageInFlight(thoughtId), now: 0, quietMinutes: 0 });
-    // "unchanged"/"too-fresh" are what this button exists to override.
-    if (reason === "archived") return { ok: false, error: "An archived note isn't triaged" };
-    if (reason === "empty") return { ok: false, error: "An empty note has nothing to triage" };
-    if (reason === "in-flight") return { ok: false, error: "This note is already being triaged" };
-    const item = this.enqueueTriage(thoughtId);
-    return item ? { ok: true, workItem: item } : { ok: false, error: "Could not enqueue triage" };
+    return this.thoughtSource.triageNow(thoughtId);
   }
 
   /** Why the sweep would skip this note right now (null = it's due). */
   triageStatusFor(thoughtId: string, now: number = Date.now()): TriageSkipReason | null {
-    const note = this.getThought(thoughtId);
-    if (!note) return "archived";
-    const { quietMinutes } = resolveTriage(this.config);
-    return triageSkipReason({ note, inFlight: this.hasTriageInFlight(thoughtId), now, quietMinutes });
+    return this.thoughtSource.statusFor(thoughtId, now);
   }
 
   /** A note's triage WorkDef, created on first use (never for a note that's never analysed). */
   ensureTriageWorkDef(thoughtId: string): WorkDef | null {
-    const note = this.getThought(thoughtId);
-    if (!note) return null;
-    const id = triageWorkDefId(thoughtId);
-    const existing = getWorkDef(this.teamDir, id);
-    if (existing) {
-      // A note un-archived after its WorkDef was archived: bring it back.
-      if (existing.status === "archived" && note.status === "active") {
-        return updateWorkDef(this.teamDir, id, { status: "active" });
-      }
-      return existing;
-    }
-    // Authored content only, and there is none: the instructions live in
-    // triage.md and the note's text is injected at claim time.
-    return saveWorkDef(this.teamDir, {
-      id,
-      title: triageWorkDefTitle(thoughtId),
-      parent: { kind: "thought", id: thoughtId },
-      goal: "",
-      acceptanceCriteria: "",
-    });
-  }
-
-  /** Is a triage run for this note queued or running? */
-  private hasTriageInFlight(thoughtId: string): boolean {
-    return this.getActiveWorkItemForRef({ workDefId: triageWorkDefId(thoughtId) }) !== null;
-  }
-
-  /**
-   * Create the WorkDef if needed, enqueue a WorkItem, and stamp the note with the
-   * version handed over. Stamping **at enqueue** is what makes an edit during a
-   * run survive (it lands after the stamp, so the note is due again) and a failed
-   * run not retry every sweep.
-   */
-  private enqueueTriage(thoughtId: string): WorkItem | null {
-    const note = this.getThought(thoughtId);
-    if (!note) return null;
-    if (!this.ensureTriageWorkDef(thoughtId)) return null;
-    const item = this.enqueueFor(triageWorkDefId(thoughtId));
-    if (!item) return null;
-    const fresh = ioGetThought(this.teamDir, thoughtId);
-    if (fresh) {
-      fresh.triagedVersion = fresh.updatedAt;
-      writeThought(this.teamDir, fresh);
-    }
-    return item;
+    return this.thoughtSource.ensureWorkDef(thoughtId);
   }
 
   /**
@@ -3393,19 +3398,24 @@ export class Store {
     if (!existing) return null;
     if (!existing.pending) return { error: `WorkDef "${id}" is already active` };
     const def = updateWorkDef(this.teamDir, id, { pending: false })!;
-    let workItem: WorkItem | null = null;
-    if (def.parent?.kind === "story") {
-      const task = this.getTask(id);
-      if (task) {
-        const wf = this.getWorkflowForStory(task.storyId);
-        if (isAgentState(wf, task.status)) workItem = this.enqueueWorkDef(id);
-        else this.runAdmission(task.storyId);
-        workItem = workItem ?? this.getActiveWorkItemForTask(id);
-      }
-    } else if (!def.parent && opts.enqueue !== false && def.status !== "archived") {
-      workItem = this.enqueueWorkDef(id);
-    }
+    // Its source decides (hook: onActivate; a board task enqueues or runs
+    // admission, Solitary enqueues, Scheduled waits for its cron). No hook = nothing now.
+    const src = this.sources.forWorkDef(def);
+    const workItem = src?.source.onActivate?.(def, opts, src.ctx) ?? null;
     return { def, workItem };
+  }
+
+  /**
+   * **Run** a WorkDef (`POST /api/work-defs/:id/enqueue`): its source's `run`
+   * rule (Triage: Triage now), or the Solitary rule — refuse a pending or
+   * in-flight def, else enqueue — for a kind without one.
+   */
+  runWorkDef(id: string): RunResult {
+    const def = this.getWorkDef(id);
+    if (!def) return { ok: false, error: "Unknown WorkDef, or one is already in flight" };
+    const src = this.sources.forWorkDef(def);
+    if (src?.source.run) return src.source.run(def, src.ctx);
+    return runSolitary(def, src?.ctx ?? this.makeSourceContext(sourceIdForWorkDef(def)));
   }
 
   updateWorkDefDetails(id: string, updates: {
@@ -3429,7 +3439,10 @@ export class Store {
   deleteWorkDef(id: string): boolean {
     // Cancel any active WorkItem for this def, then remove it from disk.
     const active = this.getActiveWorkItemForRef({ workDefId: id });
-    if (active) this.setWorkItemStateRow(active.id, "CANCELED");
+    if (active) {
+      this.setWorkItemStateRow(active.id, "CANCELED");
+      this.notifyItemTerminal(active.id);
+    }
     return deleteWorkDef(this.teamDir, id);
   }
 
@@ -3745,6 +3758,28 @@ export class Store {
     const comment: Comment = { from, body, at: new Date().toISOString() };
     if (attachments && attachments.length > 0) comment.attachments = attachments;
     Deno.writeTextFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(comment) + "\n", { append: true });
+    this.notifyComment(ref, comment);
+  }
+
+  /**
+   * Tell the def's source a comment was added (hook: onComment — write-back,
+   * e.g. a teammate's completion comment to the external item). Fire-and-forget:
+   * an async hook's promise is never awaited, so the caller (a route, the agent
+   * protocol) doesn't wait on the external system, and a throw or rejection is
+   * only logged. Called synchronously, like onItemTerminal, so a source sees a
+   * teammate's closing comment before the state change that follows it.
+   */
+  private notifyComment(ref: WorkItemRef, comment: Comment): void {
+    const def = this.getWorkDef(ref.workDefId);
+    const src = def ? this.sources.forWorkDef(def) : undefined;
+    if (!def || !src?.source.onComment) return;
+    const fail = (e: unknown) => src.ctx.log(`onComment failed: ${e instanceof Error ? e.message : String(e)}`);
+    try {
+      const r = src.source.onComment(def, { ...comment }, src.ctx);
+      if (r instanceof Promise) r.catch(fail);
+    } catch (e) {
+      fail(e);
+    }
   }
 
   saveAttachmentForRef(ref: WorkItemRef, filename: string, data: Uint8Array | string): string | null {
@@ -3834,6 +3869,8 @@ export class Store {
 
   close(): void {
     this.stopTimers();
+    // A sync still in flight must not write to a closed DB when it resolves.
+    this.syncRunner.stop();
     this.flushToDisk();
     // Snapshot the live chat on the way out so the transcript is on disk.
     this.refreshAssistantSnapshot(true);

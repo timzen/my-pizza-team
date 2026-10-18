@@ -59,6 +59,14 @@ export interface TeamConfig {
    */
   experimental?: { harnesses?: boolean };
   /**
+   * Development/test-only switches. `fixtureSource` registers the in-repo
+   * markdown-folder Work Source (daemon/sources/fixture.ts) — the stand-in for
+   * an external (pull-only) source while package loading is deferred (TODO.md
+   * "Work Sources as plugins — package loading (deferred)"). Hand-edited only;
+   * never written by `mpt setup` or the Config page.
+   */
+  dev?: { fixtureSource?: FixtureSourceConfig };
+  /**
    * One teammate per directory (default true). While a WorkItem with a
    * `directory` is IN_PROGRESS or MORIBUND, no other WorkItem whose directory
    * overlaps it (same path, parent, or child) is handed out — so two pieces of
@@ -293,27 +301,58 @@ export interface WorkItem {
  * decides when it emits WorkItems); its "type" is derived from the parent kind:
  *   - parent { kind: "story" }    → a board task (workflow-driven)
  *   - parent { kind: "schedule" } → scheduled (cron-driven)
+ *   - parent { kind: "thought" }  → triage (a note's analysis thread)
+ *   - parent { kind: "external", source } → a read-only mirror of an external
+ *     source's item, written only by its sync (the one exception to authored-only)
  *   - no parent                    → Solitary (manual)
  * No mutable/runtime state lives on a WorkDef: workflow status lives on the
  * Story, cron/lastEnqueuedAt on the Schedule. The daemon never rewrites a
  * WorkDef file except on an explicit human/agent edit.
  */
-export type WorkDefParentKind = "story" | "schedule" | "thought";
+export type WorkDefParentKind = "story" | "schedule" | "thought" | "external";
 
 export interface WorkDefParent {
   kind: WorkDefParentKind;
+  /** The parent's id; for `external`, the item's id in the external system. */
   id: string;
+  /**
+   * `external` only: the id of the Work Source that mirrors it (e.g. "jira").
+   * See docs/DESIGN.md "Work Sources" — external sources.
+   */
+  source?: string;
 }
 
 /** Derived label for a WorkDef, from its parent kind. */
-export type WorkDefType = "Solitary" | "Scheduled" | "Board" | "Triage";
+export type WorkDefType = "Solitary" | "Scheduled" | "Board" | "Triage" | "External";
 
 /** Derive the display type from a WorkDef's parent. */
 export function workDefType(parent?: WorkDefParent): WorkDefType {
   if (!parent) return "Solitary";
   if (parent.kind === "schedule") return "Scheduled";
   if (parent.kind === "thought") return "Triage";
+  if (parent.kind === "external") return "External";
   return "Board";
+}
+
+/**
+ * Is this a mirrored WorkDef — a read-only local copy of an item an external
+ * (pull-only) Work Source supplies? MPT never authors these; only the source's
+ * sync writes them (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins").
+ */
+export function isMirroredWorkDef(def: { parent?: WorkDefParent }): boolean {
+  return def.parent?.kind === "external";
+}
+
+/** `config.dev.fixtureSource`: the markdown-folder fixture source (daemon/sources/fixture.ts). */
+export interface FixtureSourceConfig {
+  /** Folder of `*.md` files, one per def (absolute, or relative to the team dir). */
+  dir: string;
+  /** Source id (default "fixture"). */
+  id?: string;
+  /** Display name, for "Open in <label>" (default "Fixture"). */
+  label?: string;
+  /** Sync interval in seconds (default 60). */
+  intervalSeconds?: number;
 }
 
 export interface WorkDef {
@@ -349,6 +388,11 @@ export interface WorkDef {
    * navigable in both directions.
    */
   origin?: WorkDefOrigin;
+  /**
+   * Mirrored defs only: the link back to the item in the external system
+   * (the "Open in <source>" link). Mirrored content, written by sync.
+   */
+  url?: string;
 }
 
 /** The triage proposal a WorkDef was created from. */

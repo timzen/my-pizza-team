@@ -14,6 +14,7 @@
 import type { WorkDef } from "../../shared/types.ts";
 import { isCronDue } from "../cron.ts";
 import { listSchedules, scheduleCursor, updateSchedule } from "../store/schedules.ts";
+import { activeWorkDefs } from "./toggle.ts";
 import type { SourceContext, WorkSource } from "./types.ts";
 
 /** The Schedule source's id (= its WorkDefs' `parent.kind`). */
@@ -79,5 +80,12 @@ export function runSchedules(ctx: SourceContext, now: Date): void {
 export const scheduleSource: WorkSource = {
   id: SCHEDULE_SOURCE_ID,
   apiVersion: 1,
+  // `features.schedules`: the Schedules themselves, plus every Scheduled WorkDef
+  // (via /api/work-defs). Only active Scheduled WorkDefs block switching it off.
+  toggle: {
+    feature: "schedules",
+    routes: ["/api/schedules", "/api/schedules/*"],
+    activeItems: (ctx) => activeWorkDefs(ctx, "scheduled task", "scheduled tasks"),
+  },
   tick: runSchedules,
 };

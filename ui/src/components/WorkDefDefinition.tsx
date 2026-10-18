@@ -9,6 +9,10 @@
  * read-only with a hint that revisions go through the Thread plus a re-run.
  * Activating posts `/api/work-defs/:id/activate`, after which the daemon may
  * enqueue it.
+ *
+ * A **mirrored** (External) definition passes `readOnlyNote`: it's authored in
+ * its external source (pull only), so it renders read-only with that note and
+ * no Edit or Activate, whatever its state (docs/DESIGN.md "Work Sources").
  */
 
 import { useState, type ReactNode } from "react";
@@ -28,7 +32,7 @@ import { Lock, Pencil, Save, Send, X } from "lucide-react";
 export interface WorkDefDefinitionData {
   id: string;
   title: string;
-  type: "Solitary" | "Scheduled" | "Board" | "Triage";
+  type: "Solitary" | "Scheduled" | "Board" | "Triage" | "External";
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
@@ -45,6 +49,8 @@ interface Props {
   onChanged: () => void;
   /** Host actions rendered beside Edit/Save (e.g. Delete). */
   actions?: ReactNode;
+  /** Never editable here; shown in place of the pending/locked line (a mirrored def's "edit it in <source>"). */
+  readOnlyNote?: string;
 }
 
 /** What activating does for each type, shown on the Activate button's tooltip. */
@@ -69,7 +75,7 @@ export function PendingBadge({ className = "" }: { className?: string }) {
   );
 }
 
-export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions }: Props) {
+export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions, readOnlyNote }: Props) {
   const [editing, setEditing] = useState(false);
   const [title, setTitle] = useState("");
   const [goal, setGoal] = useState("");
@@ -120,7 +126,11 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions 
 
   return (
     <div className="space-y-4">
-      {def.pending ? (
+      {readOnlyNote ? (
+        <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
+          <Lock className="h-3 w-3" />{readOnlyNote}
+        </p>
+      ) : def.pending ? (
         <div className="flex items-center gap-3 rounded-md border border-amber-500/40 bg-amber-500/5 p-3">
           <PendingBadge />
           <p className="text-sm text-muted-foreground flex-1">

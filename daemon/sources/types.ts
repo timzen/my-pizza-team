@@ -20,10 +20,12 @@ import type { Comment, TeamConfig, WorkDef, WorkItem } from "../../shared/types.
 export const WORK_SOURCE_API_VERSION = 1;
 
 /**
- * A WorkDef as an external (pull-only) source reports it from `sync`. The
- * `revision` is the source's own change marker (an updated-at, an etag): the
- * daemon re-mirrors a def only when its revision moves. Mirroring is not wired
- * yet — the type is fixed now so the interface is stable.
+ * A WorkDef as an external (pull-only) source reports it from `sync` (or hands
+ * to `ctx.upsertDef`). The daemon keeps a read-only local copy — a **mirrored
+ * WorkDef** with id `mirroredWorkDefId(sourceId, externalId)` (daemon/sources/mirror.ts)
+ * — so prompts, the thread, and the UI work offline. The `revision` is the
+ * source's own change marker (an updated-at, an etag; opaque, compared for
+ * equality only): the mirror is rewritten, and a WorkItem created, only when it moves.
  */
 export interface ExternalDef {
   /** The source's own id for the item (stable across syncs). */
@@ -37,6 +39,72 @@ export interface ExternalDef {
   directory?: string;
   /** Link back to the item in the external system, for the UI. */
   url?: string;
+}
+
+/** What one sync pass did (`Store.syncWorkSource`), for logs and tests. */
+export interface SyncOutcome {
+  ok: boolean;
+  /** Why it failed (a throw, a timeout, a bad result), when `ok` is false. */
+  error?: string;
+  /** Skipped without calling `sync`: already running, or backing off after failures. */
+  skipped?: "in-flight" | "backoff";
+  /** Mirrored defs written (new, or a moved revision). */
+  mirrored: string[];
+  /** WorkItems created (one per new revision). */
+  enqueued: string[];
+  /** Mirrored defs archived because the source no longer reports them. */
+  archived: string[];
+  /** New revisions not enqueued because the daemon isn't ready (retried next sync). */
+  held: string[];
+}
+
+/**
+ * A source's own persisted key/value store (strings only), one per source,
+ * kept in `sources/<sourceId>.json` (daemon/store/source-kv.ts). Runtime state
+ * a source needs across restarts — cursors, revision stamps — lives here, never
+ * in the authored `workdef.md`.
+ */
+export interface SourceKv {
+  get(key: string): string | undefined;
+  set(key: string, value: string): void;
+  delete(key: string): void;
+}
+
+/**
+ * Where `enqueueRevision` reads and writes "the revision last handed over" for
+ * a WorkDef. The default is the source's own `kv`; a source whose stamp already
+ * lives elsewhere (Thought: the note's `triagedVersion` frontmatter) passes its own.
+ */
+export interface RevisionCursor {
+  get(defId: string): string | undefined;
+  set(defId: string, revision: string): void;
+}
+
+/** Options for `SourceContext.enqueueRevision`. */
+export interface EnqueueRevisionOptions {
+  /**
+   * Enqueue even if `revision` was already handed over (a manual re-run, e.g.
+   * **Triage now**). An in-flight item still refuses: one run at a time.
+   */
+  force?: boolean;
+  /** Where the stamp lives. Default: this source's `kv` (key `revision:<defId>`). */
+  cursor?: RevisionCursor;
+}
+
+/** The outcome of a manual **Run** of a WorkDef (`WorkSource.run`). */
+export type RunResult =
+  | { ok: true; workItem: WorkItem }
+  /** `conflict`: refused because of the def's state (pending, in flight) rather than a bad request. */
+  | { ok: false; error: string; conflict?: boolean };
+
+/**
+ * What a source may report back from `onItemTerminal`, returned to the agent
+ * that set the state (`POST /api/agents/work-items/:id/state`). Story: the
+ * task's new board position, and whether that finished it (`done`).
+ */
+export interface ItemTerminalOutcome {
+  newStatus?: string;
+  completed?: boolean;
 }
 
 /**
@@ -63,6 +131,23 @@ export interface SourceContext {
    * (`enqueueFor`). Returns null when it refuses (missing or pending def).
    */
   enqueue(defId: string): WorkItem | null;
+  /**
+   * Enqueue once per revision of the source content (the core dedupe; see
+   * daemon/sources/revision.ts). Refuses (null) when an item is already in
+   * flight, or — unless `force` — when `revision` is the one last handed over.
+   * On success the revision is stamped **at enqueue**, so a change made during
+   * the run is due again afterwards, and a failed run doesn't retry on its own.
+   */
+  enqueueRevision(defId: string, revision: string, opts?: EnqueueRevisionOptions): WorkItem | null;
+  /**
+   * External sources: write (or refresh) the read-only mirror of one external
+   * item and return it. A no-op when its `revision` is the one already mirrored.
+   * Mirroring alone never enqueues; the daemon's sync loop does that, once per
+   * revision. Returns null for an invalid def (missing `externalId`/`revision`/`title`).
+   */
+  upsertDef(def: ExternalDef): WorkDef | null;
+  /** This source's persisted key/value store (`sources/<sourceId>.json`). */
+  kv: SourceKv;
   /** Readiness, as the daemon decides it (docs/DESIGN.md "Readiness Gating"). */
   readiness: {
     /** May timed work be enqueued right now? (no agents online → yes; else the team's report). */
@@ -71,15 +156,60 @@ export interface SourceContext {
 }
 
 /**
+ * What still holds a toggleable source on: its active (non-archived) item
+ * count, worded for the user ("3 stories", "2 tasks and 1 template").
+ */
+export interface ActiveSourceItems {
+  count: number;
+  description: string;
+}
+
+/**
+ * How a source is switched on/off (docs/DESIGN.md "Feature Toggles"). A source
+ * that declares one gets, from daemon/features.ts, for free: the `features.<feature>`
+ * config flag (missing = on), the 403 gate on its routes and on its WorkDefs'
+ * `/api/work-defs` routes, hiding its WorkDefs from the list, and the 409
+ * "can't switch off while it has active items" guard. A source without one
+ * (Thought) is always on.
+ */
+export interface SourceToggle {
+  /**
+   * The key under config `features`. The built-ins keep their historical names
+   * (story → "stories", task → "tasks", schedule → "schedules") so existing
+   * configs read unchanged.
+   */
+  readonly feature: string;
+  /**
+   * Extra route patterns (Hono syntax) the gate refuses while off, beyond this
+   * source's WorkDefs under `/api/work-defs`. Read once, when the app is built.
+   */
+  readonly routes?: readonly string[];
+  /**
+   * The items that block switching it off. Default: this source's non-archived
+   * WorkDefs (pending ones included — held work is still work).
+   */
+  activeItems?(ctx: SourceContext): ActiveSourceItems;
+}
+
+/**
  * One WorkDef kind's plugin. Every hook but `id`/`apiVersion` is optional; the
  * daemon's default for a missing hook is the behavior of a Solitary task
  * (eligible while it exists, no title/directory override, the base prompt,
- * nothing on terminal).
+ * nothing on terminal, Run enqueues) — except `onActivate`, whose default is
+ * to do nothing.
  */
 export interface WorkSource {
-  /** Unique id. Built-ins use their `parent.kind` ("story", "schedule", "thought") or "task". */
+  /**
+   * Unique id. Built-ins use their `parent.kind` ("story", "schedule", "thought")
+   * or "task". An external source's id must match `SOURCE_ID_PATTERN`
+   * (lowercase, dashes): it names its kv file and prefixes its mirrored WorkDef ids.
+   */
   readonly id: string;
   readonly apiVersion: 1;
+  /** Display name ("Jira"), for the UI's tab and "Open in <label>" link. Default: the id. */
+  readonly label?: string;
+  /** On/off switch (feature toggle). Absent = always on, not switchable. */
+  readonly toggle?: SourceToggle;
   /** Called once when registered: read config, set up state. */
   init?(ctx: SourceContext): Promise<void> | void;
   /**
@@ -88,16 +218,72 @@ export interface WorkSource {
    * owns the timer so `stopTimers` stops every source at once.
    */
   tick?(ctx: SourceContext, now: Date): void;
-  /** Daemon-driven poll, for external sources: the defs the source has now. (Not wired yet.) */
+  /**
+   * How often the daemon's timer runs this source's `tick`, in ms, read once at
+   * `startTimers`. Default 30s; null (or ≤ 0) = no timer (the tick still runs
+   * on demand via `Store.tickWorkSources`). Thought uses the triage interval.
+   */
+  tickEveryMs?(ctx: SourceContext): number | null;
+  /**
+   * A pending WorkDef was just activated (its flag already cleared): enqueue it
+   * now if this kind does so. `enqueue: false` is the caller asking to activate
+   * without running. Default: nothing (Scheduled: its next cron firing enqueues).
+   */
+  onActivate?(def: WorkDef, opts: { enqueue?: boolean }, ctx: SourceContext): WorkItem | null;
+  /**
+   * The author pressed **Run** (`POST /api/work-defs/:id/enqueue`). Default: the
+   * Solitary rule — refuse a pending or in-flight def, else enqueue
+   * (daemon/sources/task.ts `runSolitary`).
+   */
+  run?(def: WorkDef, ctx: SourceContext): RunResult;
+  /**
+   * Daemon-driven poll, for external (pull-only) sources: every item the source
+   * has *now*. The daemon mirrors each (read-only), enqueues one WorkItem per new
+   * revision (`ctx.enqueueRevision`; held while readiness says no), and archives
+   * — never deletes — the mirrors of items no longer reported. Runs every
+   * `syncEveryMs`, bounded by `syncTimeoutMs`; a throw or timeout is logged and
+   * backs the source off, and never stalls the daemon or another source
+   * (daemon/sources/sync.ts). Declaring `sync` is what makes a source external.
+   */
   sync?(ctx: SourceContext): Promise<ExternalDef[]>;
+  /** How often to run `sync`, in ms (read once at `startTimers`). Default 60s; null/≤ 0 = on demand only. */
+  syncEveryMs?(ctx: SourceContext): number | null;
+  /** How long one `sync` may take before it counts as failed, in ms. Default 30s. */
+  syncTimeoutMs?: number;
+  /**
+   * The daemon just loaded its state from disk (startup): bring the queue in
+   * line with the source's own state. Story: run admission for every story,
+   * then make sure every task in an agent state has an active WorkItem.
+   * Default: nothing.
+   */
+  reconcile?(ctx: SourceContext): void;
   /** May a READY item for this def still be handed out? Default: yes. */
   isEligible?(def: WorkDef, ctx: SourceContext): boolean;
   /** At enqueue: override the item's title/directory. Default: the def's own. */
   resolveItem?(def: WorkDef, ctx: SourceContext): { title?: string; directory?: string };
   /** At claim: the prompt, given the daemon's base prompt. Default: `base`. */
   buildPrompt?(def: WorkDef, base: string, ctx: SourceContext): string;
-  /** After an item reaches COMPLETE/FAILED (e.g. a Story advances its task). */
-  onItemTerminal?(def: WorkDef, item: WorkItem, ctx: SourceContext): Promise<void> | void;
-  /** A comment was posted on one of this source's items (write-back). (Not wired yet.) */
+  /**
+   * An item was just leased to a member (→ IN_PROGRESS). Synchronous and runs
+   * inside the claim transaction. Story: records the board's assignment row.
+   */
+  onItemClaimed?(def: WorkDef, item: WorkItem, memberId: string, ctx: SourceContext): void;
+  /**
+   * After an item reaches COMPLETE/FAILED/CANCELED (e.g. a Story advances its
+   * task on COMPLETE; an external source writes the outcome back). Called for
+   * the agent's state change, a human cancel, a forced fail, and a board move
+   * withdrawing an item. A synchronous return of an `ItemTerminalOutcome` is
+   * handed back to the agent (state change only); an async hook is
+   * fire-and-forget, its rejection logged.
+   */
+  onItemTerminal?(def: WorkDef, item: WorkItem, ctx: SourceContext): ItemTerminalOutcome | Promise<void> | void;
+  /**
+   * A comment was added to one of this source's WorkDef threads — by a human,
+   * a teammate (its completion comment), or the daemon (`[retry]`). For
+   * write-back. Fire-and-forget: called right after the comment is stored (so
+   * a closing comment arrives before the state change after it); an async
+   * hook's promise is never awaited, so it never blocks the route or the agent
+   * protocol; a throw or rejection is logged. Do slow work asynchronously.
+   */
   onComment?(def: WorkDef, comment: Comment, ctx: SourceContext): Promise<void> | void;
 }

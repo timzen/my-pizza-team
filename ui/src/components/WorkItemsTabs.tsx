@@ -7,7 +7,8 @@
  * Which tabs show follows the feature toggles (lib/work-items.ts
  * `visibleWorkItemsTabs`): Board needs Stories, Tasks needs Tasks, Schedule
  * needs Schedules; Pending and Archived mix every kind, so they stay while any
- * kind is on.
+ * kind is on. Each registered external Work Source adds a read-only tab of its
+ * own (`/work-items/source/<id>`, before Pending); none registered, none shown.
  *
  * `WorkItemsLayout` frames every Work Items tab with the shared
  * TabbedPageLayout (title + this tab bar pinned upper-left), so the header sits
@@ -19,16 +20,12 @@ import { ListTodo } from "lucide-react";
 import { TabbedPageLayout } from "@/components/TabbedPageLayout";
 
 import { RouteTabs } from "@/components/RouteTabs";
-import { useFeatures } from "@/hooks/useFeatures";
-import { visibleWorkItemsTabs, workItemsTabFromPath } from "@/lib/work-items";
+import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
+import { workItemsTabLinks } from "@/lib/work-items";
 
 export function WorkItemsTabs() {
-  const tabs = visibleWorkItemsTabs(useFeatures());
-  return (
-    <RouteTabs
-      tabs={tabs.map(({ tab, path, label }) => ({ path, label, isActive: (p: string) => workItemsTabFromPath(p) === tab }))}
-    />
-  );
+  const tabs = workItemsTabLinks(useFeatures(), useExternalSources());
+  return <RouteTabs tabs={tabs.map(({ path, label, isActive }) => ({ path, label, isActive }))} />;
 }
 
 /**

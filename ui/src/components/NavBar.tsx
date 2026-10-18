@@ -39,7 +39,7 @@ import { apiPost, useApi } from "@/hooks/useApi";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
-import { useFeatures } from "@/hooks/useFeatures";
+import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
 
 /** The slice of `/api/status` the bar reads (shared/protocol.ts StatusResponse). */
 interface NavStatus {
@@ -61,7 +61,8 @@ export function NavBar() {
   const location = useLocation();
   const workDefType = useWorkDefTypeForPath(location.pathname);
   const activeSection = navSectionForPath(location.pathname, { search: location.search, workDefType });
-  const showWorkItems = hasAnyWorkItemsFeature(useFeatures());
+  // Shown while any kind is on or an external source is registered (its tab lives there).
+  const showWorkItems = hasAnyWorkItemsFeature(useFeatures(), useExternalSources());
   const navItems = NAV_ITEMS.filter((item) => !item.workItems || showWorkItems);
   // One status poll feeds both the home-link badges and the pause toggle.
   const { data: status, refetch: refetchStatus } = useApi<NavStatus>("/api/status", [], { pollInterval: 10_000 });

@@ -24,7 +24,8 @@
  *
  * Board, Tasks, and Schedule are sub-tabs of **Work Items** (`/work-items/board
  * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work-items` lands on
- * the first enabled tab. Their old top-level URLs (`/board`, `/tasks`,
+ * the first enabled tab. Each registered external Work Source adds a read-only
+ * tab at `/work-items/source/:sourceId` (pages/ExternalSourcePage). Their old top-level URLs (`/board`, `/tasks`,
  * `/schedule`, `/pending`, `/backlog`, `/archived`) redirect there with
  * `replace`. Templates are hidden from the UI (being deprecated — the daemon's
  * template API and data are untouched); `/templates[/:id]` redirects to Tasks.
@@ -33,7 +34,7 @@
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { legacyConfigPath } from "./lib/config-tabs";
 import { defaultWorkItemsPath, legacyWorkItemsPath } from "./lib/work-items";
-import { useFeatures } from "./hooks/useFeatures";
+import { useExternalSources, useFeatures } from "./hooks/useFeatures";
 import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
@@ -48,6 +49,7 @@ import { SchedulePage } from "./pages/SchedulePage";
 import { NewWorkDefPage } from "./pages/NewWorkDefPage";
 import { WorkDefDetailPage } from "./pages/WorkDefDetailPage";
 import { LifecyclePage } from "./pages/LifecyclePage";
+import { ExternalSourcePage } from "./pages/ExternalSourcePage";
 import { NewStoryPage } from "./pages/NewStoryPage";
 import { NewTaskPage } from "./pages/NewTaskPage";
 import { ConfigPage } from "./pages/ConfigPage";
@@ -110,6 +112,8 @@ function DesktopShell() {
             {/* Pending and Archived: one mixed list each; a switched-off kind's rows and chip are hidden. */}
             <Route path="/work-items/pending" element={<LifecyclePage key="pending" state="pending" />} />
             <Route path="/work-items/archived" element={<LifecyclePage key="archived" state="archived" />} />
+            {/* One generic, read-only tab per external (pull-only) Work Source (docs/DESIGN.md "Work Sources"). */}
+            <Route path="/work-items/source/:sourceId" element={<ExternalSourcePage />} />
             {/* The pre-Work-Items URLs (and the hidden Templates) keep working. */}
             <Route path="/board" element={<LegacyWorkItemsRedirect />} />
             <Route path="/tasks" element={<LegacyWorkItemsRedirect />} />
@@ -170,8 +174,9 @@ function LegacyWorkItemsRedirect() {
  */
 function WorkItemsIndexRedirect() {
   const features = useFeatures();
+  const sources = useExternalSources();
   if (!features) return null;
-  const to = defaultWorkItemsPath(features);
+  const to = defaultWorkItemsPath(features, sources);
   return to ? <Navigate to={to} replace /> : <FeatureOffNotice />;
 }
 

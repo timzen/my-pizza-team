@@ -25,10 +25,20 @@ export interface SourceEntry {
   ctx: SourceContext;
 }
 
-/** Which source owns a WorkDef: its `parent.kind`, or "task" when it has none. */
+/**
+ * Which source owns a WorkDef: its `parent.kind`, or "task" when it has none.
+ * A mirrored def (`kind: "external"`) belongs to the source named in `parent.source`.
+ */
 export function sourceIdForWorkDef(def: Pick<WorkDef, "parent">): string {
+  if (def.parent?.kind === "external") return def.parent.source ?? "external";
   return def.parent?.kind ?? TASK_SOURCE_ID;
 }
+
+/**
+ * A source id that can name files (`sources/<id>.json`) and prefix mirrored
+ * WorkDef ids: lowercase letters, digits, and dashes, starting with a letter.
+ */
+export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 export class SourceRegistry {
   private entries = new Map<string, SourceEntry>();
@@ -47,11 +57,23 @@ export class SourceRegistry {
       throw new Error(`Work source "${source.id}" targets apiVersion ${source.apiVersion}; this daemon supports ${WORK_SOURCE_API_VERSION}`);
     }
     if (this.entries.has(source.id)) throw new Error(`Work source "${source.id}" is already registered`);
+    // An external source's id names its mirrored WorkDefs' directories, so it must be file-system safe.
+    if (source.sync && !SOURCE_ID_PATTERN.test(source.id)) {
+      throw new Error(`Work source "${source.id}": an external source's id must match ${SOURCE_ID_PATTERN}`);
+    }
     const entry: SourceEntry = { source, ctx: this.makeContext(source.id) };
     this.entries.set(source.id, entry);
     const init = source.init?.(entry.ctx);
     if (init instanceof Promise) init.catch((e) => entry.ctx.log(`init failed: ${e instanceof Error ? e.message : String(e)}`));
     return entry;
+  }
+
+  /**
+   * Remove a source (no teardown hook: the daemon owns the timers). A test seam
+   * for swapping a built-in for a fixture source; false if none was registered.
+   */
+  unregister(id: string): boolean {
+    return this.entries.delete(id);
   }
 
   /** The source registered under `id`, with its context. */
@@ -69,15 +91,53 @@ export class SourceRegistry {
     return [...this.entries.values()];
   }
 
-  /** Run every source's `tick` (the daemon's 30s timer). One source throwing doesn't stop the rest. */
+  /** The external (pull-only) sources: those with a `sync`, in registration order. */
+  external(): SourceEntry[] {
+    return this.all().filter((e) => typeof e.source.sync === "function");
+  }
+
+  /** Run every source's `tick` now. One source throwing doesn't stop the rest. */
   tickAll(now: Date = new Date()): void {
+    for (const id of this.entries.keys()) this.tick(id, now);
+  }
+
+  /** Run one source's `tick` (its timer calls this). A throw is logged, not propagated. */
+  tick(id: string, now: Date = new Date()): void {
+    const entry = this.entries.get(id);
+    if (!entry?.source.tick) return;
+    try {
+      entry.source.tick(entry.ctx, now);
+    } catch (e) {
+      entry.ctx.log(`tick failed: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * Run every source's `reconcile` (the daemon just loaded from disk), in
+   * registration order. One source throwing is logged and doesn't stop the rest.
+   */
+  reconcileAll(): void {
     for (const { source, ctx } of this.entries.values()) {
-      if (!source.tick) continue;
+      if (!source.reconcile) continue;
       try {
-        source.tick(ctx, now);
+        source.reconcile(ctx);
       } catch (e) {
-        ctx.log(`tick failed: ${e instanceof Error ? e.message : String(e)}`);
+        ctx.log(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
       }
     }
+  }
+
+  /**
+   * How often each ticking source wants its timer, in ms (`tickEveryMs`, default
+   * `defaultMs`); sources that opt out (null / ≤ 0) are left out.
+   */
+  tickSchedule(defaultMs: number): Array<{ id: string; everyMs: number }> {
+    const out: Array<{ id: string; everyMs: number }> = [];
+    for (const { source, ctx } of this.entries.values()) {
+      if (!source.tick) continue;
+      const everyMs = source.tickEveryMs ? source.tickEveryMs(ctx) : defaultMs;
+      if (everyMs !== null && everyMs > 0) out.push({ id: source.id, everyMs });
+    }
+    return out;
   }
 }

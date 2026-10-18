@@ -46,6 +46,7 @@ import { registerThoughtRoutes } from "./routes/thoughts.ts";
 import { registerTranscriptRoutes } from "./routes/transcripts.ts";
 import { registerPairingRoutes } from "./routes/pairing.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
+import { registerWorkSourceRoutes } from "./routes/work-sources.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -88,6 +89,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerAgentRoutes(ctx);
   registerWorkRoutes(ctx);
   registerWorkDefRoutes(ctx);
+  registerWorkSourceRoutes(ctx);
   registerScheduleRoutes(ctx);
   registerTemplateRoutes(ctx);
   registerAssistantRoutes(ctx);

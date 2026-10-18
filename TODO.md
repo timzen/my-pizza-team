@@ -36,18 +36,33 @@ Deno to Node, and that changes how plugin code loads. Notes so they aren't lost:
   esbuild-bundled ESM `dist/index.js` loads fine. So under Deno, plugins must ship a
   bundled entry. Under Node this mostly goes away (plain `import()` + node_modules;
   jiti/tsx for TS entries, the way pi loads extensions).
-- **Isolation:** plugins run with the daemon's full permissions, and a slow `sync()`
-  could stall the daemon. Consider one Worker per plugin (Deno Worker or Node
-  `worker_threads`), or a subprocess speaking JSON-RPC over stdio (as with ACP in
-  `agent/acp.ts`). Either way, plugins only reach the daemon through `SourceContext`.
+- **Isolation:** plugins run with the daemon's full permissions. The core already
+  bounds what it can (built): each `sync()` has a timeout, a failing source backs off,
+  syncs never overlap, and `onComment`/`onItemTerminal` are fire-and-forget
+  (`daemon/sources/sync.ts`; docs/DESIGN.md "External sources"). What's left is
+  in-process: a plugin that blocks the event loop synchronously still stalls the
+  daemon. Consider one Worker per plugin (Deno Worker or Node `worker_threads`), or a
+  subprocess speaking JSON-RPC over stdio (as with ACP in `agent/acp.ts`). Either way,
+  plugins only reach the daemon through `SourceContext`.
 - **Host-provided types:** publish the `WorkSource` / `SourceContext` types as a small
   package (`peerDependencies: "*"`, like pi's host packages) so plugins don't bundle a
   copy.
 - **Open:** should `packages` live per team (`config.json`) or per machine?
   Undecided.
-- **First external plugins once loading lands:** a markdown-folder reference source,
-  then Jira / Asana / Taskei. These pull only: no creating external issues from MPT,
-  but comments and status write back through `onComment` / `onItemTerminal`.
+- **First external plugins once loading lands:** Jira / Asana / Taskei. The core they
+  need is built — mirrored read-only defs, the per-source sync loop with
+  once-per-revision enqueue and vanish → archive, write-back through `onComment` /
+  `onItemTerminal`, and a generic read-only Work Items tab — exercised by the in-repo
+  markdown-folder fixture (`daemon/sources/fixture.ts`, registered in code by tests or
+  `config.dev.fixtureSource`), which can become the packaged reference source. These
+  pull only: no creating external issues from MPT.
+- **Per-source config and secrets:** the fixture's settings live under `config.dev`;
+  a packaged source's `{ source, config }` should reach it as `ctx.config()`-style
+  per-source settings (not wired — `SourceContext.config()` is the team config today).
+- **Mirror ids on case-insensitive file systems:** a mirror's directory is
+  `<sourceId>~<externalId>` (escaped), so two external ids differing only in case
+  collide on macOS/Windows default volumes. Fine for Jira-style keys; revisit
+  (e.g. a hash suffix) if a source's ids are case-sensitive.
 
 ## Auto Triage — built
 

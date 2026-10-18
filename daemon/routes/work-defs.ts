@@ -30,6 +30,12 @@
  * `POST /api/thoughts/:id/triage`. Editing or deleting it directly would leave a
  * note pointing at something that no longer describes it, so those verbs 409 and
  * name the note instead.
+ *
+ * **A mirrored (External) WorkDef is read-only here too.** An external source is
+ * pull only (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins"): its defs
+ * are written by sync, so PUT and DELETE 409 with "change it in <source>", and a
+ * create asking for `type: "External"` is refused. Its thread (comments,
+ * attachments), Run, and archive/restore work as for any WorkDef.
  */
 
 import type { RouteContext } from "./types.ts";
@@ -39,6 +45,7 @@ import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
 import { isWorkDefVisible } from "../features.ts";
+import { mirroredReadOnlyError, mirrorView } from "./work-sources.ts";
 
 /**
  * The API shape of a WorkDef. `stats` is passed in by the list route, which
@@ -56,7 +63,14 @@ function view(d: WorkDef, store: RouteContext["store"], stats?: Map<string, Work
     tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
     executionCount: exec.executionCount,
     lastRunAt: exec.lastRunAt,
+    mirror: mirrorView(store, d),
   };
+}
+
+/** A mirrored (External) def is read-only here; this is the refusal, or null for any other def. */
+function mirroredRefusal(store: RouteContext["store"], def: WorkDef | null): string | null {
+  const mirror = def ? mirrorView(store, def) : undefined;
+  return mirror ? mirroredReadOnlyError(mirror.sourceLabel) : null;
 }
 
 /** A triage WorkDef is owned by its note; this is the refusal for direct edits. */
@@ -95,7 +109,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const filter = status === "archived" ? "archived" : status === "all" ? undefined : "active";
     const stats = store.getExecutionStats();
     // A switched-off kind's WorkDefs are hidden (daemon/features.ts gates the rest).
-    const defs = store.getWorkDefs(filter).filter((d) => isWorkDefVisible(ctx.config, d));
+    const defs = store.getWorkDefs(filter).filter((d) => isWorkDefVisible(store, ctx.config, d));
     return c.json({ workDefs: defs.map((d) => view(d, store, stats)) } satisfies WorkDefsResponse);
   });
 
@@ -109,6 +123,10 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     const body = (await c.req.json()) as SaveWorkDefRequest;
     if (!body.title) return c.json({ success: false, error: "Field 'title' is required" } satisfies SaveWorkDefResponse, 400);
     if (!body.goal) return c.json({ success: false, error: "Field 'goal' is required" } satisfies SaveWorkDefResponse, 400);
+    // External work arrives by sync only (pull only): MPT never creates it.
+    if ((body.type as string) === "External") {
+      return c.json({ success: false, error: "External work is mirrored from its source by sync (pull only); MPT never creates it." } satisfies SaveWorkDefResponse, 409);
+    }
     const scheduled = body.type === "Scheduled";
     let parent;
     if (scheduled) {
@@ -132,6 +150,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     if (!existing) return c.json({ success: false, error: "WorkDef not found" } satisfies SaveWorkDefResponse, 404);
     const owned = triageOwned(store, id);
     if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) } satisfies SaveWorkDefResponse, 409);
+    const mirrored = mirroredRefusal(store, existing);
+    if (mirrored) return c.json({ success: false, error: mirrored } satisfies SaveWorkDefResponse, 409);
     // Active ⇒ locked: only a pending WorkDef's definition may change.
     const touchesDefinition = DEFINITION_FIELDS.some((f) => body[f] !== undefined);
     if (touchesDefinition && !existing.pending) {
@@ -153,6 +173,9 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   app.delete("/api/work-defs/:id", (c) => {
     const owned = triageOwned(store, c.req.param("id"));
     if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) }, 409);
+    // Archived, never deleted: the mirror (and its thread) is how MPT remembers the item.
+    const mirrored = mirroredRefusal(store, store.getWorkDef(c.req.param("id")));
+    if (mirrored) return c.json({ success: false, error: mirrored }, 409);
     const ok = store.deleteWorkDef(c.req.param("id"));
     if (!ok) return c.json({ success: false, error: "WorkDef not found" }, 404);
     return c.json({ success: true });
@@ -188,20 +211,11 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   // Enqueue a READY WorkItem for this def (manual trigger / "save then enqueue").
   app.post("/api/work-defs/:id/enqueue", (c) => {
-    // "Run" on a triage thread is Triage now, which knows the note's rules.
-    const owned = triageOwned(store, c.req.param("id"));
-    if (owned) {
-      const res = store.triageNow(owned.id);
-      return res.ok
-        ? c.json({ success: true, workItemId: res.workItem.id })
-        : c.json({ success: false, error: res.error }, 409);
-    }
-    if (store.isPending(c.req.param("id"))) {
-      return c.json({ success: false, error: "This WorkDef is pending; activate it before running it" }, 409);
-    }
-    const item = store.enqueueWorkDef(c.req.param("id"));
-    if (!item) return c.json({ success: false, error: "Unknown WorkDef, or one is already in flight" }, 400);
-    return c.json({ success: true, workItemId: item.id });
+    // The WorkDef's source decides what Run means (Solitary: refuse pending or
+    // in-flight, else enqueue; Triage: Triage now, which knows the note's rules).
+    const res = store.runWorkDef(c.req.param("id"));
+    if (!res.ok) return c.json({ success: false, error: res.error }, res.conflict ? 409 : 400);
+    return c.json({ success: true, workItemId: res.workItem.id });
   });
 
   // Comments live on the WorkDef (per-def run thread).

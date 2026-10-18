@@ -353,7 +353,7 @@ export interface WorkItemView {
   title: string;
   ref: { workDefId: string };
   /** The backing WorkDef's parent, so clients can route to the right detail page. */
-  parent?: { kind: "story" | "schedule" | "thought"; id: string };
+  parent?: { kind: "story" | "schedule" | "thought" | "external"; id: string; source?: string };
   directory?: string;
   state: string;
   read: boolean;
@@ -385,9 +385,9 @@ export interface ReEnqueueRequest { ref: { workDefId: string } }
 export interface WorkDefView {
   id: string;
   title: string;
-  /** Derived from parent kind: story→Board, schedule→Scheduled, thought→Triage, none→Solitary. */
-  type: "Solitary" | "Scheduled" | "Board" | "Triage";
-  parent?: { kind: "story" | "schedule" | "thought"; id: string };
+  /** Derived from parent kind: story→Board, schedule→Scheduled, thought→Triage, external→External, none→Solitary. */
+  type: "Solitary" | "Scheduled" | "Board" | "Triage" | "External";
+  parent?: { kind: "story" | "schedule" | "thought" | "external"; id: string; source?: string };
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
@@ -405,7 +405,49 @@ export interface WorkDefView {
   executionCount: number;
   /** When the latest counted WorkItem was enqueued (ISO), or null if never run. */
   lastRunAt: string | null;
+  /**
+   * Mirrored (External) defs only: where it comes from. Read-only — the edit,
+   * delete, and create routes refuse it (pull only; docs/DESIGN.md "Work Sources").
+   */
+  mirror?: MirrorView;
 }
+
+/** A mirrored WorkDef's provenance (WorkDefView.mirror). */
+export interface MirrorView {
+  sourceId: string;
+  /** The source's display name ("Jira"), for "Open in <label>". */
+  sourceLabel: string;
+  externalId: string;
+  url?: string;
+  /** The revision last mirrored (the source's change marker). */
+  revision?: string;
+  /** True once sync stopped reporting it (it was archived for that). */
+  vanished: boolean;
+}
+
+/** One registered external (pull-only) Work Source (`/api/status` `externalSources`). */
+export interface ExternalSourceView {
+  id: string;
+  label: string;
+}
+
+/** One row of `GET /api/work-sources/:id/defs`: a mirrored def and how its runs went. */
+export interface MirroredDefRow {
+  id: string;
+  title: string;
+  externalId: string;
+  url?: string;
+  revision?: string;
+  status: "active" | "archived";
+  /** State of its newest WorkItem (any state, CANCELED included), or null if never run. */
+  latestState: string | null;
+  /** WorkItems created, CANCELED excluded (as `executionCount`). */
+  runCount: number;
+  lastRunAt: string | null;
+}
+
+// GET /api/work-sources/:id/defs
+export interface MirroredDefsResponse { source: ExternalSourceView; defs: MirroredDefRow[] }
 export interface WorkDefsResponse { workDefs: WorkDefView[] }
 export interface WorkDefResponse { workDef?: WorkDefView; success?: boolean; error?: string }
 export interface SaveWorkDefRequest {

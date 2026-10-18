@@ -12,7 +12,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { buildTriagePrompt, buildWorkDefPrompt } from "../prompt.ts";
+import { buildWorkDefPrompt } from "../prompt.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import denoConfig from "../../deno.json" with { type: "json" };
@@ -436,41 +436,21 @@ function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): strin
   return src?.source.buildPrompt ? src.source.buildPrompt(def, base, src.ctx) : base;
 }
 
-/** The daemon's built-in prompt for a WorkDef, by kind (not yet migrated to sources). */
+/**
+ * The daemon's base prompt for a WorkDef: the authored WorkDef, its attached
+ * context, and lead comments — no kind-specific framing. A source that needs
+ * more (Story: the state persona and story; Thought: the triage prompt)
+ * rebuilds it in its `buildPrompt`.
+ */
 function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: WorkDef): string {
-
-  // Auto triage: the WorkDef is an empty container, so the prompt comes from the
-  // team's triage.md plus the note as it reads *now* (TODO.md "Auto Triage").
-  if (def.parent?.kind === "thought") {
-    const note = store.getThought(def.parent.id);
-    if (!note) return "";
-    const group = note.groupId ? store.getThoughtGroup(note.groupId) : null;
-    return buildTriagePrompt({
-      note: { id: note.id, content: note.content, updatedAt: note.updatedAt },
-      groupName: group?.title,
-      instructions: store.getTriageInstructions(),
-      stories: store.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
-      priorComments: store.getCommentsForRef(ref),
-      priorDecisions: store.triageDecisionSummary(def.parent.id),
-    });
-  }
-
-  // A board task carries workflow framing (its story + state persona); a
-  // standalone WorkDef (Solitary/Scheduled) has none.
-  const task = store.getTask(ref.workDefId);
-  const story = task ? store.getStory(task.storyId) : null;
   const comments = store.getCommentsForRef(ref);
-
   return buildWorkDefPrompt({
     workDef: {
       title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria,
       additionalContext: def.additionalContext, directory: def.directory,
     },
-    story: story ? { id: story.id, title: story.title, description: story.description, directory: story.directory } : undefined,
-    state: task ? task.status : undefined,
-    persona: task ? store.getStatePersona(story?.workflow, task.status) : undefined,
     comments: comments.length > 0 ? comments : undefined,
-    contextEntries: store.resolveTaskContext(story?.context, def.contextRefs),
+    contextEntries: store.resolveTaskContext(undefined, def.contextRefs),
   });
 }
 

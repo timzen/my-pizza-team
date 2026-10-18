@@ -235,9 +235,10 @@ emits WorkItems — and its type is derived from that parent, never stored:
 | a **Story** (`stories/<id>.json`) | Board | its workflow position enters an agent state (first entry or rework) |
 | a **Schedule** (`schedules/<id>.json`) | Scheduled | the 5-field cron fires |
 | a **Thought** (`thoughts/<id>.md`) | Triage | the triage sweep finds the note's text changed since its last analysis |
+| an **external source** (`parentKind: external`, `parentSource`) | External | its sync reports a new revision of the item (see "Work Sources" below) |
 | none | Solitary | you press **Run** |
 
-All three funnel through one `enqueueFor(workDefId)`; a teammate works "the next
+All of them funnel through one `enqueueFor(workDefId)`; a teammate works "the next
 thing" without caring where it came from.
 
 **Invariant: `workdef.md` is authored content only.** All mutable runtime state
@@ -246,6 +247,9 @@ lives elsewhere — workflow status on the Story (`tasks: [{id, status}]`), cron
 except on an explicit edit. Frontmatter carries only structural metadata (title,
 `parent`, directory, contextRefs, `status: archived` when archived, and
 `pending: true` while pending — activating is itself an explicit edit).
+The one exception is a **mirrored** WorkDef: its content is authored in an
+external system, so the daemon rewrites its `workdef.md` — but only from that
+source's sync, never from an MPT edit (see "External sources" below).
 
 **One route family per concern.** WorkDef operations — get/update/delete, enqueue,
 comments, attachments, token usage — live under `/api/work-defs/:id` for *every*
@@ -262,12 +266,14 @@ context plus the WorkDef's own goal and criteria carry continuity, so there is n
 ## Work Sources: WorkDef Kinds as Plugins
 
 A **Work Source** is the plugin that owns one WorkDef kind — the *parent* in the
-table above — and decides when its WorkDefs want a WorkItem. The built-ins are
-moving onto it one at a time; the goal is that an external system (Jira, Asana,
-Taskei) can supply WorkDefs through the same seam. The interface is
-`daemon/sources/types.ts`; the registry (`daemon/sources/registry.ts`, one per
-Store) maps a WorkDef to its source by `parent.kind`, with no parent = the
-`"task"` source.
+table above — and decides when its WorkDefs want a WorkItem. All four built-ins
+(Story, Schedule, Thought, Solitary) now run on it, and the core supports an
+external (pull-only) source — Jira, Asana, Taskei — through the same seam (see
+"External sources" below; only an in-repo fixture exists until package loading
+lands). The interface is `daemon/sources/types.ts`; the registry
+(`daemon/sources/registry.ts`, one per Store) maps a WorkDef to its source by
+`parent.kind` — an `external` parent by its `parent.source` — with no parent =
+the `"task"` source.
 
 **Where the daemon branches on kind today** (the audit this design starts from;
 ✅ = through a source hook now, ⏳ = still inline, falls back when no source/hook):
@@ -275,15 +281,20 @@ Store) maps a WorkDef to its source by `parent.kind`, with no parent = the
 | Where | Story | Schedule | Thought | Solitary | Hook |
 |---|---|---|---|---|---|
 | cron/readiness firing (`startTimers` → `runScheduler`) | — | ✅ `sources/schedule.ts` | — | — | `tick` |
-| triage sweep timer (`runTriageSweep`) | — | — | ⏳ store.ts | — | `tick` |
-| `enqueueFor`: title/directory | ⏳ story's directory | default | ⏳ note title, leader dir | default | `resolveItem` |
-| `isWorkItemEligible` | ⏳ story ready/active, agent state | default | ⏳ note active | default | `isEligible` |
-| `setWorkItemState` / `advanceTask` | ⏳ advance + admission | — | — | — | `onItemTerminal` |
-| claim prompt (`routes/agents.ts buildClaimPrompt`, `prompt.ts`) | ⏳ story + persona framing | base | ⏳ triage prompt | base | `buildPrompt` |
-| assignments rows (`claimWorkItem`, cancel, force-fail) | ⏳ `getTask(...)` | — | — | — | (daemon, stays) |
-| `activateWorkDef` | ⏳ admission | — | — | ⏳ enqueue | — |
-| features (`featureForWorkDef`, `isWorkDefVisible`, `activeFeatureItems`) | ⏳ `workDefType` | ⏳ | ⏳ | ⏳ | — |
-| routes: `propose_work` (agents.ts), work-defs cron edit, `deleteSchedule` unparenting | — | ⏳ | ⏳ | — | — |
+| external pull (`startTimers` → `syncWorkSource`) | — | — | — | — | `sync` (+ `syncEveryMs`, `syncTimeoutMs`) |
+| thread write-back (`addCommentForRef`) | — | — | — | — | `onComment` |
+| triage sweep timer (`runTriageSweep`) | — | — | ✅ `sources/thought.ts` | — | `tick` + `tickEveryMs` |
+| `loadFromDisk`: admission + queue reconcile on startup | ✅ `sources/story.ts` | — | — | — | `reconcile` |
+| `enqueueFor`: title/directory | ✅ story's directory | default | ✅ note title, leader dir | default | `resolveItem` |
+| "once per revision" stamp (`triagedVersion`) | — | — | ✅ via `enqueueRevision` | — | `ctx.enqueueRevision` |
+| `isWorkItemEligible` | ✅ story active + ready, agent state | default | ✅ note active | ✅ `sources/task.ts` | `isEligible` |
+| `setWorkItemState` (advance + admission) | ✅ advance, new position returned | — | — (result is `propose_work`) | — | `onItemTerminal` |
+| claim prompt (`routes/agents.ts buildClaimPrompt`, `prompt.ts`) | ✅ story + persona framing | base | ✅ triage prompt | base | `buildPrompt` |
+| assignment row at claim (`claimWorkItem`) | ✅ recorded | — | — | — | `onItemClaimed` (release on terminal/cancel/force-fail is the daemon's, unconditional) |
+| `activateWorkDef` | ✅ enqueue in an agent state, else admission | nothing (default) | nothing (default) | ✅ enqueue | `onActivate` |
+| Run (`POST /api/work-defs/:id/enqueue` → `Store.runWorkDef`) | default | default | ✅ Triage now | ✅ refuse pending/in-flight | `run` |
+| features (`featureForWorkDef`, `isWorkDefVisible`, `activeFeatureItems`) | ⏳ `workDefType` | ⏳ | ⏳ (always on) | ⏳ | — |
+| routes: `propose_work` (agents.ts), work-defs cron edit / triage-owned PUT·DELETE, `deleteSchedule` unparenting | — | ⏳ | ⏳ | — | — |
 
 **The interface** (every hook optional; a missing hook means Solitary behavior):
 
@@ -291,24 +302,141 @@ Store) maps a WorkDef to its source by `parent.kind`, with no parent = the
 interface WorkSource {
   id: string; apiVersion: 1;
   init?(ctx): void | Promise<void>;          // once, at registration
-  tick?(ctx, now: Date): void;                // the daemon's 30s tick (Schedule fires here)
-  sync?(ctx): Promise<ExternalDef[]>;         // pull-only external sources (not wired yet)
+  tick?(ctx, now: Date): void;                // the daemon's timer (Schedule fires, Thought sweeps)
+  tickEveryMs?(ctx): number | null;           // that timer's interval; default 30s, null = none
+  label?: string;                             // display name ("Jira"); default the id
+  sync?(ctx): Promise<ExternalDef[]>;         // pull-only external sources: every item it has now
+  syncEveryMs?(ctx): number | null;           // that poll's interval; default 60s, null = on demand
+  syncTimeoutMs?: number;                     // one sync's budget; default 30s
+  reconcile?(ctx): void;                      // the daemon just loaded from disk (Story: admission + queue)
   isEligible?(def, ctx): boolean;             // may a READY item still be handed out?
   resolveItem?(def, ctx): { title?; directory? };  // at enqueue
   buildPrompt?(def, base, ctx): string;       // at claim, given the daemon's base prompt
-  onItemTerminal?(def, item, ctx): void | Promise<void>;  // after COMPLETE/FAILED
-  onComment?(def, comment, ctx): void | Promise<void>;    // write-back (not wired yet)
+  onActivate?(def, { enqueue? }, ctx): WorkItem | null;  // a pending def was activated
+  run?(def, ctx): RunResult;                  // the author pressed Run
+  onItemClaimed?(def, item, memberId, ctx): void;         // leased (sync, inside the claim transaction)
+  onItemTerminal?(def, item, ctx): ItemTerminalOutcome | void | Promise<void>;  // after COMPLETE/FAILED/
+                                              // CANCELED; a sync { newStatus?, completed? } goes back to the agent
+  onComment?(def, comment, ctx): void | Promise<void>;    // a comment landed on its thread (write-back)
 }
 // SourceContext: sourceId, teamDir, config(), log(), listWorkDefs(),
-//   hasActiveItem(defId), enqueue(defId) → the single enqueueFor, readiness.canEnqueueNow()
+//   hasActiveItem(defId), enqueue(defId) → the single enqueueFor,
+//   enqueueRevision(defId, revision, { force?, cursor? }), kv (sources/<id>.json),
+//   upsertDef(ExternalDef) → the read-only mirror, readiness.canEnqueueNow()
+// ExternalDef: { externalId, revision, title, goal, acceptanceCriteria?,
+//   additionalContext?, directory?, url? }
 ```
+
+Defaults for a missing hook are Solitary's (eligible, the def's own title and
+directory, the base prompt, nothing on terminal, Run = `runSolitary`: refuse a
+pending or in-flight def, else enqueue) — except `onActivate`, whose default is
+to do nothing (a Scheduled def waits for its cron; a triage def is never pending).
+
+**Enqueue once per revision.** Triage was the prototype for what an external
+source needs: a note is analysed once per edit, not once per sweep. That rule is
+now core, `ctx.enqueueRevision(defId, revision)` (`daemon/sources/revision.ts`):
+an in-flight item refuses; a `revision` equal to the one last handed over refuses
+unless `force` (Triage now); otherwise it enqueues through `enqueueFor` and
+stamps the revision **at enqueue** — so a change landing mid-run is due again
+afterwards, and a failed run doesn't retry on its own. Revisions are opaque
+(equality only), so a Jira `updated` or an etag works. The stamp lives in the
+source's own `kv` (`sources/<id>.json`, key `revision:<defId>`) by default; the
+Thought source passes a cursor onto the note's `triagedVersion` frontmatter so
+nothing moved on disk. Triage's other rules — quiet period, empty, archived —
+stay in the Thought source in front of the helper.
+
+**Thought is always on.** It has no feature toggle (`featureForWorkDef` maps a
+Triage WorkDef to none), so the Thought source is always registered; turning
+auto-triage off (`triage.enabled: false`) only drops its timer and makes the
+sweep a no-op — Triage now still works.
+
+**Story is a source too.** `daemon/sources/story.ts` (`StorySource`) owns the
+board's queue *policy*: CONWIP admission (WIP = 1 per story, `admitDependents`
+for `dependsOn`), every position change (leaving a position cancels the
+in-flight item; landing in an agent state enqueues one — re-entry ≡ first entry;
+the story's open/done follows its tasks), advancing on COMPLETE
+(`onItemTerminal`, whose `{ newStatus, completed }` is what the agent's
+state call returns), eligibility, the story-directory fallback, the persona +
+story prompt, and admission + reconciliation on load (`reconcile`). Story
+*persistence* — `stories/<id>.json`, the SQLite story/task cache, assignment
+rows — stays in the Store and reaches the source as `StorySourceDeps`, and the
+Store's board methods (`moveTask`, `updateTaskStatus`, `runAdmission`) are thin
+entry points into it. So the core queue functions (`enqueueFor`,
+`getNextWorkItem`/`isWorkItemEligible`, `claimWorkItem`, `setWorkItemState`,
+cancel/force-fail, `activateWorkDef`) have no kind branches left; they only call
+hooks. The claim's base prompt (`routes/agents.ts`) is kind-free too: framing is
+the source's `buildPrompt`.
 
 Refinements over the first sketch: the daemon owns the **timer** and calls each
 source's `tick` (so `stopTimers` stops everything, and tests drive a source
-synchronously) rather than each source starting its own in `init`. `upsertDef` and
-a per-source kv store join `SourceContext` with the first external source, where
-they're needed; `ExternalDef` (with its `revision` for dedupe) is fixed now so the
-interface is stable.
+synchronously) rather than each source starting its own in `init`; a source picks
+its interval with `tickEveryMs` (Thought: the triage interval). The per-source kv
+and `enqueueRevision` arrived with the Thought migration; `reconcile`,
+`onItemClaimed`, and `onItemTerminal`'s outcome with the Story migration; `upsertDef`,
+`label`, `syncEveryMs`/`syncTimeoutMs`, and CANCELED in `onItemTerminal` with the
+external-source groundwork (below).
+
+### External sources: pull only, mirrored, once per revision
+
+A source that declares `sync` is **external** — the seam for Jira, Asana,
+Taskei. Until package loading lands, the in-repo **fixture source**
+(`daemon/sources/fixture.ts`: a folder of markdown files, one per item, a
+content hash as the revision) is the only one, registered by tests or by
+`config.dev.fixtureSource` (development only). The contract:
+
+- **Pull only.** The daemon calls `sync()`; the source returns every item it has
+  *now*. MPT never creates, edits, or deletes an external item: `PUT`/`DELETE
+  /api/work-defs/:id` on a mirror and a `type: "External"` create are 409 with
+  "change it in <source>". Status and comments flow back only through write-back.
+- **Mirrored.** Each item becomes a read-only local WorkDef,
+  `<sourceId>~<encoded externalId>` (namespaced, so sources can't collide with
+  each other or authored defs; file-system safe and injective —
+  `daemon/sources/mirror.ts`), with `parent: { kind: "external", id: externalId,
+  source }` and a `url`. It's an ordinary WorkDef on disk, so prompts, the thread,
+  attachments, Run, and the UI work offline and need no special case. Its
+  `workdef.md` is written **only by sync** (or `ctx.upsertDef`) — the documented
+  exception to "authored-only": the content is authored, just elsewhere. The
+  runtime state stays out of it, in `sources/<id>.json`: `mirror:<defId>` (the
+  revision mirrored — an unchanged one is no write), `revision:<defId>` (last
+  handed to a WorkItem), `vanished:<defId>`.
+- **One WorkItem per revision.** After mirroring, the daemon runs
+  `enqueueRevision(defId, revision)`: a new revision enqueues once; an unchanged
+  one never re-runs, however often it syncs; a revision that lands while an item
+  is in flight waits for it and runs on the next sync. **Readiness** holds new
+  revisions (mirrored, not enqueued, nothing stamped) until the daemon can
+  enqueue again, like a Schedule's hold — no backlog, one run on recovery.
+- **Vanished → archived, never deleted.** An item sync no longer reports has its
+  mirror archived (its thread is history) and a still-READY item withdrawn; an
+  in-flight one finishes. If it comes back it's restored. A mirror a *person*
+  archived stays archived (its content kept current) and doesn't run.
+- **Write-back.** `onComment` fires for every comment added to a mirror's thread
+  (a person's, the teammate's completion summary, the daemon's `[retry]`), and
+  `onItemTerminal` for COMPLETE, FAILED, and CANCELED (the agent, a person's
+  cancel, a forced fail). Both are fire-and-forget: called right after the fact
+  (so a closing comment arrives before the state change after it), an async
+  hook's promise is never awaited, and a throw or rejection is logged — the
+  agent protocol never waits on, or fails because of, the external system.
+- **Isolation.** Each sync runs under `syncTimeoutMs` (default 30s) in
+  `SyncRunner` (`daemon/sources/sync.ts`): a source that throws, rejects, times
+  out, or returns garbage is logged and backed off (30s, doubling, capped at
+  30 min; **Sync now** — `POST /api/work-sources/:id/sync` — ignores the
+  backoff); a sync still running is never started twice; each source has its
+  own timer and state, so one failing or slow source never stalls the daemon or
+  another. (This is in-process isolation; running a plugin in a Worker or
+  subprocess is part of the deferred package-loading work.)
+- **A generic UI.** Each registered external source gets a read-only Work Items
+  tab (`/work-items/source/<id>`): its mirrors with the external link, last
+  revision, latest WorkItem state, and run count. A mirror's detail is the
+  ordinary WorkDef page with editing off and **Open in <source>**. No source,
+  no tab.
+
+*Why pull only, and a mirror:* the external system stays the source of truth
+for *what* the work is — two-way editing would need conflict resolution MPT has
+no business owning — while MPT owns *running* it. A local copy (not a live
+fetch at claim time) keeps a claim, a prompt, or the UI from depending on the
+external system being up, and lets the thread live where every other thread does.
+The revision is the source's own change marker, so "has it changed?" needs no
+diffing and an etag works as well as a timestamp.
 
 **Invariants** — what a source can't change, by construction:
 
@@ -317,9 +445,12 @@ interface is stable.
 - Every WorkItem is created by the single `enqueueFor`; `ctx.enqueue` is it.
 - Pending WorkDefs never enqueue (`enqueueFor` refuses them, whatever the source).
 - `workdef.md` stays authored-only: a source's runtime state lives in its own
-  files (a Schedule's `lastEnqueuedAt`/`heldForReadiness` in `schedules/<id>.json`).
+  files (a Schedule's `lastEnqueuedAt`/`heldForReadiness` in `schedules/<id>.json`,
+  a note's `triagedVersion` in the note, anything else in `sources/<id>.json`).
 - A source's failure is contained: a throwing `tick` is logged and the other
-  sources still tick; a failing `onItemTerminal` never undoes the state change.
+  sources still tick; a failing `onItemTerminal` or `onComment` never undoes the
+  state change or the comment; a failing or slow `sync` backs only itself off.
+- External sources are pull only: their WorkDefs are mirrors, written by sync alone.
 
 *Why:* per-kind `if (def.parent?.kind === …)` branching was spread through
 store.ts, features.ts, prompt.ts, and the routes, so adding a kind meant touching
@@ -631,6 +762,18 @@ always on, so "everything off" is still a working team: notes in, triage out.
   should say why it's gone, not silently land somewhere else. The Config page asks
   for the active-item counts up front, so the toggle you can't turn off is greyed
   out with what to clear, instead of failing on Save.
+- **A toggle belongs to a Work Source, not a hard-coded kind.** Each source may
+  declare a `toggle` (daemon/sources/types.ts `SourceToggle`): its `features.<name>`
+  key, any extra routes to gate, and an optional `activeItems()` that counts what
+  blocks switching it off (default: its non-archived WorkDefs). daemon/features.ts
+  reads only the registry: the 403 gate (the source's routes, plus its WorkDefs
+  under `/api/work-defs`), hiding its WorkDefs from the list, the 409 turn-off
+  guard, and the `features` / `featureUsage` that `/api/status` and `/api/config`
+  report. So a plugin source gets on/off for free. The built-ins keep their
+  historical keys — story → `stories`, task → `tasks` (which also owns Templates),
+  schedule → `schedules` — so configs read exactly as before and nothing is
+  migrated; Thought declares no toggle, so it can't be switched off. A flag for a
+  source that isn't registered is left alone on disk but isn't accepted in a PUT.
 
 ## Task Ordering: the Story Owns It
 

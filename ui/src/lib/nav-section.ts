@@ -25,7 +25,7 @@ import { workItemsPath } from "./work-items.ts";
 export type NavSection = "thoughts" | "work-items";
 
 /** WorkDef types as the API reports them, plus "Template" (the retired new-WorkDef form mode). */
-export type WorkDefKind = "Solitary" | "Scheduled" | "Board" | "Triage" | "Template";
+export type WorkDefKind = "Solitary" | "Scheduled" | "Board" | "Triage" | "Template" | "External";
 
 /**
  * First path segment → section. Segment (not prefix) matching keeps unrelated
@@ -55,6 +55,7 @@ export function sectionForWorkDefType(type: WorkDefKind | string | null | undefi
     case "Template":
     case "Scheduled":
     case "Board":
+    case "External": // a mirrored def lives on its source's Work Items tab
       return "work-items";
     case "Triage":
       return "thoughts";

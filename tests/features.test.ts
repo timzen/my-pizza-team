@@ -4,7 +4,8 @@
  * Covers the config model (`resolveFeatures` defaults, the new-team config), the
  * daemon's gate (daemon/features.ts: 403 on a disabled kind's routes, everything
  * else untouched), and the turn-off guard on `PUT /api/config` (refused while
- * active items exist, allowed once they're archived).
+ * active items exist, allowed once they're archived). Also proves the toggles
+ * are registry-driven: a fake toggleable Work Source gets the same gate and guard.
  */
 
 import { assertEquals, assertStringIncludes } from "@std/assert";
@@ -14,6 +15,8 @@ import { Store } from "../daemon/store.ts";
 import { initTeamConfig } from "../cli/setup.ts";
 import { DEFAULT_CONFIG, NEW_TEAM_FEATURES, newTeamConfig, resolveFeatures, type FeaturesConfig, type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
+import { TASK_SOURCE_ID } from "../daemon/sources/registry.ts";
+import type { WorkSource } from "../daemon/sources/types.ts";
 
 function setup(features?: FeaturesConfig) {
   const teamDir = Deno.makeTempDirSync({ prefix: "mpt-features-test-" });
@@ -316,5 +319,88 @@ Deno.test("features validation: types, unknown keys, null, and turning on", asyn
     assertEquals(config.features, undefined);
     const onDisk = JSON.parse(Deno.readTextFileSync(path.join(store["teamDir"], "config.json"))) as TeamConfig;
     assertEquals("features" in onDisk, false);
+  } finally { cleanup(); }
+});
+
+// ─── A toggleable Work Source (plugin-style) ──────────────────────────
+
+/**
+ * A fake toggleable source standing in for the parent-less ("task") kind under
+ * its own feature name, with an extra route and a controllable active count —
+ * the registry alone must give it the 403 gate, list hiding, exposure, and the
+ * turn-off guard. Registered before `buildApp`, as a startup plugin would be.
+ */
+function setupFixtureSource(activeCount: () => number | null) {
+  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-features-source-" });
+  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const config: TeamConfig = structuredClone(TEST_CONFIG);
+  const store = new Store(teamDir, config);
+  store.unregisterWorkSource(TASK_SOURCE_ID);
+  const source: WorkSource = {
+    id: TASK_SOURCE_ID,
+    apiVersion: 1,
+    toggle: {
+      feature: "fixture",
+      routes: ["/api/fixture", "/api/fixture/*"],
+      // null → fall back to the default (the source's non-archived WorkDefs).
+      ...(activeCount() === null ? {} : { activeItems: () => ({ count: activeCount()!, description: `${activeCount()} fixture items` }) }),
+    },
+  };
+  store.registerWorkSource(source);
+  const app = buildApp(store, config, teamDir);
+  const cleanup = () => { store.close(); try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ } };
+  return { app, store, config, cleanup };
+}
+
+Deno.test("a toggleable source gets the gate, list hiding, and exposure from the registry", async () => {
+  const { app, store, config, cleanup } = setupFixtureSource(() => 0);
+  try {
+    const def = store.createWorkDef({ title: "Mine", goal: "g", acceptanceCriteria: "" }, false);
+    const status = (await (await app.request("/api/status")).json()).features;
+    assertEquals(status, { stories: true, schedules: true, fixture: true });
+    assertEquals((await (await app.request("/api/config")).json()).featureUsage.fixture, { count: 0, description: "0 fixture items" });
+    assertEquals((await app.request(`/api/work-defs/${def.id}`)).status, 200);
+
+    config.features = { fixture: false } as FeaturesConfig;
+    assertEquals((await (await app.request("/api/status")).json()).features.fixture, false);
+    await assertDisabled(await app.request("/api/fixture/anything"), "fixture");
+    await assertDisabled(await app.request(`/api/work-defs/${def.id}`), "fixture");
+    await assertDisabled(await app.request("/api/work-defs", post({ title: "T", goal: "g" })), "fixture");
+    const list = await (await app.request("/api/work-defs?status=all")).json() as { workDefs: Array<{ id: string }> };
+    assertEquals(list.workDefs.length, 0);
+    // The thread stays open, and other kinds are untouched.
+    assertEquals((await app.request(`/api/work-defs/${def.id}/comments`)).status, 200);
+    assertEquals((await app.request("/api/stories")).status, 200);
+  } finally { cleanup(); }
+});
+
+Deno.test("a toggleable source's activeItems guards switching it off", async () => {
+  let active = 2;
+  const { app, config, cleanup } = setupFixtureSource(() => active);
+  try {
+    let res = await app.request("/api/config", put(configBody(config, { fixture: false })));
+    assertEquals(res.status, 409);
+    assertStringIncludes((await res.json()).error, "Can't turn off fixture: archive or delete 2 fixture items first");
+    active = 0;
+    res = await app.request("/api/config", put(configBody(config, { fixture: false })));
+    assertEquals(res.status, 200);
+    assertEquals(config.features as Record<string, boolean>, { stories: true, schedules: true, fixture: false });
+    // The built-in "tasks" source is gone, so its key is now unknown.
+    const unknown = await app.request("/api/config", put(configBody(config, { tasks: false })));
+    assertEquals(unknown.status, 400);
+    assertStringIncludes((await unknown.json()).error, "known: stories, schedules, fixture");
+  } finally { cleanup(); }
+});
+
+Deno.test("a toggleable source without activeItems counts its non-archived WorkDefs", async () => {
+  const { app, store, config, cleanup } = setupFixtureSource(() => null);
+  try {
+    const def = store.createWorkDef({ title: "Mine", goal: "g", acceptanceCriteria: "" }, false);
+    let res = await app.request("/api/config", put(configBody(config, { fixture: false })));
+    assertEquals(res.status, 409);
+    assertStringIncludes((await res.json()).error, "1 item first");
+    store.archiveWorkDef(def.id);
+    res = await app.request("/api/config", put(configBody(config, { fixture: false })));
+    assertEquals(res.status, 200);
   } finally { cleanup(); }
 });

@@ -1,11 +1,15 @@
 /**
  * daemon/features.ts — Feature toggles: the server-side gate and the turn-off guard.
  *
- * A team can switch the Stories, Tasks (Solitary tasks + Templates), and
- * Schedules work-item kinds off in `config.features` (docs/DESIGN.md "Feature
- * Toggles"). This module is the *only* place that enforces it:
+ * A team can switch work-item kinds off in `config.features` (docs/DESIGN.md
+ * "Feature Toggles"). The switchable kinds are the registered Work Sources that
+ * declare a `toggle` (daemon/sources/types.ts `SourceToggle`) — the built-ins
+ * Stories (story), Tasks (task: Solitary tasks + Templates), and Schedules
+ * (schedule); Thought declares none, so it's always on. A future plugin source
+ * gets the same switch by declaring one. This module is the *only* place that
+ * enforces it, and it never names a kind — everything comes from the registry:
  *
- *   - `registerFeatureGates` installs one middleware per kind in front of the
+ *   - `registerFeatureGates` installs one middleware per toggleable source in front of the
  *     route modules, so a disabled kind's create/view/edit routes answer
  *     **403** `{ success: false, error: "feature 'stories' is disabled", feature }`.
  *     403 rather than 404: the route exists and the item may too — the team
@@ -23,39 +27,95 @@
 import type { Context, MiddlewareHandler } from "hono";
 import type { RouteContext } from "./routes/types.ts";
 import type { Store } from "./store.ts";
-import {
-  FEATURE_NAMES, type FeatureName, type FeaturesConfig, resolveFeatures, type TeamConfig,
-  type TriageProposalKind, type WorkDef, workDefType,
-} from "../shared/types.ts";
+import { FEATURE_NAMES, type FeatureName, type FeaturesConfig, type TeamConfig, type TriageProposalKind, type WorkDef } from "../shared/types.ts";
+import type { SourceEntry } from "./sources/registry.ts";
+import { TASK_SOURCE_ID } from "./sources/registry.ts";
+import { SCHEDULE_SOURCE_ID } from "./sources/schedule.ts";
+import { STORY_SOURCE_ID } from "./sources/story.ts";
+import { activeWorkDefs } from "./sources/toggle.ts";
+import type { ActiveSourceItems, SourceToggle } from "./sources/types.ts";
 
 /** The HTTP status of a request to a disabled feature (see the header for why 403). */
 export const FEATURE_DISABLED_STATUS = 403;
 
 /** The JSON body of a refused request: the shared envelope plus which feature. */
-export function featureDisabledBody(feature: FeatureName): { success: false; error: string; feature: FeatureName } {
+export function featureDisabledBody<F extends string = FeatureName>(feature: F): { success: false; error: string; feature: F } {
   return { success: false, error: `feature '${feature}' is disabled`, feature };
 }
 
-/** Is this kind switched on for the team (the live, in-memory config)? */
-export function isFeatureEnabled(config: Pick<TeamConfig, "features">, feature: FeatureName): boolean {
-  return resolveFeatures(config)[feature];
+/**
+ * Is this feature switched on (the live, in-memory config)? A missing block or
+ * flag means on, for a built-in or a plugin's feature alike (see `resolveFeatures`).
+ */
+export function isFeatureEnabled(config: Pick<TeamConfig, "features">, feature: string): boolean {
+  return (config.features as Record<string, boolean | undefined> | undefined)?.[feature] !== false;
+}
+
+// ─── The registry's view ────────────────────────────────────────────
+
+/** A registered source that can be switched off, with its toggle. */
+interface ToggleableSource {
+  entry: SourceEntry;
+  toggle: SourceToggle;
 }
 
 /**
- * The feature that governs a WorkDef: board tasks belong to Stories, Scheduled
- * ones to Schedules, parent-less (Solitary) ones to Tasks. A triage WorkDef
- * belongs to its note — Thoughts are always on — so it has none.
+ * Every toggleable source, the built-in features first in their display order
+ * (`FEATURE_NAMES`: stories, tasks, schedules), then the rest in registration
+ * order — so messages and payloads read as they always have.
  */
-export function featureForWorkDef(def: Pick<WorkDef, "parent">): FeatureName | null {
-  switch (workDefType(def.parent)) {
-    case "Board": return "stories";
-    case "Scheduled": return "schedules";
-    case "Solitary": return "tasks";
-    default: return null;
+function toggleableSources(store: Store): ToggleableSource[] {
+  const out = store.listWorkSources()
+    .filter((entry) => entry.source.toggle)
+    .map((entry) => ({ entry, toggle: entry.source.toggle! }));
+  const rank = (t: ToggleableSource) => {
+    const i = (FEATURE_NAMES as readonly string[]).indexOf(t.toggle.feature);
+    return i === -1 ? FEATURE_NAMES.length : i;
+  };
+  return out.map((t, i) => ({ t, i })).sort((a, b) => rank(a.t) - rank(b.t) || a.i - b.i).map(({ t }) => t);
+}
+
+/** The toggleable features' names, in display order (what `PUT /api/config` accepts). */
+export function featureNames(store: Store): string[] {
+  return toggleableSources(store).map((t) => t.toggle.feature);
+}
+
+/**
+ * Every toggleable feature with defaults applied, for `/api/status` and
+ * `GET /api/config`. For the built-ins this is exactly `resolveFeatures`.
+ */
+export function enabledFeatures(store: Store, config: Pick<TeamConfig, "features">): Record<string, boolean> {
+  return Object.fromEntries(featureNames(store).map((name) => [name, isFeatureEnabled(config, name)]));
+}
+
+/** The feature of a registered source, by id (null: none registered, or not toggleable). */
+function featureForSource(store: Store, sourceId: string): string | null {
+  return store.listWorkSources().find((e) => e.source.id === sourceId)?.source.toggle?.feature ?? null;
+}
+
+/**
+ * The feature that governs a WorkDef: its source's toggle (board tasks →
+ * Stories, Scheduled → Schedules, Solitary → Tasks). A triage WorkDef belongs to
+ * its note — Thought declares no toggle — so it has none.
+ */
+export function featureForWorkDef(store: Store, def: Pick<WorkDef, "parent">): string | null {
+  return store.getWorkSourceFor(def)?.source.toggle?.feature ?? null;
+}
+
+/** The source a triage proposal would create work in (story-task → Story). */
+function sourceForProposalKind(kind: TriageProposalKind): string {
+  switch (kind) {
+    case "task": return TASK_SOURCE_ID;
+    case "schedule": return SCHEDULE_SOURCE_ID;
+    default: return STORY_SOURCE_ID;
   }
 }
 
-/** The feature a triage proposal would create work in (story-task → Stories). */
+/**
+ * The built-in feature a triage proposal would create work in (story-task →
+ * Stories). Pure, so the UI and Pi mirrors can be checked against it; the gate
+ * itself resolves through the registry (`proposalFeature`).
+ */
 export function featureForProposalKind(kind: TriageProposalKind): FeatureName {
   switch (kind) {
     case "task": return "tasks";
@@ -65,15 +125,15 @@ export function featureForProposalKind(kind: TriageProposalKind): FeatureName {
 }
 
 /** Decides which feature (if any) a request needs; null lets it through. */
-type FeatureResolver = (c: Context) => FeatureName | null | Promise<FeatureName | null>;
+type FeatureResolver = (c: Context) => string | null | Promise<string | null>;
 
 /**
  * A middleware that refuses the request when the feature it needs is off. Takes a
  * fixed feature, or a resolver for routes whose feature depends on the target
- * (a WorkDef's type, a proposal's kind). The config is read per request, so a
+ * (a WorkDef's source, a proposal's kind). The config is read per request, so a
  * Config-page change applies without a restart.
  */
-export function requireFeature(config: TeamConfig, feature: FeatureName | FeatureResolver): MiddlewareHandler {
+export function requireFeature(config: TeamConfig, feature: string | FeatureResolver): MiddlewareHandler {
   return async (c, next) => {
     const needed = typeof feature === "string" ? feature : await feature(c);
     if (needed && !isFeatureEnabled(config, needed)) {
@@ -90,9 +150,9 @@ export function requireFeature(config: TeamConfig, feature: FeatureName | Featur
 const UNGATED_WORKDEF_ACTIONS = new Set(["comments", "comment", "attachments", "token-usage"]);
 
 /**
- * The feature a `/api/work-defs…` request needs. Create: the body's `type`
- * (Scheduled → Schedules, otherwise Tasks). One WorkDef and its lifecycle
- * actions: the def's own type. The list is filtered in its route instead
+ * The feature a `/api/work-defs…` request needs. Create: the source the body's
+ * `type` makes (Scheduled → schedule, otherwise task). One WorkDef and its
+ * lifecycle actions: its source's. The list is filtered in its route instead
  * (`isWorkDefVisible`), and unknown ids fall through to the route's 404.
  */
 function workDefFeature(store: Store): FeatureResolver {
@@ -102,47 +162,48 @@ function workDefFeature(store: Store): FeatureResolver {
       if (c.req.method !== "POST") return null;
       // Hono caches the parsed body, so the route can read it again.
       const body = await c.req.json().catch(() => ({})) as { type?: unknown };
-      return body.type === "Scheduled" ? "schedules" : "tasks";
+      return featureForSource(store, body.type === "Scheduled" ? SCHEDULE_SOURCE_ID : TASK_SOURCE_ID);
     }
     if (rest.length > 1 && UNGATED_WORKDEF_ACTIONS.has(rest[1]!)) return null;
     const def = store.getWorkDef(decodeURIComponent(rest[0]!));
-    return def ? featureForWorkDef(def) : null;
+    return def ? featureForWorkDef(store, def) : null;
   };
 }
 
-/** Accepting a triage proposal creates work, so it needs that kind to be on. */
+/** Accepting a triage proposal creates work, so it needs that kind's source to be on. */
 function proposalFeature(store: Store): FeatureResolver {
   return (c) => {
     const thoughtId = c.req.param("id");
     const proposalId = c.req.param("proposalId");
     if (!thoughtId || !proposalId || !store.getThought(thoughtId)) return null;
     const state = [...store.getTriageThread(thoughtId).proposals].reverse().find((s) => s.proposal.id === proposalId);
-    return state ? featureForProposalKind(state.proposal.kind) : null;
+    return state ? featureForSource(store, sourceForProposalKind(state.proposal.kind)) : null;
   };
 }
 
-/** Should a WorkDef appear in `GET /api/work-defs`? Not when its kind is off. */
-export function isWorkDefVisible(config: TeamConfig, def: Pick<WorkDef, "parent">): boolean {
-  const feature = featureForWorkDef(def);
+/** Should a WorkDef appear in `GET /api/work-defs`? Not when its source is off. */
+export function isWorkDefVisible(store: Store, config: TeamConfig, def: Pick<WorkDef, "parent">): boolean {
+  const feature = featureForWorkDef(store, def);
   return feature === null || isFeatureEnabled(config, feature);
 }
 
 /**
- * Install every feature gate. Must run before the route modules register, so the
- * middleware sits in front of their handlers (Hono runs matches in order).
+ * Install every feature gate: each toggleable source's own `routes`, the
+ * generic WorkDef routes (by the def's source), and proposal acceptance. Must
+ * run before the route modules register, so the middleware sits in front of
+ * their handlers (Hono runs matches in order). Sources registered after this
+ * still get the WorkDef and proposal gates (resolved per request), but not
+ * their `routes`.
  */
 export function registerFeatureGates(ctx: RouteContext): void {
   const { app, store, config } = ctx;
-  const gate = (paths: string[], feature: FeatureName | FeatureResolver) => {
+  const gate = (paths: readonly string[], feature: string | FeatureResolver) => {
     const mw = requireFeature(config, feature);
     for (const p of paths) app.use(p, mw);
   };
-  // Stories and their board tasks (create-in-story, reorder, move, delete),
-  // pending/activate, and the archive.
-  gate(["/api/stories", "/api/stories/*", "/api/tasks/*", "/api/archived"], "stories");
-  // Templates are molds for Solitary tasks, so the Tasks toggle owns them.
-  gate(["/api/templates", "/api/templates/*"], "tasks");
-  gate(["/api/schedules", "/api/schedules/*"], "schedules");
+  for (const { toggle } of toggleableSources(store)) {
+    if (toggle.routes?.length) gate(toggle.routes, toggle.feature);
+  }
   gate(["/api/work-defs", "/api/work-defs/*"], workDefFeature(store));
   gate(["/api/thoughts/:id/proposals/:proposalId/accept"], proposalFeature(store));
 }
@@ -150,44 +211,27 @@ export function registerFeatureGates(ctx: RouteContext): void {
 // ─── Turning a feature off ──────────────────────────────────────────
 
 /** What still holds a feature on: the active item count, worded for the user. */
-export interface ActiveFeatureItems {
-  count: number;
-  /** e.g. "3 stories", "2 tasks and 1 template". */
-  description: string;
-}
+export type ActiveFeatureItems = ActiveSourceItems;
 
-function plural(n: number, one: string, many: string): string {
-  return `${n} ${n === 1 ? one : many}`;
+/**
+ * Active (non-archived) items of one feature, from its source's `activeItems`
+ * (default: the source's non-archived WorkDefs). Archived items never block
+ * turning a kind off; pending ones do (work in progress, just held). An
+ * unknown feature has none.
+ */
+export function activeFeatureItems(store: Store, feature: string): ActiveFeatureItems {
+  const t = toggleableSources(store).find((s) => s.toggle.feature === feature);
+  if (!t) return { count: 0, description: "0 items" };
+  return t.toggle.activeItems ? t.toggle.activeItems(t.entry.ctx) : activeWorkDefs(t.entry.ctx);
 }
 
 /**
- * Active (non-archived) items of one kind. Archived items never block turning a
- * kind off; pending stories and pending WorkDefs do (they're work in
- * progress, just held).
+ * Every toggleable feature's active items (`activeFeatureItems`), for `GET
+ * /api/config`: the Config page uses it to pre-disable a toggle that the
+ * turn-off guard would refuse.
  */
-export function activeFeatureItems(store: Store, feature: FeatureName): ActiveFeatureItems {
-  if (feature === "stories") {
-    const count = store.getStories().length; // pending stories included
-    return { count, description: plural(count, "story", "stories") };
-  }
-  const defs = store.getWorkDefs("active").filter((d) => featureForWorkDef(d) === feature);
-  if (feature === "schedules") {
-    return { count: defs.length, description: plural(defs.length, "scheduled task", "scheduled tasks") };
-  }
-  const templates = store.getTemplates().length;
-  const parts = [
-    ...(defs.length > 0 || templates === 0 ? [plural(defs.length, "task", "tasks")] : []),
-    ...(templates > 0 ? [plural(templates, "template", "templates")] : []),
-  ];
-  return { count: defs.length + templates, description: parts.join(" and ") };
-}
-
-/**
- * Every kind's active items (`activeFeatureItems`), for `GET /api/config`: the
- * Config page uses it to pre-disable a toggle that the turn-off guard would refuse.
- */
-export function featureUsage(store: Store): Record<FeatureName, ActiveFeatureItems> {
-  return Object.fromEntries(FEATURE_NAMES.map((name) => [name, activeFeatureItems(store, name)])) as Record<FeatureName, ActiveFeatureItems>;
+export function featureUsage(store: Store): Record<string, ActiveFeatureItems> {
+  return Object.fromEntries(featureNames(store).map((name) => [name, activeFeatureItems(store, name)]));
 }
 
 /**
@@ -195,9 +239,11 @@ export function featureUsage(store: Store): Record<FeatureName, ActiveFeatureIte
  *
  * Absent keeps the current value; `null` clears the block (everything on). An
  * object is a partial update over the resolved current toggles and is stored in
- * full, so config.json says exactly what's on. Switching a kind **off** is refused
- * (409) while it still has active items — hiding live work would strand it.
- * Leaving an already-off kind off is never refused, whatever is on disk.
+ * full, so config.json says exactly what's on (a flag for a source that isn't
+ * registered right now is kept as it was). Switching a feature **off** is
+ * refused (409) while its source still has active items — hiding live work
+ * would strand it. Leaving an already-off feature off is never refused,
+ * whatever is on disk.
  */
 export function resolveFeaturesUpdate(
   config: TeamConfig,
@@ -209,24 +255,25 @@ export function resolveFeaturesUpdate(
   if (typeof body.features !== "object" || Array.isArray(body.features)) {
     return { error: "features must be an object, e.g. { \"stories\": true, \"tasks\": true, \"schedules\": false }", status: 400 };
   }
+  const names = featureNames(store);
   const input = body.features as Record<string, unknown>;
   for (const [key, value] of Object.entries(input)) {
-    if (!(FEATURE_NAMES as readonly string[]).includes(key)) {
-      return { error: `Unknown feature "${key}" (known: ${FEATURE_NAMES.join(", ")})`, status: 400 };
+    if (!names.includes(key)) {
+      return { error: `Unknown feature "${key}" (known: ${names.join(", ")})`, status: 400 };
     }
     if (value !== undefined && typeof value !== "boolean") return { error: `features.${key} must be a boolean`, status: 400 };
   }
-  const current = resolveFeatures(config);
-  const next = { ...current };
-  for (const name of FEATURE_NAMES) {
+  const current = enabledFeatures(store, config);
+  const next: Record<string, boolean> = { ...(config.features as Record<string, boolean> | undefined), ...current };
+  for (const name of names) {
     if (typeof input[name] === "boolean") next[name] = input[name] as boolean;
   }
-  for (const name of FEATURE_NAMES) {
+  for (const name of names) {
     if (!current[name] || next[name]) continue;
     const active = activeFeatureItems(store, name);
     if (active.count > 0) {
       return { error: `Can't turn off ${name}: archive or delete ${active.description} first`, status: 409 };
     }
   }
-  return { features: next };
+  return { features: next as FeaturesConfig };
 }

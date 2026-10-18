@@ -11,7 +11,14 @@
  * work of every kind lives on the Pending and Archived tabs (docs/DESIGN.md
  * "Pending: Write, Review, Activate").
  *
- * Kept pure (no React) so the rules are unit-tested (tests/work-items-ui.test.ts).
+ * **External sources** (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins")
+ * get one generic, read-only tab each — `/work-items/source/<id>`, labelled by
+ * the source — between Schedule and Pending, and none at all when no external
+ * source is registered (`/api/status` `externalSources`). They aren't feature
+ * toggles: a registered source's tab always shows.
+ *
+ * Kept pure (no React) so the rules are unit-tested (tests/work-items-ui.test.ts,
+ * tests/external-sources-ui.test.ts).
  */
 
 import type { FeatureName, Features } from "./features.ts";
@@ -45,6 +52,60 @@ export const WORK_ITEMS_TABS: readonly WorkItemsTabDef[] = [
   { tab: "archived", path: `${WORK_ITEMS_ROOT}/archived`, label: "Archived", features: ALL_KINDS },
 ];
 
+/** A registered external (pull-only) Work Source, as `/api/status` reports it. */
+export interface ExternalSourceInfo {
+  id: string;
+  label: string;
+}
+
+/** The path segment under the root for external-source tabs (`/work-items/source/<id>`). */
+const SOURCE_SEGMENT = "source";
+
+/** An external source's tab route. */
+export function externalSourcePath(sourceId: string): string {
+  return `${WORK_ITEMS_ROOT}/${SOURCE_SEGMENT}/${encodeURIComponent(sourceId)}`;
+}
+
+/** The external source a `/work-items/source/<id>` route shows, or null for any other route. */
+export function externalSourceIdFromPath(pathname: string): string | null {
+  const segments = pathname.split("/").filter(Boolean);
+  if (segments[0] !== "work-items" || segments[1] !== SOURCE_SEGMENT || segments.length !== 3) return null;
+  try {
+    return decodeURIComponent(segments[2]!);
+  } catch {
+    return null;
+  }
+}
+
+/** One rendered Work Items tab: a kind/lifecycle tab or an external source's. */
+export interface WorkItemsTabLink {
+  /** Unique key: the tab name, or `source:<id>`. */
+  key: string;
+  path: string;
+  label: string;
+  /** Does this tab own `pathname`? */
+  isActive(pathname: string): boolean;
+}
+
+/**
+ * Every tab to render, in order: the visible kind tabs (Board · Tasks ·
+ * Schedule), one per external source, then Pending · Archived. With no
+ * external sources this is exactly `visibleWorkItemsTabs`. Nothing until the
+ * toggles load, so no tab flashes in.
+ */
+export function workItemsTabLinks(features: Features | null, sources: readonly ExternalSourceInfo[] | null = null): WorkItemsTabLink[] {
+  if (!features) return [];
+  const toLink = (t: WorkItemsTabDef): WorkItemsTabLink => ({
+    key: t.tab, path: t.path, label: t.label, isActive: (p) => workItemsTabFromPath(p) === t.tab,
+  });
+  const visible = visibleWorkItemsTabs(features);
+  const lifecycle = (t: WorkItemsTabDef) => t.tab === "pending" || t.tab === "archived";
+  const external = (sources ?? []).map((s): WorkItemsTabLink => ({
+    key: `source:${s.id}`, path: externalSourcePath(s.id), label: s.label, isActive: (p) => externalSourceIdFromPath(p) === s.id,
+  }));
+  return [...visible.filter((t) => !lifecycle(t)).map(toLink), ...external, ...visible.filter(lifecycle).map(toLink)];
+}
+
 /** The route of one sub-tab (e.g. `workItemsPath("board")` → `/work-items/board`). */
 export function workItemsPath(tab: WorkItemsTab): string {
   return `${WORK_ITEMS_ROOT}/${tab}`;
@@ -61,17 +122,20 @@ export function visibleWorkItemsTabs(features: Features | null): WorkItemsTabDef
   return WORK_ITEMS_TABS.filter((t) => t.features.some((f) => features[f]));
 }
 
-/** Is any Work Items kind switched on? (Whether the NavBar shows "Work Items".) */
-export function hasAnyWorkItemsFeature(features: Features | null): boolean {
-  return visibleWorkItemsTabs(features).length > 0;
+/**
+ * Is any Work Items kind switched on, or an external source registered?
+ * (Whether the NavBar shows "Work Items".)
+ */
+export function hasAnyWorkItemsFeature(features: Features | null, sources: readonly ExternalSourceInfo[] | null = null): boolean {
+  return workItemsTabLinks(features, sources).length > 0;
 }
 
 /**
- * Where `/work-items` lands: the first enabled sub-tab, or null while the
- * toggles are loading or when every kind is off.
+ * Where `/work-items` lands: the first tab shown, or null while the toggles are
+ * loading or when every kind is off and no external source is registered.
  */
-export function defaultWorkItemsPath(features: Features | null): string | null {
-  return visibleWorkItemsTabs(features)[0]?.path ?? null;
+export function defaultWorkItemsPath(features: Features | null, sources: readonly ExternalSourceInfo[] | null = null): string | null {
+  return workItemsTabLinks(features, sources)[0]?.path ?? null;
 }
 
 /** The sub-tab a `/work-items/<tab>` route shows, or null for any other route. */

@@ -9,6 +9,7 @@
 import { Hono } from "hono";
 import { buildApp } from "./server.ts";
 import { Store } from "./store.ts";
+import { FixtureSource } from "./sources/fixture.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
 import * as path from "@std/path";
 import { existsSync } from "@std/fs";
@@ -35,6 +36,7 @@ export function createApp(teamDir?: string): AppContext {
     };
 
     const store = new Store(teamDir, config);
+    registerDevSources(store, config, teamDir);
     store.loadFromDisk();
     store.startTimers();
 
@@ -45,6 +47,28 @@ export function createApp(teamDir?: string): AppContext {
   const app = new Hono();
   app.get("/health", (c) => c.json({ status: "ok", service: "my-pizza-team" }));
   return { app, store: null };
+}
+
+/**
+ * Register the development-only Work Sources the config asks for: today the
+ * markdown-folder fixture source (`config.dev.fixtureSource`; daemon/sources/fixture.ts),
+ * the stand-in for an external source while package loading is deferred. Before
+ * `startTimers`, so its sync timer starts with the rest.
+ */
+export function registerDevSources(store: Store, config: TeamConfig, teamDir: string): void {
+  const fixture = config.dev?.fixtureSource;
+  if (!fixture?.dir) return;
+  try {
+    store.registerWorkSource(new FixtureSource({
+      dir: path.resolve(teamDir, fixture.dir),
+      id: fixture.id,
+      label: fixture.label,
+      syncEveryMs: fixture.intervalSeconds ? fixture.intervalSeconds * 1000 : undefined,
+    }));
+  } catch (e) {
+    // A bad dev config must not stop the daemon.
+    console.warn(`[sources] fixture source not registered: ${e instanceof Error ? e.message : String(e)}`);
+  }
 }
 
 // Export a default minimal app for simple test imports (no store, basic health only)

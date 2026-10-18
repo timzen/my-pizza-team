@@ -13,6 +13,10 @@
  * Schedule, the note version last triaged on the Thought. Frontmatter carries only structural metadata (title, parent,
  * directory, contextRefs, `pending: true` while pending — legacy `draft: true` reads as pending); the body carries Goal / Acceptance Criteria /
  * Additional Context, round-tripped by those exact headers.
+ *
+ * The one exception: a **mirrored** WorkDef (`parentKind: external`, plus
+ * `parentSource` and `url`) is authored in an external system and written only
+ * by its source's sync (daemon/sources/mirror.ts) — never by an MPT edit.
  */
 
 import * as path from "@std/path";
@@ -40,7 +44,10 @@ export function serializeWorkDef(def: WorkDef): string {
   if (def.parent) {
     fm.push(`parentKind: ${def.parent.kind}`);
     fm.push(`parentId: ${quote(def.parent.id)}`);
+    if (def.parent.source) fm.push(`parentSource: ${quote(def.parent.source)}`);
   }
+  // A mirrored def's link back to its external item (mirrored content, written by sync).
+  if (def.url) fm.push(`url: ${quote(def.url)}`);
   if (def.directory) fm.push(`directory: ${quote(def.directory)}`);
   if (def.contextRefs && def.contextRefs.length > 0) fm.push(`contextRefs: [${def.contextRefs.join(", ")}]`);
   if (def.status === "archived") fm.push(`status: archived`);
@@ -88,16 +95,23 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
   if (refs.length > 0) def.contextRefs = refs;
   const origin = parseOrigin(fm);
   if (origin) def.origin = origin;
+  const url = scalar(fm, "url");
+  if (url) def.url = url;
   return def;
 }
 
-/** Read the parent pointer from frontmatter (parentKind + parentId). */
+/**
+ * Read the parent pointer from frontmatter (parentKind + parentId, and for an
+ * external mirror its parentSource — without one it isn't attributable, so no parent).
+ */
 function parseParent(fm: string): WorkDefParent | undefined {
   const kind = scalar(fm, "parentKind");
   const id = scalar(fm, "parentId");
   if ((kind === "story" || kind === "schedule" || kind === "thought") && id) {
     return { kind: kind as WorkDefParentKind, id };
   }
+  const source = scalar(fm, "parentSource");
+  if (kind === "external" && id && source) return { kind: "external", id, source };
   return undefined;
 }
 
