@@ -8,7 +8,10 @@
  * (docs/DESIGN.md "One Host, One Leader"), so there is nothing to route between.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -16,8 +19,8 @@ import { Store } from "../daemon/store.ts";
 import * as path from "node:path";
 
 function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: string } {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-directives-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-directives-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
@@ -25,14 +28,14 @@ function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: str
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
   return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 }
 
-Deno.test("POST spawn directive generates a unique agent name in params", async () => {
+test("POST spawn directive generates a unique agent name in params", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/leader/directives", { action: "spawn", params: { cwd: "/tmp/project" } });
@@ -46,7 +49,7 @@ Deno.test("POST spawn directive generates a unique agent name in params", async 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("every spawn is a teammate: no reserved assistant identity", async () => {
+test("every spawn is a teammate: no reserved assistant identity", async () => {
   const { app, store, teamDir } = setup();
   try {
     // The chat is answered by the leader (DESIGN.md "One agent to talk to"), so
@@ -63,7 +66,7 @@ Deno.test("every spawn is a teammate: no reserved assistant identity", async () 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST requires an action", async () => {
+test("POST requires an action", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/leader/directives", { params: {} });
@@ -71,7 +74,7 @@ Deno.test("POST requires an action", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET returns every pending directive, oldest first", async () => {
+test("GET returns every pending directive, oldest first", async () => {
   // This used to assert per-host isolation (directives for leader-1 excluded
   // leader-2's). With one leader there is nothing to isolate, so what's left to
   // guarantee is FIFO order — the leader must realize asks in the order made.
@@ -88,7 +91,7 @@ Deno.test("GET returns every pending directive, oldest first", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reset-session directive resolves target member metadata", async () => {
+test("reset-session directive resolves target member metadata", async () => {
   const { app, store, teamDir } = setup();
   try {
     // Register an agent with opaque metadata (leader's tmux window).
@@ -105,7 +108,7 @@ Deno.test("reset-session directive resolves target member metadata", async () =>
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("PUT status=done removes a directive from the pending list", async () => {
+test("PUT status=done removes a directive from the pending list", async () => {
   const { app, store, teamDir } = setup();
   try {
     const created = await (await post(app, "/api/leader/directives", { action: "spawn" })).json();
@@ -127,7 +130,7 @@ Deno.test("PUT status=done removes a directive from the pending list", async () 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/spawn-requests lists pending spawns with name and cwd", async () => {
+test("GET /api/spawn-requests lists pending spawns with name and cwd", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/leader/directives", { action: "spawn", params: { name: "cool-chekov", cwd: "/Volumes" } });
@@ -149,7 +152,7 @@ Deno.test("GET /api/spawn-requests lists pending spawns with name and cwd", asyn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
+test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
   const { app, store, teamDir } = setup();
   try {
     const created = await (await post(app, "/api/leader/directives", { action: "spawn", params: { name: "spock" } })).json();

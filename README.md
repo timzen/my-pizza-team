@@ -604,11 +604,11 @@ deno task ui:dev       # Vite dev server for the UI
 Gates — all must pass before a commit:
 
 ```bash
-deno task check          # type-check daemon/, cli/, shared/, tests/
-deno task test           # fast suite (seconds)
-deno task test:e2e       # real git, tmux, and shell — run before pushing
-deno task typecheck:ext  # the Pi extension
-deno task test:ext       # the Pi extension's suites
+npm run check            # type-check daemon/, cli/, shared/, scripts/, tests/ + generated files in step
+npm test                 # fast suite (seconds; node:test, Node >=24)
+npm run test:e2e         # real git, tmux, and shell — run before pushing
+npm run typecheck:ext    # the Pi extension
+npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b)    # the web UI
 ```
 

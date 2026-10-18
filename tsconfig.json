@@ -8,12 +8,18 @@
 // (`allowImportingTsExtensions`); `rewriteRelativeImportExtensions` turns them
 // into `.js` when the npm package is compiled to dist/ by a separate build
 // config. This config only checks.
+//
+// Modules are checked as ESM with bundler-style resolution rather than `nodenext`.
+// Every file here is ESM, but harnesses/pi/ (imported by agent/, cli/ and the
+// tests) deliberately has no package.json "type" field — Pi supplies its own loader,
+// and Node detects its ESM syntax at runtime. `nodenext` would decide from that
+// missing field that those files are CommonJS and reject their `export`s.
 {
   "compilerOptions": {
     "target": "es2024",
     "lib": ["es2024"],
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
+    "module": "preserve",
+    "moduleResolution": "bundler",
 
     "noEmit": true,
     "allowImportingTsExtensions": true,

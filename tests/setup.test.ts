@@ -12,7 +12,10 @@
  * would be unforgivable, so round-tripping is tested explicitly.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 import type { ExtensionRegistration, RegistrationKind } from "../cli/pi-config.ts";
@@ -56,13 +59,13 @@ const unregistered = (p: SetupPlan) =>
 
 // ─── Blockers ────────────────────────────────────────────────────────
 
-Deno.test("unparseable Pi settings block setup rather than being overwritten", () => {
+test("unparseable Pi settings block setup rather than being overwritten", () => {
   const p = plan({ settingsReadable: false });
   assertEquals(p.blockers.length, 1);
   assertStringIncludes(p.blockers[0]!, "will not overwrite");
 });
 
-Deno.test("a missing bundled extension blocks setup", () => {
+test("a missing bundled extension blocks setup", () => {
   // Writing nothing and registering a path would leave Pi pointed at an empty dir.
   const p = plan({ bundledExtensionAvailable: false });
   assertEquals(p.blockers.length, 1);
@@ -71,13 +74,13 @@ Deno.test("a missing bundled extension blocks setup", () => {
 
 // ─── First run ───────────────────────────────────────────────────────
 
-Deno.test("a fresh machine writes, registers, creates the team dir, and trusts the project", () => {
+test("a fresh machine writes, registers, creates the team dir, and trusts the project", () => {
   const p = plan({ teamDirConfigured: false, projectTrusted: false });
   assertEquals(kinds(p), ["write-extension", "register-extension", "create-team-dir", "trust-project"]);
   assertEquals(p.blockers, []);
 });
 
-Deno.test("an already-correct machine still rewrites the extension but re-registers nothing", () => {
+test("an already-correct machine still rewrites the extension but re-registers nothing", () => {
   // Rewriting is how an upgrade takes effect — Pi loads from the path without
   // copying, so writing the directory *is* the upgrade.
   const p = plan({ registrations: [reg("managed", MANAGED, "../../.my-pizza-team/pi-extension")] });
@@ -87,7 +90,7 @@ Deno.test("an already-correct machine still rewrites the extension but re-regist
 
 // ─── Conflict resolution (P2-4) ──────────────────────────────────────
 
-Deno.test("managed + dev registered together: the dev checkout wins and managed is unregistered", () => {
+test("managed + dev registered together: the dev checkout wins and managed is unregistered", () => {
   // Replacing a checkout someone is editing would make their changes stop taking
   // effect with no indication why. Setup steps aside instead — but it must still
   // remove its own entry, or Pi loads the extension twice.
@@ -100,14 +103,14 @@ Deno.test("managed + dev registered together: the dev checkout wins and managed 
   assertStringIncludes(p.respected.join(" "), "/code/mpt/harnesses/pi");
 });
 
-Deno.test("a dev checkout alone leaves the registration completely untouched", () => {
+test("a dev checkout alone leaves the registration completely untouched", () => {
   const p = plan({ registrations: [reg("dev", "/code/mpt/harnesses/pi")] });
   assertEquals(kinds(p), [], "nothing to do — and notably no write-extension");
   assertStringIncludes(p.respected.join(" "), "left untouched on disk");
   assertEquals(isNoOp(p), true);
 });
 
-Deno.test("a legacy standalone checkout is unregistered and replaced by the managed copy", () => {
+test("a legacy standalone checkout is unregistered and replaced by the managed copy", () => {
   // Tim's actual machine: the pre-merge repo is archived, and the extension now
   // ships inside mpt.
   const p = plan({ registrations: [reg("legacy", "/Users/t/mpt-dev/pi-pizza-team")] });
@@ -115,13 +118,13 @@ Deno.test("a legacy standalone checkout is unregistered and replaced by the mana
   assertStringIncludes(unregistered(p)[0]!.because, "archived");
 });
 
-Deno.test("a registration pointing at a deleted directory is unregistered", () => {
+test("a registration pointing at a deleted directory is unregistered", () => {
   const p = plan({ registrations: [reg("missing", "/gone/pi-extension")] });
   assertEquals(kinds(p), ["unregister", "write-extension", "register-extension"]);
   assertStringIncludes(unregistered(p)[0]!.because, "no longer exists");
 });
 
-Deno.test("several stale registrations are all removed, leaving exactly one", () => {
+test("several stale registrations are all removed, leaving exactly one", () => {
   // The invariant that matters: after setup, exactly one of our registrations.
   const p = plan({
     registrations: [
@@ -135,7 +138,7 @@ Deno.test("several stale registrations are all removed, leaving exactly one", ()
   assertEquals(kinds(p).includes("write-extension"), true);
 });
 
-Deno.test("every unregister carries a reason, so the change is explainable", () => {
+test("every unregister carries a reason, so the change is explainable", () => {
   for (const kind of ["legacy", "missing", "managed"] as RegistrationKind[]) {
     const registrations = kind === "managed"
       ? [reg("managed", MANAGED), reg("dev", "/code/mpt/harnesses/pi")]
@@ -149,16 +152,16 @@ Deno.test("every unregister carries a reason, so the change is explainable", () 
 // ─── Settings mutation ───────────────────────────────────────────────
 
 function agentFixture() {
-  const root = Deno.makeTempDirSync({ prefix: "mpt-setup-" });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-setup-"));
   const agentDir = path.join(root, ".pi", "agent");
-  Deno.mkdirSync(agentDir, { recursive: true });
-  return { root, agentDir, cleanup: () => { try { Deno.removeSync(root, { recursive: true }); } catch { /* */ } } };
+  fs.mkdirSync(agentDir, { recursive: true });
+  return { root, agentDir, cleanup: () => { try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* */ } } };
 }
 
-Deno.test("unrelated settings survive a package change", () => {
+test("unrelated settings survive a package change", () => {
   const f = agentFixture();
   try {
-    Deno.writeTextFileSync(
+    fs.writeFileSync(
       path.join(f.agentDir, "settings.json"),
       JSON.stringify({
         packages: ["npm:keep-me", "/old/pi-pizza-team"],
@@ -187,12 +190,12 @@ Deno.test("unrelated settings survive a package change", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("the added entry is relative to the settings file, matching Pi's own convention", () => {
+test("the added entry is relative to the settings file, matching Pi's own convention", () => {
   // Pi rewrites local paths this way itself, so recording them the same keeps the
   // file stable and the entry portable if the home directory moves.
   const f = agentFixture();
   try {
-    Deno.writeTextFileSync(path.join(f.agentDir, "settings.json"), JSON.stringify({ packages: [] }));
+    fs.writeFileSync(path.join(f.agentDir, "settings.json"), JSON.stringify({ packages: [] }));
     const managed = path.join(f.root, ".my-pizza-team", "pi-extension");
     const { raw, added } = applyPackageChanges(readPiSettings(f.agentDir), {
       remove: [],
@@ -207,11 +210,11 @@ Deno.test("the added entry is relative to the settings file, matching Pi's own c
   } finally { f.cleanup(); }
 });
 
-Deno.test("adding the same path twice does not duplicate the entry", () => {
+test("adding the same path twice does not duplicate the entry", () => {
   const f = agentFixture();
   try {
     const managed = path.join(f.root, ".my-pizza-team", "pi-extension");
-    Deno.writeTextFileSync(path.join(f.agentDir, "settings.json"), JSON.stringify({ packages: [] }));
+    fs.writeFileSync(path.join(f.agentDir, "settings.json"), JSON.stringify({ packages: [] }));
     for (let i = 0; i < 2; i++) {
       const { raw } = applyPackageChanges(readPiSettings(f.agentDir), {
         remove: [],
@@ -224,11 +227,11 @@ Deno.test("adding the same path twice does not duplicate the entry", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("settings are written atomically, leaving no temp file behind", () => {
+test("settings are written atomically, leaving no temp file behind", () => {
   const f = agentFixture();
   try {
     writePiSettingsFile(f.agentDir, { packages: ["npm:x"] });
-    const leftovers = [...Deno.readDirSync(f.agentDir)].map((e) => e.name).filter((n) => n.includes("mpt-tmp"));
+    const leftovers = fs.readdirSync(f.agentDir).filter((n) => n.includes("mpt-tmp"));
     assertEquals(leftovers, []);
     assertEquals(readPiSettings(f.agentDir).packages, ["npm:x"]);
   } finally { f.cleanup(); }
@@ -236,10 +239,10 @@ Deno.test("settings are written atomically, leaving no temp file behind", () => 
 
 // ─── Trust ───────────────────────────────────────────────────────────
 
-Deno.test("trusting a project preserves existing trust entries", () => {
+test("trusting a project preserves existing trust entries", () => {
   const f = agentFixture();
   try {
-    Deno.writeTextFileSync(
+    fs.writeFileSync(
       path.join(f.agentDir, "trust.json"),
       JSON.stringify({ "/somewhere/else": true, "/revoked": false }),
     );
@@ -251,7 +254,7 @@ Deno.test("trusting a project preserves existing trust entries", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("trusting works with no trust file yet", () => {
+test("trusting works with no trust file yet", () => {
   const f = agentFixture();
   try {
     trustProject(f.agentDir, "/work/project");
@@ -261,7 +264,7 @@ Deno.test("trusting works with no trust file yet", () => {
 
 // ─── Manifest ────────────────────────────────────────────────────────
 
-Deno.test("the manifest round-trips, and is null rather than throwing on junk", () => {
+test("the manifest round-trips, and is null rather than throwing on junk", () => {
   // Uninstall relies on this to undo exactly what setup did — guessing at someone
   // else's settings file is how you delete a registration they added themselves.
   const f = agentFixture();
@@ -285,7 +288,7 @@ Deno.test("the manifest round-trips, and is null rather than throwing on junk", 
     assertEquals(read.removedPackages, ["/old/pi-pizza-team"]);
     assertEquals(read.trustedProjects, ["/work/project"]);
 
-    Deno.writeTextFileSync(file, "{ not json");
+    fs.writeFileSync(file, "{ not json");
     assertEquals(readManifest(file), null, "unparseable");
   } finally { f.cleanup(); }
 });

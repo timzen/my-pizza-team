@@ -5,7 +5,8 @@
  * reads, the "Include cached" preference, and compact formatting.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   buildGrid, formatTokens, formatUsd, INCLUDE_CACHED_KEY, levelOf, levelThresholds, metricOf, monthLabels, peakDay,
   readIncludeCached, tokensOf, writeIncludeCached, type UsageDay,
@@ -15,7 +16,7 @@ const day = (date: string, tokens: number, costUsd = 0): UsageDay => ({
   date, tokens, costUsd, inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, runs: 1, byKind: {},
 });
 
-Deno.test("buildGrid: 53 weeks × 7 days, Sunday-first, ending in today's week", () => {
+test("buildGrid: 53 weeks × 7 days, Sunday-first, ending in today's week", () => {
   // 2026-09-24 is a Thursday.
   const cols = buildGrid([day("2026-09-24", 5)], "2026-09-24");
   assertEquals(cols.length, 53);
@@ -28,7 +29,7 @@ Deno.test("buildGrid: 53 weeks × 7 days, Sunday-first, ending in today's week",
   assertEquals(cols[0]![0]!.date, "2025-09-21"); // 52 weeks before that Sunday
 });
 
-Deno.test("levels: quartiles of non-zero values; zero is level 0", () => {
+test("levels: quartiles of non-zero values; zero is level 0", () => {
   const t = levelThresholds([0, 10, 20, 30, 40, 1000]);
   assertEquals(levelOf(0, t), 0);
   assertEquals(levelOf(10, t), 1);
@@ -38,7 +39,7 @@ Deno.test("levels: quartiles of non-zero values; zero is level 0", () => {
   assertEquals(levelThresholds([0, 0]), [0, 0, 0]);
 });
 
-Deno.test("monthLabels: a label only where a column starts a new month", () => {
+test("monthLabels: a label only where a column starts a new month", () => {
   const labels = monthLabels(buildGrid([], "2026-09-24"));
   assertEquals(labels.filter(Boolean).length >= 11, true);
   assertEquals(labels[1], null);
@@ -47,7 +48,7 @@ Deno.test("monthLabels: a label only where a column starts a new month", () => {
   assertEquals(at.every((i, k) => k === 0 || i - at[k - 1]! >= 3), true);
 });
 
-Deno.test("formatting: compact tokens, sub-cent dollars", () => {
+test("formatting: compact tokens, sub-cent dollars", () => {
   assertEquals(formatTokens(999), "999");
   assertEquals(formatTokens(1234), "1.2k");
   assertEquals(formatTokens(2_000_000), "2M");
@@ -63,7 +64,7 @@ const parts = (date: string, inp: number, out: number, cr: number, cw: number, c
   tokens: inp + out + cr + cw, costUsd, runs: 1, byKind: {},
 });
 
-Deno.test("tokensOf: cache reads excluded by default, cache writes always counted", () => {
+test("tokensOf: cache reads excluded by default, cache writes always counted", () => {
   const d = parts("2026-09-24", 100, 20, 5000, 30);
   assertEquals(tokensOf(d, false), 150);
   // Including cached restores the API's all-four total.
@@ -73,7 +74,7 @@ Deno.test("tokensOf: cache reads excluded by default, cache writes always counte
   assertEquals(tokensOf({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 4, cacheWriteTokens: 8 }, false), 11);
 });
 
-Deno.test("metricOf: cost ignores the toggle", () => {
+test("metricOf: cost ignores the toggle", () => {
   const d = parts("2026-09-24", 100, 20, 5000, 30, 1.25);
   assertEquals(metricOf(d, "costUsd", false), 1.25);
   assertEquals(metricOf(d, "costUsd", true), 1.25);
@@ -81,7 +82,7 @@ Deno.test("metricOf: cost ignores the toggle", () => {
   assertEquals(metricOf(d, "tokens", true), 5150);
 });
 
-Deno.test("shade thresholds follow the toggle", () => {
+test("shade thresholds follow the toggle", () => {
   // Day b is the biggest only because of cache reads.
   const days = [parts("a", 400, 0, 0, 0), parts("b", 10, 0, 10_000, 0), parts("c", 200, 0, 0, 0), parts("d", 100, 0, 0, 0), parts("e", 300, 0, 0, 0)];
   const off = levelThresholds(days.map((d) => metricOf(d, "tokens", false)));
@@ -90,7 +91,7 @@ Deno.test("shade thresholds follow the toggle", () => {
   assertEquals(levelOf(metricOf(days[1]!, "tokens", true), on), 4);
 });
 
-Deno.test("peakDay: by the selected metric and toggle", () => {
+test("peakDay: by the selected metric and toggle", () => {
   const days = [parts("a", 400, 0, 0, 0, 5), parts("b", 10, 0, 10_000, 0, 1)];
   assertEquals(peakDay(days, "tokens", false)?.date, "a");
   assertEquals(peakDay(days, "tokens", true)?.date, "b");
@@ -98,7 +99,7 @@ Deno.test("peakDay: by the selected metric and toggle", () => {
   assertEquals(peakDay([], "tokens", false), null);
 });
 
-Deno.test("Include cached pref: off by default, remembered, tolerant of blocked storage", () => {
+test("Include cached pref: off by default, remembered, tolerant of blocked storage", () => {
   const m = new Map<string, string>();
   const storage = { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
   assertEquals(readIncludeCached(storage), false);

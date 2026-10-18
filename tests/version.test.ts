@@ -8,12 +8,14 @@
  * test is what makes "generated" enforceable rather than aspirational.
  */
 
-import { assertEquals, assertMatch } from "@std/assert";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assertEquals, assertMatch } from "./_assert.ts";
 
 const root = new URL("../", import.meta.url);
-const read = async (p: string) => JSON.parse(await Deno.readTextFile(new URL(p, root)));
+const read = async (p: string) => JSON.parse(await fs.promises.readFile(new URL(p, root), "utf8"));
 
-Deno.test("the extension manifest matches deno.json's version", async () => {
+test("the extension manifest matches deno.json's version", async () => {
   const { version: daemonVersion } = await read("deno.json");
   const { version: extVersion } = await read("harnesses/pi/package.json");
 
@@ -25,7 +27,7 @@ Deno.test("the extension manifest matches deno.json's version", async () => {
   );
 });
 
-Deno.test("the root npm package and its lockfile match deno.json's version", async () => {
+test("the root npm package and its lockfile match deno.json's version", async () => {
   // The Node build (package.json / package-lock.json) is another generated copy.
   const { version } = await read("deno.json");
   const pkg = await read("package.json");
@@ -36,7 +38,7 @@ Deno.test("the root npm package and its lockfile match deno.json's version", asy
   assertEquals(lock.packages?.[""]?.version, version, `package-lock.json packages[""] is ${fix}`);
 });
 
-Deno.test("the extension's generated shared constants are in step", async () => {
+test("the extension's generated shared constants are in step", async () => {
   // harnesses/pi/src/shared/types.ts is generated from shared/types.ts. Using the
   // generator's own `render()` rather than reimplementing it here is the point: a
   // test that rendered independently could disagree with the generator, which is
@@ -44,13 +46,13 @@ Deno.test("the extension's generated shared constants are in step", async () => 
   const { render, SOURCE, TARGET } = await import("../scripts/sync-shared.ts");
   const expected = render(await import(SOURCE.href));
   assertEquals(
-    await Deno.readTextFile(TARGET),
+    await fs.promises.readFile(TARGET, "utf8"),
     expected,
     "harnesses/pi/src/shared/types.ts is stale — run `deno task sync-shared`",
   );
 });
 
-Deno.test("the extension declares no runtime dependencies", async () => {
+test("the extension declares no runtime dependencies", async () => {
   // P2-1 embeds the extension in the binary and writes it out at setup time with
   // no `npm install` step. That only works while Pi supplies everything the
   // extension imports, so a real `dependencies` entry would silently break setup.

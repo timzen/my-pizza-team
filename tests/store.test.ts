@@ -4,33 +4,36 @@
  * JSON file sync. See docs/DESIGN.md "The WorkItem".
  */
 
-import { assert, assertEquals, assertExists } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals, assertExists } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { normalizeDirectory, workDefType } from "../shared/types.ts";
 import * as path from "node:path";
 
 function createTempTeamDir(): string {
-  const dir = Deno.makeTempDirSync({ prefix: "mpt-store-test-" });
-  Deno.mkdirSync(path.join(dir, "stories"), { recursive: true });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-store-test-"));
+  fs.mkdirSync(path.join(dir, "stories"), { recursive: true });
   return dir;
 }
 
 function cleanupDir(dir: string): void {
-  try { Deno.removeSync(dir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
-Deno.test("Store: creates database and initializes schema", () => {
+test("Store: creates database and initializes schema", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
     assertExists(store);
-    assertEquals(Deno.statSync(path.join(teamDir, "state.db")).isFile, true);
+    assertEquals(fs.statSync(path.join(teamDir, "state.db")).isFile(), true);
     store.close();
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: creates and retrieves a story", () => {
+test("Store: creates and retrieves a story", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -43,7 +46,7 @@ Deno.test("Store: creates and retrieves a story", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: admission places the first task and enqueues a READY WorkItem", () => {
+test("Store: admission places the first task and enqueues a READY WorkItem", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -68,7 +71,7 @@ Deno.test("Store: admission places the first task and enqueues a READY WorkItem"
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits next)", () => {
+test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits next)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -102,7 +105,7 @@ Deno.test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: boot clears stale members/assignments and orphans IN_PROGRESS to MORIBUND", () => {
+test("Store: boot clears stale members/assignments and orphans IN_PROGRESS to MORIBUND", () => {
   const teamDir = createTempTeamDir();
   try {
     // First run: a member claims a task (IN_PROGRESS + assignment row).
@@ -130,7 +133,7 @@ Deno.test("Store: boot clears stale members/assignments and orphans IN_PROGRESS 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: FAILED leaves the task stuck; re-enqueue creates a fresh item", () => {
+test("Store: FAILED leaves the task stuck; re-enqueue creates a fresh item", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -158,7 +161,7 @@ Deno.test("Store: FAILED leaves the task stuck; re-enqueue creates a fresh item"
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: reap -> MORIBUND, heartbeat restores it", () => {
+test("Store: reap -> MORIBUND, heartbeat restores it", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, { ...TEST_CONFIG, agentTimeoutSeconds: 0 });
@@ -180,7 +183,7 @@ Deno.test("Store: reap -> MORIBUND, heartbeat restores it", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: force-fail a moribund item, optionally re-enqueue", () => {
+test("Store: force-fail a moribund item, optionally re-enqueue", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, { ...TEST_CONFIG, agentTimeoutSeconds: 0 });
@@ -200,7 +203,7 @@ Deno.test("Store: force-fail a moribund item, optionally re-enqueue", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: directory-affinity matching (tiers + presence reservation)", () => {
+test("Store: directory-affinity matching (tiers + presence reservation)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -228,15 +231,15 @@ Deno.test("Store: directory-affinity matching (tiers + presence reservation)", (
 
 /** A real temp dir plus a symlink pointing at it (both realpath'd for stable compares). */
 function makeSymlinkedDir(): { real: string; link: string; root: string } {
-  const root = Deno.realPathSync(Deno.makeTempDirSync({ prefix: "mpt-symlink-" }));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-symlink-")));
   const real = path.join(root, "real-repo");
-  Deno.mkdirSync(real);
+  fs.mkdirSync(real);
   const link = path.join(root, "link-repo");
-  Deno.symlinkSync(real, link);
+  fs.symlinkSync(real, link);
   return { real, link, root };
 }
 
-Deno.test("normalizeDirectory: a symlink and its target normalize to the same path", () => {
+test("normalizeDirectory: a symlink and its target normalize to the same path", () => {
   const { real, link, root } = makeSymlinkedDir();
   try {
     assertEquals(normalizeDirectory(link), real);
@@ -245,9 +248,9 @@ Deno.test("normalizeDirectory: a symlink and its target normalize to the same pa
   } finally { cleanupDir(root); }
 });
 
-Deno.test("normalizeDirectory: a nonexistent path falls back to string normalization without throwing", () => {
+test("normalizeDirectory: a nonexistent path falls back to string normalization without throwing", () => {
   assertEquals(normalizeDirectory("/definitely/not/here-mpt/"), "/definitely/not/here-mpt");
-  const home = Deno.env.get("HOME");
+  const home = process.env["HOME"];
   if (home) {
     assertEquals(normalizeDirectory("~/no-such-mpt-dir-xyz/"), home.replace(/\/+$/, "") + "/no-such-mpt-dir-xyz");
   }
@@ -257,7 +260,7 @@ for (const [label, agentVia, taskVia] of [
   ["real-path agent, symlink-path task", "real", "link"],
   ["symlink-path agent, real-path task", "link", "real"],
 ] as const) {
-  Deno.test(`Store: tier 1 matches across a symlink (${label})`, () => {
+  test(`Store: tier 1 matches across a symlink (${label})`, () => {
     const teamDir = createTempTeamDir();
     const dirs = makeSymlinkedDir();
     try {
@@ -279,7 +282,7 @@ for (const [label, agentVia, taskVia] of [
   });
 }
 
-Deno.test("Store: legacy rows holding un-resolved symlink paths still match (compare-time normalization)", () => {
+test("Store: legacy rows holding un-resolved symlink paths still match (compare-time normalization)", () => {
   const teamDir = createTempTeamDir();
   const { real, link, root } = makeSymlinkedDir();
   try {
@@ -301,7 +304,7 @@ Deno.test("Store: legacy rows holding un-resolved symlink paths still match (com
   } finally { cleanupDir(teamDir); cleanupDir(root); }
 });
 
-Deno.test("Store: tier-3 fallback only when no online agent has that directory", () => {
+test("Store: tier-3 fallback only when no online agent has that directory", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -320,7 +323,7 @@ Deno.test("Store: tier-3 fallback only when no online agent has that directory",
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: WorkDef create + enqueue + prompt-able", () => {
+test("Store: WorkDef create + enqueue + prompt-able", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -347,7 +350,7 @@ Deno.test("Store: WorkDef create + enqueue + prompt-able", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: scheduled WorkDef is enqueued when its cron is due", () => {
+test("Store: scheduled WorkDef is enqueued when its cron is due", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -367,7 +370,7 @@ Deno.test("Store: scheduled WorkDef is enqueued when its cron is due", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: scheduler holds a due job when the target host is not ready, then fires once on recovery", () => {
+test("Store: scheduler holds a due job when the target host is not ready, then fires once on recovery", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -400,7 +403,7 @@ Deno.test("Store: scheduler holds a due job when the target host is not ready, t
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: scheduler ignores readiness when no agent is connected (waits for connection, as before)", () => {
+test("Store: scheduler ignores readiness when no agent is connected (waits for connection, as before)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -417,7 +420,7 @@ Deno.test("Store: scheduler ignores readiness when no agent is connected (waits 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: thoughts lifecycle — create, edit, archive, restore, delete", () => {
+test("Store: thoughts lifecycle — create, edit, archive, restore, delete", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -445,7 +448,7 @@ Deno.test("Store: thoughts lifecycle — create, edit, archive, restore, delete"
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: a thought's updatedAt moves only when its content changes", async () => {
+test("Store: a thought's updatedAt moves only when its content changes", async () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -468,7 +471,7 @@ Deno.test("Store: a thought's updatedAt moves only when its content changes", as
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: thoughts auto-place below existing content and stack z-index", () => {
+test("Store: thoughts auto-place below existing content and stack z-index", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -486,7 +489,7 @@ Deno.test("Store: thoughts auto-place below existing content and stack z-index",
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: thought groups — membership, rename, ungroup clears members", () => {
+test("Store: thought groups — membership, rename, ungroup clears members", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -507,7 +510,7 @@ Deno.test("Store: thought groups — membership, rename, ungroup clears members"
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: comments append to JSONL (task ref)", () => {
+test("Store: comments append to JSONL (task ref)", () => {
 
   const teamDir = createTempTeamDir();
   try {
@@ -522,7 +525,7 @@ Deno.test("Store: comments append to JSONL (task ref)", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: members CRUD (directory only)", () => {
+test("Store: members CRUD (directory only)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -537,7 +540,7 @@ Deno.test("Store: members CRUD (directory only)", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: judgment move validation + rework re-enqueues", () => {
+test("Store: judgment move validation + rework re-enqueues", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -559,7 +562,7 @@ Deno.test("Store: judgment move validation + rework re-enqueues", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: reorders tasks and persists new sequence", () => {
+test("Store: reorders tasks and persists new sequence", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -574,7 +577,7 @@ Deno.test("Store: reorders tasks and persists new sequence", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: story auto-completes when all tasks done", () => {
+test("Store: story auto-completes when all tasks done", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -588,7 +591,7 @@ Deno.test("Store: story auto-completes when all tasks done", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: loadFromDisk rebuilds the queue for agent-state tasks", () => {
+test("Store: loadFromDisk rebuilds the queue for agent-state tasks", () => {
   const teamDir = createTempTeamDir();
   try {
     const store1 = new Store(teamDir, TEST_CONFIG);
@@ -606,7 +609,7 @@ Deno.test("Store: loadFromDisk rebuilds the queue for agent-state tasks", () => 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: delete story removes from DB and disk", () => {
+test("Store: delete story removes from DB and disk", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -617,14 +620,14 @@ Deno.test("Store: delete story removes from DB and disk", () => {
     assertEquals(store.deleteStory("del-test"), true);
     assertEquals(store.getStory("del-test"), null);
     // Flat story file and the child task WorkDef dir are both gone.
-    const gone = (p: string) => { try { Deno.statSync(p); return false; } catch { return true; } };
+    const gone = (p: string) => { try { fs.statSync(p); return false; } catch { return true; } };
     assertEquals(gone(path.join(teamDir, "stories", "del-test.json")), true);
     assertEquals(gone(path.join(teamDir, "tasks", taskId)), true);
     store.close();
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: editing a board task via updateWorkDefDetails syncs the tasks cache", () => {
+test("Store: editing a board task via updateWorkDefDetails syncs the tasks cache", () => {
   // A board task is a WorkDef; editing it through the WorkDef path must keep
   // the tasks table (what /api/stories reads) in sync so the board reflects
   // title/goal/context edits without a reload. See TaskDetailPage unification.
@@ -652,7 +655,7 @@ Deno.test("Store: editing a board task via updateWorkDefDetails syncs the tasks 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: pending/activate + archive + delete use flat story files (not dirPath)", () => {
+test("Store: pending/activate + archive + delete use flat story files (not dirPath)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -663,14 +666,14 @@ Deno.test("Store: pending/activate + archive + delete use flat story files (not 
     // its file records pending, and the OTHER story's file is untouched.
     store.setStoryPending("s-a", true);
     assertEquals(store.getStory("s-a")!.pending, true);
-    assertEquals(JSON.parse(Deno.readTextFileSync(path.join(teamDir, "stories", "s-a.json"))).pending, true);
+    assertEquals(JSON.parse(fs.readFileSync(path.join(teamDir, "stories", "s-a.json"), "utf8")).pending, true);
     assertEquals(store.getStory("s-b")!.pending, undefined); // sibling untouched
-    assertEquals(Deno.statSync(path.join(teamDir, "stories", "s-b.json")).isFile, true);
+    assertEquals(fs.statSync(path.join(teamDir, "stories", "s-b.json")).isFile(), true);
 
     // Activate brings it back; the file drops the flag.
     store.setStoryPending("s-a", false);
     assertEquals(store.getStory("s-a")!.pending, undefined);
-    assertEquals(JSON.parse(Deno.readTextFileSync(path.join(teamDir, "stories", "s-a.json"))).pending, undefined);
+    assertEquals(JSON.parse(fs.readFileSync(path.join(teamDir, "stories", "s-a.json"), "utf8")).pending, undefined);
 
     // Archive s-b (mark its task done first).
     const bTask = store.getTasksForStory("s-b")[0]!;
@@ -678,7 +681,7 @@ Deno.test("Store: pending/activate + archive + delete use flat story files (not 
     store.archiveStory("s-b");
     assertEquals(store.getStory("s-b"), null);
     assertEquals(store.getArchivedStories().map((s) => s.id), ["s-b"]);
-    assertEquals(Deno.statSync(path.join(teamDir, "archived", "s-b.json")).isFile, true);
+    assertEquals(fs.statSync(path.join(teamDir, "archived", "s-b.json")).isFile(), true);
 
     // Delete s-a: flat file gone, sibling data intact.
     store.deleteStory("s-a");
@@ -689,10 +692,10 @@ Deno.test("Store: pending/activate + archive + delete use flat story files (not 
 });
 
 function existsSyncTest(p: string): boolean {
-  try { Deno.statSync(p); return true; } catch { return false; }
+  try { fs.statSync(p); return true; } catch { return false; }
 }
 
-Deno.test("Store: setWorkItemState does NOT post a comment (agent owns its comments)", () => {
+test("Store: setWorkItemState does NOT post a comment (agent owns its comments)", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -706,7 +709,7 @@ Deno.test("Store: setWorkItemState does NOT post a comment (agent owns its comme
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: WorkDef archive + restore lifecycle", () => {
+test("Store: WorkDef archive + restore lifecycle", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -760,7 +763,7 @@ function finishOnlyTask(store: Store, taskId: string): void {
   store.moveTask(taskId, "done");
 }
 
-Deno.test("Store: completing a dependency's last task admits its dependent", () => {
+test("Store: completing a dependency's last task admits its dependent", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -783,7 +786,7 @@ Deno.test("Store: completing a dependency's last task admits its dependent", () 
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: archiving or deleting a dependency admits its dependent", () => {
+test("Store: archiving or deleting a dependency admits its dependent", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -811,7 +814,7 @@ Deno.test("Store: archiving or deleting a dependency admits its dependent", () =
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: a dependent with two dependencies waits for both", () => {
+test("Store: a dependent with two dependencies waits for both", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -831,7 +834,7 @@ Deno.test("Store: a dependent with two dependencies waits for both", () => {
   } finally { cleanupDir(teamDir); }
 });
 
-Deno.test("Store: a pending dependent (story or first task) is not admitted when its dependency completes", () => {
+test("Store: a pending dependent (story or first task) is not admitted when its dependency completes", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);

@@ -9,7 +9,10 @@
  * (`enqueueRevision`) and the per-source kv store behind it.
  */
 
-import { assert, assertEquals, assertThrows } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals, assertThrows } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
@@ -24,14 +27,14 @@ import type { SourceContext, SourceKv, WorkSource } from "../daemon/sources/type
 import type { WorkDef, WorkItem } from "../shared/types.ts";
 
 function setup(): { store: Store; teamDir: string } {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-sources-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-sources-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   return { store: new Store(teamDir, TEST_CONFIG), teamDir };
 }
 
 function cleanup(teamDir: string, store: Store): void {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 /** An in-memory `SourceKv`. */
@@ -52,14 +55,14 @@ function stubContext(sourceId: string, logs: string[] = []): SourceContext {
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-Deno.test("sourceIdForWorkDef: parent.kind, or 'task' with no parent", () => {
+test("sourceIdForWorkDef: parent.kind, or 'task' with no parent", () => {
   assertEquals(sourceIdForWorkDef({}), TASK_SOURCE_ID);
   assertEquals(sourceIdForWorkDef({ parent: { kind: "schedule", id: "s" } }), "schedule");
   assertEquals(sourceIdForWorkDef({ parent: { kind: "story", id: "s" } }), "story");
   assertEquals(sourceIdForWorkDef({ parent: { kind: "thought", id: "n" } }), "thought");
 });
 
-Deno.test("SourceRegistry: register, lookup by id and by WorkDef, init runs once with its context", () => {
+test("SourceRegistry: register, lookup by id and by WorkDef, init runs once with its context", () => {
   const inits: string[] = [];
   const reg = new SourceRegistry((id) => stubContext(id));
   const src: WorkSource = { id: "schedule", apiVersion: 1, init: (ctx) => { inits.push(ctx.sourceId); } };
@@ -71,14 +74,14 @@ Deno.test("SourceRegistry: register, lookup by id and by WorkDef, init runs once
   assertEquals(reg.all().length, 1);
 });
 
-Deno.test("SourceRegistry: refuses a duplicate id and an unsupported apiVersion", () => {
+test("SourceRegistry: refuses a duplicate id and an unsupported apiVersion", () => {
   const reg = new SourceRegistry((id) => stubContext(id));
   reg.register({ id: "a", apiVersion: 1 });
   assertThrows(() => reg.register({ id: "a", apiVersion: 1 }), Error, "already registered");
   assertThrows(() => reg.register({ id: "b", apiVersion: 2 as unknown as 1 }), Error, "apiVersion");
 });
 
-Deno.test("SourceRegistry: tickAll ticks every source and isolates one that throws", () => {
+test("SourceRegistry: tickAll ticks every source and isolates one that throws", () => {
   const logs: string[] = [];
   const ticked: string[] = [];
   const reg = new SourceRegistry((id) => stubContext(id, logs));
@@ -89,7 +92,7 @@ Deno.test("SourceRegistry: tickAll ticks every source and isolates one that thro
   assertEquals(logs, ["bad: tick failed: boom"]);
 });
 
-Deno.test("Store: the Task, Story, Schedule, and Thought sources are registered as built-ins", () => {
+test("Store: the Task, Story, Schedule, and Thought sources are registered as built-ins", () => {
   const { store, teamDir } = setup();
   try {
     assertEquals(store.getWorkSourceFor({ parent: { kind: "schedule", id: "s" } })?.source.id, SCHEDULE_SOURCE_ID);
@@ -102,7 +105,7 @@ Deno.test("Store: the Task, Story, Schedule, and Thought sources are registered 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Store: tickWorkSources fires the Schedule source (due cron enqueues once)", () => {
+test("Store: tickWorkSources fires the Schedule source (due cron enqueues once)", () => {
   const { store, teamDir } = setup();
   try {
     const sched = store.createSchedule({ title: "Every minute", cron: "* * * * *" });
@@ -114,7 +117,7 @@ Deno.test("Store: tickWorkSources fires the Schedule source (due cron enqueues o
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Store: a registered source's hooks are called (resolveItem, isEligible, buildPrompt, onItemTerminal, tick)", async () => {
+test("Store: a registered source's hooks are called (resolveItem, isEligible, buildPrompt, onItemTerminal, tick)", async () => {
   const { store, teamDir } = setup();
   const app = buildApp(store, TEST_CONFIG, teamDir);
   try {
@@ -167,7 +170,7 @@ Deno.test("Store: a registered source's hooks are called (resolveItem, isEligibl
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Store: a source still can't enqueue a pending WorkDef (the single enqueueFor refuses)", () => {
+test("Store: a source still can't enqueue a pending WorkDef (the single enqueueFor refuses)", () => {
   const { store, teamDir } = setup();
   try {
     let ctx: SourceContext | null = null;
@@ -181,7 +184,7 @@ Deno.test("Store: a source still can't enqueue a pending WorkDef (the single enq
 
 // ─── The built-in Story source: board policy through the hooks ──────
 
-Deno.test("Store: board tasks go through the Story source (directory fallback, eligibility, advance outcome)", () => {
+test("Store: board tasks go through the Story source (directory fallback, eligibility, advance outcome)", () => {
   const { store, teamDir } = setup();
   try {
     store.createStory("s1", "S", "d", "open", [], [{ title: "T1", description: "g" }], undefined, undefined, false, "/repo/story");
@@ -210,7 +213,7 @@ Deno.test("Store: board tasks go through the Story source (directory fallback, e
 
 // ─── tickSchedule (per-source timers) ───────────────────────────────
 
-Deno.test("SourceRegistry: tickSchedule uses tickEveryMs, defaults the rest, and drops opt-outs", () => {
+test("SourceRegistry: tickSchedule uses tickEveryMs, defaults the rest, and drops opt-outs", () => {
   const reg = new SourceRegistry((id) => stubContext(id));
   reg.register({ id: "plain", apiVersion: 1, tick: () => {} });
   reg.register({ id: "slow", apiVersion: 1, tick: () => {}, tickEveryMs: () => 60_000 });
@@ -239,7 +242,7 @@ function fakeRevisionDeps(): { deps: { hasActiveItem: (id: string) => boolean; e
   };
 }
 
-Deno.test("enqueueRevision: once per revision; a new revision enqueues again", () => {
+test("enqueueRevision: once per revision; a new revision enqueues again", () => {
   const { deps, enqueued } = fakeRevisionDeps();
   const kv = memoryKv();
   const cursor = kvRevisionCursor(kv);
@@ -252,7 +255,7 @@ Deno.test("enqueueRevision: once per revision; a new revision enqueues again", (
   assert(enqueueRevision(deps, cursor, "d2", "r1") !== null);
 });
 
-Deno.test("enqueueRevision: in flight refuses (even forced) and doesn't stamp", () => {
+test("enqueueRevision: in flight refuses (even forced) and doesn't stamp", () => {
   const { deps, active, enqueued } = fakeRevisionDeps();
   const kv = memoryKv();
   const cursor = kvRevisionCursor(kv);
@@ -263,7 +266,7 @@ Deno.test("enqueueRevision: in flight refuses (even forced) and doesn't stamp", 
   assertEquals(enqueued, []);
 });
 
-Deno.test("enqueueRevision: force re-runs an unchanged revision", () => {
+test("enqueueRevision: force re-runs an unchanged revision", () => {
   const { deps, enqueued } = fakeRevisionDeps();
   const cursor = kvRevisionCursor(memoryKv());
   enqueueRevision(deps, cursor, "d1", "r1");
@@ -271,7 +274,7 @@ Deno.test("enqueueRevision: force re-runs an unchanged revision", () => {
   assertEquals(enqueued, ["d1", "d1"]);
 });
 
-Deno.test("enqueueRevision: a refused enqueue (e.g. pending) leaves the revision unstamped", () => {
+test("enqueueRevision: a refused enqueue (e.g. pending) leaves the revision unstamped", () => {
   const { deps, refuse } = fakeRevisionDeps();
   const kv = memoryKv();
   refuse.add("d1");
@@ -281,7 +284,7 @@ Deno.test("enqueueRevision: a refused enqueue (e.g. pending) leaves the revision
   assert(enqueueRevision(deps, kvRevisionCursor(kv), "d1", "r1") !== null); // due once it can enqueue
 });
 
-Deno.test("enqueueRevision: a custom cursor replaces the kv", () => {
+test("enqueueRevision: a custom cursor replaces the kv", () => {
   const { deps } = fakeRevisionDeps();
   const kv = memoryKv();
   const stamps = new Map<string, string>([["d1", "r1"]]);
@@ -292,8 +295,8 @@ Deno.test("enqueueRevision: a custom cursor replaces the kv", () => {
   assertEquals(kv.data.size, 0);
 });
 
-Deno.test("fileSourceKv: persists per source under sources/<id>.json", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-source-kv-test-" });
+test("fileSourceKv: persists per source under sources/<id>.json", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-source-kv-test-"));
   try {
     const a = fileSourceKv(teamDir, "jira");
     assertEquals(a.get("k"), undefined);
@@ -301,17 +304,17 @@ Deno.test("fileSourceKv: persists per source under sources/<id>.json", () => {
     a.set("b", "x");
     assertEquals(fileSourceKv(teamDir, "jira").get("k"), "v1"); // a fresh handle reads the file
     assertEquals(fileSourceKv(teamDir, "other").get("k"), undefined); // per source
-    const raw = JSON.parse(Deno.readTextFileSync(path.join(teamDir, SOURCES_DIR, "jira.json")));
+    const raw = JSON.parse(fs.readFileSync(path.join(teamDir, SOURCES_DIR, "jira.json"), "utf8"));
     assertEquals(Object.keys(raw), ["b", "k"]); // sorted, for clean diffs
     a.delete("k");
     assertEquals(a.get("k"), undefined);
     assertEquals(a.get("b"), "x");
   } finally {
-    Deno.removeSync(teamDir, { recursive: true });
+    fs.rmSync(teamDir, { recursive: true, force: true });
   }
 });
 
-Deno.test("Store: ctx.enqueueRevision goes through enqueueFor and the source's kv", () => {
+test("Store: ctx.enqueueRevision goes through enqueueFor and the source's kv", () => {
   const { store, teamDir } = setup();
   try {
     let ctx: SourceContext | null = null;
@@ -327,7 +330,7 @@ Deno.test("Store: ctx.enqueueRevision goes through enqueueFor and the source's k
     assert(ctx!.enqueueRevision(def.id, "etag-2") !== null);
     // Stamped in the source's own file, not the authored workdef.md.
     assertEquals(fileSourceKv(teamDir, TASK_SOURCE_ID).get(revisionKey(def.id)), "etag-2");
-    assert(!Deno.readTextFileSync(path.join(teamDir, "tasks", def.id, "workdef.md")).includes("etag"));
+    assert(!fs.readFileSync(path.join(teamDir, "tasks", def.id, "workdef.md"), "utf8").includes("etag"));
     // Pending defs still never enqueue.
     const held = store.createWorkDef({ title: "Held", goal: "g", acceptanceCriteria: "a", pending: true });
     assertEquals(ctx!.enqueueRevision(held.id, "r"), null);
@@ -336,7 +339,7 @@ Deno.test("Store: ctx.enqueueRevision goes through enqueueFor and the source's k
 
 // ─── The built-in Task source: Run and activate ─────────────────────
 
-Deno.test("Store: runWorkDef / activateWorkDef follow the Solitary rules through the Task source", () => {
+test("Store: runWorkDef / activateWorkDef follow the Solitary rules through the Task source", () => {
   const { store, teamDir } = setup();
   try {
     const def = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "a" }, false);

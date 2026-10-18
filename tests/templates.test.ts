@@ -6,7 +6,10 @@
  * /api/work-defs listing (it lives under templates/, separate from work).
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -14,19 +17,19 @@ import { Store } from "../daemon/store.ts";
 import * as path from "node:path";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-templates-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-templates-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
 }
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-Deno.test("POST /api/templates creates a template (no WorkItem enqueued)", async () => {
+test("POST /api/templates creates a template (no WorkItem enqueued)", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/templates", {
@@ -46,7 +49,7 @@ Deno.test("POST /api/templates creates a template (no WorkItem enqueued)", async
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET/PUT/DELETE /api/templates round-trips", async () => {
+test("GET/PUT/DELETE /api/templates round-trips", async () => {
   const { app, store, teamDir } = setup();
   try {
     await app.request("/api/templates", {
@@ -73,7 +76,7 @@ Deno.test("GET/PUT/DELETE /api/templates round-trips", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/templates/:id 404s for unknown", async () => {
+test("GET /api/templates/:id 404s for unknown", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/templates/nope");

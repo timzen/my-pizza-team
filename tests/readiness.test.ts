@@ -12,7 +12,10 @@
  * POST /api/readiness.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -20,8 +23,8 @@ import { Store } from "../daemon/store.ts";
 import * as path from "node:path";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-readiness-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-readiness-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
@@ -29,7 +32,7 @@ function setup() {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
 const report = (app: ReturnType<typeof buildApp>, body: unknown) =>
@@ -39,7 +42,7 @@ const report = (app: ReturnType<typeof buildApp>, body: unknown) =>
     body: JSON.stringify(body),
   });
 
-Deno.test("with nothing reported, readiness is null — and the team counts as ready", async () => {
+test("with nothing reported, readiness is null — and the team counts as ready", async () => {
   // Absence must not read as "not ready": a freshly booted daemon knows nothing,
   // and refusing to schedule until something reports would stall a healthy team.
   const { app, store, teamDir } = setup();
@@ -50,7 +53,7 @@ Deno.test("with nothing reported, readiness is null — and the team counts as r
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a not-ready report is stored with its reason", async () => {
+test("a not-ready report is stored with its reason", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await report(app, { ready: false, reason: "mwinit credentials expired" })).status, 200);
@@ -64,7 +67,7 @@ Deno.test("a not-ready report is stored with its reason", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("recovering clears the reason rather than leaving it stale", async () => {
+test("recovering clears the reason rather than leaving it stale", async () => {
   const { app, store, teamDir } = setup();
   try {
     await report(app, { ready: false, reason: "mwinit credentials expired" });
@@ -75,7 +78,7 @@ Deno.test("recovering clears the reason rather than leaving it stale", async () 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a report without a boolean `ready` is rejected", async () => {
+test("a report without a boolean `ready` is rejected", async () => {
   // A probe that reports garbage must not silently read as ready — that would
   // disable gating exactly when something is already wrong.
   const { app, store, teamDir } = setup();
@@ -86,7 +89,7 @@ Deno.test("a report without a boolean `ready` is rejected", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("/health surfaces a not-ready team, and nothing when it's fine", async () => {
+test("/health surfaces a not-ready team, and nothing when it's fine", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await (await app.request("/health")).json()).notReady, null);

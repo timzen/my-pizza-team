@@ -6,7 +6,8 @@
  * out of a group.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assert, assertEquals } from "./_assert.ts";
 import {
   buildThoughtTree,
   neighbourAfterRemoval,
@@ -28,7 +29,7 @@ function group(id: string, title: string, over: Partial<ListGroup> = {}): ListGr
   return { id, title, x: 0, y: 0, w: 360, h: 260, ...over };
 }
 
-Deno.test("title and snippet are the first two lines of text, without markdown syntax", () => {
+test("title and snippet are the first two lines of text, without markdown syntax", () => {
   const md = "# Q3 **planning**\n\n- [ ] ship the `list` view\n- more";
   assertEquals(noteTitle(md), "Q3 planning");
   assertEquals(noteSnippet(md), "ship the list view");
@@ -38,7 +39,7 @@ Deno.test("title and snippet are the first two lines of text, without markdown s
   assertEquals(noteSnippet("only one line"), "");
 });
 
-Deno.test("folders are alphabetical, loose notes come after, each pinned-first then newest", () => {
+test("folders are alphabetical, loose notes come after, each pinned-first then newest", () => {
   const groups = [group("g-b", "beta"), group("g-a", "Alpha")];
   const notes = [
     note("old", { groupId: "g-a", updatedAt: "2026-01-01T00:00:00.000Z" }),
@@ -54,7 +55,7 @@ Deno.test("folders are alphabetical, loose notes come after, each pinned-first t
   assertEquals(tree.loose.map((n) => n.id), ["loose2", "loose1"]);
 });
 
-Deno.test("an empty folder shows until you search; a search keeps only matches", () => {
+test("an empty folder shows until you search; a search keeps only matches", () => {
   const groups = [group("g-empty", "Empty"), group("g-x", "X")];
   const notes = [note("a", { groupId: "g-x", content: "Buy milk" }), note("b", { groupId: "g-x", content: "call bob" }), note("c", { content: "MILK again" })];
   assertEquals(buildThoughtTree(notes, groups).folders.map((f) => f.group.id), ["g-empty", "g-x"]);
@@ -64,12 +65,12 @@ Deno.test("an empty folder shows until you search; a search keeps only matches",
   assertEquals(found.loose.map((n) => n.id), ["c"]);
 });
 
-Deno.test("a note whose group no longer exists is listed as loose, never hidden", () => {
+test("a note whose group no longer exists is listed as loose, never hidden", () => {
   const tree = buildThoughtTree([note("orphan", { groupId: "gone" })], []);
   assertEquals(tree.loose.map((n) => n.id), ["orphan"]);
 });
 
-Deno.test("keyboard order skips collapsed folders, except while searching", () => {
+test("keyboard order skips collapsed folders, except while searching", () => {
   const groups = [group("g-a", "A"), group("g-b", "B")];
   const notes = [note("a1", { groupId: "g-a" }), note("b1", { groupId: "g-b" }), note("l1")];
   const tree = buildThoughtTree(notes, groups);
@@ -77,7 +78,7 @@ Deno.test("keyboard order skips collapsed folders, except while searching", () =
   assertEquals(visibleOrder(tree, new Set(["g-a"]), true).map((n) => n.id), ["a1", "b1", "l1"]);
 });
 
-Deno.test("after a removal the selection moves to the next note, else the previous", () => {
+test("after a removal the selection moves to the next note, else the previous", () => {
   const order = [{ id: "a" }, { id: "b" }, { id: "c" }];
   assertEquals(neighbourAfterRemoval(order, "b"), "c");
   assertEquals(neighbourAfterRemoval(order, "c"), "b");
@@ -85,7 +86,7 @@ Deno.test("after a removal the selection moves to the next note, else the previo
   assertEquals(neighbourAfterRemoval(order, "missing"), "a");
 });
 
-Deno.test("joining a group fills the first free slot inside its plate", () => {
+test("joining a group fills the first free slot inside its plate", () => {
   // A plate two notes wide, with the first slot taken.
   const w = 2 * NOTE_W + 20 + 2 * PLATE_PAD;
   const g = group("g", "G", { x: 100, y: 100, w, h: 260 });
@@ -97,14 +98,14 @@ Deno.test("joining a group fills the first free slot inside its plate", () => {
   assertEquals(r, plateRect(g, [first]));
 });
 
-Deno.test("a full plate gets a new row, and the note being moved doesn't block its own slot", () => {
+test("a full plate gets a new row, and the note being moved doesn't block its own slot", () => {
   const g = group("g", "G", { x: 0, y: 0, w: NOTE_W + 2 * PLATE_PAD, h: NOTE_H + 2 * PLATE_PAD });
   const m = note("m", { groupId: "g", x: PLATE_PAD, y: PLATE_PAD });
   assertEquals(slotInPlate(g, [m]), { x: PLATE_PAD, y: PLATE_PAD + NOTE_H + 20 });
   assertEquals(slotInPlate(g, [m], "m"), { x: PLATE_PAD, y: PLATE_PAD });
 });
 
-Deno.test("leaving every group places the note below all notes and plates", () => {
+test("leaving every group places the note below all notes and plates", () => {
   const g = group("g", "G", { x: 500, y: 0, w: 360, h: 900 });
   const notes = [note("loose", { x: 40, y: 0 }), note("mover", { groupId: "g", x: 520, y: 20 })];
   const slot = slotBelowAll(notes, [g], "mover");
@@ -113,7 +114,7 @@ Deno.test("leaving every group places the note below all notes and plates", () =
   assertEquals(slotBelowAll([], []), { x: 0, y: 0 });
 });
 
-Deno.test("a group change moves the note only when its position would disagree", () => {
+test("a group change moves the note only when its position would disagree", () => {
   const g = group("g", "G", { x: 1000, y: 0, w: 360, h: 260 });
   const far = note("far", { x: 0, y: 0 });
   // Joining from far away: into the plate.

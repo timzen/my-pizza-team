@@ -6,7 +6,8 @@
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins".
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   defaultWorkItemsPath,
   externalSourceIdFromPath,
@@ -30,14 +31,14 @@ const ALL_OFF = { stories: false, tasks: false, schedules: false };
 const JIRA = { id: "jira", label: "Jira" };
 const FIXTURE = { id: "fixture", label: "Fixture" };
 
-Deno.test("workItemsTabLinks: with no external source, exactly the kind and lifecycle tabs", () => {
+test("workItemsTabLinks: with no external source, exactly the kind and lifecycle tabs", () => {
   for (const sources of [null, []]) {
     assertEquals(workItemsTabLinks(ALL_ON, sources).map((t) => t.path), visibleWorkItemsTabs(ALL_ON).map((t) => t.path));
   }
   assertEquals(workItemsTabLinks(null, [JIRA]), [], "nothing until the toggles load");
 });
 
-Deno.test("workItemsTabLinks: one tab per external source, after the kinds and before Pending/Archived", () => {
+test("workItemsTabLinks: one tab per external source, after the kinds and before Pending/Archived", () => {
   const links = workItemsTabLinks(ALL_ON, [JIRA, FIXTURE]);
   assertEquals(links.map((t) => t.label), ["Board", "Tasks", "Schedule", "Jira", "Fixture", "Pending", "Archived"]);
   const jira = links.find((t) => t.key === "source:jira")!;
@@ -47,7 +48,7 @@ Deno.test("workItemsTabLinks: one tab per external source, after the kinds and b
   assertEquals(links.find((t) => t.key === "board")!.isActive("/work/source/jira"), false);
 });
 
-Deno.test("external tabs keep Work reachable when every kind is off", () => {
+test("external tabs keep Work reachable when every kind is off", () => {
   assertEquals(hasAnyWorkItemsFeature(ALL_OFF), false);
   assertEquals(hasAnyWorkItemsFeature(ALL_OFF, [JIRA]), true);
   assertEquals(workItemsTabLinks(ALL_OFF, [JIRA]).map((t) => t.label), ["Jira"]);
@@ -55,14 +56,14 @@ Deno.test("external tabs keep Work reachable when every kind is off", () => {
   assertEquals(defaultWorkItemsPath(ALL_ON, [JIRA]), "/work/board", "a kind tab still comes first");
 });
 
-Deno.test("externalSourcePath / externalSourceIdFromPath round-trip, and reject other routes", () => {
+test("externalSourcePath / externalSourceIdFromPath round-trip, and reject other routes", () => {
   assertEquals(externalSourceIdFromPath(externalSourcePath("my-src")), "my-src");
   assertEquals(externalSourceIdFromPath("/work/board"), null);
   assertEquals(externalSourceIdFromPath("/work/source"), null);
   assertEquals(externalSourceIdFromPath("/work/source/a/b"), null);
 });
 
-Deno.test("mirrored-def list helpers: latest state, revision, and the external link", () => {
+test("mirrored-def list helpers: latest state, revision, and the external link", () => {
   assertEquals(latestStateLabel(null), "Never run");
   assertEquals(latestStateLabel("IN_PROGRESS"), "In progress");
   assertEquals(latestStateLabel("COMPLETE"), "Complete");
@@ -75,7 +76,7 @@ Deno.test("mirrored-def list helpers: latest state, revision, and the external l
   assertEquals(openInLabel("Jira"), "Open in Jira");
 });
 
-Deno.test("a mirrored def's page: read-only hint, Back to its source's tab, Work highlighted", () => {
+test("a mirrored def's page: read-only hint, Back to its source's tab, Work highlighted", () => {
   assertEquals(mirroredDefHomePath({ sourceId: "jira" }), "/work/source/jira");
   const hint = readOnlyHint("Jira");
   assertEquals(hint.includes("pull only") && hint.includes("edit it there"), true);

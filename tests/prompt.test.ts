@@ -3,10 +3,11 @@
  * (optional board framing: state persona + story; see docs/DESIGN.md "WorkDefs & Parents").
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { buildWorkDefPrompt } from "../daemon/prompt.ts";
 
-Deno.test("buildWorkDefPrompt: assembles board sections in order", () => {
+test("buildWorkDefPrompt: assembles board sections in order", () => {
   const out = buildWorkDefPrompt({
     workDef: { title: "Auth module", goal: "Task desc.", acceptanceCriteria: "The API MUST work." },
     story: { id: "auth", title: "Add Auth", description: "Story desc.", directory: "/tmp/proj" },
@@ -46,7 +47,7 @@ Deno.test("buildWorkDefPrompt: assembles board sections in order", () => {
   assertStringIncludes(out, "advances automatically");
 });
 
-Deno.test("buildWorkDefPrompt: default role framing when the state has no persona", () => {
+test("buildWorkDefPrompt: default role framing when the state has no persona", () => {
   const out = buildWorkDefPrompt({
     workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
     state: "coding",
@@ -55,7 +56,7 @@ Deno.test("buildWorkDefPrompt: default role framing when the state has no person
   assertStringIncludes(out, "'coding' state");
 });
 
-Deno.test("buildWorkDefPrompt: standalone work omits board sections cleanly", () => {
+test("buildWorkDefPrompt: standalone work omits board sections cleanly", () => {
   const out = buildWorkDefPrompt({
     workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
   });
@@ -68,7 +69,7 @@ Deno.test("buildWorkDefPrompt: standalone work omits board sections cleanly", ()
   assertStringIncludes(out, "## Completing This Work");
 });
 
-Deno.test("buildWorkDefPrompt: injects attached reference context", () => {
+test("buildWorkDefPrompt: injects attached reference context", () => {
   const out = buildWorkDefPrompt({
     workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
     contextEntries: [
@@ -84,7 +85,7 @@ Deno.test("buildWorkDefPrompt: injects attached reference context", () => {
   assertStringIncludes(out, "#### Heading");
 });
 
-Deno.test("buildWorkDefPrompt: omits reference context when none attached", () => {
+test("buildWorkDefPrompt: omits reference context when none attached", () => {
   const out = buildWorkDefPrompt({
     workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
     contextEntries: [],

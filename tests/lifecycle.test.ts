@@ -2,70 +2,73 @@
  * tests/lifecycle.test.ts — Verifies PID file management and shutdown logic.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { writePidFile, removePidFile, isAlreadyRunning } from "../daemon/lifecycle.ts";
 import * as path from "node:path";
 
 function createTempDir(): string {
-  return Deno.makeTempDirSync({ prefix: "mpt-lifecycle-test-" });
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mpt-lifecycle-test-"));
 }
 
-Deno.test("writePidFile creates file with current PID", () => {
+test("writePidFile creates file with current PID", () => {
   const dir = createTempDir();
   try {
     const pidFile = writePidFile(dir);
-    const content = Deno.readTextFileSync(pidFile);
-    assertEquals(content, String(Deno.pid));
+    const content = fs.readFileSync(pidFile, "utf8");
+    assertEquals(content, String(process.pid));
   } finally {
-    Deno.removeSync(dir, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-Deno.test("removePidFile removes file when PID matches", () => {
+test("removePidFile removes file when PID matches", () => {
   const dir = createTempDir();
   try {
     const pidFile = writePidFile(dir);
     removePidFile(pidFile);
     let exists = false;
-    try { Deno.statSync(pidFile); exists = true; } catch { /* */ }
+    try { fs.statSync(pidFile); exists = true; } catch { /* */ }
     assertEquals(exists, false);
   } finally {
-    Deno.removeSync(dir, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-Deno.test("removePidFile does NOT remove file when PID differs", () => {
+test("removePidFile does NOT remove file when PID differs", () => {
   const dir = createTempDir();
   const pidFile = path.join(dir, "daemon.pid");
   try {
-    Deno.writeTextFileSync(pidFile, "99999999");
+    fs.writeFileSync(pidFile, "99999999");
     removePidFile(pidFile);
     // File should still exist because PID doesn't match
-    const content = Deno.readTextFileSync(pidFile);
+    const content = fs.readFileSync(pidFile, "utf8");
     assertEquals(content, "99999999");
   } finally {
-    Deno.removeSync(dir, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-Deno.test("isAlreadyRunning returns false when no PID file", () => {
+test("isAlreadyRunning returns false when no PID file", () => {
   const dir = createTempDir();
   try {
     const result = isAlreadyRunning(dir);
     assertEquals(result.running, false);
   } finally {
-    Deno.removeSync(dir, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 
-Deno.test("isAlreadyRunning returns false for invalid PID content", () => {
+test("isAlreadyRunning returns false for invalid PID content", () => {
   const dir = createTempDir();
   const pidFile = path.join(dir, "daemon.pid");
   try {
-    Deno.writeTextFileSync(pidFile, "not-a-number");
+    fs.writeFileSync(pidFile, "not-a-number");
     const result = isAlreadyRunning(dir);
     assertEquals(result.running, false);
   } finally {
-    Deno.removeSync(dir, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -7,13 +7,15 @@
  * check, since the UI has no DOM test harness.
  */
 
-import { assert } from "@std/assert";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assert } from "./_assert.ts";
 
-const read = (path: string) => Deno.readTextFile(new URL(`../ui/src/${path}`, import.meta.url));
+const read = (path: string) => fs.promises.readFile(new URL(`../ui/src/${path}`, import.meta.url), "utf8");
 
 const WORK_ITEMS_PAGES = ["BoardPage", "TasksPage", "SchedulePage", "LifecyclePage"];
 
-Deno.test("Work tabs render inside WorkItemsLayout with no own centered container", async () => {
+test("Work tabs render inside WorkItemsLayout with no own centered container", async () => {
   for (const page of WORK_ITEMS_PAGES) {
     const src = await read(`pages/${page}.tsx`);
     assert(src.includes("<WorkItemsLayout"), `${page} should use WorkItemsLayout`);
@@ -22,7 +24,7 @@ Deno.test("Work tabs render inside WorkItemsLayout with no own centered containe
   assert((await read("components/WorkItemsTabs.tsx")).includes("<TabbedPageLayout"));
 });
 
-Deno.test("Config tabs (incl. embedded Workflows/Context pages) render inside TabbedPageLayout, left-aligned", async () => {
+test("Config tabs (incl. embedded Workflows/Context pages) render inside TabbedPageLayout, left-aligned", async () => {
   const config = await read("pages/ConfigPage.tsx");
   assert(config.includes("<TabbedPageLayout"), "ConfigPage should use TabbedPageLayout");
   assert(!config.includes("mx-auto"), "ConfigPage should not center its body");
@@ -32,7 +34,7 @@ Deno.test("Config tabs (incl. embedded Workflows/Context pages) render inside Ta
   }
 });
 
-Deno.test("TabbedPageLayout keeps the header independent of the body width", async () => {
+test("TabbedPageLayout keeps the header independent of the body width", async () => {
   const src = await read("components/TabbedPageLayout.tsx");
   const outer = src.match(/data-testid="tabbed-page"/);
   assert(outer, "outer frame present");

@@ -11,7 +11,10 @@
  * stalls the others; backoff), and the generic read-only routes.
  */
 
-import { assert, assertEquals, assertNotEquals, assertStringIncludes, assertThrows } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals, assertNotEquals, assertStringIncludes, assertThrows } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
@@ -36,10 +39,10 @@ interface Env {
 
 /** A Store with the fixture source registered on demand-only sync (no timers). */
 function setup(): Env {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-ext-sources-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const folder = path.join(teamDir, "external");
-  Deno.mkdirSync(folder);
+  fs.mkdirSync(folder);
   const store = new Store(teamDir, TEST_CONFIG);
   const fixture = new FixtureSource({ dir: folder, label: "Fixture Tracker", syncEveryMs: null });
   store.registerWorkSource(fixture);
@@ -48,7 +51,7 @@ function setup(): Env {
 
 function cleanup({ store, teamDir }: Pick<Env, "store" | "teamDir">): void {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 /** Write one fixture item file. */
@@ -56,7 +59,7 @@ function writeItem(folder: string, externalId: string, title: string, goal: stri
   const fm = [`title: ${title}`];
   if (extra.url) fm.push(`url: "${extra.url}"`);
   if (extra.directory) fm.push(`directory: ${extra.directory}`);
-  Deno.writeTextFileSync(
+  fs.writeFileSync(
     path.join(folder, `${externalId}.md`),
     `---\n${fm.join("\n")}\n---\n## Goal\n\n${goal}\n\n## Acceptance Criteria\n\n- MUST work\n`,
   );
@@ -79,7 +82,7 @@ function stubContext(sourceId: string): SourceContext {
 
 // ─── Mirrored defs ──────────────────────────────────────────────────
 
-Deno.test("mirroredWorkDefId: namespaced, file-system safe, and distinct per source and id", () => {
+test("mirroredWorkDefId: namespaced, file-system safe, and distinct per source and id", () => {
   assertEquals(mirroredWorkDefId("jira", "PROJ-123"), "jira~PROJ-123");
   const odd = mirroredWorkDefId("jira", "../a/b c_é");
   assert(/^[A-Za-z0-9~_-]+$/.test(odd), odd);
@@ -89,14 +92,14 @@ Deno.test("mirroredWorkDefId: namespaced, file-system safe, and distinct per sou
   assertNotEquals(mirroredWorkDefId("jira", "x"), mirroredWorkDefId("asana", "x"));
 });
 
-Deno.test("invalidExternalDef: externalId, revision, and title are required", () => {
+test("invalidExternalDef: externalId, revision, and title are required", () => {
   assertEquals(invalidExternalDef({ externalId: "a", revision: "1", title: "t", goal: "g" }), null);
   assertStringIncludes(invalidExternalDef({ externalId: "a", title: "t", goal: "" }) ?? "", "revision");
   assertStringIncludes(invalidExternalDef({ externalId: "", revision: "1", title: "t" }) ?? "", "externalId");
   assert(invalidExternalDef(null));
 });
 
-Deno.test("External parent: type 'External', owned by parent.source, mirrored", () => {
+test("External parent: type 'External', owned by parent.source, mirrored", () => {
   const parent = { kind: "external" as const, id: "PROJ-1", source: "jira" };
   assertEquals(workDefType(parent), "External");
   assertEquals(sourceIdForWorkDef({ parent }), "jira");
@@ -104,7 +107,7 @@ Deno.test("External parent: type 'External', owned by parent.source, mirrored", 
   assert(!isMirroredWorkDef({ parent: { kind: "story", id: "s" } }));
 });
 
-Deno.test("SourceRegistry: an external source's id must be file-system safe", () => {
+test("SourceRegistry: an external source's id must be file-system safe", () => {
   const reg = new SourceRegistry((id) => stubContext(id));
   const sync = () => Promise.resolve([]);
   assertThrows(() => reg.register({ id: "Bad/Id", apiVersion: 1, sync }), Error, "must match");
@@ -116,7 +119,7 @@ Deno.test("SourceRegistry: an external source's id must be file-system safe", ()
 
 // ─── Sync: mirror, one WorkItem per revision ────────────────────────
 
-Deno.test("sync: mirrors each item read-only and enqueues once per revision", async () => {
+test("sync: mirrors each item read-only and enqueues once per revision", async () => {
   const env = setup();
   try {
     const { store, folder, teamDir } = env;
@@ -137,7 +140,7 @@ Deno.test("sync: mirrors each item read-only and enqueues once per revision", as
     assertEquals(def.parent, { kind: "external", id: "T-1", source: FIXTURE_SOURCE_ID });
     assertEquals(store.getWorkSourceFor(def)?.source.id, FIXTURE_SOURCE_ID);
     // On disk it's an ordinary WorkDef file; the runtime state is in the source's kv.
-    const raw = Deno.readTextFileSync(path.join(teamDir, "tasks", id1, "workdef.md"));
+    const raw = fs.readFileSync(path.join(teamDir, "tasks", id1, "workdef.md"), "utf8");
     assertStringIncludes(raw, "parentKind: external");
     assertStringIncludes(raw, "parentSource: fixture");
     assert(!raw.includes("revision"), "no runtime state in workdef.md");
@@ -168,7 +171,7 @@ Deno.test("sync: mirrors each item read-only and enqueues once per revision", as
   }
 });
 
-Deno.test("sync: a revision landing while an item is in flight runs once that item ends", async () => {
+test("sync: a revision landing while an item is in flight runs once that item ends", async () => {
   const env = setup();
   try {
     const { store, folder } = env;
@@ -190,7 +193,7 @@ Deno.test("sync: a revision landing while an item is in flight runs once that it
   }
 });
 
-Deno.test("sync: readiness gating holds a new revision, and the next ready sync enqueues it", async () => {
+test("sync: readiness gating holds a new revision, and the next ready sync enqueues it", async () => {
   const env = setup();
   try {
     const { store, folder } = env;
@@ -210,7 +213,7 @@ Deno.test("sync: readiness gating holds a new revision, and the next ready sync 
   }
 });
 
-Deno.test("sync: a vanished item's mirror is archived (not deleted), and comes back if it reappears", async () => {
+test("sync: a vanished item's mirror is archived (not deleted), and comes back if it reappears", async () => {
   const env = setup();
   try {
     const { store, folder, teamDir } = env;
@@ -221,7 +224,7 @@ Deno.test("sync: a vanished item's mirror is archived (not deleted), and comes b
     const queued = store.getActiveWorkItemForTask(gone)!;
     store.addCommentForRef({ workDefId: gone }, "you", "a note on the thread");
 
-    Deno.removeSync(path.join(folder, "T-2.md"));
+    fs.rmSync(path.join(folder, "T-2.md"));
     const res = await store.syncWorkSource(FIXTURE_SOURCE_ID);
     assertEquals(res.archived, [gone]);
     const def = store.getWorkDef(gone)!;
@@ -244,7 +247,7 @@ Deno.test("sync: a vanished item's mirror is archived (not deleted), and comes b
   }
 });
 
-Deno.test("sync: a mirror a person archived stays archived (content kept current) and never enqueues", async () => {
+test("sync: a mirror a person archived stays archived (content kept current) and never enqueues", async () => {
   const env = setup();
   try {
     const { store, folder } = env;
@@ -264,7 +267,7 @@ Deno.test("sync: a mirror a person archived stays archived (content kept current
   }
 });
 
-Deno.test("ctx.upsertDef mirrors without enqueueing; an unchanged revision is a no-op", () => {
+test("ctx.upsertDef mirrors without enqueueing; an unchanged revision is a no-op", () => {
   const env = setup();
   try {
     const { store } = env;
@@ -283,7 +286,7 @@ Deno.test("ctx.upsertDef mirrors without enqueueing; an unchanged revision is a 
 
 // ─── Write-back ─────────────────────────────────────────────────────
 
-Deno.test("write-back: onComment for thread comments; onItemTerminal on COMPLETE, FAILED, and CANCELED", async () => {
+test("write-back: onComment for thread comments; onItemTerminal on COMPLETE, FAILED, and CANCELED", async () => {
   const env = setup();
   try {
     const { store, folder, fixture } = env;
@@ -315,16 +318,16 @@ Deno.test("write-back: onComment for thread comments; onItemTerminal on COMPLETE
     await settle();
     assertEquals(fixture.writeBacks.filter((w) => w.hook === "onItemTerminal").map((w) => w.hook === "onItemTerminal" && w.state), ["COMPLETE", "FAILED", "CANCELED"]);
     // And recorded in the folder, for a person trying it out.
-    const lines = Deno.readTextFileSync(path.join(folder, FIXTURE_WRITEBACK_FILE)).trim().split("\n");
+    const lines = fs.readFileSync(path.join(folder, FIXTURE_WRITEBACK_FILE), "utf8").trim().split("\n");
     assertEquals(lines.length, fixture.writeBacks.length);
   } finally {
     cleanup(env);
   }
 });
 
-Deno.test("write-back: a throwing or rejecting hook is logged and never breaks the comment or the state change", async () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-ext-sources-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+test("write-back: a throwing or rejecting hook is logged and never breaks the comment or the state change", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const logs: string[] = [];
   const origWarn = console.warn;
@@ -359,7 +362,7 @@ Deno.test("write-back: a throwing or rejecting hook is logged and never breaks t
 
 // ─── Routes: read-only defs, thread still works ─────────────────────
 
-Deno.test("routes: a mirrored def can't be edited, deleted, or created — its thread still works", async () => {
+test("routes: a mirrored def can't be edited, deleted, or created — its thread still works", async () => {
   const env = setup();
   try {
     const { store, folder } = env;
@@ -398,7 +401,7 @@ Deno.test("routes: a mirrored def can't be edited, deleted, or created — its t
   }
 });
 
-Deno.test("routes: /api/work-sources lists external sources and their mirrored defs; /api/status reports them", async () => {
+test("routes: /api/work-sources lists external sources and their mirrored defs; /api/status reports them", async () => {
   const env = setup();
   try {
     const { store, folder } = env;
@@ -438,9 +441,9 @@ Deno.test("routes: /api/work-sources lists external sources and their mirrored d
   }
 });
 
-Deno.test("routes: with no external source registered, none is reported", async () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-ext-sources-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+test("routes: with no external source registered, none is reported", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   try {
     const app = buildApp(store, TEST_CONFIG, teamDir);
@@ -453,7 +456,7 @@ Deno.test("routes: with no external source registered, none is reported", async 
 
 // ─── Isolation ──────────────────────────────────────────────────────
 
-Deno.test("isolation: a throwing and a hanging source fail alone, back off, and never stall the fixture", async () => {
+test("isolation: a throwing and a hanging source fail alone, back off, and never stall the fixture", async () => {
   const env = setup();
   const origWarn = console.warn;
   const logs: string[] = [];
@@ -493,7 +496,7 @@ Deno.test("isolation: a throwing and a hanging source fail alone, back off, and 
   }
 });
 
-Deno.test("isolation: a sync still running is not started again (no overlap)", async () => {
+test("isolation: a sync still running is not started again (no overlap)", async () => {
   let release!: (defs: ExternalDef[]) => void;
   let calls = 0;
   const source: WorkSource = { id: "slow", apiVersion: 1, sync: () => { calls++; return new Promise((r) => { release = r; }); } };
@@ -506,7 +509,7 @@ Deno.test("isolation: a sync still running is not started again (no overlap)", a
   assertEquals(calls, 1);
 });
 
-Deno.test("isolation: backoff doubles per consecutive failure, capped, and resets on success", async () => {
+test("isolation: backoff doubles per consecutive failure, capped, and resets on success", async () => {
   let fail = true;
   const source: WorkSource = { id: "flaky", apiVersion: 1, sync: () => fail ? Promise.reject(new Error("x")) : Promise.resolve([]) };
   const runner = new SyncRunner(() => ({ ok: true, mirrored: [], enqueued: [], archived: [], held: [] }), { baseMs: 100, maxMs: 250 });
@@ -524,9 +527,9 @@ Deno.test("isolation: backoff doubles per consecutive failure, capped, and reset
 
 // ─── Dev config ─────────────────────────────────────────────────────
 
-Deno.test("registerDevSources: the fixture source is registered only when config.dev.fixtureSource names a folder", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-ext-sources-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+test("registerDevSources: the fixture source is registered only when config.dev.fixtureSource names a folder", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   try {
     registerDevSources(store, TEST_CONFIG, teamDir);

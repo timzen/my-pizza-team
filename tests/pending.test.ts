@@ -11,7 +11,10 @@
  * still work for one release.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -19,15 +22,15 @@ import { Store } from "../daemon/store.ts";
 import { parseWorkDef, serializeWorkDef } from "../daemon/store/workdefs.ts";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-pending-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-pending-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
 }
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const post = (app: ReturnType<typeof buildApp>, url: string, body: unknown = {}) =>
@@ -36,7 +39,7 @@ const put = (app: ReturnType<typeof buildApp>, url: string, body: unknown) =>
   app.request(url, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body) });
 const readyCount = (store: Store) => store.getWorkItems({ states: ["READY"] }).total;
 
-Deno.test("pending frontmatter round-trips; absent means active", () => {
+test("pending frontmatter round-trips; absent means active", () => {
   const def = { id: "d", title: "T", goal: "g", acceptanceCriteria: "a", pending: true };
   assertEquals(parseWorkDef("d", serializeWorkDef(def))?.pending, true);
   const active = parseWorkDef("p", serializeWorkDef({ id: "p", title: "T", goal: "g", acceptanceCriteria: "a" }));
@@ -44,7 +47,7 @@ Deno.test("pending frontmatter round-trips; absent means active", () => {
   assert(!serializeWorkDef({ id: "p", title: "T", goal: "g", acceptanceCriteria: "a" }).includes("pending"));
 });
 
-Deno.test("legacy draft: true frontmatter loads as pending and is rewritten as pending", () => {
+test("legacy draft: true frontmatter loads as pending and is rewritten as pending", () => {
   const legacy = "---\ntitle: \"Old\"\ndraft: true\n---\n## Goal\n\ng\n\n## Acceptance Criteria\n\na\n\n## Additional Context\n\n";
   const def = parseWorkDef("old", legacy)!;
   assertEquals(def.pending, true);
@@ -53,7 +56,7 @@ Deno.test("legacy draft: true frontmatter loads as pending and is rewritten as p
   assert(!rewritten.includes("draft"));
 });
 
-Deno.test("a Solitary pending task is not enqueued, can't be Run, and stays editable", async () => {
+test("a Solitary pending task is not enqueued, can't be Run, and stays editable", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/work-defs", { title: "Pending job", goal: "g", acceptanceCriteria: "a", pending: true });
@@ -74,7 +77,7 @@ Deno.test("a Solitary pending task is not enqueued, can't be Run, and stays edit
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("activating a Solitary pending task enqueues it and locks its definition", async () => {
+test("activating a Solitary pending task enqueues it and locks its definition", async () => {
   const { app, store, teamDir } = setup();
   try {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Pending job", goal: "g", acceptanceCriteria: "a", pending: true })).json();
@@ -96,7 +99,7 @@ Deno.test("activating a Solitary pending task enqueues it and locks its definiti
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("activate with enqueue:false activates a Solitary pending task without running it", async () => {
+test("activate with enqueue:false activates a Solitary pending task without running it", async () => {
   const { app, store, teamDir } = setup();
   try {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Later", goal: "g", pending: true })).json();
@@ -108,7 +111,7 @@ Deno.test("activate with enqueue:false activates a Solitary pending task without
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("existing (non-pending) WorkDefs are active: PUT refused, Run works", async () => {
+test("existing (non-pending) WorkDefs are active: PUT refused, Run works", async () => {
   const { app, store, teamDir } = setup();
   try {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Live", goal: "g", enqueue: false })).json();
@@ -118,7 +121,7 @@ Deno.test("existing (non-pending) WorkDefs are active: PUT refused, Run works", 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a Scheduled pending job never fires; once activated, a cron-only edit is still allowed", async () => {
+test("a Scheduled pending job never fires; once activated, a cron-only edit is still allowed", async () => {
   const { app, store, teamDir } = setup();
   try {
     const { workDef } = await (await post(app, "/api/work-defs", { type: "Scheduled", cron: "* * * * *", title: "Minutely", goal: "g", pending: true })).json();
@@ -136,7 +139,7 @@ Deno.test("a Scheduled pending job never fires; once activated, a cron-only edit
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a pending board task holds its story's slot until activated", async () => {
+test("a pending board task holds its story's slot until activated", async () => {
   const { app, store, teamDir } = setup();
   try {
     // First task is pending: nothing is admitted, and the second task waits behind it.
@@ -161,7 +164,7 @@ Deno.test("a pending board task holds its story's slot until activated", async (
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a pending board task moved into an agent state gets no WorkItem until activated", async () => {
+test("a pending board task moved into an agent state gets no WorkItem until activated", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("m", "M", "d", "open", [], []);
@@ -177,7 +180,7 @@ Deno.test("a pending board task moved into an agent state gets no WorkItem until
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("deprecated aliases: draft:true creates pending, POST …/publish activates", async () => {
+test("deprecated aliases: draft:true creates pending, POST …/publish activates", async () => {
   const { app, store, teamDir } = setup();
   try {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Old client", goal: "g", draft: true })).json();

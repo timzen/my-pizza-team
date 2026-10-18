@@ -8,7 +8,19 @@
     "node": ">=24"
   },
   "scripts": {
-    "typecheck": "tsc -p tsconfig.json"
+    "dev": "node --env-file-if-exists=.env --watch daemon/main.ts",
+    "start": "node --env-file-if-exists=.env daemon/main.ts",
+    "mpt": "node --env-file-if-exists=.env cli/main.ts",
+    "test": "node --test --test-concurrency=1 'tests/*.test.ts'",
+    "test:e2e": "node --test --test-concurrency=1 'tests/e2e/*.test.ts'",
+    "typecheck": "tsc -p tsconfig.json",
+    "check": "npm run typecheck && npm run sync-version -- --check && npm run sync-shared -- --check",
+    "sync-version": "node scripts/sync-version.ts",
+    "sync-shared": "node scripts/sync-shared.ts",
+    "typecheck:ext": "cd harnesses/pi && npm run typecheck",
+    "test:ext": "cd harnesses/pi && npm test",
+    "ui:dev": "cd ui && npm run dev",
+    "ui:build": "cd ui && npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

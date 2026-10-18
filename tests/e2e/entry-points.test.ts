@@ -10,11 +10,14 @@
  * for the work only that routine does.
  */
 
-import { assert, assertEquals, assertNotEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as net from "node:net";
+import { test } from "node:test";
+import { assert, assertEquals, assertNotEquals } from "../_assert.ts";
 import { sandbox } from "./_sandbox.ts";
 
 for (const entry of ["cli", "source"] as const) {
-  Deno.test(`${entry === "cli" ? "mpt start" : "daemon/main.ts"}: probes spawning and runs the readiness probe`, async () => {
+  test(`${entry === "cli" ? "mpt start" : "daemon/main.ts"}: probes spawning and runs the readiness probe`, async () => {
     await using sb = await sandbox(`entry-${entry}`);
     sb.writeTeamConfig({ readinessProbe: "echo creds-expired; exit 1" });
     await sb.startDaemon(entry);
@@ -30,7 +33,7 @@ for (const entry of ["cli", "source"] as const) {
   });
 }
 
-Deno.test("mpt start --daemon: runs in the background and logs to daemon.log", async () => {
+test("mpt start --daemon: runs in the background and logs to daemon.log", async () => {
   // From source, too — it used to re-execute `deno` itself as though it were `mpt`,
   // and never started. Its output went to pipes nobody read, so nothing said why.
   await using sb = await sandbox("entry-bg");
@@ -40,7 +43,7 @@ Deno.test("mpt start --daemon: runs in the background and logs to daemon.log", a
     assertEquals(started.code, 0, started.output);
     assert(started.output.includes("daemon.log"), `says where the log is: ${started.output}`);
     assert((await fetch(`http://127.0.0.1:${sb.port}/health`)).ok);
-    const log = Deno.readTextFileSync(`${sb.teamDir}/daemon.log`);
+    const log = fs.readFileSync(`${sb.teamDir}/daemon.log`, "utf8");
     assert(log.includes("listening on"), `the daemon's own output is in the log:\n${log}`);
   } finally {
     await sb.mpt("stop");
@@ -48,24 +51,25 @@ Deno.test("mpt start --daemon: runs in the background and logs to daemon.log", a
   // Restarting keeps the previous run's log.
   try {
     assertEquals((await sb.mpt("start", "--daemon")).code, 0);
-    assert(Deno.readTextFileSync(`${sb.teamDir}/daemon.log.1`).includes("listening on"));
+    assert(fs.readFileSync(`${sb.teamDir}/daemon.log.1`, "utf8").includes("listening on"));
   } finally {
     await sb.mpt("stop");
   }
 });
 
-Deno.test("mpt start --daemon: a startup failure is reported, and logged", async () => {
+test("mpt start --daemon: a startup failure is reported, and logged", async () => {
   await using sb = await sandbox("entry-bg-fail");
   sb.writeTeamConfig({});
   // Hold the port, so the background daemon can't bind it.
-  const blocker = Deno.listen({ port: sb.port, hostname: "127.0.0.1" });
+  const blocker = net.createServer();
+  await new Promise<void>((resolve) => blocker.listen(sb.port, "127.0.0.1", resolve));
   try {
     const started = await sb.mpt("start", "--daemon");
     assertNotEquals(started.code, 0, "a daemon that didn't start is a failure");
     assert(started.output.includes("daemon.log"), started.output);
-    const log = Deno.readTextFileSync(`${sb.teamDir}/daemon.log`);
+    const log = fs.readFileSync(`${sb.teamDir}/daemon.log`, "utf8");
     assert(/AddrInUse|address already in use/i.test(log), `the reason is in the log:\n${log}`);
   } finally {
-    blocker.close();
+    await new Promise((resolve) => blocker.close(resolve));
   }
 });

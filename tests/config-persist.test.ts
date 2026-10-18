@@ -8,7 +8,10 @@
  * being lost. These tests save through each path and read the file back.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -33,8 +36,8 @@ const FULL: Partial<TeamConfig> = {
 };
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-config-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-config-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...structuredClone(FULL) };
   const store = new Store(teamDir, config);
   const built = buildApp(store, config, teamDir);
@@ -43,8 +46,8 @@ function setup() {
     request: (url: string, init: RequestInit = {}) =>
       built.request(url, { ...init, headers: { ...init.headers as Record<string, string>, Authorization: `Bearer ${FULL.apiToken}` } }),
   };
-  const onDisk = () => JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json"))) as Partial<TeamConfig>;
-  const cleanup = () => { store.close(); Deno.removeSync(teamDir, { recursive: true }); };
+  const onDisk = () => JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as Partial<TeamConfig>;
+  const cleanup = () => { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); };
   return { app, store, onDisk, cleanup };
 }
 
@@ -63,7 +66,7 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.retry, FULL.retry);
 }
 
-Deno.test("saveConfig writes every persistable field", () => {
+test("saveConfig writes every persistable field", () => {
   const { store, onDisk, cleanup } = setup();
   try {
     store.saveConfig();
@@ -75,7 +78,7 @@ Deno.test("saveConfig writes every persistable field", () => {
   } finally { cleanup(); }
 });
 
-Deno.test("saving the Config page (PUT /api/config) keeps fields it doesn't edit", async () => {
+test("saving the Config page (PUT /api/config) keeps fields it doesn't edit", async () => {
   const { app, onDisk, cleanup } = setup();
   try {
     // What the Config page sends: GET's shape back, with an edit.
@@ -92,7 +95,7 @@ Deno.test("saving the Config page (PUT /api/config) keeps fields it doesn't edit
   } finally { cleanup(); }
 });
 
-Deno.test("changing the team size (PUT /api/teammate-pool) keeps every other field", async () => {
+test("changing the team size (PUT /api/teammate-pool) keeps every other field", async () => {
   const { app, onDisk, cleanup } = setup();
   try {
     const res = await app.request("/api/teammate-pool", {
@@ -120,7 +123,7 @@ async function putConfig(app: ReturnType<typeof setup>["app"], patch: Record<str
   return { status: res.status, body: await res.json() as { success: boolean; error?: string } };
 }
 
-Deno.test("the experimental-harnesses toggle saves, survives a reload, and applies live", async () => {
+test("the experimental-harnesses toggle saves, survives a reload, and applies live", async () => {
   const { app, store, onDisk, cleanup } = setup();
   try {
     let r = await putConfig(app, { experimental: { harnesses: false }, defaultHarness: "pi" });
@@ -141,7 +144,7 @@ Deno.test("the experimental-harnesses toggle saves, survives a reload, and appli
   } finally { cleanup(); }
 });
 
-Deno.test("PUT /api/config rejects an unknown defaultHarness with a 400", async () => {
+test("PUT /api/config rejects an unknown defaultHarness with a 400", async () => {
   const { app, store, cleanup } = setup();
   try {
     const r = await putConfig(app, { defaultHarness: "nope" });
@@ -152,7 +155,7 @@ Deno.test("PUT /api/config rejects an unknown defaultHarness with a 400", async 
   } finally { cleanup(); }
 });
 
-Deno.test("an experimental default without the opt-in is refused and changes nothing", async () => {
+test("an experimental default without the opt-in is refused and changes nothing", async () => {
   const { app, store, cleanup } = setup();
   try {
     const maxBefore = store.getConfig().maxTeammates;
@@ -177,7 +180,7 @@ Deno.test("an experimental default without the opt-in is refused and changes not
   } finally { cleanup(); }
 });
 
-Deno.test("experimental must be an object with a boolean harnesses", async () => {
+test("experimental must be an object with a boolean harnesses", async () => {
   const { app, cleanup } = setup();
   try {
     assertEquals((await putConfig(app, { experimental: "yes" })).status, 400);

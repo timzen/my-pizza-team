@@ -15,7 +15,7 @@ my-pizza-team is one repository producing one binary, `mpt`:
 - **agent/** — `mpt agent`, the supervisor that runs an experimental non-Pi teammate (Kiro, Claude Code) over the Agent Client Protocol.
 - **desktop/** — optional tray/menu-bar apps (macOS SwiftUI, Windows PowerShell).
 - **scripts/** — build, packaging, release, and code generation.
-- **tests/** — the fast suite (`deno task test`) and `tests/e2e/` (`deno task test:e2e`).
+- **tests/** — the fast suite (`npm test`) and `tests/e2e/` (`npm run test:e2e`), both on `node:test`.
 
 ```
             ┌──────────── mpt (one binary) ─────────────┐
@@ -300,19 +300,22 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 - `desktop/macos/` — SwiftUI menu-bar app (`Sources/App.swift`, `Sources/DaemonManager.swift`): launches the bundled `mpt`, polls `/health` (including `tmuxSession` and `leaderPresent`), start/stop/restart, open UI in a chosen browser, team-dir picker, reveal in Finder, open in a chosen terminal, and **Launch Leader** via an editable command template (`{session}`/`{dir}`/`{port}`/`{url}`). `Package.swift`; the bundle's version is injected from `deno.json` by `scripts/package-macos-menubar.sh`. `Resources/mpt.entitlements` grants `allow-jit` and `allow-unsigned-executable-memory`, which V8 needs under the hardened runtime — without them a signed build crashes with "Failed to reserve virtual memory for CodeRange". Nothing else: SQLite is Deno's built-in `node:sqlite`, so no non-system library is loaded and library validation needs no exception.
 - `desktop/windows/` — `tray.ps1` system-tray app and `My Pizza Team.bat` launcher (see its README).
 - `scripts/build.sh` (cross-compile all platforms into `dist/`), `package-macos-menubar.sh`, `package-windows.sh`, `generate-icns.swift`, `publish.sh` (bump version, sync generated copies, tag — the tag triggers the release workflow), `sync-version.ts`, `sync-shared.ts`, `ci-annotate.py` (failed tests → GitHub annotations).
-- Root `package.json` / `package-lock.json` / `tsconfig.json` — groundwork for running on Node.js (>=24) instead of Deno, a migration in progress. The npm deps (`hono`, `@hono/node-server`) are resolved by Deno through `package.json` too, so run `npm install` at the root before `deno task …`. `tsconfig.json` (`npm run typecheck`) checks the daemon/CLI/shared/scripts/tests with `erasableSyntaxOnly`, so the code stays runnable under Node's type stripping (no enums, namespaces, or constructor parameter properties); it does not pass yet while `Deno.*` calls remain. The package version is a `sync-version` copy of `deno.json`'s.
-- `.github/workflows/ci.yml` runs every gate: daemon check + fast tests + generated-files check, e2e (with real tmux), the extension's typecheck + tests, and the UI's `tsc -b` + lint. `release.yml` builds and publishes on tags.
+- Root `package.json` / `package-lock.json` / `tsconfig.json` — groundwork for running on Node.js (>=24) instead of Deno, a migration in progress. The npm deps (`hono`, `@hono/node-server`) are resolved by Deno through `package.json` too, so run `npm install` at the root before `deno task …`. `tsconfig.json` (`npm run typecheck`) checks the daemon/CLI/shared/scripts/tests with `erasableSyntaxOnly`, so the code stays runnable under Node's type stripping (no enums, namespaces, or constructor parameter properties), and as ESM with bundler-style resolution, since `harnesses/pi/` has no package.json `"type"` and `nodenext` would misread it as CommonJS; it does not pass yet while `Deno.*` calls remain in `cli/` and `scripts/`. The package version is a `sync-version` copy of `deno.json`'s.
+- `.github/workflows/ci.yml` runs every gate on Node 24 (`npm ci`): typecheck + fast tests + generated-files check, e2e (with real tmux), the extension's typecheck + tests, and the UI's `tsc -b` + lint. `release.yml` builds and publishes on tags.
 
 ### tests/
 
-`deno task test` runs `tests/*.test.ts` (daemon, CLI, and pure UI helpers such as
+`npm test` runs `tests/*.test.ts` with `node --test`, one file at a time (daemon, CLI, and pure UI helpers such as
 `thought-geometry`, `thought-list`, `mobile`, `acp` (against the fake agent), `usage-grid`, `wheel-gesture`, `harness-skew`) using
 `tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
 probe, entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
 `protocol-version.test.ts`, `runtime-purity.test.ts`, `build-embeds.test.ts`,
-`doctor-coherence.test.ts`. The extension's suites are in `harnesses/pi/tests/`
-(`deno task test:ext`).
+`doctor-coherence.test.ts`. Assertions come from `tests/_assert.ts` (the `@std/assert`
+names the suites were written with, on `node:assert/strict`; `assertEquals` treats
+`node:sqlite`'s null-prototype rows like plain objects), and `tests/_globals.d.ts` gives
+tests `Response.json(): Promise<any>`. The extension's suites are in `harnesses/pi/tests/`
+(`npm run test:ext`).
 
 ## Agent Lifecycle
 

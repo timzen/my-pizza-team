@@ -11,14 +11,18 @@
  * learned to ignore the warning, which is how a real signal gets lost.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
 
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../shared/protocol.ts";
 
-const testDir = Deno.makeTempDirSync({ prefix: "mpt-handshake-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-handshake-test-"));
+fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 const { app, store } = createApp(testDir);
 
 const register = (body: Record<string, unknown>) =>
@@ -28,7 +32,7 @@ const register = (body: Record<string, unknown>) =>
     body: JSON.stringify(body),
   });
 
-Deno.test("a matching protocol registers, and the daemon reports its own versions", async () => {
+test("a matching protocol registers, and the daemon reports its own versions", async () => {
   const res = await register({
     id: "a1",
     name: "swift-ripley",
@@ -48,7 +52,7 @@ Deno.test("a matching protocol registers, and the daemon reports its own version
   assertEquals(member.harnessVersion, "0.17.2");
 });
 
-Deno.test("a harness from the future is refused, naming the fix", async () => {
+test("a harness from the future is refused, naming the fix", async () => {
   const res = await register({
     id: "a2",
     name: "future-agent",
@@ -63,7 +67,7 @@ Deno.test("a harness from the future is refused, naming the fix", async () => {
   assertEquals(store!.getMember("a2"), null);
 });
 
-Deno.test("a harness below the minimum is refused, naming the fix", async () => {
+test("a harness below the minimum is refused, naming the fix", async () => {
   if (MIN_PROTOCOL_VERSION <= 0) return; // nothing below the floor to test yet
   const res = await register({
     id: "a3",
@@ -76,7 +80,7 @@ Deno.test("a harness below the minimum is refused, naming the fix", async () => 
   assertEquals(store!.getMember("a3"), null);
 });
 
-Deno.test("a pre-handshake harness is accepted and flagged, not stranded", async () => {
+test("a pre-handshake harness is accepted and flagged, not stranded", async () => {
   // Upgrading the daemon first must not kill a running team, so an omitted
   // protocolVersion registers — recorded as undefined so the UI can surface it.
   const res = await register({ id: "a4", name: "legacy-agent" });
@@ -86,7 +90,7 @@ Deno.test("a pre-handshake harness is accepted and flagged, not stranded", async
   assertEquals(member.harness, undefined);
 });
 
-Deno.test("a differing build version is tolerated — only the protocol gates", async () => {
+test("a differing build version is tolerated — only the protocol gates", async () => {
   // The whole point of separating the two: a daemon patch release must not reject
   // every agent still reporting the previous build.
   const res = await register({
@@ -100,7 +104,7 @@ Deno.test("a differing build version is tolerated — only the protocol gates", 
   assertEquals(store!.getMember("a5")!.harnessVersion, "0.0.1-ancient");
 });
 
-Deno.test("a non-Pi harness is refused unless the team opted in to experimental harnesses", async () => {
+test("a non-Pi harness is refused unless the team opted in to experimental harnesses", async () => {
   // Harnesses self-report (docs/DESIGN.md "Harness Tiers, and Why Not MCP"). Non-Pi ones are
   // experimental: refused, with the fix named, until `experimental.harnesses` is on.
   const refused = await register({ id: "a6", name: "claude-1", protocolVersion: PROTOCOL_VERSION, harness: "claude" });
@@ -118,12 +122,7 @@ Deno.test("a non-Pi harness is refused unless the team opted in to experimental 
   } finally { delete config.experimental; }
 });
 
-Deno.test({
-  name: "cleanup handshake test",
-  fn() {
-    store?.close();
-    Deno.removeSync(testDir, { recursive: true });
-  },
-  sanitizeOps: false,
-  sanitizeResources: false,
+test("cleanup handshake test", () => {
+  store?.close();
+  fs.rmSync(testDir, { recursive: true, force: true });
 });

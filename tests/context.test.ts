@@ -3,27 +3,30 @@
  * frontmatter round-tripping, CRUD, and client-side-friendly listing.
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 
 import * as path from "node:path";
 
 function createTempTeamDir(): string {
-  const dir = Deno.makeTempDirSync({ prefix: "mpt-context-test-" });
-  Deno.mkdirSync(path.join(dir, "stories"), { recursive: true });
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-context-test-"));
+  fs.mkdirSync(path.join(dir, "stories"), { recursive: true });
   return dir;
 }
 
 function cleanupDir(dir: string): void {
   try {
-    Deno.removeSync(dir, { recursive: true });
+    fs.rmSync(dir, { recursive: true, force: true });
   } catch {
     // ignore
   }
 }
 
-Deno.test("Context: save then read round-trips metadata and body", () => {
+test("Context: save then read round-trips metadata and body", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -49,7 +52,7 @@ Deno.test("Context: save then read round-trips metadata and body", () => {
   }
 });
 
-Deno.test("Context: list returns all entries sorted by id", () => {
+test("Context: list returns all entries sorted by id", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -63,7 +66,7 @@ Deno.test("Context: list returns all entries sorted by id", () => {
   }
 });
 
-Deno.test("Context: update mutates fields in place", () => {
+test("Context: update mutates fields in place", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -79,7 +82,7 @@ Deno.test("Context: update mutates fields in place", () => {
   }
 });
 
-Deno.test("Context: delete removes the entry", () => {
+test("Context: delete removes the entry", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -93,7 +96,7 @@ Deno.test("Context: delete removes the entry", () => {
   }
 });
 
-Deno.test("Context: attached to stories/tasks and resolved for prompts", () => {
+test("Context: attached to stories/tasks and resolved for prompts", () => {
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);

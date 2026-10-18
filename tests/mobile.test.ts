@@ -6,7 +6,8 @@
  * count (ui/src/lib/unread.ts) and a new note's color (ui/src/lib/thoughtColors.ts).
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   inboxOutcome,
   isMobilePath,
@@ -32,7 +33,7 @@ function memoryStorage(initial: Record<string, string> = {}) {
   };
 }
 
-Deno.test("isMobilePath: /m and below only", () => {
+test("isMobilePath: /m and below only", () => {
   assertEquals(isMobilePath("/m"), true);
   assertEquals(isMobilePath("/m/"), true);
   assertEquals(isMobilePath("/m/thoughts/abc"), true);
@@ -42,19 +43,19 @@ Deno.test("isMobilePath: /m and below only", () => {
   assertEquals(isMobilePath("/queue"), false);
 });
 
-Deno.test("shouldRedirectToMobile: a phone on the home page, unless it asked for desktop", () => {
+test("shouldRedirectToMobile: a phone on the home page, unless it asked for desktop", () => {
   assertEquals(shouldRedirectToMobile({ pathname: "/", isPhone: true, pref: null }), true);
   assertEquals(shouldRedirectToMobile({ pathname: "/", isPhone: true, pref: "desktop" }), false);
   assertEquals(shouldRedirectToMobile({ pathname: "/", isPhone: false, pref: null }), false);
 });
 
-Deno.test("shouldRedirectToMobile: deep links are never hijacked", () => {
+test("shouldRedirectToMobile: deep links are never hijacked", () => {
   for (const pathname of ["/queue", "/task/s1/t1", "/work-defs/w1", "/thoughts/n1/triage"]) {
     assertEquals(shouldRedirectToMobile({ pathname, isPhone: true, pref: null }), false, pathname);
   }
 });
 
-Deno.test("view preference: round-trips, clears, and tolerates broken storage", () => {
+test("view preference: round-trips, clears, and tolerates broken storage", () => {
   const s = memoryStorage();
   assertEquals(readViewPref(s), null);
   writeViewPref(s, "desktop");
@@ -75,7 +76,7 @@ Deno.test("view preference: round-trips, clears, and tolerates broken storage", 
   writeViewPref(throwing, "desktop"); // must not throw
 });
 
-Deno.test("mobileTabOf: each path's bottom tab; a teammate's view is Team", () => {
+test("mobileTabOf: each path's bottom tab; a teammate's view is Team", () => {
   assertEquals(mobileTabOf("/m"), "team");
   assertEquals(mobileTabOf("/m/"), "team");
   assertEquals(mobileTabOf("/m/teammates/t1"), "team");
@@ -88,7 +89,7 @@ Deno.test("mobileTabOf: each path's bottom tab; a teammate's view is Team", () =
 
 const c = (from: string, body: string, at: string) => ({ from, body, at });
 
-Deno.test("inboxOutcome: the last closing comment before the state change", () => {
+test("inboxOutcome: the last closing comment before the state change", () => {
   const comments = [
     c("alice", "[done] Work complete. Summary:\nfirst attempt", "2026-01-01T10:00:00Z"),
     c("you", "please redo X", "2026-01-01T11:00:00Z"),
@@ -102,12 +103,12 @@ Deno.test("inboxOutcome: the last closing comment before the state change", () =
   assertEquals(inboxOutcome(comments, { memberId: "alice", lastStateChangeAt: "2026-01-01T10:00:00Z" })?.body.includes("first"), true);
 });
 
-Deno.test("inboxOutcome: a [failed] comment counts", () => {
+test("inboxOutcome: a [failed] comment counts", () => {
   const comments = [c("bob", "[failed] blocked on credentials", "2026-01-01T12:00:00Z")];
   assertEquals(inboxOutcome(comments, { memberId: "bob", lastStateChangeAt: "2026-01-01T12:00:00Z" })?.body, "[failed] blocked on credentials");
 });
 
-Deno.test("inboxOutcome: no closing tag → the teammate's last comment; nothing → null", () => {
+test("inboxOutcome: no closing tag → the teammate's last comment; nothing → null", () => {
   const comments = [
     c("bob", "analysis: two proposals", "2026-01-01T12:00:00Z"),
     c("you", "hmm", "2026-01-01T12:00:10Z"),
@@ -117,13 +118,13 @@ Deno.test("inboxOutcome: no closing tag → the teammate's last comment; nothing
   assertEquals(inboxOutcome([], { memberId: "bob", lastStateChangeAt: "2026-01-01T12:00:20Z" }), null);
 });
 
-Deno.test("outcomeBody: drops the machine prefix", () => {
+test("outcomeBody: drops the machine prefix", () => {
   assertEquals(outcomeBody("[done] Work complete. Summary:\nShipped **it**."), "Shipped **it**.");
   assertEquals(outcomeBody("[failed] blocked on credentials"), "blocked on credentials");
   assertEquals(outcomeBody("plain comment"), "plain comment");
 });
 
-Deno.test("mergeInboxRows: retained rows stay, fetched rows win, newest first", () => {
+test("mergeInboxRows: retained rows stay, fetched rows win, newest first", () => {
   const row = (id: string, enqueuedAt: string, read = false) => ({ id, enqueuedAt, read });
   const fetched = [row("b", "2026-01-02", false), row("a", "2026-01-01", false)];
   const retained = [row("c", "2026-01-03", true), row("b", "2026-01-02", true)];
@@ -133,7 +134,7 @@ Deno.test("mergeInboxRows: retained rows stay, fetched rows win, newest first", 
   assertEquals(mergeInboxRows([], []), []);
 });
 
-Deno.test("countUnread: assistant replies after seenAt, none while looking", () => {
+test("countUnread: assistant replies after seenAt, none while looking", () => {
   const seen = new Date("2026-01-01T12:00:00Z").getTime();
   const messages = [
     { role: "assistant", createdAt: "2026-01-01T11:59:00Z" },
@@ -145,7 +146,7 @@ Deno.test("countUnread: assistant replies after seenAt, none while looking", () 
   assertEquals(countUnread(messages, seen, true), 0);
 });
 
-Deno.test("nextRotatedColor: one past the newest note's color, cycling", () => {
+test("nextRotatedColor: one past the newest note's color, cycling", () => {
   assertEquals(nextRotatedColor([]), "yellow");
   assertEquals(nextRotatedColor([
     { color: "blue", createdAt: "2026-01-02" },

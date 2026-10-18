@@ -5,8 +5,8 @@
  * (we don't call launchctl/systemctl in tests).
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
-import { describe, it } from "@std/testing/bdd";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
+import { describe, it } from "node:test";
 
 // We test the generated content by importing internals indirectly.
 // Since the module exports only install/uninstall, we test by checking

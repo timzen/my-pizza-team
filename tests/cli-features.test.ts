@@ -7,7 +7,8 @@
  * is checked against what the daemon actually sends.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assert, assertEquals } from "./_assert.ts";
 import { daemonErrorMessage, featureDisabledMessage, statusSummaryLines } from "../cli/features.ts";
 import { featureDisabledBody } from "../daemon/features.ts";
 
@@ -17,7 +18,7 @@ const status = {
   members: { total: 2, working: 1, idle: 1 },
 };
 
-Deno.test("status summary: all on (or a daemon without features) shows every count", () => {
+test("status summary: all on (or a daemon without features) shows every count", () => {
   for (const data of [status, { ...status, features: { stories: true, tasks: true, schedules: true } }]) {
     assertEquals(statusSummaryLines(data), [
       "Stories: 2 open, 1 done (3 total)",
@@ -27,13 +28,13 @@ Deno.test("status summary: all on (or a daemon without features) shows every cou
   }
 });
 
-Deno.test("status summary: a new team (tasks only) hides stories and names what's off", () => {
+test("status summary: a new team (tasks only) hides stories and names what's off", () => {
   const lines = statusSummaryLines({ ...status, features: { stories: false, tasks: true, schedules: false } });
   assert(!lines.some((l) => l.startsWith("Stories")));
   assertEquals(lines.at(-1), "Turned off: stories, schedules (Config → General → Work items)");
 });
 
-Deno.test("daemon errors: a feature 403 becomes the 'enable it in Config' message", () => {
+test("daemon errors: a feature 403 becomes the 'enable it in Config' message", () => {
   assertEquals(
     daemonErrorMessage(403, featureDisabledBody("stories")),
     "Stories are disabled — enable them in Config (features.stories)",
@@ -41,7 +42,7 @@ Deno.test("daemon errors: a feature 403 becomes the 'enable it in Config' messag
   assertEquals(daemonErrorMessage(403, featureDisabledBody("schedules")), featureDisabledMessage("schedules"));
 });
 
-Deno.test("daemon errors: anything else keeps the daemon's message or the status", () => {
+test("daemon errors: anything else keeps the daemon's message or the status", () => {
   assertEquals(daemonErrorMessage(409, { error: "locked" }), "locked");
   assertEquals(daemonErrorMessage(403, { error: "nope", feature: "bogus" }), "nope");
   assertEquals(daemonErrorMessage(500, null), "HTTP 500");

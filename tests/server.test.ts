@@ -4,7 +4,10 @@
  * contract, the WorkItem queue, and WorkDefs.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -12,8 +15,8 @@ import { Store } from "../daemon/store.ts";
 import * as path from "node:path";
 
 function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: string } {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-server-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-server-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
@@ -21,12 +24,12 @@ function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: str
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
-Deno.test("GET /health returns ok", async () => {
+test("GET /health returns ok", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/health");
@@ -35,7 +38,7 @@ Deno.test("GET /health returns ok", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/status returns dashboard data", async () => {
+test("GET /api/status returns dashboard data", async () => {
   const { app, store, teamDir } = setup();
   try {
     const body = await (await app.request("/api/status")).json();
@@ -44,7 +47,7 @@ Deno.test("GET /api/status returns dashboard data", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/stories creates a story", async () => {
+test("POST /api/stories creates a story", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/stories", {
@@ -58,7 +61,7 @@ Deno.test("POST /api/stories creates a story", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/stories rejects duplicate", async () => {
+test("POST /api/stories rejects duplicate", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", []);
@@ -70,7 +73,7 @@ Deno.test("POST /api/stories rejects duplicate", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("agent contract: register -> next-work -> claim -> COMPLETE", async () => {
+test("agent contract: register -> next-work -> claim -> COMPLETE", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
@@ -101,7 +104,7 @@ Deno.test("agent contract: register -> next-work -> claim -> COMPLETE", async ()
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/work-items filters by state", async () => {
+test("GET /api/work-items filters by state", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
@@ -111,7 +114,7 @@ Deno.test("GET /api/work-items filters by state", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("WorkDef routes: create (solitary) enqueues; save-without-enqueue does not", async () => {
+test("WorkDef routes: create (solitary) enqueues; save-without-enqueue does not", async () => {
   const { app, store, teamDir } = setup();
   try {
     const created = await (await app.request("/api/work-defs", {
@@ -131,7 +134,7 @@ Deno.test("WorkDef routes: create (solitary) enqueues; save-without-enqueue does
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("WorkDef routes: scheduled requires a valid cron", async () => {
+test("WorkDef routes: scheduled requires a valid cron", async () => {
   const { app, store, teamDir } = setup();
   try {
     const bad = await app.request("/api/work-defs", {
@@ -148,7 +151,7 @@ Deno.test("WorkDef routes: scheduled requires a valid cron", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("WorkDef routes: ref-based attachments (upload, list, serve, delete) work for standalone work", async () => {
+test("WorkDef routes: ref-based attachments (upload, list, serve, delete) work for standalone work", async () => {
   const { app, store, teamDir } = setup();
   try {
     const created = await (await app.request("/api/work-defs", {
@@ -185,7 +188,7 @@ Deno.test("WorkDef routes: ref-based attachments (upload, list, serve, delete) w
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("WorkDef routes: comment carries attachment metadata; token-usage records cost", async () => {
+test("WorkDef routes: comment carries attachment metadata; token-usage records cost", async () => {
   const { app, store, teamDir } = setup();
   try {
     const created = await (await app.request("/api/work-defs", {
@@ -224,7 +227,7 @@ Deno.test("WorkDef routes: comment carries attachment metadata; token-usage reco
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("work-item cancel (READY) and re-enqueue by ref", async () => {
+test("work-item cancel (READY) and re-enqueue by ref", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
@@ -243,7 +246,7 @@ Deno.test("work-item cancel (READY) and re-enqueue by ref", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST/GET agent comments roundtrip (by work item)", async () => {
+test("POST/GET agent comments roundtrip (by work item)", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
@@ -261,7 +264,7 @@ Deno.test("POST/GET agent comments roundtrip (by work item)", async () => {
 
 // ─── Thoughts board ──────────────────────────────────────────────────
 
-Deno.test("Thoughts API: create, list, patch, archive, delete", async () => {
+test("Thoughts API: create, list, patch, archive, delete", async () => {
   const { app, store, teamDir } = setup();
   try {
     // Create
@@ -298,7 +301,7 @@ Deno.test("Thoughts API: create, list, patch, archive, delete", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Thoughts API: x/y must be provided together", async () => {
+test("Thoughts API: x/y must be provided together", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/thoughts", {
@@ -308,7 +311,7 @@ Deno.test("Thoughts API: x/y must be provided together", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Thoughts API: batch positions + groups", async () => {
+test("Thoughts API: batch positions + groups", async () => {
   const { app, store, teamDir } = setup();
   try {
     const a = (await (await app.request("/api/thoughts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "a" }) })).json()).thought;
@@ -343,7 +346,7 @@ Deno.test("Thoughts API: batch positions + groups", async () => {
 
 // ─── Agent dismiss vs. re-register (daemon restart safety) ───────────
 
-Deno.test("Heartbeat: unknown member is told to re-register (not dismissed)", async () => {
+test("Heartbeat: unknown member is told to re-register (not dismissed)", async () => {
   const { app, store, teamDir } = setup();
   try {
     // Never-registered id → reregister, not dismissed (mirrors a restart wipe).
@@ -362,7 +365,7 @@ Deno.test("Heartbeat: unknown member is told to re-register (not dismissed)", as
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Heartbeat: an explicitly dismissed member is told to shut down", async () => {
+test("Heartbeat: an explicitly dismissed member is told to shut down", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("m1", "m1", "/tmp/repo");
@@ -383,7 +386,7 @@ Deno.test("Heartbeat: an explicitly dismissed member is told to shut down", asyn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Heartbeat: a plain deregister (no dismiss) → re-register, not dismissed", async () => {
+test("Heartbeat: a plain deregister (no dismiss) → re-register, not dismissed", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("m1", "m1", "/tmp/repo");

@@ -11,12 +11,16 @@
  * relationship, and newest-first ordering.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
 
-const testDir = Deno.makeTempDirSync({ prefix: "mpt-attach-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-attach-test-"));
+fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
 const { app, store } = createApp(testDir);
 
@@ -24,7 +28,7 @@ const { app, store } = createApp(testDir);
 store!.createStory("attach-story", "Test story", "desc", "open", [], [{ title: "Test task", description: "A task" }]);
 const taskId = "attach-story-1";
 
-Deno.test("POST /api/work-defs/:id/attachments uploads a file", async () => {
+test("POST /api/work-defs/:id/attachments uploads a file", async () => {
   const res = await app.request(`/api/work-defs/${taskId}/attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -38,7 +42,7 @@ Deno.test("POST /api/work-defs/:id/attachments uploads a file", async () => {
   assertEquals(data.size > 0, true);
 });
 
-Deno.test("POST /api/work-defs/:id/attachments returns 404 for bad task", async () => {
+test("POST /api/work-defs/:id/attachments returns 404 for bad task", async () => {
   const res = await app.request("/api/work-defs/nonexistent/attachments", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -47,7 +51,7 @@ Deno.test("POST /api/work-defs/:id/attachments returns 404 for bad task", async 
   assertEquals(res.status, 404);
 });
 
-Deno.test("POST /api/work-defs/:id/attachments returns 400 without name", async () => {
+test("POST /api/work-defs/:id/attachments returns 400 without name", async () => {
   const res = await app.request(`/api/work-defs/${taskId}/attachments`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
@@ -56,7 +60,7 @@ Deno.test("POST /api/work-defs/:id/attachments returns 400 without name", async 
   assertEquals(res.status, 400);
 });
 
-Deno.test("GET /api/work-defs/:id/attachments lists uploaded files", async () => {
+test("GET /api/work-defs/:id/attachments lists uploaded files", async () => {
   const res = await app.request(`/api/work-defs/${taskId}/attachments`);
   assertEquals(res.status, 200);
   const data = await res.json() as { attachments: Array<{ name: string; storedName: string; size: number; addedAt: number }> };
@@ -64,7 +68,7 @@ Deno.test("GET /api/work-defs/:id/attachments lists uploaded files", async () =>
   assertEquals(data.attachments[0]!.name.includes("changes"), true);
 });
 
-Deno.test("GET /api/work-defs/:id/attachments includes addedAt and sorts newest first", async () => {
+test("GET /api/work-defs/:id/attachments includes addedAt and sorts newest first", async () => {
   // Upload a second file with the same display name — the timestamps are how
   // the UI tells same-named uploads apart.
   const upload = await app.request(`/api/work-defs/${taskId}/attachments`, {
@@ -89,7 +93,7 @@ Deno.test("GET /api/work-defs/:id/attachments includes addedAt and sorts newest 
   }
 });
 
-Deno.test("GET /api/work-defs/:id/attachments/:filename downloads the file", async () => {
+test("GET /api/work-defs/:id/attachments/:filename downloads the file", async () => {
   // Get the stored name of the original upload (list is newest first, so
   // the first upload is last).
   const listRes = await app.request(`/api/work-defs/${taskId}/attachments`);
@@ -103,18 +107,13 @@ Deno.test("GET /api/work-defs/:id/attachments/:filename downloads the file", asy
   assertEquals(content.includes("+new"), true);
 });
 
-Deno.test("GET /api/work-defs/:id/attachments/:filename returns 404 for missing", async () => {
+test("GET /api/work-defs/:id/attachments/:filename returns 404 for missing", async () => {
   const res = await app.request(`/api/work-defs/${taskId}/attachments/nonexistent.txt`);
   assertEquals(res.status, 404);
 });
 
 // Cleanup
-Deno.test({
-  name: "cleanup attachments test",
-  fn() {
-    store?.close();
-    Deno.removeSync(testDir, { recursive: true });
-  },
-  sanitizeOps: false,
-  sanitizeResources: false,
+test("cleanup attachments test", () => {
+  store?.close();
+  fs.rmSync(testDir, { recursive: true, force: true });
 });

@@ -12,7 +12,8 @@
  * defaulting to ready would disable gating exactly when something is already wrong.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { type TeamConfig } from "../shared/types.ts";
 import {
@@ -37,11 +38,11 @@ const runner = (result: { code: number; stdout?: string; stderr?: string }): Pro
 
 // ─── One probe run ───────────────────────────────────────────────────
 
-Deno.test("exit 0 is ready, with no reason to show", async () => {
+test("exit 0 is ready, with no reason to show", async () => {
   assertEquals(await runProbe("true", { runner: runner({ code: 0 }) }), { ready: true });
 });
 
-Deno.test("a non-zero exit is not ready, preferring the probe's own message", async () => {
+test("a non-zero exit is not ready, preferring the probe's own message", async () => {
   // The probe was written to be read by a human; its stdout beats a generic string.
   const result = await runProbe("check", {
     runner: runner({ code: 1, stdout: "mwinit credentials expired\nextra detail" }),
@@ -50,18 +51,18 @@ Deno.test("a non-zero exit is not ready, preferring the probe's own message", as
   assertEquals(result.reason, "mwinit credentials expired");
 });
 
-Deno.test("stderr is used when stdout is silent", async () => {
+test("stderr is used when stdout is silent", async () => {
   const result = await runProbe("check", { runner: runner({ code: 2, stderr: "  kinit: no ticket  " }) });
   assertEquals(result.reason, "kinit: no ticket");
 });
 
-Deno.test("a silent failure still reports something actionable", async () => {
+test("a silent failure still reports something actionable", async () => {
   const result = await runProbe("check", { runner: runner({ code: 7 }) });
   assertEquals(result.ready, false);
   assertStringIncludes(result.reason!, "7");
 });
 
-Deno.test("a probe that cannot be launched is NOT ready", async () => {
+test("a probe that cannot be launched is NOT ready", async () => {
   // The case that matters most: defaulting to ready here would disable gating at
   // precisely the moment the machine is misbehaving.
   const result = await runProbe("nonexistent-command", {
@@ -71,7 +72,7 @@ Deno.test("a probe that cannot be launched is NOT ready", async () => {
   assertStringIncludes(result.reason!, "command not found");
 });
 
-Deno.test("runProbe never throws, whatever the runner does", async () => {
+test("runProbe never throws, whatever the runner does", async () => {
   const result = await runProbe("check", {
     runner: () => Promise.resolve({ code: -1, stdout: "", stderr: "Timed out" }),
   });
@@ -80,7 +81,7 @@ Deno.test("runProbe never throws, whatever the runner does", async () => {
 
 // ─── The loop ────────────────────────────────────────────────────────
 
-Deno.test("no probe configured means nothing is reported", async () => {
+test("no probe configured means nothing is reported", async () => {
   // And an unreported team counts as ready — the right default: a team with no probe
   // has nothing to be unready about.
   const { store, reports } = fakeStore({ readinessProbe: undefined });
@@ -90,12 +91,12 @@ Deno.test("no probe configured means nothing is reported", async () => {
   assertEquals(reports, []);
 });
 
-Deno.test("a whitespace-only probe counts as unconfigured", () => {
+test("a whitespace-only probe counts as unconfigured", () => {
   const { store } = fakeStore({ readinessProbe: "   " });
   assertEquals(startReadinessLoop(store, { runner: runner({ code: 0 }) }), null);
 });
 
-Deno.test("the probe runs immediately, not only after the first interval", async () => {
+test("the probe runs immediately, not only after the first interval", async () => {
   // A daemon that waited 30s would schedule into a wedged machine for 30s.
   const { store, reports } = fakeStore({ readinessProbe: "check-creds" });
   const stop = startReadinessLoop(store, { runner: runner({ code: 1, stdout: "creds expired" }), intervalMs: 60_000 });
@@ -108,7 +109,7 @@ Deno.test("the probe runs immediately, not only after the first interval", async
   }
 });
 
-Deno.test("recovery is reported, clearing the reason", async () => {
+test("recovery is reported, clearing the reason", async () => {
   const { store, reports } = fakeStore({ readinessProbe: "check-creds" });
   let code = 1;
   const stop = startReadinessLoop(store, {
@@ -127,7 +128,7 @@ Deno.test("recovery is reported, clearing the reason", async () => {
   }
 });
 
-Deno.test("a slow probe is skipped rather than queued", async () => {
+test("a slow probe is skipped rather than queued", async () => {
   // A probe slower than the interval would otherwise pile up runs forever.
   const { store, reports } = fakeStore({ readinessProbe: "slow" });
   let started = 0;
@@ -147,7 +148,7 @@ Deno.test("a slow probe is skipped rather than queued", async () => {
   }
 });
 
-Deno.test("stopping the loop stops the probing", async () => {
+test("stopping the loop stops the probing", async () => {
   const { store, reports } = fakeStore({ readinessProbe: "check" });
   const stop = startReadinessLoop(store, { runner: runner({ code: 0 }), intervalMs: 10 });
   await new Promise((r) => setTimeout(r, 25));

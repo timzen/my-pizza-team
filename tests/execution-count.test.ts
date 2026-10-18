@@ -8,22 +8,25 @@
  * routes agreeing with the store.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-exec-count-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-exec-count-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
 }
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 const def = (store: Store, title: string) =>
   store.createWorkDef({ title, goal: "g", acceptanceCriteria: "a" }, false);
@@ -36,7 +39,7 @@ function runOnce(store: Store, id: string, outcome: "COMPLETE" | "FAILED" = "COM
   return item.id;
 }
 
-Deno.test("execution count: 0 for a WorkDef that never ran", () => {
+test("execution count: 0 for a WorkDef that never ran", () => {
   const { store, teamDir } = setup();
   try {
     const d = def(store, "Never");
@@ -45,7 +48,7 @@ Deno.test("execution count: 0 for a WorkDef that never ran", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("execution count: 1, then many; lastRunAt is the latest enqueue", () => {
+test("execution count: 1, then many; lastRunAt is the latest enqueue", () => {
   const { store, teamDir } = setup();
   try {
     const d = def(store, "Busy");
@@ -62,7 +65,7 @@ Deno.test("execution count: 1, then many; lastRunAt is the latest enqueue", () =
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("execution count: CANCELED items are excluded; READY and in-flight count", () => {
+test("execution count: CANCELED items are excluded; READY and in-flight count", () => {
   const { store, teamDir } = setup();
   try {
     const d = def(store, "Policy");
@@ -77,7 +80,7 @@ Deno.test("execution count: CANCELED items are excluded; READY and in-flight cou
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("execution count: stats are per WorkDef", () => {
+test("execution count: stats are per WorkDef", () => {
   const { store, teamDir } = setup();
   try {
     const a = def(store, "A");
@@ -91,7 +94,7 @@ Deno.test("execution count: stats are per WorkDef", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("execution count: list and detail APIs expose it, archived defs included", async () => {
+test("execution count: list and detail APIs expose it, archived defs included", async () => {
   const { app, store, teamDir } = setup();
   try {
     const never = def(store, "Never");

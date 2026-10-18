@@ -5,17 +5,21 @@
  * memory usage, and last git commit time.
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
+import { test } from "node:test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
 
 // Use a temp directory so we get a full app with store
-const testDir = Deno.makeTempDirSync({ prefix: "mpt-health-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-health-test-"));
+fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
 const { app, store } = createApp(testDir);
 
-Deno.test("GET /health returns ok status with metrics", async () => {
+test("GET /health returns ok status with metrics", async () => {
   const res = await app.request("/health");
   assertEquals(res.status, 200);
 
@@ -45,7 +49,7 @@ Deno.test("GET /health returns ok status with metrics", async () => {
   assertEquals(body.lastCommitTime, null);
 });
 
-Deno.test("GET /health reports tmuxSession and leader presence", async () => {
+test("GET /health reports tmuxSession and leader presence", async () => {
   // No members yet — no leader connected.
   let body = await (await app.request("/health")).json();
   assertEquals(body.tmuxSession, TEST_CONFIG.tmuxSession);
@@ -63,7 +67,7 @@ Deno.test("GET /health reports tmuxSession and leader presence", async () => {
   assertEquals(body.leaderPresent, false);
 });
 
-Deno.test("GET /health backward compat - still has status and service", async () => {
+test("GET /health backward compat - still has status and service", async () => {
   const res = await app.request("/health");
   const body = await res.json();
   assertEquals(body.status, "ok");
@@ -71,12 +75,7 @@ Deno.test("GET /health backward compat - still has status and service", async ()
 });
 
 // Cleanup
-Deno.test({
-  name: "cleanup health test",
-  fn() {
-    store?.close();
-    Deno.removeSync(testDir, { recursive: true });
-  },
-  sanitizeOps: false,
-  sanitizeResources: false,
+test("cleanup health test", () => {
+  store?.close();
+  fs.rmSync(testDir, { recursive: true, force: true });
 });

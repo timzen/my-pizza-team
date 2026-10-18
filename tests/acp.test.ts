@@ -4,13 +4,14 @@
  * refusing an agent-specific request, and an agent that dies mid-turn.
  */
 
-import { assert, assertEquals, assertRejects } from "@std/assert";
+import { test } from "node:test";
+import { assert, assertEquals, assertRejects } from "./_assert.ts";
 import { AcpConnection, permissionOutcome } from "../agent/acp.ts";
 
 const FAKE = new URL("./fixtures/fake-acp-agent.ts", import.meta.url).pathname;
-const spawnFake = () => AcpConnection.spawn([Deno.execPath(), "run", "--allow-run", FAKE], { cwd: Deno.cwd() });
+const spawnFake = () => AcpConnection.spawn([process.execPath, FAKE], { cwd: process.cwd() });
 
-Deno.test("a turn: streamed updates, a permission request we answer, usage, end_turn", async () => {
+test("a turn: streamed updates, a permission request we answer, usage, end_turn", async () => {
   const acp = spawnFake();
   try {
     const updates: string[] = [];
@@ -30,7 +31,7 @@ Deno.test("a turn: streamed updates, a permission request we answer, usage, end_
 
     const init = await acp.initialize();
     assertEquals(init.agentInfo?.name, "fake");
-    const { sessionId } = await acp.newSession(Deno.cwd());
+    const { sessionId } = await acp.newSession(process.cwd());
     await acp.setMode(sessionId, "autonomous");
     const result = await acp.prompt(sessionId, "do the thing");
 
@@ -45,17 +46,17 @@ Deno.test("a turn: streamed updates, a permission request we answer, usage, end_
   } finally { acp.close(); await acp.exited; }
 });
 
-Deno.test("an agent that dies mid-turn rejects the open prompt", async () => {
+test("an agent that dies mid-turn rejects the open prompt", async () => {
   const acp = spawnFake();
   try {
     await acp.initialize();
-    const { sessionId } = await acp.newSession(Deno.cwd());
+    const { sessionId } = await acp.newSession(process.cwd());
     await assertRejects(() => acp.prompt(sessionId, "FAKE-EXIT"), Error, "agent exited");
     assertEquals(await acp.exited, 3);
   } finally { acp.close(); }
 });
 
-Deno.test("permissionOutcome never picks an 'always' option", () => {
+test("permissionOutcome never picks an 'always' option", () => {
   const options = [
     { optionId: "a", kind: "allow_always" }, { optionId: "b", kind: "allow_once" },
     { optionId: "c", kind: "reject_once" },

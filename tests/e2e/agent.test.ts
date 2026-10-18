@@ -9,7 +9,10 @@
  * crashing mid-item.
  */
 
-import { assert, assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "node:test";
+import { assert, assertEquals, assertStringIncludes } from "../_assert.ts";
+import { spawn } from "node:child_process";
+import * as os from "node:os";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { sandbox, type Sandbox } from "./_sandbox.ts";
@@ -17,7 +20,7 @@ import { sandbox, type Sandbox } from "./_sandbox.ts";
 const REPO = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const CLI = path.join(REPO, "cli", "main.ts");
 const FAKE = path.join(REPO, "tests", "fixtures", "fake-acp-agent.ts");
-const FAKE_CMD = JSON.stringify([Deno.execPath(), "run", "--allow-run", FAKE]);
+const FAKE_CMD = JSON.stringify([process.execPath, FAKE]);
 
 const api = (sb: Sandbox) => `http://127.0.0.1:${sb.port}`;
 async function get<T>(sb: Sandbox, p: string): Promise<T> {
@@ -40,19 +43,22 @@ const comments = async (sb: Sandbox, defId: string) =>
 
 /** Start `mpt agent` in the background; returns it and a way to read its output. */
 function startAgent(sb: Sandbox, harness: string, name: string) {
-  const child = new Deno.Command(Deno.execPath(), {
-    args: ["run", "--allow-all", CLI, "agent", "--harness", harness, "--acp-command", FAKE_CMD, "--name", name, "--daemon", api(sb)],
-    env: { ...sb.env, MPT_AGENT_POLL_MS: "200" },
-    clearEnv: true,
-    cwd: sb.projectDir,
-    stdout: "piped",
-    stderr: "piped",
-  }).spawn();
-  const output = child.output().then((o) => ({ code: o.code, text: new TextDecoder().decode(o.stdout) + new TextDecoder().decode(o.stderr) }));
+  const child = spawn(
+    process.execPath,
+    [CLI, "agent", "--harness", harness, "--acp-command", FAKE_CMD, "--name", name, "--daemon", api(sb)],
+    { env: { ...sb.env, MPT_AGENT_POLL_MS: "200" }, cwd: sb.projectDir, stdio: ["ignore", "pipe", "pipe"] },
+  );
+  let stdout = "";
+  let stderr = "";
+  child.stdout.setEncoding("utf8").on("data", (d: string) => stdout += d);
+  child.stderr.setEncoding("utf8").on("data", (d: string) => stderr += d);
+  const output = new Promise<{ code: number; text: string }>((resolve) => {
+    child.once("close", (code, signal) => resolve({ code: code ?? (signal ? 128 + (os.constants.signals[signal] ?? 0) : 1), text: stdout + stderr }));
+  });
   return { child, output };
 }
 
-Deno.test("without experimental.harnesses the daemon refuses an ACP teammate, loudly", async () => {
+test("without experimental.harnesses the daemon refuses an ACP teammate, loudly", async () => {
   await using sb = await sandbox("agent-gate");
   sb.writeTeamConfig({});
   await sb.startDaemon();
@@ -69,7 +75,7 @@ Deno.test("without experimental.harnesses the daemon refuses an ACP teammate, lo
   assertStringIncludes(spawn.body.error ?? "", "experimental");
 });
 
-Deno.test("an ACP teammate completes work, gives up when told, and is recorded like a Pi one", async () => {
+test("an ACP teammate completes work, gives up when told, and is recorded like a Pi one", async () => {
   await using sb = await sandbox("agent-work");
   sb.writeTeamConfig({ experimental: { harnesses: true } });
   await sb.startDaemon();
@@ -116,7 +122,7 @@ Deno.test("an ACP teammate completes work, gives up when told, and is recorded l
   }
 });
 
-Deno.test("an agent that crashes mid-item fails the item with the reason, and the supervisor exits", async () => {
+test("an agent that crashes mid-item fails the item with the reason, and the supervisor exits", async () => {
   await using sb = await sandbox("agent-crash");
   sb.writeTeamConfig({ experimental: { harnesses: true } });
   await sb.startDaemon();

@@ -3,22 +3,25 @@
  * daemon/main.ts so both find the same team directory.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { resolveTeamDir } from "../daemon/start.ts";
 import * as path from "node:path";
 
-Deno.test("TEAM_DIR may name the team directory, or its parent", () => {
-  const parent = Deno.makeTempDirSync({ prefix: "mpt-start-test-" });
+test("TEAM_DIR may name the team directory, or its parent", () => {
+  const parent = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-start-test-"));
   try {
     const team = path.join(parent, ".my-pizza-team");
     // Its parent, before the team dir exists: used as given (it may be the team dir).
     assertEquals(resolveTeamDir(parent, "/elsewhere"), parent);
-    Deno.mkdirSync(team);
+    fs.mkdirSync(team);
     assertEquals(resolveTeamDir(parent, "/elsewhere"), team);
     assertEquals(resolveTeamDir(team, "/elsewhere"), team);
-  } finally { Deno.removeSync(parent, { recursive: true }); }
+  } finally { fs.rmSync(parent, { recursive: true, force: true }); }
 });
 
-Deno.test("unset: .my-pizza-team in the current directory", () => {
+test("unset: .my-pizza-team in the current directory", () => {
   assertEquals(resolveTeamDir(undefined, "/work/project"), path.join("/work/project", ".my-pizza-team"));
 });

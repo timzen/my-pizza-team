@@ -6,7 +6,10 @@
  * ordering helper (ui/src/lib/directories.ts) lists favorites first.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -17,36 +20,36 @@ import { orderDirectorySuggestions } from "../ui/src/lib/directories.ts";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-dirs-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-dirs-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   // Real (symlink-free) scratch dirs, so realpath normalization is predictable.
-  const work = Deno.realPathSync(Deno.makeTempDirSync({ prefix: "mpt-dirs-work-" }));
+  const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-dirs-work-")));
   const config: TeamConfig = structuredClone(TEST_CONFIG);
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
-  const onDisk = () => JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json"))) as Partial<TeamConfig>;
+  const onDisk = () => JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as Partial<TeamConfig>;
   const cleanup = () => {
     store.close();
-    Deno.removeSync(teamDir, { recursive: true });
-    Deno.removeSync(work, { recursive: true });
+    fs.rmSync(teamDir, { recursive: true, force: true });
+    fs.rmSync(work, { recursive: true, force: true });
   };
   return { app, store, config, work, onDisk, cleanup };
 }
 
-Deno.test("favorites are normalized (trailing slash, symlinks, ~), deduped, and persisted", () => {
+test("favorites are normalized (trailing slash, symlinks, ~), deduped, and persisted", () => {
   const { store, work, onDisk, cleanup } = setup();
   try {
     const repo = path.join(work, "repo");
-    Deno.mkdirSync(repo);
+    fs.mkdirSync(repo);
     const link = path.join(work, "link");
-    Deno.symlinkSync(repo, link);
+    fs.symlinkSync(repo, link);
 
     const stored = store.setFavoriteDirectories([`${repo}/`, link, "  ", path.join(work, "other")]);
     // The symlink resolves to the same real path, so it collapses into `repo`.
     assertEquals(stored, [repo, path.join(work, "other")]);
     assertEquals(onDisk().favoriteDirectories, stored);
 
-    const home = Deno.env.get("HOME");
+    const home = process.env["HOME"];
     if (home) {
       const withTilde = store.addFavoriteDirectory("~/definitely-missing-mpt-dir");
       assertEquals(withTilde.at(-1), path.join(home, "definitely-missing-mpt-dir"));
@@ -54,7 +57,7 @@ Deno.test("favorites are normalized (trailing slash, symlinks, ~), deduped, and 
   } finally { cleanup(); }
 });
 
-Deno.test("removeFavoriteDirectory matches by normalized path; emptied list is dropped from config.json", () => {
+test("removeFavoriteDirectory matches by normalized path; emptied list is dropped from config.json", () => {
   const { store, work, onDisk, cleanup } = setup();
   try {
     store.addFavoriteDirectory(work);
@@ -66,10 +69,10 @@ Deno.test("removeFavoriteDirectory matches by normalized path; emptied list is d
   } finally { cleanup(); }
 });
 
-Deno.test("recent directories: online teammates, then WorkItems, then stories — favorites excluded", async () => {
+test("recent directories: online teammates, then WorkItems, then stories — favorites excluded", async () => {
   const { app, store, work, cleanup } = setup();
   try {
-    const mk = (n: string) => { const p = path.join(work, n); Deno.mkdirSync(p); return p; };
+    const mk = (n: string) => { const p = path.join(work, n); fs.mkdirSync(p); return p; };
     const a = mk("a"), b = mk("b"), c = mk("c"), d = mk("d");
     store.registerMember("agent-1", "agent-1", a);
     await app.request("/api/work-defs", {
@@ -89,7 +92,7 @@ Deno.test("recent directories: online teammates, then WorkItems, then stories �
   } finally { cleanup(); }
 });
 
-Deno.test("favorites API: add, replace, remove, and validation", async () => {
+test("favorites API: add, replace, remove, and validation", async () => {
   const { app, work, cleanup } = setup();
   try {
     const x = path.join(work, "x");
@@ -121,7 +124,7 @@ Deno.test("favorites API: add, replace, remove, and validation", async () => {
   } finally { cleanup(); }
 });
 
-Deno.test("PUT /api/config does not overwrite favorites (they have their own endpoint)", async () => {
+test("PUT /api/config does not overwrite favorites (they have their own endpoint)", async () => {
   const { app, store, work, onDisk, cleanup } = setup();
   try {
     const current = await (await app.request("/api/config")).json();
@@ -134,7 +137,7 @@ Deno.test("PUT /api/config does not overwrite favorites (they have their own end
   } finally { cleanup(); }
 });
 
-Deno.test("orderDirectorySuggestions: favorites first, deduped, filtered", () => {
+test("orderDirectorySuggestions: favorites first, deduped, filtered", () => {
   const got = orderDirectorySuggestions(["/f1", "/f2"], ["/r1", "/f1"], ["/e1", "/r1"], "");
   assertEquals(got, [
     { dir: "/f1", favorite: true },

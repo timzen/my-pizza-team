@@ -12,7 +12,9 @@
  * and any new one: any file that runs `deno compile` must embed the extension.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -21,7 +23,7 @@ const REQUIRED = ["ui/dist/", "harnesses/pi/package.json", "harnesses/pi/src/"];
 
 /** A file's text without comment lines, so prose *about* `deno compile` doesn't count. */
 function code(file: string): string {
-  return Deno.readTextFileSync(file)
+  return fs.readFileSync(file, "utf8")
     .split("\n")
     .filter((line) => !/^\s*(#|\/\/)/.test(line))
     .join("\n");
@@ -30,14 +32,14 @@ function code(file: string): string {
 function candidateFiles(): string[] {
   const files = [path.join(ROOT, "deno.json")];
   for (const dir of ["scripts", ".github/workflows"]) {
-    for (const entry of Deno.readDirSync(path.join(ROOT, dir))) {
-      if (entry.isFile) files.push(path.join(ROOT, dir, entry.name));
+    for (const entry of fs.readdirSync(path.join(ROOT, dir), { withFileTypes: true })) {
+      if (entry.isFile()) files.push(path.join(ROOT, dir, entry.name));
     }
   }
   return files;
 }
 
-Deno.test("every file that runs `deno compile` embeds the UI and the Pi extension", () => {
+test("every file that runs `deno compile` embeds the UI and the Pi extension", () => {
   const compilers = candidateFiles().filter((f) => code(f).includes("deno compile"));
   assertEquals(compilers.length >= 2, true, `expected deno.json and build.sh at least; found ${compilers.join(", ")}`);
 
@@ -51,7 +53,7 @@ Deno.test("every file that runs `deno compile` embeds the UI and the Pi extensio
   assertEquals(missing, [], "a build that omits these ships a binary whose `mpt setup` cannot work");
 });
 
-Deno.test("the release workflow builds through scripts/build.sh, not its own compile", () => {
+test("the release workflow builds through scripts/build.sh, not its own compile", () => {
   // One definition of what goes into the binary. A second copy is how the bug happened.
   const release = code(path.join(ROOT, ".github/workflows/release.yml"));
   assertEquals(release.includes("deno compile"), false, "release.yml should not carry its own deno compile");

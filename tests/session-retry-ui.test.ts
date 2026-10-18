@@ -5,11 +5,12 @@
  * reads like a quiet success.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { commentToneClass, retryLabel } from "../ui/src/lib/retry.ts";
 import { inboxOutcome } from "../ui/src/lib/mobile.ts";
 
-Deno.test("retryLabel: none for a first attempt; attempt + countdown for a held retry", () => {
+test("retryLabel: none for a first attempt; attempt + countdown for a held retry", () => {
   const now = Date.parse("2026-10-01T18:00:00Z");
   assertEquals(retryLabel({ state: "READY", attempt: 1 }, now), null);
   assertEquals(retryLabel({ state: "READY" }, now), null);
@@ -20,13 +21,13 @@ Deno.test("retryLabel: none for a first attempt; attempt + countdown for a held 
   assertEquals(retryLabel({ state: "IN_PROGRESS", attempt: 2 }, now), "retry · attempt 2");
 });
 
-Deno.test("commentToneClass: [failed] is destructive, [retry] amber, others neutral", () => {
+test("commentToneClass: [failed] is destructive, [retry] amber, others neutral", () => {
   assertStringIncludes(commentToneClass("[failed] Bedrock 503 after 4 attempts."), "destructive");
   assertStringIncludes(commentToneClass("[retry] Attempt 1/4 failed: …"), "amber");
   assertEquals(commentToneClass("[done] Work complete."), "border-border bg-background");
 });
 
-Deno.test("inboxOutcome: an errored attempt's outcome is its [retry] comment", () => {
+test("inboxOutcome: an errored attempt's outcome is its [retry] comment", () => {
   const comments = [
     { from: "firm-odo", body: "[status] Started working on this.", at: "2026-10-01T18:00:12Z" },
     { from: "firm-odo", body: "[retry] Attempt 1/4 failed: Service unavailable.", at: "2026-10-01T18:00:30Z" },

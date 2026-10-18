@@ -12,7 +12,8 @@
  * daemon, no Pi — so exhaustive enumeration is cheap.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { type Check, type DoctorFacts, evaluate, report, TESTED_PI_VERSION } from "../cli/doctor.ts";
 
 /** The facts that interact with each other, each over the values that matter. */
@@ -95,7 +96,7 @@ function allChecklists(): Array<{ combo: Combo; checks: Check[] }> {
 const CHECKLISTS = allChecklists();
 const describe = (c: Combo) => JSON.stringify(c);
 
-Deno.test("the enumeration is large enough to mean something", () => {
+test("the enumeration is large enough to mean something", () => {
   // A property that holds over three cases proves little; guard against the space
   // quietly collapsing (e.g. a toFacts filter rejecting almost everything).
   assertEquals(CHECKLISTS.length > 1000, true, `only ${CHECKLISTS.length} reachable combinations`);
@@ -103,7 +104,7 @@ Deno.test("the enumeration is large enough to mean something", () => {
 
 // ─── Properties ──────────────────────────────────────────────────────
 
-Deno.test("no two checks contradict each other about spawning", () => {
+test("no two checks contradict each other about spawning", () => {
   // The bug that motivated this file.
   for (const { combo, checks } of CHECKLISTS) {
     const spawning = checks.find((c) => c.name === "Spawning");
@@ -120,7 +121,7 @@ Deno.test("no two checks contradict each other about spawning", () => {
   }
 });
 
-Deno.test("a leader check never appears without a running daemon to report it", () => {
+test("a leader check never appears without a running daemon to report it", () => {
   // Two symptoms of one cause is the noise DESIGN.md "Setup Is One Command" complains about.
   for (const { combo, checks } of CHECKLISTS) {
     if (combo.daemonRunning) continue;
@@ -130,7 +131,7 @@ Deno.test("a leader check never appears without a running daemon to report it", 
   }
 });
 
-Deno.test("every non-ok check names a fix, in every combination", () => {
+test("every non-ok check names a fix, in every combination", () => {
   // A problem without a next step is noise — DESIGN.md "Setup Is One Command" section's whole complaint.
   for (const { combo, checks } of CHECKLISTS) {
     for (const c of checks) {
@@ -140,7 +141,7 @@ Deno.test("every non-ok check names a fix, in every combination", () => {
   }
 });
 
-Deno.test("each check appears at most once", () => {
+test("each check appears at most once", () => {
   // Two "Extension" lines would be two answers to one question.
   for (const { combo, checks } of CHECKLISTS) {
     const names = checks.map((c) => c.name);
@@ -148,7 +149,7 @@ Deno.test("each check appears at most once", () => {
   }
 });
 
-Deno.test("the exit code follows failures and only failures", () => {
+test("the exit code follows failures and only failures", () => {
   const original = console.log;
   console.log = () => {};
   try {
@@ -161,7 +162,7 @@ Deno.test("the exit code follows failures and only failures", () => {
   }
 });
 
-Deno.test("a double registration always fails, whatever else is true", () => {
+test("a double registration always fails, whatever else is true", () => {
   // The double load is silent in practice, so it must never be downgraded.
   for (const { combo, checks } of CHECKLISTS) {
     if (combo.registrationKind !== "double") continue;
@@ -169,7 +170,7 @@ Deno.test("a double registration always fails, whatever else is true", () => {
   }
 });
 
-Deno.test("an older-than-tested Pi warns and never fails", () => {
+test("an older-than-tested Pi warns and never fails", () => {
   // There is no extension-API version to negotiate, so blocking would be a guess.
   for (const { combo, checks } of CHECKLISTS) {
     if (combo.piVersion !== "0.50.0") continue;

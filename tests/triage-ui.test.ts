@@ -6,7 +6,8 @@
  * run (ui/src/lib/work-item-link.ts).
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   analysesWithDecisions,
   badgeTitle,
@@ -19,14 +20,14 @@ import {
 } from "../ui/src/lib/triage.ts";
 import { hasThreadTab, workItemPath } from "../ui/src/lib/work-item-link.ts";
 
-Deno.test("badge tooltips say what to expect, since the icon is the label", () => {
+test("badge tooltips say what to expect, since the icon is the label", () => {
   assertEquals(badgeTitle("proposal").includes("accept, edit, or reject"), true);
   assertEquals(badgeTitle("question").includes("editing the note"), true);
   assertEquals(badgeTitle("nothing").includes("nothing to create"), true);
   assertEquals(badgeTitle("none"), "");
 });
 
-Deno.test("outcome and kind labels", () => {
+test("outcome and kind labels", () => {
   assertEquals(outcomeLabel("proposals"), "Proposed work");
   assertEquals(outcomeLabel("question"), "Question for you");
   assertEquals(outcomeLabel("nothing"), "Nothing to create");
@@ -37,7 +38,7 @@ Deno.test("outcome and kind labels", () => {
   assertEquals(kindLabel("schedule"), "Scheduled job");
 });
 
-Deno.test("the Edit form shows the fields that kind actually has", () => {
+test("the Edit form shows the fields that kind actually has", () => {
   assertEquals(editableFields("task"), ["title", "goal", "acceptanceCriteria", "directory"]);
   assertEquals(editableFields("story-task"), ["title", "goal", "acceptanceCriteria", "directory"]);
   // A schedule owns its cron; a story's goal lives in its tasks.
@@ -45,7 +46,7 @@ Deno.test("the Edit form shows the fields that kind actually has", () => {
   assertEquals(editableFields("story"), ["title", "directory"]);
 });
 
-Deno.test("Triage now is blocked only by things it can't override", () => {
+test("Triage now is blocked only by things it can't override", () => {
   // The button exists to override these two.
   assertEquals(triageNowBlocked("unchanged"), null);
   assertEquals(triageNowBlocked("too-fresh"), null);
@@ -62,7 +63,7 @@ const analysis = (at: string, ids: string[], outcome: "proposals" | "question" =
 const decision = (proposalId: string, action: "accepted" | "rejected"): TriageThreadEntry =>
   ({ kind: "decision", proposalId, action, from: "you", at: "2026-09-29T12:00:00.000Z" });
 
-Deno.test("the thread groups into rounds, each analysis with the decisions that answered it", () => {
+test("the thread groups into rounds, each analysis with the decisions that answered it", () => {
   const rounds = analysesWithDecisions([
     { from: "someone", body: "an ordinary comment", at: "2026-09-29T09:00:00.000Z" }, // not a round
     analysis("2026-09-29T10:00:00.000Z", ["p1", "p2"]),
@@ -78,18 +79,18 @@ Deno.test("the thread groups into rounds, each analysis with the decisions that 
   assertEquals(rounds[1]!.decisions, []);
 });
 
-Deno.test("a decision for an unknown proposal is ignored rather than crashing", () => {
+test("a decision for an unknown proposal is ignored rather than crashing", () => {
   const rounds = analysesWithDecisions([decision("ghost", "accepted"), analysis("2026-09-29T10:00:00.000Z", ["p1"])]);
   assertEquals(rounds.length, 1);
   assertEquals(rounds[0]!.decisions, []);
 });
 
-Deno.test("triagePath encodes the note id", () => {
+test("triagePath encodes the note id", () => {
   assertEquals(triagePath("th-1"), "/thoughts/th-1/triage");
   assertEquals(triagePath("a/b"), "/thoughts/a%2Fb/triage");
 });
 
-Deno.test("the Inbox sends a triage run to its note's triage page, not the WorkDef", () => {
+test("the Inbox sends a triage run to its note's triage page, not the WorkDef", () => {
   const triage = { ref: { workDefId: "triage-th-1" }, parent: { kind: "thought" as const, id: "th-1" } };
   assertEquals(workItemPath(triage), "/thoughts/th-1/triage");
   // …and that page has no Details/Thread tabs to deep-link into.

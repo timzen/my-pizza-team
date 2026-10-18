@@ -12,7 +12,10 @@
  *   pending; old fields dropped; idempotent.
  */
 
-import { assertEquals, assertExists } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertExists } from "./_assert.ts";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
@@ -27,8 +30,8 @@ const SOLO: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
 const TWO: WorkflowConfig = { states: [{ name: "build", type: "agent" }, { name: "check", type: "agent" }] };
 
 function setup(workflows: Record<string, WorkflowConfig> = { default: SOLO, two: TWO }) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-story-pending-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-story-pending-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...TEST_CONFIG };
   const store = new Store(teamDir, config);
   for (const [name, wf] of Object.entries(workflows)) store.saveWorkflow(name, wf);
@@ -36,7 +39,7 @@ function setup(workflows: Record<string, WorkflowConfig> = { default: SOLO, two:
   const app = buildApp(store, config, teamDir);
   const cleanup = () => {
     store.close();
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
   };
   return { app, store, teamDir, cleanup };
 }
@@ -46,17 +49,17 @@ function req(method: string, body?: unknown): RequestInit {
 }
 
 function readStoryFile(teamDir: string, id: string, dir = "stories"): Record<string, unknown> {
-  return JSON.parse(Deno.readTextFileSync(path.join(teamDir, dir, `${id}.json`)));
+  return JSON.parse(fs.readFileSync(path.join(teamDir, dir, `${id}.json`), "utf8"));
 }
 
 function writeStoryFile(teamDir: string, dir: string, data: Record<string, unknown>): void {
-  Deno.mkdirSync(path.join(teamDir, dir), { recursive: true });
-  Deno.writeTextFileSync(path.join(teamDir, dir, `${data.id}.json`), JSON.stringify(data, null, 2) + "\n");
+  fs.mkdirSync(path.join(teamDir, dir), { recursive: true });
+  fs.writeFileSync(path.join(teamDir, dir, `${data.id}.json`), JSON.stringify(data, null, 2) + "\n");
 }
 
 // ─── Dispatch ───────────────────────────────────────────────────────
 
-Deno.test("pending story: READY work is not handed out; activating resumes it", () => {
+test("pending story: READY work is not handed out; activating resumes it", () => {
   const { store, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default");
@@ -74,7 +77,7 @@ Deno.test("pending story: READY work is not handed out; activating resumes it", 
   } finally { cleanup(); }
 });
 
-Deno.test("pending story created pending: nothing admitted until activated", () => {
+test("pending story created pending: nothing admitted until activated", () => {
   const { store, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", undefined, true);
@@ -86,7 +89,7 @@ Deno.test("pending story created pending: nothing admitted until activated", () 
   } finally { cleanup(); }
 });
 
-Deno.test("pending mid-flight: the in-progress task finishes; the next task is not admitted", () => {
+test("pending mid-flight: the in-progress task finishes; the next task is not admitted", () => {
   const { store, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [
@@ -111,7 +114,7 @@ Deno.test("pending mid-flight: the in-progress task finishes; the next task is n
   } finally { cleanup(); }
 });
 
-Deno.test("pending mid-flight: advancing into the next agent state is not handed out", () => {
+test("pending mid-flight: advancing into the next agent state is not handed out", () => {
   const { store, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "two");
@@ -130,7 +133,7 @@ Deno.test("pending mid-flight: advancing into the next agent state is not handed
   } finally { cleanup(); }
 });
 
-Deno.test("a story depending on a pending story waits; it stays on the board", () => {
+test("a story depending on a pending story waits; it stays on the board", () => {
   const { store, cleanup } = setup();
   try {
     store.createStory("a", "A", "d", "open", [], [{ title: "A1", description: "d" }], "default", undefined, true);
@@ -150,7 +153,7 @@ Deno.test("a story depending on a pending story waits; it stays on the board", (
   } finally { cleanup(); }
 });
 
-Deno.test("pending survives a restart (stories/<id>.json carries it)", () => {
+test("pending survives a restart (stories/<id>.json carries it)", () => {
   const { store, teamDir, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", undefined, true);
@@ -163,7 +166,7 @@ Deno.test("pending survives a restart (stories/<id>.json carries it)", () => {
 
 // ─── API ────────────────────────────────────────────────────────────
 
-Deno.test("API: create/PUT take pending; POST /pending and /activate toggle it", async () => {
+test("API: create/PUT take pending; POST /pending and /activate toggle it", async () => {
   const { app, store, cleanup } = setup();
   try {
     let res = await app.request("/api/stories", req("POST", { id: "s1", title: "S", description: "d", workflow: "default", pending: true, tasks: [{ title: "T", description: "d" }] }));
@@ -197,7 +200,7 @@ Deno.test("API: create/PUT take pending; POST /pending and /activate toggle it",
   } finally { cleanup(); }
 });
 
-Deno.test("API: the deprecated `paused` field is accepted as an alias of pending", async () => {
+test("API: the deprecated `paused` field is accepted as an alias of pending", async () => {
   const { app, store, cleanup } = setup();
   try {
     await app.request("/api/stories", req("POST", { id: "s1", title: "S", description: "d", workflow: "default", paused: true }));
@@ -210,7 +213,7 @@ Deno.test("API: the deprecated `paused` field is accepted as an alias of pending
   } finally { cleanup(); }
 });
 
-Deno.test("API: the backlog routes are gone", async () => {
+test("API: the backlog routes are gone", async () => {
   const { app, store, cleanup } = setup();
   try {
     store.createStory("s1", "S", "d", "open", [], [], "default");
@@ -222,13 +225,13 @@ Deno.test("API: the backlog routes are gone", async () => {
 
 // ─── Migration ──────────────────────────────────────────────────────
 
-Deno.test("migration: paused stories and backlog/ stories load as pending; old fields dropped", () => {
+test("migration: paused stories and backlog/ stories load as pending; old fields dropped", () => {
   const { store, teamDir, cleanup } = setup();
   try {
     // A board task for the backlogged story: its WorkDef lives in tasks/ (never moved).
     store.createStory("shelved", "Shelved", "d", "open", [], [{ title: "T", description: "d" }], "default");
     const shelved = readStoryFile(teamDir, "shelved");
-    Deno.removeSync(path.join(teamDir, "stories", "shelved.json"));
+    fs.rmSync(path.join(teamDir, "stories", "shelved.json"));
     writeStoryFile(teamDir, "backlog", { ...shelved, backloggedAt: "2026-01-01T00:00:00.000Z" });
 
     writeStoryFile(teamDir, "stories", { id: "held", title: "Held", description: "d", status: "open", dependsOn: [], tasks: [], paused: true });
@@ -253,8 +256,8 @@ Deno.test("migration: paused stories and backlog/ stories load as pending; old f
   } finally { cleanup(); }
 });
 
-Deno.test("migration: idempotent, and never clobbers an active story with a backlog copy", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-story-migration-test-" });
+test("migration: idempotent, and never clobbers an active story with a backlog copy", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-story-migration-test-"));
   try {
     writeStoryFile(teamDir, "stories", { id: "dup", title: "Live", description: "d", status: "open", dependsOn: [], tasks: [] });
     writeStoryFile(teamDir, "backlog", { id: "dup", title: "Old copy", description: "d", status: "open", dependsOn: [], tasks: [], backloggedAt: "x" });
@@ -272,6 +275,6 @@ Deno.test("migration: idempotent, and never clobbers an active story with a back
     assertEquals(second.unbacklogged, []);
     assertEquals(readStoryFile(teamDir, "p").pending, true);
   } finally {
-    Deno.removeSync(teamDir, { recursive: true });
+    fs.rmSync(teamDir, { recursive: true, force: true });
   }
 });

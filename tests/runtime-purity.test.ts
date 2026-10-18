@@ -24,7 +24,9 @@
  * non-Pi teammate needs no in-process code.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 
 const RUNTIME_DIR = new URL("../harnesses/pi/src/runtime/", import.meta.url);
 
@@ -43,20 +45,20 @@ function imports(source: string): Array<{ specifier: string; typeOnly: boolean }
 
 async function runtimeModules(): Promise<Array<{ name: string; source: string }>> {
   const files: Array<{ name: string; source: string }> = [];
-  for await (const entry of Deno.readDir(RUNTIME_DIR)) {
-    if (entry.isFile && entry.name.endsWith(".ts")) {
-      files.push({ name: entry.name, source: await Deno.readTextFile(new URL(entry.name, RUNTIME_DIR)) });
+  for (const entry of await fs.promises.readdir(RUNTIME_DIR, { withFileTypes: true })) {
+    if (entry.isFile() && entry.name.endsWith(".ts")) {
+      files.push({ name: entry.name, source: await fs.promises.readFile(new URL(entry.name, RUNTIME_DIR), "utf8") });
     }
   }
   return files.sort((a, b) => a.name.localeCompare(b.name));
 }
 
-Deno.test("runtime/ is populated (a passing check on an empty directory proves nothing)", async () => {
+test("runtime/ is populated (a passing check on an empty directory proves nothing)", async () => {
   const modules = await runtimeModules();
   assertEquals(modules.length >= 5, true, `expected the runtime modules, found ${modules.length}`);
 });
 
-Deno.test("runtime/ imports no dependency and no runtime builtin", async () => {
+test("runtime/ imports no dependency and no runtime builtin", async () => {
   const offenders: string[] = [];
   for (const { name, source } of await runtimeModules()) {
     for (const { specifier } of imports(source)) {
@@ -72,7 +74,7 @@ Deno.test("runtime/ imports no dependency and no runtime builtin", async () => {
   );
 });
 
-Deno.test("runtime/ has no relative *value* imports — only type-only ones", async () => {
+test("runtime/ has no relative *value* imports — only type-only ones", async () => {
   // This is the property that keeps these modules loadable under plain Node, and
   // therefore testable. A type-only import is erased at runtime; a value import
   // makes Node resolve a './x.js' path that does not exist on disk.
@@ -91,7 +93,7 @@ Deno.test("runtime/ has no relative *value* imports — only type-only ones", as
   );
 });
 
-Deno.test("runtime/ never mentions the Pi extension API", async () => {
+test("runtime/ never mentions the Pi extension API", async () => {
   // Cheap belt-and-braces: a Pi type arriving via some path the import scan misses
   // would still show up as this identifier.
   const offenders: string[] = [];

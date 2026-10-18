@@ -17,9 +17,23 @@
  * client doesn't know, as Kiro does, so tolerating those is part of every test.
  */
 
-const encoder = new TextEncoder();
-const out = Deno.stdout.writable.getWriter();
-const send = (msg: Record<string, unknown>) => out.write(encoder.encode(JSON.stringify(msg) + "\n"));
+import { spawn } from "node:child_process";
+
+/** Run `sh -c cmd` without blocking the stdio loop; resolves with its exit code and combined output. */
+function sh(cmd: string): Promise<{ code: number | null; output: string }> {
+  return new Promise((resolve) => {
+    const child = spawn("sh", ["-c", cmd], { stdio: ["ignore", "pipe", "pipe"] });
+    let output = "";
+    child.stdout.on("data", (d) => output += d);
+    child.stderr.on("data", (d) => output += d);
+    child.on("error", (err) => resolve({ code: null, output: String(err) }));
+    child.on("close", (code) => resolve({ code, output }));
+  });
+}
+
+/** Write one JSON-RPC message; resolves once it's flushed, so an exit right after loses nothing. */
+const send = (msg: Record<string, unknown>) =>
+  new Promise<void>((resolve, reject) => process.stdout.write(JSON.stringify(msg) + "\n", (err) => err ? reject(err) : resolve()));
 
 let nextId = 1000;
 const waiting = new Map<number, (msg: Record<string, unknown>) => void>();
@@ -43,7 +57,7 @@ async function runPrompt(sessionId: string, text: string): Promise<Record<string
 
   if (text.includes("FAKE-EXIT")) {
     await update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "About to crash." } });
-    Deno.exit(3);
+    process.exit(3);
   }
 
   if (text.includes("FAKE-FAIL")) {
@@ -56,10 +70,10 @@ async function runPrompt(sessionId: string, text: string): Promise<Record<string
     }
     const concrete = cmd.replace(/"<[^"]*>"/, '"blocked: the fake agent has no credentials"');
     await update(sessionId, { sessionUpdate: "tool_call", toolCallId: "fail-1", title: concrete, kind: "execute", status: "pending" });
-    const r = await new Deno.Command("sh", { args: ["-c", concrete], stdout: "piped", stderr: "piped" }).output();
-    const output = new TextDecoder().decode(r.stdout) + new TextDecoder().decode(r.stderr);
+    const r = await sh(concrete);
+    const output = r.output;
     await update(sessionId, {
-      sessionUpdate: "tool_call_update", toolCallId: "fail-1", status: r.success ? "completed" : "failed",
+      sessionUpdate: "tool_call_update", toolCallId: "fail-1", status: r.code === 0 ? "completed" : "failed",
       content: [{ type: "content", content: { type: "text", text: output } }],
     });
     await update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "I gave up on this one." } });
@@ -130,10 +144,10 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
   }
 }
 
-const decoder = new TextDecoder();
 let buf = "";
-for await (const chunk of Deno.stdin.readable) {
-  buf += decoder.decode(chunk, { stream: true });
+process.stdin.setEncoding("utf8");
+for await (const chunk of process.stdin) {
+  buf += chunk as string;
   let nl: number;
   while ((nl = buf.indexOf("\n")) >= 0) {
     const line = buf.slice(0, nl).trim();

@@ -14,7 +14,10 @@
  * - a plain FAILED (the agent gave up) is never retried
  */
 
-import { assert, assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -25,12 +28,12 @@ const ERR = "Service unavailable: Bedrock is unable to process your request.";
 const MIN = 60_000;
 
 function setup(overrides: Partial<TeamConfig> = {}) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-retry-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-retry-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
   const store = new Store(teamDir, config);
   store.registerMember("m1", "firm-odo");
-  const cleanup = () => { store.close(); try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ } };
+  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ } };
   return { store, config, teamDir, cleanup };
 }
 
@@ -45,7 +48,7 @@ function claimedSolitary(store: Store): { defId: string; item: WorkItem } {
 
 const bodies = (store: Store, workDefId: string) => store.getCommentsForRef({ workDefId }).map((c) => c.body);
 
-Deno.test("resolveRetry: defaults to 3 retries at 1m/5m/15m; the last backoff repeats", () => {
+test("resolveRetry: defaults to 3 retries at 1m/5m/15m; the last backoff repeats", () => {
   const p = resolveRetry({});
   assertEquals(p, { maxRetries: 3, backoffMinutes: [1, 5, 15] });
   assertEquals(retryBackoffMs(p, 1), 1 * MIN);
@@ -55,7 +58,7 @@ Deno.test("resolveRetry: defaults to 3 retries at 1m/5m/15m; the last backoff re
   assertEquals(resolveRetry({ retry: { maxRetries: 0 } }).maxRetries, 0);
 });
 
-Deno.test("session error → [retry] comment, attempt FAILED+read, a held READY retry (not COMPLETE)", () => {
+test("session error → [retry] comment, attempt FAILED+read, a held READY retry (not COMPLETE)", () => {
   const { store, cleanup } = setup();
   try {
     const { defId, item } = claimedSolitary(store);
@@ -90,7 +93,7 @@ Deno.test("session error → [retry] comment, attempt FAILED+read, a held READY 
   } finally { cleanup(); }
 });
 
-Deno.test("a due retry waits for the readiness probe to report ready", () => {
+test("a due retry waits for the readiness probe to report ready", () => {
   const { store, cleanup } = setup();
   try {
     const { item } = claimedSolitary(store);
@@ -103,7 +106,7 @@ Deno.test("a due retry waits for the readiness probe to report ready", () => {
   } finally { cleanup(); }
 });
 
-Deno.test("success after a retry → COMPLETE and the board task advances", () => {
+test("success after a retry → COMPLETE and the board task advances", () => {
   const { store, cleanup } = setup();
   try {
     store.createStory("rs", "Retry story", "D", "open", [], [{ title: "T1", description: "D1" }]);
@@ -125,7 +128,7 @@ Deno.test("success after a retry → COMPLETE and the board task advances", () =
   } finally { cleanup(); }
 });
 
-Deno.test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment carrying the error", () => {
+test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment carrying the error", () => {
   const { store, cleanup } = setup({ retry: { maxRetries: 2, backoffMinutes: [1] } });
   try {
     const { defId, item } = claimedSolitary(store);
@@ -158,7 +161,7 @@ Deno.test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment
   } finally { cleanup(); }
 });
 
-Deno.test("maxRetries 0 fails on the first errored session", () => {
+test("maxRetries 0 fails on the first errored session", () => {
   const { store, cleanup } = setup({ retry: { maxRetries: 0 } });
   try {
     const { defId, item } = claimedSolitary(store);
@@ -169,7 +172,7 @@ Deno.test("maxRetries 0 fails on the first errored session", () => {
   } finally { cleanup(); }
 });
 
-Deno.test("a plain FAILED (the agent gave up) is not retried; a successful empty completion is unaffected", () => {
+test("a plain FAILED (the agent gave up) is not retried; a successful empty completion is unaffected", () => {
   const { store, cleanup } = setup();
   try {
     const a = claimedSolitary(store);
@@ -184,7 +187,7 @@ Deno.test("a plain FAILED (the agent gave up) is not retried; a successful empty
   } finally { cleanup(); }
 });
 
-Deno.test("route: FAILED + sessionError retries and reports it; /api/work-items shows attempt/retryAt", async () => {
+test("route: FAILED + sessionError retries and reports it; /api/work-items shows attempt/retryAt", async () => {
   const { store, config, teamDir, cleanup } = setup();
   try {
     const app = buildApp(store, config, teamDir);

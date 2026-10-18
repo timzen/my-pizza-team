@@ -3,7 +3,10 @@
  * module (thoughts/<id>.md + groups.json). Pure file IO, no SQLite/Store.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import {
   serializeThought,
@@ -18,10 +21,10 @@ import {
 import type { Thought } from "../shared/types.ts";
 
 function tempDir(): string {
-  return Deno.makeTempDirSync({ prefix: "mpt-thoughts-io-" });
+  return fs.mkdtempSync(path.join(os.tmpdir(), "mpt-thoughts-io-"));
 }
 function cleanup(dir: string): void {
-  try { Deno.removeSync(dir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(dir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 function sampleThought(over: Partial<Thought> = {}): Thought {
@@ -44,27 +47,27 @@ function sampleThought(over: Partial<Thought> = {}): Thought {
   };
 }
 
-Deno.test("Thoughts IO: serialize → parse round-trips all fields", () => {
+test("Thoughts IO: serialize → parse round-trips all fields", () => {
   const t = sampleThought({ pinned: true, groupId: "grp-a", w: 240, h: 160 });
   const parsed = parseThought(t.id, serializeThought(t));
   assertEquals(parsed, t);
 });
 
-Deno.test("Thoughts IO: auto-sized (w/h null) round-trips", () => {
+test("Thoughts IO: auto-sized (w/h null) round-trips", () => {
   const t = sampleThought({ w: null, h: null });
   const parsed = parseThought(t.id, serializeThought(t));
   assertEquals(parsed!.w, null);
   assertEquals(parsed!.h, null);
 });
 
-Deno.test("Thoughts IO: multi-line markdown body with a checklist survives", () => {
+test("Thoughts IO: multi-line markdown body with a checklist survives", () => {
   const content = "# Plan\n\n- [ ] draft\n- [x] outline\n\nnotes here";
   const t = sampleThought({ content });
   const parsed = parseThought(t.id, serializeThought(t));
   assertEquals(parsed!.content, content);
 });
 
-Deno.test("Thoughts IO: write → get → list on disk", () => {
+test("Thoughts IO: write → get → list on disk", () => {
   const dir = tempDir();
   try {
     writeThought(dir, sampleThought({ id: "th-a" }));
@@ -74,14 +77,14 @@ Deno.test("Thoughts IO: write → get → list on disk", () => {
     const all = listThoughts(dir);
     assertEquals(all.map((t) => t.id), ["th-a", "th-b"]);
     // The file is really `<id>.md`.
-    assertEquals(Deno.statSync(path.join(dir, "thoughts", "th-a.md")).isFile, true);
+    assertEquals(fs.statSync(path.join(dir, "thoughts", "th-a.md")).isFile(), true);
     assertEquals(deleteThoughtFile(dir, "th-a"), true);
     assertEquals(getThought(dir, "th-a"), null);
     assertEquals(deleteThoughtFile(dir, "th-a"), false);
   } finally { cleanup(dir); }
 });
 
-Deno.test("Thoughts IO: groups.json round-trips", () => {
+test("Thoughts IO: groups.json round-trips", () => {
   const dir = tempDir();
   try {
     assertEquals(listThoughtGroups(dir), []);
@@ -95,16 +98,16 @@ Deno.test("Thoughts IO: groups.json round-trips", () => {
   } finally { cleanup(dir); }
 });
 
-Deno.test("Thoughts IO: groups without geometry get defaults", () => {
+test("Thoughts IO: groups without geometry get defaults", () => {
   const dir = tempDir();
   try {
     // Hand-written/legacy file lacking geometry: defaults fill in.
-    Deno.writeTextFileSync(`${dir}/groups.json`, JSON.stringify([{ id: "grp-x", title: "X" }]));
+    fs.writeFileSync(`${dir}/groups.json`, JSON.stringify([{ id: "grp-x", title: "X" }]));
     const [g] = listThoughtGroups(dir);
     assertEquals(g, { id: "grp-x", title: "X", x: 0, y: 0, w: 360, h: 260, groupColor: null, plateOpacity: "medium" });
   } finally { cleanup(dir); }
 });
 
-Deno.test("Thoughts IO: parse tolerates missing frontmatter (returns null)", () => {
+test("Thoughts IO: parse tolerates missing frontmatter (returns null)", () => {
   assertEquals(parseThought("th-x", "no frontmatter here"), null);
 });

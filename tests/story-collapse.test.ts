@@ -5,7 +5,8 @@
  * given story, and broken storage never throws.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   readStoryCollapsed,
   storyCollapseKey,
@@ -22,13 +23,13 @@ function memStorage(initial: Record<string, string> = {}) {
   };
 }
 
-Deno.test("stories are expanded by default", () => {
+test("stories are expanded by default", () => {
   assertEquals(readStoryCollapsed(memStorage(), "s1"), false);
   assertEquals(readStoryCollapsed(undefined, "s1"), false);
   assertEquals(readStoryCollapsed(memStorage({ [storyCollapseKey("s1")]: "garbage" }), "s1"), false);
 });
 
-Deno.test("collapse round-trips per story", () => {
+test("collapse round-trips per story", () => {
   const s = memStorage();
   writeStoryCollapsed(s, "s1", true);
   assertEquals(readStoryCollapsed(s, "s1"), true);
@@ -37,7 +38,7 @@ Deno.test("collapse round-trips per story", () => {
   assertEquals(readStoryCollapsed(s, "s1"), false);
 });
 
-Deno.test("collapse/expand all writes every given story and returns the map", () => {
+test("collapse/expand all writes every given story and returns the map", () => {
   const s = memStorage();
   writeStoryCollapsed(s, "other", true);
   assertEquals(writeAllStoriesCollapsed(s, ["a", "b"], true), { a: true, b: true });
@@ -48,7 +49,7 @@ Deno.test("collapse/expand all writes every given story and returns the map", ()
   assertEquals(readStoryCollapsed(s, "other"), true); // not visible ⇒ untouched
 });
 
-Deno.test("blocked storage falls back to expanded and never throws", () => {
+test("blocked storage falls back to expanded and never throws", () => {
   const blocked = {
     getItem: () => { throw new Error("SecurityError"); },
     setItem: () => { throw new Error("SecurityError"); },

@@ -9,23 +9,26 @@
  *   - teardown happens even when the test body throws.
  */
 
-import { assertEquals, assertRejects, assertStringIncludes } from "@std/assert";
+import { spawnSync } from "node:child_process";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assertEquals, assertRejects, assertStringIncludes } from "../_assert.ts";
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 import { hasTmux, sandbox, sandboxLeftovers } from "./_sandbox.ts";
 
-const REAL_PI_SETTINGS = path.join(Deno.env.get("HOME") ?? "", ".pi", "agent", "settings.json");
+const REAL_PI_SETTINGS = path.join(process.env["HOME"] ?? "", ".pi", "agent", "settings.json");
 
 /** A fingerprint of the user's real Pi settings, so we can prove nothing changed. */
 function realSettingsFingerprint(): string {
   try {
-    return Deno.readTextFileSync(REAL_PI_SETTINGS);
+    return fs.readFileSync(REAL_PI_SETTINGS, "utf8");
   } catch {
     return "<absent>";
   }
 }
 
-Deno.test("the CLI runs, and sees the sandbox rather than the real home", async () => {
+test("the CLI runs, and sees the sandbox rather than the real home", async () => {
   await using sb = await sandbox("home");
   const result = await sb.mpt("--version");
   assertEquals(result.code, 0);
@@ -35,7 +38,7 @@ Deno.test("the CLI runs, and sees the sandbox rather than the real home", async 
   assertEquals(sb.env.PI_CODING_AGENT_DIR, sb.piAgentDir);
 });
 
-Deno.test("a setup inside the sandbox leaves the real Pi settings untouched", async () => {
+test("a setup inside the sandbox leaves the real Pi settings untouched", async () => {
   // The rule this whole phase depends on, asserted rather than trusted.
   const before = realSettingsFingerprint();
   {
@@ -49,50 +52,42 @@ Deno.test("a setup inside the sandbox leaves the real Pi settings untouched", as
   assertEquals(realSettingsFingerprint(), before, "the user's real ~/.pi/agent/settings.json changed");
 });
 
-Deno.test({
-  name: "tmux in the sandbox is a private server the real one cannot see",
-  ignore: !hasTmux(),
-  async fn() {
-    await using sb = await sandbox("tmux");
-    const made = await sb.tmux("new-session", "-d", "-s", sb.session);
-    assertEquals(made.code, 0, made.output);
+test("tmux in the sandbox is a private server the real one cannot see", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("tmux");
+  const made = await sb.tmux("new-session", "-d", "-s", sb.session);
+  assertEquals(made.code, 0, made.output);
 
-    // Visible to the sandbox's server...
-    assertStringIncludes((await sb.tmux("list-sessions")).stdout, sb.session);
+  // Visible to the sandbox's server...
+  assertStringIncludes((await sb.tmux("list-sessions")).stdout, sb.session);
 
-    // ...and not to the real one. Queried without TMUX_TMPDIR, i.e. the default server.
-    const real = new Deno.Command("tmux", { args: ["list-sessions"], stdout: "piped", stderr: "null" }).outputSync();
-    assertEquals(
-      new TextDecoder().decode(real.stdout).includes(sb.session),
-      false,
-      "a sandbox session leaked onto the user's real tmux server",
-    );
-  },
+  // ...and not to the real one. Queried without TMUX_TMPDIR, i.e. the default server.
+  const real = spawnSync("tmux", ["list-sessions"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+  assertEquals(
+    real.stdout.includes(sb.session),
+    false,
+    "a sandbox session leaked onto the user's real tmux server",
+  );
 });
 
-Deno.test({
-  name: "teardown kills the sandbox's tmux server and leaves the real one running",
-  ignore: !hasTmux(),
-  async fn() {
-    // Count the real server's sessions before and after: the sandbox's kill-server
-    // must reach only its own.
-    const countReal = () => {
-      const out = new Deno.Command("tmux", { args: ["list-sessions"], stdout: "piped", stderr: "null" }).outputSync();
-      return new TextDecoder().decode(out.stdout).split("\n").filter(Boolean).length;
-    };
-    const before = countReal();
-    let tmuxDir = "";
-    {
-      await using sb = await sandbox("teardown");
-      tmuxDir = sb.tmuxDir;
-      await sb.tmux("new-session", "-d", "-s", sb.session);
-    }
-    assertEquals(existsSync(tmuxDir), false, "the private socket directory should be gone");
-    assertEquals(countReal(), before, "teardown touched the user's real tmux server");
-  },
+test("teardown kills the sandbox's tmux server and leaves the real one running", { skip: !hasTmux() }, async () => {
+  // Count the real server's sessions before and after: the sandbox's kill-server
+  // must reach only its own.
+  const countReal = () => {
+    const out = spawnSync("tmux", ["list-sessions"], { encoding: "utf8", stdio: ["ignore", "pipe", "ignore"] });
+    return out.stdout.split("\n").filter(Boolean).length;
+  };
+  const before = countReal();
+  let tmuxDir = "";
+  {
+    await using sb = await sandbox("teardown");
+    tmuxDir = sb.tmuxDir;
+    await sb.tmux("new-session", "-d", "-s", sb.session);
+  }
+  assertEquals(existsSync(tmuxDir), false, "the private socket directory should be gone");
+  assertEquals(countReal(), before, "teardown touched the user's real tmux server");
 });
 
-Deno.test("teardown happens even when the test body throws", async () => {
+test("teardown happens even when the test body throws", async () => {
   // P5-1's acceptance check: a failing test must still leave nothing behind.
   let leftovers: string[] = [];
   let root = "";
@@ -100,7 +95,7 @@ Deno.test("teardown happens even when the test body throws", async () => {
     await using sb = await sandbox("throws");
     root = sb.root;
     leftovers = [sb.root, sb.tmuxDir];
-    Deno.writeTextFileSync(path.join(sb.projectDir, "evidence.txt"), "x");
+    fs.writeFileSync(path.join(sb.projectDir, "evidence.txt"), "x");
     if (hasTmux()) await sb.tmux("new-session", "-d", "-s", sb.session);
     throw new Error("simulated assertion failure");
   }, Error, "simulated assertion failure");
@@ -109,7 +104,7 @@ Deno.test("teardown happens even when the test body throws", async () => {
   assertEquals(sandboxLeftovers({ root: leftovers[0]!, tmuxDir: leftovers[1]! }), [], "temp directories survived a failing test");
 });
 
-Deno.test("each sandbox gets its own port and session, so they can run side by side", async () => {
+test("each sandbox gets its own port and session, so they can run side by side", async () => {
   await using a = await sandbox("pa");
   await using b = await sandbox("pb");
   assertEquals(a.port === b.port, false);

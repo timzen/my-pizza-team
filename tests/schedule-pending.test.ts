@@ -9,7 +9,10 @@
  * A job fires only when both its Schedule and its WorkDef are active.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -17,8 +20,8 @@ import { Store } from "../daemon/store.ts";
 import { scheduleCursor } from "../daemon/store/schedules.ts";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-sched-pending-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-sched-pending-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config = { ...TEST_CONFIG, features: { stories: true, tasks: true, schedules: true } };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -26,7 +29,7 @@ function setup() {
 }
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const post = (app: ReturnType<typeof buildApp>, url: string, body: unknown = {}) =>
@@ -49,7 +52,7 @@ function minutely(store: Store, pending?: boolean) {
 // 09:00 local time on a fixed day, plus `m` minutes and `s` seconds.
 const at = (m: number, s = 0) => new Date(2030, 0, 7, 9, m, s);
 
-Deno.test("a pending Schedule never fires", () => {
+test("a pending Schedule never fires", () => {
   const { store, teamDir } = setup();
   try {
     const sched = minutely(store, true);
@@ -61,7 +64,7 @@ Deno.test("a pending Schedule never fires", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reactivating resumes at the next occurrence with no catch-up burst", () => {
+test("reactivating resumes at the next occurrence with no catch-up burst", () => {
   const { store, teamDir } = setup();
   try {
     const sched = minutely(store);
@@ -90,7 +93,7 @@ Deno.test("reactivating resumes at the next occurrence with no catch-up burst", 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a readiness-held occurrence is dropped when the Schedule goes pending, and a pending Schedule isn't held", () => {
+test("a readiness-held occurrence is dropped when the Schedule goes pending, and a pending Schedule isn't held", () => {
   const { store, teamDir } = setup();
   try {
     store.registerMember("ag-a", "ag-a", "/repo/a", {});
@@ -113,7 +116,7 @@ Deno.test("a readiness-held occurrence is dropped when the Schedule goes pending
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("precedence: a job fires only when both its Schedule and its WorkDef are active", () => {
+test("precedence: a job fires only when both its Schedule and its WorkDef are active", () => {
   const { store, teamDir } = setup();
   try {
     const sched = store.createSchedule({ title: "Two", cron: "* * * * *" });
@@ -134,7 +137,7 @@ Deno.test("precedence: a job fires only when both its Schedule and its WorkDef a
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("toggling to the same value is a no-op (no new resume cursor)", () => {
+test("toggling to the same value is a no-op (no new resume cursor)", () => {
   const { store, teamDir } = setup();
   try {
     const sched = minutely(store);
@@ -144,7 +147,7 @@ Deno.test("toggling to the same value is a no-op (no new resume cursor)", () => 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("API: pending/activate verbs, PUT { pending }, and the view's pending flag", async () => {
+test("API: pending/activate verbs, PUT { pending }, and the view's pending flag", async () => {
   const { app, store, teamDir } = setup();
   try {
     const sched = minutely(store);

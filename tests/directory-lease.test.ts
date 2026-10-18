@@ -11,7 +11,10 @@
  * - `GET /api/work-items` reports `blockedBy`; `PUT /api/config` edits the flag
  */
 
-import { assert, assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -19,11 +22,11 @@ import { directoriesOverlap, type TeamConfig, type WorkItem } from "../shared/ty
 import * as path from "node:path";
 
 function setup(overrides: Partial<TeamConfig> = {}) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-lease-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-lease-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
   const store = new Store(teamDir, config);
-  const cleanup = () => { store.close(); try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ } };
+  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ } };
   return { store, config, teamDir, cleanup };
 }
 
@@ -46,7 +49,7 @@ function drain(store: Store): string[] {
   return titles;
 }
 
-Deno.test("directoriesOverlap compares path segments, not string prefixes", () => {
+test("directoriesOverlap compares path segments, not string prefixes", () => {
   assert(directoriesOverlap("/ws/mpt-dev", "/ws/mpt-dev"));
   assert(directoriesOverlap("/ws/mpt-dev", "/ws/mpt-dev/my-pizza-team"));
   assert(directoriesOverlap("/ws/mpt-dev/my-pizza-team", "/ws/mpt-dev"));
@@ -56,7 +59,7 @@ Deno.test("directoriesOverlap compares path segments, not string prefixes", () =
   assert(directoriesOverlap("/", "/ws/a"));
 });
 
-Deno.test("lease: two items in one directory run one at a time; COMPLETE frees it", () => {
+test("lease: two items in one directory run one at a time; COMPLETE frees it", () => {
   const { store, cleanup } = setup();
   try {
     const a = enqueue(store, "A", "/ws/repo");
@@ -74,7 +77,7 @@ Deno.test("lease: two items in one directory run one at a time; COMPLETE frees i
   } finally { cleanup(); }
 });
 
-Deno.test("lease: FAILED and CANCELED free it too", () => {
+test("lease: FAILED and CANCELED free it too", () => {
   const { store, cleanup } = setup();
   try {
     const a = enqueue(store, "A", "/ws/repo");
@@ -92,7 +95,7 @@ Deno.test("lease: FAILED and CANCELED free it too", () => {
   } finally { cleanup(); }
 });
 
-Deno.test("lease: parent/child directories conflict; unrelated (incl. shared prefixes) run in parallel", () => {
+test("lease: parent/child directories conflict; unrelated (incl. shared prefixes) run in parallel", () => {
   const { store, cleanup } = setup();
   try {
     enqueue(store, "parent", "/ws/mpt-dev");
@@ -114,14 +117,14 @@ Deno.test("lease: parent/child directories conflict; unrelated (incl. shared pre
   } finally { second.cleanup(); }
 });
 
-Deno.test("lease: overlap is found across a symlink (normalizeDirectory on both sides)", () => {
+test("lease: overlap is found across a symlink (normalizeDirectory on both sides)", () => {
   const { store, cleanup } = setup();
-  const root = Deno.realPathSync(Deno.makeTempDirSync({ prefix: "mpt-lease-link-" }));
+  const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-lease-link-")));
   try {
     const real = path.join(root, "repo");
-    Deno.mkdirSync(real);
+    fs.mkdirSync(real);
     const link = path.join(root, "link");
-    Deno.symlinkSync(real, link);
+    fs.symlinkSync(real, link);
     const a = enqueue(store, "A", real);
     const b = enqueue(store, "B", link);
     // Simulate a legacy row holding the unresolved symlink path.
@@ -129,10 +132,10 @@ Deno.test("lease: overlap is found across a symlink (normalizeDirectory on both 
     db.prepare("UPDATE work_items SET directory = ? WHERE id = ?").run(link, b.id);
     assert(store.claimWorkItem(a.id, "ag"));
     assertEquals(next(store), null);
-  } finally { cleanup(); Deno.removeSync(root, { recursive: true }); }
+  } finally { cleanup(); fs.rmSync(root, { recursive: true, force: true }); }
 });
 
-Deno.test("lease: a teammate's registered directory neither takes nor blocks a lease", () => {
+test("lease: a teammate's registered directory neither takes nor blocks a lease", () => {
   const { store, cleanup } = setup();
   try {
     // Teammates are online in /ws/repo and its parent, idle.
@@ -146,7 +149,7 @@ Deno.test("lease: a teammate's registered directory neither takes nor blocks a l
   } finally { cleanup(); }
 });
 
-Deno.test("lease: items with no directory are exempt both ways", () => {
+test("lease: items with no directory are exempt both ways", () => {
   const { store, cleanup } = setup();
   try {
     const free1 = enqueue(store, "free1");
@@ -163,9 +166,9 @@ Deno.test("lease: items with no directory are exempt both ways", () => {
   } finally { cleanup(); }
 });
 
-Deno.test("lease: a MORIBUND item keeps its directory until resolved (force-fail frees it)", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-lease-moribund-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+test("lease: a MORIBUND item keeps its directory until resolved (force-fail frees it)", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-lease-moribund-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   try {
     const store = new Store(teamDir, structuredClone(TEST_CONFIG));
     const a = enqueue(store, "A", "/ws/repo");
@@ -184,10 +187,10 @@ Deno.test("lease: a MORIBUND item keeps its directory until resolved (force-fail
       assert(store2.forceFailWorkItem(a.id).ok);
       assertEquals(next(store2)!.id, b.id);
     } finally { store2.close(); }
-  } finally { Deno.removeSync(teamDir, { recursive: true }); }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });
 
-Deno.test("lease: two agents polling at once can't both claim for one directory", () => {
+test("lease: two agents polling at once can't both claim for one directory", () => {
   const { store, cleanup } = setup();
   try {
     const a = enqueue(store, "A", "/ws/repo");
@@ -202,7 +205,7 @@ Deno.test("lease: two agents polling at once can't both claim for one directory"
   } finally { cleanup(); }
 });
 
-Deno.test("lease: exclusiveDirectories false restores unrestricted parallelism", () => {
+test("lease: exclusiveDirectories false restores unrestricted parallelism", () => {
   const { store, cleanup } = setup({ exclusiveDirectories: false });
   try {
     enqueue(store, "A", "/ws/repo");
@@ -212,7 +215,7 @@ Deno.test("lease: exclusiveDirectories false restores unrestricted parallelism",
   } finally { cleanup(); }
 });
 
-Deno.test("GET /api/work-items reports why a READY item is waiting", async () => {
+test("GET /api/work-items reports why a READY item is waiting", async () => {
   const { store, config, teamDir, cleanup } = setup();
   try {
     const app = buildApp(store, config, teamDir);
@@ -239,7 +242,7 @@ Deno.test("GET /api/work-items reports why a READY item is waiting", async () =>
   } finally { cleanup(); }
 });
 
-Deno.test("PUT /api/config edits exclusiveDirectories (default on, persisted, live)", async () => {
+test("PUT /api/config edits exclusiveDirectories (default on, persisted, live)", async () => {
   const { store, config, teamDir, cleanup } = setup();
   try {
     const app = buildApp(store, config, teamDir);
@@ -249,7 +252,7 @@ Deno.test("PUT /api/config edits exclusiveDirectories (default on, persisted, li
         method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...current, ...patch }),
       });
     };
-    const onDisk = () => JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json")));
+    const onDisk = () => JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"));
 
     const a = enqueue(store, "A", "/ws/repo");
     const b = enqueue(store, "B", "/ws/repo");

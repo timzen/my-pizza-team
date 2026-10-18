@@ -7,7 +7,10 @@
  * run doesn't re-cost every sweep), the prompt, and the note's lifecycle.
  */
 
-import { assertEquals, assertNotEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertNotEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -31,31 +34,31 @@ const note = (over: Record<string, unknown> = {}) => ({
 const due = (over: Record<string, unknown> = {}, quietMinutes = 10) =>
   triageSkipReason({ note: note(over), inFlight: false, now: Date.parse("2026-09-29T12:00:00.000Z"), quietMinutes });
 
-Deno.test("triage rules: a changed note past the quiet period is due", () => {
+test("triage rules: a changed note past the quiet period is due", () => {
   assertEquals(due(), null);
   assertEquals(due({ triagedVersion: "2026-09-29T09:00:00.000Z" }), null); // edited since
 });
 
-Deno.test("triage rules: archived and empty notes are never triaged", () => {
+test("triage rules: archived and empty notes are never triaged", () => {
   assertEquals(due({ status: "archived" }), "archived");
   assertEquals(due({ content: "" }), "empty");
   assertEquals(due({ content: "   \n\n" }), "empty");
 });
 
-Deno.test("triage rules: an unchanged note is skipped — so a failed run doesn't retry every sweep", () => {
+test("triage rules: an unchanged note is skipped — so a failed run doesn't retry every sweep", () => {
   // The version is stamped at enqueue, so "analyzed" covers a run that failed.
   assertEquals(due({ triagedVersion: "2026-09-29T10:00:00.000Z" }), "unchanged");
   assertEquals(due({ triagedVersion: "2026-09-29T11:00:00.000Z" }), "unchanged");
 });
 
-Deno.test("triage rules: one run at a time per note", () => {
+test("triage rules: one run at a time per note", () => {
   assertEquals(
     triageSkipReason({ note: note(), inFlight: true, now: Date.parse("2026-09-29T12:00:00.000Z"), quietMinutes: 10 }),
     "in-flight",
   );
 });
 
-Deno.test("triage rules: a note edited inside the quiet period waits for the next sweep", () => {
+test("triage rules: a note edited inside the quiet period waits for the next sweep", () => {
   assertEquals(due({ updatedAt: "2026-09-29T11:55:00.000Z" }), "too-fresh");
   assertEquals(due({ updatedAt: "2026-09-29T11:45:00.000Z" }), null); // 15 min ago
   // quietMinutes: 0 disables the wait.
@@ -63,7 +66,7 @@ Deno.test("triage rules: a note edited inside the quiet period waits for the nex
   assertEquals(isTriageDue({ note: note(), inFlight: false, now: Date.parse("2026-09-29T12:00:00.000Z"), quietMinutes: 10 }), true);
 });
 
-Deno.test("triage ids and titles", () => {
+test("triage ids and titles", () => {
   assertEquals(triageWorkDefId("th-1"), "triage-th-1");
   assertEquals(thoughtIdFromTriageWorkDef("triage-th-1"), "th-1");
   assertEquals(thoughtIdFromTriageWorkDef("some-task"), null);
@@ -74,7 +77,7 @@ Deno.test("triage ids and titles", () => {
   assertEquals(triageWorkItemTitle({ id: "th-1", content: "" }), "Triage note th-1");
 });
 
-Deno.test("triage config defaults: on, hourly, 10 minutes quiet", () => {
+test("triage config defaults: on, hourly, 10 minutes quiet", () => {
   assertEquals(resolveTriage({}), { enabled: true, intervalMinutes: 60, quietMinutes: 10 });
   assertEquals(resolveTriage({ triage: { enabled: false } }).enabled, false);
   assertEquals(resolveTriage({ triage: { quietMinutes: 0 } }).quietMinutes, 0);
@@ -84,7 +87,7 @@ Deno.test("triage config defaults: on, hourly, 10 minutes quiet", () => {
 
 // ─── The prompt ──────────────────────────────────────────────────────
 
-Deno.test("triage prompt: instructions, the note, its group, stories, earlier analysis", () => {
+test("triage prompt: instructions, the note, its group, stories, earlier analysis", () => {
   const p = buildTriagePrompt({
     note: { id: "th-1", content: "# Webhooks flake\nRetries would help." },
     groupName: "Q3",
@@ -102,7 +105,7 @@ Deno.test("triage prompt: instructions, the note, its group, stories, earlier an
   assertStringIncludes(p, "### Webhooks flake");
 });
 
-Deno.test("triage prompt: a team's triage.md replaces the built-in instructions", () => {
+test("triage prompt: a team's triage.md replaces the built-in instructions", () => {
   const p = buildTriagePrompt({ note: { id: "th-1", content: "hi" }, instructions: "# Only propose chores" });
   assertStringIncludes(p, "Only propose chores");
   assertEquals(p.includes("Lean toward"), false);
@@ -112,8 +115,8 @@ Deno.test("triage prompt: a team's triage.md replaces the built-in instructions"
 // ─── The Store ───────────────────────────────────────────────────────
 
 function setup(configOverride?: Partial<TeamConfig>) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-triage-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-triage-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config = { ...TEST_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -122,7 +125,7 @@ function setup(configOverride?: Partial<TeamConfig>) {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
 /**
@@ -144,7 +147,7 @@ function runItem(store: Store, itemId: string, state: "COMPLETE" | "FAILED", age
   assertEquals(store.setWorkItemState(itemId, state).ok, true);
 }
 
-Deno.test("sweep: enqueues one item per changed note, creating its WorkDef lazily", () => {
+test("sweep: enqueues one item per changed note, creating its WorkDef lazily", () => {
   const { store, teamDir } = setup();
   try {
     const a = note_(store, "# Webhooks flake\nretries?");
@@ -164,7 +167,7 @@ Deno.test("sweep: enqueues one item per changed note, creating its WorkDef lazil
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("sweep: the quiet period holds a just-edited note until the next sweep", () => {
+test("sweep: the quiet period holds a just-edited note until the next sweep", () => {
   const { store, teamDir } = setup();
   try {
     const t = store.createThought({ content: "half-written thoug" });
@@ -175,7 +178,7 @@ Deno.test("sweep: the quiet period holds a just-edited note until the next sweep
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("sweep: disabled means no runs at all", () => {
+test("sweep: disabled means no runs at all", () => {
   const { store, teamDir } = setup({ triage: { enabled: false } });
   try {
     note_(store, "something worth doing");
@@ -183,7 +186,7 @@ Deno.test("sweep: disabled means no runs at all", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("turns: an edit while the run is in flight is picked up by the next sweep", () => {
+test("turns: an edit while the run is in flight is picked up by the next sweep", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "first version");
@@ -203,7 +206,7 @@ Deno.test("turns: an edit while the run is in flight is picked up by the next sw
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("turns: a failed run counts as analyzed; Triage now retries it", () => {
+test("turns: a failed run counts as analyzed; Triage now retries it", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "something");
@@ -219,7 +222,7 @@ Deno.test("turns: a failed run counts as analyzed; Triage now retries it", () =>
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Triage now: overrides quiet/unchanged, refuses in-flight, archived, empty", () => {
+test("Triage now: overrides quiet/unchanged, refuses in-flight, archived, empty", () => {
   const { store, teamDir } = setup();
   try {
     const fresh = store.createThought({ content: "just typed" });
@@ -239,7 +242,7 @@ Deno.test("Triage now: overrides quiet/unchanged, refuses in-flight, archived, e
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("lifecycle: archiving a note cancels its run and archives its WorkDef; restore brings it back", () => {
+test("lifecycle: archiving a note cancels its run and archives its WorkDef; restore brings it back", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "an idea");
@@ -253,7 +256,7 @@ Deno.test("lifecycle: archiving a note cancels its run and archives its WorkDef;
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("lifecycle: deleting a note deletes its triage WorkDef and thread", () => {
+test("lifecycle: deleting a note deletes its triage WorkDef and thread", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "an idea");
@@ -265,7 +268,7 @@ Deno.test("lifecycle: deleting a note deletes its triage WorkDef and thread", ()
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("an archived note's queued triage item is never handed to an agent", () => {
+test("an archived note's queued triage item is never handed to an agent", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "an idea");
@@ -277,7 +280,7 @@ Deno.test("an archived note's queued triage item is never handed to an agent", (
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a triage item runs in the leader's directory, or anywhere with no leader", () => {
+test("a triage item runs in the leader's directory, or anywhere with no leader", () => {
   const { store, teamDir } = setup();
   try {
     const a = note_(store, "no leader yet");
@@ -292,13 +295,13 @@ Deno.test("a triage item runs in the leader's directory, or anywhere with no lea
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("triage.md round-trips through the store; empty restores the default", () => {
+test("triage.md round-trips through the store; empty restores the default", () => {
   const { store, teamDir } = setup();
   try {
     assertEquals(store.getTriageInstructions(), undefined);
     store.setTriageInstructions("# Only propose chores");
     assertStringIncludes(store.getTriageInstructions()!, "chores");
-    assertEquals(Deno.readTextFileSync(path.join(teamDir, "triage.md")).endsWith("\n"), true);
+    assertEquals(fs.readFileSync(path.join(teamDir, "triage.md"), "utf8").endsWith("\n"), true);
     store.setTriageInstructions("");
     assertEquals(store.getTriageInstructions(), undefined);
   } finally { cleanup(teamDir, store); }
@@ -306,7 +309,7 @@ Deno.test("triage.md round-trips through the store; empty restores the default",
 
 // ─── The routes ──────────────────────────────────────────────────────
 
-Deno.test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the note", async () => {
+test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the note", async () => {
   const { app, store, teamDir } = setup();
   try {
     const t = store.createThought({ content: "# Webhooks flake\nretries?" });
@@ -335,7 +338,7 @@ Deno.test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET/PUT /api/triage/instructions", async () => {
+test("GET/PUT /api/triage/instructions", async () => {
   const { app, store, teamDir } = setup();
   try {
     let body = await (await app.request("/api/triage/instructions")).json();
@@ -357,7 +360,7 @@ Deno.test("GET/PUT /api/triage/instructions", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a triage note version survives a round-trip through the note file", () => {
+test("a triage note version survives a round-trip through the note file", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "an idea");
@@ -377,7 +380,7 @@ Deno.test("a triage note version survives a round-trip through the note file", (
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a triage WorkDef is owned by its note: no direct edit, delete, or Run", async () => {
+test("a triage WorkDef is owned by its note: no direct edit, delete, or Run", async () => {
   const { app, store, teamDir } = setup();
   try {
     const t = note_(store, "an idea");
@@ -420,21 +423,21 @@ const ctx = { storyExists: (id: string) => id === "payments" };
 const task = (over: Partial<TriageProposal> = {}): TriageProposal =>
   ({ id: "p1", kind: "task", title: "Add retries", goal: "Back off and retry", ...over });
 
-Deno.test("validate: an outcome is required and must be one of the three", () => {
+test("validate: an outcome is required and must be one of the three", () => {
   assertStringIncludes(validateAnalysis({}, ctx)!, "outcome must be one of");
   assertStringIncludes(validateAnalysis({ outcome: "maybe" }, ctx)!, "outcome must be one of");
   assertEquals(validateAnalysis({ outcome: "nothing" }, ctx), null);
   assertEquals(validateAnalysis({ outcome: "question" }, ctx), null);
 });
 
-Deno.test("validate: 'proposals' needs at least one, and the others none", () => {
+test("validate: 'proposals' needs at least one, and the others none", () => {
   assertStringIncludes(validateAnalysis({ outcome: "proposals" }, ctx)!, "needs at least one proposal");
   assertStringIncludes(validateAnalysis({ outcome: "proposals", proposals: [] }, ctx)!, "needs at least one proposal");
   assertStringIncludes(validateAnalysis({ outcome: "nothing", proposals: [task()] }, ctx)!, "carries no proposals");
   assertEquals(validateAnalysis({ outcome: "proposals", proposals: [task()] }, ctx), null);
 });
 
-Deno.test("validate: ids are required and unique, and the message says which proposal", () => {
+test("validate: ids are required and unique, and the message says which proposal", () => {
   assertStringIncludes(validateAnalysis({ outcome: "proposals", proposals: [{ kind: "task", title: "x", goal: "y" }] }, ctx)!, "needs an id");
   assertStringIncludes(
     validateAnalysis({ outcome: "proposals", proposals: [task(), task()] }, ctx)!,
@@ -446,7 +449,7 @@ Deno.test("validate: ids are required and unique, and the message says which pro
   );
 });
 
-Deno.test("validate: each kind's own requirements", () => {
+test("validate: each kind's own requirements", () => {
   assertStringIncludes(validateProposal({ kind: "nope" as never, title: "x" }, ctx)!, "kind must be one of");
   assertStringIncludes(validateProposal(task({ title: "  " }), ctx)!, "needs a title");
   // story-task must name a story that exists — the prompt lists them.
@@ -471,7 +474,7 @@ const analysis = (proposals: TriageProposal[], at = "2026-09-29T10:00:00.000Z"):
 const decision = (proposalId: string, action: "accepted" | "rejected", workDefId?: string): ThreadEntry =>
   ({ kind: "decision", proposalId, action, from: "you", at: "2026-09-29T11:00:00.000Z", ...(workDefId ? { workDefId } : {}) });
 
-Deno.test("fold: state is a read of the append-only file, top to bottom", () => {
+test("fold: state is a read of the append-only file, top to bottom", () => {
   const entries = [analysis([task(), task({ id: "p2", title: "Alert on failure" })]), decision("p1", "accepted", "td-1")];
   const folded = foldProposals(entries);
   assertEquals(folded.length, 2);
@@ -481,7 +484,7 @@ Deno.test("fold: state is a read of the append-only file, top to bottom", () => 
   assertEquals(pendingProposals(entries).map((s) => s.proposal.id), ["p2"]);
 });
 
-Deno.test("fold: ordinary comments and unknown lines don't disturb it", () => {
+test("fold: ordinary comments and unknown lines don't disturb it", () => {
   const entries: ThreadEntry[] = [
     { from: "swift-neo", body: "just a comment", at: "2026-09-29T09:00:00.000Z" },
     analysis([task()]),
@@ -490,7 +493,7 @@ Deno.test("fold: ordinary comments and unknown lines don't disturb it", () => {
   assertEquals(latestAnalysis(entries)?.outcome, "proposals");
 });
 
-Deno.test("badge: the latest outcome, and nothing once every proposal is decided", () => {
+test("badge: the latest outcome, and nothing once every proposal is decided", () => {
   assertEquals(triageBadge([]), "none");
   assertEquals(triageBadge([analysis([task()])]), "proposal");
   assertEquals(triageBadge([analysis([task()]), decision("p1", "rejected")]), "none");
@@ -504,7 +507,7 @@ Deno.test("badge: the latest outcome, and nothing once every proposal is decided
   );
 });
 
-Deno.test("decisionSummary tells the next run what the author did", () => {
+test("decisionSummary tells the next run what the author did", () => {
   const lines = decisionSummary([
     analysis([task(), task({ id: "p2", title: "Alert" })]),
     decision("p1", "accepted", "td-1"),
@@ -522,7 +525,7 @@ function postAnalysis(store: Store, thoughtId: string, proposals: TriageProposal
   assertEquals(res.ok, true, (res as { error?: string }).error);
 }
 
-Deno.test("an analysis lands in the thread; a bad one is refused with a fixable reason", () => {
+test("an analysis lands in the thread; a bad one is refused with a fixable reason", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -543,7 +546,7 @@ Deno.test("an analysis lands in the thread; a bad one is refused with a fixable 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("accept a task proposal: creates the WorkDef, doesn't run it, links both ways", () => {
+test("accept a task proposal: creates the WorkDef, doesn't run it, links both ways", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -565,7 +568,7 @@ Deno.test("accept a task proposal: creates the WorkDef, doesn't run it, links bo
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("accept: story-task, story, and schedule proposals create the right shapes", () => {
+test("accept: story-task, story, and schedule proposals create the right shapes", () => {
   const { store, teamDir } = setup();
   try {
     store.createStory("payments", "Payments hardening", "Make payments boring.");
@@ -595,7 +598,7 @@ Deno.test("accept: story-task, story, and schedule proposals create the right sh
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("accept creates but never starts: a task waits for Run; a story task follows board rules", () => {
+test("accept creates but never starts: a task waits for Run; a story task follows board rules", () => {
   const { store, teamDir } = setup();
   try {
     store.createStory("payments", "Payments hardening", "Boring payments.");
@@ -618,7 +621,7 @@ Deno.test("accept creates but never starts: a task waits for Run; a story task f
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("accept with overrides (the Edit path), or recording work created elsewhere", () => {
+test("accept with overrides (the Edit path), or recording work created elsewhere", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -638,7 +641,7 @@ Deno.test("accept with overrides (the Edit path), or recording work created else
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reject is one line and not a turn; a decided proposal can't be decided twice", () => {
+test("reject is one line and not a turn; a decided proposal can't be decided twice", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -661,7 +664,7 @@ Deno.test("reject is one line and not a turn; a decided proposal can't be decide
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("the next run's prompt carries what the author decided", async () => {
+test("the next run's prompt carries what the author decided", async () => {
   const { app, store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -689,7 +692,7 @@ Deno.test("the next run's prompt carries what the author decided", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/agents/work-items/:id/proposals is for the holder of a triage item only", async () => {
+test("POST /api/agents/work-items/:id/proposals is for the holder of a triage item only", async () => {
   const { app, store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -725,7 +728,7 @@ Deno.test("POST /api/agents/work-items/:id/proposals is for the holder of a tria
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/thoughts/:id/triage and the accept/reject routes", async () => {
+test("GET /api/thoughts/:id/triage and the accept/reject routes", async () => {
   const { app, store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");
@@ -752,7 +755,7 @@ Deno.test("GET /api/thoughts/:id/triage and the accept/reject routes", async () 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("an accepted proposal's WorkDef keeps its origin across a reload", () => {
+test("an accepted proposal's WorkDef keeps its origin across a reload", () => {
   const { store, teamDir } = setup();
   try {
     const t = note_(store, "webhooks flake");

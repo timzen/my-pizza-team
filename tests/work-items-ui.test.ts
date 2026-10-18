@@ -5,7 +5,8 @@
  * "active only" rule for scheduled jobs.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   WORK_ITEMS_TABS,
   defaultWorkItemsPath,
@@ -20,12 +21,12 @@ const ALL_ON = { stories: true, tasks: true, schedules: true };
 const ALL_OFF = { stories: false, tasks: false, schedules: false };
 const tabs = (f: typeof ALL_ON | null) => visibleWorkItemsTabs(f).map((t) => t.tab);
 
-Deno.test("WORK_ITEMS_TABS: Board · Tasks · Schedule · Pending · Archived under /work", () => {
+test("WORK_ITEMS_TABS: Board · Tasks · Schedule · Pending · Archived under /work", () => {
   assertEquals(WORK_ITEMS_TABS.map((t) => t.label), ["Board", "Tasks", "Schedule", "Pending", "Archived"]);
   for (const t of WORK_ITEMS_TABS) assertEquals(t.path, `/work/${t.tab}`);
 });
 
-Deno.test("visibleWorkItemsTabs: each kind's tab follows its toggle; Pending/Archived stay while any is on", () => {
+test("visibleWorkItemsTabs: each kind's tab follows its toggle; Pending/Archived stay while any is on", () => {
   assertEquals(tabs(ALL_ON), ["board", "tasks", "schedule", "pending", "archived"]);
   assertEquals(tabs({ stories: false, tasks: true, schedules: false }), ["tasks", "pending", "archived"]);
   assertEquals(tabs({ stories: true, tasks: false, schedules: true }), ["board", "schedule", "pending", "archived"]);
@@ -34,14 +35,14 @@ Deno.test("visibleWorkItemsTabs: each kind's tab follows its toggle; Pending/Arc
   assertEquals(tabs(null), []);
 });
 
-Deno.test("hasAnyWorkItemsFeature: the nav item hides only when all three kinds are off", () => {
+test("hasAnyWorkItemsFeature: the nav item hides only when all three kinds are off", () => {
   assertEquals(hasAnyWorkItemsFeature(ALL_ON), true);
   assertEquals(hasAnyWorkItemsFeature({ stories: false, tasks: false, schedules: true }), true);
   assertEquals(hasAnyWorkItemsFeature(ALL_OFF), false);
   assertEquals(hasAnyWorkItemsFeature(null), false);
 });
 
-Deno.test("defaultWorkItemsPath: /work lands on the first enabled tab", () => {
+test("defaultWorkItemsPath: /work lands on the first enabled tab", () => {
   assertEquals(defaultWorkItemsPath(ALL_ON), "/work/board");
   assertEquals(defaultWorkItemsPath({ stories: false, tasks: true, schedules: true }), "/work/tasks");
   assertEquals(defaultWorkItemsPath({ stories: false, tasks: false, schedules: true }), "/work/schedule");
@@ -49,7 +50,7 @@ Deno.test("defaultWorkItemsPath: /work lands on the first enabled tab", () => {
   assertEquals(defaultWorkItemsPath(null), null);
 });
 
-Deno.test("workItemsTabFromPath: only /work/<known tab>", () => {
+test("workItemsTabFromPath: only /work/<known tab>", () => {
   assertEquals(workItemsTabFromPath("/work/board"), "board");
   assertEquals(workItemsTabFromPath("/work/archived"), "archived");
   assertEquals(workItemsTabFromPath("/work"), null);
@@ -57,7 +58,7 @@ Deno.test("workItemsTabFromPath: only /work/<known tab>", () => {
   assertEquals(workItemsTabFromPath("/board"), null);
 });
 
-Deno.test("legacyWorkItemsPath: old list URLs move under /work; Templates go to Tasks", () => {
+test("legacyWorkItemsPath: old list URLs move under /work; Templates go to Tasks", () => {
   assertEquals(legacyWorkItemsPath("/board"), "/work/board");
   assertEquals(legacyWorkItemsPath("/tasks"), "/work/tasks");
   assertEquals(legacyWorkItemsPath("/schedule"), "/work/schedule");
@@ -75,7 +76,7 @@ Deno.test("legacyWorkItemsPath: old list URLs move under /work; Templates go to 
   }
 });
 
-Deno.test("isActiveScheduledJob: active only when both definition and Schedule are", () => {
+test("isActiveScheduledJob: active only when both definition and Schedule are", () => {
   assertEquals(isActiveScheduledJob({}, undefined), true);
   assertEquals(isActiveScheduledJob({}, { pending: false }), true);
   assertEquals(isActiveScheduledJob({ pending: true }, { pending: false }), false);

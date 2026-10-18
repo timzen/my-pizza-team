@@ -5,14 +5,15 @@
  * agree with the daemon's (shared/types.ts, daemon/features.ts).
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   FEATURE_NAMES, featureForPath, featureForProposalKind, featureForWorkDefForm, filterByFeatures, resolveFeatures,
 } from "../ui/src/lib/features.ts";
 import { FEATURE_NAMES as SHARED_FEATURE_NAMES, resolveFeatures as sharedResolveFeatures } from "../shared/types.ts";
 import { featureForProposalKind as daemonFeatureForProposalKind } from "../daemon/features.ts";
 
-Deno.test("UI feature names and defaults mirror shared/types.ts", () => {
+test("UI feature names and defaults mirror shared/types.ts", () => {
   assertEquals([...FEATURE_NAMES], [...SHARED_FEATURE_NAMES]);
   for (const raw of [undefined, {}, { stories: false }, { tasks: false, schedules: false }]) {
     assertEquals(resolveFeatures(raw), sharedResolveFeatures({ features: raw }));
@@ -21,13 +22,13 @@ Deno.test("UI feature names and defaults mirror shared/types.ts", () => {
   assertEquals(resolveFeatures(null), { stories: true, tasks: true, schedules: true });
 });
 
-Deno.test("featureForProposalKind matches the daemon's gate", () => {
+test("featureForProposalKind matches the daemon's gate", () => {
   for (const kind of ["task", "story", "story-task", "schedule"] as const) {
     assertEquals(featureForProposalKind(kind), daemonFeatureForProposalKind(kind));
   }
 });
 
-Deno.test("featureForPath: each kind's pages, and ungated ones", () => {
+test("featureForPath: each kind's pages, and ungated ones", () => {
   for (const p of ["/work/board", "/board", "/config/workflows", "/config/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
     assertEquals(featureForPath(p), "stories", p);
   }
@@ -48,7 +49,7 @@ Deno.test("featureForPath: each kind's pages, and ungated ones", () => {
   assertEquals(featureForWorkDefForm("?type=Solitary&template=x"), "tasks");
 });
 
-Deno.test("filterByFeatures: drops disabled kinds, keeps ungated items, hides gated ones until loaded", () => {
+test("filterByFeatures: drops disabled kinds, keeps ungated items, hides gated ones until loaded", () => {
   const items = [
     { id: "thoughts" },
     { id: "board", feature: "stories" as const },

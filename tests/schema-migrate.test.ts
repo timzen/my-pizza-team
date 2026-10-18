@@ -6,7 +6,10 @@
  * then opens it with the current Store.
  */
 
-import { assert, assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assert, assertEquals } from "./_assert.ts";
 import { DatabaseSync } from "node:sqlite";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
@@ -26,8 +29,8 @@ function columns(dbPath: string, table: string): string[] {
   } finally { db.close(); }
 }
 
-Deno.test("an old database loses the retired columns, and old WorkItems keep their ref", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-schema-test-" });
+test("an old database loses the retired columns, and old WorkItems keep their ref", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
   const dbPath = path.join(teamDir, "state.db");
   try {
     // The old shape: today's schema plus the retired columns, added back the way
@@ -58,11 +61,11 @@ Deno.test("an old database loses the retired columns, and old WorkItems keep the
       const cols = columns(dbPath, table);
       for (const col of retired) assert(!cols.includes(col), `${table}.${col} should be dropped`);
     }
-  } finally { Deno.removeSync(teamDir, { recursive: true }); }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });
 
-Deno.test("a fresh database never has the retired columns", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-schema-test-" });
+test("a fresh database never has the retired columns", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
   try {
     new Store(teamDir, structuredClone(TEST_CONFIG)).close();
     for (const [table, retired] of Object.entries(RETIRED)) {
@@ -70,11 +73,11 @@ Deno.test("a fresh database never has the retired columns", () => {
       assert(cols.length > 0, `${table} exists`);
       for (const col of retired) assert(!cols.includes(col), `${table}.${col} is not created`);
     }
-  } finally { Deno.removeSync(teamDir, { recursive: true }); }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });
 
-Deno.test("an old work_items table gains the retry columns; old items read as attempt 1", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-schema-test-" });
+test("an old work_items table gains the retry columns; old items read as attempt 1", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
   const dbPath = path.join(teamDir, "state.db");
   try {
     // A work_items table from before errored-session retries (no attempt/retry_at/error).
@@ -94,5 +97,5 @@ Deno.test("an old work_items table gains the retry columns; old items read as at
     assertEquals(item.error, undefined);
     store.close();
     for (const col of ["attempt", "retry_at", "error"]) assert(columns(dbPath, "work_items").includes(col), `work_items.${col} added`);
-  } finally { Deno.removeSync(teamDir, { recursive: true }); }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });

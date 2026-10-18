@@ -6,26 +6,34 @@
  * PUT /api/workflows/:name/instructions/:filename.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { after, test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { createApp } from "../daemon/app.ts";
 
 import * as path from "node:path";
 
-const testDir = Deno.makeTempDirSync({ prefix: "mpt-workflows-test-" });
-Deno.writeTextFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
+const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-workflows-test-"));
+fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
 // Create a workflow directory with a workflow.json
 const wfDir = path.join(testDir, "workflows", "default");
-Deno.mkdirSync(wfDir, { recursive: true });
-Deno.writeTextFileSync(
+fs.mkdirSync(wfDir, { recursive: true });
+fs.writeFileSync(
   path.join(wfDir, "workflow.json"),
   JSON.stringify(TEST_CONFIG.workflows!["default"], null, 2)
 );
 
-const { app } = createApp(testDir);
+const { app, store } = createApp(testDir);
+// The store's background timers would keep `node --test` from exiting.
+after(() => {
+  store?.close();
+  fs.rmSync(testDir, { recursive: true, force: true });
+});
 
-Deno.test("GET /api/workflows returns workflow summaries", async () => {
+test("GET /api/workflows returns workflow summaries", async () => {
   const res = await app.request("/api/workflows");
   assertEquals(res.status, 200);
 
@@ -43,7 +51,7 @@ Deno.test("GET /api/workflows returns workflow summaries", async () => {
   assertEquals(defaultWf.isDefault, true);
 });
 
-Deno.test("GET /api/workflows/:name returns full workflow config", async () => {
+test("GET /api/workflows/:name returns full workflow config", async () => {
   const res = await app.request("/api/workflows/default");
   assertEquals(res.status, 200);
 
@@ -55,17 +63,17 @@ Deno.test("GET /api/workflows/:name returns full workflow config", async () => {
   assertEquals(body.states[1].type, "manual");
 });
 
-Deno.test("GET /api/workflows/:name returns 404 for unknown workflow", async () => {
+test("GET /api/workflows/:name returns 404 for unknown workflow", async () => {
   const res = await app.request("/api/workflows/nonexistent");
   assertEquals(res.status, 404);
 });
 
-Deno.test("GET /api/workflows/:name/instructions/:filename returns 404 when file doesn't exist", async () => {
+test("GET /api/workflows/:name/instructions/:filename returns 404 when file doesn't exist", async () => {
   const res = await app.request("/api/workflows/default/instructions/todo");
   assertEquals(res.status, 404);
 });
 
-Deno.test("PUT /api/workflows/:name/instructions/:filename creates and writes file", async () => {
+test("PUT /api/workflows/:name/instructions/:filename creates and writes file", async () => {
   const content = "# Todo Instructions\n\nWhen entering todo state, do X.";
   const res = await app.request("/api/workflows/default/instructions/todo", {
     method: "PUT",
@@ -78,11 +86,11 @@ Deno.test("PUT /api/workflows/:name/instructions/:filename creates and writes fi
 
   // Verify file was written
   const filePath = path.join(testDir, "workflows", "default", "todo.md");
-  const written = Deno.readTextFileSync(filePath);
+  const written = fs.readFileSync(filePath, "utf8");
   assertEquals(written, content);
 });
 
-Deno.test("GET /api/workflows/:name/instructions/:filename reads existing file", async () => {
+test("GET /api/workflows/:name/instructions/:filename reads existing file", async () => {
   // File was created by previous test
   const res = await app.request("/api/workflows/default/instructions/todo");
   assertEquals(res.status, 200);
@@ -91,7 +99,7 @@ Deno.test("GET /api/workflows/:name/instructions/:filename reads existing file",
   assertEquals(body.content, "# Todo Instructions\n\nWhen entering todo state, do X.");
 });
 
-Deno.test("PUT /api/workflows/:name/instructions/:filename creates directories for new workflow", async () => {
+test("PUT /api/workflows/:name/instructions/:filename creates directories for new workflow", async () => {
   const content = "# Review state instructions";
   const res = await app.request("/api/workflows/new-workflow/instructions/review", {
     method: "PUT",
@@ -101,11 +109,11 @@ Deno.test("PUT /api/workflows/:name/instructions/:filename creates directories f
   assertEquals(res.status, 200);
 
   const filePath = path.join(testDir, "workflows", "new-workflow", "review.md");
-  const written = Deno.readTextFileSync(filePath);
+  const written = fs.readFileSync(filePath, "utf8");
   assertEquals(written, content);
 });
 
-Deno.test("PUT /api/workflows/:name/instructions/:filename returns 400 without content", async () => {
+test("PUT /api/workflows/:name/instructions/:filename returns 400 without content", async () => {
   const res = await app.request("/api/workflows/default/instructions/todo", {
     method: "PUT",
     headers: { "Content-Type": "application/json" },

@@ -5,7 +5,10 @@
  * fixed — usage surviving an archived story.
  */
 
-import { assertAlmostEquals, assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertAlmostEquals, assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -13,8 +16,8 @@ import { type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-usage-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -22,12 +25,12 @@ function setup() {
 }
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 const post = (app: ReturnType<typeof buildApp>, url: string, body: unknown) =>
   app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
 
-Deno.test("usage: a chat run (no ref) is recorded with cache tokens and its kind", async () => {
+test("usage: a chat run (no ref) is recorded with cache tokens and its kind", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/agents/leader/usage", {
@@ -49,7 +52,7 @@ Deno.test("usage: a chat run (no ref) is recorded with cache tokens and its kind
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("usage: a work run is recorded on the item's ref, with a title snapshot", async () => {
+test("usage: a work run is recorded on the item's ref, with a title snapshot", async () => {
   const { app, store, teamDir } = setup();
   try {
     const wd = await (await post(app, "/api/work-defs", { title: "Audit deps", goal: "do it" })).json();
@@ -63,7 +66,7 @@ Deno.test("usage: a work run is recorded on the item's ref, with a title snapsho
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("usage: unknown kinds become 'other'; model is required", async () => {
+test("usage: unknown kinds become 'other'; model is required", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await post(app, "/api/agents/t1/usage", { inputTokens: 1 })).status, 400);
@@ -73,7 +76,7 @@ Deno.test("usage: unknown kinds become 'other'; model is required", async () => 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("usage: days bucket by the client's local timezone", () => {
+test("usage: days bucket by the client's local timezone", () => {
   const { store, teamDir } = setup();
   try {
     // 2026-01-02 03:00 UTC is still Jan 1 in PDT-ish (UTC-8 → offset +480).
@@ -85,7 +88,7 @@ Deno.test("usage: days bucket by the client's local timezone", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("usage: the ledger survives removing a story's live data (archive/delete)", () => {
+test("usage: the ledger survives removing a story's live data (archive/delete)", () => {
   const { store, teamDir } = setup();
   try {
     const { tasks } = store.createStory("s1", "S", "desc", "open", [], [{ title: "T", description: "t" }], "default");
@@ -101,12 +104,12 @@ Deno.test("usage: the ledger survives removing a story's live data (archive/dele
 
 // ─── The files are the source of truth ──────────────────────────────
 
-Deno.test("files: each run is appended to usage/YYYY-MM.jsonl (committable)", () => {
+test("files: each run is appended to usage/YYYY-MM.jsonl (committable)", () => {
   const { store, teamDir } = setup();
   try {
     const at = Date.UTC(2026, 8, 24, 12);
     store.recordRunUsage({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 30, model: "m", costUsd: 0.5, kind: "chat", memberId: "leader", at });
-    const lines = Deno.readTextFileSync(path.join(teamDir, "usage", "2026-09.jsonl")).trim().split("\n");
+    const lines = fs.readFileSync(path.join(teamDir, "usage", "2026-09.jsonl"), "utf8").trim().split("\n");
     assertEquals(lines.length, 1);
     const line = JSON.parse(lines[0]!);
     assertEquals(line.kind, "chat");
@@ -115,13 +118,13 @@ Deno.test("files: each run is appended to usage/YYYY-MM.jsonl (committable)", ()
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("files: a lost state.db is rebuilt from the ledger files", () => {
+test("files: a lost state.db is rebuilt from the ledger files", () => {
   const { store, teamDir } = setup();
   try {
     store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 1.25, kind: "work", at: Date.UTC(2026, 8, 1) });
     store.close();
     for (const f of ["state.db", "state.db-wal", "state.db-shm"]) {
-      try { Deno.removeSync(path.join(teamDir, f)); } catch { /* may not exist */ }
+      try { fs.rmSync(path.join(teamDir, f)); } catch { /* may not exist */ }
     }
     const fresh = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     const runs = fresh.getUsageRunsOnDay({ date: "2026-09-01", tzOffsetMin: 0 });
@@ -129,19 +132,19 @@ Deno.test("files: a lost state.db is rebuilt from the ledger files", () => {
     assertAlmostEquals(runs[0]!.costUsd, 1.25);
     fresh.close();
   } finally {
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("files: first boot migrates task.json mirrors (incl. archived stories), idempotently", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-usage-migrate-" });
+test("files: first boot migrates task.json mirrors (incl. archived stories), idempotently", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-migrate-"));
   try {
-    Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+    fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
     // An archived board task that mirrored its usage into task.json…
     const taskDir = path.join(teamDir, "archived", "s1", "tasks", "s1-1");
-    Deno.mkdirSync(taskDir, { recursive: true });
+    fs.mkdirSync(taskDir, { recursive: true });
     const mirrored = { inputTokens: 18, outputTokens: 4068, model: "opus", costUsd: 0.061074, at: "2026-07-16T20:35:28.254Z" };
-    Deno.writeTextFileSync(path.join(taskDir, "task.json"), JSON.stringify({ id: "s1-1", title: "Old task", tokenUsage: [mirrored] }));
+    fs.writeFileSync(path.join(taskDir, "task.json"), JSON.stringify({ id: "s1-1", title: "Old task", tokenUsage: [mirrored] }));
     // First boot on this version: no usage/ dir yet, so it migrates.
     const db = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     const julyRuns = db.getUsageRunsOnDay({ date: "2026-07-16", tzOffsetMin: 0 });
@@ -150,59 +153,59 @@ Deno.test("files: first boot migrates task.json mirrors (incl. archived stories)
     db.close();
     const again = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(again.getUsageRunsOnDay({ date: "2026-07-16", tzOffsetMin: 0 }).length, 1);
-    const lines = Deno.readTextFileSync(path.join(teamDir, "usage", "2026-07.jsonl")).trim().split("\n");
+    const lines = fs.readFileSync(path.join(teamDir, "usage", "2026-07.jsonl"), "utf8").trim().split("\n");
     assertEquals(lines.length, 1);
     again.close();
   } finally {
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("files: a DB row and its task.json mirror dedupe to one entry", () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-usage-dedup-" });
+test("files: a DB row and its task.json mirror dedupe to one entry", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-dedup-"));
   try {
-    Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+    fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
     // Boot once and record a board-task run the old way (DB only)…
     const s1 = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     const at = Date.UTC(2026, 6, 1, 10);
     s1.recordRunUsage({ refId: "t-1", inputTokens: 5, outputTokens: 6, model: "m", costUsd: 0.2, kind: "work", at });
     s1.close();
     // …then pretend the ledger files never existed, with the mirror present.
-    Deno.removeSync(path.join(teamDir, "usage"), { recursive: true });
-    Deno.mkdirSync(path.join(teamDir, "tasks", "t-1"), { recursive: true });
-    Deno.writeTextFileSync(path.join(teamDir, "tasks", "t-1", "task.json"), JSON.stringify({
+    fs.rmSync(path.join(teamDir, "usage"), { recursive: true, force: true });
+    fs.mkdirSync(path.join(teamDir, "tasks", "t-1"), { recursive: true });
+    fs.writeFileSync(path.join(teamDir, "tasks", "t-1", "task.json"), JSON.stringify({
       id: "t-1", title: "T", tokenUsage: [{ inputTokens: 5, outputTokens: 6, model: "m", costUsd: 0.2, at: new Date(at).toISOString() }],
     }));
     const s2 = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(s2.getUsageRunsOnDay({ date: "2026-07-01", tzOffsetMin: 0 }).length, 1);
     s2.close();
   } finally {
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("files: a malformed ledger line is skipped, not fatal", () => {
+test("files: a malformed ledger line is skipped, not fatal", () => {
   const { store, teamDir } = setup();
   try {
     store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 0.1, kind: "chat", at: Date.UTC(2026, 8, 2) });
-    Deno.writeTextFileSync(path.join(teamDir, "usage", "2026-09.jsonl"), "{not json\n", { append: true });
+    fs.appendFileSync(path.join(teamDir, "usage", "2026-09.jsonl"), "{not json\n");
     store.close();
     const fresh = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(fresh.getUsageRunsOnDay({ date: "2026-09-02", tzOffsetMin: 0 }).length, 1);
     fresh.close();
   } finally {
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("migration: an old token_usage with a FK to tasks is rebuilt (rows kept, FK gone)", async () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-usage-fk-" });
+test("migration: an old token_usage with a FK to tasks is rebuilt (rows kept, FK gone)", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-fk-"));
   try {
-    Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+    fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
     // A current schema, then swap in the early token_usage (FK to tasks) with
     // one row, and no ledger files — as an old team dir has it.
     new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 }).close();
-    Deno.removeSync(path.join(teamDir, "usage"), { recursive: true });
+    fs.rmSync(path.join(teamDir, "usage"), { recursive: true, force: true });
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(path.join(teamDir, "state.db"));
     db.exec(`DROP TABLE token_usage;
@@ -221,6 +224,6 @@ Deno.test("migration: an old token_usage with a FK to tasks is rebuilt (rows kep
     assertEquals(store.getUsageRunsOnDay({ date: "2026-08-04", tzOffsetMin: 0 }).length, 1);
     store.close();
   } finally {
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });

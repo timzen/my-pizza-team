@@ -8,7 +8,10 @@
  * are registry-driven: a fake toggleable Work Source gets the same gate and guard.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -19,12 +22,12 @@ import { TASK_SOURCE_ID } from "../daemon/sources/registry.ts";
 import type { WorkSource } from "../daemon/sources/types.ts";
 
 function setup(features?: FeaturesConfig) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-features-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-features-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...(features ? { features } : {}) };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
-  const cleanup = () => { store.close(); try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ } };
+  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ } };
   return { app, store, config, teamDir, cleanup };
 }
 
@@ -39,36 +42,36 @@ function configBody(config: TeamConfig, features: unknown) {
 
 // ─── Config model ────────────────────────────────────────────────────
 
-Deno.test("resolveFeatures: missing block or flag means on", () => {
+test("resolveFeatures: missing block or flag means on", () => {
   assertEquals(resolveFeatures({}), { stories: true, tasks: true, schedules: true });
   assertEquals(resolveFeatures({ features: {} }), { stories: true, tasks: true, schedules: true });
   assertEquals(resolveFeatures({ features: { stories: false } }), { stories: false, tasks: true, schedules: true });
   assertEquals(resolveFeatures({ features: { stories: false, tasks: false, schedules: false } }), { stories: false, tasks: false, schedules: false });
 });
 
-Deno.test("DEFAULT_CONFIG has no features block (existing teams stay all-on)", () => {
+test("DEFAULT_CONFIG has no features block (existing teams stay all-on)", () => {
   assertEquals("features" in DEFAULT_CONFIG, false);
   assertEquals(resolveFeatures(DEFAULT_CONFIG), { stories: true, tasks: true, schedules: true });
 });
 
-Deno.test("a new team starts with Tasks only", () => {
+test("a new team starts with Tasks only", () => {
   assertEquals(NEW_TEAM_FEATURES, { tasks: true, stories: false, schedules: false });
   assertEquals(newTeamConfig().features, NEW_TEAM_FEATURES);
-  const teamDir = path.join(Deno.makeTempDirSync({ prefix: "mpt-features-init-" }), ".my-pizza-team");
+  const teamDir = path.join(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-features-init-")), ".my-pizza-team");
   try {
     assertEquals(initTeamConfig(teamDir), true);
-    const written = JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json"))) as TeamConfig;
+    const written = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as TeamConfig;
     assertEquals(written.features, { tasks: true, stories: false, schedules: false });
     // Never overwrites an existing config (which, without the key, means all-on).
-    Deno.writeTextFileSync(path.join(teamDir, "config.json"), JSON.stringify({ port: 1 }));
+    fs.writeFileSync(path.join(teamDir, "config.json"), JSON.stringify({ port: 1 }));
     assertEquals(initTeamConfig(teamDir), false);
-    assertEquals(JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json"))), { port: 1 });
-  } finally { Deno.removeSync(path.dirname(teamDir), { recursive: true }); }
+    assertEquals(JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")), { port: 1 });
+  } finally { fs.rmSync(path.dirname(teamDir), { recursive: true, force: true }); }
 });
 
 // ─── Exposure ────────────────────────────────────────────────────────
 
-Deno.test("/api/status and GET /api/config expose resolved features", async () => {
+test("/api/status and GET /api/config expose resolved features", async () => {
   const all = setup();
   try {
     assertEquals((await (await all.app.request("/api/status")).json()).features, { stories: true, tasks: true, schedules: true });
@@ -88,7 +91,7 @@ async function assertDisabled(res: Response, feature: string) {
   assertEquals(await res.json(), { success: false, error: `feature '${feature}' is disabled`, feature });
 }
 
-Deno.test("all on (no features key): every kind's routes work", async () => {
+test("all on (no features key): every kind's routes work", async () => {
   const { app, cleanup } = setup();
   try {
     assertEquals((await app.request("/api/stories")).status, 200);
@@ -100,7 +103,7 @@ Deno.test("all on (no features key): every kind's routes work", async () => {
   } finally { cleanup(); }
 });
 
-Deno.test("stories off: story, board-task, pending and archive routes refuse", async () => {
+test("stories off: story, board-task, pending and archive routes refuse", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     store.createStory("s1", "S", "d", "open", [], [{ title: "t", description: "d" }]);
@@ -125,7 +128,7 @@ Deno.test("stories off: story, board-task, pending and archive routes refuse", a
   } finally { cleanup(); }
 });
 
-Deno.test("tasks off: Solitary WorkDef and template routes refuse; the list hides them", async () => {
+test("tasks off: Solitary WorkDef and template routes refuse; the list hides them", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     const solo = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" }, false);
@@ -150,7 +153,7 @@ Deno.test("tasks off: Solitary WorkDef and template routes refuse; the list hide
   } finally { cleanup(); }
 });
 
-Deno.test("schedules off: schedule routes and Scheduled WorkDefs refuse", async () => {
+test("schedules off: schedule routes and Scheduled WorkDefs refuse", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     const sched = store.createSchedule({ title: "C", cron: "0 9 * * *" });
@@ -167,7 +170,7 @@ Deno.test("schedules off: schedule routes and Scheduled WorkDefs refuse", async 
   } finally { cleanup(); }
 });
 
-Deno.test("all off: Thoughts, Context, Inbox and the queue still work", async () => {
+test("all off: Thoughts, Context, Inbox and the queue still work", async () => {
   const { app, config, cleanup } = setup({ stories: false, tasks: false, schedules: false });
   try {
     assertEquals(config.features, { stories: false, tasks: false, schedules: false });
@@ -179,7 +182,7 @@ Deno.test("all off: Thoughts, Context, Inbox and the queue still work", async ()
   } finally { cleanup(); }
 });
 
-Deno.test("an existing item of a disabled kind still runs to completion", async () => {
+test("an existing item of a disabled kind still runs to completion", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     const def = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" });
@@ -195,7 +198,7 @@ Deno.test("an existing item of a disabled kind still runs to completion", async 
   } finally { cleanup(); }
 });
 
-Deno.test("accepting a triage proposal needs its kind to be on", async () => {
+test("accepting a triage proposal needs its kind to be on", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     const note = store.createThought({ content: "an idea" });
@@ -213,7 +216,7 @@ Deno.test("accepting a triage proposal needs its kind to be on", async () => {
 
 // ─── Turning a feature off ───────────────────────────────────────────
 
-Deno.test("turning stories off is refused while active stories exist, allowed once archived", async () => {
+test("turning stories off is refused while active stories exist, allowed once archived", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "t", description: "d" }]);
@@ -231,12 +234,12 @@ Deno.test("turning stories off is refused while active stories exist, allowed on
     assertEquals(res.status, 200);
     assertEquals(config.features, { stories: false, tasks: true, schedules: true });
     // Persisted in full.
-    const onDisk = JSON.parse(Deno.readTextFileSync(path.join(store["teamDir"], "config.json"))) as TeamConfig;
+    const onDisk = JSON.parse(fs.readFileSync(path.join(store["teamDir"], "config.json"), "utf8")) as TeamConfig;
     assertEquals(onDisk.features, { stories: false, tasks: true, schedules: true });
   } finally { cleanup(); }
 });
 
-Deno.test("GET /api/config reports each kind's active items (featureUsage)", async () => {
+test("GET /api/config reports each kind's active items (featureUsage)", async () => {
   const { app, store, cleanup } = setup();
   try {
     let usage = (await (await app.request("/api/config")).json()).featureUsage;
@@ -249,7 +252,7 @@ Deno.test("GET /api/config reports each kind's active items (featureUsage)", asy
   } finally { cleanup(); }
 });
 
-Deno.test("pending stories block turning stories off", async () => {
+test("pending stories block turning stories off", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "t", description: "d" }]);
@@ -260,7 +263,7 @@ Deno.test("pending stories block turning stories off", async () => {
   } finally { cleanup(); }
 });
 
-Deno.test("turning tasks off counts Solitary tasks and templates; archived tasks don't block", async () => {
+test("turning tasks off counts Solitary tasks and templates; archived tasks don't block", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     const solo = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" }, false);
@@ -283,7 +286,7 @@ Deno.test("turning tasks off counts Solitary tasks and templates; archived tasks
   } finally { cleanup(); }
 });
 
-Deno.test("turning schedules off is refused while an active Scheduled task exists", async () => {
+test("turning schedules off is refused while an active Scheduled task exists", async () => {
   const { app, store, config, cleanup } = setup();
   try {
     const sched = store.createSchedule({ title: "C", cron: "0 9 * * *" });
@@ -297,7 +300,7 @@ Deno.test("turning schedules off is refused while an active Scheduled task exist
   } finally { cleanup(); }
 });
 
-Deno.test("features validation: types, unknown keys, null, and turning on", async () => {
+test("features validation: types, unknown keys, null, and turning on", async () => {
   const { app, store, config, cleanup } = setup({ stories: false, tasks: true, schedules: false });
   try {
     assertEquals((await app.request("/api/config", put(configBody(config, "yes")))).status, 400);
@@ -317,7 +320,7 @@ Deno.test("features validation: types, unknown keys, null, and turning on", asyn
     // null clears the block: everything on, nothing persisted.
     assertEquals((await app.request("/api/config", put(configBody(config, null)))).status, 200);
     assertEquals(config.features, undefined);
-    const onDisk = JSON.parse(Deno.readTextFileSync(path.join(store["teamDir"], "config.json"))) as TeamConfig;
+    const onDisk = JSON.parse(fs.readFileSync(path.join(store["teamDir"], "config.json"), "utf8")) as TeamConfig;
     assertEquals("features" in onDisk, false);
   } finally { cleanup(); }
 });
@@ -331,8 +334,8 @@ Deno.test("features validation: types, unknown keys, null, and turning on", asyn
  * turn-off guard. Registered before `buildApp`, as a startup plugin would be.
  */
 function setupFixtureSource(activeCount: () => number | null) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-features-source-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-features-source-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = structuredClone(TEST_CONFIG);
   const store = new Store(teamDir, config);
   store.unregisterWorkSource(TASK_SOURCE_ID);
@@ -348,11 +351,11 @@ function setupFixtureSource(activeCount: () => number | null) {
   };
   store.registerWorkSource(source);
   const app = buildApp(store, config, teamDir);
-  const cleanup = () => { store.close(); try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ } };
+  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ } };
   return { app, store, config, cleanup };
 }
 
-Deno.test("a toggleable source gets the gate, list hiding, and exposure from the registry", async () => {
+test("a toggleable source gets the gate, list hiding, and exposure from the registry", async () => {
   const { app, store, config, cleanup } = setupFixtureSource(() => 0);
   try {
     const def = store.createWorkDef({ title: "Mine", goal: "g", acceptanceCriteria: "" }, false);
@@ -374,7 +377,7 @@ Deno.test("a toggleable source gets the gate, list hiding, and exposure from the
   } finally { cleanup(); }
 });
 
-Deno.test("a toggleable source's activeItems guards switching it off", async () => {
+test("a toggleable source's activeItems guards switching it off", async () => {
   let active = 2;
   const { app, config, cleanup } = setupFixtureSource(() => active);
   try {
@@ -392,7 +395,7 @@ Deno.test("a toggleable source's activeItems guards switching it off", async () 
   } finally { cleanup(); }
 });
 
-Deno.test("a toggleable source without activeItems counts its non-archived WorkDefs", async () => {
+test("a toggleable source without activeItems counts its non-archived WorkDefs", async () => {
   const { app, store, config, cleanup } = setupFixtureSource(() => null);
   try {
     const def = store.createWorkDef({ title: "Mine", goal: "g", acceptanceCriteria: "" }, false);

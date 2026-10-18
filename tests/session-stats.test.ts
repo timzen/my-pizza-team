@@ -6,15 +6,18 @@
  * re-registration (a fresh session) clears them.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import * as path from "node:path";
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-session-stats-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-session-stats-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const store = new Store(teamDir, TEST_CONFIG);
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { app, store, teamDir };
@@ -22,7 +25,7 @@ function setup() {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
 function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
@@ -35,7 +38,7 @@ async function sessionOf(app: ReturnType<typeof buildApp>, id: string) {
   return body.agents.find((a: { id: string }) => a.id === id)?.session;
 }
 
-Deno.test("session stats: reported stats come back on GET /api/agents", async () => {
+test("session stats: reported stats come back on GET /api/agents", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo", directory: "/tmp/repo" });
@@ -53,7 +56,7 @@ Deno.test("session stats: reported stats come back on GET /api/agents", async ()
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("session stats: unknown numbers are null, never a fake 0%", async () => {
+test("session stats: unknown numbers are null, never a fake 0%", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo" });
@@ -76,7 +79,7 @@ Deno.test("session stats: unknown numbers are null, never a fake 0%", async () =
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("session stats: an unknown agent is a 404", async () => {
+test("session stats: an unknown agent is a 404", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/agents/ghost/session-stats", { costUsd: 1 });
@@ -84,7 +87,7 @@ Deno.test("session stats: an unknown agent is a 404", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("session stats: re-registering (a fresh session) clears them", async () => {
+test("session stats: re-registering (a fresh session) clears them", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo" });

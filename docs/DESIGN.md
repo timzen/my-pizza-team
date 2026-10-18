@@ -1442,10 +1442,10 @@ protocol bump — a harness that never reports simply shows no numbers.
 
 ## Testing: Fast, End-to-End, and Never Real Config
 
-- **`deno task test`** is the inner loop and stays fast (seconds). It uses a
+- **`npm test`** is the inner loop and stays fast (seconds). It uses a
   `TEST_CONFIG` with autosave off, because a Store with autosave on reaches real
   git.
-- **`deno task test:e2e`** drives the real CLI, real git, and real tmux in a
+- **`npm run test:e2e`** drives the real CLI, real git, and real tmux in a
   sandbox — isolated `MPT_HOME`, `PI_CODING_AGENT_DIR`, team dir, and a private tmux
   server (`TMUX_TMPDIR`) — torn down even on failure. **No test touches real
   configuration**, enforced by construction rather than care.

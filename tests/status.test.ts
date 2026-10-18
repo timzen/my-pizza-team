@@ -5,7 +5,10 @@
  * Pizza Team badges (`queuedCount`, `unreadInboxCount`).
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -13,9 +16,9 @@ import { type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 import { badgeLabel } from "../ui/src/lib/inbox.ts";
 
-Deno.test("status: `paused` follows control/pause and control/resume", async () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-status-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+test("status: `paused` follows control/pause and control/resume", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-status-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -27,13 +30,13 @@ Deno.test("status: `paused` follows control/pause and control/resume", async () 
     assertEquals((await (await app.request("/api/status")).json()).paused, false);
   } finally {
     store.close();
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("status: queuedCount and unreadInboxCount track READY and unread finished WorkItems", async () => {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-status-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+test("status: queuedCount and unreadInboxCount track READY and unread finished WorkItems", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-status-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -74,11 +77,11 @@ Deno.test("status: queuedCount and unreadInboxCount track READY and unread finis
     assertEquals(await counts(), { queued: 0, unread: 2 });
   } finally {
     store.close();
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("status: badgeLabel hides zero/unknown and caps at 99+", () => {
+test("status: badgeLabel hides zero/unknown and caps at 99+", () => {
   assertEquals(badgeLabel(0), null);
   assertEquals(badgeLabel(undefined), null);
   assertEquals(badgeLabel(null), null);

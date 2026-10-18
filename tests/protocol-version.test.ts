@@ -11,13 +11,15 @@
  * at which point this test can go too.
  */
 
-import { assertEquals, assertMatch } from "@std/assert";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assertEquals, assertMatch } from "./_assert.ts";
 import { PROTOCOL_VERSION } from "../shared/protocol.ts";
 
 const EXT_CLIENT = new URL("../harnesses/pi/src/runtime/client.ts", import.meta.url);
 
-Deno.test("harnesses/pi declares the same PROTOCOL_VERSION as shared/protocol.ts", async () => {
-  const src = await Deno.readTextFile(EXT_CLIENT);
+test("harnesses/pi declares the same PROTOCOL_VERSION as shared/protocol.ts", async () => {
+  const src = await fs.promises.readFile(EXT_CLIENT, "utf8");
   const match = src.match(/export const PROTOCOL_VERSION\s*=\s*(\d+)/);
   assertMatch(
     src,
@@ -32,10 +34,10 @@ Deno.test("harnesses/pi declares the same PROTOCOL_VERSION as shared/protocol.ts
   );
 });
 
-Deno.test("the extension sends the handshake at registration", async () => {
+test("the extension sends the handshake at registration", async () => {
   // A regression guard with teeth: if register() stops sending these, the daemon
   // silently treats every agent as pre-handshake and the skew banner goes dark.
-  const client = await Deno.readTextFile(new URL("../harnesses/pi/src/runtime/client.ts", import.meta.url));
+  const client = await fs.promises.readFile(new URL("../harnesses/pi/src/runtime/client.ts", import.meta.url), "utf8");
   // `harness` defaults to "pi"; `mpt agent` passes its own.
   for (const field of ["protocolVersion: PROTOCOL_VERSION", "harness: this.harness", 'this.harness = options?.harness ?? "pi"', "harnessVersion:"]) {
     assertMatch(

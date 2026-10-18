@@ -5,7 +5,8 @@
  * their feature toggles, search, and the newest-first order.
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   archivedRows,
   countByKind,
@@ -34,7 +35,7 @@ const defs = [
   { id: "j-sched", title: "Job, pending schedule", type: "Scheduled", parent: { kind: "schedule", id: "sch-off" }, lastRunAt: "2026-01-03T00:00:00Z" },
 ];
 
-Deno.test("pendingRows: pending stories, Solitary tasks, and held-back jobs; not board tasks or active work", () => {
+test("pendingRows: pending stories, Solitary tasks, and held-back jobs; not board tasks or active work", () => {
   const rows = pendingRows(stories, defs, schedules);
   assertEquals(rows.map((r) => `${r.kind}:${r.id}`), ["story:s-pend", "task:t-pend", "schedule:j-def", "schedule:j-sched"]);
   const story = rows[0]!;
@@ -43,7 +44,7 @@ Deno.test("pendingRows: pending stories, Solitary tasks, and held-back jobs; not
   assertEquals(rows[1]!.href, "/work-defs/t-pend");
 });
 
-Deno.test("pendingRows: Activate targets the story, the definition first, then the Schedule", () => {
+test("pendingRows: Activate targets the story, the definition first, then the Schedule", () => {
   const byId = new Map(pendingRows(stories, defs, schedules).map((r) => [r.id, r]));
   assertEquals(byId.get("s-pend")!.activate, { kind: "story", id: "s-pend" });
   assertEquals(byId.get("t-pend")!.activate, { kind: "workDef", id: "t-pend" });
@@ -52,14 +53,14 @@ Deno.test("pendingRows: Activate targets the story, the definition first, then t
   assertEquals(byId.get("j-sched")!.cron, "0 * * * *");
 });
 
-Deno.test("pendingRows: timestamps are the latest activity — last run, else the Schedule's last fire", () => {
+test("pendingRows: timestamps are the latest activity — last run, else the Schedule's last fire", () => {
   const byId = new Map(pendingRows(stories, defs, schedules).map((r) => [r.id, r]));
   assertEquals([byId.get("j-sched")!.at, byId.get("j-sched")!.atLabel], ["2026-01-03T00:00:00Z", "Last run"]);
   assertEquals([byId.get("j-def")!.at, byId.get("j-def")!.atLabel], ["2026-01-02T09:00:00Z", "Last fired"]);
   assertEquals([byId.get("s-pend")!.at, byId.get("s-pend")!.atLabel], [null, null]);
 });
 
-Deno.test("archivedRows: archived stories (synopsis, no detail page) and Solitary/Scheduled WorkDefs", () => {
+test("archivedRows: archived stories (synopsis, no detail page) and Solitary/Scheduled WorkDefs", () => {
   const rows = archivedRows(
     [{ id: "old", title: "Old story", archivedAt: "2026-02-01T00:00:00Z", synopsis: "done" }],
     [
@@ -78,13 +79,13 @@ Deno.test("archivedRows: archived stories (synopsis, no detail page) and Solitar
   assertEquals(rows[1]!.activate, undefined);
 });
 
-Deno.test("enabledKinds: a switched-off kind's chip is hidden; nothing until the toggles load", () => {
+test("enabledKinds: a switched-off kind's chip is hidden; nothing until the toggles load", () => {
   assertEquals(enabledKinds(null), []);
   assertEquals(enabledKinds({ stories: true, tasks: true, schedules: true }), ["story", "task", "schedule"]);
   assertEquals(enabledKinds({ stories: false, tasks: true, schedules: false }), ["task"]);
 });
 
-Deno.test("toggleKind: multi-select on/off", () => {
+test("toggleKind: multi-select on/off", () => {
   assertEquals(toggleKind(["story", "task", "schedule"], "task"), ["story", "schedule"]);
   assertEquals(toggleKind(["story"], "task"), ["story", "task"]);
 });
@@ -92,7 +93,7 @@ Deno.test("toggleKind: multi-select on/off", () => {
 const row = (kind: LifecycleRow["kind"], id: string, title: string, at: string | null = null, directory?: string): LifecycleRow =>
   ({ kind, id, title, at, atLabel: at ? "Archived" : null, href: null, directory });
 
-Deno.test("filterRows: keeps selected kinds and matches title, id, or directory case-insensitively", () => {
+test("filterRows: keeps selected kinds and matches title, id, or directory case-insensitively", () => {
   const rows = [row("story", "s1", "Fix Login"), row("task", "t1", "Audit deps", null, "/repo/api"), row("schedule", "j1", "Nightly")];
   assertEquals(filterRows(rows, ["story", "task"]).map((r) => r.id), ["s1", "t1"]);
   assertEquals(filterRows(rows, ["story", "task", "schedule"], "login").map((r) => r.id), ["s1"]);
@@ -101,7 +102,7 @@ Deno.test("filterRows: keeps selected kinds and matches title, id, or directory 
   assertEquals(filterRows(rows, []).length, 0);
 });
 
-Deno.test("sortNewestFirst: dated rows newest first, then undated by title", () => {
+test("sortNewestFirst: dated rows newest first, then undated by title", () => {
   const rows = [
     row("task", "a", "Zeta"),
     row("story", "b", "Old", "2026-01-01T00:00:00Z"),
@@ -112,6 +113,6 @@ Deno.test("sortNewestFirst: dated rows newest first, then undated by title", () 
   assertEquals(rows[0]!.id, "a", "input not mutated");
 });
 
-Deno.test("countByKind: counts per kind", () => {
+test("countByKind: counts per kind", () => {
   assertEquals(countByKind([row("story", "a", "A"), row("task", "b", "B"), row("task", "c", "C")]), { story: 1, task: 2, schedule: 0 });
 });

@@ -9,7 +9,10 @@
  * (duplicate tools and commands, two directive pollers, two heartbeats per agent).
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import {
   EXTENSION_PACKAGE_NAME,
@@ -23,39 +26,39 @@ import {
 
 /** A throwaway Pi agent dir plus helpers to populate it. */
 function fixture() {
-  const root = Deno.makeTempDirSync({ prefix: "mpt-piconf-" });
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-piconf-"));
   const agentDir = path.join(root, ".pi", "agent");
-  Deno.mkdirSync(agentDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
 
   return {
     root,
     agentDir,
     /** Write settings.json with the given packages plus some unrelated user config. */
     settings(packages: Array<string | Record<string, unknown>>, extra: Record<string, unknown> = {}) {
-      Deno.writeTextFileSync(
+      fs.writeFileSync(
         path.join(agentDir, "settings.json"),
         JSON.stringify({ packages, theme: "dark", defaultModel: "some-model", ...extra }, null, 2),
       );
     },
     trust(map: Record<string, boolean>) {
-      Deno.writeTextFileSync(path.join(agentDir, "trust.json"), JSON.stringify(map, null, 2));
+      fs.writeFileSync(path.join(agentDir, "trust.json"), JSON.stringify(map, null, 2));
     },
     /** Create a package directory with a manifest. */
     pkg(relative: string, name = EXTENSION_PACKAGE_NAME) {
       const dir = path.join(root, relative);
-      Deno.mkdirSync(dir, { recursive: true });
-      Deno.writeTextFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.17.2" }));
+      fs.mkdirSync(dir, { recursive: true });
+      fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name, version: "0.17.2" }));
       return dir;
     },
     cleanup() {
-      try { Deno.removeSync(root, { recursive: true }); } catch { /* */ }
+      try { fs.rmSync(root, { recursive: true, force: true }); } catch { /* */ }
     },
   };
 }
 
 // ─── Settings reading ────────────────────────────────────────────────
 
-Deno.test("a missing settings file reads as empty rather than throwing", () => {
+test("a missing settings file reads as empty rather than throwing", () => {
   const f = fixture();
   try {
     const settings = readPiSettings(f.agentDir);
@@ -64,20 +67,20 @@ Deno.test("a missing settings file reads as empty rather than throwing", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("unparseable settings are reported as existing, not silently empty", () => {
+test("unparseable settings are reported as existing, not silently empty", () => {
   // The distinction matters: overwriting a file we failed to parse would destroy
   // configuration we cannot read, so setup must be able to tell "absent" from
   // "present but broken".
   const f = fixture();
   try {
-    Deno.writeTextFileSync(path.join(f.agentDir, "settings.json"), "{ not json");
+    fs.writeFileSync(path.join(f.agentDir, "settings.json"), "{ not json");
     const settings = readPiSettings(f.agentDir);
     assertEquals(settings.exists, true);
     assertEquals(settings.packages, []);
   } finally { f.cleanup(); }
 });
 
-Deno.test("unrelated user settings are retained for round-tripping", () => {
+test("unrelated user settings are retained for round-tripping", () => {
   const f = fixture();
   try {
     f.settings(["npm:something"]);
@@ -89,7 +92,7 @@ Deno.test("unrelated user settings are retained for round-tripping", () => {
 
 // ─── Entry resolution ────────────────────────────────────────────────
 
-Deno.test("relative entries resolve from the settings directory, absolute ones stand", () => {
+test("relative entries resolve from the settings directory, absolute ones stand", () => {
   const f = fixture();
   try {
     assertEquals(
@@ -100,7 +103,7 @@ Deno.test("relative entries resolve from the settings directory, absolute ones s
   } finally { f.cleanup(); }
 });
 
-Deno.test("npm, git, and URL sources are not treated as paths", () => {
+test("npm, git, and URL sources are not treated as paths", () => {
   const f = fixture();
   try {
     for (const source of [
@@ -114,7 +117,7 @@ Deno.test("npm, git, and URL sources are not treated as paths", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("the object entry form is understood too", () => {
+test("the object entry form is understood too", () => {
   // Pi allows { source, extensions: [...] } to narrow what loads.
   assertEquals(packageSource({ source: "./ext", extensions: ["a.ts"] }), "./ext");
   assertEquals(packageSource("./ext"), "./ext");
@@ -123,7 +126,7 @@ Deno.test("the object entry form is understood too", () => {
 
 // ─── Finding our own registrations ───────────────────────────────────
 
-Deno.test("the managed directory is recognised through a relative entry", () => {
+test("the managed directory is recognised through a relative entry", () => {
   // The case that string matching would miss.
   const f = fixture();
   try {
@@ -137,7 +140,7 @@ Deno.test("the managed directory is recognised through a relative entry", () => 
   } finally { f.cleanup(); }
 });
 
-Deno.test("a dev checkout is recognised as ours but distinct from the managed dir", () => {
+test("a dev checkout is recognised as ours but distinct from the managed dir", () => {
   const f = fixture();
   try {
     const managedDir = path.join(f.root, ".my-pizza-team", "pi-extension");
@@ -150,7 +153,7 @@ Deno.test("a dev checkout is recognised as ours but distinct from the managed di
   } finally { f.cleanup(); }
 });
 
-Deno.test("both registered at once is what setup must detect — two entries, two identities", () => {
+test("both registered at once is what setup must detect — two entries, two identities", () => {
   // Registering both loads the extension twice: duplicate tools and commands, two
   // directive pollers, two heartbeats per agent.
   const f = fixture();
@@ -164,7 +167,7 @@ Deno.test("both registered at once is what setup must detect — two entries, tw
   } finally { f.cleanup(); }
 });
 
-Deno.test("an entry pointing at a deleted directory is flagged as missing", () => {
+test("an entry pointing at a deleted directory is flagged as missing", () => {
   // The pre-1a `pi-pizza-team` path is exactly this: identified by path shape,
   // since a deleted directory has no manifest to read.
   const f = fixture();
@@ -178,7 +181,7 @@ Deno.test("an entry pointing at a deleted directory is flagged as missing", () =
   } finally { f.cleanup(); }
 });
 
-Deno.test("a pre-merge standalone checkout is told apart from a monorepo one", () => {
+test("a pre-merge standalone checkout is told apart from a monorepo one", () => {
   // Both manifests say `pi-pizza-team`, so only the path distinguishes them. Worth
   // separating because the standalone repo is archived and the advice differs.
   const f = fixture();
@@ -193,7 +196,7 @@ Deno.test("a pre-merge standalone checkout is told apart from a monorepo one", (
   } finally { f.cleanup(); }
 });
 
-Deno.test("somebody else's local package is left alone", () => {
+test("somebody else's local package is left alone", () => {
   const f = fixture();
   try {
     const managedDir = path.join(f.root, ".my-pizza-team", "pi-extension");
@@ -210,7 +213,7 @@ Deno.test("somebody else's local package is left alone", () => {
 
 // ─── Supporting checks ───────────────────────────────────────────────
 
-Deno.test("hasPackage matches an npm source with or without a version", () => {
+test("hasPackage matches an npm source with or without a version", () => {
   const f = fixture();
   try {
     f.settings(["npm:@gotgenes/pi-permission-system@24.0.0", "npm:other"]);
@@ -220,7 +223,7 @@ Deno.test("hasPackage matches an npm source with or without a version", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("trust covers a folder and its descendants, and nothing else", () => {
+test("trust covers a folder and its descendants, and nothing else", () => {
   // Pi blocks startup in an untrusted folder, and a spawned teammate inherits the
   // problem — so doctor needs this exactly right.
   const f = fixture();
@@ -237,7 +240,7 @@ Deno.test("trust covers a folder and its descendants, and nothing else", () => {
   } finally { f.cleanup(); }
 });
 
-Deno.test("no trust file means nothing is trusted", () => {
+test("no trust file means nothing is trusted", () => {
   const f = fixture();
   try {
     assertEquals(isProjectTrusted(f.root, f.agentDir), false);

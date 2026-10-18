@@ -8,7 +8,10 @@
  * no-leader hold) and the GET/PUT /api/teammate-pool routes.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -22,8 +25,8 @@ import * as path from "node:path";
  */
 function setup(overrides: Partial<TeamConfig> = {}) {
   overrides = { minTeammates: 0, ...overrides };
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-pool-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-pool-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -32,7 +35,7 @@ function setup(overrides: Partial<TeamConfig> = {}) {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
 }
 
 function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
@@ -53,7 +56,7 @@ async function pendingSpawns(app: ReturnType<typeof buildApp>): Promise<unknown[
   return body.requests as unknown[];
 }
 
-Deno.test("unset: the default is half of maxTeammates (rounded down)", async () => {
+test("unset: the default is half of maxTeammates (rounded down)", async () => {
   const { app, store, teamDir } = setup({ minTeammates: undefined, maxTeammates: 4 });
   try {
     await registerLeader(app);
@@ -64,7 +67,7 @@ Deno.test("unset: the default is half of maxTeammates (rounded down)", async () 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("the default tracks maxTeammates and rounds down", () => {
+test("the default tracks maxTeammates and rounds down", () => {
   assertEquals(resolveMinTeammates({ maxTeammates: 5 }), 2);
   assertEquals(resolveMinTeammates({ maxTeammates: 1 }), 0);
   assertEquals(resolveMinTeammates({ maxTeammates: 0 }), 0);
@@ -72,16 +75,16 @@ Deno.test("the default tracks maxTeammates and rounds down", () => {
   assertEquals(resolveMinTeammates({ maxTeammates: 2, minTeammates: 5 }), 2); // capped
 });
 
-Deno.test("the derived default is not written to config.json", () => {
+test("the derived default is not written to config.json", () => {
   const { store, teamDir } = setup({ minTeammates: undefined });
   try {
     store.saveConfig();
-    const onDisk = JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json")));
+    const onDisk = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"));
     assertEquals("minTeammates" in onDisk, false);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("PUT null clears the declaration back to the default", async () => {
+test("PUT null clears the declaration back to the default", async () => {
   const { app, store, teamDir } = setup({ maxTeammates: 4 });
   try {
     assertEquals(store.getTeammatePool().minTeammates, 0);
@@ -92,7 +95,7 @@ Deno.test("PUT null clears the declaration back to the default", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("explicit zero: the daemon spawns nothing on its own", async () => {
+test("explicit zero: the daemon spawns nothing on its own", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
@@ -103,7 +106,7 @@ Deno.test("explicit zero: the daemon spawns nothing on its own", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("setting the minimum queues spawns for the shortfall", async () => {
+test("setting the minimum queues spawns for the shortfall", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
@@ -117,7 +120,7 @@ Deno.test("setting the minimum queues spawns for the shortfall", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("pending spawns count toward the minimum (no duplicate batches)", async () => {
+test("pending spawns count toward the minimum (no duplicate batches)", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
@@ -128,7 +131,7 @@ Deno.test("pending spawns count toward the minimum (no duplicate batches)", asyn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("online teammates count toward the minimum; the leader does not", async () => {
+test("online teammates count toward the minimum; the leader does not", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
@@ -144,7 +147,7 @@ Deno.test("online teammates count toward the minimum; the leader does not", asyn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("the target is capped by maxTeammates", async () => {
+test("the target is capped by maxTeammates", async () => {
   const { app, store, teamDir } = setup({ maxTeammates: 2 });
   try {
     await registerLeader(app);
@@ -153,7 +156,7 @@ Deno.test("the target is capped by maxTeammates", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("no leader online: the pool waits — even when the daemon could spawn", async () => {
+test("no leader online: the pool waits — even when the daemon could spawn", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals(store.getTeammatePool().leaderPresent, false);
@@ -170,7 +173,7 @@ Deno.test("no leader online: the pool waits — even when the daemon could spawn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a teammate that goes offline is replaced on the next reconcile", async () => {
+test("a teammate that goes offline is replaced on the next reconcile", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
@@ -185,17 +188,17 @@ Deno.test("a teammate that goes offline is replaced on the next reconcile", asyn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("the minimum is persisted to config.json (applied at startup)", async () => {
+test("the minimum is persisted to config.json (applied at startup)", async () => {
   const { app, store, teamDir } = setup();
   try {
     await registerLeader(app);
     await put(app, "/api/teammate-pool", { minTeammates: 3 });
-    const onDisk = JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json")));
+    const onDisk = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"));
     assertEquals(onDisk.minTeammates, 3);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("PUT rejects non-integer / negative sizes", async () => {
+test("PUT rejects non-integer / negative sizes", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await put(app, "/api/teammate-pool", { minTeammates: -1 })).status, 400);
@@ -205,7 +208,7 @@ Deno.test("PUT rejects non-integer / negative sizes", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/teammate-pool reports the live pool", async () => {
+test("GET /api/teammate-pool reports the live pool", async () => {
   const { app, store, teamDir } = setup({ maxTeammates: 4 });
   try {
     await registerLeader(app);
@@ -221,7 +224,7 @@ Deno.test("GET /api/teammate-pool reports the live pool", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", async () => {
+test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", async () => {
   const { app, store, teamDir, config } = setup();
   try {
     await registerLeader(app);
@@ -237,7 +240,7 @@ Deno.test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a pending spawn for the retired assistant role is cancelled at boot", async () => {
+test("a pending spawn for the retired assistant role is cancelled at boot", async () => {
   // A database from before the leader became the chat agent can hold one. It must
   // not count toward the team size, be listed as pending, or be realized.
   const first = setup();

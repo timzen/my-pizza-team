@@ -8,7 +8,10 @@
  * - Directory affinity biases matching; judgment moves + rework re-enqueue
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -16,8 +19,8 @@ import { type TeamConfig, type WorkflowConfig } from "../shared/types.ts";
 import * as path from "node:path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-agents-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-agents-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config = { ...TEST_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
   if (configOverride?.workflows) {
@@ -29,7 +32,7 @@ function setup(configOverride?: Partial<TeamConfig>) {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
 function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
@@ -45,7 +48,7 @@ function workItemFor(store: Store, taskId: string): string {
 
 // --- Registration ---
 
-Deno.test("POST /api/agents/register creates an agent (with a directory)", async () => {
+test("POST /api/agents/register creates an agent (with a directory)", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/agents/register", { id: "agent-1", name: "swift-neo", directory: "/tmp/repo" });
@@ -57,7 +60,7 @@ Deno.test("POST /api/agents/register creates an agent (with a directory)", async
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/agents/register rejects missing fields", async () => {
+test("POST /api/agents/register rejects missing fields", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await post(app, "/api/agents/register", { id: "a1" })).status, 400);
@@ -66,7 +69,7 @@ Deno.test("POST /api/agents/register rejects missing fields", async () => {
 
 // --- Heartbeat ---
 
-Deno.test("POST /api/agents/heartbeat updates status", async () => {
+test("POST /api/agents/heartbeat updates status", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -77,7 +80,7 @@ Deno.test("POST /api/agents/heartbeat updates status", async () => {
 
 // --- Admission (CONWIP) enqueues a READY WorkItem ---
 
-Deno.test("createStory admits the first task and enqueues a READY WorkItem; the rest wait", () => {
+test("createStory admits the first task and enqueues a READY WorkItem; the rest wait", () => {
   const { store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [
@@ -90,7 +93,7 @@ Deno.test("createStory admits the first task and enqueues a READY WorkItem; the 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("pending stories admit nothing until activated", () => {
+test("pending stories admit nothing until activated", () => {
   const { store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default", undefined, true);
@@ -102,7 +105,7 @@ Deno.test("pending stories admit nothing until activated", () => {
 
 // --- Next Work ---
 
-Deno.test("GET /api/agents/next-work returns the ready WorkItem", async () => {
+test("GET /api/agents/next-work returns the ready WorkItem", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -113,7 +116,7 @@ Deno.test("GET /api/agents/next-work returns the ready WorkItem", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/agents/next-work returns null when paused", async () => {
+test("GET /api/agents/next-work returns null when paused", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -123,7 +126,7 @@ Deno.test("GET /api/agents/next-work returns null when paused", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET /api/agents/next-work returns null when the item is claimed", async () => {
+test("GET /api/agents/next-work returns null when the item is claimed", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -134,7 +137,7 @@ Deno.test("GET /api/agents/next-work returns null when the item is claimed", asy
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("next-work never offers a task in a manual state", async () => {
+test("next-work never offers a task in a manual state", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -149,7 +152,7 @@ Deno.test("next-work never offers a task in a manual state", async () => {
 
 // --- Claim ---
 
-Deno.test("POST /api/agents/claim/:workItemId leases the item and returns the prompt", async () => {
+test("POST /api/agents/claim/:workItemId leases the item and returns the prompt", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -162,7 +165,7 @@ Deno.test("POST /api/agents/claim/:workItemId leases the item and returns the pr
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST /api/agents/claim rejects double claim", async () => {
+test("POST /api/agents/claim rejects double claim", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -174,7 +177,7 @@ Deno.test("POST /api/agents/claim rejects double claim", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("claim prompt includes state role, lead comments, and completion guidance", async () => {
+test("claim prompt includes state role, lead comments, and completion guidance", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -188,7 +191,7 @@ Deno.test("claim prompt includes state role, lead comments, and completion guida
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("claim prompt includes the story's working directory instruction", async () => {
+test("claim prompt includes the story's working directory instruction", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -202,7 +205,7 @@ Deno.test("claim prompt includes the story's working directory instruction", asy
 
 // --- Set state (COMPLETE advances; FAILED leaves stuck) ---
 
-Deno.test("state=COMPLETE advances to the next state and clears the lease", async () => {
+test("state=COMPLETE advances to the next state and clears the lease", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -222,7 +225,7 @@ Deno.test("state=COMPLETE advances to the next state and clears the lease", asyn
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("state=COMPLETE in the last state completes the task and admits the next one", async () => {
+test("state=COMPLETE in the last state completes the task and admits the next one", async () => {
   const soloAgent: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
   const { app, store, teamDir } = setup({ workflows: { default: soloAgent } });
   try {
@@ -241,7 +244,7 @@ Deno.test("state=COMPLETE in the last state completes the task and admits the ne
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("state setter rejects an agent that doesn't hold the item", async () => {
+test("state setter rejects an agent that doesn't hold the item", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -253,7 +256,7 @@ Deno.test("state setter rejects an agent that doesn't hold the item", async () =
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("state=FAILED leaves the task stuck with no active WorkItem", async () => {
+test("state=FAILED leaves the task stuck with no active WorkItem", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -272,7 +275,7 @@ Deno.test("state=FAILED leaves the task stuck with no active WorkItem", async ()
 
 // --- Full lifecycle + rework ---
 
-Deno.test("Full lifecycle: admit → claim → complete → human ships it → next admitted", async () => {
+test("Full lifecycle: admit → claim → complete → human ships it → next admitted", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -298,7 +301,7 @@ Deno.test("Full lifecycle: admit → claim → complete → human ships it → n
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Rework: human sends the task back; re-entry ≡ first entry (fresh WorkItem)", async () => {
+test("Rework: human sends the task back; re-entry ≡ first entry (fresh WorkItem)", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -323,7 +326,7 @@ Deno.test("Rework: human sends the task back; re-entry ≡ first entry (fresh Wo
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("Shelving: moving the active task to todo admits the next instead", async () => {
+test("Shelving: moving the active task to todo admits the next instead", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S", "D", "open", [], [
@@ -336,7 +339,7 @@ Deno.test("Shelving: moving the active task to todo admits the next instead", as
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("move rejects a state not in the workflow", async () => {
+test("move rejects a state not in the workflow", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S", "D", "open", [], [{ title: "T1", description: "D1" }], "default");
@@ -346,7 +349,7 @@ Deno.test("move rejects a state not in the workflow", async () => {
 
 // --- Comments ---
 
-Deno.test("POST/GET /api/agents/comments/:workItemId roundtrip", async () => {
+test("POST/GET /api/agents/comments/:workItemId roundtrip", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default");
@@ -360,7 +363,7 @@ Deno.test("POST/GET /api/agents/comments/:workItemId roundtrip", async () => {
 
 // --- List / Delete ---
 
-Deno.test("GET /api/agents lists all registered agents", async () => {
+test("GET /api/agents lists all registered agents", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -370,7 +373,7 @@ Deno.test("GET /api/agents lists all registered agents", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("DELETE /api/agents/:id removes an agent", async () => {
+test("DELETE /api/agents/:id removes an agent", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
@@ -379,7 +382,7 @@ Deno.test("DELETE /api/agents/:id removes an agent", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("DELETE /api/agents/:id returns 404 for unknown", async () => {
+test("DELETE /api/agents/:id returns 404 for unknown", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await app.request("/api/agents/nope", { method: "DELETE" })).status, 404);
@@ -388,7 +391,7 @@ Deno.test("DELETE /api/agents/:id returns 404 for unknown", async () => {
 
 // --- Directory-affinity matching ---
 
-Deno.test("next-work biases to the agent's directory; unhomed work is anyone's", async () => {
+test("next-work biases to the agent's directory; unhomed work is anyone's", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("sa", "A", "D", "open", [], [{ title: "TA", description: "d" }], "default", undefined, false, "/repo/a");
@@ -405,7 +408,7 @@ Deno.test("next-work biases to the agent's directory; unhomed work is anyone's",
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("next-work: a directory-tagged item waits for an online agent with that dir", async () => {
+test("next-work: a directory-tagged item waits for an online agent with that dir", async () => {
   const { app, store, teamDir } = setup();
   try {
     store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", undefined, false, "/repo/b");

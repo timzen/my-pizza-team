@@ -11,7 +11,10 @@
  * would have taken out their actual sessions.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import * as fs from "node:fs";
+import * as path from "node:path";
+import { test } from "node:test";
+import { assertEquals, assertThrows } from "../_assert.ts";
 import {
   ensureSession,
   hasSession,
@@ -24,7 +27,7 @@ import {
 } from "../../daemon/tmux.ts";
 import { hasTmux, sandbox } from "./_sandbox.ts";
 
-Deno.test("tmux is probed with permission, so a skip below means tmux is truly absent", () => {
+test("tmux is probed with permission, so a skip below means tmux is truly absent", () => {
   // Guards against this file once reporting green while testing nothing: the suite
   // lacked --allow-run, the probe caught the permission error, and the real-tmux tests
   // quietly vanished.
@@ -35,59 +38,51 @@ Deno.test("tmux is probed with permission, so a skip below means tmux is truly a
   );
 });
 
-Deno.test({
-  name: "sessions and windows work end to end, including a cwd with spaces",
-  ignore: !hasTmux(),
-  async fn() {
-    await using sb = await sandbox("tmux");
-    const exec = sb.tmuxExec;
+test("sessions and windows work end to end, including a cwd with spaces", { skip: !hasTmux() }, async () => {
+  await using sb = await sandbox("tmux");
+  const exec = sb.tmuxExec;
 
-    assertEquals(hasSession(sb.session, exec), false);
-    assertEquals(ensureSession(sb.session, exec), true);
-    assertEquals(hasSession(sb.session, exec), true);
+  assertEquals(hasSession(sb.session, exec), false);
+  assertEquals(ensureSession(sb.session, exec), true);
+  assertEquals(hasSession(sb.session, exec), true);
 
-    // A directory with a space — the regression this file exists for.
-    const dir = await Deno.makeTempDir({ dir: sb.root, prefix: "has space " });
-    spawnWindow(
-      { session: sb.session, window: "worker-one", cwd: dir, command: `touch ${shellQuote("it-worked")}` },
-      exec,
-    );
-    assertEquals(windowExists(sb.session, "worker-one", exec), true);
+  // A directory with a space — the regression this file exists for.
+  const dir = await fs.promises.mkdtemp(path.join(sb.root, "has space "));
+  spawnWindow(
+    { session: sb.session, window: "worker-one", cwd: dir, command: `touch ${shellQuote("it-worked")}` },
+    exec,
+  );
+  assertEquals(windowExists(sb.session, "worker-one", exec), true);
 
-    // The command ran in the right directory, space and all.
-    const ran = await sb.waitFor(() => {
-      try {
-        Deno.statSync(`${dir}/it-worked`);
-        return true;
-      } catch {
-        return false;
-      }
-    }, 5000);
-    assertEquals(ran, true, `command did not run in ${dir}`);
+  // The command ran in the right directory, space and all.
+  const ran = await sb.waitFor(() => {
+    try {
+      fs.statSync(`${dir}/it-worked`);
+      return true;
+    } catch {
+      return false;
+    }
+  }, 5000);
+  assertEquals(ran, true, `command did not run in ${dir}`);
 
-    // Idempotent by name.
-    assertEquals(
-      spawnWindow({ session: sb.session, window: "worker-one", cwd: dir, command: "true" }, exec).created,
-      false,
-    );
-    assertEquals(listWindows(sb.session, exec).filter((w) => w === "worker-one").length, 1);
+  // Idempotent by name.
+  assertEquals(
+    spawnWindow({ session: sb.session, window: "worker-one", cwd: dir, command: "true" }, exec).created,
+    false,
+  );
+  assertEquals(listWindows(sb.session, exec).filter((w) => w === "worker-one").length, 1);
 
-    assertEquals(killWindow(sb.session, "worker-one", exec), true);
-    assertEquals(windowExists(sb.session, "worker-one", exec), false);
-  },
+  assertEquals(killWindow(sb.session, "worker-one", exec), true);
+  assertEquals(windowExists(sb.session, "worker-one", exec), false);
 });
 
-Deno.test({
-  name: "a fresh session reuses its initial window rather than stranding it",
-  ignore: !hasTmux(),
-  async fn() {
-    // The bug `mpt lead` hit: a stray `zsh` window beside the one we asked for.
-    await using sb = await sandbox("tmux-fresh");
-    spawnWindow({ session: sb.session, window: "only-one", cwd: sb.projectDir, command: "true" }, sb.tmuxExec);
-    assertEquals(listWindows(sb.session, sb.tmuxExec), ["only-one"]);
-  },
+test("a fresh session reuses its initial window rather than stranding it", { skip: !hasTmux() }, async () => {
+  // The bug `mpt lead` hit: a stray `zsh` window beside the one we asked for.
+  await using sb = await sandbox("tmux-fresh");
+  spawnWindow({ session: sb.session, window: "only-one", cwd: sb.projectDir, command: "true" }, sb.tmuxExec);
+  assertEquals(listWindows(sb.session, sb.tmuxExec), ["only-one"]);
 });
 
-Deno.test("a name tmux would misread never reaches tmux", () => {
+test("a name tmux would misread never reaches tmux", () => {
   assertThrows(() => hasSession("bad:name"), Error, "target separators");
 });

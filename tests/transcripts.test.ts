@@ -7,7 +7,10 @@
  * the agent-facing routes.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { TeammateTranscripts, WATCH_GRACE_MS, type TranscriptEntry } from "../daemon/store/transcripts.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -22,14 +25,14 @@ function clocked() {
   return { tx, advance: (ms: number) => { t += ms; } };
 }
 
-Deno.test("unwatched: entries are dropped, nothing is buffered", () => {
+test("unwatched: entries are dropped, nothing is buffered", () => {
   const { tx } = clocked();
   assertEquals(tx.isWatched("t1"), false);
   assertEquals(tx.record("t1", [{ kind: "run", state: "start" }]), 0);
   assertEquals(tx.getEntries("t1").length, 0);
 });
 
-Deno.test("watching opens with a marker, then records and pushes entries", () => {
+test("watching opens with a marker, then records and pushes entries", () => {
   const { tx } = clocked();
   const seen: TranscriptEntry[] = [];
   tx.watch("t1", (e) => seen.push(e.entry));
@@ -40,7 +43,7 @@ Deno.test("watching opens with a marker, then records and pushes entries", () =>
   assertEquals(seen.map((e) => e.kind), ["watch", "user"]);
 });
 
-Deno.test("keyed entries upsert in place (streaming message, tool end)", () => {
+test("keyed entries upsert in place (streaming message, tool end)", () => {
   const { tx } = clocked();
   tx.watch("t1", () => {});
   tx.record("t1", [{ kind: "message", key: "msg:1", text: "Hel" }]);
@@ -58,7 +61,7 @@ Deno.test("keyed entries upsert in place (streaming message, tool end)", () => {
   assertEquals(entries[1]!.seq < entries[2]!.seq, true); // position kept
 });
 
-Deno.test("a tool end whose start was missed lands standalone (no args)", () => {
+test("a tool end whose start was missed lands standalone (no args)", () => {
   const { tx } = clocked();
   tx.watch("t1", () => {});
   tx.record("t1", [{ kind: "tool", key: "tool:z", name: "read", state: "done", result: "…" }]);
@@ -67,7 +70,7 @@ Deno.test("a tool end whose start was missed lands standalone (no args)", () => 
   assertEquals(tool.args, undefined);
 });
 
-Deno.test("grace window: a page hop keeps watching and adds no second marker", () => {
+test("grace window: a page hop keeps watching and adds no second marker", () => {
   const { tx, advance } = clocked();
   const stop = tx.watch("t1", () => {});
   stop();
@@ -77,7 +80,7 @@ Deno.test("grace window: a page hop keeps watching and adds no second marker", (
   assertEquals(tx.getEntries("t1").filter((e) => e.kind === "watch").length, 1);
 });
 
-Deno.test("after the grace window: unwatched; the buffer survives; re-watch marks the gap", () => {
+test("after the grace window: unwatched; the buffer survives; re-watch marks the gap", () => {
   const { tx, advance } = clocked();
   const stop = tx.watch("t1", () => {});
   tx.record("t1", [{ kind: "run", state: "start" }]);
@@ -89,7 +92,7 @@ Deno.test("after the grace window: unwatched; the buffer survives; re-watch mark
   assertEquals(tx.getEntries("t1").map((e) => e.kind), ["watch", "run", "watch"]);
 });
 
-Deno.test("invalid entries are dropped; agents can't forge markers or seq", () => {
+test("invalid entries are dropped; agents can't forge markers or seq", () => {
   const { tx } = clocked();
   tx.watch("t1", () => {});
   const n = tx.record("t1", [null, "x", { kind: "nope" }, { kind: "watch" }, { kind: "run", state: "end", seq: -5 }]);
@@ -99,7 +102,7 @@ Deno.test("invalid entries are dropped; agents can't forge markers or seq", () =
   assertEquals(last.seq > 0, true);
 });
 
-Deno.test("the ring keeps the newest 500 entries", () => {
+test("the ring keeps the newest 500 entries", () => {
   const { tx } = clocked();
   tx.watch("t1", () => {});
   tx.record("t1", Array.from({ length: 600 }, () => ({ kind: "run", state: "start" })));
@@ -108,7 +111,7 @@ Deno.test("the ring keeps the newest 500 entries", () => {
   assertEquals(entries[0]!.kind, "run"); // the marker aged out
 });
 
-Deno.test("forget drops an unwatched member's transcript but not a watched one's", () => {
+test("forget drops an unwatched member's transcript but not a watched one's", () => {
   const { tx, advance } = clocked();
   const stop = tx.watch("t1", () => {});
   tx.forget("t1");
@@ -122,15 +125,15 @@ Deno.test("forget drops an unwatched member's transcript but not a watched one's
 // ─── Routes ─────────────────────────────────────────────────────────
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-transcript-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-transcript-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
   return { app, store, teamDir };
 }
 
-Deno.test("routes: watch bit, POST batch (carries watched), GET buffer", async () => {
+test("routes: watch bit, POST batch (carries watched), GET buffer", async () => {
   const { app, store, teamDir } = setup();
   try {
     const watch0 = await (await app.request("/api/agents/t1/transcript/watch")).json();
@@ -159,11 +162,11 @@ Deno.test("routes: watch bit, POST batch (carries watched), GET buffer", async (
     assertEquals(bad.status, 400);
   } finally {
     store.close();
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
 
-Deno.test("routes: the SSE stream primes with hello and registers a viewer", async () => {
+test("routes: the SSE stream primes with hello and registers a viewer", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/agents/t1/transcript/stream");
@@ -179,6 +182,6 @@ Deno.test("routes: the SSE stream primes with hello and registers a viewer", asy
     await reader.cancel();
   } finally {
     store.close();
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* ignore */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });

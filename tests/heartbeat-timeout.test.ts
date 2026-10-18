@@ -7,24 +7,27 @@
  * - Logged as warnings
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 
 function createTempTeamDir(): string {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-heartbeat-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-heartbeat-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   return teamDir;
 }
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
-Deno.test("reapOfflineAgents marks timed-out agents as offline", () => {
+test("reapOfflineAgents marks timed-out agents as offline", () => {
   const teamDir = createTempTeamDir();
   const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
@@ -42,7 +45,7 @@ Deno.test("reapOfflineAgents marks timed-out agents as offline", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reapOfflineAgents does not reap agents within timeout", () => {
+test("reapOfflineAgents does not reap agents within timeout", () => {
   const teamDir = createTempTeamDir();
   const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 60 };
   const store = new Store(teamDir, config);
@@ -55,7 +58,7 @@ Deno.test("reapOfflineAgents does not reap agents within timeout", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
+test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
   const teamDir = createTempTeamDir();
   const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
@@ -80,7 +83,7 @@ Deno.test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reapOfflineAgents skips already-offline agents", () => {
+test("reapOfflineAgents skips already-offline agents", () => {
   const teamDir = createTempTeamDir();
   const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
@@ -98,7 +101,7 @@ Deno.test("reapOfflineAgents skips already-offline agents", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("agent comes back online after being reaped", () => {
+test("agent comes back online after being reaped", () => {
   const teamDir = createTempTeamDir();
   const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
   const store = new Store(teamDir, config);
@@ -121,7 +124,7 @@ Deno.test("agent comes back online after being reaped", () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("reapOfflineAgents uses default timeout when not configured", () => {
+test("reapOfflineAgents uses default timeout when not configured", () => {
   const teamDir = createTempTeamDir();
   // Don't set agentTimeoutSeconds — should default to 90
   const config: TeamConfig = { ...TEST_CONFIG };

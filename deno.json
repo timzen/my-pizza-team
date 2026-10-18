@@ -21,10 +21,6 @@
     "compile:linux-arm64": "./scripts/build.sh linux-arm64",
     "compile:windows-x64": "./scripts/build.sh windows-x64"
   },
-  "imports": {
-    "@std/assert": "jsr:@std/assert@^1",
-    "@std/testing/bdd": "jsr:@std/testing@^1/bdd"
-  },
   "compilerOptions": {
     "strict": true,
     "noUncheckedIndexedAccess": true

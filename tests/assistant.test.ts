@@ -8,7 +8,10 @@
  * docs/DESIGN.md "Assistant Chat Model".
  */
 
-import { assertEquals, assertExists, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
@@ -16,8 +19,8 @@ import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, type TeamConfig } from "../share
 import * as path from "node:path";
 
 function setup(configOverride?: Partial<TeamConfig>) {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-asst-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config = { ...TEST_CONFIG, ...configOverride };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -26,7 +29,7 @@ function setup(configOverride?: Partial<TeamConfig>) {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
 function post(app: ReturnType<typeof buildApp>, url: string, body?: unknown) {
@@ -39,7 +42,7 @@ function put(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
 
 // ─── Sending ─────────────────────────────────────────────────────────
 
-Deno.test("POST /api/assistant/messages appends a queued user message and opens a session", async () => {
+test("POST /api/assistant/messages appends a queued user message and opens a session", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await post(app, "/api/assistant/messages", { content: "Hi there" });
@@ -58,14 +61,14 @@ Deno.test("POST /api/assistant/messages appends a queued user message and opens 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("POST requires content", async () => {
+test("POST requires content", async () => {
   const { app, store, teamDir } = setup();
   try {
     assertEquals((await post(app, "/api/assistant/messages", {})).status, 400);
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("sending never blocks: many messages queue up while the agent works", async () => {
+test("sending never blocks: many messages queue up while the agent works", async () => {
   const { app, store, teamDir } = setup();
   try {
     // No turn, no lock: three sends in a row all land, in order.
@@ -82,7 +85,7 @@ Deno.test("sending never blocks: many messages queue up while the agent works", 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("replyTo quotes the original for the UI and for the agent", async () => {
+test("replyTo quotes the original for the UI and for the agent", async () => {
   const { app, store, teamDir } = setup();
   try {
     const first = await (await post(app, "/api/assistant/messages", { content: "which stories are blocked?" })).json();
@@ -102,7 +105,7 @@ Deno.test("replyTo quotes the original for the UI and for the agent", async () =
 
 // ─── Inbox + receipts ────────────────────────────────────────────────
 
-Deno.test("receipts advance queued → delivered → read and never go backwards", async () => {
+test("receipts advance queued → delivered → read and never go backwards", async () => {
   const { app, store, teamDir } = setup();
   try {
     // The inbox is only served to the designated chat agent (the leader).
@@ -128,7 +131,7 @@ Deno.test("receipts advance queued → delivered → read and never go backwards
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("terminal-origin messages are mirrored in as already-read", async () => {
+test("terminal-origin messages are mirrored in as already-read", async () => {
   const { app, store, teamDir } = setup();
   try {
     // Typed in the agent's tmux pane: it is already in the agent's context, so
@@ -143,7 +146,7 @@ Deno.test("terminal-origin messages are mirrored in as already-read", async () =
 
 // ─── Mirroring out ───────────────────────────────────────────────────
 
-Deno.test("bubbles mirror the agent's reply; failures render as failed bubbles", async () => {
+test("bubbles mirror the agent's reply; failures render as failed bubbles", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/assistant/messages", { content: "hi" });
@@ -159,7 +162,7 @@ Deno.test("bubbles mirror the agent's reply; failures render as failed bubbles",
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("thoughts are ephemeral, capped, and drive the thinking indicator", async () => {
+test("thoughts are ephemeral, capped, and drive the thinking indicator", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/assistant/messages", { content: "hi" });
@@ -190,7 +193,7 @@ Deno.test("thoughts are ephemeral, capped, and drive the thinking indicator", as
 
 // ─── SSE stream ──────────────────────────────────────────────────────
 
-Deno.test("SSE stream pushes a hello frame and then new messages", async () => {
+test("SSE stream pushes a hello frame and then new messages", async () => {
   const { app, store, teamDir } = setup();
   try {
     const res = await app.request("/api/assistant/stream");
@@ -215,7 +218,7 @@ Deno.test("SSE stream pushes a hello frame and then new messages", async () => {
 
 // ─── Sessions ────────────────────────────────────────────────────────
 
-Deno.test("new chat ends + snapshots the session instead of deleting it", async () => {
+test("new chat ends + snapshots the session instead of deleting it", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/assistant/messages", { content: "first conversation" });
@@ -230,7 +233,7 @@ Deno.test("new chat ends + snapshots the session instead of deleting it", async 
     assertEquals(ended.status, "ended");
     assertExists(ended.endedAt);
     const snapshotFile = path.join(teamDir, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, `${first.id}.md`);
-    const snapshot = Deno.readTextFileSync(snapshotFile);
+    const snapshot = fs.readFileSync(snapshotFile, "utf8");
     assertStringIncludes(snapshot, "first conversation");
     assertStringIncludes(snapshot, "Reply in the first conversation.");
 
@@ -243,7 +246,7 @@ Deno.test("new chat ends + snapshots the session instead of deleting it", async 
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("GET messages?sessionId= reads an earlier session; snapshot is downloadable", async () => {
+test("GET messages?sessionId= reads an earlier session; snapshot is downloadable", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/assistant/messages", { content: "old talk" });
@@ -262,7 +265,7 @@ Deno.test("GET messages?sessionId= reads an earlier session; snapshot is downloa
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("resume reopens a session and asks the agent to switch its Pi session", async () => {
+test("resume reopens a session and asks the agent to switch its Pi session", async () => {
   const { app, store, teamDir } = setup();
   try {
     // An online leader is needed for the directive to be routable (it is the chat agent).
@@ -290,7 +293,7 @@ Deno.test("resume reopens a session and asks the agent to switch its Pi session"
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("resume without a recorded Pi session reports degraded context", async () => {
+test("resume without a recorded Pi session reports degraded context", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/assistant/messages", { content: "no pi session recorded" });
@@ -303,7 +306,7 @@ Deno.test("resume without a recorded Pi session reports degraded context", async
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("DELETE a message removes it from the transcript", async () => {
+test("DELETE a message removes it from the transcript", async () => {
   const { app, store, teamDir } = setup();
   try {
     const sent = await (await post(app, "/api/assistant/messages", { content: "oops" })).json();
@@ -315,7 +318,7 @@ Deno.test("DELETE a message removes it from the transcript", async () => {
 
 // ─── Persona ─────────────────────────────────────────────────────────
 
-Deno.test("persona: defaults to none, can be set and cleared", async () => {
+test("persona: defaults to none, can be set and cleared", async () => {
   const { app, store, teamDir } = setup();
   try {
     let body = await (await app.request("/api/assistant/persona")).json();
@@ -342,7 +345,7 @@ Deno.test("persona: defaults to none, can be set and cleared", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {
+test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
@@ -368,13 +371,13 @@ Deno.test("persona swap ends the session (snapshotted) instead of wiping the cha
 
 // ─── Migration ───────────────────────────────────────────────────────
 
-Deno.test("vestiges of the v1 turn model are dropped, not carried", async () => {
+test("vestiges of the v1 turn model are dropped, not carried", async () => {
   // The v1 → v2 migration is gone (P1c-5): no deployment ever carried v1 data, so
   // folding it into a `legacy-*` session was dead code. What remains is cleanup —
   // a database created back then still has the turn table and columns, and opening
   // it should leave none of them behind.
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-asst-v1-vestige-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-asst-v1-vestige-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   try {
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(path.join(teamDir, "state.db"));
@@ -406,11 +409,11 @@ Deno.test("vestiges of the v1 turn model are dropped, not carried", async () => 
       assertEquals(tables.includes("assistant_turns"), false, "the v1 turn table should be dropped");
     } finally { check.close(); }
   } finally {
-    try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
   }
 });
 
-Deno.test("the leader is the chat agent; the inbox is gated on designation", async () => {
+test("the leader is the chat agent; the inbox is gated on designation", async () => {
   const { app, store, teamDir } = setup();
   try {
     // No leader online: the message still queues, and waits for one.
@@ -434,7 +437,7 @@ Deno.test("the leader is the chat agent; the inbox is gated on designation", asy
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("two sessions minted in the same millisecond both survive", async () => {
+test("two sessions minted in the same millisecond both survive", async () => {
   // Ending and starting happen in the same tick for "new chat" and persona swaps,
   // and the id is derived from the clock *and* is the PRIMARY KEY. When both landed
   // in one millisecond the insert threw, surfacing as a 500 from
@@ -465,7 +468,7 @@ Deno.test("two sessions minted in the same millisecond both survive", async () =
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("session directives are addressed to the leader", async () => {
+test("session directives are addressed to the leader", async () => {
   const { app, store, teamDir } = setup();
   try {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
@@ -479,7 +482,7 @@ Deno.test("session directives are addressed to the leader", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("spawning always mints a teammate name (no reserved assistant identity)", async () => {
+test("spawning always mints a teammate name (no reserved assistant identity)", async () => {
   // Pool pinned to 0 so registering the leader doesn't auto-queue pool spawns.
   const { app, store, teamDir } = setup({ minTeammates: 0 });
   try {

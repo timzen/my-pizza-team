@@ -11,7 +11,8 @@
  * all light "work-items".
  */
 
-import { assertEquals } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import {
   canGoBackInApp,
   navSectionForPath,
@@ -19,7 +20,7 @@ import {
   workDefHomePath,
 } from "../ui/src/lib/nav-section.ts";
 
-Deno.test("navSectionForPath: list pages map to their own section only", () => {
+test("navSectionForPath: list pages map to their own section only", () => {
   for (const p of ["/work", "/work/board", "/work/tasks", "/work/schedule", "/work/pending", "/work/archived"]) {
     assertEquals(navSectionForPath(p), "work-items", p);
   }
@@ -27,13 +28,13 @@ Deno.test("navSectionForPath: list pages map to their own section only", () => {
   assertEquals(navSectionForPath("/thoughts/t1/triage"), "thoughts");
 });
 
-Deno.test("navSectionForPath: story/task detail pages and legacy list routes light Work", () => {
+test("navSectionForPath: story/task detail pages and legacy list routes light Work", () => {
   for (const p of ["/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1", "/board", "/tasks", "/schedule", "/pending", "/backlog", "/archived", "/templates", "/templates/atlas"]) {
     assertEquals(navSectionForPath(p), "work-items", p);
   }
 });
 
-Deno.test("navSectionForPath: /work-defs/:id follows the WorkDef type", () => {
+test("navSectionForPath: /work-defs/:id follows the WorkDef type", () => {
   assertEquals(navSectionForPath("/work-defs/w1", { workDefType: "Solitary" }), "work-items");
   assertEquals(navSectionForPath("/work-defs/w1", { workDefType: "Scheduled" }), "work-items");
   assertEquals(navSectionForPath("/work-defs/w1", { workDefType: "Board" }), "work-items");
@@ -43,25 +44,25 @@ Deno.test("navSectionForPath: /work-defs/:id follows the WorkDef type", () => {
   assertEquals(navSectionForPath("/work-defs/w1", { workDefType: null }), null);
 });
 
-Deno.test("navSectionForPath: /work-defs/new follows ?type (default Solitary)", () => {
+test("navSectionForPath: /work-defs/new follows ?type (default Solitary)", () => {
   assertEquals(navSectionForPath("/work-defs/new", { search: "?type=Scheduled" }), "work-items");
   assertEquals(navSectionForPath("/work-defs/new", { search: "?type=Solitary" }), "work-items");
   assertEquals(navSectionForPath("/work-defs/new"), "work-items");
 });
 
-Deno.test("navSectionForPath: non-section routes light nothing", () => {
+test("navSectionForPath: non-section routes light nothing", () => {
   for (const p of ["/", "/queue", "/help", "/config", "/config/theme", "/config/workflows", "/config/workflows/coding", "/config/context", "/usage", "/teammates/a1"]) {
     assertEquals(navSectionForPath(p), null, p);
   }
 });
 
-Deno.test("sectionForWorkDefType: unknown types have no section", () => {
+test("sectionForWorkDefType: unknown types have no section", () => {
   assertEquals(sectionForWorkDefType("Template"), "work-items");
   assertEquals(sectionForWorkDefType("Nope"), null);
   assertEquals(sectionForWorkDefType(undefined), null);
 });
 
-Deno.test("workDefHomePath: Back fallback is the WorkDef's Work sub-tab", () => {
+test("workDefHomePath: Back fallback is the WorkDef's Work sub-tab", () => {
   assertEquals(workDefHomePath("Solitary"), "/work/tasks");
   assertEquals(workDefHomePath("Scheduled"), "/work/schedule");
   // Templates are hidden from the UI; their Back lands on Tasks.
@@ -75,7 +76,7 @@ Deno.test("workDefHomePath: Back fallback is the WorkDef's Work sub-tab", () => 
   }
 });
 
-Deno.test("canGoBackInApp: only when the router has an earlier in-app entry", () => {
+test("canGoBackInApp: only when the router has an earlier in-app entry", () => {
   assertEquals(canGoBackInApp({ idx: 0 }), false);
   assertEquals(canGoBackInApp({ idx: 3, key: "abc" }), true);
   assertEquals(canGoBackInApp(null), false);

@@ -60,13 +60,13 @@ my-pizza-team/
 ├── harnesses/
 │   └── pi/                   # The Pi extension (its own package.json; npm test)
 ├── scripts/                  # build, publish, sync-version
-└── tests/                    # Fast tests (deno task test); tests/e2e/ is the slow suite
-                              #   (deno task test:e2e) — real git, tmux, and shell
+└── tests/                    # Fast tests (npm test, node:test); tests/e2e/ is the slow suite
+                              #   (npm run test:e2e) — real git, tmux, and shell
 ```
 
 The extension under `harnesses/pi/` is a Node/npm package inside a Deno repo, so it
 has its own `tsconfig.json`, `package.json`, and suites. Run them from the root with
-`deno task typecheck:ext` and `deno task test:ext`. Its version is generated from
+`npm run typecheck:ext` and `npm run test:ext`. Its version is generated from
 `deno.json` — never edit it by hand (`deno task sync-version`).
 
 ## Reference

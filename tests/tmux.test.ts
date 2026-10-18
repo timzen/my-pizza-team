@@ -13,7 +13,8 @@
  * proves the commands are ones tmux accepts.
  */
 
-import { assertEquals, assertThrows } from "@std/assert";
+import { test } from "node:test";
+import { assertEquals, assertThrows } from "./_assert.ts";
 import {
   assertSafeName,
   ensureSession,
@@ -44,7 +45,7 @@ function fakeTmux(script: Array<Partial<ExecResult>> = []): { exec: TmuxExec; ca
 
 // ─── Quoting ─────────────────────────────────────────────────────────
 
-Deno.test("shellQuote survives spaces, quotes, and shell metacharacters", () => {
+test("shellQuote survives spaces, quotes, and shell metacharacters", () => {
   assertEquals(shellQuote("/Users/t/My Project"), "'/Users/t/My Project'");
   assertEquals(shellQuote("plain"), "'plain'");
   assertEquals(shellQuote("it's"), `'it'\\''s'`);
@@ -56,7 +57,7 @@ Deno.test("shellQuote survives spaces, quotes, and shell metacharacters", () => 
 
 // ─── Name validation ─────────────────────────────────────────────────
 
-Deno.test("names that tmux would misread are refused, not rewritten", () => {
+test("names that tmux would misread are refused, not rewritten", () => {
   // tmux targets are `session:window`, so a ':' or '.' in a name changes which pane
   // is addressed. The old code stripped them, producing a window nobody could find
   // again; refusing says what went wrong.
@@ -70,7 +71,7 @@ Deno.test("names that tmux would misread are refused, not rewritten", () => {
 
 // ─── Argv, not shell ─────────────────────────────────────────────────
 
-Deno.test("a cwd with spaces reaches tmux intact", () => {
+test("a cwd with spaces reaches tmux intact", () => {
   // The regression this file exists for.
   const { exec, calls } = fakeTmux([{ ok: true }]); // has-session → exists
   spawnWindow(
@@ -83,7 +84,7 @@ Deno.test("a cwd with spaces reaches tmux intact", () => {
   assertEquals(typed.includes("MyProject"), false, "the space must not be stripped");
 });
 
-Deno.test("arguments are passed as argv, so nothing is interpolated into a command line", () => {
+test("arguments are passed as argv, so nothing is interpolated into a command line", () => {
   const { exec, calls } = fakeTmux([{ ok: false }, { ok: true }]);
   ensureSession("mpt", exec);
   assertEquals(calls[0], ["has-session", "-t", "mpt"]);
@@ -92,7 +93,7 @@ Deno.test("arguments are passed as argv, so nothing is interpolated into a comma
 
 // ─── Session and window lifecycle ────────────────────────────────────
 
-Deno.test("ensureSession creates only when absent", () => {
+test("ensureSession creates only when absent", () => {
   const present = fakeTmux([{ ok: true }]);
   assertEquals(ensureSession("mpt", present.exec), false);
   assertEquals(present.calls.length, 1, "no new-session when it already exists");
@@ -101,12 +102,12 @@ Deno.test("ensureSession creates only when absent", () => {
   assertEquals(ensureSession("mpt", absent.exec), true);
 });
 
-Deno.test("a failure to create the session is reported, not swallowed", () => {
+test("a failure to create the session is reported, not swallowed", () => {
   const { exec } = fakeTmux([{ ok: false }, { ok: false, stderr: "no server running" }]);
   assertThrows(() => ensureSession("mpt", exec), Error, "no server running");
 });
 
-Deno.test("listWindows parses names and is empty for a missing session", () => {
+test("listWindows parses names and is empty for a missing session", () => {
   const ok = fakeTmux([{ ok: true, stdout: "leader\nswift-ripley\n\n" }]);
   assertEquals(listWindows("mpt", ok.exec), ["leader", "swift-ripley"]);
 
@@ -114,7 +115,7 @@ Deno.test("listWindows parses names and is empty for a missing session", () => {
   assertEquals(listWindows("mpt", missing.exec), []);
 });
 
-Deno.test("spawning twice under one name is a no-op the second time", () => {
+test("spawning twice under one name is a no-op the second time", () => {
   // `new-window -n <name>` would create a duplicate, and then two agents answer to
   // one label — the daemon assigns names, so that would be its bug to own.
   const { exec, calls } = fakeTmux([
@@ -128,7 +129,7 @@ Deno.test("spawning twice under one name is a no-op the second time", () => {
   assertEquals(calls.some((c) => c[0] === "send-keys"), false, "and nothing is typed into it");
 });
 
-Deno.test("a freshly created session reuses its initial window instead of stranding it", () => {
+test("a freshly created session reuses its initial window instead of stranding it", () => {
   const { exec, calls } = fakeTmux([
     { ok: false }, // has-session
     { ok: true }, // new-session
@@ -140,7 +141,7 @@ Deno.test("a freshly created session reuses its initial window instead of strand
   assertEquals(calls.some((c) => c[0] === "new-window"), false, "no stray extra window");
 });
 
-Deno.test("if renaming fails, a window is created instead", () => {
+test("if renaming fails, a window is created instead", () => {
   const { exec, calls } = fakeTmux([
     { ok: false }, // has-session
     { ok: true }, // new-session
@@ -152,7 +153,7 @@ Deno.test("if renaming fails, a window is created instead", () => {
   assertEquals(calls.some((c) => c[0] === "new-window"), true);
 });
 
-Deno.test("control keys are sent as keys, not typed as text", () => {
+test("control keys are sent as keys, not typed as text", () => {
   // `send-keys C-c` with a trailing Enter would type the literal characters.
   const { exec, calls } = fakeTmux();
   sendControl("mpt", "swift-ripley", "C-c", exec);
@@ -160,7 +161,7 @@ Deno.test("control keys are sent as keys, not typed as text", () => {
   assertEquals(calls[0]!.includes("Enter"), false);
 });
 
-Deno.test("sendKeys appends Enter, and a failure is reported", () => {
+test("sendKeys appends Enter, and a failure is reported", () => {
   const ok = fakeTmux();
   sendKeys("mpt", "w", "/new", ok.exec);
   assertEquals(ok.calls[0], ["send-keys", "-t", "mpt:w", "/new", "Enter"]);
@@ -169,14 +170,14 @@ Deno.test("sendKeys appends Enter, and a failure is reported", () => {
   assertThrows(() => sendKeys("mpt", "w", "/new", bad.exec), Error, "can't find window");
 });
 
-Deno.test("killWindow reports whether the window was there", () => {
+test("killWindow reports whether the window was there", () => {
   assertEquals(killWindow("mpt", "w", fakeTmux([{ ok: true }]).exec), true);
   assertEquals(killWindow("mpt", "w", fakeTmux([{ ok: false }]).exec), false);
 });
 
 // ─── Templates ───────────────────────────────────────────────────────
 
-Deno.test("a template fills every placeholder, quoting the cwd", () => {
+test("a template fills every placeholder, quoting the cwd", () => {
   const rendered = renderTemplate(DEFAULT_HARNESS_TEMPLATES.pi!.teammate, {
     name: "swift-ripley",
     url: "http://localhost:7437",
@@ -189,7 +190,7 @@ Deno.test("a template fills every placeholder, quoting the cwd", () => {
   assertEquals(unresolvedPlaceholders(rendered), [], rendered);
 });
 
-Deno.test("a typo in a config template is reported rather than run", () => {
+test("a typo in a config template is reported rather than run", () => {
   // Otherwise the agent starts with a literal "{nmae}" argument and fails obscurely.
   const rendered = renderTemplate("agent --name={nmae}", {
     name: "x",
@@ -201,7 +202,7 @@ Deno.test("a typo in a config template is reported rather than run", () => {
   assertEquals(unresolvedPlaceholders(rendered), ["{nmae}"]);
 });
 
-Deno.test("a cwd placeholder is quoted so a spaced path survives the shell", () => {
+test("a cwd placeholder is quoted so a spaced path survives the shell", () => {
   const rendered = renderTemplate("agent --dir={cwd}", {
     name: "x",
     url: "u",

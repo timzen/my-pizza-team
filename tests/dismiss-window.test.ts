@@ -8,7 +8,10 @@
  * fake tmux, end to end, and pin the exits that must *keep* their window.
  */
 
-import { assertEquals } from "@std/assert";
+import * as fs from "node:fs";
+import * as os from "node:os";
+import { test } from "node:test";
+import { assertEquals } from "./_assert.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -19,8 +22,8 @@ import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 
 function setup() {
-  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-dismiss-test-" });
-  Deno.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-dismiss-test-"));
+  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const config = { ...TEST_CONFIG, tmuxSession: "team" };
   const store = new Store(teamDir, config);
   const app = buildApp(store, config, teamDir);
@@ -29,7 +32,7 @@ function setup() {
 
 function cleanup(teamDir: string, store: Store) {
   store.close();
-  try { Deno.removeSync(teamDir, { recursive: true }); } catch { /* */ }
+  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
 }
 
 /** A fake tmux server holding `windows` in every session; kill-window removes one. */
@@ -64,7 +67,7 @@ function passes(store: SpawnerStore, exec: TmuxExec, n: number, start = Date.now
   let t = start;
   for (let i = 0; i < n; i++) {
     realizePending(store, {
-      config: { ...TEST_CONFIG, tmuxSession: "team" }, daemonUrl: "http://x", fallbackCwd: Deno.cwd(),
+      config: { ...TEST_CONFIG, tmuxSession: "team" }, daemonUrl: "http://x", fallbackCwd: process.cwd(),
       exec, now: () => t, interrupts,
     });
     t += 2_000;
@@ -73,7 +76,7 @@ function passes(store: SpawnerStore, exec: TmuxExec, n: number, start = Date.now
 
 const dismissDirectives = (store: Store) => store.getLeaderDirectives().filter((d) => d.action === "dismiss");
 
-Deno.test("UI dismiss of an `mpt agent` teammate closes its window once it deregisters", async () => {
+test("UI dismiss of an `mpt agent` teammate closes its window once it deregisters", async () => {
   const { app, store, teamDir } = setup();
   try {
     await register(app, "a1", "swift-ripley", { tmuxSession: "team", tmuxWindow: "swift-ripley" });
@@ -101,7 +104,7 @@ Deno.test("UI dismiss of an `mpt agent` teammate closes its window once it dereg
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("UI dismiss of a Pi teammate closes its window soon after it hears `dismissed`", async () => {
+test("UI dismiss of a Pi teammate closes its window soon after it hears `dismissed`", async () => {
   const { app, store, teamDir } = setup();
   try {
     // No metadata: falls back to its name and the configured session.
@@ -125,7 +128,7 @@ Deno.test("UI dismiss of a Pi teammate closes its window soon after it hears `di
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("dismissing an already-offline teammate closes its window without waiting", async () => {
+test("dismissing an already-offline teammate closes its window without waiting", async () => {
   const { app, store, teamDir } = setup();
   try {
     await register(app, "a1", "swift-ripley");
@@ -138,7 +141,7 @@ Deno.test("dismissing an already-offline teammate closes its window without wait
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("a plain self-deregister keeps its window (a quit or crash stays visible)", async () => {
+test("a plain self-deregister keeps its window (a quit or crash stays visible)", async () => {
   const { app, store, teamDir } = setup();
   try {
     await register(app, "a1", "swift-ripley");
@@ -156,7 +159,7 @@ Deno.test("a plain self-deregister keeps its window (a quit or crash stays visib
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("dismissing the leader never queues a window close", async () => {
+test("dismissing the leader never queues a window close", async () => {
   const { app, store, teamDir } = setup();
   try {
     await register(app, "l1", "leader", { tmuxSession: "team", tmuxWindow: "leader" });
@@ -165,7 +168,7 @@ Deno.test("dismissing the leader never queues a window close", async () => {
   } finally { cleanup(teamDir, store); }
 });
 
-Deno.test("the leader sees a dismiss only when the daemon can't drive tmux, and only once it's ready", async () => {
+test("the leader sees a dismiss only when the daemon can't drive tmux, and only once it's ready", async () => {
   const { app, store, teamDir } = setup();
   try {
     await register(app, "a1", "swift-ripley");

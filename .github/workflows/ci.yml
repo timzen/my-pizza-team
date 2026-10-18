@@ -13,9 +13,11 @@ on:
     branches: [main]
 
 env:
-  DENO_VERSION: '2.x'
+  # The daemon, CLI and tests run on Node's type stripping and node:sqlite (>=24,
+  # package.json "engines").
+  NODE_VERSION: '24'
   # The Pi extension is type-stripped by Node at load time; Pi itself needs >=22.19.
-  NODE_VERSION: '22'
+  EXT_NODE_VERSION: '22'
 
 jobs:
   daemon:
@@ -23,39 +25,37 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: ${{ env.DENO_VERSION }}
-      - name: Install npm dependencies
-        # hono and @hono/node-server come from the root package.json, which Deno
-        # resolves through node_modules/.
-        run: npm ci
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - name: Type check
-        run: deno task check
+        run: npm run typecheck
       - name: Fast tests
         shell: bash
         run: |
           set -o pipefail
-          NO_COLOR=1 deno task test 2>&1 | tee test.log || { python3 scripts/ci-annotate.py < test.log; exit 1; }
+          NO_COLOR=1 npm test 2>&1 | tee test.log || { python3 scripts/ci-annotate.py < test.log; exit 1; }
       - name: Generated files are in step
         # The extension's version and shared constants are generated from the repo
         # root; drift is exactly what the monorepo merge exists to prevent.
         run: |
-          deno task sync-version --check
-          deno task sync-shared --check
+          npm run sync-version -- --check
+          npm run sync-shared -- --check
 
   e2e:
     name: End-to-end — real git, tmux, and shell
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - uses: denoland/setup-deno@v2
+      - uses: actions/setup-node@v4
         with:
-          deno-version: ${{ env.DENO_VERSION }}
-      - name: Install npm dependencies
-        # hono and @hono/node-server come from the root package.json, which Deno
-        # resolves through node_modules/.
-        run: npm ci
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: package-lock.json
+      - run: npm ci
       - name: Install tmux
         # The e2e suite drives a real (private, per-test) tmux server. Without tmux
         # those tests skip, and a skip in CI would read as a pass.
@@ -69,7 +69,7 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          NO_COLOR=1 deno task test:e2e 2>&1 | tee e2e.log || { python3 scripts/ci-annotate.py < e2e.log; exit 1; }
+          NO_COLOR=1 npm run test:e2e 2>&1 | tee e2e.log || { python3 scripts/ci-annotate.py < e2e.log; exit 1; }
 
   extension:
     name: Pi extension — type check & tests
@@ -81,7 +81,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: ${{ env.NODE_VERSION }}
+          node-version: ${{ env.EXT_NODE_VERSION }}
           cache: npm
           cache-dependency-path: harnesses/pi/package-lock.json
       - run: npm ci

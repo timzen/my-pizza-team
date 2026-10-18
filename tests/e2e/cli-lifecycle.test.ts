@@ -11,7 +11,9 @@
  * wrong thing quietly also returns.
  */
 
-import { assertEquals, assertStringIncludes } from "@std/assert";
+import * as fs from "node:fs";
+import { test } from "node:test";
+import { assertEquals, assertStringIncludes } from "../_assert.ts";
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync } from "node:fs";
@@ -33,8 +35,8 @@ const packages = (sb: Sandbox) => (sb.readPiSettings().packages ?? []) as string
 /** A pre-merge standalone checkout, as Tim's machine has registered. */
 function legacyCheckout(sb: Sandbox): string {
   const dir = path.join(sb.root, "mpt-dev", "pi-pizza-team");
-  Deno.mkdirSync(dir, { recursive: true });
-  Deno.writeTextFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "pi-pizza-team", version: "0.2.0" }));
+  fs.mkdirSync(dir, { recursive: true });
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "pi-pizza-team", version: "0.2.0" }));
   return dir;
 }
 
@@ -47,7 +49,7 @@ function assertUserSettingsPreserved(sb: Sandbox): void {
 
 // ─── setup ───────────────────────────────────────────────────────────
 
-Deno.test("setup on a fresh machine: writes, registers, prepares the team, trusts the folder", async () => {
+test("setup on a fresh machine: writes, registers, prepares the team, trusts the folder", async () => {
   await using sb = await sandbox("fresh");
   sb.writePiSettings({ packages: ["npm:pi-powerline-footer"], ...USER_SETTINGS });
 
@@ -63,11 +65,11 @@ Deno.test("setup on a fresh machine: writes, registers, prepares the team, trust
   assertUserSettingsPreserved(sb);
   // Team directory and trust.
   assertEquals(existsSync(path.join(sb.teamDir, "config.json")), true);
-  const trust = JSON.parse(Deno.readTextFileSync(path.join(sb.piAgentDir, "trust.json")));
+  const trust = JSON.parse(fs.readFileSync(path.join(sb.piAgentDir, "trust.json"), "utf8"));
   assertEquals(trust[sb.projectDir], true);
 });
 
-Deno.test("setup replaces a legacy standalone registration — Tim's machine", async () => {
+test("setup replaces a legacy standalone registration — Tim's machine", async () => {
   await using sb = await sandbox("legacy");
   const legacy = legacyCheckout(sb);
   sb.writePiSettings({ packages: [legacy, "npm:@gotgenes/pi-permission-system"], ...USER_SETTINGS });
@@ -83,7 +85,7 @@ Deno.test("setup replaces a legacy standalone registration — Tim's machine", a
   assertUserSettingsPreserved(sb);
 });
 
-Deno.test("setup steps aside for a registered dev checkout, touching nothing of it", async () => {
+test("setup steps aside for a registered dev checkout, touching nothing of it", async () => {
   // Replacing a checkout someone is editing would make their edits stop taking effect.
   await using sb = await sandbox("dev");
   sb.writePiSettings({ packages: [DEV_CHECKOUT], ...USER_SETTINGS });
@@ -97,7 +99,7 @@ Deno.test("setup steps aside for a registered dev checkout, touching nothing of 
   assertEquals(existsSync(managedDir(sb)), false, "no managed copy should be written");
 });
 
-Deno.test("setup with both managed and dev registered removes its own, avoiding a double load", async () => {
+test("setup with both managed and dev registered removes its own, avoiding a double load", async () => {
   // Both registered means Pi loads the extension twice: duplicate tools, two directive
   // pollers, two heartbeats per agent.
   await using sb = await sandbox("both");
@@ -107,15 +109,15 @@ Deno.test("setup with both managed and dev registered removes its own, avoiding 
   const s = sb.readPiSettings();
   s.packages = [...(s.packages as string[]), "../../.my-pizza-team/pi-extension"];
   sb.writePiSettings(s);
-  Deno.mkdirSync(managedDir(sb), { recursive: true });
-  Deno.writeTextFileSync(path.join(managedDir(sb), "package.json"), JSON.stringify({ name: "pi-pizza-team", version: "0.1.0" }));
+  fs.mkdirSync(managedDir(sb), { recursive: true });
+  fs.writeFileSync(path.join(managedDir(sb), "package.json"), JSON.stringify({ name: "pi-pizza-team", version: "0.1.0" }));
 
   const result = await sb.mpt("setup");
   assertEquals(result.code, 0, result.output);
   assertEquals(packages(sb), [DEV_CHECKOUT], "exactly one registration — the dev checkout");
 });
 
-Deno.test("setup is idempotent: a second run changes no registration", async () => {
+test("setup is idempotent: a second run changes no registration", async () => {
   await using sb = await sandbox("idem");
   sb.writePiSettings({ packages: [], ...USER_SETTINGS });
   await sb.mpt("setup");
@@ -127,53 +129,53 @@ Deno.test("setup is idempotent: a second run changes no registration", async () 
   assertEquals(packages(sb).filter((p) => p.includes("pi-extension")).length, 1);
 });
 
-Deno.test("setup --dry-run changes nothing at all", async () => {
+test("setup --dry-run changes nothing at all", async () => {
   await using sb = await sandbox("dry");
   const legacy = legacyCheckout(sb);
   sb.writePiSettings({ packages: [legacy], ...USER_SETTINGS });
-  const before = Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json"));
+  const before = fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8");
 
   const result = await sb.mpt("setup", "--dry-run");
   assertEquals(result.code, 0, result.output);
   assertStringIncludes(result.output, "Nothing was changed");
   assertStringIncludes(result.output, legacy, "the plan still names what it would do");
 
-  assertEquals(Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json")), before, "settings changed");
+  assertEquals(fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8"), before, "settings changed");
   assertEquals(existsSync(managedDir(sb)), false);
   assertEquals(existsSync(sb.teamDir), false);
   assertEquals(existsSync(path.join(sb.piAgentDir, "trust.json")), false);
 });
 
-Deno.test("setup refuses to overwrite Pi settings it cannot parse", async () => {
+test("setup refuses to overwrite Pi settings it cannot parse", async () => {
   await using sb = await sandbox("corrupt");
   const corrupt = "{ this is not json";
-  Deno.writeTextFileSync(path.join(sb.piAgentDir, "settings.json"), corrupt);
+  fs.writeFileSync(path.join(sb.piAgentDir, "settings.json"), corrupt);
 
   const result = await sb.mpt("setup");
   assertEquals(result.code === 0, false, "must fail rather than overwrite");
   assertStringIncludes(result.output, "will not overwrite");
-  assertEquals(Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json")), corrupt, "the file must be untouched");
+  assertEquals(fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8"), corrupt, "the file must be untouched");
 });
 
-Deno.test("setup never overwrites an existing team config", async () => {
+test("setup never overwrites an existing team config", async () => {
   // A half-initialised team directory may already hold real data.
   await using sb = await sandbox("teamcfg");
   sb.writePiSettings({ packages: [] });
-  Deno.mkdirSync(sb.teamDir, { recursive: true });
-  Deno.writeTextFileSync(path.join(sb.teamDir, "state.db"), "existing data");
+  fs.mkdirSync(sb.teamDir, { recursive: true });
+  fs.writeFileSync(path.join(sb.teamDir, "state.db"), "existing data");
 
   await sb.mpt("setup");
-  assertEquals(Deno.readTextFileSync(path.join(sb.teamDir, "state.db")), "existing data");
+  assertEquals(fs.readFileSync(path.join(sb.teamDir, "state.db"), "utf8"), "existing data");
   assertEquals(existsSync(path.join(sb.teamDir, "config.json")), true, "config is written when absent");
 
-  Deno.writeTextFileSync(path.join(sb.teamDir, "config.json"), JSON.stringify({ tmuxSession: "mine" }));
+  fs.writeFileSync(path.join(sb.teamDir, "config.json"), JSON.stringify({ tmuxSession: "mine" }));
   await sb.mpt("setup");
-  assertEquals(JSON.parse(Deno.readTextFileSync(path.join(sb.teamDir, "config.json"))).tmuxSession, "mine");
+  assertEquals(JSON.parse(fs.readFileSync(path.join(sb.teamDir, "config.json"), "utf8")).tmuxSession, "mine");
 });
 
 // ─── doctor ──────────────────────────────────────────────────────────
 
-Deno.test("doctor fails on real breakage and passes after setup", async () => {
+test("doctor fails on real breakage and passes after setup", async () => {
   await using sb = await sandbox("doctor");
   sb.writePiSettings({ packages: [], ...USER_SETTINGS });
 
@@ -187,7 +189,7 @@ Deno.test("doctor fails on real breakage and passes after setup", async () => {
   assertStringIncludes(after.output, "managed install");
 });
 
-Deno.test("doctor fails when Pi is missing, whatever the host has installed", async () => {
+test("doctor fails when Pi is missing, whatever the host has installed", async () => {
   // Only deterministic because the sandbox controls PATH; before that, a host with Pi
   // made this unobservable and a host without it broke the test above.
   await using sb = await sandbox("doctor-nopi", { pi: false });
@@ -199,24 +201,24 @@ Deno.test("doctor fails when Pi is missing, whatever the host has installed", as
   assertStringIncludes(result.output, "npm install -g @earendil-works/pi-coding-agent");
 });
 
-Deno.test("doctor is read-only", async () => {
+test("doctor is read-only", async () => {
   await using sb = await sandbox("doctor-ro");
   const legacy = legacyCheckout(sb);
   sb.writePiSettings({ packages: [legacy], ...USER_SETTINGS });
-  const before = Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json"));
+  const before = fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8");
 
   await sb.mpt("doctor");
-  assertEquals(Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json")), before);
+  assertEquals(fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8"), before);
   assertEquals(existsSync(managedDir(sb)), false);
 });
 
 // ─── uninstall ───────────────────────────────────────────────────────
 
-Deno.test("uninstall undoes setup, keeping user settings and team data", async () => {
+test("uninstall undoes setup, keeping user settings and team data", async () => {
   await using sb = await sandbox("uninstall");
   sb.writePiSettings({ packages: ["npm:pi-powerline-footer"], ...USER_SETTINGS });
   await sb.mpt("setup");
-  Deno.writeTextFileSync(path.join(sb.teamDir, "team-data.json"), "{}");
+  fs.writeFileSync(path.join(sb.teamDir, "team-data.json"), "{}");
 
   const result = await sb.mpt("setup", "--uninstall");
   assertEquals(result.code, 0, result.output);
@@ -227,7 +229,7 @@ Deno.test("uninstall undoes setup, keeping user settings and team data", async (
   assertEquals(existsSync(path.join(sb.teamDir, "team-data.json")), true, "team data is left alone");
 });
 
-Deno.test("uninstall names what setup removed instead of restoring it", async () => {
+test("uninstall names what setup removed instead of restoring it", async () => {
   // Restoring the legacy entry would re-create the broken state setup was fixing.
   await using sb = await sandbox("uninstall-legacy");
   const legacy = legacyCheckout(sb);
@@ -240,13 +242,13 @@ Deno.test("uninstall names what setup removed instead of restoring it", async ()
   assertEquals(packages(sb).includes(legacy), false);
 });
 
-Deno.test("uninstall with nothing to undo is a no-op, not an error", async () => {
+test("uninstall with nothing to undo is a no-op, not an error", async () => {
   await using sb = await sandbox("uninstall-none");
   sb.writePiSettings({ packages: ["npm:x"] });
-  const before = Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json"));
+  const before = fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8");
 
   const result = await sb.mpt("setup", "--uninstall");
   assertEquals(result.code, 0);
   assertStringIncludes(result.output, "Nothing to undo");
-  assertEquals(Deno.readTextFileSync(path.join(sb.piAgentDir, "settings.json")), before);
+  assertEquals(fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8"), before);
 });
