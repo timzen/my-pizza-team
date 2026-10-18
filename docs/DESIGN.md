@@ -416,6 +416,13 @@ always on, so "everything off" is still a working team: notes in, triage out.
   and a WorkDef's thread are never gated. The guard makes this rare (a kind is only
   turned off empty), but a hand-edited config must not leave a claimed item unable
   to complete.
+- **The assistant isn't offered what's off.** The daemon's refusal is the
+  backstop, but a model shown `create_story` will reach for it, so the Pi leader
+  drops a switched-off kind's tools from its active tool set and says in its system
+  prompt what's off. It polls `/api/status` (before every run, and every 10s)
+  rather than being pushed a change: it already reads status, and a toggle flip is
+  rare. Every client words the refusal the same way — "Stories are disabled —
+  enable them in Config (features.stories)" — so the fix is always named.
 - **The UI hides entry points and explains dead ends.** Nav links, quick-create,
   and triage Accept drop out for a disabled kind, but its pages show a "turned off —
   enable it in Config" notice rather than redirecting: a bookmark or an Inbox link

@@ -35,8 +35,8 @@ test("exports setupLeader function", () => {
   assert.ok(src.includes("export async function setupLeader("));
 });
 
-test("imports DaemonClient", () => {
-  assert.ok(src.includes('import type { DaemonClient }'));
+test("imports DaemonClient (type-only)", () => {
+  assert.match(src, /import (type \{ DaemonClient \}|\{[^}]*\btype DaemonClient\b[^}]*\}) from "\.\/runtime\/client\.js"/);
 });
 
 test("imports registerLeaderTools", () => {

@@ -390,7 +390,8 @@ When a kind is off:
 - its nav link (**Board**, **Tasks**, or **Schedule**) disappears, and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
 - its pages — lists, detail pages, and create forms — show a "turned off" notice with a link back here, even from a bookmark;
 - a triage proposal of that kind can only be **Rejected** (Accept and Edit are disabled until you turn the kind back on);
-- the API, the `mpt` CLI, and the assistant's tools refuse it too.
+- the assistant stops offering it: its tools for that kind leave its tool list (within about 10 seconds, or at its next reply) and it will tell you the kind is off if you ask for one;
+- the API refuses it too, and `mpt status` leaves out its counts.
 
 **Thoughts**, **Context**, the **Queue**, and the **Inbox** are always there — even with every kind off — and finished work stays in the Inbox.
 

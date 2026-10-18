@@ -137,6 +137,7 @@ marked done; moving one back out reopens it.
 - `extension.ts` — Locates the embedded extension (`MPT_PI_EXTENSION` override → checkout → alongside the binary) and writes it to `~/.my-pizza-team/pi-extension/` (`MPT_HOME` overrides `~`), staged and swapped so an interrupted write can't leave a half-populated directory. Only `package.json` and `src/` are embedded.
 - `agent.ts` — `mpt agent --harness <h>` (builds the supervisor: client, launch command, the `mpt agent fail` command the agent is told about, and the environment that lets it reach the daemon), `mpt agent fail "<why>"` (fails the IN_PROGRESS item belonging to `MPT_AGENT_ID`), and `mpt setup --harness <h>` (checks prerequisites; installs the pinned Claude adapter with npm).
 - `service.ts` — launchd plist / systemd user unit generation, detection of an installed service and the binary it launches, and `restart()`.
+- `features.ts` — The CLI's side of the feature toggles: `statusSummaryLines` (what `mpt status` prints — a switched-off kind's counts left out, plus a `Turned off: …` line) and `daemonErrorMessage` (a 403 `{ feature }` → `featureDisabledMessage`, the wording shared with the Pi tools from `harnesses/pi/src/runtime/client.ts`). The CLI has no work-item commands, so nothing else is gated.
 
 ### agent/
 
@@ -249,10 +250,11 @@ src/
 ├── teammate.ts     — TeammateLoop: poll → claim → run the prompt → comment → set state; pairing and fresh sessions
 ├── chat.ts         — ChatMirror: daemon inbox → Pi (steer), Pi prose → bubbles, terminal input → chat
 ├── tools.ts        — LLM tools (role-specific): fail, stories/tasks/schedules (each with an optional `draft`), get/edit/publish a draft, thoughts, workflows, context, team status, attachments
+├── features.ts     — Feature toggles: the leader tools each kind owns, `applyFeatureTools` (keeps a switched-off kind's tools out of `pi.setActiveTools`), `featurePromptNote`
 ├── permissions.ts  — Autonomous permission handling via @gotgenes/pi-permission-system (optional; warns when absent)
 ├── runtime/        — Harness-agnostic protocol code: no external imports, no relative value imports,
 │   │                 no mention of Pi (tests/runtime-purity.test.ts)
-│   ├── client.ts     — DaemonClient: every HTTP call
+│   ├── client.ts     — DaemonClient: every HTTP call; `featuresFromStatus`, `featureDisabledMessage` (a 403 `{ feature }` → `DaemonError.feature`)
 │   ├── transcript.ts — TranscriptMirror: streams the session while watched
 │   ├── bubbles.ts    — Splits prose into chat bubbles (fence/list aware)
 │   ├── pairing.ts    — WebPairing: pause/message/release from the browser
@@ -428,6 +430,17 @@ turning a kind on, are never refused. An object is a partial update stored in fu
 (`featureUsage(store)`: each kind's `activeFeatureItems`), which the Config page uses
 to disable a toggle the guard would refuse. The web UI's side is under "ui/src/"
 (Feature toggles).
+
+**Clients.** The Pi leader registers every tool but keeps a switched-off kind's
+out of the model's active set (`harnesses/pi/src/features.ts`: Stories →
+`create_story`/`edit_story`/`add_task`/`list_workflows`/`list_context`, Tasks →
+`create_task`, Schedules → `create_schedule`, all off → also `get_task`/`edit_task`/
+`publish_task`), re-reading `/api/status` at session start, before every run, and
+on its 10s poll, and adds a system-prompt note naming what's off; `propose_work`
+refuses proposals of a switched-off kind. `DaemonClient` turns the 403 into
+`DaemonError.feature` + "Stories are disabled — enable them in Config
+(features.stories)" (`featureDisabledMessage`), the same wording `mpt status` and
+`cli/features.ts` use. Detail: harnesses/pi/docs/ARCHITECTURE.md.
 
 ## Scheduler readiness gating
 

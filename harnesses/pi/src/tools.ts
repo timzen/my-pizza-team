@@ -3,10 +3,8 @@
 // All tools communicate with the daemon HTTP API via DaemonClient.
 // No local store or filesystem access (except reading files for upload).
 //
-// Three registration functions for role-specific tool sets:
-//   - registerLeaderTools: create_story, edit_story, add_task, list_workflows,
-//                          list_context, team_status
-//   - registerTeammateTools: upload_attachment, propose_work
+// Two registration functions for role-specific tool sets:
+//   - registerTeammateTools: upload_attachment, fail, propose_work
 //   - registerLeaderTools: create_story, edit_story, add_task, create_task,
 //                          create_schedule, get_task, edit_task, publish_task,
 //                          list_workflows, list_context,
@@ -20,6 +18,11 @@
 // releases it — after which its definition is locked (my-pizza-team
 // docs/DESIGN.md "Drafts: Write, Review, Publish").
 //
+// Feature toggles: every leader tool is registered, and features.ts keeps the
+// ones owned by a switched-off kind (create_story, create_task, …) out of the
+// active set. A tool called anyway gets the daemon's 403, which the client words
+// as featureDisabledMessage; propose_work refuses proposals of a disabled kind.
+//
 // Note: story/task creation can attach context-library entries via the
 // `context` parameter; list_context surfaces the available entry ids. The
 // assistant persona system prompt itself is still vended by the daemon.
@@ -27,7 +30,8 @@
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import type { DaemonClient, WorkDefSummary } from "./runtime/client.js";
+import { type DaemonClient, featureDisabledMessage, featuresFromStatus, type FeatureName, type WorkDefSummary } from "./runtime/client.js";
+import { featureForProposalKind } from "./features.js";
 
 // ═══════════════════════════════════════════════════════════════════════
 // LEADER TOOLS
@@ -37,7 +41,9 @@ import type { DaemonClient, WorkDefSummary } from "./runtime/client.js";
  * Register tools for the leader — the agent you chat with.
  *
  * The leader answers the team chat (see chat.ts), so it gets the full planning
- * surface: stories, tasks, schedules, thoughts, context, and status.
+ * surface: stories, tasks, schedules, thoughts, context, and status. All of it is
+ * registered regardless of the feature toggles; leader.ts narrows the active set
+ * with `applyFeatureTools` (features.ts).
  *
  * There is deliberately no "send a message" tool (chat v2 mirrors the agent's own
  * prose into bubbles) and no `queue_request`: queueing a request used to hand work
@@ -145,7 +151,14 @@ function registerProposeWork(
       if (!workItemId) {
         return { content: [{ type: "text", text: "No work item is currently claimed — nothing to propose against." }], details: undefined };
       }
-      const p = params as { body: string; outcome: "proposals" | "nothing" | "question"; proposals?: unknown[] };
+      const p = params as { body: string; outcome: "proposals" | "nothing" | "question"; proposals?: { kind?: string }[] };
+      // A proposal of a switched-off kind could only ever be rejected, so refuse it
+      // here with the fix. Unknown toggles (daemon too old / unreachable) pass.
+      const disabled = await disabledProposalFeatures(client, p.proposals ?? []);
+      if (disabled.length > 0) {
+        const msgs = disabled.map((f) => featureDisabledMessage(f)).join("; ");
+        return { content: [{ type: "text", text: `Not accepted: ${msgs}. Propose only kinds the team has on (or outcome "nothing"), then call propose_work again.` }], details: undefined };
+      }
       try {
         const res = await client.proposeWork(workItemId, { body: p.body, outcome: p.outcome, proposals: p.proposals });
         if (!res.success) {
@@ -160,6 +173,19 @@ function registerProposeWork(
       }
     },
   });
+}
+
+/** The switched-off features these proposals would create work in (none if unknown). */
+async function disabledProposalFeatures(client: DaemonClient, proposals: { kind?: string }[]): Promise<FeatureName[]> {
+  const needed = new Set(proposals.map((p) => featureForProposalKind(p.kind ?? "")).filter((f): f is FeatureName => f !== null));
+  if (needed.size === 0) return [];
+  let features;
+  try {
+    features = featuresFromStatus(await client.getStatus());
+  } catch {
+    return [];
+  }
+  return [...needed].filter((f) => !features[f]);
 }
 
 // ─── fail (teammate escape hatch) ──────────────────────────────
@@ -372,7 +398,7 @@ function registerCreateTask(pi: ExtensionAPI, client: DaemonClient): void {
     promptSnippet: "Create a standalone one-off task (optionally as a draft)",
     promptGuidelines: [
       DRAFT_GUIDELINE,
-      "Use create_task for a single actionable item; use create_story + add_task when work needs multiple sequential steps.",
+      "Use create_task for a single actionable item; use create_story + add_task (when available) when work needs multiple sequential steps.",
       "Write goal as a complete prompt the teammate can execute autonomously; put concrete, checkable acceptance criteria in acceptanceCriteria.",
       "Pass directory when the work targets a specific repo/folder so a teammate biased there picks it up.",
     ],
@@ -854,10 +880,16 @@ function registerTeamStatus(pi: ExtensionAPI, client: DaemonClient): void {
           .map(([s, n]) => `${n} ${s}`)
           .join(", ");
 
+        const features = featuresFromStatus(status);
+        const off = (Object.keys(features) as FeatureName[]).filter((f) => !features[f]);
+
         let text = `🍕 Team Status\n\n`;
-        text += `Stories: ${status.stories.open} open, ${status.stories.done} done (${status.stories.open + status.stories.done} total)\n`;
+        if (features.stories) {
+          text += `Stories: ${status.stories.open} open, ${status.stories.done} done (${status.stories.open + status.stories.done} total)\n`;
+        }
         text += `Tasks: ${status.tasks.total} total (${byStatus})\n`;
         text += `Team: ${status.members.total} members (${status.members.working} working, ${status.members.idle} idle)\n`;
+        if (off.length > 0) text += `Turned off: ${off.join(", ")} (Config → General → Work items)\n`;
 
         return {
           content: [{ type: "text", text }],

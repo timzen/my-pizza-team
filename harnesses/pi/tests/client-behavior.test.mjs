@@ -112,6 +112,28 @@ test("surfaces the daemon's error message and status as DaemonError", async () =
   });
 });
 
+test("a feature-toggle 403 becomes the actionable 'enable it in Config' message", async () => {
+  const body = { success: false, error: "feature 'stories' is disabled", feature: "stories" };
+  await withServer(() => ({ status: 403, json: body }), async (url) => {
+    await assert.rejects(
+      () => client(url).createStory({ id: "s", title: "S", description: "d" }),
+      (e) => {
+        assert.ok(e instanceof DaemonError);
+        assert.equal(e.statusCode, 403);
+        assert.equal(e.feature, "stories");
+        assert.equal(e.message, "Stories are disabled — enable them in Config (features.stories)");
+        return true;
+      },
+    );
+  });
+});
+
+test("a 403 without a known feature keeps the daemon's message", async () => {
+  await withServer(() => ({ status: 403, json: { error: "forbidden", feature: "bogus" } }), async (url) => {
+    await assert.rejects(() => client(url).getStatus(), (e) => e.message === "forbidden" && e.feature === undefined);
+  });
+});
+
 test("falls back to status text when the error body isn't JSON", async () => {
   await withServer(() => ({ status: 502, text: "<html>bad gateway</html>" }), async (url) => {
     await assert.rejects(

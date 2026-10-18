@@ -65,6 +65,12 @@ non-zero only for real breakage.
 `leader` command. Running it again attaches to the existing leader rather than
 starting a second one.
 
+`mpt status` respects the [feature toggles](#feature-toggles): a switched-off kind's
+count is left out and a `Turned off: …` line names what's off. The CLI has no
+commands that create or edit stories, tasks, or schedules (that's the web UI and
+the assistant); a daemon refusal it does meet is shown as "Stories are disabled —
+enable them in Config (features.stories)".
+
 ### Upgrading
 
 `mpt upgrade` downloads the latest GitHub release for your platform, verifies its
@@ -195,6 +201,17 @@ Inbox are always on, so every kind can be off at once.
 - **In the web UI** the toggles are **Config → General → Work items**. A kind that's
   off loses its nav link and quick-create entry, its pages show a "turned off"
   notice, and its triage proposals can only be rejected.
+- **For the assistant** (the Pi leader) a kind that's off takes its tools out of
+  the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
+  `list_workflows`, `list_context`; Tasks: `create_task`; Schedules:
+  `create_schedule`; with all three off, `get_task` / `edit_task` / `publish_task`
+  too — and the system prompt says what's off. The leader re-reads the toggles
+  before every run and on its 10-second status poll, so a change applies without
+  restarting Pi. A triage teammate's `propose_work` refuses proposals of a kind
+  that's off. Anything that still reaches the daemon gets the same "… are disabled
+  — enable them in Config (features.…)" message.
+- **On the CLI** `mpt status` leaves out a switched-off kind's counts (see
+  [CLI Reference](#cli-reference)).
 
 ### Environment Variables
 

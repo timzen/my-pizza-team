@@ -38,6 +38,7 @@ import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
 import { isRunningFromSource, mptInvocation } from "../daemon/self.ts";
 import { cmdAgent, cmdSetupHarness } from "./agent.ts";
 import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
+import { daemonErrorMessage, statusSummaryLines } from "./features.ts";
 // Single source of truth for the version: the package manifest. Bundled into
 // the compiled binary by `deno compile` (JSON imports are part of the module
 // graph), and read directly under `deno run`.
@@ -188,11 +189,11 @@ async function cmdStatus(): Promise<void> {
     if (res.ok) {
       const data = await res.json();
       console.log(`   Port: ${port}`);
-      console.log(`   Stories: ${data.stories.open} open, ${data.stories.done} done (${data.stories.total} total)`);
-      console.log(`   Tasks: ${data.tasks.total} total`);
-      console.log(`   Members: ${data.members.total} (${data.members.working} working, ${data.members.idle} idle)`);
+      // Respects the feature toggles: a switched-off kind's count is left out.
+      for (const line of statusSummaryLines(data)) console.log(`   ${line}`);
     } else {
-      console.log(`   ⚠️  API responded with HTTP ${res.status}`);
+      const body = await res.json().catch(() => null);
+      console.log(`   ⚠️  API responded with HTTP ${res.status}: ${daemonErrorMessage(res.status, body)}`);
     }
   } catch {
     console.log(`   ⚠️  Cannot reach API at http://localhost:${port}`);

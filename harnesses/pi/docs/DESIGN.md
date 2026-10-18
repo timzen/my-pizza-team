@@ -151,6 +151,20 @@ the file is *composed* from the live leases:
 - Leases are liveness-checked by pid (a crash can't pin yolo on), and holders
   re-assert every 10s, which also self-heals a config deleted underneath them.
 
+### 9. Tools follow the team's feature toggles
+A team can switch Stories, Tasks (incl. Templates), and Schedules off (my-pizza-team
+docs/DESIGN.md "Feature Toggles"). The daemon refuses a disabled kind; the leader
+also stops *offering* it, because a model shown `create_story` will reach for it.
+Pi can't unregister a tool, so every leader tool is registered once and the gated
+ones are moved in and out of the **active set** (`pi.setActiveTools`), which Pi
+re-declares to the model before its next request. The toggles are re-read at
+session start, before every run, and on the leader's 10s status poll — polling,
+not a push, since the leader already reads `/api/status` and a Config change is
+rare. A short system-prompt note names what's off, because static guidelines on
+the remaining tools can still mention a disabled one. A call that slips through
+between polls gets the daemon's 403, which the client rewords as "Stories are
+disabled — enable them in Config (features.stories)".
+
 ## Interaction Model
 
 ### Teammate work loop

@@ -126,6 +126,16 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`add_task`** — Add a task to a story (optionally as a `draft`)
 - **`team_status`** — Get current team status summary
 
+> **Feature toggles.** A team can switch Stories, Tasks, and Schedules off
+> (my-pizza-team `config.features`). The leader then takes that kind's tools out
+> of the model's tool list — Stories: `create_story` / `edit_story` / `add_task` /
+> `list_workflows` / `list_context`; Tasks: `create_task`; Schedules:
+> `create_schedule`; all three off also hides `get_task` / `edit_task` /
+> `publish_task` — and tells the model what's off. It re-checks at session start,
+> before every run, and every 10s, so a Config change needs no restart. A call the
+> daemon refuses reads "Stories are disabled — enable them in Config
+> (features.stories)"; `propose_work` refuses proposals of a kind that's off.
+
 ### Teammate Tools
 - **`upload_attachment`** — Upload a file to the current work item
 - **`fail`** — Give up on the current work item: posts a comment and marks the WorkItem `FAILED`, leaving the task stuck for a human to re-enqueue/move/edit

@@ -51,6 +51,8 @@ src/
 ├── usage.ts              # summarizeRun: a run's tokens (incl. cache read/write), cost, model, last prose
 ├── session-stats.ts      # readSessionStats: model, context fill (ctx.getContextUsage), session cost (footer arithmetic)
 ├── tools.ts              # LLM-callable tools (shared across roles, all via daemon API)
+├── features.ts           # Feature toggles: which leader tools each kind owns (FEATURE_TOOLS),
+│                         #   applyFeatureTools (pi.setActiveTools), featurePromptNote
 ├── permissions.ts        # Dynamic yoloMode toggling + ppt-autonomous authorizer chain link;
 │                         # also keeps the leader/chat agent unblockable on remote-driven runs
 ├── readiness.ts          # Host readiness probe (leader-run): exit 0 = ready, non-zero = not ready
@@ -330,6 +332,29 @@ Publish"). It can also **write** to the board — `create_thought`
 (clear a note it acted on), and `group_thoughts` (organize) — closing the
 thoughts → tasks → inbox → new-thoughts loop. This replaced the old
 `read_scratchpad` tool.
+
+**Feature toggles** (my-pizza-team `config.features`, reported on `/api/status` as
+`features`; DESIGN.md §9). `registerLeaderTools` registers every tool; leader.ts
+then calls `applyFeatureTools(pi, features)` (src/features.ts) at session start,
+in `before_agent_start`, and on the widget's 10s status poll (headless too). It
+keeps the gated tools in `pi.getActiveTools()` only for kinds that are on:
+
+| Feature | Tools |
+|---|---|
+| `stories` | `create_story`, `edit_story`, `add_task`, `list_workflows`, `list_context` |
+| `tasks` | `create_task` |
+| `schedules` | `create_schedule` |
+| any of the three | `get_task`, `edit_task`, `publish_task` |
+
+Other tools are never touched, and `setActiveTools` is only called on a change.
+`before_agent_start` appends `featurePromptNote(features)` (empty when all on) to
+the system prompt after the persona. Until the first status read succeeds — and
+against a daemon that predates the toggles — everything stays on
+(`featuresFromStatus`). The daemon's 403 `{ feature }` becomes a `DaemonError` with
+`.feature` and the `featureDisabledMessage` wording, which is what a tool error
+shows. The teammate's `propose_work` checks `/api/status` and refuses proposals of a
+switched-off kind (pass-through if the status read fails); `team_status` and
+`/ppt-status` omit a switched-off kind's story counts.
 
 ### Chat (mirror)
 | Route | Method | Purpose |

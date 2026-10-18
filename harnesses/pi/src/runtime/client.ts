@@ -11,6 +11,8 @@
 // Error handling: methods throw a DaemonError on non-2xx responses
 // with the error message from the response body. Callers should catch
 // these for graceful degradation (e.g., daemon unreachable during polling).
+// A feature-toggle refusal (403 with `feature`) carries `.feature` and the
+// actionable `featureDisabledMessage` wording instead of the raw body text.
 //
 // See /docs/ARCHITECTURE.md for the full route list and data flow.
 
@@ -37,12 +39,57 @@ export const PROTOCOL_VERSION = 5;
 /** Error thrown when the daemon returns a non-2xx response */
 export class DaemonError extends Error {
   public statusCode: number;
+  /**
+   * Set when the daemon refused the request because the team switched this
+   * work-item kind off (403 `{ feature }`, my-pizza-team daemon/features.ts);
+   * the message is then `featureDisabledMessage(feature)`.
+   */
+  public feature?: FeatureName;
 
-  constructor(message: string, statusCode: number) {
+  constructor(message: string, statusCode: number, feature?: FeatureName) {
     super(message);
     this.name = "DaemonError";
     this.statusCode = statusCode;
+    if (feature) this.feature = feature;
   }
+}
+
+// ─── Feature toggles ─────────────────────────────────────────────────
+//
+// Mirrors my-pizza-team shared/types.ts (FeaturesConfig / FEATURE_NAMES) rather
+// than importing it, for the same no-relative-value-imports reason as
+// PROTOCOL_VERSION above. The CLI imports these from here too.
+
+/** A work-item kind the team can switch off in `config.features`. */
+export type FeatureName = "stories" | "tasks" | "schedules";
+
+/** Every switchable kind, in display order. */
+export const FEATURE_NAMES: readonly FeatureName[] = ["stories", "tasks", "schedules"];
+
+/** Which kinds are on, as `GET /api/status` reports them (defaults applied). */
+export type Features = Record<FeatureName, boolean>;
+
+/** A daemon too old to report `features` gates nothing, so treat it as all on. */
+export const ALL_FEATURES_ON: Features = { stories: true, tasks: true, schedules: true };
+
+const FEATURE_LABELS: Record<FeatureName, string> = {
+  stories: "Stories are",
+  tasks: "Tasks (and Templates) are",
+  schedules: "Schedules are",
+};
+
+/**
+ * The one wording for "this kind is switched off", shared by the CLI and every
+ * agent tool so the user always gets the same fix: where to turn it back on.
+ */
+export function featureDisabledMessage(feature: FeatureName): string {
+  return `${FEATURE_LABELS[feature]} disabled — enable them in Config (features.${feature})`;
+}
+
+/** The toggles from a status response, all on when the daemon didn't send any. */
+export function featuresFromStatus(status: { features?: Partial<Features> } | null | undefined): Features {
+  const f = status?.features ?? {};
+  return { stories: f.stories !== false, tasks: f.tasks !== false, schedules: f.schedules !== false };
 }
 
 // ─── Response Types ──────────────────────────────────────────────────
@@ -180,6 +227,8 @@ export interface StatusResponse {
   defaultWorkflow: string;
   /** Opaque: relayed, never inspected (see AgentRegisterResponse). */
   workflows: Record<string, unknown>;
+  /** Which work-item kinds are on; absent from daemons that predate the toggles (read via `featuresFromStatus`). */
+  features?: Partial<Features>;
 }
 
 /** Response from POST /api/stories */
@@ -299,14 +348,22 @@ export class DaemonClient {
 
     if (!res.ok) {
       let errorMsg = `HTTP ${res.status}`;
+      let feature: FeatureName | undefined;
       try {
         const body = await res.json() as any;
         if (body.error) errorMsg = body.error;
+        // A feature-toggle refusal: replace the terse "feature 'x' is disabled"
+        // with the actionable wording, so a tool error tells the model (and the
+        // user) how to turn the kind back on.
+        if (res.status === 403 && (FEATURE_NAMES as readonly string[]).includes(body.feature)) {
+          feature = body.feature as FeatureName;
+          errorMsg = featureDisabledMessage(feature);
+        }
       } catch {
         // If body isn't JSON, use status text
         errorMsg = res.statusText || errorMsg;
       }
-      throw new DaemonError(errorMsg, res.status);
+      throw new DaemonError(errorMsg, res.status, feature);
     }
 
     return res;

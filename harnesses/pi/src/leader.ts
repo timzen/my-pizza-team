@@ -12,7 +12,8 @@
 //   2. Poll GET /api/leader/directives every 5s (one queue)
 //   3. Realize each directive locally (spawn via tmux, reset via /new, ...)
 //   4. Mark done: PUT /api/leader/directives/:id { status }
-//   5. Register LLM tools for planning work
+//   5. Register LLM tools for planning work, active only for the work-item
+//      kinds the team has on (features.ts; re-checked on every status read)
 //   6. Provide tmux commands: /ppt-spawn, /ppt-dismiss, /ppt-hop, /ppt-status
 //   7. Show status widget with team progress
 //   8. Mirror the daemon's chat into this Pi session and back (ChatMirror)
@@ -25,8 +26,9 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { DaemonClient } from "./runtime/client.js";
+import { ALL_FEATURES_ON, type DaemonClient, type Features, featuresFromStatus } from "./runtime/client.js";
 import { registerLeaderTools } from "./tools.js";
+import { applyFeatureTools, featurePromptNote } from "./features.js";
 import { prepareSpawnConfig } from "./permissions.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { DEFAULT_HARNESS_TEMPLATES, DEFAULT_TMUX_SESSION, LEADER_WINDOW } from "./shared/types.js";
@@ -157,6 +159,22 @@ export async function setupLeader(
 
   // Register LLM tools (stories, tasks, queue, search)
   registerLeaderTools(pi, client);
+
+  // ─── Feature toggles ───────────────────────────────────────────────
+  // Every tool is registered above; the ones owned by a switched-off kind are
+  // kept out of the active set. Re-checked from /api/status now, before every
+  // run, and on the widget poll, so a Config change applies without a restart
+  // (features.ts). Until the daemon answers, nothing is hidden: the daemon's 403
+  // is the backstop.
+  let features: Features = ALL_FEATURES_ON;
+  const adoptFeatures = (next: Features) => {
+    features = next;
+    applyFeatureTools(pi, features);
+  };
+  const syncFeatures = async () => {
+    try { adoptFeatures(featuresFromStatus(await client.getStatus())); } catch { /* keep the last known */ }
+  };
+  await syncFeatures();
 
   // ─── Leader Heartbeat ──────────────────────────────────────────────
   // Send periodic heartbeats so the daemon knows the leader is alive.
@@ -299,7 +317,7 @@ export async function setupLeader(
         const status = await client.getStatus();
         let output = `🍕 pi-pizza-team status\n`;
         output += `🌐 ${client.url}\n\n`;
-        output += `  Stories: ${status.stories.open} open, ${status.stories.done} done\n`;
+        if (featuresFromStatus(status).stories) output += `  Stories: ${status.stories.open} open, ${status.stories.done} done\n`;
         output += `  Tasks: ${status.tasks.total} total`;
         const byStatus = Object.entries(status.tasks.byStatus).map(([s, n]) => `${n} ${s}`).join(", ");
         if (byStatus) output += ` (${byStatus})`;
@@ -342,10 +360,13 @@ export async function setupLeader(
 
   // Persona: the daemon vends chat framing + the selected persona (or its
   // default), injected as the system prompt on every run.
+  // Also the per-run feature refresh: the tool set and a note naming the kinds
+  // that are off (features.ts featurePromptNote).
   pi.on("before_agent_start", async (event) => {
-    const persona = chat.persona;
-    if (!persona) return;
-    return { systemPrompt: `${event.systemPrompt}\n\n${persona}` };
+    await syncFeatures();
+    const extra = [chat.persona, featurePromptNote(features)].filter(Boolean);
+    if (extra.length === 0) return;
+    return { systemPrompt: `${event.systemPrompt}\n\n${extra.join("\n\n")}` };
   });
 
   // Report the Pi session backing the chat so a conversation can be resumed.
@@ -451,18 +472,20 @@ export async function setupLeader(
 
   await chat.start();
 
-  // ─── Widget ────────────────────────────────────────────────────────
+  // ─── Widget (and the idle feature-toggle refresh) ───────────────────
 
   const updateWidget = async () => {
-    if (!ctx.hasUI) return;
     try {
       const status = await client.getStatus();
+      // Runs headless too: this poll is what keeps the tool set current between runs.
+      adoptFeatures(featuresFromStatus(status));
+      if (!ctx.hasUI) return;
       const done = status.tasks.byStatus.done || 0;
       const parts = [`🍕 ${done}/${status.tasks.total} tasks done`];
       if (status.members.working > 0) parts.push(`${status.members.working} working`);
       ctx.ui.setWidget("pi-pizza-team", [parts.join(" • ")]);
     } catch {
-      ctx.ui.setWidget("pi-pizza-team", ["🍕 daemon unreachable"]);
+      if (ctx.hasUI) ctx.ui.setWidget("pi-pizza-team", ["🍕 daemon unreachable"]);
     }
   };
 
