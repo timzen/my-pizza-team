@@ -13,7 +13,7 @@
 
 import type { RouteContext } from "./types.ts";
 import { buildTriagePrompt, buildWorkDefPrompt } from "../prompt.ts";
-import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkItemRef } from "../../shared/types.ts";
+import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import denoConfig from "../../deno.json" with { type: "json" };
 import { dismissParams, dismissReady } from "../spawner.ts";
@@ -423,10 +423,21 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 }
 
-/** Assemble the canonical claim prompt for a WorkItem's ref. */
+/**
+ * Assemble the canonical claim prompt for a WorkItem's ref: the daemon's base
+ * prompt, then the owning Work Source's `buildPrompt` contribution, if it has
+ * one (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins").
+ */
 function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): string {
   const def = store.getWorkDef(ref.workDefId);
   if (!def) return "";
+  const base = buildBasePrompt(store, ref, def);
+  const src = store.getWorkSourceFor(def);
+  return src?.source.buildPrompt ? src.source.buildPrompt(def, base, src.ctx) : base;
+}
+
+/** The daemon's built-in prompt for a WorkDef, by kind (not yet migrated to sources). */
+function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: WorkDef): string {
 
   // Auto triage: the WorkDef is an empty container, so the prompt comes from the
   // team's triage.md plus the note as it reads *now* (TODO.md "Auto Triage").

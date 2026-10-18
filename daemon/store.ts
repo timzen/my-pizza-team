@@ -66,7 +66,7 @@ import {
 import { isAgentState, isActiveState, isValidPosition, firstActiveState, nextState, validateWorkflow } from "./workflow-engine.ts";
 import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
-import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule, scheduleCursor } from "./store/schedules.ts";
+import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
 import {
@@ -83,7 +83,10 @@ import {
   type AssistantSession,
   type InboxMessage,
 } from "./store/assistant-chat.ts";
-import { isCronDue, isValidCron } from "./cron.ts";
+import { isValidCron } from "./cron.ts";
+import { type SourceEntry, SourceRegistry } from "./sources/registry.ts";
+import type { SourceContext, WorkSource } from "./sources/types.ts";
+import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
@@ -303,6 +306,13 @@ export class Store {
   readonly transcripts = new TeammateTranscripts();
   /** Web-UI pairing intent per teammate (docs/DESIGN.md "Watching and Pairing with a Teammate"). In-memory. */
   readonly pairing = new TeammatePairing();
+  /**
+   * The Work Sources (WorkDef kinds as plugins; docs/DESIGN.md "Work Sources:
+   * WorkDef Kinds as Plugins"). The Store calls them at its hook points
+   * (eligibility, enqueue, terminal, the periodic tick) instead of switching on
+   * kind; a kind with no registered source keeps the inline default.
+   */
+  private sources = new SourceRegistry((sourceId) => this.makeSourceContext(sourceId));
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -319,6 +329,46 @@ export class Store {
     syncUsageLedger(this.db, teamDir);
     this.resetConnectionsForBoot();
     this.loadWorkflows();
+    this.sources.register(scheduleSource);
+  }
+
+  // --- Work Sources (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins") ---
+
+  /**
+   * The daemon-side capabilities a source gets. `enqueue` is the single
+   * `enqueueFor`, so every source inherits "pending never enqueues" and the
+   * directory normalization for free.
+   */
+  private makeSourceContext(sourceId: string): SourceContext {
+    return {
+      sourceId,
+      teamDir: this.teamDir,
+      config: () => this.config,
+      log: (message) => console.warn(`[source:${sourceId}] ${message}`),
+      listWorkDefs: () => listWorkDefs(this.teamDir),
+      hasActiveItem: (defId) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null,
+      enqueue: (defId) => this.enqueueFor(defId),
+      readiness: { canEnqueueNow: () => this.canScheduleNow() },
+    };
+  }
+
+  /**
+   * Register a Work Source (and run its `init`). Built-ins register in the
+   * constructor; this is the seam for in-repo fixture sources in tests. Throws
+   * on a duplicate id or unsupported apiVersion.
+   */
+  registerWorkSource(source: WorkSource): void {
+    this.sources.register(source);
+  }
+
+  /** The registered source that owns a WorkDef (by `parent.kind`; none = "task"), if any. */
+  getWorkSourceFor(def: Pick<WorkDef, "parent">): SourceEntry | undefined {
+    return this.sources.forWorkDef(def);
+  }
+
+  /** Run every source's periodic `tick` now (the 30s timer calls this). */
+  tickWorkSources(now: Date = new Date()): void {
+    this.sources.tickAll(now);
   }
 
   /**
@@ -1344,6 +1394,11 @@ export class Store {
       // registered the item has no directory, so any teammate may take it.
       directory = directory || this.getLeader()?.directory;
     }
+    // A registered source may override where/what the item is (hook: resolveItem).
+    const src = this.sources.forWorkDef(def);
+    const resolved = src?.source.resolveItem?.(def, src.ctx);
+    if (resolved?.title !== undefined) title = resolved.title;
+    if (resolved?.directory !== undefined) directory = resolved.directory;
     const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     this.db.prepare(
@@ -1435,6 +1490,9 @@ export class Store {
     }
     const def = this.getWorkDef(wi.ref.workDefId);
     if (!def) return false;
+    // A registered source decides for its own defs (hook: isEligible).
+    const src = this.sources.forWorkDef(def);
+    if (src?.source.isEligible) return src.source.isEligible(def, src.ctx);
     // Triage: only while its note is still there and active (archiving a note
     // archives its WorkDef, but an in-flight item must stop being handed out).
     if (def.parent?.kind === "thought") {
@@ -1530,6 +1588,7 @@ export class Store {
       return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
     }
     this.setWorkItemStateRow(id, state);
+    this.notifyItemTerminal(id);
     // The daemon posts nothing: the agent composes its own completion/failure
     // comment (see the teammate loop / fail tool) before calling this.
     if (this.getTask(item.ref.workDefId)) {
@@ -1541,6 +1600,26 @@ export class Store {
       // FAILED: leave the task in place (stuck) with no active WorkItem.
     }
     return { ok: true };
+  }
+
+  /**
+   * Tell the item's source it reached a terminal state (hook: onItemTerminal).
+   * Fire-and-forget: a source's failure (sync or async) is logged, never
+   * allowed to undo the state change the agent just made.
+   */
+  private notifyItemTerminal(itemId: string): void {
+    const item = this.getWorkItem(itemId);
+    const def = item ? this.getWorkDef(item.ref.workDefId) : null;
+    if (!item || !def) return;
+    const src = this.sources.forWorkDef(def);
+    if (!src?.source.onItemTerminal) return;
+    const fail = (e: unknown) => src.ctx.log(`onItemTerminal failed: ${e instanceof Error ? e.message : String(e)}`);
+    try {
+      const r = src.source.onItemTerminal(def, item, src.ctx);
+      if (r instanceof Promise) r.catch(fail);
+    } catch (e) {
+      fail(e);
+    }
   }
 
   /**
@@ -2135,9 +2214,10 @@ export class Store {
       this.reconcileTeammatePool();
     }, 30_000);
 
-    // Cron scheduler: enqueue due Scheduled WorkDefs, checked every 30s
-    // (matching is minute-granular and deduped per minute; see cron.ts).
-    this.schedulerTimer = setInterval(() => this.runScheduler(), 30_000);
+    // Work Source tick, every 30s: the Schedule source enqueues due Scheduled
+    // WorkDefs here (matching is minute-granular and deduped per minute; see
+    // cron.ts and daemon/sources/schedule.ts).
+    this.schedulerTimer = setInterval(() => this.tickWorkSources(), 30_000);
 
     // Auto-triage sweep: one pass over the notes every `intervalMinutes`. Its own
     // timer rather than a Schedule, because a Schedule enqueues one WorkDef and a
@@ -2220,59 +2300,13 @@ export class Store {
   }
 
   /**
-   * Enqueue a WorkItem for every Scheduled WorkDef whose cron is due now (and
-   * that isn't already in flight). Stamps `lastEnqueuedAt` for per-minute dedupe.
-   *
-   * Readiness gating (see docs/ARCHITECTURE.md): a due child whose target host
-   * is not ready is *held* rather than enqueued, and the schedule is flagged
-   * `heldForReadiness` so it re-attempts every tick (independent of the cron
-   * window) until the host recovers — firing exactly one catch-up run instead of
-   * a per-occurrence backlog.
-   *
-   * Pending (docs/DESIGN.md "Pending schedules: reversible, no catch-up"): a
-   * job fires only when both its Schedule and its WorkDef are active. A pending
-   * Schedule is skipped outright — no cron firing, no readiness hold, no cursor
-   * advance; a pending child WorkDef is left out of its (active) Schedule's
-   * firing. The cron cursor is the later of `lastEnqueuedAt` and `resumedAt`,
-   * so a reactivated Schedule resumes at its next occurrence and never
-   * back-fires what it skipped while pending.
+   * Run the Schedule source's cron firing now (readiness hold/catch-up and
+   * pending handling included). The logic lives in daemon/sources/schedule.ts;
+   * this is the synchronous seam tests (and callers wanting "fire now") use.
    */
   runScheduler(now: Date = new Date()): void {
-    // Group WorkDefs by their schedule parent (skip archived ones).
-    const childrenBySchedule = new Map<string, WorkDef[]>();
-    for (const def of listWorkDefs(this.teamDir)) {
-      if (def.parent?.kind !== "schedule") continue;
-      if (def.status === "archived") continue;
-      if (def.pending) continue; // a pending job never fires (nor holds the schedule for readiness)
-      const arr = childrenBySchedule.get(def.parent.id) || [];
-      arr.push(def);
-      childrenBySchedule.set(def.parent.id, arr);
-    }
-    for (const sched of listSchedules(this.teamDir)) {
-      if (sched.pending) continue; // a pending schedule never fires nor holds for readiness
-      const due = isCronDue(sched.cron, now, scheduleCursor(sched));
-      const held = sched.heldForReadiness === true;
-      // A schedule is worked either when its cron fires, or when it has work held
-      // back for readiness that we keep retrying until the host recovers.
-      if (!due && !held) continue;
-
-      let anyHeld = false;
-      for (const def of childrenBySchedule.get(sched.id) || []) {
-        if (this.getActiveWorkItemForRef({ workDefId: def.id })) continue;
-        if (!this.canScheduleNow()) { anyHeld = true; continue; }
-        this.enqueueFor(def.id);
-      }
-
-      const patch: { lastEnqueuedAt?: string; heldForReadiness?: boolean } = {};
-      // Advance the cron cursor only for a genuine cron firing (dedupes within
-      // the minute). Recovery of held work is driven by `heldForReadiness`, not
-      // the cron window, so a job held past its minute still fires once on recovery.
-      if (due) patch.lastEnqueuedAt = now.toISOString();
-      if (anyHeld !== held) patch.heldForReadiness = anyHeld;
-      if (patch.lastEnqueuedAt !== undefined || patch.heldForReadiness !== undefined) {
-        updateSchedule(this.teamDir, sched.id, patch);
-      }
-    }
+    const entry = this.sources.get(SCHEDULE_SOURCE_ID);
+    entry?.source.tick?.(entry.ctx, now);
   }
 
   // --- Auto triage (TODO.md "Auto Triage") ---

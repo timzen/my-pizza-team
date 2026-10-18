@@ -259,6 +259,75 @@ attachments, and routes for no gain. Each WorkItem is self-contained — story-l
 context plus the WorkDef's own goal and criteria carry continuity, so there is no
 "result" field or "previous task" context threaded between tasks.
 
+## Work Sources: WorkDef Kinds as Plugins
+
+A **Work Source** is the plugin that owns one WorkDef kind — the *parent* in the
+table above — and decides when its WorkDefs want a WorkItem. The built-ins are
+moving onto it one at a time; the goal is that an external system (Jira, Asana,
+Taskei) can supply WorkDefs through the same seam. The interface is
+`daemon/sources/types.ts`; the registry (`daemon/sources/registry.ts`, one per
+Store) maps a WorkDef to its source by `parent.kind`, with no parent = the
+`"task"` source.
+
+**Where the daemon branches on kind today** (the audit this design starts from;
+✅ = through a source hook now, ⏳ = still inline, falls back when no source/hook):
+
+| Where | Story | Schedule | Thought | Solitary | Hook |
+|---|---|---|---|---|---|
+| cron/readiness firing (`startTimers` → `runScheduler`) | — | ✅ `sources/schedule.ts` | — | — | `tick` |
+| triage sweep timer (`runTriageSweep`) | — | — | ⏳ store.ts | — | `tick` |
+| `enqueueFor`: title/directory | ⏳ story's directory | default | ⏳ note title, leader dir | default | `resolveItem` |
+| `isWorkItemEligible` | ⏳ story ready/active, agent state | default | ⏳ note active | default | `isEligible` |
+| `setWorkItemState` / `advanceTask` | ⏳ advance + admission | — | — | — | `onItemTerminal` |
+| claim prompt (`routes/agents.ts buildClaimPrompt`, `prompt.ts`) | ⏳ story + persona framing | base | ⏳ triage prompt | base | `buildPrompt` |
+| assignments rows (`claimWorkItem`, cancel, force-fail) | ⏳ `getTask(...)` | — | — | — | (daemon, stays) |
+| `activateWorkDef` | ⏳ admission | — | — | ⏳ enqueue | — |
+| features (`featureForWorkDef`, `isWorkDefVisible`, `activeFeatureItems`) | ⏳ `workDefType` | ⏳ | ⏳ | ⏳ | — |
+| routes: `propose_work` (agents.ts), work-defs cron edit, `deleteSchedule` unparenting | — | ⏳ | ⏳ | — | — |
+
+**The interface** (every hook optional; a missing hook means Solitary behavior):
+
+```ts
+interface WorkSource {
+  id: string; apiVersion: 1;
+  init?(ctx): void | Promise<void>;          // once, at registration
+  tick?(ctx, now: Date): void;                // the daemon's 30s tick (Schedule fires here)
+  sync?(ctx): Promise<ExternalDef[]>;         // pull-only external sources (not wired yet)
+  isEligible?(def, ctx): boolean;             // may a READY item still be handed out?
+  resolveItem?(def, ctx): { title?; directory? };  // at enqueue
+  buildPrompt?(def, base, ctx): string;       // at claim, given the daemon's base prompt
+  onItemTerminal?(def, item, ctx): void | Promise<void>;  // after COMPLETE/FAILED
+  onComment?(def, comment, ctx): void | Promise<void>;    // write-back (not wired yet)
+}
+// SourceContext: sourceId, teamDir, config(), log(), listWorkDefs(),
+//   hasActiveItem(defId), enqueue(defId) → the single enqueueFor, readiness.canEnqueueNow()
+```
+
+Refinements over the first sketch: the daemon owns the **timer** and calls each
+source's `tick` (so `stopTimers` stops everything, and tests drive a source
+synchronously) rather than each source starting its own in `init`. `upsertDef` and
+a per-source kv store join `SourceContext` with the first external source, where
+they're needed; `ExternalDef` (with its `revision` for dedupe) is fixed now so the
+interface is stable.
+
+**Invariants** — what a source can't change, by construction:
+
+- The daemon still owns the queue, leases, retries, readiness, and directory
+  matching. A source decides *when* and contributes *what*; it never leases.
+- Every WorkItem is created by the single `enqueueFor`; `ctx.enqueue` is it.
+- Pending WorkDefs never enqueue (`enqueueFor` refuses them, whatever the source).
+- `workdef.md` stays authored-only: a source's runtime state lives in its own
+  files (a Schedule's `lastEnqueuedAt`/`heldForReadiness` in `schedules/<id>.json`).
+- A source's failure is contained: a throwing `tick` is logged and the other
+  sources still tick; a failing `onItemTerminal` never undoes the state change.
+
+*Why:* per-kind `if (def.parent?.kind === …)` branching was spread through
+store.ts, features.ts, prompt.ts, and the routes, so adding a kind meant touching
+all of them. Naming the hook points makes each kind one file, and makes "a kind
+from somewhere else" a plugin rather than a fork. Package loading for third-party
+sources is deferred (TODO.md "Work Sources as plugins — package loading
+(deferred)").
+
 ## Pending: Write, Review, Activate
 
 A WorkDef can be saved as **pending**: written, read, and revised by you or the
