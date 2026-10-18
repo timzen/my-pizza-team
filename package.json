@@ -3,7 +3,23 @@
   "version": "0.27.0",
   "description": "My Pizza Team — a daemon, CLI and web UI that orchestrates a team of Pi coding agents",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/timzen/my-pizza-team.git"
+  },
+  "homepage": "https://github.com/timzen/my-pizza-team#readme",
   "type": "module",
+  "bin": {
+    "mpt": "dist/main.js"
+  },
+  "files": [
+    "dist/",
+    "ui/dist/",
+    "harnesses/pi/package.json",
+    "harnesses/pi/src/",
+    "README.md",
+    "LICENSE"
+  ],
   "engines": {
     "node": ">=24"
   },
@@ -11,6 +27,9 @@
     "dev": "node --env-file-if-exists=.env --watch daemon/main.ts",
     "start": "node --env-file-if-exists=.env daemon/main.ts",
     "mpt": "node --env-file-if-exists=.env cli/main.ts",
+    "build": "npm run ui:ci-build && npm run build:js",
+    "build:js": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "prepack": "npm run build",
     "test": "node --test --test-concurrency=1 'tests/*.test.ts'",
     "test:e2e": "node --test --test-concurrency=1 'tests/e2e/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json",
@@ -20,7 +39,8 @@
     "typecheck:ext": "cd harnesses/pi && npm run typecheck",
     "test:ext": "cd harnesses/pi && npm test",
     "ui:dev": "cd ui && npm run dev",
-    "ui:build": "cd ui && npm run build"
+    "ui:build": "cd ui && npm run build",
+    "ui:ci-build": "cd ui && npm ci && npm run build"
   },
   "dependencies": {
     "@hono/node-server": "^2.1.5",

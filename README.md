@@ -620,6 +620,8 @@ if either is out of step.
 ## Building
 
 ```bash
+npm run build                  # UI + tsc → dist/ (the npm package's JS; `npm pack` runs it via prepack)
+npm pack                       # my-pizza-team-<version>.tgz; install with `npm i -g ./my-pizza-team-*.tgz`
 deno task compile              # ./mpt for this platform, with the UI and Pi extension embedded
 deno task compile:all          # all platforms → dist/
 ./scripts/publish.sh [x.y.z]   # bump, tag, push — the tag triggers the release workflow

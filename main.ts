@@ -1,3 +1,4 @@
+#!/usr/bin/env node
 /**
  * main.ts — Unified entry point for mpt (`node main.ts <command>`).
  *

@@ -31,12 +31,9 @@
  */
 
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
-
-/** This module's directory (`import.meta.dirname`, spelled so Deno's types accept it too). */
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+import { piExtensionDir } from "../shared/paths.ts";
 
 /** Files and directories that make up a usable extension package. */
 export const EXTENSION_PAYLOAD = ["package.json", "src"] as const;
@@ -45,9 +42,9 @@ export const EXTENSION_PAYLOAD = ["package.json", "src"] as const;
  * Where the extension's source lives, in precedence order:
  *
  *   1. `MPT_PI_EXTENSION` — an explicit override, for development and tests.
- *   2. Beside this module — `<root>/harnesses/pi`, where `<root>` is the checkout
- *      when running from source, or the installed npm package (which ships
- *      `harnesses/pi/`). Checked before the cwd so an installed mpt run inside some
+ *   2. The package's own copy — `<root>/harnesses/pi`, where `<root>` is the
+ *      checkout when running from source, or the installed npm package (which
+ *      ships `harnesses/pi/package.json` and `src/`); see shared/paths.ts. Checked before the cwd so an installed mpt run inside some
  *      other checkout still writes the extension that matches *its own* daemon.
  *   3. `<cwd>/harnesses/pi` — a fallback for running from a checkout.
  *
@@ -60,10 +57,7 @@ export function resolveExtensionSourceDir(): string | null {
   const override = process.env["MPT_PI_EXTENSION"];
   if (override) candidates.push(override);
 
-  // This file is <root>/cli/extension.ts (or <root>/dist/cli/extension.js in the
-  // compiled package, hence the second candidate).
-  candidates.push(path.join(HERE, "..", "harnesses", "pi"));
-  candidates.push(path.join(HERE, "..", "..", "harnesses", "pi"));
+  candidates.push(piExtensionDir());
 
   candidates.push(path.join(process.cwd(), "harnesses", "pi"));
 

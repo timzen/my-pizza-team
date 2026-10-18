@@ -5,15 +5,15 @@
  * In production (or compiled binary), this middleware serves the built
  * UI files and falls back to index.html for client-side routing.
  *
- * The UI dist path is resolved relative to the entry script, or can be
+ * The UI dist path is the package's `ui/dist` (shared/paths.ts), or can be
  * overridden with the UI_DIST environment variable.
  */
 
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { Context, Next } from "hono";
+import { uiDistDir } from "../shared/paths.ts";
 
 const MIME_TYPES: Record<string, string> = {
   ".html": "text/html",
@@ -29,33 +29,22 @@ const MIME_TYPES: Record<string, string> = {
   ".webmanifest": "application/manifest+json",
 };
 
-/** Resolve the UI dist directory path */
+/**
+ * Resolve the UI dist directory: `UI_DIST` if set, else the package's own
+ * `ui/dist` (shared/paths.ts — the checkout from source, the installed package
+ * otherwise), else `<cwd>/ui/dist` as a last resort. The package's own copy wins
+ * over the cwd so an installed mpt started inside some other checkout serves the
+ * UI that matches its own daemon.
+ */
 export function resolveDistDir(): string | null {
-  // Check env override first
   const envDist = process.env["UI_DIST"];
   if (envDist && existsSync(envDist)) return envDist;
 
-  // Try relative to CWD (typical for development)
+  const own = uiDistDir();
+  if (existsSync(own)) return own;
+
   const cwdDist = path.join(process.cwd(), "ui", "dist");
   if (existsSync(cwdDist)) return cwdDist;
-
-  // Try relative to the entry script (daemon/main.ts, cli/main.ts or main.ts).
-  // A symlinked entry (a global `mpt` bin) is followed back to the package.
-  const entry = process.argv[1];
-  if (entry) {
-    let mainDir = path.dirname(entry);
-    try { mainDir = path.dirname(fs.realpathSync(entry)); } catch { /* keep the path as given */ }
-    const relDist = path.join(mainDir, "..", "ui", "dist");
-    if (existsSync(relDist)) return relDist;
-
-    // The root main.ts sits beside ui/ (also where `deno compile --include` puts it).
-    const siblingDist = path.join(mainDir, "ui", "dist");
-    if (existsSync(siblingDist)) return siblingDist;
-  }
-
-  // Try relative to this module: <root>/daemon/static.ts → <root>/ui/dist.
-  const moduleDist = fileURLToPath(new URL("../ui/dist", import.meta.url));
-  if (existsSync(moduleDist)) return moduleDist;
 
   return null;
 }

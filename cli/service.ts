@@ -10,13 +10,10 @@
  */
 
 import * as path from "node:path";
-import { fileURLToPath } from "node:url";
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
-
-/** This module's directory (`import.meta.dirname`, spelled so Deno's types accept it too). */
-const HERE = path.dirname(fileURLToPath(import.meta.url));
+import { cliEntryScript } from "../shared/paths.ts";
 
 const SERVICE_LABEL = "com.my-pizza-team.daemon";
 const SYSTEMD_UNIT_NAME = "my-pizza-team.service";
@@ -42,23 +39,18 @@ function run(cmd: string, args: string[]): Promise<{ code: number; stderr: strin
 }
 
 /**
- * The argv the service runs: this Node binary, the CLI entry script, `start`.
+ * The argv the service runs: this Node binary, the CLI entry script
+ * (shared/paths.ts — cli/main.ts from source, the package's dist/main.js when
+ * installed), `start`.
  *
  * `process.execPath` as-is, never symlink-resolved, so a stable launcher path
  * such as /opt/homebrew/bin/node survives `brew upgrade`.
  *
  * TODO(node-runtime): use the saved Node (~/.config/mpt/runtime.json, MPT_NODE,
- * --node) instead of `process.execPath`, and the installed package's compiled
- * entry point when running from the npm package.
+ * --node) instead of `process.execPath`.
  */
 export function serviceProgramArguments(): string[] {
   return [process.execPath, cliEntryScript(), "start"];
-}
-
-/** Absolute path to the CLI entry script beside this module (cli/main.ts, or main.js once compiled). */
-function cliEntryScript(): string {
-  const ts = path.join(HERE, "main.ts");
-  return existsSync(ts) ? ts : path.join(HERE, "main.js");
 }
 
 /**

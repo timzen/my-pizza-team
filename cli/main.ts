@@ -41,7 +41,7 @@ import { mptInvocation } from "../daemon/self.ts";
 import { isMainModule } from "../shared/main-module.ts";
 import { cmdAgent, cmdSetupHarness } from "./agent.ts";
 import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
-import { daemonErrorMessage, statusSummaryLines } from "./features.ts";
+import { daemonErrorMessage, type StatusSummaryInput, statusSummaryLines } from "./features.ts";
 // Single source of truth for the version: the package manifest (scripts/sync-version.ts
 // copies it into the npm manifests).
 import denoConfig from "../deno.json" with { type: "json" };
@@ -185,7 +185,7 @@ async function cmdStatus(): Promise<void> {
   try {
     const res = await fetch(`http://localhost:${port}/api/status`);
     if (res.ok) {
-      const data = await res.json();
+      const data = (await res.json()) as StatusSummaryInput;
       console.log(`   Port: ${port}`);
       // Respects the feature toggles: a switched-off kind's count is left out.
       for (const line of statusSummaryLines(data)) console.log(`   ${line}`);

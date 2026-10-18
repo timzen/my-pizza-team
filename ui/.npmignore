@@ -1,0 +1,5 @@
+# Used by npm instead of ui/.gitignore when packing the root my-pizza-team package.
+# Its package.json `files` ships ui/dist/, the built UI — which .gitignore excludes,
+# and npm would otherwise honour that here. Keep the build, drop stray clutter.
+.DS_Store
+*.map
