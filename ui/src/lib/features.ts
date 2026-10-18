@@ -71,7 +71,7 @@ const SEGMENT_FEATURES: Record<string, FeatureName> = {
 
 /**
  * Work Items sub-tab → its feature. Pending and Archived mix every kind, so
- * they're absent (ungated; each kind's section hides itself inside).
+ * they're absent (ungated; a switched-off kind's chip and rows hide inside — pages/LifecyclePage.tsx).
  */
 const WORK_ITEMS_TAB_FEATURES: Record<string, FeatureName> = {
   board: "stories",

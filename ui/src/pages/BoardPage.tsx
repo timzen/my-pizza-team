@@ -12,10 +12,9 @@
  *   visible stories; state is lifted here (`useStoryCollapse`) and persisted
  *   per story in localStorage. Search does not auto-expand collapsed stories.
  * - Lives at Work Items → Board (`/work-items/board`, under the WorkItemsTabs
- *   bar) and shows **active** stories only. Work Items → Pending
- *   (pages/PendingPage.tsx) embeds the same board as `StoryBoard
- *   view="pending"`, so a task finishing in a just-paused story stays visible;
- *   archived stories are on Work Items → Archived.
+ *   bar) and shows **active** stories only. Pending and archived stories are
+ *   rows of the mixed lists on Work Items → Pending / Archived
+ *   (pages/LifecyclePage.tsx).
  */
 
 import { useState, useMemo } from "react";
@@ -60,35 +59,28 @@ interface StatusData {
 
 type SortOption = "title" | "status" | "ready";
 
-
-/** Which lifecycle view of the stories this board shows. */
-export type BoardView = "active" | "pending";
-
 /** Work Items → Board: the tab bar over the board of active stories. */
 export function BoardPage() {
   return (
     <div className="container mx-auto p-4 space-y-4">
       <WorkItemsTabs />
-      <StoryBoard view="active" />
+      <StoryBoard />
     </div>
   );
 }
 
-/**
- * The story board itself — counts, toolbar, and swimlanes — for one lifecycle
- * view: active stories (the Board tab) or pending ones (the Pending tab).
- */
-export function StoryBoard({ view }: { view: BoardView }) {
+/** The story board itself — counts, toolbar, and swimlanes — over the active stories. */
+function StoryBoard() {
   const { data: storiesData, refetch } = useApi<{ stories: StoryView[] }>("/api/stories", [], { pollInterval: 5000 });
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
   const { isCollapsed, setCollapsed, setAllCollapsed } = useStoryCollapse();
 
-  // The Board shows active stories, the Pending tab pending ones.
+  // Active stories only; pending ones are on the Pending tab.
   const stories = useMemo(
-    () => (storiesData?.stories || []).filter(s => !!s.pending === (view === "pending")),
-    [storiesData, view],
+    () => (storiesData?.stories || []).filter(s => !s.pending),
+    [storiesData],
   );
   const taskCount = stories.reduce((n, s) => n + (s.tasks?.length || 0), 0);
   const defaultWorkflow = statusData?.defaultWorkflow || "default";
@@ -211,9 +203,7 @@ export function StoryBoard({ view }: { view: BoardView }) {
           <p className="text-center text-muted-foreground py-12">
             {search
               ? "No stories match your search."
-              : view === "pending"
-                ? "No pending stories. Make a story pending to hold it without losing its place."
-                : "No stories yet. Create one to get started."}
+              : "No stories yet. Create one to get started."}
           </p>
         )}
       </div>

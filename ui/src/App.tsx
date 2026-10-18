@@ -47,8 +47,7 @@ import { TasksPage } from "./pages/TasksPage";
 import { SchedulePage } from "./pages/SchedulePage";
 import { NewWorkDefPage } from "./pages/NewWorkDefPage";
 import { WorkDefDetailPage } from "./pages/WorkDefDetailPage";
-import { PendingPage } from "./pages/PendingPage";
-import { ArchivedPage } from "./pages/ArchivedPage";
+import { LifecyclePage } from "./pages/LifecyclePage";
 import { NewStoryPage } from "./pages/NewStoryPage";
 import { NewTaskPage } from "./pages/NewTaskPage";
 import { ConfigPage } from "./pages/ConfigPage";
@@ -108,9 +107,9 @@ function DesktopShell() {
             <Route path="/work-items/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
             <Route path="/work-items/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
             <Route path="/work-items/schedule" element={<FeatureRoute feature="schedules"><SchedulePage /></FeatureRoute>} />
-            {/* Pending and Archived mix every kind; each hides its switched-off kinds' sections. */}
-            <Route path="/work-items/pending" element={<PendingPage />} />
-            <Route path="/work-items/archived" element={<ArchivedPage />} />
+            {/* Pending and Archived: one mixed list each; a switched-off kind's rows and chip are hidden. */}
+            <Route path="/work-items/pending" element={<LifecyclePage key="pending" state="pending" />} />
+            <Route path="/work-items/archived" element={<LifecyclePage key="archived" state="archived" />} />
             {/* The pre-Work-Items URLs (and the hidden Templates) keep working. */}
             <Route path="/board" element={<LegacyWorkItemsRedirect />} />
             <Route path="/tasks" element={<LegacyWorkItemsRedirect />} />

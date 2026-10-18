@@ -333,8 +333,8 @@ transitively depended on it — was moved into).
   instead moved the whole dependency chain off the board so nothing looked
   broken; a waiting dependent isn't broken, and moving it lost its place.
 - **A flag in `stories/<id>.json`, not a directory.** Pending is a state of a
-  live story, so it stays in `stories/`, loaded and indexed like any other — the
-  Board's **Pending** tab is the same board filtered, and toggling is one field
+  live story, so it stays in `stories/`, loaded and indexed like any other — a
+  pending story is just a row on Work Items → **Pending**, and toggling is one field
   write, not a file move plus a reload. The UI, API (`pending` on create/PUT,
   `POST …/pending|activate`), and the assistant's `create_story` / `edit_story`
   all say *pending*.
@@ -522,7 +522,9 @@ are questions about lifecycle, not kind. Answering them per kind meant a Pending
 tab for stories, a filter for tasks, a badge for schedules, and an Archived drawer
 on two pages. Splitting by lifecycle once keeps every kind tab about the work in
 play, and each tab hides with its feature toggle (Pending/Archived while any kind
-is on; the nav item when none is).
+is on; the nav item when none is). Pending and Archived are each **one list**,
+not a section per kind: a type badge and filter chips carry the kind, so the
+list reads newest first across everything.
 
 ## Feature Toggles: Start Small, Never Strand Work
 

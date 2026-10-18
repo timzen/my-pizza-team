@@ -73,8 +73,10 @@ The nav bar has two destinations, plus pause / **usage** / help / config / theme
   - **Board** (`/work-items/board`) — active stories as swimlanes.
   - **Tasks** (`/work-items/tasks`) — active standalone Solitary tasks.
   - **Schedule** (`/work-items/schedule`) — active cron-driven Scheduled jobs.
-  - **Pending** (`/work-items/pending`) — everything held back until you activate it: stories, tasks, and scheduled jobs.
-  - **Archived** (`/work-items/archived`) — retired stories, tasks, and jobs (restore or delete tasks and jobs here).
+  - **Pending** (`/work-items/pending`) — everything held back until you activate it: stories, tasks, and scheduled jobs, in one list.
+  - **Archived** (`/work-items/archived`) — retired stories, tasks, and jobs, in one list (restore or delete tasks and jobs here).
+
+**Pending** and **Archived** are each one mixed list. Every row has a type badge (**Story**, **Task**, or **Schedule**), its title, its directory, and a time when there is one (when a story was archived, otherwise when the task or job last ran) — newest first; rows with no time come last, by title. Click a row to open it. The chips at the top — **Stories · Tasks · Schedules**, each with its count — narrow the list (all on to start; click to turn one off or on), and the search box matches a title, id, or directory. On **Pending**, each row has **Activate** and an archive button; on **Archived**, tasks and jobs have **Restore** and **Delete**. Archived stories can't be restored — click one to read its synopsis. Board tasks aren't listed on their own: a pending board task waits in its story's swimlane on the **Board** (open it there to **Activate** it).
 
 Workflows and the context library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Context**.
 
@@ -404,7 +406,7 @@ Each tab has its own address (`/config/teammates`, `/config/workflows`, `/config
 
 When a kind is off:
 
-- its **Work Items** tab (**Board**, **Tasks**, or **Schedule**) disappears, and so does its section of the **Pending** and **Archived** tabs (for Stories, so does Config's **Workflows** tab; with all three off, **Work Items** leaves the nav), and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
+- its **Work Items** tab (**Board**, **Tasks**, or **Schedule**) disappears, and so do its chip and rows on the **Pending** and **Archived** tabs (for Stories, so does Config's **Workflows** tab; with all three off, **Work Items** leaves the nav), and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
 - its pages — lists, detail pages, and create forms — show a "turned off" notice with a link back here, even from a bookmark;
 - a triage proposal of that kind can only be **Rejected** (Accept and Edit are disabled until you turn the kind back on);
 - the assistant stops offering it: its tools for that kind leave its tool list (within about 10 seconds, or at its next reply) and it will tell you the kind is off if you ask for one;

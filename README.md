@@ -204,8 +204,8 @@ Inbox are always on, so every kind can be off at once.
 - `GET /api/status` and `GET /api/config` report the resolved toggles as `features`;
   `GET /api/config` also reports each kind's active items as `featureUsage`.
 - **In the web UI** the toggles are **Config → General → Work items**. A kind that's
-  off loses its Work Items sub-tab (the Work Items nav item goes when all three are
-  off) and quick-create entry, its pages show a "turned off" notice, and its triage proposals can only be rejected.
+  off loses its Work Items sub-tab and its chip/rows on the mixed Pending and
+  Archived lists (the Work Items nav item goes when all three are off) and quick-create entry, its pages show a "turned off" notice, and its triage proposals can only be rejected.
 - **For the assistant** (the Pi leader) a kind that's off takes its tools out of
   the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
   `list_workflows`, `list_context`; Tasks: `create_task`; Schedules:

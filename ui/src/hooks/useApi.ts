@@ -2,11 +2,13 @@
  * useApi — Simple fetch wrapper for the daemon API.
  * Returns JSON data with loading/error state.
  * Supports optional polling interval for auto-refresh.
+ * A `null` url fetches nothing (data stays null) — for a source the caller
+ * doesn't need right now, e.g. a switched-off kind's list.
  */
 
 import { useState, useEffect, useCallback } from "react";
 
-export function useApi<T>(url: string, deps: unknown[] = [], options?: { pollInterval?: number }) {
+export function useApi<T>(url: string | null, deps: unknown[] = [], options?: { pollInterval?: number }) {
   const [data, setData] = useState<T | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -16,6 +18,7 @@ export function useApi<T>(url: string, deps: unknown[] = [], options?: { pollInt
   const depsKey = JSON.stringify(deps);
 
   const refetch = useCallback(async () => {
+    if (url === null) { setLoading(false); return; }
     setLoading(true);
     setError(null);
     try {
@@ -39,10 +42,10 @@ export function useApi<T>(url: string, deps: unknown[] = [], options?: { pollInt
 
   // Auto-refresh polling
   useEffect(() => {
-    if (!pollInterval) return;
+    if (!pollInterval || url === null) return;
     const interval = setInterval(refetch, pollInterval);
     return () => clearInterval(interval);
-  }, [refetch, pollInterval]);
+  }, [refetch, pollInterval, url]);
 
   return { data, loading, error, refetch };
 }
