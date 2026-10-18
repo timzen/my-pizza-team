@@ -17,20 +17,20 @@ The web UI at `http://localhost:7437` is your control center.
 Everything a teammate does is defined by a **WorkDef**: a small authored document with a **Goal**, **Acceptance Criteria**, and optional **Additional Context**. There are three kinds, distinguished only by *what triggers them*:
 
 - **Board task** — a WorkDef that belongs to a **Story** and moves through a **workflow**.
-- **Solitary** — a standalone one-shot you run on demand (**Work Items → Tasks**).
-- **Scheduled** — driven by a cron **Schedule** (**Work Items → Schedule**).
+- **Solitary** — a standalone one-shot you run on demand (**Work → Tasks**).
+- **Scheduled** — driven by a cron **Schedule** (**Work → Schedule**).
 
 ### Pending — write first, activate when it's right
 
 Any WorkDef can start as **pending**: **Save as pending** on the create forms (**Save tasks as pending** on New Story), or ask the assistant to write tasks up "as pending" for you to review. A pending task carries an amber **Pending** badge and **never runs** — no Run, no cron, and on the board it **holds its place**: the story waits at that task (later tasks don't jump ahead) until you activate it.
 
-While it's pending, you and the assistant can both revise it: open it and press **Edit** (Save / Cancel). When it's right, press **Activate**. Pending stories, Solitary tasks, and scheduled jobs are listed on **Work Items → Pending** — the Board, Tasks, and Schedule tabs show only active work (a pending board task stays in its story's swimlane, holding its place). Activating is one-way and **locks the definition**: a Solitary task is enqueued straight away, a board task is picked up when its story reaches it, and a scheduled job fires on its next cron time. To change active work, do what you always do — add a comment on its **Thread** and **Run** it again (for a board task, move it back into an agent state); the comments go into the next attempt's prompt. A scheduled job's **cron** stays editable after activating — it belongs to the schedule, not the definition.
+While it's pending, you and the assistant can both revise it: open it and press **Edit** (Save / Cancel). When it's right, press **Activate**. Pending stories, Solitary tasks, and scheduled jobs are listed on **Work → Pending** — the Board, Tasks, and Schedule tabs show only active work (a pending board task stays in its story's swimlane, holding its place). Activating is one-way and **locks the definition**: a Solitary task is enqueued straight away, a board task is picked up when its story reaches it, and a scheduled job fires on its next cron time. To change active work, do what you always do — add a comment on its **Thread** and **Run** it again (for a board task, move it back into an agent state); the comments go into the next attempt's prompt. A scheduled job's **cron** stays editable after activating — it belongs to the schedule, not the definition.
 
 Everything created before pending existed counts as active. (Pending used to be called *draft*, and Activate was *Publish*; old drafts show up as pending.)
 
-**Stories can be pending too — and back again.** A whole story can be **pending**: tick **Pending** on New Story, press **Make pending** on its page (or the ⌛ on its swimlane), or ask the assistant. Unlike a task, a story goes back and forth: **Activate** (▶) resumes it where it left off. While a story is pending, a task that's already running finishes normally, but nothing new is handed out, and stories that depend on it wait. Pending stories live on **Work Items → Pending**. (This replaces the old story *pause* and the *Backlog*: paused and backlogged stories show up as pending.)
+**Stories can be pending too — and back again.** A whole story can be **pending**: tick **Pending** on New Story, press **Make pending** on its page (or the ⌛ on its swimlane), or ask the assistant. Unlike a task, a story goes back and forth: **Activate** (▶) resumes it where it left off. While a story is pending, a task that's already running finishes normally, but nothing new is handed out, and stories that depend on it wait. Pending stories live on **Work → Pending**. (This replaces the old story *pause* and the *Backlog*: paused and backlogged stories show up as pending.)
 
-**Schedules go back and forth too.** Once a scheduled job is active, its schedule can be paused: press **Make pending** on its row on **Work Items → Schedule** or in the job page's header (or ask the assistant). The job moves to **Work Items → Pending** and its cron stops firing; **Activate** there (or on its page) turns it back on. It picks up at its **next** scheduled time — runs it missed while pending are *not* made up, so a long pause never comes back as a burst. **Run now** still works on a pending schedule. A job runs on its cron only when both the schedule and the job itself are active: a job you saved as pending stays pending until you **Activate** it from its page.
+**Schedules go back and forth too.** Once a scheduled job is active, its schedule can be paused: press **Make pending** on its row on **Work → Schedule** or in the job page's header (or ask the assistant). The job moves to **Work → Pending** and its cron stops firing; **Activate** there (or on its page) turns it back on. It picks up at its **next** scheduled time — runs it missed while pending are *not* made up, so a long pause never comes back as a burst. **Run now** still works on a pending schedule. A job runs on its cron only when both the schedule and the job itself are active: a job you saved as pending stays pending until you **Activate** it from its page.
 
 ### Stories
 
@@ -69,7 +69,7 @@ Teammates are a **flat generalist pool** — no skills or capabilities to config
 The nav bar has two destinations, plus pause / **usage** / help / config / theme icons:
 
 - **Thoughts** — sticky notes, where ideas start: a canvas, or a list with folders.
-- **Work Items** — all your work, in five tabs:
+- **Work** — all your work, in five tabs:
   - **Board** (`/work-items/board`) — active stories as swimlanes.
   - **Tasks** (`/work-items/tasks`) — active standalone Solitary tasks.
   - **Schedule** (`/work-items/schedule`) — active cron-driven Scheduled jobs.
@@ -80,11 +80,11 @@ The nav bar has two destinations, plus pause / **usage** / help / config / theme
 
 Workflows and the context library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Context**.
 
-The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work Items** itself goes away only when all three are off. Clicking **Work Items** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
+The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
 
 **External sources.** When the team has an external work source connected (for now only the development fixture source; Jira-style integrations come later), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
 
-The highlighted destination is the section you're in, detail pages included: a story, board task, Solitary task, or scheduled job page lights **Work Items**, and every Config tab (Workflows and Context included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
+The highlighted destination is the section you're in, detail pages included: a story, board task, Solitary task, or scheduled job page lights **Work**, and every Config tab (Workflows and Context included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
 The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. The pizza logo carries two small count badges, each hidden at zero: a **neutral** one (bottom corner) for WorkItems **queued** and not yet picked up, and an **accent** one (top corner) for **unread** Inbox items. Hover a badge for what it counts. They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark, refresh every ~10 seconds, and update right away when you mark Inbox items read or unread. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
 
@@ -110,7 +110,7 @@ If a teammate's model call kept failing (say, Bedrock was unavailable) the item 
 
 ## The Board
 
-The board (**Work Items → Board**, `/work-items/board`) shows active stories as horizontal swimlanes with task cards arranged by workflow state.
+The board (**Work → Board**, `/work-items/board`) shows active stories as horizontal swimlanes with task cards arranged by workflow state.
 
 ### Creating a Story
 
@@ -131,8 +131,8 @@ The board is for glancing and light triage; editing happens on the task page.
 - **Move a task** — drag its card to another column (that's how you send to review, approve, or send back for rework)
 - **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Activate** it while it's [pending](#pending--write-first-activate-when-its-right) — move, delete, read comments, upload/review files)
 - **Edit a story** — click the story title to open its page (title, description, directory, context; **Make pending** / **Activate**)
-- **Hold a story** — the ⌛ on its swimlane makes it [pending](#pending--write-first-activate-when-its-right) (it moves to **Work Items → Pending**); ▶ there activates it again
-- **Retire a story** — the archive button on its swimlane; archived stories (with their synopses) are on **Work Items → Archived**
+- **Hold a story** — the ⌛ on its swimlane makes it [pending](#pending--write-first-activate-when-its-right) (it moves to **Work → Pending**); ▶ there activates it again
+- **Retire a story** — the archive button on its swimlane; archived stories (with their synopses) are on **Work → Archived**
 
 ### Expanding and collapsing stories
 
@@ -144,12 +144,12 @@ A card shows its title/ID, assignee, cost (if tracked), and a small chip when it
 
 ## Tasks & Schedule (standalone work)
 
-Not all work belongs on the board. Two Work Items tabs manage active standalone WorkDefs:
+Not all work belongs on the board. Two Work tabs manage active standalone WorkDefs:
 
 - **Tasks** — **Solitary** one-shots. Create one, then hit **Run** to enqueue it whenever you want it done. Good for ad-hoc chores ("audit dependencies"). Pending tasks aren't listed here — find them on **Pending**, with **Activate**. Each row shows how many times the task has run ("never run", "1 run", "3 runs" — hover for the last run); **Never run** narrows the list to the ones you haven't started yet, and the sort menu orders by **Fewest runs** / **Most runs**. A run is any WorkItem created for the task — queued, running, done, or failed — except one you **canceled** before it ran.
 - **Schedule** — **Scheduled** jobs. Each is a WorkDef attached to a cron **Schedule**; the daemon enqueues a run every time the cron fires, and **Run now** triggers one immediately. Each row shows its run count and last run; **Make pending** moves it to **Pending**.
 
-The archive button on a row moves the task or job to **Work Items → Archived**, where **Restore** brings it back and **Delete** removes it for good.
+The archive button on a row moves the task or job to **Work → Archived**, where **Restore** brings it back and **Delete** removes it for good.
 
 A task's or job's page (and a board task's page) shows the same run count in its header.
 
@@ -408,7 +408,7 @@ Each tab has its own address (`/config/teammates`, `/config/workflows`, `/config
 
 When a kind is off:
 
-- its **Work Items** tab (**Board**, **Tasks**, or **Schedule**) disappears, and so do its chip and rows on the **Pending** and **Archived** tabs (for Stories, so does Config's **Workflows** tab; with all three off, **Work Items** leaves the nav), and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
+- its **Work** tab (**Board**, **Tasks**, or **Schedule**) disappears, and so do its chip and rows on the **Pending** and **Archived** tabs (for Stories, so does Config's **Workflows** tab; with all three off, **Work** leaves the nav), and so does its entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
 - its pages — lists, detail pages, and create forms — show a "turned off" notice with a link back here, even from a bookmark;
 - a triage proposal of that kind can only be **Rejected** (Accept and Edit are disabled until you turn the kind back on);
 - the assistant stops offering it: its tools for that kind leave its tool list (within about 10 seconds, or at its next reply) and it will tell you the kind is off if you ask for one;
@@ -470,4 +470,4 @@ that can sign in to it. Set an API token too: the phone asks for it once.
 - **Use workflow personas** — give each agent state phase-specific role framing.
 - **Use the context library** — store patterns and decisions so every teammate works consistently.
 - **One story per concern** — small focused stories beat one giant story.
-- **Standalone for chores** — recurring or ad-hoc work that isn't a feature belongs on Work Items → Tasks/Schedule, not the board.
+- **Standalone for chores** — recurring or ad-hoc work that isn't a feature belongs on Work → Tasks/Schedule, not the board.

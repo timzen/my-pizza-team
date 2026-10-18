@@ -1,5 +1,5 @@
 /**
- * lib/lifecycle-list.ts — The rows of Work Items → Pending and Work Items →
+ * lib/lifecycle-list.ts — The rows of Work → Pending and Work →
  * Archived: one mixed list of stories, standalone tasks, and scheduled jobs in
  * that lifecycle state (docs/DESIGN.md "Pending: Write, Review, Activate"),
  * with the kind filter chips, text search, and newest-first sort.
@@ -7,7 +7,7 @@
  * The pages compose the existing list endpoints client-side (`/api/stories`,
  * `/api/archived`, `/api/work-defs[?status=archived]`, `/api/schedules`) —
  * the lists are small and already polled by other tabs, so an aggregated
- * endpoint isn't worth a new daemon route (docs/ARCHITECTURE.md "Work Items").
+ * endpoint isn't worth a new daemon route (docs/ARCHITECTURE.md "Work").
  *
  * What's listed:
  * - **Story** — a pending story (`/api/stories`, `pending`) or an archived one
@@ -30,7 +30,7 @@
 import type { Features, FeatureName } from "./features.ts";
 import { isActiveScheduledJob } from "./work-items.ts";
 
-/** Which lifecycle list: Work Items → Pending or Work Items → Archived. */
+/** Which lifecycle list: Work → Pending or Work → Archived. */
 export type LifecycleState = "pending" | "archived";
 
 /** A row's kind (its type badge and filter chip). */

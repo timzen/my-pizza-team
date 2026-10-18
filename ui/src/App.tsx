@@ -22,7 +22,7 @@
  * `/config/workflows[/:name]`); their old top-level URLs redirect there with
  * `replace` (lib/config-tabs.ts `legacyConfigPath`).
  *
- * Board, Tasks, and Schedule are sub-tabs of **Work Items** (`/work-items/board
+ * Board, Tasks, and Schedule are sub-tabs of **Work** (`/work-items/board
  * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work-items` lands on
  * the first enabled tab. Each registered external Work Source adds a read-only
  * tab at `/work-items/source/:sourceId` (pages/ExternalSourcePage). Their old top-level URLs (`/board`, `/tasks`,
@@ -104,7 +104,7 @@ function DesktopShell() {
             {/* A note's triage page: where it becomes work (docs/DESIGN.md "Auto Triage"). */}
             <Route path="/thoughts/:id/triage" element={<TriagePage />} />
             <Route path="/queue" element={<RootPage />} />
-            {/* Work Items: Board · Tasks · Schedule · Pending · Archived (lib/work-items.ts). */}
+            {/* Work: Board · Tasks · Schedule · Pending · Archived (lib/work-items.ts). */}
             <Route path="/work-items" element={<WorkItemsIndexRedirect />} />
             <Route path="/work-items/board" element={<FeatureRoute feature="stories"><BoardPage /></FeatureRoute>} />
             <Route path="/work-items/tasks" element={<FeatureRoute feature="tasks"><TasksPage /></FeatureRoute>} />
@@ -160,7 +160,7 @@ function LegacyConfigRedirect() {
 
 /**
  * `/board`, `/tasks`, `/schedule`, `/pending`, `/backlog`, `/archived`,
- * `/templates[/:id]` → their Work Items sub-tab, keeping any query string.
+ * `/templates[/:id]` → their Work sub-tab, keeping any query string.
  * `replace`, so Back doesn't bounce into the redirect.
  */
 function LegacyWorkItemsRedirect() {

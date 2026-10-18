@@ -1,5 +1,5 @@
 /**
- * tests/work-items-ui.test.ts — The Work Items surface's rules
+ * tests/work-items-ui.test.ts — The Work surface's rules
  * (ui/src/lib/work-items.ts): which sub-tabs the feature toggles show, where
  * `/work-items` lands, route → tab, the legacy-URL redirects, and the
  * "active only" rule for scheduled jobs.

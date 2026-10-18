@@ -43,7 +43,7 @@ export function NewWorkDefPage() {
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   // The `?type=` param drives the mode; there's no in-UI type switch (you reach
-  // this page from Work Items → Tasks or Schedule, or quick-create, and the
+  // this page from Work → Tasks or Schedule, or quick-create, and the
   // back arrow returns you there).
   const type: WorkDefType = searchParams.get("type") === "Scheduled" ? "Scheduled" : "Solitary";
 

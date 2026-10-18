@@ -7,7 +7,7 @@
  * `/work-defs/*` highlighting nothing (its section depends on the WorkDef's
  * type, not the URL). Also pins the "can go back in-app" check the BackButton
  * uses instead of `location.key`. Board/Tasks/Schedule are now sub-tabs of one
- * Work Items section, so the lists, story/task pages, and standalone WorkDefs
+ * Work section, so the lists, story/task pages, and standalone WorkDefs
  * all light "work-items".
  */
 
@@ -27,7 +27,7 @@ Deno.test("navSectionForPath: list pages map to their own section only", () => {
   assertEquals(navSectionForPath("/thoughts/t1/triage"), "thoughts");
 });
 
-Deno.test("navSectionForPath: story/task detail pages and legacy list routes light Work Items", () => {
+Deno.test("navSectionForPath: story/task detail pages and legacy list routes light Work", () => {
   for (const p of ["/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1", "/board", "/tasks", "/schedule", "/pending", "/backlog", "/archived", "/templates", "/templates/atlas"]) {
     assertEquals(navSectionForPath(p), "work-items", p);
   }
@@ -61,7 +61,7 @@ Deno.test("sectionForWorkDefType: unknown types have no section", () => {
   assertEquals(sectionForWorkDefType(undefined), null);
 });
 
-Deno.test("workDefHomePath: Back fallback is the WorkDef's Work Items sub-tab", () => {
+Deno.test("workDefHomePath: Back fallback is the WorkDef's Work sub-tab", () => {
   assertEquals(workDefHomePath("Solitary"), "/work-items/tasks");
   assertEquals(workDefHomePath("Scheduled"), "/work-items/schedule");
   // Templates are hidden from the UI; their Back lands on Tasks.

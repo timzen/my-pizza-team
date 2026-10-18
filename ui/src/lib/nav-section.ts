@@ -9,11 +9,11 @@
  * Why this exists: the NavBar used raw `startsWith` prefixes, so the Board's
  * `/task` prefix also claimed `/tasks`, and `/work-defs/*` was claimed by
  * nobody (nothing lit up on a WorkDef page). A WorkDef's section depends on its
- * *type*, not its URL — Solitary/Scheduled/Board work lives under Work Items, a
+ * *type*, not its URL — Solitary/Scheduled/Board work lives under Work, a
  * triage run under Thoughts — so the type has to be fed in.
  *
  * Board, Tasks, and Schedule used to be three nav sections; they are now
- * sub-tabs of the one **Work Items** section (lib/work-items.ts), which also
+ * sub-tabs of the one **Work** section (lib/work-items.ts), which also
  * claims story/task/WorkDef detail pages. The old top-level list URLs redirect
  * into `/work-items/*` but are still mapped here, so the redirect's first
  * render lights the right item.
@@ -48,14 +48,14 @@ const SEGMENT_SECTIONS: Record<string, NavSection> = {
   templates: "work-items",
 };
 
-/** The section a WorkDef of this type belongs to (standalone and board work → Work Items, triage → Thoughts). */
+/** The section a WorkDef of this type belongs to (standalone and board work → Work, triage → Thoughts). */
 export function sectionForWorkDefType(type: WorkDefKind | string | null | undefined): NavSection | null {
   switch (type) {
     case "Solitary":
     case "Template":
     case "Scheduled":
     case "Board":
-    case "External": // a mirrored def lives on its source's Work Items tab
+    case "External": // a mirrored def lives on its source's Work tab
       return "work-items";
     case "Triage":
       return "thoughts";
@@ -91,7 +91,7 @@ export function navSectionForPath(
 /**
  * The list page a WorkDef of this type belongs to — the Back fallback when the
  * page was opened without in-app history (fresh tab, bookmark), and where to go
- * after deleting it: its Work Items sub-tab (Scheduled → Schedule, Board →
+ * after deleting it: its Work sub-tab (Scheduled → Schedule, Board →
  * Board, anything else → Tasks; Templates are hidden, so they land on Tasks too).
  */
 export function workDefHomePath(type: WorkDefKind | string | null | undefined): string {

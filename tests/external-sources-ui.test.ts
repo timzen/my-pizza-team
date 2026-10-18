@@ -1,6 +1,6 @@
 /**
  * tests/external-sources-ui.test.ts — The UI's generic view of external
- * (pull-only) Work Sources: one read-only Work Items tab per registered source
+ * (pull-only) Work Sources: one read-only Work tab per registered source
  * (ui/src/lib/work-items.ts) and the mirrored-def helpers behind its list and
  * the read-only detail page (ui/src/lib/external-sources.ts).
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins".
@@ -47,7 +47,7 @@ Deno.test("workItemsTabLinks: one tab per external source, after the kinds and b
   assertEquals(links.find((t) => t.key === "board")!.isActive("/work-items/source/jira"), false);
 });
 
-Deno.test("external tabs keep Work Items reachable when every kind is off", () => {
+Deno.test("external tabs keep Work reachable when every kind is off", () => {
   assertEquals(hasAnyWorkItemsFeature(ALL_OFF), false);
   assertEquals(hasAnyWorkItemsFeature(ALL_OFF, [JIRA]), true);
   assertEquals(workItemsTabLinks(ALL_OFF, [JIRA]).map((t) => t.label), ["Jira"]);
@@ -75,7 +75,7 @@ Deno.test("mirrored-def list helpers: latest state, revision, and the external l
   assertEquals(openInLabel("Jira"), "Open in Jira");
 });
 
-Deno.test("a mirrored def's page: read-only hint, Back to its source's tab, Work Items highlighted", () => {
+Deno.test("a mirrored def's page: read-only hint, Back to its source's tab, Work highlighted", () => {
   assertEquals(mirroredDefHomePath({ sourceId: "jira" }), "/work-items/source/jira");
   const hint = readOnlyHint("Jira");
   assertEquals(hint.includes("pull only") && hint.includes("edit it there"), true);

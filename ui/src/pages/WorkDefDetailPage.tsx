@@ -25,7 +25,7 @@
  * switched off answers 403, and the page shows the "turned off" notice
  * (components/FeatureGate). A **mirrored** (External) def — a read-only copy of
  * an external source's item — reuses this page with editing and Delete off,
- * an "Open in <source>" link, and Back to its source's Work Items tab; its
+ * an "Open in <source>" link, and Back to its source's Work tab; its
  * Thread, attachments, and Run work as for any WorkDef (docs/DESIGN.md "Work Sources").
  */
 

@@ -1,5 +1,5 @@
 /**
- * ExternalSourcePage — Work Items → <source> (`/work-items/source/:sourceId`):
+ * ExternalSourcePage — Work → <source> (`/work-items/source/:sourceId`):
  * the generic, read-only view of one external (pull-only) Work Source.
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins" (external sources).
  *
@@ -11,7 +11,7 @@
  * mirrors of items it no longer reports (**Show archived** lists them, with
  * their threads). **Sync now** asks the daemon
  * to pull at once instead of waiting for the next interval. Same tab layout
- * as the other Work Items tabs (WorkItemsLayout); one tab per registered source.
+ * as the other Work tabs (WorkItemsLayout); one tab per registered source.
  */
 
 import { useState } from "react";

@@ -11,7 +11,7 @@
  *
  * The same `/api/status` answer also carries the registered external Work
  * Sources (`externalSources`), served by `useExternalSources` from this cache,
- * so the Work Items tabs and the NavBar learn of them without another request.
+ * so the Work tabs and the NavBar learn of them without another request.
  */
 
 import { useSyncExternalStore } from "react";

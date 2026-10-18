@@ -1,5 +1,5 @@
 /**
- * WorkItemsTabs — The Work Items surface's sub-tab bar (Board · Tasks ·
+ * WorkItemsTabs — The Work surface's sub-tab bar (Board · Tasks ·
  * Schedule · Pending · Archived), rendered with the shared RouteTabs control so
  * every tab is a deep-linkable `/work-items/<tab>` route. Replaced the old
  * BoardTabs (Board/Pending/Archive) and TasksTabs (Items/Templates).
@@ -10,7 +10,7 @@
  * kind is on. Each registered external Work Source adds a read-only tab of its
  * own (`/work-items/source/<id>`, before Pending); none registered, none shown.
  *
- * `WorkItemsLayout` frames every Work Items tab with the shared
+ * `WorkItemsLayout` frames every Work tab with the shared
  * TabbedPageLayout (title + this tab bar pinned upper-left), so the header sits
  * in the same spot on every tab.
  */
@@ -29,13 +29,13 @@ export function WorkItemsTabs() {
 }
 
 /**
- * The frame for a Work Items tab: the "Work Items" title and tab bar, then the
+ * The frame for a Work tab: the "Work" title and tab bar, then the
  * tab's body. `bodyClassName` caps a narrow body's width (left-aligned); omit it
  * for full-width bodies like the Board.
  */
 export function WorkItemsLayout({ bodyClassName, children }: { bodyClassName?: string; children: ReactNode }) {
   return (
-    <TabbedPageLayout icon={<ListTodo className="h-5 w-5" />} title="Work Items" tabs={<WorkItemsTabs />} bodyClassName={bodyClassName}>
+    <TabbedPageLayout icon={<ListTodo className="h-5 w-5" />} title="Work" tabs={<WorkItemsTabs />} bodyClassName={bodyClassName}>
       {children}
     </TabbedPageLayout>
   );

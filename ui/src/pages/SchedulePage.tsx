@@ -1,19 +1,19 @@
 /**
- * SchedulePage — Work Items → Schedule (`/work-items/schedule`): active
+ * SchedulePage — Work → Schedule (`/work-items/schedule`): active
  * Scheduled WorkDefs.
  *
  * Scheduled work is cron-driven: the daemon's scheduler enqueues a fresh
  * WorkItem each time the cron fires (see the daemon's scheduler). This page
  * lists the jobs with a human-readable cron, when they last ran, and a
  * "Run now" escape hatch. Polls /api/work-defs and filters to type=Scheduled.
- * A row's archive button retires a job to Work Items → Archived (restore or
+ * A row's archive button retires a job to Work → Archived (restore or
  * delete it there). Each row shows the job's run count
  * (`executionCount`, derived from the WorkItem table — docs/DESIGN.md "Execution
  * Count: Derived, not Counted") and its latest run.
  *
  * **Active only.** A job is pending when its definition is pending (one-way:
  * activate it from its page) *or* its Schedule is pending (reversible); either
- * way it's listed on Work Items → Pending, not here (lib/work-items.ts
+ * way it's listed on Work → Pending, not here (lib/work-items.ts
  * `isActiveScheduledJob`). The row's **Make pending** moves it there. A
  * pending job never fires; reactivating a Schedule resumes at its next cron
  * occurrence without back-filling the ones it skipped (docs/DESIGN.md

@@ -1,5 +1,5 @@
 /**
- * TabbedPageLayout — The shared frame for tabbed surfaces (Work Items and
+ * TabbedPageLayout — The shared frame for tabbed surfaces (Work and
  * Configuration): a title row and a tab bar pinned to the upper-left of the
  * content area, with the active tab's body below.
  *

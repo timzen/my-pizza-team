@@ -30,9 +30,9 @@ export const FEATURE_LABELS: Record<FeatureName, string> = {
 
 /** What each toggle covers, for the Config page. */
 export const FEATURE_DESCRIPTIONS: Record<FeatureName, string> = {
-  stories: "Multi-step stories on Work Items → Board, and their Workflows.",
-  tasks: "Standalone (Solitary) tasks on Work Items → Tasks.",
-  schedules: "Recurring jobs on Work Items → Schedule.",
+  stories: "Multi-step stories on Work → Board, and their Workflows.",
+  tasks: "Standalone (Solitary) tasks on Work → Tasks.",
+  schedules: "Recurring jobs on Work → Schedule.",
 };
 
 /**
@@ -70,7 +70,7 @@ const SEGMENT_FEATURES: Record<string, FeatureName> = {
 };
 
 /**
- * Work Items sub-tab → its feature. Pending and Archived mix every kind, so
+ * Work sub-tab → its feature. Pending and Archived mix every kind, so
  * they're absent (ungated; a switched-off kind's chip and rows hide inside — pages/LifecyclePage.tsx).
  */
 const WORK_ITEMS_TAB_FEATURES: Record<string, FeatureName> = {
@@ -81,7 +81,7 @@ const WORK_ITEMS_TAB_FEATURES: Record<string, FeatureName> = {
 
 /**
  * The feature a route's page needs, or null when it isn't gated (home, Thoughts,
- * Config and its Context tab, Work Items' mixed Pending/Archived tabs, …);
+ * Config and its Context tab, Work's mixed Pending/Archived tabs, …);
  * Config's Workflows tab needs Stories.
  * `/work-defs/:id` returns null: its kind is only known once the WorkDef loads,
  * and the daemon's 403 covers it (the page shows the notice).

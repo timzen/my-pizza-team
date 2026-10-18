@@ -424,7 +424,7 @@ content hash as the revision) is the only one, registered by tests or by
   own timer and state, so one failing or slow source never stalls the daemon or
   another. (This is in-process isolation; running a plugin in a Worker or
   subprocess is part of the deferred package-loading work.)
-- **A generic UI.** Each registered external source gets a read-only Work Items
+- **A generic UI.** Each registered external source gets a read-only Work
   tab (`/work-items/source/<id>`): its mirrors with the external link, last
   revision, latest WorkItem state, and run count. A mirror's detail is the
   ordinary WorkDef page with editing off and **Open in <source>**. No source,
@@ -534,7 +534,7 @@ transitively depended on it — was moved into).
   broken; a waiting dependent isn't broken, and moving it lost its place.
 - **A flag in `stories/<id>.json`, not a directory.** Pending is a state of a
   live story, so it stays in `stories/`, loaded and indexed like any other — a
-  pending story is just a row on Work Items → **Pending**, and toggling is one field
+  pending story is just a row on Work → **Pending**, and toggling is one field
   write, not a file move plus a reload. The UI, API (`pending` on create/PUT,
   `POST …/pending|activate`), and the assistant's `create_story` / `edit_story`
   all say *pending*.
@@ -710,10 +710,10 @@ out of. Sharing the file format avoids drift without coupling the concepts.
 "task from template" entry point. The daemon's template API and files are left
 as they are until the deprecation finishes.
 
-## Work Items: One Surface, Lifecycle Tabs
+## Work: One Surface, Lifecycle Tabs
 
 Board, Tasks, and Schedule were three nav items; they are now sub-tabs of one
-**Work Items** item, next to **Pending** and **Archived**. The kind tabs (Board,
+**Work** item, next to **Pending** and **Archived**. The kind tabs (Board,
 Tasks, Schedule) show **active** work only; Pending and Archived gather every
 kind's held and retired work in one place.
 
@@ -1210,7 +1210,7 @@ to the room the dock leaves rather than to the viewport.
 
 **A page's section is what it *is*, not its URL.** `/work-defs/:id` is shared by
 standalone work and triage runs, so the nav lights the item for the WorkDef's type
-(Solitary/Scheduled → Work Items, Triage → Thoughts). **Back means back**: it returns to the
+(Solitary/Scheduled → Work, Triage → Thoughts). **Back means back**: it returns to the
 page you came from (router history); only with no in-app history (a fresh tab)
 does it fall back — to that same section's list — and pages you've just created
 or deleted replace their history entry so Back never lands on a stale form or a

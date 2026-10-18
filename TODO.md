@@ -52,7 +52,7 @@ Deno to Node, and that changes how plugin code loads. Notes so they aren't lost:
 - **First external plugins once loading lands:** Jira / Asana / Taskei. The core they
   need is built — mirrored read-only defs, the per-source sync loop with
   once-per-revision enqueue and vanish → archive, write-back through `onComment` /
-  `onItemTerminal`, and a generic read-only Work Items tab — exercised by the in-repo
+  `onItemTerminal`, and a generic read-only Work tab — exercised by the in-repo
   markdown-folder fixture (`daemon/sources/fixture.ts`, registered in code by tests or
   `config.dev.fixtureSource`), which can become the packaged reference source. These
   pull only: no creating external issues from MPT.

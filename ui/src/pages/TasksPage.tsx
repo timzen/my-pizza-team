@@ -1,12 +1,12 @@
 /**
- * TasksPage — Work Items → Tasks (`/work-items/tasks`): active Solitary WorkDefs.
+ * TasksPage — Work → Tasks (`/work-items/tasks`): active Solitary WorkDefs.
  *
  * Solitary work is standalone one-shot work that doesn't live on the board:
  * define it once, enqueue it (now or later), review the outcome in the Inbox.
  * Each row links to the WorkDef detail page and can be re-run on demand.
  * Polls /api/work-defs and filters to type=Solitary, **active only**
- * (lib/pending.ts): pending tasks live on Work Items → Pending, archived ones on
- * Work Items → Archived (where they're restored or deleted). A row's archive
+ * (lib/pending.ts): pending tasks live on Work → Pending, archived ones on
+ * Work → Archived (where they're restored or deleted). A row's archive
  * button moves it there (docs/DESIGN.md "Pending: Write, Review, Activate").
  * Templates are hidden from the UI (being deprecated), so there is no "Task
  * from Template" entry point.

@@ -1,5 +1,5 @@
 /**
- * LifecyclePage — Work Items → Pending (`/work-items/pending`) and Work Items →
+ * LifecyclePage — Work → Pending (`/work-items/pending`) and Work →
  * Archived (`/work-items/archived`): one mixed list of the stories, standalone
  * tasks, and scheduled jobs in that state (docs/DESIGN.md "Pending: Write,
  * Review, Activate"). Board, Tasks, and Schedule list active work only, so
@@ -47,7 +47,7 @@ const INTRO: Record<LifecycleState, string> = {
   archived: "Retired work, preserved for reference.",
 };
 
-/** Work Items → Pending or Archived: the tab bar, chips, search, and the mixed list. */
+/** Work → Pending or Archived: the tab bar, chips, search, and the mixed list. */
 export function LifecyclePage({ state }: { state: LifecycleState }) {
   const features = useFeatures();
   const enabled = enabledKinds(features);

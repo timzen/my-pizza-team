@@ -1,11 +1,11 @@
 /**
- * lib/work-items.ts — The Work Items surface: its sub-tabs (Board · Tasks ·
+ * lib/work-items.ts — The Work surface: its sub-tabs (Board · Tasks ·
  * Schedule · Pending · Archived), which of them a team's feature toggles show,
  * where `/work-items` lands, where the pre-Work-Items URLs now live, and the
  * "active only" rule the Schedule tab lists by (standalone tasks use
  * lib/pending.ts `filterByPending`).
  *
- * One top-nav item ("Work Items") replaced the separate Board, Tasks, and
+ * One top-nav item ("Work") replaced the separate Board, Tasks, and
  * Schedule links; each became a route-driven sub-tab (`/work-items/<tab>`).
  * Board, Tasks, and Schedule show **active** work only — pending and archived
  * work of every kind lives on the Pending and Archived tabs (docs/DESIGN.md
@@ -23,7 +23,7 @@
 
 import type { FeatureName, Features } from "./features.ts";
 
-/** One Work Items sub-tab. */
+/** One Work sub-tab. */
 export type WorkItemsTab = "board" | "tasks" | "schedule" | "pending" | "archived";
 
 /** The surface's base route; each tab lives at `${WORK_ITEMS_ROOT}/<tab>`. */
@@ -43,7 +43,7 @@ export interface WorkItemsTabDef {
 
 const ALL_KINDS: readonly FeatureName[] = ["stories", "tasks", "schedules"];
 
-/** Every Work Items sub-tab, in display order. */
+/** Every Work sub-tab, in display order. */
 export const WORK_ITEMS_TABS: readonly WorkItemsTabDef[] = [
   { tab: "board", path: `${WORK_ITEMS_ROOT}/board`, label: "Board", features: ["stories"] },
   { tab: "tasks", path: `${WORK_ITEMS_ROOT}/tasks`, label: "Tasks", features: ["tasks"] },
@@ -77,7 +77,7 @@ export function externalSourceIdFromPath(pathname: string): string | null {
   }
 }
 
-/** One rendered Work Items tab: a kind/lifecycle tab or an external source's. */
+/** One rendered Work tab: a kind/lifecycle tab or an external source's. */
 export interface WorkItemsTabLink {
   /** Unique key: the tab name, or `source:<id>`. */
   key: string;
@@ -115,7 +115,7 @@ export function workItemsPath(tab: WorkItemsTab): string {
  * The tabs to show for the team's toggles. Until the toggles load (`null`)
  * nothing is shown, so a switched-off kind never flashes in (lib/features.ts
  * `filterByFeatures` follows the same rule). With all three kinds off, no tab
- * is shown — and the NavBar hides the "Work Items" item.
+ * is shown — and the NavBar hides the "Work" item.
  */
 export function visibleWorkItemsTabs(features: Features | null): WorkItemsTabDef[] {
   if (!features) return [];
@@ -123,8 +123,8 @@ export function visibleWorkItemsTabs(features: Features | null): WorkItemsTabDef
 }
 
 /**
- * Is any Work Items kind switched on, or an external source registered?
- * (Whether the NavBar shows "Work Items".)
+ * Is any Work kind switched on, or an external source registered?
+ * (Whether the NavBar shows "Work".)
  */
 export function hasAnyWorkItemsFeature(features: Features | null, sources: readonly ExternalSourceInfo[] | null = null): boolean {
   return workItemsTabLinks(features, sources).length > 0;

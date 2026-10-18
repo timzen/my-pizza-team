@@ -100,7 +100,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // toggleable Work Source (daemon/features.ts).
       features: enabledFeatures(store, config),
       // The registered external (pull-only) Work Sources, so the UI shows a
-      // read-only Work Items tab per source — none, no tab.
+      // read-only Work tab per source — none, no tab.
       externalSources: externalSourceViews(store),
     });
   });

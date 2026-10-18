@@ -1,7 +1,7 @@
 /**
  * lib/pending.ts — The pending/active split for WorkDef lists (docs/DESIGN.md
- * "Pending: Write, Review, Activate"): Work Items → Tasks lists the active
- * ones, Work Items → Pending the pending ones.
+ * "Pending: Write, Review, Activate"): Work → Tasks lists the active
+ * ones, Work → Pending the pending ones.
  *
  * Kept pure (no React) so the rule is unit-tested (tests/pending-ui.test.ts). A
  * WorkDef without a `pending` flag is active — that's every WorkDef written

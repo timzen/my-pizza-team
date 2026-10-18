@@ -1,5 +1,5 @@
 /**
- * tests/tabbed-layout.test.ts — Guards the fix for the Work Items and
+ * tests/tabbed-layout.test.ts — Guards the fix for the Work and
  * Configuration headers jumping between tabs: every tab page must frame itself
  * with the shared TabbedPageLayout (ui/src/components/TabbedPageLayout.tsx)
  * and must not set its own centered/padded outer container (`container`,
@@ -13,7 +13,7 @@ const read = (path: string) => Deno.readTextFile(new URL(`../ui/src/${path}`, im
 
 const WORK_ITEMS_PAGES = ["BoardPage", "TasksPage", "SchedulePage", "LifecyclePage"];
 
-Deno.test("Work Items tabs render inside WorkItemsLayout with no own centered container", async () => {
+Deno.test("Work tabs render inside WorkItemsLayout with no own centered container", async () => {
   for (const page of WORK_ITEMS_PAGES) {
     const src = await read(`pages/${page}.tsx`);
     assert(src.includes("<WorkItemsLayout"), `${page} should use WorkItemsLayout`);

@@ -1,8 +1,8 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
- * The links, left to right: Thoughts (ideas) and Work Items. (Context moved
+ * The links, left to right: Thoughts (ideas) and Work. (Context moved
  * into Config → Context; see lib/config-tabs.ts.)
- * Work Items replaced the separate Board, Tasks, and Schedule links: they are
+ * Work replaced the separate Board, Tasks, and Schedule links: they are
  * its sub-tabs now (Board · Tasks · Schedule · Pending · Archived — see
  * WorkItemsTabs, lib/work-items.ts). It links to `/work-items`, which lands on
  * the first enabled tab, and is hidden only while all three kinds (Stories,
@@ -23,12 +23,12 @@
  * The status poll is shared with the pause toggle; an Inbox read/unread action
  * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
  * Config is shown as a gear icon beside the theme toggle, lit for every
- * `/config/*` route — including its Workflows and Context tabs. Work Items is
+ * `/config/*` route — including its Workflows and Context tabs. Work is
  * lit for every `/work-items/*` tab and for story/task detail pages.
  *
  * Which link is lit comes from lib/nav-section.ts. `/work-defs/*` is shared by
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type
- * (Solitary/Scheduled/Board → Work Items, Triage → Thoughts).
+ * (Solitary/Scheduled/Board → Work, Triage → Thoughts).
  */
 
 import { useEffect, useState } from "react";
@@ -49,12 +49,12 @@ interface NavStatus {
 }
 
 /**
- * Primary nav items. Work Items needs at least one work-item kind switched on
+ * Primary nav items. Work needs at least one work-item kind switched on
  * (`workItems`); it's hidden when the team has all three off (lib/work-items.ts).
  */
 const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; workItems?: boolean }> = [
   { path: "/thoughts", label: "Thoughts", section: "thoughts" },
-  { path: WORK_ITEMS_ROOT, label: "Work Items", section: "work-items", workItems: true },
+  { path: WORK_ITEMS_ROOT, label: "Work", section: "work-items", workItems: true },
 ];
 
 export function NavBar() {
