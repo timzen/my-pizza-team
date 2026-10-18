@@ -28,6 +28,7 @@ export function registerWorkRoutes(ctx: RouteContext): void {
       id: wi.id, title: wi.title, ref: wi.ref, parent: store.getWorkDef(wi.ref.workDefId)?.parent, directory: wi.directory,
       state: wi.state, read: wi.read, memberId: wi.memberId,
       enqueuedAt: wi.enqueuedAt, lastStateChangeAt: wi.lastStateChangeAt,
+      attempt: wi.attempt, retryAt: wi.retryAt, error: wi.error,
       ...(blocker
         ? {
           blockedBy: {

@@ -85,11 +85,15 @@ The Queue is work **in flight** — every WorkItem that hasn't finished — grou
 - **Waiting** (READY) — not picked up yet, with how long it's waited. **Cancel** it if you don't want it run. If waiting work is stuck, a banner says why (distribution paused, no teammates online, everyone busy). Work in a paused story, or one waiting on a dependency, isn't offered to anyone. An item whose directory is busy reads **waiting — directory busy (teammate, item)**. It starts when that item finishes. If the busy item is *at risk*, force-fail it to free the directory.
 - **Working** (IN_PROGRESS) — which teammate has it (click through to watch it) and for how long.
 
+An item marked **retry · attempt 2 · in 4m** is an automatic retry: the teammate's model call failed last time (a service outage, expired credentials), so it runs again after a short backoff — and only once the readiness probe passes. Each failed attempt leaves an amber **[retry]** comment on the work's thread.
+
 You don't have to open the tab to keep an eye on it: the **queue summary** at the top of the left dock (the row beside the nav bar, above both tabs) always shows the counts — `2 waiting · 1 working`, with **at risk** in amber. **Hover** it to preview every item and its status; click it to open the Queue tab. With the dock collapsed, the rail's ⏱ badge (amber when anything is at risk) does the same.
 
 ### Inbox
 
 The Inbox is your review queue: completed WorkItems (**COMPLETE** and **FAILED**), unread by default. Each row links to the work it came from — a board task opens its task page, standalone work opens its WorkDef page — where the completion summary lives as a comment. Clicking a row marks it read.
+
+If a teammate's model call kept failing (say, Bedrock was unavailable) the item is **FAILED** after its automatic retries, never quietly "completed": the row shows the error, and the thread ends with a red **[failed] … after N attempts** comment. Earlier failed attempts appear already read — only the final outcome is news.
 
 ---
 

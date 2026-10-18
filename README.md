@@ -142,6 +142,11 @@ most of it is editable on the **Config** page. Minimal:
   // cron jobs are held (not failed) until it recovers, then fire once.
   "readinessProbe": "my-credentials-check",
 
+  // Optional: when a teammate's model call fails (e.g. a Bedrock 503 or expired
+  // credentials), the work item is retried automatically — after each backoff, and
+  // once the readiness probe passes. Out of retries → FAILED in the Inbox.
+  "retry": { "maxRetries": 3, "backoffMinutes": [1, 5, 15] },
+
   // ─── Auto triage ───────────────────────────────────────────────
   // A teammate reads each note you've changed and comments with an analysis.
   // On by default. intervalMinutes re-arms on daemon restart.

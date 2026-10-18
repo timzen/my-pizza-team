@@ -90,6 +90,13 @@ export interface TeamConfig {
    */
   triage?: TriageConfig;
   /**
+   * Automatic retry of a WorkItem whose agent session *errored* (the model call
+   * failed — e.g. a Bedrock 503 or expired credentials — rather than the agent
+   * finishing or giving up). See docs/DESIGN.md "Errored Sessions Retry".
+   * Read it through `resolveRetry`, never directly.
+   */
+  retry?: RetryConfig;
+  /**
    * Which work-item kinds this team uses (docs/DESIGN.md "Feature Toggles").
    * Absent — every team that predates the toggles — means everything on; a new
    * team (`mpt setup`) starts with `NEW_TEAM_FEATURES`. Read it through
@@ -159,6 +166,43 @@ export function resolveTriage(config: Pick<TeamConfig, "triage">): Required<Tria
     intervalMinutes: t.intervalMinutes && t.intervalMinutes > 0 ? t.intervalMinutes : 60,
     quietMinutes: t.quietMinutes !== undefined && t.quietMinutes >= 0 ? t.quietMinutes : 10,
   };
+}
+
+/**
+ * Retry policy for errored agent sessions. Each retry is a fresh WorkItem
+ * (attempt n+1), held back until its backoff passes and the team is ready.
+ */
+export interface RetryConfig {
+  /** Retries after the first errored attempt (default 3; 0 disables retrying). */
+  maxRetries?: number;
+  /**
+   * Wait before each retry, in minutes (default [1, 5, 15]). Retry n waits
+   * `backoffMinutes[n-1]`; past the end of the list, the last value repeats.
+   */
+  backoffMinutes?: number[];
+}
+
+/** Default backoff between errored-session retries (minutes). */
+export const DEFAULT_RETRY_BACKOFF_MINUTES = [1, 5, 15];
+
+/** Retry settings with defaults applied. */
+export function resolveRetry(config: Pick<TeamConfig, "retry">): Required<RetryConfig> {
+  const r = config.retry ?? {};
+  const backoff = Array.isArray(r.backoffMinutes) && r.backoffMinutes.length > 0 &&
+      r.backoffMinutes.every((m) => typeof m === "number" && m >= 0)
+    ? r.backoffMinutes
+    : DEFAULT_RETRY_BACKOFF_MINUTES;
+  return {
+    maxRetries: typeof r.maxRetries === "number" && Number.isInteger(r.maxRetries) && r.maxRetries >= 0 ? r.maxRetries : 3,
+    backoffMinutes: backoff,
+  };
+}
+
+/** Backoff before retry number `retry` (1-based), in milliseconds. */
+export function retryBackoffMs(policy: Required<RetryConfig>, retry: number): number {
+  const list = policy.backoffMinutes;
+  const minutes = list[Math.min(Math.max(retry, 1), list.length) - 1]!;
+  return minutes * 60_000;
 }
 
 export interface TeammateConfig {
@@ -232,6 +276,15 @@ export interface WorkItem {
   memberId?: string;
   enqueuedAt: string;
   lastStateChangeAt: string;
+  /**
+   * 1 for a first run; n for the (n-1)th automatic retry after an errored
+   * agent session (see `RetryConfig`).
+   */
+  attempt: number;
+  /** A READY retry is not handed out before this time (its backoff). */
+  retryAt?: string;
+  /** Why this attempt's agent session errored (the model call's error message). */
+  error?: string;
 }
 
 /**

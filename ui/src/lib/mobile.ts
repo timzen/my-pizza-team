@@ -104,7 +104,7 @@ export interface OutcomeItem {
 const OUTCOME_SLACK_MS = 60_000;
 
 /** The tags the harnesses prefix a run's closing comment with. */
-const CLOSING_TAG = /^\[(done|failed)\]\s*/;
+const CLOSING_TAG = /^\[(done|failed|retry)\]\s*/;
 
 /**
  * The comment that says how a finished WorkItem went — what the phone Inbox
@@ -112,7 +112,7 @@ const CLOSING_TAG = /^\[(done|failed)\]\s*/;
  *
  * Comments live on the ref (the WorkDef), not the item, so a task reworked three
  * times has every attempt's comments in one thread. The item's own outcome is the
- * last closing comment (`[done]` / `[failed]`) posted before its state changed;
+ * last closing comment (`[done]` / `[failed]` / `[retry]`) posted before its state changed;
  * failing that (a human force-failed it, or an auto-triage analysis), the last
  * comment its teammate posted by then; failing that, nothing.
  */

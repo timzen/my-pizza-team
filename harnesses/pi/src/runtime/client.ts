@@ -133,6 +133,8 @@ export interface AgentSetStateResponse {
   newStatus?: string;
   completed?: boolean;
   error?: string;
+  /** Present when a session-error FAILED made the daemon schedule a retry. */
+  retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
 }
 
 /** Delivery receipt states for a user chat message. */
@@ -544,6 +546,19 @@ export class DaemonClient {
     return this.post<AgentSetStateResponse>(
       `/api/agents/work-items/${encodeURIComponent(workItemId)}/state`,
       { agentId: this.agentId, state }
+    );
+  }
+
+  /**
+   * Fail a WorkItem because the agent's *session errored* (the model call
+   * failed), not because the agent gave up. The daemon retries it with backoff
+   * and posts the attempt's `[retry]`/`[failed]` comment itself, so the caller
+   * posts nothing (my-pizza-team docs/DESIGN.md "Errored Sessions Retry").
+   */
+  async failWorkItemForSessionError(workItemId: string, sessionError: string): Promise<AgentSetStateResponse> {
+    return this.post<AgentSetStateResponse>(
+      `/api/agents/work-items/${encodeURIComponent(workItemId)}/state`,
+      { agentId: this.agentId, state: "FAILED", sessionError }
     );
   }
 

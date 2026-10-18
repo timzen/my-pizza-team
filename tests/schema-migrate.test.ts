@@ -72,3 +72,27 @@ Deno.test("a fresh database never has the retired columns", () => {
     }
   } finally { Deno.removeSync(teamDir, { recursive: true }); }
 });
+
+Deno.test("an old work_items table gains the retry columns; old items read as attempt 1", () => {
+  const teamDir = Deno.makeTempDirSync({ prefix: "mpt-schema-test-" });
+  const dbPath = path.join(teamDir, "state.db");
+  try {
+    // A work_items table from before errored-session retries (no attempt/retry_at/error).
+    const old = new DatabaseSync(dbPath);
+    old.exec(`
+      CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT, work_def_id TEXT, directory TEXT, state TEXT,
+        read INTEGER DEFAULT 0, member_id TEXT, enqueued_at INTEGER, last_state_change_at INTEGER);
+      INSERT INTO work_items (id, title, work_def_id, state, read, enqueued_at, last_state_change_at)
+        VALUES ('wi-old', 'Old item', 'def-1', 'COMPLETE', 0, 1, 1);
+    `);
+    old.close();
+
+    const store = new Store(teamDir, structuredClone(TEST_CONFIG));
+    const item = store.getWorkItem("wi-old")!;
+    assertEquals(item.attempt, 1);
+    assertEquals(item.retryAt, undefined);
+    assertEquals(item.error, undefined);
+    store.close();
+    for (const col of ["attempt", "retry_at", "error"]) assert(columns(dbPath, "work_items").includes(col), `work_items.${col} added`);
+  } finally { Deno.removeSync(teamDir, { recursive: true }); }
+});

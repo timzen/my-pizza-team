@@ -192,10 +192,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // The agent transitions its WorkItem to COMPLETE or FAILED. The daemon reacts
   // (COMPLETE advances a task ref; FAILED leaves it stuck). "Giving up" is the
   // agent composing a comment + FAILED — the daemon bundles nothing.
+  //
+  // FAILED with `sessionError` is different: the agent's session *errored* (the
+  // model call failed), so nobody gave up. The daemon retries it with backoff
+  // and posts the attempt's comment itself (docs/DESIGN.md "Errored Sessions
+  // Retry"; Store.failWorkItemForSessionError).
 
   app.post("/api/agents/work-items/:workItemId/state", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await c.req.json() as { agentId?: string; state?: string };
+    const body = await c.req.json() as { agentId?: string; state?: string; sessionError?: unknown };
     if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
     if (body.state !== "COMPLETE" && body.state !== "FAILED") {
       return c.json({ success: false, error: "Field 'state' must be 'COMPLETE' or 'FAILED'" }, 400);
@@ -205,6 +210,13 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
     if (item.memberId && item.memberId !== body.agentId) {
       return c.json({ success: false, error: "WorkItem not held by this agent" }, 403);
+    }
+
+    if (body.state === "FAILED" && typeof body.sessionError === "string") {
+      const res = store.failWorkItemForSessionError(workItemId, body.sessionError);
+      store.updateMemberStatus(body.agentId, "idle");
+      if (!res.ok) return c.json({ success: false, error: res.error }, 400);
+      return c.json({ success: true, ...(res.retry ? { retry: res.retry } : {}) });
     }
 
     const res = store.setWorkItemState(workItemId, body.state);

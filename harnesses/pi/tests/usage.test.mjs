@@ -53,5 +53,42 @@ test("missing usage fields and empty runs are zeros, not NaN", () => {
   assert.strictEqual(hasUsage(u), true);
 });
 
+console.log("summarizeRun sessionError (errored model calls are not completions):");
+
+// The real failure (firm-odo, 2026-10-01): a Bedrock 503 ends the run with an
+// empty, zero-token assistant message whose stopReason is "error".
+const errored = (errorMessage) => ({
+  role: "assistant", model: "opus", content: [], stopReason: "error", errorMessage,
+  usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, cost: { total: 0 } },
+});
+
+test("a final stopReason 'error' message sets sessionError to Pi's errorMessage", () => {
+  const u = summarizeRun([{ role: "user", content: "go" }, errored("Service unavailable: Bedrock is unable to process your request.")]);
+  assert.strictEqual(u.sessionError, "Service unavailable: Bedrock is unable to process your request.");
+  assert.strictEqual(u.lastText, "");
+});
+
+test("stopReason 'error' with no message still counts, with a stock reason", () => {
+  const u = summarizeRun([errored(undefined)]);
+  assert.ok(u.sessionError && u.sessionError.length > 0);
+});
+
+test("an earlier error that the run recovered from is not a session error", () => {
+  const u = summarizeRun([errored("Could not load credentials from any providers"), assistant({ input: 1, output: 9 }, "Done.")]);
+  assert.strictEqual(u.sessionError, undefined);
+  assert.strictEqual(u.lastText, "Done.");
+});
+
+test("an empty-but-successful final message is NOT a session error", () => {
+  const u = summarizeRun([{ ...assistant({ input: 10, output: 0 }, ""), stopReason: "stop" }]);
+  assert.strictEqual(u.sessionError, undefined);
+  assert.strictEqual(summarizeRun([assistant({ input: 1, output: 1 }, "")]).sessionError, undefined);
+});
+
+test("a human abort is not a session error", () => {
+  const u = summarizeRun([{ ...assistant({ input: 1, output: 1 }, ""), stopReason: "aborted", errorMessage: "Request was aborted" }]);
+  assert.strictEqual(u.sessionError, undefined);
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

@@ -93,6 +93,40 @@ ad-hoc mechanisms (capability matching, assigned-story scoping, a `return` bundl
 task substatus) with one object, and makes "what happened / how do I get it back on
 track" obvious.
 
+## Errored Sessions Retry
+
+A teammate's run can end because the **model call** failed — a Bedrock 503
+`ServiceUnavailableException`, "Could not load credentials from any providers" —
+not because the agent finished or gave up. Pi reports it as a final assistant
+message with `stopReason: "error"` (empty content, zero tokens, an `errorMessage`).
+Read as a normal `agent_end`, that posted `[done] Work complete. Summary:` with an
+empty summary and set COMPLETE, so scheduled jobs silently did nothing.
+
+So an errored session is **neither a completion nor a give-up**:
+
+- The harness detects it (`summarizeRun` → `sessionError`; only the run's *final*
+  assistant message counts, a human abort doesn't, and an empty-but-successful
+  reply is still a completion) and calls the state route with
+  `FAILED` + `sessionError`. It posts nothing itself.
+- The daemon (`Store.failWorkItemForSessionError`) owns the retry: with retries
+  left it posts `[retry] Attempt n/N failed: <error>. Retrying in 5m…`, marks this
+  attempt FAILED **and read**, and enqueues attempt n+1 — a *new* WorkItem (a
+  WorkItem never moves backward) held READY until its backoff (`retryAt`) passes
+  **and** the readiness probe reports ready (no point retrying into expired
+  credentials). Once retries run out the attempt stays FAILED, **unread** — it
+  lands in the Inbox — with `[failed] <error> after N attempts`.
+- Policy: `retry: { maxRetries: 3, backoffMinutes: [1, 5, 15] }` in config.json
+  (`resolveRetry`; 0 disables retrying; the last backoff repeats).
+- Board tasks keep their position while a retry waits (the retry is just the
+  task's next WorkItem); Solitary/Scheduled WorkDefs work the same.
+
+*Why the daemon posts these comments* (the exception to "the agent writes its own
+comment"): the retry decision and attempt count are the daemon's, and putting
+them on the thread is what makes the attempts visible. Intermediate attempts are
+marked read because they aren't news — the retry is; only the final outcome
+should notify. A plain FAILED (the `fail` tool, a human) is never retried: that
+was a decision, not an outage.
+
 ## Work Matching: Directory Affinity
 
 Which agent works which item is decided by a soft **directory bias**, never a hard
@@ -721,8 +755,10 @@ so a harness can report too.
   work; one that can't launch confirms nothing. A hung probe is timed out.
 - **Gating applies only while an agent is online.** With none connected the queue
   simply waits; readiness is about connected-but-unable, not absent.
-- **Only the scheduler is gated.** Solitary and board work are human-initiated and
-  still run (and may fail visibly).
+- **Only the scheduler — and automatic retries — are gated.** Solitary and board
+  work are human-initiated and still run (and may fail visibly). A retry of an
+  errored session (see "Errored Sessions Retry") waits for ready before it's
+  handed out.
 
 The motivating case: a cloud desktop whose credentials expire overnight shouldn't
 wake up to a pile of FAILED cron runs.

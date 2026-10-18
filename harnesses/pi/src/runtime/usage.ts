@@ -14,6 +14,10 @@
 interface MessageLike {
   role?: string;
   model?: string;
+  /** Pi's AssistantMessage stop reason: "stop" | "length" | "toolUse" | "error" | "aborted". */
+  stopReason?: string;
+  /** Set by Pi when the model call failed (stopReason "error"). */
+  errorMessage?: string;
   content?: Array<{ type: string; text?: string }> | string;
   usage?: {
     input?: number;
@@ -34,12 +38,23 @@ export interface RunUsage {
   model: string;
   /** The run's last assistant prose (a work item's completion summary). */
   lastText: string;
+  /**
+   * Set when the run's *final* assistant message ended with stopReason
+   * "error" — the model call failed (a Bedrock 503, missing credentials), so
+   * the run produced nothing and is not a completion. Pi's errorMessage, or a
+   * stock reason. An empty-but-successful final message leaves this unset.
+   */
+  sessionError?: string;
 }
 
 /** Sum a run's assistant-message usage and find its last prose. */
 export function summarizeRun(messages: MessageLike[] | undefined): RunUsage {
   const out: RunUsage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0, costUsd: 0, model: "unknown", lastText: "" };
   const list = messages || [];
+  const final = [...list].reverse().find((m) => m?.role === "assistant");
+  if (final && (final.stopReason === "error" || (final.errorMessage && final.stopReason !== "aborted"))) {
+    out.sessionError = final.errorMessage?.trim() || "The model call failed (no error message)";
+  }
   for (let i = list.length - 1; i >= 0; i--) {
     const msg = list[i];
     if (msg?.role !== "assistant") continue;

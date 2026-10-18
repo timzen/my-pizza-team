@@ -26,6 +26,7 @@ const FULL: Partial<TeamConfig> = {
   experimental: { harnesses: true },
   favoriteDirectories: ["/tmp/mpt-fav-a", "/tmp/mpt-fav-b"],
   features: { stories: false, tasks: true, schedules: true },
+  retry: { maxRetries: 2, backoffMinutes: [2, 10] },
   harnesses: {
     custom: { teammate: "my-agent --name={name} --daemon={url}", leader: "my-agent --lead" },
   },
@@ -58,6 +59,8 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.favoriteDirectories, FULL.favoriteDirectories);
   // A save that doesn't send `features` keeps the team's toggles.
   assertEquals(saved.features, FULL.features);
+  // Errored-session retry policy has no editor; a save must keep it.
+  assertEquals(saved.retry, FULL.retry);
 }
 
 Deno.test("saveConfig writes every persistable field", () => {

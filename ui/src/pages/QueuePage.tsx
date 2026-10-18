@@ -30,6 +30,7 @@ import { useQueue, type QueueData } from "@/hooks/useQueue";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QUEUE_STATES, since, type QueueItem, type QueueState } from "@/lib/queue";
+import { retryLabel } from "@/lib/retry";
 import { workItemPath } from "@/lib/work-item-link";
 import { dirName, roleOf, type Teammate } from "@/lib/team";
 import { AlertTriangle, Ban, FolderOpen, ListTodo, RotateCcw, X } from "lucide-react";
@@ -140,6 +141,7 @@ function QueueRow({
         </Link>
         <div className="mt-1 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-muted-foreground">
           {item.state === "READY" && !item.blockedBy && <span>waiting {since(item.lastStateChangeAt)}</span>}
+          {retryLabel(item) && <span className="text-amber-700 dark:text-amber-400">{retryLabel(item)}</span>}
           {item.state === "READY" && item.blockedBy && (
             <span className="text-amber-700 dark:text-amber-400" title={`waiting ${since(item.lastStateChangeAt)}`}>
               waiting — directory busy (

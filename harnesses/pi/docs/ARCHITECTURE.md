@@ -82,6 +82,9 @@ All state is owned by the **my-pizza-team daemon**. The extension is a pure clie
 │     └── handleAgentComplete(lastAssistantMessage)        │
 │         ├── foreign run (prompt not started yet) → skip  │
 │         ├── item failed via the `fail` tool → skip       │
+│         ├── session errored (stopReason "error") →       │
+│         │   POST .../state FAILED + sessionError; the    │
+│         │   daemon posts [retry]/[failed] and retries    │
 │         └── else POST .../work-items/:id/state COMPLETE  │
 │             └── daemon advances the task mechanically    │
 │  5. Back to step 1                                       │
@@ -103,6 +106,16 @@ working on it. Two guards, both in `TeammateLoop`:
   a foreign `agent_end` doesn't complete the item (and its usage is reported as
   `other`, not billed to the item — `ownsCurrentRun`). The item stays
   IN_PROGRESS and is completed by its own run's `agent_end`.
+
+**Errored sessions are not completions.** When the model call fails (a Bedrock
+503, missing credentials) Pi ends the run with an empty, zero-token assistant
+message whose `stopReason` is `"error"`. `summarizeRun` reports that as
+`sessionError` (final message only; an abort or an empty-but-successful reply
+doesn't count), and `handleAgentComplete` then calls
+`client.failWorkItemForSessionError` instead of posting `[done]` + COMPLETE. The
+daemon retries with backoff and owns the comments (my-pizza-team docs/DESIGN.md
+"Errored Sessions Retry"); the loop just releases the item and takes a fresh
+session.
 
 **Usage reporting (every run).** Each `agent_end` — teammate and leader — sums
 the run with `summarizeRun` (`src/usage.ts`: input, output, **cache read/write**,

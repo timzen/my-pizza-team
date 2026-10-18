@@ -23,6 +23,10 @@ export interface QueueItem extends LinkableWorkItem {
   blockedBy?: { workItemId: string; title: string; memberId?: string; memberName?: string };
   enqueuedAt: string;
   lastStateChangeAt: string;
+  /** 1 for a first run; n for an automatic retry after an errored agent session. */
+  attempt?: number;
+  /** A READY retry is held until this time (its backoff). */
+  retryAt?: string;
 }
 
 /** Human labels + colors per state, in the order they're worth your attention. */

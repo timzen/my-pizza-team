@@ -32,6 +32,10 @@ interface WorkItem {
   memberId?: string | null;
   enqueuedAt: string;
   lastStateChangeAt: string;
+  /** 1 for a first run; n for an automatic retry after an errored session. */
+  attempt?: number;
+  /** Why this attempt's agent session errored (e.g. a Bedrock 503). */
+  error?: string;
 }
 
 const PAGE_SIZE = 20;
@@ -138,6 +142,11 @@ function InboxRow({ item, onMarkRead }: { item: WorkItem; onMarkRead: (id: strin
           {item.memberId ? ` by ${item.memberId}` : ""} · {when}
           {" · "}{parentLabel(item)}
         </p>
+        {failed && item.error && (
+          <p className="text-xs text-destructive mt-0.5 truncate" title={item.error}>
+            Session error{item.attempt && item.attempt > 1 ? ` (attempt ${item.attempt})` : ""}: {item.error}
+          </p>
+        )}
       </div>
       {!item.read && <span className="h-2 w-2 rounded-full bg-primary shrink-0 mt-1.5" />}
     </Link>

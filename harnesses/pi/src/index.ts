@@ -368,9 +368,11 @@ async function setupTeammate(
       return;
     }
 
-    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${usage.inputTokens} out=${usage.outputTokens} cacheR=${usage.cacheReadTokens} cacheW=${usage.cacheWriteTokens}, cost=${usage.costUsd}, model=${usage.model}`);
+    debug(`${debugPrefix} lastText length=${lastText.length}, tokens in=${usage.inputTokens} out=${usage.outputTokens} cacheR=${usage.cacheReadTokens} cacheW=${usage.cacheWriteTokens}, cost=${usage.costUsd}, model=${usage.model}, sessionError=${usage.sessionError ?? "none"}`);
 
-    await loop.handleAgentComplete(lastText);
+    // A run whose model call failed (stopReason "error") is not a completion —
+    // handleAgentComplete fails it for a daemon-side retry instead.
+    await loop.handleAgentComplete(lastText, usage.sessionError);
   });
 
   // ─── Live transcript (web UI watch view) ─────────────────────────

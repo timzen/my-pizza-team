@@ -12,7 +12,10 @@
 // 4. On the agent_end **of that prompt's own run**, POST
 //    .../work-items/:id/state COMPLETE → the daemon advances the task
 //    mechanically. If the agent used the `fail` tool instead, the item is
-//    already FAILED and completion is skipped.
+//    already FAILED and completion is skipped. If the run's *session errored*
+//    (the model call failed: stopReason "error"), it is not a completion
+//    either: the item is failed with the error and the daemon retries it with
+//    backoff (my-pizza-team docs/DESIGN.md "Errored Sessions Retry").
 //
 // Run ownership matters: the prompt is delivered as a `followUp`, which Pi only
 // hands over once the agent stops. So an agent_end can belong to some *other*
@@ -341,8 +344,13 @@ export class TeammateLoop {
    * the task to its next state (workers never move tasks). If the agent failed
    * the item mid-turn (the `fail` tool), completion is skipped: the item is
    * already FAILED and the task is left stuck for a human.
+   *
+   * `sessionError` (from summarizeRun) means the run's model call failed —
+   * nothing was done, so posting "[done]" and setting COMPLETE would silently
+   * swallow the work. Instead the item is failed with the error; the daemon
+   * posts the `[retry]`/`[failed]` comment and enqueues the retry.
    */
-  async handleAgentComplete(lastMessage: string): Promise<void> {
+  async handleAgentComplete(lastMessage: string, sessionError?: string): Promise<void> {
     this.debugLog(`[ppt-debug] handleAgentComplete called. currentWorkItemId=${this.currentWorkItemId}, msgLen=${lastMessage.length}`);
     if (!this.currentWorkItemId) {
       this.debugLog(`[ppt-debug] handleAgentComplete: no currentWorkItemId, returning early`);
@@ -367,6 +375,20 @@ export class TeammateLoop {
     if (this.failedWorkItemId === workItemId) {
       this.debugLog(`[ppt-debug] WorkItem ${workItemId} was failed via the fail tool — skipping COMPLETE.`);
       this.failedWorkItemId = null;
+      this.currentWorkItemId = null;
+      this.awaitingWorkRun = false;
+      this.finishWorkItem();
+      return;
+    }
+
+    // ─── Session errored? Not a completion — the daemon retries it. ───
+    if (sessionError) {
+      this.debugLog(`[ppt-debug] WorkItem ${workItemId}: agent session errored (${sessionError}) — failing for retry, NOT completing.`);
+      const res = await this.client.failWorkItemForSessionError(workItemId, sessionError).catch((e) => {
+        this.debugLog(`[ppt-debug] failWorkItemForSessionError FAILED: ${e}`);
+        return null;
+      });
+      this.debugLog(`[ppt-debug] failWorkItemForSessionError response: ${JSON.stringify(res)}`);
       this.currentWorkItemId = null;
       this.awaitingWorkRun = false;
       this.finishWorkItem();

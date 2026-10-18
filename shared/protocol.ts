@@ -312,8 +312,15 @@ export interface AgentClaimResponse { success: boolean; error?: string; workItem
 
 // POST /api/agents/work-items/:workItemId/state — the single state-setter.
 // The daemon reacts: COMPLETE advances a task ref; FAILED leaves it stuck.
-export interface AgentSetWorkItemStateRequest { agentId: string; state: "COMPLETE" | "FAILED"; result?: string }
-export interface AgentSetWorkItemStateResponse { success: boolean; error?: string; newStatus?: string; completed?: boolean }
+// FAILED with `sessionError` means the agent's session errored (the model call
+// failed), not that the agent gave up: the daemon then retries with backoff and
+// posts the attempt's comment itself (docs/DESIGN.md "Errored Sessions Retry").
+export interface AgentSetWorkItemStateRequest { agentId: string; state: "COMPLETE" | "FAILED"; result?: string; sessionError?: string }
+export interface AgentSetWorkItemStateResponse {
+  success: boolean; error?: string; newStatus?: string; completed?: boolean;
+  /** Present when a `sessionError` FAILED scheduled a retry. */
+  retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
+}
 
 // GET /api/agents/comments/:workItemId
 export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
@@ -341,6 +348,12 @@ export interface WorkItemView {
   memberId?: string;
   enqueuedAt: string;
   lastStateChangeAt: string;
+  /** 1 for a first run; n for an automatic retry after an errored session. */
+  attempt: number;
+  /** A READY retry waits until this time (its backoff). */
+  retryAt?: string;
+  /** Why this attempt's agent session errored, if it did. */
+  error?: string;
   /**
    * READY only: the active WorkItem holding an overlapping directory lease, when
    * that's why this one is waiting (`exclusiveDirectories`; docs/DESIGN.md

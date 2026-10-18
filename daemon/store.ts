@@ -51,6 +51,8 @@ import {
   type WorkDefOrigin,
   isTriageDecision,
   resolveTriage,
+  resolveRetry,
+  retryBackoffMs,
   type ThreadEntry,
   type TriageBadge,
   type TriageDecision,
@@ -189,6 +191,15 @@ function taskSeqFromId(storyId: string, taskId: string): number | null {
   return String(n) === suffix ? n : null;
 }
 
+/** A backoff delay for a comment: "1m", "15m", "30s", "1h 30m". */
+function formatDelay(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  const totalMin = Math.round(ms / 60_000);
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
+}
+
 /**
  * Serialize a TeamConfig to the on-disk config.json shape. Preserves all
  * persistable fields (workflows live in the workflows/ dir, so they are
@@ -218,6 +229,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.defaultHarness) out.defaultHarness = config.defaultHarness;
   if (config.experimental && Object.keys(config.experimental).length > 0) out.experimental = config.experimental;
   if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
+  if (config.retry && Object.keys(config.retry).length > 0) out.retry = config.retry;
   // Default is on; persist only an explicit value so config.json stays minimal.
   if (config.exclusiveDirectories !== undefined) out.exclusiveDirectories = config.exclusiveDirectories;
   // Absent means "everything on" (an existing team); persist only an explicit block.
@@ -515,13 +527,28 @@ export class Store {
         read INTEGER DEFAULT 0,
         member_id TEXT,            -- who is/was working it
         enqueued_at INTEGER,
-        last_state_change_at INTEGER
+        last_state_change_at INTEGER,
+        attempt INTEGER DEFAULT 1, -- n-th try at this ref (retries after an errored session)
+        retry_at INTEGER,          -- a READY retry is held until this time (backoff)
+        error TEXT                 -- why this attempt's agent session errored
       );
     `);
 
     // Migration: add columns if they don't exist (for existing databases)
     // The token-usage ledger grew cache/kind/member/title columns (store/usage.ts).
     migrateUsageColumns(this.db);
+
+    // Errored-session retries (docs/DESIGN.md "Errored Sessions Retry").
+    const workItemColumns = this.db.prepare("PRAGMA table_info(work_items)").all() as Array<Record<string, unknown>>;
+    if (!workItemColumns.some((col) => col.name === "attempt")) {
+      this.db.exec("ALTER TABLE work_items ADD COLUMN attempt INTEGER DEFAULT 1");
+    }
+    if (!workItemColumns.some((col) => col.name === "retry_at")) {
+      this.db.exec("ALTER TABLE work_items ADD COLUMN retry_at INTEGER");
+    }
+    if (!workItemColumns.some((col) => col.name === "error")) {
+      this.db.exec("ALTER TABLE work_items ADD COLUMN error TEXT");
+    }
 
     const storyColumns = this.db.prepare("PRAGMA table_info(stories)").all() as Array<Record<string, unknown>>;
     if (!storyColumns.some((col) => col.name === "workflow")) {
@@ -1158,6 +1185,9 @@ export class Store {
       memberId: (row.member_id as string) || undefined,
       enqueuedAt: new Date(row.enqueued_at as number).toISOString(),
       lastStateChangeAt: new Date(row.last_state_change_at as number).toISOString(),
+      attempt: (row.attempt as number) || 1,
+      retryAt: row.retry_at ? new Date(row.retry_at as number).toISOString() : undefined,
+      error: (row.error as string) || undefined,
     };
   }
 
@@ -1254,7 +1284,7 @@ export class Store {
    * guarantees no path (Run, cron, admission, reconcile, re-enqueue) dispatches
    * one (docs/DESIGN.md "Drafts: Write, Review, Publish").
    */
-  private enqueueFor(workDefId: string): WorkItem | null {
+  private enqueueFor(workDefId: string, retry?: { attempt: number; retryAt: number }): WorkItem | null {
     const def = this.getWorkDef(workDefId);
     if (!def || def.draft) return null;
     let directory = def.directory;
@@ -1274,9 +1304,9 @@ export class Store {
     const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
     const now = Date.now();
     this.db.prepare(
-      `INSERT INTO work_items (id, title, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at)
-       VALUES (?, ?, ?, ?, 'READY', 0, NULL, ?, ?)`
-    ).run(id, title, def.id, directory ? normalizeDirectory(directory) : null, now, now);
+      `INSERT INTO work_items (id, title, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at, attempt, retry_at)
+       VALUES (?, ?, ?, ?, 'READY', 0, NULL, ?, ?, ?, ?)`
+    ).run(id, title, def.id, directory ? normalizeDirectory(directory) : null, now, now, retry?.attempt ?? 1, retry?.retryAt ?? null);
     return this.getWorkItem(id)!;
   }
 
@@ -1307,8 +1337,12 @@ export class Store {
    * With `exclusiveDirectories` on (the default), a candidate whose directory
    * overlaps an active (IN_PROGRESS/MORIBUND) item's directory is skipped — it
    * stays READY until the lease frees (see `getDirectoryBlocker`).
+   *
+   * An automatic retry (docs/DESIGN.md "Errored Sessions Retry") stays READY
+   * until its backoff (`retryAt`) passes *and* the team's readiness probe says
+   * ready — retrying into expired credentials would just burn an attempt.
    */
-  getNextWorkItem(agent: { id?: string; directory?: string }): WorkItem | null {
+  getNextWorkItem(agent: { id?: string; directory?: string }, now: number = Date.now()): WorkItem | null {
     const rows = this.db.prepare("SELECT * FROM work_items WHERE state = 'READY' ORDER BY enqueued_at ASC").all() as Array<Record<string, unknown>>;
     // Normalize at compare time too (not just at write time): rows written
     // before symlink resolution, or before the path existed on this host, may
@@ -1316,7 +1350,7 @@ export class Store {
     const norm = this.directoryNormalizer();
     const leases = this.getDirectoryLeases(norm);
     const candidates = rows.map((r) => this.rowToWorkItem(r))
-      .filter((wi) => this.isWorkItemEligible(wi) && !this.findLeaseBlocker(wi, leases, norm));
+      .filter((wi) => this.isWorkItemEligible(wi) && this.isRetryDue(wi, now) && !this.findLeaseBlocker(wi, leases, norm));
     if (candidates.length === 0) return null;
 
     const agentDir = agent.directory ? norm(agent.directory) : undefined;
@@ -1332,6 +1366,17 @@ export class Store {
     if (tier2[0]) return tier2[0];
     const tier3 = candidates.filter((wi) => wi.directory && norm(wi.directory) !== agentDir && !onlineDirs.has(norm(wi.directory)));
     return tier3[0] ?? null;
+  }
+
+  /**
+   * May this READY item be handed out yet? A first attempt always may; a retry
+   * waits out its backoff, then for the readiness probe (re-run every 30s by
+   * daemon/readiness.ts) to report ready.
+   */
+  private isRetryDue(wi: WorkItem, now: number): boolean {
+    if (wi.attempt <= 1) return true;
+    if (wi.retryAt && Date.parse(wi.retryAt) > now) return false;
+    return this.isTeamReady();
   }
 
   /** A READY WorkItem is eligible if its backing work still wants doing. */
@@ -1466,6 +1511,64 @@ export class Store {
     this.setTaskPosition(taskId, next, true);
     this.runAdmission(task.storyId);
     return { newStatus: next, completed: next === DONE_STATE };
+  }
+
+  /**
+   * The agent's session *errored* (the model call failed — a Bedrock 503,
+   * missing credentials), so the attempt produced nothing. Unlike the agent
+   * giving up, this is retried automatically (docs/DESIGN.md "Errored Sessions
+   * Retry"):
+   *
+   *   - retries left → this attempt goes FAILED *read* (it isn't news — the
+   *     retry is), and a fresh READY item (attempt n+1) is enqueued, held until
+   *     its backoff passes and the team is ready. Comment: `[retry] …`.
+   *   - retries exhausted → FAILED, unread, so it lands in the Inbox. Comment:
+   *     `[failed] <error> after N attempts`.
+   *
+   * The daemon posts the comment here — the one exception to "the agent owns
+   * its comments", because the retry decision (and its attempt count) is the
+   * daemon's. It is posted *before* the state change, so it is the item's
+   * closing comment (ui/src/lib/mobile.ts `inboxOutcome`). Works the same for
+   * board tasks and Solitary/Scheduled WorkDefs: a task keeps its position,
+   * and the retry is just its next WorkItem.
+   */
+  failWorkItemForSessionError(id: string, sessionError: string, now: number = Date.now()): {
+    ok: boolean; error?: string; retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
+  } {
+    const item = this.getWorkItem(id);
+    if (!item) return { ok: false, error: "WorkItem not found" };
+    if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
+      return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
+    }
+    const policy = resolveRetry(this.config);
+    const maxAttempts = policy.maxRetries + 1;
+    const reason = sessionError.trim() || "The agent session errored";
+    const author = item.memberId || "daemon";
+    const retriesLeft = item.attempt < maxAttempts && this.getWorkDef(item.ref.workDefId) !== null;
+    this.db.prepare("UPDATE work_items SET error = ? WHERE id = ?").run(reason, id);
+
+    if (!retriesLeft) {
+      const tries = item.attempt === 1 ? "1 attempt" : `${item.attempt} attempts`;
+      this.addCommentForRef(item.ref, author, `[failed] ${reason} after ${tries}. The agent session errored; nothing was done on the final attempt.`);
+      this.setWorkItemState(id, "FAILED");
+      return { ok: true };
+    }
+
+    const delayMs = retryBackoffMs(policy, item.attempt);
+    const retryAt = now + delayMs;
+    const next = item.attempt + 1;
+    this.addCommentForRef(
+      item.ref,
+      author,
+      `[retry] Attempt ${item.attempt}/${maxAttempts} failed: ${reason}. Retrying in ${formatDelay(delayMs)} (attempt ${next}/${maxAttempts}), once the team is ready.`,
+    );
+    this.setWorkItemState(id, "FAILED");
+    this.markWorkItemRead(id, true);
+    // Re-check: setWorkItemState → advance/admission never enqueues on FAILED, but stay safe.
+    if (this.getActiveWorkItemForRef(item.ref)) return { ok: true };
+    const fresh = this.enqueueFor(item.ref.workDefId, { attempt: next, retryAt });
+    if (!fresh) return { ok: true };
+    return { ok: true, retry: { workItemId: fresh.id, attempt: next, maxAttempts, retryAt: new Date(retryAt).toISOString() } };
   }
 
   /** Cancel a READY WorkItem (human). */

@@ -35,6 +35,7 @@ import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { Trash2, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { FileViewer } from "@/components/viewer/FileViewer";
+import { commentToneClass } from "@/lib/retry";
 
 interface WorkDef {
   id: string;
@@ -259,7 +260,7 @@ export function TaskDetailPage() {
         </div>
         {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
         {threadComments.map((c, i) => (
-          <div key={i} className="rounded-md border border-border bg-background p-3">
+          <div key={i} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium">{c.from}</span>
               <span className="text-xs text-muted-foreground">{new Date(c.at).toLocaleString()}</span>
