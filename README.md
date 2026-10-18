@@ -73,17 +73,18 @@ enable them in Config (features.stories)".
 
 ### Upgrading
 
-`mpt upgrade` downloads the latest GitHub release for your platform, verifies its
-checksum, replaces the binary in place, rewrites the managed Pi extension to match,
-and restarts the service if one is installed. **Restart running agents afterwards**
-— they keep the old extension until their Pi restarts; the Team tab flags them and
-can restart them for you.
+mpt is moving from a compiled binary to an npm package, and upgrading through npm
+isn't built yet: for now `mpt upgrade` only says so and exits non-zero. Running from
+source, `git pull`, then `mpt setup` (rewrites the managed Pi extension to match) and
+restart the daemon. **Restart running agents afterwards** — they keep the old
+extension until their Pi restarts; the Team tab flags them and can restart them for
+you.
 
-The version check uses the GitHub API, which allows **60 unauthenticated requests
-per hour per IP** — easily exhausted on a shared-egress machine (`HTTP 403`). When
-the API fails, `mpt upgrade` falls back to plain `github.com` release links, which
-aren't rate limited, so the upgrade still completes (checksum included). Setting a
-token skips the fallback:
+`mpt upgrade --check` still reports whether a newer release exists. It uses the
+GitHub API, which allows **60 unauthenticated requests per hour per IP** — easily
+exhausted on a shared-egress machine (`HTTP 403`). When the API fails, it falls back
+to plain `github.com` release links, which aren't rate limited. Setting a token
+skips the fallback:
 
 ```bash
 export GITHUB_TOKEN=ghp_xxxx   # or MPT_GITHUB_TOKEN / GH_TOKEN
@@ -613,7 +614,7 @@ npm run test:ext         # the Pi extension's suites
 ```
 
 The extension's and the root npm package's versions are generated from `deno.json`
-(`deno task sync-version`), and its shared constants from `shared/types.ts` (`deno task sync-shared`); CI fails
+(`npm run sync-version`), and its shared constants from `shared/types.ts` (`npm run sync-shared`); CI fails
 if either is out of step.
 
 ## Building

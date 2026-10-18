@@ -22,6 +22,9 @@
 
 import { ACP_HARNESSES } from "../agent/harnesses.ts";
 import * as path from "node:path";
+import * as fs from "node:fs";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { existsSync } from "node:fs";
 import {
   findExtensionRegistrations,
@@ -330,9 +333,9 @@ function extensionCheck(f: DoctorFacts): Check {
 /** Is `cmd` runnable, and what does it report for `--version`? */
 async function probeVersion(cmd: string, args: string[] = ["--version"]): Promise<string | null> {
   try {
-    const out = await new Deno.Command(cmd, { args, stdout: "piped", stderr: "null" }).output();
-    if (!out.success) return null;
-    const text = new TextDecoder().decode(out.stdout).trim();
+    // Rejects on a non-zero exit or a missing command alike — both mean "not usable".
+    const { stdout } = await promisify(execFile)(cmd, args, { encoding: "utf8" });
+    const text = stdout.trim();
     return text.match(/\d+\.\d+\.\d+/)?.[0] ?? text.split("\n")[0] ?? null;
   } catch {
     return null;
@@ -396,7 +399,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     leaderConnected,
     spawning,
     serviceInstalled: opts.serviceInstalled,
-    githubTokenSet: Boolean(Deno.env.get("GITHUB_TOKEN")),
+    githubTokenSet: Boolean(process.env["GITHUB_TOKEN"]),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
   };
 }
@@ -404,7 +407,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
 /** Whether each ACP harness could launch here — only if the team opted in to them. */
 function experimentalHarnessFacts(teamDir: string): DoctorFacts["experimentalHarnesses"] {
   try {
-    const config = JSON.parse(Deno.readTextFileSync(path.join(teamDir, "config.json"))) as { experimental?: { harnesses?: boolean } };
+    const config = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as { experimental?: { harnesses?: boolean } };
     if (!config.experimental?.harnesses) return undefined;
   } catch {
     return undefined;

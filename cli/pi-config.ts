@@ -19,6 +19,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 
 /** The extension's package name, used to recognise our own registrations. */
@@ -26,9 +27,9 @@ export const EXTENSION_PACKAGE_NAME = "pi-pizza-team";
 
 /** Pi's per-user config directory. */
 export function piAgentDir(): string {
-  const override = Deno.env.get("PI_CODING_AGENT_DIR");
+  const override = process.env["PI_CODING_AGENT_DIR"];
   if (override) return override;
-  const home = Deno.env.get("HOME") ?? Deno.env.get("USERPROFILE") ?? ".";
+  const home = process.env["HOME"] ?? process.env["USERPROFILE"] ?? ".";
   return path.join(home, ".pi", "agent");
 }
 
@@ -57,7 +58,7 @@ export function readPiSettings(agentDir = piAgentDir()): PiSettings {
   const file = piSettingsPath(agentDir);
   if (!existsSync(file)) return { raw: {}, packages: [], exists: false };
   try {
-    const raw = JSON.parse(Deno.readTextFileSync(file)) as Record<string, unknown>;
+    const raw = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
     const packages = Array.isArray(raw.packages) ? raw.packages as Array<string | Record<string, unknown>> : [];
     return { raw, packages, exists: true };
   } catch {
@@ -72,7 +73,7 @@ export function isProjectTrusted(dir: string, agentDir = piAgentDir()): boolean 
   const file = piTrustPath(agentDir);
   if (!existsSync(file)) return false;
   try {
-    const trust = JSON.parse(Deno.readTextFileSync(file)) as Record<string, unknown>;
+    const trust = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
     const target = path.resolve(dir);
     // Pi trusts a folder or any ancestor of it.
     for (const [trusted, value] of Object.entries(trust)) {
@@ -156,7 +157,7 @@ export function findExtensionRegistrations(
     let name: string | null = null;
     if (existsSync(manifestPath)) {
       try {
-        name = (JSON.parse(Deno.readTextFileSync(manifestPath)) as { name?: string }).name ?? null;
+        name = (JSON.parse(fs.readFileSync(manifestPath, "utf8")) as { name?: string }).name ?? null;
       } catch { /* unreadable manifest falls through to the path heuristic */ }
     }
 

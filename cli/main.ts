@@ -1,13 +1,15 @@
 /**
  * cli/main.ts — The mpt CLI: argument parsing + subcommand routing.
  *
- * Exposes a callable `main()` used by the compiled binary entry point
- * (root main.ts) and runs directly under `deno run cli/main.ts`.
+ * Exposes a callable `main()` used by the root main.ts entry point, and runs
+ * directly as `node cli/main.ts`.
  */
 
 import { DEFAULT_CONFIG, DEFAULT_HARNESS, DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, TEAM_DIR } from "../shared/types.ts";
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { spawn, spawnSync } from "node:child_process";
 import { install, uninstall, detectInstalledService } from "./service.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import {
@@ -35,19 +37,19 @@ import {
 } from "./setup.ts";
 import { generateToken } from "../daemon/auth.ts";
 import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
-import { isRunningFromSource, mptInvocation } from "../daemon/self.ts";
+import { mptInvocation } from "../daemon/self.ts";
+import { isMainModule } from "../shared/main-module.ts";
 import { cmdAgent, cmdSetupHarness } from "./agent.ts";
 import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
 import { daemonErrorMessage, statusSummaryLines } from "./features.ts";
-// Single source of truth for the version: the package manifest. Bundled into
-// the compiled binary by `deno compile` (JSON imports are part of the module
-// graph), and read directly under `deno run`.
+// Single source of truth for the version: the package manifest (scripts/sync-version.ts
+// copies it into the npm manifests).
 import denoConfig from "../deno.json" with { type: "json" };
 
 const VERSION = denoConfig.version;
 const PID_FILENAME = "daemon.pid";
-// Self-update source: the GitHub repo whose Releases carry per-platform mpt
-// binaries (see .github/workflows/release.yml + scripts/build.sh).
+// Where `mpt upgrade --check` looks for the latest release (see
+// .github/workflows/release.yml).
 const RELEASE_REPO = "timzen/my-pizza-team";
 
 function getTeamDir(): string {
@@ -55,7 +57,7 @@ function getTeamDir(): string {
 }
 
 function getPort(): number {
-  return Number(Deno.env.get("PORT") ?? 7437);
+  return Number(process.env["PORT"] ?? 7437);
 }
 
 function getPidFile(teamDir: string): string {
@@ -66,7 +68,7 @@ function readPid(teamDir: string): number | null {
   const pidFile = getPidFile(teamDir);
   if (!existsSync(pidFile)) return null;
   try {
-    const pid = parseInt(Deno.readTextFileSync(pidFile).trim(), 10);
+    const pid = parseInt(fs.readFileSync(pidFile, "utf8").trim(), 10);
     return isNaN(pid) ? null : pid;
   } catch {
     return null;
@@ -75,7 +77,8 @@ function readPid(teamDir: string): number | null {
 
 function isProcessAlive(pid: number): boolean {
   try {
-    Deno.kill(pid, "SIGCONT");
+    // Signal 0 delivers nothing; it only checks that the process exists.
+    process.kill(pid, 0);
     return true;
   } catch {
     return false;
@@ -88,32 +91,32 @@ async function cmdStart(args: string[]): Promise<void> {
   const daemonize = args.includes("--daemon") || args.includes("-d");
   const teamDir = getTeamDir();
   const port = getPort();
-  const hostname = Deno.env.get("HOST") || "127.0.0.1";
+  const hostname = process.env["HOST"] || "127.0.0.1";
 
   // Check if already running
   const pid = readPid(teamDir);
   if (pid && isProcessAlive(pid)) {
     console.error(`❌ Daemon already running (PID ${pid}).`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
   if (daemonize) {
-    // Background mode: spawn the binary itself with an internal flag
+    // Background mode: re-run this CLI (`node cli/main.ts`) with an internal flag.
     console.log(`Starting daemon in background...`);
 
-    // Get the path to the current executable
-    // The child writes its own log (redirectOutputToLog): this process exits in a
-    // moment, so pipes back to it would be read by nobody.
-    const child = new Deno.Command(Deno.execPath(), {
-      args: [...selfInvocation(), "start", "--foreground-internal"],
-      env: { ...Deno.env.toObject(), TEAM_DIR: teamDir, PORT: String(port) },
-      stdin: "null",
-      stdout: "null",
-      stderr: "null",
-    }).spawn();
-    child.unref();
+    // The child writes its own log (redirectOutputToLog, which also rotates
+    // daemon.log): this process exits in a moment, so pipes back to it would be
+    // read by nobody. Detached, so it outlives this terminal's process group.
+    const [exe, ...exeArgs] = mptInvocation();
+    const child = spawn(exe!, [...exeArgs, "start", "--foreground-internal"], {
+      env: { ...process.env, TEAM_DIR: teamDir, PORT: String(port) },
+      stdio: "ignore",
+      detached: true,
+    });
     let exited = false;
-    child.status.then(() => { exited = true; }).catch(() => { exited = true; });
+    child.on("exit", () => { exited = true; });
+    child.on("error", () => { exited = true; });
+    child.unref();
 
     // Wait for the PID file (written once the server is listening), or for the
     // child to give up — say which, and where its log is.
@@ -130,17 +133,12 @@ async function cmdStart(args: string[]): Promise<void> {
       console.log(`   Log: ${logPath}`);
     } else {
       console.error(`❌ The daemon ${exited ? "exited during startup" : "did not start within 15s"}. See ${logPath}`);
-      Deno.exit(1);
+      process.exit(1);
     }
   } else {
-    // Foreground mode: start daemon in-process (works for both compiled and deno run)
+    // Foreground mode: start daemon in-process 
     await startDaemonInProcess(teamDir, port, hostname);
   }
-}
-
-/** The arguments after the executable that re-run this CLI (none for the binary). */
-function selfInvocation(): string[] {
-  return mptInvocation().slice(1);
 }
 
 function cmdStop(): void {
@@ -149,22 +147,22 @@ function cmdStop(): void {
 
   if (!pid) {
     console.log("No daemon is running (no PID file found).");
-    Deno.exit(0);
+    process.exit(0);
   }
 
   if (!isProcessAlive(pid)) {
     console.log(`Stale PID file (process ${pid} not found). Cleaning up.`);
-    try { Deno.removeSync(getPidFile(teamDir)); } catch { /* */ }
-    Deno.exit(0);
+    try { fs.rmSync(getPidFile(teamDir)); } catch { /* */ }
+    process.exit(0);
   }
 
   console.log(`Sending SIGTERM to daemon (PID ${pid})...`);
   try {
-    Deno.kill(pid, "SIGTERM");
+    process.kill(pid, "SIGTERM");
     console.log("✅ Stop signal sent. Daemon should shut down gracefully.");
   } catch (e) {
     console.error(`❌ Failed to send signal: ${(e as Error).message}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 }
 
@@ -178,7 +176,7 @@ async function cmdStatus(): Promise<void> {
     if (pid) {
       console.log(`   (Stale PID file for process ${pid})`);
     }
-    Deno.exit(1);
+    process.exit(1);
   }
 
   console.log(`🟢 Daemon is running (PID ${pid})`);
@@ -207,18 +205,18 @@ function cmdRotateToken(): void {
   let config: Record<string, unknown> = {};
   if (existsSync(configPath)) {
     try {
-      config = JSON.parse(Deno.readTextFileSync(configPath));
+      config = JSON.parse(fs.readFileSync(configPath, "utf8"));
     } catch {
       console.error("❌ Failed to parse config.json");
-      Deno.exit(1);
+      process.exit(1);
     }
   } else if (!existsSync(teamDir)) {
-    Deno.mkdirSync(teamDir, { recursive: true });
+    fs.mkdirSync(teamDir, { recursive: true });
   }
 
   const token = generateToken();
   config.apiToken = token;
-  Deno.writeTextFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
 
   console.log(`✅ New API token generated and saved to config.json`);
   console.log(`\n   Token: ${token}`);
@@ -241,18 +239,6 @@ async function cmdUninstall(): Promise<void> {
 
 // --- Self-update (`mpt upgrade`) ---
 
-/** Map the running platform to its release asset name, or null if unsupported. */
-function releaseAssetName(): string | null {
-  const os = Deno.build.os;      // "darwin" | "linux" | "windows"
-  const arch = Deno.build.arch;  // "x86_64" | "aarch64"
-  if (os === "darwin" && arch === "aarch64") return "mpt-darwin-arm64";
-  if (os === "darwin" && arch === "x86_64") return "mpt-darwin-x64";
-  if (os === "linux" && arch === "x86_64") return "mpt-linux-x64";
-  if (os === "linux" && arch === "aarch64") return "mpt-linux-arm64";
-  if (os === "windows" && arch === "x86_64") return "mpt-windows-x64.exe";
-  return null;
-}
-
 /** True if `latest` (X.Y.Z) is strictly newer than `current` (X.Y.Z). */
 function isNewerVersion(latest: string, current: string): boolean {
   const parse = (v: string) => v.replace(/^v/, "").split(".").map((n) => parseInt(n, 10) || 0);
@@ -263,13 +249,6 @@ function isNewerVersion(latest: string, current: string): boolean {
     if (diff !== 0) return diff > 0;
   }
   return false;
-}
-
-async function sha256Hex(bytes: Uint8Array): Promise<string> {
-  // Copy into a plain ArrayBuffer so the type satisfies BufferSource<ArrayBuffer>.
-  const buf = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength) as ArrayBuffer;
-  const digest = await crypto.subtle.digest("SHA-256", buf);
-  return Array.from(new Uint8Array(digest)).map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /**
@@ -322,7 +301,7 @@ export function versionFromReleaseUrl(url: string): string | null {
 async function resolveLatestViaRedirect(): Promise<LatestRelease> {
   const url = `https://github.com/${RELEASE_REPO}/releases/latest`;
   const res = await fetch(url, { headers: { "User-Agent": "mpt-cli", "Accept": "text/html" } });
-  // Drain the body so the connection isn't left dangling (Deno warns otherwise).
+  // Drain the body so the connection isn't left dangling.
   await res.body?.cancel();
   if (!res.ok) throw new Error(`github.com returned HTTP ${res.status}`);
   const version = versionFromReleaseUrl(res.url);
@@ -377,27 +356,21 @@ async function resolveLatestRelease(token?: string): Promise<LatestRelease> {
 }
 
 /**
- * Download the latest release binary for this platform and replace the running
- * executable in place. `--check` only reports whether an update is available.
+ * `mpt upgrade [--check]`.
  *
- * Only meaningful for the compiled binary; when running under `deno run` the
- * executable is `deno` itself, so we bail with build instructions instead.
+ * `--check` reports whether a newer release exists. Upgrading itself used to
+ * download a compiled binary and replace the running executable; under Node there
+ * is no such binary, and upgrading through npm is not built yet.
+ *
+ * TODO(node-runtime): install the new version with the saved Node's own npm, then
+ * `refreshManagedExtension` and `restartServiceAfterUpgrade`.
  */
 async function cmdUpgrade(args: string[]): Promise<void> {
-  const checkOnly = args.includes("--check");
-  const execPath = Deno.execPath();
-
-  // Guard: running from source (deno run) — there's no mpt binary to replace.
-  if (isRunningFromSource()) {
-    console.error("⚠️  Running from source (deno run), not the compiled binary — nothing to upgrade.");
-    console.error("    Build the latest from source instead: deno task compile");
-    Deno.exit(1);
-  }
-
-  const asset = releaseAssetName();
-  if (!asset) {
-    console.error(`❌ No prebuilt mpt binary for your platform (${Deno.build.os}/${Deno.build.arch}).`);
-    Deno.exit(1);
+  if (!args.includes("--check")) {
+    console.error("⚠️  `mpt upgrade` can't install updates yet — upgrading via npm is coming.");
+    console.error("    Running from source? Update the checkout instead:  git pull");
+    console.error("    Then run `mpt setup` to refresh the Pi extension, and restart the daemon.");
+    process.exit(1);
   }
 
   console.log("Checking for the latest release…");
@@ -406,132 +379,77 @@ async function cmdUpgrade(args: string[]): Promise<void> {
   // burns through quickly (→ HTTP 403). A token — even a no-scope PAT, since
   // reading a public repo's releases needs no permissions — is keyed to the
   // user and raises the limit to 5000/hr. See README "Upgrading".
-  const token = Deno.env.get("MPT_GITHUB_TOKEN") || Deno.env.get("GITHUB_TOKEN") || Deno.env.get("GH_TOKEN");
+  const token = process.env["MPT_GITHUB_TOKEN"] || process.env["GITHUB_TOKEN"] || process.env["GH_TOKEN"];
   let rel: LatestRelease;
   try {
     rel = await resolveLatestRelease(token);
   } catch (e) {
     console.error(`❌ Could not check for updates: ${(e as Error).message}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
   const latest = rel.version;
-
   if (!isNewerVersion(latest, VERSION)) {
     console.log(`✅ Already up to date (v${VERSION}${latest !== VERSION ? `; latest release is v${latest}` : ""}).`);
     return;
   }
-
   console.log(`⬆️  Update available: v${VERSION} → v${latest}`);
-  if (checkOnly) {
-    console.log(`   ${rel.htmlUrl}`);
-    console.log(`   Run "mpt upgrade" to install.`);
+  console.log(`   ${rel.htmlUrl}`);
+}
+
+/**
+ * After an upgrade, move the *other half* with mpt: rewrite the managed Pi
+ * extension. The daemon and the extension are one protocol (DESIGN.md "One
+ * Protocol, One Version"); upgrading only mpt is exactly the skew to avoid.
+ *
+ * `invocation` must run the *new* mpt (e.g. `[node, <new entry>]`), because this
+ * process still holds the old code and would write the old extension.
+ *
+ * Pi loads a local package from its path without copying, so rewriting the
+ * directory is the whole job — no re-registration. Running agents keep the old
+ * code until their Pi restarts, which the version handshake makes visible.
+ */
+export function refreshManagedExtension(invocation: string[]): void {
+  if (!existsSync(managedExtensionDir())) return;
+  const [exe, ...exeArgs] = invocation;
+  const out = spawnSync(exe!, [...exeArgs, "write-extension-internal"], { stdio: ["ignore", "inherit", "inherit"] });
+  if (out.error) {
+    console.warn(`   ⚠️  Could not refresh the Pi extension (${out.error.message}) — run \`mpt setup\` to finish.`);
+  } else if (out.status !== 0) {
+    console.warn("   ⚠️  Could not refresh the Pi extension — run `mpt setup` to finish.");
+  } else {
+    console.log("   Restart running agents to pick it up (`mpt doctor` shows which are behind).");
+  }
+}
+
+/** Resolve symlinks when the path exists, so two spellings of one file compare equal. */
+function realOrResolved(p: string): string {
+  try { return fs.realpathSync(p); } catch { return path.resolve(p); }
+}
+
+/**
+ * After an upgrade, restart the installed service (if any) so it runs `version`.
+ *
+ * The service launches a specific entry script, so when that isn't the copy
+ * `upgradedEntry` names, say so instead of restarting the wrong one.
+ */
+export async function restartServiceAfterUpgrade(version: string, upgradedEntry: string): Promise<void> {
+  const svc = detectInstalledService();
+  if (!svc) {
+    console.log(`   Restart the daemon to run the new version:  mpt stop && mpt start --daemon`);
     return;
   }
-
-  const assetDownloadUrl = rel.assetUrl(asset);
-  if (!assetDownloadUrl) {
-    console.error(`❌ Release v${latest} has no asset named "${asset}".`);
-    Deno.exit(1);
+  const serviceEntry = svc.programPath?.entry;
+  if (serviceEntry && realOrResolved(serviceEntry) !== realOrResolved(upgradedEntry)) {
+    console.log(`\n⚠️  Your ${svc.manager} service runs a different copy of mpt:`);
+    console.log(`     service:  ${svc.programPath!.node} ${serviceEntry}`);
+    console.log(`     upgraded: ${upgradedEntry}`);
+    console.log(`   Re-run upgrade from that copy, or re-point the service:  mpt install`);
+    return;
   }
-
-  console.log(`Downloading ${asset}…`);
-  let bytes: Uint8Array;
-  try {
-    const dl = await fetch(assetDownloadUrl, { headers: { "User-Agent": "mpt-cli" } });
-    if (!dl.ok) throw new Error(`HTTP ${dl.status} for ${asset}`);
-    bytes = new Uint8Array(await dl.arrayBuffer());
-  } catch (e) {
-    console.error(`❌ Download failed: ${(e as Error).message}`);
-    Deno.exit(1);
-  }
-
-  // Verify against checksums.sha256 when the release publishes it.
-  const sumsUrl = rel.assetUrl("checksums.sha256");
-  if (sumsUrl) {
-    try {
-      const sumsRes = await fetch(sumsUrl, { headers: { "User-Agent": "mpt-cli" } });
-      if (!sumsRes.ok) throw new Error(`HTTP ${sumsRes.status}`);
-      const sums = await sumsRes.text();
-      const want = sums.split("\n").map((l) => l.trim()).find((l) => l.endsWith(asset))?.split(/\s+/)[0];
-      if (want) {
-        const got = await sha256Hex(bytes);
-        if (got !== want) {
-          console.error(`❌ Checksum mismatch for ${asset} — refusing to install.`);
-          Deno.exit(1);
-        }
-        console.log("   Checksum verified.");
-      }
-    } catch {
-      console.warn("   ⚠️  Could not verify checksum (continuing).");
-    }
-  }
-
-  // Replace the running executable. On Unix a running binary can be renamed
-  // over atomically (same directory ⇒ same filesystem); on Windows the locked
-  // .exe must be moved aside first.
-  try {
-    if (Deno.build.os === "windows") {
-      try { Deno.renameSync(execPath, `${execPath}.old`); } catch { /* best effort */ }
-      Deno.writeFileSync(execPath, bytes);
-    } else {
-      const tmp = path.join(path.dirname(execPath), `.mpt-upgrade-${Date.now()}`);
-      Deno.writeFileSync(tmp, bytes, { mode: 0o755 });
-      Deno.renameSync(tmp, execPath);
-    }
-  } catch (e) {
-    // Typically a permission error (e.g. installed under /usr/local/bin). Stage
-    // the download somewhere writable and print manual install instructions.
-    const staged = `${Deno.makeTempDirSync({ prefix: "mpt-upgrade-" })}/${asset}`;
-    try { Deno.writeFileSync(staged, bytes, { mode: 0o755 }); } catch { /* ignore */ }
-    console.error(`❌ Couldn't replace ${execPath}: ${(e as Error).message}`);
-    console.error(`   Downloaded v${latest} to: ${staged}`);
-    console.error(`   Install it manually, e.g.:  sudo mv "${staged}" "${execPath}"`);
-    Deno.exit(1);
-  }
-
-  console.log(`✅ Upgraded to v${latest}.`);
-
-  // Move the *other half* with the binary. The daemon and the extension are one
-  // protocol (DESIGN.md "One Protocol, One Version"); upgrading only the binary is exactly the skew this plan
-  // exists to remove. Run through the new executable, because this process still
-  // holds the old embedded copy.
-  //
-  // Pi loads a local package from its path without copying, so rewriting the
-  // directory is the whole job — no re-registration. Running agents keep the old
-  // code until their Pi restarts, which the version handshake makes visible.
-  if (existsSync(managedExtensionDir())) {
-    try {
-      const out = new Deno.Command(execPath, { args: ["write-extension-internal"], stdout: "inherit", stderr: "inherit" })
-        .outputSync();
-      if (!out.success) {
-        console.warn("   ⚠️  Could not refresh the Pi extension — run `mpt setup` to finish.");
-      } else {
-        console.log("   Restart running agents to pick it up (`mpt doctor` shows which are behind).");
-      }
-    } catch (e) {
-      console.warn(`   ⚠️  Could not refresh the Pi extension (${(e as Error).message}) — run \`mpt setup\` to finish.`);
-    }
-  }
-
-  // If a service manages the daemon, restart it (in-place binary replace leaves
-  // the old process running until restarted). The service launches a specific
-  // absolute path, so warn if we upgraded a different copy.
-  const svc = detectInstalledService();
-  if (svc) {
-    if (svc.programPath && path.resolve(svc.programPath) !== path.resolve(execPath)) {
-      console.log(`\n⚠️  Your ${svc.manager} service runs a different binary:`);
-      console.log(`     service:  ${svc.programPath}`);
-      console.log(`     upgraded: ${execPath}`);
-      console.log(`   Re-run upgrade from that binary, or re-point the service:  mpt install`);
-      return;
-    }
-    console.log(`   Restarting the ${svc.manager} service…`);
-    const ok = await svc.restart();
-    console.log(ok ? `   ✅ Service restarted on v${latest}.` : `   ⚠️  Couldn't restart automatically. Run:  ${svc.restartHint}`);
-  } else {
-    console.log(`   Restart the daemon to run the new version:  mpt stop && mpt start --daemon`);
-  }
+  console.log(`   Restarting the ${svc.manager} service…`);
+  const ok = await svc.restart();
+  console.log(ok ? `   ✅ Service restarted on v${version}.` : `   ⚠️  Couldn't restart automatically. Run:  ${svc.restartHint}`);
 }
 
 function printHelp(): void {
@@ -574,7 +492,7 @@ function readTeamConfig(teamDir: string): typeof DEFAULT_CONFIG & Record<string,
   const file = path.join(teamDir, "config.json");
   if (!existsSync(file)) return { ...DEFAULT_CONFIG };
   try {
-    return { ...DEFAULT_CONFIG, ...JSON.parse(Deno.readTextFileSync(file)) };
+    return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(file, "utf8")) };
   } catch {
     console.warn(`⚠️  Could not parse ${file} — using defaults.`);
     return { ...DEFAULT_CONFIG };
@@ -606,7 +524,7 @@ async function cmdLead(args: string[]): Promise<void> {
   if (!tmuxAvailable()) {
     console.error("❌ tmux is not available — the leader runs in a tmux window.");
     console.error("   Install it (e.g. `brew install tmux`), then run `mpt doctor`.");
-    Deno.exit(1);
+    process.exit(1);
   }
 
   const templates = (config.harnesses as Record<string, { leader?: string }> | undefined) ??
@@ -616,7 +534,7 @@ async function cmdLead(args: string[]): Promise<void> {
     console.error(`❌ No leader command configured for harness "${harnessName}".`);
     console.error(`   Leading needs an in-process adapter; only some harnesses can do it.`);
     console.error(`   Set harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
   const command = renderTemplate(template, {
@@ -630,7 +548,7 @@ async function cmdLead(args: string[]): Promise<void> {
   if (unresolved.length > 0) {
     console.error(`❌ The leader template has unknown placeholders: ${unresolved.join(", ")}`);
     console.error(`   Check harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
   // A stopped daemon isn't fatal — the extension retries — but say so, because an
@@ -656,7 +574,7 @@ async function cmdLead(args: string[]): Promise<void> {
     }
   } catch (e) {
     console.error(`❌ Could not start the leader: ${(e as Error).message}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
   if (args.includes("--no-attach")) {
@@ -665,29 +583,24 @@ async function cmdLead(args: string[]): Promise<void> {
   }
 
   // Inside tmux already, attaching would nest; switch the client instead.
-  if (Deno.env.get("TMUX")) {
+  if (process.env["TMUX"]) {
     selectWindow(session, LEADER_WINDOW);
     console.log(`   Switched to ${session}:${LEADER_WINDOW}.`);
     return;
   }
 
   // Hand the terminal over. `attach` needs a tty, so it inherits ours.
-  const attach = new Deno.Command("tmux", {
-    args: ["attach", "-t", `${session}:${LEADER_WINDOW}`],
-    stdin: "inherit",
-    stdout: "inherit",
-    stderr: "inherit",
-  }).outputSync();
-  if (!attach.success) {
+  const attach = spawnSync("tmux", ["attach", "-t", `${session}:${LEADER_WINDOW}`], { stdio: "inherit" });
+  if (attach.status !== 0) {
     console.log(`   Could not attach automatically. Run: tmux attach -t ${session}`);
   }
 }
 
 /**
- * Rewrite the managed extension from *this* binary's bundled copy.
+ * Rewrite the managed extension from *this* copy of mpt's bundled extension.
  *
- * Invoked by `mpt upgrade` on the newly-installed binary, not in-process: the
- * running process carries the **old** embedded extension, so writing it here would
+ * Invoked by `mpt upgrade` on the newly-installed copy, not in-process: the
+ * running process carries the **old** bundled extension, so writing it here would
  * install the version being replaced. Hidden, because it is an implementation
  * detail of upgrade rather than something to run by hand (`mpt setup` is that).
  *
@@ -702,7 +615,7 @@ function cmdWriteExtensionInternal(): void {
   const sourceDir = resolveExtensionSourceDir();
   if (!sourceDir) {
     console.error("⚠️  Could not locate the bundled extension; run `mpt setup` to reinstall it.");
-    Deno.exit(1);
+    process.exit(1);
   }
   const { version } = writeExtension(sourceDir, managedDir);
   console.log(`✅ Pi extension updated to v${version ?? "unknown"} at ${managedDir}`);
@@ -736,7 +649,7 @@ function describePlan(plan: SetupPlan): void {
 /**
  * `mpt setup` — make this machine ready to run a team. Idempotent.
  *
- * Installs the extension by *writing* the copy carried in this binary, which is what
+ * Installs the extension by *writing* the copy carried with this mpt, which is what
  * keeps the daemon and the extension from drifting apart (DESIGN.md "One Protocol, One Version"). Every change is
  * printed first, and recorded so `--uninstall` can undo exactly what was done —
  * this edits the user's own Pi configuration, so guessing later is not acceptable.
@@ -778,7 +691,7 @@ async function cmdSetup(args: string[]): Promise<void> {
   if (plan.blockers.length > 0) {
     console.error("❌ Cannot set up:");
     for (const b of plan.blockers) console.error(`   ${b}`);
-    Deno.exit(1);
+    process.exit(1);
   }
 
   if (isNoOp(plan)) {
@@ -908,10 +821,10 @@ function cmdSetupUninstall(args: string[]): void {
     for (const r of removed) console.log(`✅ Unregistered ${r}`);
   }
   if (manifest.managedDir && existsSync(manifest.managedDir)) {
-    Deno.removeSync(manifest.managedDir, { recursive: true });
+    fs.rmSync(manifest.managedDir, { recursive: true });
     console.log(`✅ Removed ${manifest.managedDir}`);
   }
-  Deno.removeSync(file);
+  fs.rmSync(file);
   console.log("\nDone. The team directory and its data were left alone.");
 }
 
@@ -933,13 +846,13 @@ async function cmdDoctor(): Promise<void> {
     daemonUrl: `http://localhost:${port}`,
     serviceInstalled: detectInstalledService() !== null,
   });
-  Deno.exit(report(evaluate(facts)));
+  process.exit(report(evaluate(facts)));
 }
 
 // --- Exported main ---
 
 export async function main(): Promise<void> {
-  const args = Deno.args;
+  const args = process.argv.slice(2);
   const command = args[0];
 
   switch (command) {
@@ -948,10 +861,10 @@ export async function main(): Promise<void> {
       if (args.includes("--foreground-internal")) {
         // The background child `start --daemon` launches: no terminal, so log to a file.
         const teamDir = getTeamDir();
-        Deno.mkdirSync(teamDir, { recursive: true });
+        fs.mkdirSync(teamDir, { recursive: true });
         redirectOutputToLog(teamDir);
         const port = getPort();
-        const hostname = Deno.env.get("HOST") || "127.0.0.1";
+        const hostname = process.env["HOST"] || "127.0.0.1";
         await startDaemonInProcess(teamDir, port, hostname);
       } else {
         await cmdStart(args.slice(1));
@@ -984,7 +897,7 @@ export async function main(): Promise<void> {
     case "lead":
       await cmdLead(args.slice(1));
       break;
-    // Hidden: `mpt upgrade` invokes this on the freshly-installed binary so the
+    // Hidden: `mpt upgrade` invokes this on the freshly-installed copy so the
     // extension written out is the new one, not the one being replaced.
     case "agent":
       await cmdAgent(args.slice(1));
@@ -1006,11 +919,10 @@ export async function main(): Promise<void> {
         console.error(`Unknown command: ${command}`);
       }
       printHelp();
-      Deno.exit(command ? 1 : 0);
+      process.exit(command ? 1 : 0);
   }
 }
 
-
-if (import.meta.main) {
+if (isMainModule(import.meta.url)) {
   await main();
 }

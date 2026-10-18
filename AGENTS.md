@@ -67,7 +67,7 @@ my-pizza-team/
 The extension under `harnesses/pi/` is a Node/npm package inside a Deno repo, so it
 has its own `tsconfig.json`, `package.json`, and suites. Run them from the root with
 `npm run typecheck:ext` and `npm run test:ext`. Its version is generated from
-`deno.json` — never edit it by hand (`deno task sync-version`).
+`deno.json` — never edit it by hand (`npm run sync-version`).
 
 ## Reference
 

@@ -1,10 +1,11 @@
 /**
  * cli/extension.ts — Locating and writing out the bundled Pi extension.
  *
- * `mpt` carries the extension's source inside the binary (`deno compile
- * --include`), so installing it is `mpt setup` writing files rather than a
- * separate `pi install` of another repo. That is what stops the daemon and the
- * extension drifting apart — docs/DESIGN.md "One Protocol, One Version".
+ * `mpt` carries the extension's source with it — `harnesses/pi/` sits inside the
+ * source checkout and ships inside the npm package — so installing it is `mpt setup`
+ * writing files rather than a separate `pi install` of another repo. That is what
+ * stops the daemon and the extension drifting apart — docs/DESIGN.md "One Protocol,
+ * One Version".
  *
  * Two things make this simpler than it sounds:
  *
@@ -25,13 +26,17 @@
  *   - It dedupes by resolved path, including across spellings (a trailing slash
  *     does not add a second entry), so re-registering is already idempotent.
  *
- * Only what Pi needs at runtime is embedded — the manifest and `src/`. Notably not
+ * Only what Pi needs at runtime is written out — the manifest and `src/`. Notably not
  * `node_modules/` (455M of devDependencies for type-checking) nor `tests/`.
  */
 
 import * as path from "node:path";
 import { fileURLToPath } from "node:url";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+
+/** This module's directory (`import.meta.dirname`, spelled so Deno's types accept it too). */
+const HERE = path.dirname(fileURLToPath(import.meta.url));
 
 /** Files and directories that make up a usable extension package. */
 export const EXTENSION_PAYLOAD = ["package.json", "src"] as const;
@@ -40,9 +45,11 @@ export const EXTENSION_PAYLOAD = ["package.json", "src"] as const;
  * Where the extension's source lives, in precedence order:
  *
  *   1. `MPT_PI_EXTENSION` — an explicit override, for development and tests.
- *   2. `<cwd>/harnesses/pi` — running from a checkout (`deno task`).
- *   3. Alongside the binary — `deno compile --include` keeps included files at
- *      their original relative paths, resolved from `Deno.mainModule`.
+ *   2. Beside this module — `<root>/harnesses/pi`, where `<root>` is the checkout
+ *      when running from source, or the installed npm package (which ships
+ *      `harnesses/pi/`). Checked before the cwd so an installed mpt run inside some
+ *      other checkout still writes the extension that matches *its own* daemon.
+ *   3. `<cwd>/harnesses/pi` — a fallback for running from a checkout.
  *
  * Null when none of them has a `package.json`, which is what `doctor` reports
  * rather than a confusing failure later.
@@ -50,18 +57,15 @@ export const EXTENSION_PAYLOAD = ["package.json", "src"] as const;
 export function resolveExtensionSourceDir(): string | null {
   const candidates: string[] = [];
 
-  const override = Deno.env.get("MPT_PI_EXTENSION");
+  const override = process.env["MPT_PI_EXTENSION"];
   if (override) candidates.push(override);
 
-  candidates.push(path.join(Deno.cwd(), "harnesses", "pi"));
+  // This file is <root>/cli/extension.ts (or <root>/dist/cli/extension.js in the
+  // compiled package, hence the second candidate).
+  candidates.push(path.join(HERE, "..", "harnesses", "pi"));
+  candidates.push(path.join(HERE, "..", "..", "harnesses", "pi"));
 
-  try {
-    const mainDir = path.dirname(fileURLToPath(Deno.mainModule));
-    candidates.push(path.join(mainDir, "harnesses", "pi"));
-    candidates.push(path.join(mainDir, "..", "harnesses", "pi"));
-  } catch {
-    // Deno.mainModule isn't a file URL (unusual); the other candidates stand.
-  }
+  candidates.push(path.join(process.cwd(), "harnesses", "pi"));
 
   for (const dir of candidates) {
     if (existsSync(path.join(dir, "package.json"))) return dir;
@@ -79,14 +83,14 @@ export function resolveExtensionSourceDir(): string | null {
  * the team directory is team data.
  */
 export function managedExtensionDir(): string {
-  const home = Deno.env.get("MPT_HOME") ?? Deno.env.get("HOME") ?? Deno.env.get("USERPROFILE") ?? ".";
+  const home = process.env["MPT_HOME"] ?? process.env["HOME"] ?? process.env["USERPROFILE"] ?? ".";
   return path.join(home, ".my-pizza-team", "pi-extension");
 }
 
 /** The extension version recorded in a package directory, or null if unreadable. */
 export function readExtensionVersion(dir: string): string | null {
   try {
-    const manifest = JSON.parse(Deno.readTextFileSync(path.join(dir, "package.json")));
+    const manifest = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
     return typeof manifest.version === "string" ? manifest.version : null;
   } catch {
     return null;
@@ -95,20 +99,20 @@ export function readExtensionVersion(dir: string): string | null {
 
 /** Recursively copy `from` → `to`, replacing whatever is at `to`. */
 function replaceTree(from: string, to: string): void {
-  if (existsSync(to)) Deno.removeSync(to, { recursive: true });
-  Deno.mkdirSync(path.dirname(to), { recursive: true });
+  if (existsSync(to)) fs.rmSync(to, { recursive: true });
+  fs.mkdirSync(path.dirname(to), { recursive: true });
   copyTree(from, to);
 }
 
 function copyTree(from: string, to: string): void {
-  const stat = Deno.statSync(from);
-  if (stat.isFile) {
-    Deno.mkdirSync(path.dirname(to), { recursive: true });
-    Deno.writeFileSync(to, Deno.readFileSync(from));
+  const stat = fs.statSync(from);
+  if (stat.isFile()) {
+    fs.mkdirSync(path.dirname(to), { recursive: true });
+    fs.copyFileSync(from, to);
     return;
   }
-  Deno.mkdirSync(to, { recursive: true });
-  for (const entry of Deno.readDirSync(from)) {
+  fs.mkdirSync(to, { recursive: true });
+  for (const entry of fs.readdirSync(from, { withFileTypes: true })) {
     copyTree(path.join(from, entry.name), path.join(to, entry.name));
   }
 }
@@ -129,13 +133,13 @@ export function writeExtension(sourceDir: string, targetDir: string): { version:
   // half-populated directory that Pi would happily try to load.
   const staging = `${targetDir}.staging-${crypto.randomUUID().slice(0, 8)}`;
   try {
-    Deno.mkdirSync(staging, { recursive: true });
+    fs.mkdirSync(staging, { recursive: true });
     for (const item of EXTENSION_PAYLOAD) {
       copyTree(path.join(sourceDir, item), path.join(staging, item));
     }
     replaceTree(staging, targetDir);
   } finally {
-    if (existsSync(staging)) Deno.removeSync(staging, { recursive: true });
+    if (existsSync(staging)) fs.rmSync(staging, { recursive: true });
   }
 
   return { version: readExtensionVersion(targetDir) };

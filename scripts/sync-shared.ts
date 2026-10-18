@@ -1,4 +1,4 @@
-#!/usr/bin/env -S deno run --allow-read --allow-write
+#!/usr/bin/env node
 /**
  * scripts/sync-shared.ts — Generate the Pi extension's shared constants.
  *
@@ -14,9 +14,12 @@
  * this repo (P2-3), so a relative import would escape it. Generating keeps one
  * source of truth *and* a self-contained package.
  *
- *   deno task sync-shared          # write
- *   deno task sync-shared --check  # verify only; non-zero exit on drift
+ *   npm run sync-shared              # write
+ *   npm run sync-shared -- --check   # verify only; non-zero exit on drift
  */
+
+import * as fs from "node:fs";
+import { isMainModule } from "../shared/main-module.ts";
 
 const ROOT = new URL("../", import.meta.url);
 export const SOURCE = new URL("shared/types.ts", ROOT);
@@ -56,7 +59,7 @@ export function render(shared: Record<string, unknown>): string {
 //
 // Written by scripts/sync-shared.ts from the repo root's shared/types.ts, which is
 // the single definition of these values. Edit them there and run
-// \`deno task sync-shared\`; \`deno task test\` fails if the two drift
+// \`npm run sync-shared\`; \`npm test\` fails if the two drift
 // (docs/DESIGN.md "One Protocol, One Version", P1c-7).
 //
 // Generated rather than imported because the extension is a self-contained
@@ -67,20 +70,20 @@ ${values.map(([name, type, value]) => `export const ${name}: ${type} = ${JSON.st
 `;
 }
 
-if (import.meta.main) {
+if (isMainModule(import.meta.url)) {
   const generated = render(await import(SOURCE.href));
-  const current = await Deno.readTextFile(TARGET).catch(() => "");
+  const current = fs.existsSync(TARGET) ? fs.readFileSync(TARGET, "utf8") : "";
 
   if (current === generated) {
     console.log(`✓ harnesses/pi/src/shared/types.ts is in step (${Object.keys(EXPORTED).length} constants)`);
-  } else if (Deno.args.includes("--check")) {
+  } else if (process.argv.slice(2).includes("--check")) {
     console.error(
       "✗ harnesses/pi/src/shared/types.ts is out of step with shared/types.ts\n" +
-        "  fix with: deno task sync-shared",
+        "  fix with: npm run sync-shared",
     );
-    Deno.exit(1);
+    process.exit(1);
   } else {
-    await Deno.writeTextFile(TARGET, generated);
+    fs.writeFileSync(TARGET, generated);
     console.log(`✓ regenerated harnesses/pi/src/shared/types.ts (${Object.keys(EXPORTED).length} constants)`);
   }
 }

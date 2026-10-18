@@ -13,6 +13,7 @@
  */
 
 import * as path from "node:path";
+import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import {
   type ExtensionRegistration,
@@ -181,14 +182,14 @@ export function applyPackageChanges(
  * configuration — this is the user's editor-and-model setup, not ours.
  */
 export function writePiSettingsFile(agentDir: string, raw: Record<string, unknown>): void {
-  Deno.mkdirSync(agentDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
   const target = path.join(agentDir, "settings.json");
   const temp = `${target}.mpt-tmp-${crypto.randomUUID().slice(0, 8)}`;
   try {
-    Deno.writeTextFileSync(temp, `${JSON.stringify(raw, null, 2)}\n`);
-    Deno.renameSync(temp, target);
+    fs.writeFileSync(temp, `${JSON.stringify(raw, null, 2)}\n`);
+    fs.renameSync(temp, target);
   } finally {
-    if (existsSync(temp)) Deno.removeSync(temp);
+    if (existsSync(temp)) fs.rmSync(temp);
   }
 }
 
@@ -200,10 +201,10 @@ export function writePiSettingsFile(agentDir: string, raw: Record<string, unknow
  * it wrote the file.
  */
 export function initTeamConfig(teamDir: string): boolean {
-  Deno.mkdirSync(teamDir, { recursive: true });
+  fs.mkdirSync(teamDir, { recursive: true });
   const configFile = path.join(teamDir, "config.json");
   if (existsSync(configFile)) return false;
-  Deno.writeTextFileSync(configFile, `${JSON.stringify(newTeamConfig(), null, 2)}\n`);
+  fs.writeFileSync(configFile, `${JSON.stringify(newTeamConfig(), null, 2)}\n`);
   return true;
 }
 
@@ -213,20 +214,20 @@ export function trustProject(agentDir: string, projectDir: string): void {
   let trust: Record<string, unknown> = {};
   if (existsSync(file)) {
     try {
-      trust = JSON.parse(Deno.readTextFileSync(file)) as Record<string, unknown>;
+      trust = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
     } catch {
       // An unreadable trust file is not worth failing setup over: Pi will re-prompt.
       trust = {};
     }
   }
   trust[path.resolve(projectDir)] = true;
-  Deno.mkdirSync(agentDir, { recursive: true });
+  fs.mkdirSync(agentDir, { recursive: true });
   const temp = `${file}.mpt-tmp-${crypto.randomUUID().slice(0, 8)}`;
   try {
-    Deno.writeTextFileSync(temp, `${JSON.stringify(trust, null, 2)}\n`);
-    Deno.renameSync(temp, file);
+    fs.writeFileSync(temp, `${JSON.stringify(trust, null, 2)}\n`);
+    fs.renameSync(temp, file);
   } finally {
-    if (existsSync(temp)) Deno.removeSync(temp);
+    if (existsSync(temp)) fs.rmSync(temp);
   }
 }
 
@@ -263,13 +264,13 @@ export function manifestPath(managedDirParent: string): string {
 export function readManifest(file: string): SetupManifest | null {
   if (!existsSync(file)) return null;
   try {
-    return JSON.parse(Deno.readTextFileSync(file)) as SetupManifest;
+    return JSON.parse(fs.readFileSync(file, "utf8")) as SetupManifest;
   } catch {
     return null;
   }
 }
 
 export function writeManifest(file: string, manifest: SetupManifest): void {
-  Deno.mkdirSync(path.dirname(file), { recursive: true });
-  Deno.writeTextFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
 }

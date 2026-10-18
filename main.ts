@@ -1,13 +1,13 @@
 /**
- * main.ts — Unified entry point for the compiled mpt binary.
+ * main.ts — Unified entry point for mpt (`node main.ts <command>`).
  *
- * Routes to either the CLI (argument handling) or directly starts
- * the daemon when no arguments are provided with `start` subcommand.
- * This ensures the compiled binary supports all CLI commands including -h.
+ * Hands every argument to the CLI (cli/main.ts), so this entry supports all CLI
+ * commands, including `start` (which runs the daemon) and -h.
  */
 
 import { main as cliMain } from "./cli/main.ts";
+import { isMainModule } from "./shared/main-module.ts";
 
-if (import.meta.main) {
+if (isMainModule(import.meta.url)) {
   await cliMain();
 }

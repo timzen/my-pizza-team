@@ -2,7 +2,7 @@
 //
 // Written by scripts/sync-shared.ts from the repo root's shared/types.ts, which is
 // the single definition of these values. Edit them there and run
-// `deno task sync-shared`; `deno task test` fails if the two drift
+// `npm run sync-shared`; `npm test` fails if the two drift
 // (docs/DESIGN.md "One Protocol, One Version", P1c-7).
 //
 // Generated rather than imported because the extension is a self-contained
