@@ -15,7 +15,7 @@ import type { RouteContext } from "./types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
-import denoConfig from "../../deno.json" with { type: "json" };
+import { packageVersion } from "../../shared/paths.ts";
 import { dismissParams, dismissReady } from "../spawner.ts";
 
 export function registerAgentRoutes(ctx: RouteContext): void {
@@ -57,7 +57,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
             `This agent speaks protocol v${body.protocolVersion} but the daemon serves up to ` +
             `v${PROTOCOL_VERSION}. The daemon is older than the harness — upgrade it with \`mpt upgrade\`.`,
           protocolVersion: PROTOCOL_VERSION,
-          daemonVersion: denoConfig.version,
+          daemonVersion: packageVersion(),
         }, 409);
       }
       if (body.protocolVersion < MIN_PROTOCOL_VERSION) {
@@ -67,7 +67,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
             `This agent speaks protocol v${body.protocolVersion} but the daemon needs at least ` +
             `v${MIN_PROTOCOL_VERSION}. Restart the agent so it picks up the current extension.`,
           protocolVersion: PROTOCOL_VERSION,
-          daemonVersion: denoConfig.version,
+          daemonVersion: packageVersion(),
         }, 409);
       }
     }
@@ -90,7 +90,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       success: true,
       config: { defaultWorkflow: config.defaultWorkflow, workflows: store.getWorkflows(), tmuxSession: config.tmuxSession },
       protocolVersion: PROTOCOL_VERSION,
-      daemonVersion: denoConfig.version,
+      daemonVersion: packageVersion(),
     });
   });
 
@@ -305,7 +305,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   app.get("/api/agents", (c) => {
     const members = store.getMembers();
     return c.json({
-      daemonVersion: denoConfig.version,
+      daemonVersion: packageVersion(),
       protocolVersion: PROTOCOL_VERSION,
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);

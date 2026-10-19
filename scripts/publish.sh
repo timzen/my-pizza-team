@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Publish script: sets the next version, updates deno.json (and the generated copies
+# Publish script: sets the next version, updates package.json (and the generated copies
 # derived from it), commits, creates a git tag, and pushes it. The tag triggers the
 # release workflow (.github/workflows/release.yml), which runs the gates and
 # publishes the npm package (`npm publish --provenance`), then creates the GitHub
@@ -37,11 +37,11 @@ else
   fi
 fi
 
-# Get current version from deno.json
-CURRENT_VERSION="$(grep -m1 '"version"' deno.json | sed 's/.*: *"\([^"]*\)".*/\1/')"
+# Get current version from package.json
+CURRENT_VERSION="$(grep -m1 '"version"' package.json | sed 's/.*: *"\([^"]*\)".*/\1/')"
 
 if [[ -z "$CURRENT_VERSION" ]]; then
-  echo "Error: Could not read version from deno.json"
+  echo "Error: Could not read version from package.json"
   exit 1
 fi
 
@@ -91,22 +91,22 @@ if git rev-parse "$TAG" >/dev/null 2>&1; then
   exit 1
 fi
 
-# Update version in deno.json (portable across macOS and Linux)
+# Update version in package.json (portable across macOS and Linux)
 if [[ "$(uname)" == "Darwin" ]]; then
-  sed -i '' "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
+  sed -i '' "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" package.json
 else
-  sed -i "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" deno.json
+  sed -i "s/\"version\": \"${CURRENT_VERSION}\"/\"version\": \"${NEW_VERSION}\"/" package.json
 fi
 
-# Propagate to the npm manifests (the Pi extension and the root package). The daemon and the extension are one
-# protocol (docs/DESIGN.md "One Protocol, One Version") and must carry one version; deno.json is
-# the source and harnesses/pi/package.json, package.json and package-lock.json are generated copies.
+# Propagate to the Pi extension's manifest and the lockfile. The daemon and the extension are one
+# protocol (docs/DESIGN.md "One Protocol, One Version") and must carry one version; package.json is
+# the source and harnesses/pi/package.json and package-lock.json are generated copies.
 npm run sync-version
 # Regenerate the extension's shared constants from shared/types.ts (P1c-7).
 npm run sync-shared
 
 # Commit the version bump
-git add deno.json package.json package-lock.json harnesses/pi/package.json harnesses/pi/src/shared/types.ts
+git add package.json package-lock.json harnesses/pi/package.json harnesses/pi/src/shared/types.ts
 git commit -m "chore: bump version to ${NEW_VERSION}"
 
 # Create and push the tag

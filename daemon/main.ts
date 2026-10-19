@@ -1,8 +1,8 @@
 /**
- * daemon/main.ts — Run the daemon directly from source (`node daemon/main.ts`, `deno task dev` / `start`).
+ * daemon/main.ts — Run the daemon directly from source (`node daemon/main.ts`, `npm run dev` / `start`).
  *
  * A thin entry point over daemon/start.ts, the one startup routine the `mpt` CLI
- * and the compiled binary also use — so the dev daemon is the real daemon (tmux
+ * (and so the npm package) also uses — so the dev daemon is the real daemon (tmux
  * spawning and the readiness probe included). Reads TEAM_DIR, PORT, and HOST.
  */
 

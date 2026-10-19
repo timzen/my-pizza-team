@@ -88,7 +88,7 @@ test("no tmux on PATH means leader-driven spawning, with the fix named", () => {
 
 test("a permission error is distinguished from tmux being absent", () => {
   // Different causes, different fixes — and they look identical unless separated.
-  const { exec } = fakeTmux(() => ({ ok: false, stderr: "Requires run access to tmux, --allow-run" }));
+  const { exec } = fakeTmux(() => ({ ok: false, stderr: "spawnSync tmux EACCES" }));
   const cap = probeSpawnCapability(config(), exec);
   assertEquals(cap.canSpawn, false);
   if (!cap.canSpawn) assertStringIncludes(cap.reason, "not permitted");

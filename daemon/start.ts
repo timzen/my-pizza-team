@@ -2,8 +2,8 @@
  * daemon/start.ts — Start the daemon in-process: the one startup routine.
  *
  * Every way of running the daemon comes through here — `mpt start` (foreground,
- * and the background child `--daemon` launches), the compiled binary, and
- * `deno task dev`/`start` via daemon/main.ts — so they all get the same daemon:
+ * and the background child `--daemon` launches), the launchd/systemd
+ * service, and `npm run dev`/`start` via daemon/main.ts — so they all get the same daemon:
  * the HTTP server, the PID file and signal handling, daemon-driven spawning, and
  * the readiness probe. (daemon/main.ts used to be a separate, older copy that
  * skipped the last two, so the dev daemon behaved differently from the real one.)
@@ -41,7 +41,7 @@ export function resolveTeamDir(env: string | undefined = process.env["TEAM_DIR"]
 
 /**
  * Start the daemon server in the current process.
- * This is what both foreground CLI mode and the compiled binary use.
+ * This is what foreground CLI mode, the background child and the service all use.
  */
 export async function startDaemonInProcess(
   teamDir: string,

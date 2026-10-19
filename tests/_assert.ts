@@ -2,7 +2,7 @@
  * tests/_assert.ts — the handful of `@std/assert` helpers the suites use, on top of
  * `node:assert/strict`.
  *
- * The tests were written against Deno's `@std/assert`; keeping the same names and
+ * The tests were written against `@std/assert` (from JSR); keeping the same names and
  * signatures here meant the move to `node:test` changed only each file's import line.
  * Only the functions the tests actually call are implemented.
  *

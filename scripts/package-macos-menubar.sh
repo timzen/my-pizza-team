@@ -38,8 +38,8 @@ APP_VERSION="$(grep -m1 '"version"' "$PROJECT_ROOT/package.json" | sed -E 's/.*"
 if [ -z "$APP_VERSION" ]; then APP_VERSION="0.0.0"; fi
 echo "   Version: $APP_VERSION"
 
-# Build the Swift package, universal. Possible now that no Deno binary is bundled
-# (lipo broke Deno's V8 memory mapping, which kept the old app arm64-only).
+# Build the Swift package, universal (arm64 + x86_64). The app bundles no JS
+# runtime; it launches the npm-installed mpt.
 cd "$MACOS_APP_DIR"
 swift build -c release --arch arm64 --arch x86_64 2>&1
 

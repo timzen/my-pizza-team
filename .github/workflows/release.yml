@@ -77,8 +77,7 @@ jobs:
 
       - name: Smoke-test the packed package
         # Install the exact tarball that will be published into a scratch prefix and
-        # check that `mpt setup` finds the bundled Pi extension — the check that used
-        # to guard the compiled binary's embedded files. `npm pack` runs prepack
+        # check that `mpt setup` finds the bundled Pi extension that ships in it. `npm pack` runs prepack
         # (`npm run build`: UI + tsc → dist/).
         run: |
           npm pack

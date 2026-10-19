@@ -14,7 +14,7 @@ import { install, uninstall, detectInstalledService } from "./service.ts";
 import { defaultUpgradeDeps, runUpgrade } from "./upgrade.ts";
 import { ensureNodeForCommand } from "./node-choice.ts";
 import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/runtime-config.ts";
-import { isRunningFromSource, packageRoot } from "../shared/paths.ts";
+import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
 import {
   listWindows,
@@ -46,11 +46,9 @@ import { isMainModule } from "../shared/main-module.ts";
 import { cmdAgent, cmdSetupHarness } from "./agent.ts";
 import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
 import { daemonErrorMessage, type StatusSummaryInput, statusSummaryLines } from "./features.ts";
-// Single source of truth for the version: the package manifest (scripts/sync-version.ts
-// copies it into the npm manifests).
-import denoConfig from "../deno.json" with { type: "json" };
-
-const VERSION = denoConfig.version;
+// Single source of truth for the version: the root package.json (shared/paths.ts
+// packageVersion; scripts/sync-version.ts copies it into the extension's manifest).
+const VERSION = packageVersion();
 const PID_FILENAME = "daemon.pid";
 
 function getTeamDir(): string {

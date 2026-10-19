@@ -73,7 +73,7 @@ export function probeTmuxCapability(exec: TmuxExec = realTmux): SpawnCapability 
     return {
       canSpawn: false,
       reason: "this process is not permitted to run tmux",
-      fix: "run the compiled binary, or grant --allow-run",
+      fix: "make tmux executable by this user, or (if Node runs with --permission) add --allow-child-process",
     };
   }
   return { canSpawn: true };

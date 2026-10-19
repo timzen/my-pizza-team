@@ -25,7 +25,7 @@ The [my-pizza-team daemon](https://github.com/timzen/my-pizza-team) must be runn
 
 ```bash
 # Start the daemon (default: http://localhost:7437)
-cd /path/to/my-pizza-team && deno task start
+npm i -g my-pizza-team && mpt start
 ```
 
 ## Quick Start

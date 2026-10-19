@@ -47,7 +47,7 @@ interface HarnessTemplates {
  * Teammate start commands by harness, for when this leader realizes a spawn itself
  * (the daemon's fallback when it can't reach tmux). The same templates the daemon
  * uses: team config's `harnesses` when set, else the built-in defaults — generated
- * from the daemon's shared/types.ts (`deno task sync-shared`), so the two paths
+ * from the daemon's shared/types.ts (`npm run sync-shared`), so the two paths
  * can't drift. The built-in Pi template passes `-a` so a spawned teammate trusts its
  * cwd non-interactively instead of blocking on Pi's "Trust project folder?" prompt.
  */

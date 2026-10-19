@@ -124,6 +124,11 @@ export interface NodeFacts {
   expectedEntry: string;
   /** Does the service's entry name the same file as `expectedEntry`? */
   serviceEntryMatches: boolean;
+  /**
+   * `mpt` executables on PATH that are native binaries — leftovers of the old
+   * single-binary (compiled) builds, which shadow or confuse the npm install.
+   */
+  legacyBinaries: string[];
 }
 
 /** Compare dotted versions numerically. Null when either is unparseable. */
@@ -332,7 +337,16 @@ export function nodeChecks(n: NodeFacts): Check[] {
     checks.push({ name: "Node path", status: "warn", detail: c.pinnedWarning, fix: "mpt setup --node <stable path>, then mpt install" });
   }
 
-  if (c && n.service) {
+  if (n.service && !n.service.entry) {
+    // The service launches a program with no entry script: the old compiled binary.
+    // Its "Node" is that binary, so a Node mismatch would only repeat this.
+    checks.push({
+      name: "Service entry",
+      status: "warn",
+      detail: `the service launches ${n.service.node} directly (an old compiled-binary install)`,
+      fix: "mpt install (rewrites the service to run the npm package)",
+    });
+  } else if (c && n.service) {
     if (n.service.node !== c.path) {
       checks.push({
         name: "Service Node",
@@ -348,14 +362,16 @@ export function nodeChecks(n: NodeFacts): Check[] {
         detail: `the service runs ${n.service.entry}, not this copy (${n.expectedEntry})`,
         fix: "mpt install from the copy you want the service to run",
       });
-    } else if (!n.service.entry) {
-      checks.push({
-        name: "Service entry",
-        status: "warn",
-        detail: `the service launches ${n.service.node} directly (an old compiled-binary install)`,
-        fix: "mpt install",
-      });
     }
+  }
+
+  for (const binary of n.legacyBinaries) {
+    checks.push({
+      name: "Old mpt binary",
+      status: "warn",
+      detail: `${binary} is a leftover compiled mpt binary; mpt is now the npm package`,
+      fix: `rm ${binary} (then \`hash -r\`; the npm-installed mpt takes over)`,
+    });
   }
 
   if (c && !c.problem && !n.runningMatchesConfigured) {
@@ -475,7 +491,47 @@ export function gatherNodeFacts(service: ServiceProgram | null): NodeFacts {
     service,
     expectedEntry,
     serviceEntryMatches: service?.entry ? sameFile(service.entry, expectedEntry) : false,
+    legacyBinaries: findLegacyBinaries(),
   };
+}
+
+/** Magic numbers of native executables: ELF, Mach-O (32/64-bit, either byte order, universal), PE. */
+const NATIVE_MAGIC = [
+  [0x7f, 0x45, 0x4c, 0x46],
+  [0xfe, 0xed, 0xfa, 0xce],
+  [0xfe, 0xed, 0xfa, 0xcf],
+  [0xce, 0xfa, 0xed, 0xfe],
+  [0xcf, 0xfa, 0xed, 0xfe],
+  [0xca, 0xfe, 0xba, 0xbe],
+  [0x4d, 0x5a],
+];
+
+/** Does the file (symlinks followed) start like a native executable rather than a script? */
+export function isNativeExecutable(file: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, "r");
+    const head = Buffer.alloc(4);
+    const n = fs.readSync(fd, head, 0, 4, 0);
+    return NATIVE_MAGIC.some((m) => n >= m.length && m.every((b, i) => head[i] === b));
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * Every `mpt` on PATH that is a native binary. The npm install's `mpt` is a symlink
+ * to (or, on Windows, a shim for) a JS file, so a native one is the old compiled build.
+ */
+export function findLegacyBinaries(pathEnv: string = process.env.PATH ?? ""): string[] {
+  const found: string[] = [];
+  for (const dir of new Set(pathEnv.split(path.delimiter).filter(Boolean))) {
+    const candidate = path.join(dir, process.platform === "win32" ? "mpt.exe" : "mpt");
+    if (existsSync(candidate) && isNativeExecutable(candidate)) found.push(candidate);
+  }
+  return found;
 }
 
 export async function gather(opts: GatherOptions): Promise<DoctorFacts> {

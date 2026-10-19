@@ -28,7 +28,6 @@
     "verbatimModuleSyntax": true,
     "resolveJsonModule": true,
 
-    // Same strictness as deno.json's compilerOptions.
     "strict": true,
     "noUncheckedIndexedAccess": true,
     "forceConsistentCasingInFileNames": true,

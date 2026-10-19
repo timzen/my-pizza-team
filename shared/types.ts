@@ -3,7 +3,7 @@
  *
  * The canonical definitions. The Pi extension (harnesses/pi/) has no copy of
  * these types; the few constants it needs are generated from this file into
- * harnesses/pi/src/shared/types.ts by `deno task sync-shared`.
+ * harnesses/pi/src/shared/types.ts by `npm run sync-shared`.
  */
 
 import * as fs from "node:fs";
@@ -787,7 +787,7 @@ export const DEFAULT_CONFIG: TeamConfig = {
 //
 // Canonical home for the handful of values both the daemon and a harness need.
 // harnesses/pi/src/shared/types.ts is *generated* from these by
-// `deno task sync-shared`, so there is one definition rather than two that drift
+// `npm run sync-shared`, so there is one definition rather than two that drift
 // (docs/DESIGN.md "One Protocol, One Version", P1c-7).
 
 /** Team directory name. */

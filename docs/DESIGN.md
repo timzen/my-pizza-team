@@ -14,7 +14,7 @@ either disagrees with the code, the code is right and the doc is a bug.
 ## Principles
 
 1. **One responsibility per file** — Each file has a single, clearly stated purpose in its header comment.
-2. **Explicit over implicit** — Deno permissions are declared explicitly in task definitions. Dependencies are pinned in the import map.
+2. **Explicit over implicit** — Dependencies are declared in `package.json` and pinned by `package-lock.json`; which Node runs mpt is a saved, visible setting (`~/.config/mpt/runtime.json`), not whatever is first on PATH.
 3. **Layered architecture** — the daemon handles HTTP, `shared/` provides types, the CLI consumes the API. No circular dependencies.
 4. **Web Standards** — Use native `Request`/`Response`, `fetch`, and other Web APIs rather than Node.js-specific abstractions.
 5. **The daemon coordinates; harnesses execute** — The daemon owns all state and expresses *intent*. What an agent does inside its own process (Pi sessions, slash commands, permission prompts) belongs to its harness. The one piece of mechanism the daemon owns is tmux — see "The Daemon Is the Supervisor".
@@ -143,7 +143,7 @@ working `directory` (its pi cwd); a WorkDef (or its story) has an optional
    (nobody's coming for it — the agent cds there and fails the item if it can't)
 
 Directories are compared after `normalizeDirectory`: `~` expanded, trailing
-slash stripped, and **symlinks resolved to the real path** (`Deno.realPathSync`),
+slash stripped, and **symlinks resolved to the real path** (`fs.realpathSync`),
 so `/home/u/repo` and `/local/home/u/repo` (via a `/home/u` symlink) match. A path
 that doesn't exist or can't be read on the daemon's machine falls back to the
 string form — normalization never throws. It's applied at write time *and* at
@@ -881,10 +881,10 @@ links. Agents read and write them through `/api/agents/comments/:workItemId`
 ## One Protocol, One Version
 
 The daemon and the Pi extension are one protocol shipped as one artifact. They
-live in one repo, `deno.json` owns the version, `harnesses/pi/package.json` (and the root
-`package.json` / `package-lock.json`) are generated from it (`npm run sync-version`, enforced by `tests/version.test.ts`),
+live in one repo, the root `package.json` owns the version, `harnesses/pi/package.json` (and
+`package-lock.json`) are generated from it (`npm run sync-version`, enforced by `tests/version.test.ts`),
 shared constants are generated into the extension (`npm run sync-shared`), and the
-`mpt` binary **embeds the extension's source** and writes it out on `mpt setup`.
+`mpt` npm package **ships the extension's source** and writes it out on `mpt setup`.
 
 *Why:* when the two halves shipped separately, they drifted and nothing noticed —
 an old extension kept running while streaming no transcript and recording no
@@ -1460,7 +1460,7 @@ protocol bump — a harness that never reports simply shows no numbers.
   server (`TMUX_TMPDIR`) — torn down even on failure. **No test touches real
   configuration**, enforced by construction rather than care.
 - A test that skips must skip for the *expected* reason (tmux genuinely absent,
-  not a missing `--allow-run`), and that is asserted.
+  not a permission error), and that is asserted.
 - Suites are checked by mutation: green on first run is a reason for suspicion, so
   new tests are verified by deliberately breaking the code they guard.
 - No LLM is in the loop, so these test mpt's mechanics — windows, settings files,

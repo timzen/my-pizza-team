@@ -9,7 +9,7 @@ Agents run on [Pi](https://pi.mariozechner.at/) today; see
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
-│                     mpt (one binary)                         │
+│                     mpt (npm package)                        │
 │   stories & board · work queue · workflows · chat · usage    │
 │   spawns teammates in tmux · web UI · HTTP API · Pi extension│
 └───────────────┬──────────────────────────────┬───────────────┘
@@ -137,6 +137,25 @@ restart them for you.
 
 Running from source, `mpt upgrade` just points you at `git pull` (then `npm
 install`, `mpt setup` to rewrite the managed extension, and restart the daemon).
+
+### Migrating from the binary
+
+Releases up to 0.27 shipped `mpt` as a single compiled binary (built with Deno).
+From 0.28 mpt is the npm package `my-pizza-team` and runs on Node.js >=24; the
+old binary's `mpt upgrade` can't move you across. Once, by hand:
+
+```bash
+npm i -g my-pizza-team     # Node >=24
+mpt setup                  # asks which Node runs mpt; rewrites the Pi extension
+mpt install                # rewrites the service to run <node> <package>/dist/main.js
+rm /usr/local/bin/mpt      # delete the old binary, wherever you put it (`which -a mpt`)
+hash -r                    # so your shell forgets the old path
+```
+
+Your team directory, config and data are untouched. `mpt doctor` warns about
+both leftovers: an `mpt` on PATH that is a native binary ("Old mpt binary"), and a
+service that still launches the binary directly ("Service entry … an old
+compiled-binary install").
 
 ---
 
@@ -501,7 +520,7 @@ completion guidance). Harnesses deliver it verbatim.
 ### Pi (native)
 
 The Pi extension (`harnesses/pi/` in this repo) provides the leader and teammate
-integration. It ships **inside the `mpt` binary** and `mpt setup` installs it to
+integration. It ships **inside the `my-pizza-team` npm package** and `mpt setup` installs it to
 `~/.my-pizza-team/pi-extension/`, so the daemon and the extension always match
 versions — `mpt upgrade` moves both together.
 
@@ -620,7 +639,7 @@ Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 
 ```
 my-pizza-team/
-├── main.ts            # Entry point of the compiled binary (→ cli/main.ts)
+├── main.ts            # The npm package's `mpt` entry (→ cli/main.ts; dist/main.js once built)
 ├── daemon/            # HTTP server (Hono on @hono/node-server), Store, tmux supervisor
 │   ├── server.ts      # Route orchestrator
 │   ├── store.ts       # SQLite index + file sync (self-contained parts in store/)
@@ -641,11 +660,14 @@ my-pizza-team/
 ## Development
 
 ```bash
-npm install            # Once: the daemon's npm dependencies (hono), which Deno reads from node_modules/
-deno task dev          # Auto-reload daemon (the same daemon `mpt start` runs)
-deno task mpt <cmd>    # Run the CLI from source
-deno task ui:dev       # Vite dev server for the UI
+npm install            # Once (Node >=24): the daemon's npm dependencies
+npm run dev            # Auto-reload daemon (the same daemon `mpt start` runs)
+npm run mpt -- <cmd>   # Run the CLI from source
+npm run ui:dev         # Vite dev server for the UI
 ```
+
+There is no build step in development: Node runs the `.ts` sources directly
+(type stripping). Only the npm package is compiled to `dist/` (see Building).
 
 Gates — all must pass before a commit:
 
@@ -658,8 +680,8 @@ npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b)    # the web UI
 ```
 
-The extension's and the root npm package's versions are generated from `deno.json`
-(`npm run sync-version`), and its shared constants from `shared/types.ts` (`npm run sync-shared`); CI fails
+The root `package.json` owns the version; the extension's `package.json` and the lockfile
+are generated from it (`npm run sync-version`), and its shared constants from `shared/types.ts` (`npm run sync-shared`); CI fails
 if either is out of step.
 
 ## Building

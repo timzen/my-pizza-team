@@ -21,7 +21,7 @@ import { DaemonClient } from "../harnesses/pi/src/runtime/client.ts";
 import { mptInvocation } from "../daemon/self.ts";
 import { shellQuote } from "../daemon/tmux.ts";
 import { DEFAULT_DAEMON_URL } from "../shared/types.ts";
-import denoConfig from "../deno.json" with { type: "json" };
+import { packageVersion } from "../shared/paths.ts";
 
 /** `--flag value` or `--flag=value`. */
 function flag(args: string[], name: string): string | undefined {
@@ -53,7 +53,7 @@ export async function cmdAgent(args: string[]): Promise<void> {
   const daemonUrl = (flag(args, "daemon") || process.env["MPT_DAEMON_URL"] || DEFAULT_DAEMON_URL).replace(/\/$/, "");
   const name = flag(args, "name") || `${harness.name}-${Date.now().toString(36)}`;
   const authToken = process.env["MPT_API_TOKEN"] || undefined;
-  const client = new DaemonClient(daemonUrl, name, { authToken, harness: harness.name, harnessVersion: denoConfig.version });
+  const client = new DaemonClient(daemonUrl, name, { authToken, harness: harness.name, harnessVersion: packageVersion() });
 
   const metadata: Record<string, unknown> = {};
   const session = flag(args, "tmux-session"), window = flag(args, "tmux-window");

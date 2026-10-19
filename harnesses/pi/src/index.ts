@@ -29,7 +29,7 @@ import { readSessionStats, sameStats, type SessionStats } from "./runtime/sessio
  * Reported at registration so the UI can flag an agent running an older build than
  * the daemon (docs/DESIGN.md "One Protocol, One Version" — the teammate watch view and the usage
  * ledger both failed silently that way). The value is generated from the repo
- * root's deno.json by `deno task sync-version`, so it matches the daemon's when
+ * root's package.json by `npm run sync-version`, so it matches the daemon's when
  * both halves are current.
  *
  * Read here rather than in client.ts: that module moves to agent-runtime/ in

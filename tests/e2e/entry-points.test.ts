@@ -2,9 +2,9 @@
  * tests/e2e/entry-points.test.ts — every way of starting the daemon gets the same
  * daemon.
  *
- * `deno task dev`/`start` run daemon/main.ts; `mpt start` runs the CLI. They used to
+ * `npm run dev`/`start` run daemon/main.ts; `mpt start` runs the CLI. They used to
  * be separate startup routines, and the source one skipped the spawn-capability probe
- * and the readiness loop — so under `deno task dev`, /health said spawning was
+ * and the readiness loop — so under the dev task, /health said spawning was
  * "not probed", spawns silently fell to the leader, and a configured readiness probe
  * never ran. Both now go through daemon/start.ts; these start each for real and look
  * for the work only that routine does.
@@ -34,7 +34,7 @@ for (const entry of ["cli", "source"] as const) {
 }
 
 test("mpt start --daemon: runs in the background and logs to daemon.log", async () => {
-  // From source, too — it used to re-execute `deno` itself as though it were `mpt`,
+  // From source, too — it used to re-execute the runtime itself as though it were `mpt`,
   // and never started. Its output went to pipes nobody read, so nothing said why.
   await using sb = await sandbox("entry-bg");
   sb.writeTeamConfig({});

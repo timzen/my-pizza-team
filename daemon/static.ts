@@ -2,7 +2,7 @@
  * daemon/static.ts — Serves the React UI static files from ui/dist/.
  *
  * In development, Vite handles UI serving with its proxy.
- * In production (or compiled binary), this middleware serves the built
+ * In production (the npm package), this middleware serves the built
  * UI files and falls back to index.html for client-side routing.
  *
  * The UI dist path is the package's `ui/dist` (shared/paths.ts), or can be
@@ -54,7 +54,7 @@ export function resolveDistDir(): string | null {
  * Falls back to index.html for unmatched routes (SPA client-side routing).
  */
 export function staticMiddleware(distDir: string) {
-  // deno-lint-ignore require-await -- Hono's middleware handler type expects an async signature
+  // async with no await: Hono's middleware handler type expects an async signature
   return async (c: Context, next: Next) => {
     const reqPath = new URL(c.req.url).pathname;
 

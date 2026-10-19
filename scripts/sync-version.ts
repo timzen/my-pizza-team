@@ -2,10 +2,10 @@
 /**
  * scripts/sync-version.ts — Propagate the single version to every npm manifest.
  *
- * `deno.json` holds the one version for this repo (see cli/main.ts, which imports
- * it as the binary's version). The npm manifests carry copies: the Pi extension's
- * `package.json` (Pi discovers packages that way) and the root `package.json` /
- * `package-lock.json` (the Node build). A copy is exactly what drifted before the
+ * The root `package.json` holds the one version for this repo (cli/main.ts and
+ * daemon/routes/agents.ts import it). Copies live in the Pi extension's
+ * `package.json` (Pi discovers packages that way) and the root
+ * `package-lock.json`. A copy is exactly what drifted before the
  * merge (daemon 0.17.2 vs extension 0.2.0), with nothing noticing.
  * docs/DESIGN.md "One Protocol, One Version".
  *
@@ -21,15 +21,15 @@
 import * as fs from "node:fs";
 
 const ROOT = new URL("../", import.meta.url);
-/** Package manifests whose top-level "version" line is a copy of deno.json's. */
-const MANIFESTS = ["harnesses/pi/package.json", "package.json"];
-/** npm lockfiles whose root package version is a copy of deno.json's. */
+/** Package manifests whose top-level "version" line is a copy of package.json's. */
+const MANIFESTS = ["harnesses/pi/package.json"];
+/** npm lockfiles whose root package version is a copy of package.json's. */
 const LOCKFILES = ["package-lock.json"];
 
-const denoConfig = JSON.parse(fs.readFileSync(new URL("deno.json", ROOT), "utf8"));
-const version: string = denoConfig.version;
+const rootManifest = JSON.parse(fs.readFileSync(new URL("package.json", ROOT), "utf8"));
+const version: string = rootManifest.version;
 if (!version) {
-  console.error("error: deno.json has no version");
+  console.error("error: package.json has no version");
   process.exit(1);
 }
 
@@ -43,7 +43,7 @@ function reconcile(rel: string, current: string, updated: () => string): void {
     return;
   }
   if (check) {
-    console.error(`✗ version drift: deno.json is ${version}, ${rel} is ${current}`);
+    console.error(`✗ version drift: package.json is ${version}, ${rel} is ${current}`);
     drifted = true;
     return;
   }

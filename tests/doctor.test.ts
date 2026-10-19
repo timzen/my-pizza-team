@@ -17,6 +17,9 @@
  *     code would mean "you have a normal setup" and nobody would read it.
  */
 
+import * as fs from "node:fs";
+import * as os from "node:os";
+import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import {
@@ -24,6 +27,7 @@ import {
   compareVersions,
   type DoctorFacts,
   evaluate,
+  findLegacyBinaries,
   type NodeFacts,
   nodeChecks,
   PERMISSION_SYSTEM_PACKAGE,
@@ -319,6 +323,7 @@ function nodeFacts(over: Partial<NodeFacts> = {}): NodeFacts {
     service: { node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" },
     expectedEntry: "/pkg/dist/main.js",
     serviceEntryMatches: true,
+    legacyBinaries: [],
     ...over,
   };
 }
@@ -362,6 +367,36 @@ test("node: the service running another Node or entry warns", () => {
   assertEquals(find(checks, "Service Node").status, "warn");
   assertStringIncludes(find(checks, "Service Node").fix!, "mpt install");
   assertStringIncludes(find(checks, "Service entry").detail, "/old/dist/main.js");
+});
+
+test("node: an old compiled-binary service warns once, even with no Node saved", () => {
+  const checks = nodeChecks(nodeFacts({ configured: null, service: { node: "/usr/local/bin/mpt", entry: null }, serviceEntryMatches: false }));
+  const service = checks.filter((c) => c.name.startsWith("Service"));
+  assertEquals(service.length, 1);
+  assertStringIncludes(service[0]!.detail, "old compiled-binary install");
+  assertStringIncludes(service[0]!.fix!, "mpt install");
+});
+
+test("node: a leftover compiled mpt on PATH warns with the path to delete", () => {
+  const c = find(nodeChecks(nodeFacts({ legacyBinaries: ["/usr/local/bin/mpt"] })), "Old mpt binary");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.fix!, "rm /usr/local/bin/mpt");
+});
+
+test("findLegacyBinaries: a native mpt counts, a script or symlink to one doesn't", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-legacy-"));
+  try {
+    const native = path.join(dir, "native"), script = path.join(dir, "script");
+    fs.mkdirSync(native);
+    fs.mkdirSync(script);
+    fs.writeFileSync(path.join(native, "mpt"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]));
+    fs.writeFileSync(path.join(dir, "main.js"), "#!/usr/bin/env node\n");
+    fs.symlinkSync(path.join(dir, "main.js"), path.join(script, "mpt"));
+    const found = findLegacyBinaries([script, native, path.join(dir, "missing")].join(path.delimiter));
+    assertEquals(found, [path.join(native, "mpt")]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("node: no service means no service checks", () => {

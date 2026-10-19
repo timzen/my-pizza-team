@@ -8,7 +8,7 @@
  *   - Queue rows label a retry with its attempt and countdown (`retryLabel`);
  *   - thread comments tagged `[failed]` / `[retry]` get a destructive / amber
  *     frame (`commentToneClass`).
- * Dependency-free so the Deno suite can test it (tests/session-retry-ui.test.ts).
+ * Dependency-free so the daemon's Node suite can test it (tests/session-retry-ui.test.ts).
  */
 
 /** The bits of a queued WorkItem `retryLabel` reads. */

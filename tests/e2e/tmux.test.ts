@@ -29,12 +29,12 @@ import { hasTmux, sandbox } from "./_sandbox.ts";
 
 test("tmux is probed with permission, so a skip below means tmux is truly absent", () => {
   // Guards against this file once reporting green while testing nothing: the suite
-  // lacked --allow-run, the probe caught the permission error, and the real-tmux tests
+  // couldn't start processes, the probe caught the permission error, and the real-tmux tests
   // quietly vanished.
   assertEquals(
     tmuxUnavailableReason() === "not-permitted",
     false,
-    "tmux could not be probed for lack of run permission — add --allow-run to the test task",
+    "tmux could not be probed for lack of permission to run it — check tmux is executable",
   );
 });
 

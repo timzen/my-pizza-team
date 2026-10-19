@@ -1,6 +1,4 @@
 .pi/
-# Deno cache
-.deno/
 *.db
 *.db-shm
 *.db-wal
@@ -8,9 +6,8 @@
 .my-pizza-team/
 .env
 
-# Build output: the legacy deno-compile binary, and the npm package's compiled JS
-# (tsconfig.build.json) plus `npm pack` tarballs
-mpt
+# Build output: the npm package's compiled JS (tsconfig.build.json) plus
+# `npm pack` tarballs
 dist/
 my-pizza-team-*.tgz
 

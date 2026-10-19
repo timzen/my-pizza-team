@@ -64,10 +64,37 @@ my-pizza-team/
                               #   (npm run test:e2e) — real git, tmux, and shell
 ```
 
-The extension under `harnesses/pi/` is a Node/npm package inside a Deno repo, so it
-has its own `tsconfig.json`, `package.json`, and suites. Run them from the root with
-`npm run typecheck:ext` and `npm run test:ext`. Its version is generated from
-`deno.json` — never edit it by hand (`npm run sync-version`).
+## Development Workflow
+
+The whole repo runs on Node.js (>=24) with npm; there is no other toolchain. In a
+checkout Node runs the `.ts` sources directly (type stripping), so keep to
+erasable TypeScript (no enums, namespaces or parameter properties —
+`tsconfig.json` enforces it) and import local files with their `.ts` extension.
+
+```bash
+npm install              # once, at the root
+npm run dev              # auto-reloading daemon from source
+npm run mpt -- <cmd>     # the CLI from source
+npm run ui:dev           # Vite dev server for the UI
+```
+
+Gates — run before you consider a change done:
+
+```bash
+npm run check            # typecheck + generated files (version, shared constants) in step
+npm test                 # fast suite (node:test)
+npm run test:e2e         # slow suite: real git, tmux, shell
+npm run typecheck:ext    # the Pi extension
+npm run test:ext         # the Pi extension's suites
+(cd ui && npx tsc -b)    # the web UI
+npm pack                 # when touching packaging: builds dist/ and the tarball
+```
+
+The extension under `harnesses/pi/` is its own npm package, with its own
+`tsconfig.json`, `package.json`, and suites (run from the root as above). The root
+`package.json` owns the version; the extension's version and the lockfile's are
+generated from it — never edit them by hand (`npm run sync-version`). Its shared
+constants are generated from `shared/types.ts` (`npm run sync-shared`).
 
 ## Reference
 

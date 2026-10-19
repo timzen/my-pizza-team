@@ -50,7 +50,7 @@ export interface PlanInput {
   managedDir: string;
   /** False when Pi's settings exist but could not be parsed. */
   settingsReadable: boolean;
-  /** The bundled extension is locatable (it isn't, if the binary was built wrong). */
+  /** The bundled extension is locatable (it isn't, if the package was built wrong). */
   bundledExtensionAvailable: boolean;
   teamDirConfigured: boolean;
   projectTrusted: boolean;

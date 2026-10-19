@@ -71,6 +71,20 @@ export function cliEntryScript(): string {
   return isRunningFromSource() ? path.join(root, "cli", "main.ts") : path.join(root, "dist", "main.js");
 }
 
+let cachedVersion: string | undefined;
+
+/**
+ * mpt's version: the root package.json's `version`, the single source
+ * (scripts/sync-version.ts copies it into the extension). Read at runtime rather
+ * than imported as JSON, because a JSON import makes tsc emit a second, copied
+ * package.json into dist/ — which `packageRoot()` would then mistake for the root.
+ */
+export function packageVersion(): string {
+  if (cachedVersion) return cachedVersion;
+  const manifest = JSON.parse(fs.readFileSync(path.join(packageRoot(), "package.json"), "utf8"));
+  return (cachedVersion = String(manifest.version));
+}
+
 /** The built web UI, `<root>/ui/dist` (it may not exist in a checkout that never ran `npm run build`). */
 export function uiDistDir(): string {
   return path.join(packageRoot(), "ui", "dist");

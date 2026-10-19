@@ -15,8 +15,7 @@ number. Delete an item when it's done.
 
 The Work Sources story turns Task / Story / Schedule / Thought into built-in
 `WorkSource` plugins behind one interface, plus a generic UI for plugin-sourced work.
-**Loading third-party plugin packages is deferred**: we may move the daemon from
-Deno to Node, and that changes how plugin code loads. Notes so they aren't lost:
+**Loading third-party plugin packages is deferred.** Notes so they aren't lost:
 
 - **Config shape, like pi's `packages`:** a `packages` array of `npm:<name>[@ver]`,
   `git:`/`ssh://`/`https://` git URLs (optional `@ref`; tags and commits pinned), or
@@ -30,18 +29,15 @@ Deno to Node, and that changes how plugin code loads. Notes so they aren't lost:
   `npm install && npm run build` for git sources (node is already on every host for
   pi). Local paths load in place without copying. Identity is the npm name, the git
   URL without the ref, or the resolved absolute path, so nothing loads twice.
-- **Deno findings (spike, deno 2.9.5):** a `deno compile`d binary *can*
-  `await import("file:///…/mod.ts")` a self-contained TS file at runtime. It *cannot*
-  resolve `npm:` specifiers or bare imports from the plugin's own `node_modules`. An
-  esbuild-bundled ESM `dist/index.js` loads fine. So under Deno, plugins must ship a
-  bundled entry. Under Node this mostly goes away (plain `import()` + node_modules;
-  jiti/tsx for TS entries, the way pi loads extensions).
+- **Loading:** the daemon runs on Node, so a plugin loads with plain `import()` and
+  resolves its own `node_modules`. A TS entry under `node_modules` needs compiling first
+  (Node won't type-strip there), or jiti/tsx, the way pi loads extensions.
 - **Isolation:** plugins run with the daemon's full permissions. The core already
   bounds what it can (built): each `sync()` has a timeout, a failing source backs off,
   syncs never overlap, and `onComment`/`onItemTerminal` are fire-and-forget
   (`daemon/sources/sync.ts`; docs/DESIGN.md "External sources"). What's left is
   in-process: a plugin that blocks the event loop synchronously still stalls the
-  daemon. Consider one Worker per plugin (Deno Worker or Node `worker_threads`), or a
+  daemon. Consider one Worker per plugin (Node `worker_threads`), or a
   subprocess speaking JSON-RPC over stdio (as with ACP in `agent/acp.ts`). Either way,
   plugins only reach the daemon through `SourceContext`.
 - **Host-provided types:** publish the `WorkSource` / `SourceContext` types as a small
