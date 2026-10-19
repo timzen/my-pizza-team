@@ -392,6 +392,46 @@ export function parseSystemdProgram(unit: string): ServiceProgram | null {
 }
 
 /**
+ * The environment a service file sets (launchd `EnvironmentVariables`, systemd
+ * `Environment=` — both the old unquoted and the current quoted forms). Used to
+ * carry TEAM_DIR and PORT over when re-pointing an old service (cli/legacy.ts).
+ */
+export function parseServiceEnv(text: string): Record<string, string> {
+  const env: Record<string, string> = {};
+  const dict = text.match(/<key>EnvironmentVariables<\/key>\s*<dict>([\s\S]*?)<\/dict>/)?.[1];
+  if (dict) {
+    for (const m of dict.matchAll(/<key>([^<]*)<\/key>\s*<string>([^<]*)<\/string>/g)) env[m[1]!] = m[2]!;
+    return env;
+  }
+  for (const m of text.matchAll(/^Environment=(?:"([^"]*)"|(.*))$/gm)) {
+    const kv = m[1] ?? m[2]!.trim();
+    const eq = kv.indexOf("=");
+    if (eq > 0) env[kv.slice(0, eq)] = kv.slice(eq + 1);
+  }
+  return env;
+}
+
+/** The installed service's file (plist or unit) on this platform, or null when there is none. */
+export function installedServiceFile(): string | null {
+  const file = process.platform === "darwin" ? getPlistPath() : process.platform === "linux" ? getUnitPath() : null;
+  return file && existsSync(file) ? file : null;
+}
+
+/**
+ * Stop the service before its file is rewritten in place. launchd keeps the job it
+ * loaded (a plain `load` of the new plist fails as "already loaded"); systemd reads
+ * the new unit on daemon-reload, so it needs nothing here.
+ */
+export async function unloadServiceForRewrite(): Promise<void> {
+  if (process.platform === "darwin") await run("launchctl", ["unload", getPlistPath()]);
+}
+
+/** Restart the systemd service (after a rewrite: `enable --now` leaves a running one as it was). */
+export async function restartSystemdService(): Promise<boolean> {
+  return (await run("systemctl", ["--user", "restart", SYSTEMD_UNIT_NAME])).code === 0;
+}
+
+/**
  * Detect an installed mpt service (launchd plist / systemd unit) on this host.
  * Returns null when none is installed (or the platform is unsupported).
  */

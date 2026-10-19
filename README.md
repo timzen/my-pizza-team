@@ -141,16 +141,28 @@ install`, `mpt setup` to rewrite the managed extension, and restart the daemon).
 ### Migrating from the binary
 
 Releases up to 0.27 shipped `mpt` as a single compiled binary (built with Deno).
-From 0.28 mpt is the npm package `my-pizza-team` and runs on Node.js >=24; the
-old binary's `mpt upgrade` can't move you across. Once, by hand:
+From 0.28 mpt is the npm package `my-pizza-team` and runs on Node.js >=24. With
+Node.js 24 or newer installed, the old binary's own `mpt upgrade` moves you
+across: it installs a small bridge script in the binary's place, which installs
+the npm package with your Node's npm, records that Node, re-points the service at
+it, and from then on hands every `mpt` call to the package. Without a usable Node
+(or if npm can't install), the bridge says why and puts the v0.27.0 binary back,
+so `mpt` keeps working — install Node and run `mpt upgrade` again.
+
+Afterwards `mpt doctor` points out the leftover: the bridge still sits at the old
+binary's path ("mpt bridge"); delete it once npm's own `mpt` is on your PATH. On
+Windows, or to do it by hand:
 
 ```bash
+rm /usr/local/bin/mpt      # delete the old binary first, wherever it is (`which -a mpt`)
+hash -r                    # so your shell forgets the old path
 npm i -g my-pizza-team     # Node >=24
 mpt setup                  # asks which Node runs mpt; rewrites the Pi extension
 mpt install                # rewrites the service to run <node> <package>/dist/main.js
-rm /usr/local/bin/mpt      # delete the old binary, wherever you put it (`which -a mpt`)
-hash -r                    # so your shell forgets the old path
 ```
+
+(Delete the old binary first: if it comes earlier on PATH than npm's `mpt`,
+`mpt setup` and `mpt install` would otherwise run the old one.)
 
 Your team directory, config and data are untouched. `mpt doctor` warns about
 both leftovers: an `mpt` on PATH that is a native binary ("Old mpt binary"), and a
@@ -705,7 +717,9 @@ the `npm pack` tarball (installs it into a scratch prefix and runs
 if that version is already on npm, so re-running a tag only redoes the GitHub
 Release). A best-effort job builds the macOS menu bar app, signs and notarizes it,
 and the GitHub Release gets generated notes, the smoke-tested
-`my-pizza-team-<version>.tgz` and the DMG. There are no per-platform binaries or
+`my-pizza-team-<version>.tgz`, the DMG, and `scripts/legacy-bridge.sh` under the
+old binary asset names (`mpt-darwin-arm64`, … plus `checksums.sha256`), which is
+what an old binary's `mpt upgrade` downloads (see "Migrating from the binary"). There are no per-platform binaries or
 checksums any more; users install with `npm i -g my-pizza-team` and upgrade with
 `mpt upgrade`.
 

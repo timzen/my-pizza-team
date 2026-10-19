@@ -959,6 +959,43 @@ and the surface used is small and stable; and only genuine breakage sets a non-z
 exit code. Its checks must never contradict each other — enforced by a property
 test over `evaluate()`.
 
+## Moving Old Binaries Across
+
+Up to 0.27 mpt was one compiled binary, and its `mpt upgrade` replaced itself with
+`mpt-<os>-<arch>` from the latest GitHub Release. From 0.28 mpt is an npm package
+run by Node, and there is no binary to download — yet that old upgrader is the one
+thing every old install will run. So rather than leave those installs stuck with a
+404 and a manual migration, **each release publishes `scripts/legacy-bridge.sh`
+under the old asset names** (with a `checksums.sha256`, which the old upgrader
+verifies). The upgrader writes it over the binary without knowing the difference,
+and its follow-up calls — `<path> write-extension-internal`, then a service that
+runs `<path> start` — land on the bridge, which installs the package with the
+found Node's own npm and execs it. The old path keeps working, so nothing that
+remembered it (the service, scripts, a teammate's callback) breaks.
+
+- **Never leave an mpt that doesn't run.** The upgrader has already replaced the
+  binary before the bridge first runs, so every failure — no Node >=24, npm can't
+  write its prefix, run under sudo — ends with the bridge putting the
+  checksum-verified v0.27.0 binary back over itself and running that, after saying
+  what to fix. A machine without Node stays on 0.27 instead of losing its daemon.
+- **It never installs Node.** It uses one that is there (`MPT_NODE`, the saved
+  `runtime.json`, PATH, the usual locations). Silently installing a runtime is a
+  bigger decision than an upgrade should make.
+- **The service is re-pointed only from a terminal.** An old service has a bare
+  PATH, so it can run the bridge (which finds Node itself) but not npm's
+  `#!/usr/bin/env node` link. From a terminal, `adopt-legacy-internal` rewrites the
+  service to `<node> <entry> start`; run *by* the service, the bridge leaves the
+  file alone rather than rewrite the job running it. When npm's `mpt` link lands on
+  the bridge's own path (an npm prefix of `/usr/local`), npm must replace it
+  (`--force`), which only happens from a terminal, where the service is re-pointed
+  in the same breath; the service itself falls back to 0.27 and says to upgrade
+  from a terminal.
+- **The bridge is a shim, and says so.** `mpt doctor` recognises it on PATH or as
+  the service's program, says it works, and names the cleanup (`rm` it once npm's
+  `mpt` is on PATH; `mpt install`).
+- **No Windows.** A shell script can't stand in for `mpt-windows-x64.exe`; Windows
+  installs move across by hand.
+
 ## The Daemon Is the Supervisor
 
 The daemon owns tmux: it creates the session, opens a window per teammate, types

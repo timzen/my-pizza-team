@@ -14,7 +14,15 @@
 #                runs the npm-installed mpt with the saved Node. BEST-EFFORT: if it
 #                fails (disk pressure, notary flakiness) the release still goes out
 #                without the DMG.
-#   - release    The GitHub Release: generated notes, the npm tarball and the DMG.
+#   - release    The GitHub Release: generated notes, the npm tarball, the DMG, and
+#                the legacy bridge under the old binary names (below).
+#
+# The legacy bridge: binaries up to 0.27 upgrade themselves by downloading
+# `mpt-<os>-<arch>` (checked against checksums.sha256) from the latest release and
+# writing it over themselves. Each release therefore carries
+# scripts/legacy-bridge.sh under those names, which moves such an install onto the
+# npm package (docs/DESIGN.md "Moving Old Binaries Across"). There is no Windows
+# asset: a shell script can't stand in for the .exe.
 #
 # npm auth: Trusted Publishing (OIDC) — no token. On npmjs.com the package's
 # trusted publisher is GitHub Actions, timzen/my-pizza-team, workflow release.yml;
@@ -221,6 +229,9 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
       - name: Download the npm tarball
         uses: actions/download-artifact@v4
         with:
@@ -233,6 +244,16 @@ jobs:
         with:
           name: macos-app
           path: release/
+
+      - name: The legacy bridge, under the old binary names
+        run: |
+          mkdir -p release/
+          for asset in mpt-darwin-arm64 mpt-darwin-x64 mpt-linux-x64 mpt-linux-arm64; do
+            cp scripts/legacy-bridge.sh "release/$asset"
+          done
+          # The old upgrader verifies the download against this file when present.
+          (cd release && sha256sum mpt-darwin-arm64 mpt-darwin-x64 mpt-linux-x64 mpt-linux-arm64 > checksums.sha256)
+          cat release/checksums.sha256
 
       - name: Check release assets
         id: assets

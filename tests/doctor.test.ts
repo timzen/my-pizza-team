@@ -21,6 +21,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
+import { fileURLToPath } from "node:url";
 import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import {
   type Check,
@@ -28,6 +29,8 @@ import {
   type DoctorFacts,
   evaluate,
   findLegacyBinaries,
+  findLegacyBridges,
+  isLegacyBridge,
   type NodeFacts,
   nodeChecks,
   PERMISSION_SYSTEM_PACKAGE,
@@ -324,6 +327,8 @@ function nodeFacts(over: Partial<NodeFacts> = {}): NodeFacts {
     expectedEntry: "/pkg/dist/main.js",
     serviceEntryMatches: true,
     legacyBinaries: [],
+    legacyBridges: [],
+    serviceIsBridge: false,
     ...over,
   };
 }
@@ -408,4 +413,49 @@ test("node: this process on a different Node warns", () => {
   const c = find(nodeChecks(nodeFacts({ runningMatchesConfigured: false, runningNode: "/usr/bin/node" })), "Running Node");
   assertEquals(c.status, "warn");
   assertStringIncludes(c.detail, "/usr/bin/node");
+});
+
+// ─── The legacy bridge (scripts/legacy-bridge.sh) ────────────────────
+
+const BRIDGE_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "legacy-bridge.sh");
+
+test("isLegacyBridge: the real bridge script counts; other scripts and binaries don't", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-bridge-"));
+  try {
+    const other = path.join(dir, "other");
+    fs.writeFileSync(other, "#!/bin/sh\necho hi\n");
+    const native = path.join(dir, "native");
+    fs.writeFileSync(native, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]));
+    assertEquals(isLegacyBridge(BRIDGE_SCRIPT), true);
+    assertEquals(isLegacyBridge(other), false);
+    assertEquals(isLegacyBridge(native), false);
+    assertEquals(isLegacyBridge(path.join(dir, "missing")), false);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("findLegacyBridges: finds a bridge installed as mpt on PATH", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-bridge-"));
+  try {
+    fs.copyFileSync(BRIDGE_SCRIPT, path.join(dir, "mpt"));
+    assertEquals(findLegacyBridges([dir, path.join(dir, "missing")].join(path.delimiter)), [path.join(dir, "mpt")]);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("node: a bridge on PATH warns, says it works, and names the file to delete", () => {
+  const c = find(nodeChecks(nodeFacts({ legacyBridges: ["/usr/local/bin/mpt"] })), "mpt bridge");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.detail, "it works");
+  assertStringIncludes(c.fix!, "rm /usr/local/bin/mpt");
+});
+
+test("node: a service that launches the bridge is told apart from an old binary", () => {
+  const checks = nodeChecks(nodeFacts({ service: { node: "/usr/local/bin/mpt", entry: null }, serviceEntryMatches: false, serviceIsBridge: true }));
+  const service = checks.filter((c) => c.name.startsWith("Service"));
+  assertEquals(service.length, 1);
+  assertStringIncludes(service[0]!.detail, "bridge");
+  assertStringIncludes(service[0]!.fix!, "mpt install");
 });

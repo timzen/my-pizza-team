@@ -129,6 +129,13 @@ export interface NodeFacts {
    * single-binary (compiled) builds, which shadow or confuse the npm install.
    */
   legacyBinaries: string[];
+  /**
+   * `mpt` files on PATH that are scripts/legacy-bridge.sh — what the old binary's
+   * `mpt upgrade` put in its place. They work (they hand off to the npm package).
+   */
+  legacyBridges: string[];
+  /** Does the service launch the bridge (an old service the bridge couldn't re-point)? */
+  serviceIsBridge: boolean;
 }
 
 /** Compare dotted versions numerically. Null when either is unparseable. */
@@ -337,7 +344,14 @@ export function nodeChecks(n: NodeFacts): Check[] {
     checks.push({ name: "Node path", status: "warn", detail: c.pinnedWarning, fix: "mpt setup --node <stable path>, then mpt install" });
   }
 
-  if (n.service && !n.service.entry) {
+  if (n.service && !n.service.entry && n.serviceIsBridge) {
+    checks.push({
+      name: "Service entry",
+      status: "warn",
+      detail: `the service launches ${n.service.node}, the bridge left by the old binary's upgrade (it works, via Node)`,
+      fix: "mpt install (rewrites the service to run Node directly)",
+    });
+  } else if (n.service && !n.service.entry) {
     // The service launches a program with no entry script: the old compiled binary.
     // Its "Node" is that binary, so a Node mismatch would only repeat this.
     checks.push({
@@ -371,6 +385,15 @@ export function nodeChecks(n: NodeFacts): Check[] {
       status: "warn",
       detail: `${binary} is a leftover compiled mpt binary; mpt is now the npm package`,
       fix: `rm ${binary} (then \`hash -r\`; the npm-installed mpt takes over)`,
+    });
+  }
+
+  for (const bridge of n.legacyBridges) {
+    checks.push({
+      name: "mpt bridge",
+      status: "warn",
+      detail: `${bridge} is the bridge the old binary's \`mpt upgrade\` installed; it works, handing off to the npm package`,
+      fix: `rm ${bridge} once npm's own mpt is on PATH (\`npm prefix -g\`/bin; then \`hash -r\`)`,
     });
   }
 
@@ -492,6 +515,8 @@ export function gatherNodeFacts(service: ServiceProgram | null): NodeFacts {
     expectedEntry,
     serviceEntryMatches: service?.entry ? sameFile(service.entry, expectedEntry) : false,
     legacyBinaries: findLegacyBinaries(),
+    legacyBridges: findLegacyBridges(),
+    serviceIsBridge: service ? isLegacyBridge(service.node) : false,
   };
 }
 
@@ -530,6 +555,36 @@ export function findLegacyBinaries(pathEnv: string = process.env.PATH ?? ""): st
   for (const dir of new Set(pathEnv.split(path.delimiter).filter(Boolean))) {
     const candidate = path.join(dir, process.platform === "win32" ? "mpt.exe" : "mpt");
     if (existsSync(candidate) && isNativeExecutable(candidate)) found.push(candidate);
+  }
+  return found;
+}
+
+/** The marker line in scripts/legacy-bridge.sh. */
+const BRIDGE_MARKER = "MPT_LEGACY_BRIDGE";
+
+/** Is the file (symlinks followed) scripts/legacy-bridge.sh? It carries the marker near its top. */
+export function isLegacyBridge(file: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = fs.openSync(file, "r");
+    const head = Buffer.alloc(1024);
+    const n = fs.readSync(fd, head, 0, head.length, 0);
+    const text = head.subarray(0, n).toString("utf8");
+    return text.startsWith("#!") && text.includes(BRIDGE_MARKER);
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/** Every `mpt` on PATH that is the legacy bridge (see `isLegacyBridge`). */
+export function findLegacyBridges(pathEnv: string = process.env.PATH ?? ""): string[] {
+  if (process.platform === "win32") return [];
+  const found: string[] = [];
+  for (const dir of new Set(pathEnv.split(path.delimiter).filter(Boolean))) {
+    const candidate = path.join(dir, "mpt");
+    if (existsSync(candidate) && isLegacyBridge(candidate)) found.push(candidate);
   }
   return found;
 }
