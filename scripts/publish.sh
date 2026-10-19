@@ -2,7 +2,7 @@
 # Publish script: sets the next version, updates package.json (and the generated copies
 # derived from it), commits, creates a git tag, and pushes it. The tag triggers the
 # release workflow (.github/workflows/release.yml), which runs the gates and
-# publishes the npm package (`npm publish --provenance`), then creates the GitHub
+# publishes the npm package (`npm publish`, via npm Trusted Publishing), then creates the GitHub
 # release with the macOS menu bar app's DMG. Nothing is published from this machine.
 #
 # Usage:

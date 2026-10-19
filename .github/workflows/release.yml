@@ -7,16 +7,21 @@
 #
 # Jobs:
 #   - publish    Node 24 → npm ci → gates → smoke-test the packed tarball →
-#                `npm publish --provenance`. Required.
+#                `npm publish` via npm Trusted Publishing. Required. A version
+#                already on npm is skipped, so re-running a tag only redoes the
+#                GitHub Release.
 #   - macos-app  The menu bar app's DMG (universal). The app is only the menu UI: it
 #                runs the npm-installed mpt with the saved Node. BEST-EFFORT: if it
 #                fails (disk pressure, notary flakiness) the release still goes out
 #                without the DMG.
-#   - release    The GitHub Release: generated notes and the DMG.
+#   - release    The GitHub Release: generated notes, the npm tarball and the DMG.
+#
+# npm auth: Trusted Publishing (OIDC) — no token. On npmjs.com the package's
+# trusted publisher is GitHub Actions, timzen/my-pizza-team, workflow release.yml;
+# the `id-token: write` permission lets this job prove it is that workflow. npm
+# attaches provenance automatically. Needs npm >= 11.5.1.
 #
 # Secrets:
-#   - NPM_TOKEN  npm automation (or granular publish) token for the my-pizza-team
-#                package. Required by `publish`.
 #   - APPLE_CERTIFICATE_P12, APPLE_CERTIFICATE_PASSWORD, MPT_SIGNATURE, APPLE_ID,
 #     APPLE_APP_PASSWORD, APPLE_TEAM_ID — optional; sign and notarize the DMG. Without
 #     them the app is ad-hoc signed.
@@ -41,7 +46,8 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
-      # npm provenance: the registry records which workflow run built the package.
+      # npm Trusted Publishing: the OIDC token is the publish credential (and the
+      # provenance statement records which workflow run built the package).
       id-token: write
 
     steps:
@@ -68,6 +74,9 @@ jobs:
             exit 1
           fi
 
+      - name: npm new enough for Trusted Publishing
+        run: npm install -g 'npm@>=11.5.1' && npm --version
+
       - run: npm ci
 
       - name: Gates
@@ -90,12 +99,27 @@ jobs:
             "$sandbox/prefix/bin/mpt" setup --dry-run | tee out.txt
           grep -q "write the bundled Pi extension" out.txt
 
+      - name: Upload the tarball
+        # Attached to the GitHub Release too, for installs that can't reach npm
+        # (`npm i -g <url of the .tgz>`).
+        uses: actions/upload-artifact@v4
+        with:
+          name: npm-tarball
+          path: my-pizza-team-*.tgz
+          if-no-files-found: error
+
       - name: Publish
         # prepack rebuilds dist/ from this checkout, so what is published is what the
-        # smoke test installed.
-        run: npm publish --provenance --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        # smoke test installed. npm versions are immutable, so a version that is
+        # already there (a re-run tag, or a first publish done by hand) is skipped
+        # rather than failed.
+        run: |
+          version="$(node -p 'require("./package.json").version')"
+          if npm view "my-pizza-team@$version" version >/dev/null 2>&1; then
+            echo "::notice::my-pizza-team@$version is already on npm — skipping publish."
+            exit 0
+          fi
+          npm publish --provenance --access public
 
   # The macOS menu bar app is the most fragile part of the release (runner disk
   # pressure, Apple notary service flakiness). It is explicitly best-effort: a
@@ -197,6 +221,12 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Download the npm tarball
+        uses: actions/download-artifact@v4
+        with:
+          name: npm-tarball
+          path: release/
+
       - name: Download the DMG
         uses: actions/download-artifact@v4
         continue-on-error: true
@@ -209,7 +239,7 @@ jobs:
         run: |
           echo "version=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
           mkdir -p release/
-          if [ -z "$(ls -A release/)" ]; then
+          if ! ls release/*.dmg >/dev/null 2>&1; then
             echo "::warning::macOS menu bar app (.dmg) missing from this release — the Build macOS Menu Bar App job produced no artifact."
           fi
           ls -l release/

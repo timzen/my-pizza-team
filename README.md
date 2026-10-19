@@ -701,17 +701,21 @@ npm pack                       # my-pizza-team-<version>.tgz; install with `npm 
 The `v*` tag runs `.github/workflows/release.yml` on Node 24: it checks the tag
 matches `package.json`, runs `npm ci`, `npm run check` and `npm test`, smoke-tests
 the `npm pack` tarball (installs it into a scratch prefix and runs
-`mpt setup --dry-run`), then `npm publish --provenance --access public`. A
-best-effort job builds the macOS menu bar app, signs and notarizes it, and the
-GitHub Release gets generated notes plus the DMG. There are no per-platform
-binaries or checksums any more; users install with `npm i -g my-pizza-team` and
-upgrade with `mpt upgrade`.
+`mpt setup --dry-run`), then `npm publish --provenance --access public` (skipped
+if that version is already on npm, so re-running a tag only redoes the GitHub
+Release). A best-effort job builds the macOS menu bar app, signs and notarizes it,
+and the GitHub Release gets generated notes, the smoke-tested
+`my-pizza-team-<version>.tgz` and the DMG. There are no per-platform binaries or
+checksums any more; users install with `npm i -g my-pizza-team` and upgrade with
+`mpt upgrade`.
+
+npm publishing uses **Trusted Publishing** — no npm token. The package's trusted
+publisher on npmjs.com (Settings → Trusted Publisher) is GitHub Actions,
+`timzen/my-pizza-team`, workflow `release.yml`; the job's `id-token: write`
+permission is the credential, and npm adds provenance itself.
 
 Repository secrets:
 
-- `NPM_TOKEN` — **required**: an npm automation (or granular, publish-scoped) token
-  for the `my-pizza-team` package. Provenance needs no secret; the workflow's
-  `id-token: write` permission covers it.
 - `APPLE_CERTIFICATE_P12`, `APPLE_CERTIFICATE_PASSWORD`, `MPT_SIGNATURE`,
   `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID` — optional: Developer ID
   signing and notarization of the DMG (otherwise it is ad-hoc signed).
