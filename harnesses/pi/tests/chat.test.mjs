@@ -177,6 +177,11 @@ test("injects the persona via before_agent_start", () => {
   assert.ok(leaderSrc.includes("chat.persona"));
 });
 
+test("refetches the persona before building each run's system prompt (chatMode/persona apply live)", () => {
+  // agent_start fires after the prompt is built, so the refresh must be here.
+  assert.match(leaderSrc, /before_agent_start[\s\S]*?await chat\.refreshPersona\(\)[\s\S]*?chat\.persona/);
+});
+
 test("mirrors interactive terminal input into the chat", () => {
   assert.ok(leaderSrc.includes('pi.on("input"'));
   assert.ok(leaderSrc.includes('event.source !== "interactive"'));

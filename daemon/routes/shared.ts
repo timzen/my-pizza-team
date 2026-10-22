@@ -9,7 +9,9 @@
 
 import type { RouteContext } from "./types.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
-import { DEFAULT_HARNESS, DEFAULT_NOUNS, isExperimentalHarness } from "../../shared/types.ts";
+import {
+  ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, isAssistantChatMode, isExperimentalHarness, resolveAssistantChatMode,
+} from "../../shared/types.ts";
 import { enabledFeatures, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./work-sources.ts";
@@ -99,6 +101,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // The registered external (pull-only) Work Sources, so the UI shows a
       // read-only Work tab per source — none, no tab.
       externalSources: externalSourceViews(store),
+      // How the UI renders the assistant (default applied): "chat" bubbles or the
+      // teammate-style "terminal" transcript (TeamConfig.assistant).
+      assistantChatMode: resolveAssistantChatMode(config),
     });
   });
 
@@ -133,6 +138,14 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if ("error" in harnessSettings) return c.json({ success: false, error: harnessSettings.error }, 400);
       if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
         return c.json({ success: false, error: "exclusiveDirectories must be a boolean" }, 400);
+      }
+      // Assistant chat mode: `null` (or `assistant: null`) clears back to the default.
+      const chatMode = body.assistant === null ? null : body.assistant?.chatMode;
+      if (body.assistant != null && typeof body.assistant !== "object") {
+        return c.json({ success: false, error: "assistant must be an object" }, 400);
+      }
+      if (chatMode != null && !isAssistantChatMode(chatMode)) {
+        return c.json({ success: false, error: `assistant.chatMode must be one of: ${ASSISTANT_CHAT_MODES.join(", ")}` }, 400);
       }
       // Feature toggles: validated (and the turn-off guard checked) up front too.
       const featureSettings = resolveFeaturesUpdate(config, body, store);
@@ -178,6 +191,14 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         delete config.exclusiveDirectories;
       } else if (body.exclusiveDirectories !== undefined) {
         config.exclusiveDirectories = body.exclusiveDirectories;
+      }
+      // Assistant chat mode. Live: the persona route composes the leader's system
+      // prompt from this on every request, and the leader refetches it before each
+      // run — so no leader restart or session reset is needed.
+      if (chatMode === null) {
+        delete config.assistant;
+      } else if (chatMode !== undefined) {
+        config.assistant = { ...config.assistant, chatMode };
       }
       // Auto triage. A changed interval needs a daemon restart to re-arm the
       // timer; enabling/disabling and the quiet period take effect next sweep.

@@ -185,3 +185,46 @@ test("routes: the SSE stream primes with hello and registers a viewer", async ()
     try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
+
+test("routes: the leader's transcript is the same pipeline as any teammate's (terminal mode)", async () => {
+  // assistant.chatMode "terminal" watches the leader through these very routes;
+  // there's no leader-specific branch, so the same batch must land identically.
+  const { app, store, teamDir } = setup();
+  try {
+    await app.request("/api/agents/register", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "leader", name: "leader" }),
+    });
+    await app.request("/api/agents/register", {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "t1", name: "swift-ripley" }),
+    });
+    const batch = [
+      { kind: "session" },
+      { kind: "user", text: "hi", origin: "web" },
+      { kind: "run", state: "start" },
+      { kind: "message", key: "msg:i1:1", text: "Hello", thinking: "hmm" },
+      { kind: "tool", key: "tool:c1", name: "bash", args: { command: "ls" }, state: "done", result: "a.txt" },
+      { kind: "tool", key: "tool:c2", name: "read", args: { path: "x" }, state: "error", result: "ENOENT" },
+      { kind: "run", state: "end" },
+    ];
+    const strip = (entries: TranscriptEntry[]) => entries.map(({ seq: _s, at: _a, ...rest }) => rest);
+    const results: Record<string, unknown[]> = {};
+    for (const id of ["t1", "leader"]) {
+      // Unwatched: nothing recorded — same watch semantics (no backfill).
+      const before = await (await app.request(`/api/agents/${id}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entries: batch }),
+      })).json();
+      assertEquals(before.recorded, 0, id);
+      const stop = store.transcripts.watch(id, () => {});
+      const res = await (await app.request(`/api/agents/${id}/transcript`, {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ entries: batch }),
+      })).json();
+      assertEquals(res.recorded, batch.length, id);
+      results[id] = strip((await (await app.request(`/api/agents/${id}/transcript`)).json()).entries);
+      stop();
+    }
+    assertEquals(results.leader, results.t1);
+  } finally {
+    store.close();
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});

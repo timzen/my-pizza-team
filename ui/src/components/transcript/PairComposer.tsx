@@ -1,7 +1,10 @@
 /**
- * PairComposer — Message a paired teammate from its watch view.
+ * PairComposer — Message a paired teammate (or, in the assistant's terminal
+ * mode, the leader) from its watch view.
  *
- * Only rendered while paired (docs/DESIGN.md "Watching and Pairing with a Teammate"). Two ways to send,
+ * Rendered by AgentTerminal: for a teammate only while paired (docs/DESIGN.md
+ * "Watching and Pairing with a Teammate"); for the assistant always. Same
+ * route either way (`/api/agents/:id/messages`). Two ways to send,
  * because the teammate may be mid-run and interrupting it is a choice:
  *
  *   Enter          **queue** — lands after the current run (Pi followUp)
@@ -23,7 +26,12 @@ import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { editorCommandSeed } from "@/lib/editorPrefs";
 import { Send, Zap } from "lucide-react";
 
-export function PairComposer({ memberId, running }: { memberId: string; running: boolean }) {
+export function PairComposer({ memberId, running, recipient = "the teammate" }: {
+  memberId: string;
+  running: boolean;
+  /** Who's on the other end, for the placeholder and editor title. */
+  recipient?: string;
+}) {
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
@@ -42,7 +50,7 @@ export function PairComposer({ memberId, running }: { memberId: string; running:
   };
 
   const editor = useFullEditor({
-    value: text, onChange: setText, title: "Message the teammate",
+    value: text, onChange: setText, title: `Message ${recipient}`,
     onSubmit: () => send("queue"), submitLabel: running ? "Queue" : "Send",
   });
 
@@ -64,7 +72,7 @@ export function PairComposer({ memberId, running }: { memberId: string; running:
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           rows={2}
-          placeholder={running ? "Message the teammate — Enter queues it after this run, ⌘↵ steers now" : "Message the teammate…"}
+          placeholder={running ? `Message ${recipient} — Enter queues it after this run, ⌘↵ steers now` : `Message ${recipient}…`}
           className="min-h-0 flex-1 resize-none font-mono text-[13px]"
           autoFocus
         />

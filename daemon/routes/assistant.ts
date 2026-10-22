@@ -17,6 +17,7 @@
 
 import type { RouteContext } from "./types.ts";
 import type { AssistantDelivery } from "../store/assistant-chat.ts";
+import { resolveAssistantChatMode, type AssistantChatMode } from "../../shared/types.ts";
 
 /**
  * The default assistant persona. When no context-library persona is selected,
@@ -36,7 +37,9 @@ export const DEFAULT_ASSISTANT_PERSONA = [
 ].join("\n");
 
 /**
- * Chat framing injected ahead of EVERY persona (custom or default). Chat v2
+ * Chat framing injected ahead of every persona (custom or default) in the
+ * default `assistant.chatMode: "chat"` (terminal mode uses
+ * `ASSISTANT_TERMINAL_FRAMING` instead). Chat v2
  * shrank this dramatically: the assistant now just *talks*, and the extension
  * mirrors its prose into bubbles by splitting on blank lines. There is no
  * `send_message` tool to teach and no turn-taking rule to explain, because the
@@ -56,13 +59,35 @@ export const ASSISTANT_CHAT_FRAMING = [
   "  new message arrives mid-task, acknowledge it before carrying on.",
 ].join("\n");
 
-/** Compose the effective system prompt: chat framing first, then the persona (or default). */
-function composeSystemPrompt(personaBody: string | null): string {
-  return `${ASSISTANT_CHAT_FRAMING}\n\n${personaBody ?? DEFAULT_ASSISTANT_PERSONA}`;
+/**
+ * Framing for `assistant.chatMode: "terminal"`: the user watches the session as
+ * a terminal transcript (the same view as pairing with a teammate), so there are
+ * no bubbles to shape replies for — only the fact that the user may interrupt.
+ */
+export const ASSISTANT_TERMINAL_FRAMING = [
+  "# You are in a live terminal session",
+  "",
+  "The user is watching this session as a terminal transcript and can send you",
+  "messages at any time, including while you are working. If a new message",
+  "arrives mid-task, acknowledge it before carrying on.",
+].join("\n");
+
+/** The framing that leads the system prompt for a chat mode (see TeamConfig.assistant). */
+export function assistantFraming(mode: AssistantChatMode): string {
+  return mode === "terminal" ? ASSISTANT_TERMINAL_FRAMING : ASSISTANT_CHAT_FRAMING;
+}
+
+/**
+ * Compose the effective system prompt: the mode's framing first, then the
+ * persona (or default). Composed per request from the live config, so a mode
+ * switch reaches the leader on its next run (it refetches before each run).
+ */
+export function composeSystemPrompt(personaBody: string | null, mode: AssistantChatMode = "chat"): string {
+  return `${assistantFraming(mode)}\n\n${personaBody ?? DEFAULT_ASSISTANT_PERSONA}`;
 }
 
 export function registerAssistantRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, config } = ctx;
 
   // ─── Conversation ──────────────────────────────────────────────────
 
@@ -255,7 +280,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     return c.json({
       personaId: entry ? personaId : null,
       entry,
-      systemPrompt: composeSystemPrompt(entry ? entry.content : null),
+      systemPrompt: composeSystemPrompt(entry ? entry.content : null, resolveAssistantChatMode(config)),
     });
   });
 
@@ -275,7 +300,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
       personaId,
       entry,
       session,
-      systemPrompt: composeSystemPrompt(entry ? entry.content : null),
+      systemPrompt: composeSystemPrompt(entry ? entry.content : null, resolveAssistantChatMode(config)),
     });
   });
 }

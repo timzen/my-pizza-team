@@ -1204,9 +1204,42 @@ resume an old conversation with its context intact.
    recorded Pi session file; a session with no recorded file is readable but not
    restorable.
 7. **Chat behavior is system-level, not per-persona.** The system prompt is always
-   `ASSISTANT_CHAT_FRAMING` (be brief, blank lines separate bubbles, the user may
+   the mode's framing — in chat mode `ASSISTANT_CHAT_FRAMING` (be brief, blank lines separate bubbles, the user may
    interrupt) followed by the persona body or `DEFAULT_ASSISTANT_PERSONA`. Personas
    are about voice and role, never delivery mechanics.
+8. **The UI is a toggle; the framing follows it.** `assistant.chatMode` in
+   config.json picks how the user sees the assistant: `chat` (the bubbles above,
+   the default — missing or invalid reads as `chat`, so no existing team changes)
+   or `terminal`, which is *exactly* the teammate watch/pair experience (see
+   "Watching and Pairing with a Teammate") through one shared code path — not an
+   assistant-only lookalike. Bubble instructions would be noise in a transcript,
+   so terminal mode swaps `ASSISTANT_CHAT_FRAMING` for the short
+   `ASSISTANT_TERMINAL_FRAMING` (the user may interrupt; nothing about bubbles).
+   The switch is live: the daemon composes the prompt from config per request
+   and the leader refetches it in `before_agent_start`, so the next run uses the
+   new framing with no restart or session reset — the conversation is the same
+   Pi session either way; only how it is shown changes. The UI reads the mode
+   from `/api/status` (refetched the moment Config saves).
+9. **Terminal mode is the teammate pipeline, not a copy of it.** The leader wires
+   its session with the same `attachTranscriptMirror` a teammate uses
+   (harnesses/pi/src/session-transcript.ts), the daemon stores and streams it
+   through the same transcript store and routes keyed by agent id, and the dock
+   renders the same `AgentTerminal` (TranscriptView + PairComposer) as a
+   teammate's page — so entry kinds, clipping, collapse, watch semantics (only
+   while watched, no backfill) and live streaming are the same by construction;
+   a difference is a bug. The leader's mirror runs in both modes (unwatched it
+   costs nothing), which is why switching needs no restart. **The one
+   deliberate difference is input.** A teammate's composer opens only after
+   *Pair*, because pairing pauses its work loop and release settles its held
+   work item; the leader has neither, so its composer is always open and
+   `POST /api/agents/<leader>/messages` skips pairing. Its messages go to the
+   assistant inbox — how the leader receives every chat message, so the
+   conversation record, receipts, and session history stay whole whichever
+   mode you use — carrying the composer's `queue`/`steer` mode, and the leader
+   hands them to Pi with the same `deliverWebMessage` a paired teammate uses
+   (tagged `web`; queue → followUp, steer → steer mid-run). Chat-composer
+   messages carry no mode and are steered, as before. Reading an *earlier*
+   session always shows the chat record, since a transcript has no history.
 
 ---
 
@@ -1449,6 +1482,10 @@ thread. Entries are keyed upserts (Pi's message updates are cumulative), so open
 mid-reply still renders coherently. The buffer is in-memory, per member, and
 survives viewer disconnects (each watching period gets its own marker): a live
 view, not a record — the WorkItem thread is the record.
+
+The assistant's terminal mode (`assistant.chatMode: "terminal"`) is this very
+view pointed at the leader — see "Assistant Chat Model" item 9 for the one
+input difference (no Pair step: the leader has no work loop to pause).
 
 **Pairing is the explicit step that talks to it.** Watching can never interrupt.
 **Pair** pauses the teammate's loop (no new claims, no completion behind your back)

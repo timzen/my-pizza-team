@@ -377,21 +377,11 @@ async function setupTeammate(
 
   // ─── Live transcript (web UI watch view) ─────────────────────────
   // Mirrors this session to the daemon only while someone has the teammate's
-  // view open (see transcript.ts). Its own pi.on registrations, separate from
-  // the work loop's, so the two concerns never share a handler.
+  // view open (see transcript.ts). Wired by the one function the leader uses
+  // too (session-transcript.ts), so both views are fed identically.
   const { TranscriptMirror } = await import("./runtime/transcript.js");
-  const transcript = new TranscriptMirror(client);
-  pi.on("input", async (event) => { transcript.onInput(event.text, event.source, event.streamingBehavior); });
-  pi.on("agent_start", async () => { transcript.onAgentStart(); });
-  pi.on("agent_end", async () => { transcript.onAgentEnd(); });
-  pi.on("message_start", async (event) => { transcript.onMessageStart(event.message as any); });
-  pi.on("message_update", async (event) => { transcript.onMessageUpdate(event.message as any); });
-  pi.on("message_end", async (event) => { transcript.onMessageEnd(event.message as any); });
-  pi.on("tool_execution_start", async (event) => { transcript.onToolStart(event.toolCallId, event.toolName, event.args); });
-  pi.on("tool_execution_end", async (event) => {
-    transcript.onToolEnd(event.toolCallId, event.toolName, event.result, event.isError);
-  });
-  transcript.start().catch(() => {});
+  const { attachTranscriptMirror, deliverWebMessage } = await import("./session-transcript.js");
+  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client));
 
   // ─── Web pairing (talk to this teammate from the browser) ────────
   // Pairing pauses the work loop (like typing in this pane, but permissions
@@ -407,10 +397,7 @@ async function setupTeammate(
         ctx.ui.notify("🍕 Paired from the web UI — autonomous work paused until released there.", "info");
       }
     },
-    onMessage: (text, mode) => {
-      transcript.expectWebInput(text);
-      pi.sendUserMessage(text, loop.isAgentRunning ? { deliverAs: mode === "steer" ? "steer" : "followUp" } : undefined);
-    },
+    onMessage: (text, mode) => { deliverWebMessage(pi, transcript, text, mode, loop.isAgentRunning); },
     onRelease: async (action) => {
       await loop.releasePairing(action, lastAssistantText);
       if (ctx.hasUI) ctx.ui.notify(`🍕 Released from web pairing (${action}).`, "info");
@@ -535,7 +522,6 @@ async function setupTeammate(
   pi.on("session_shutdown", async () => {
     clearInterval(widgetInterval);
     loop.stop();
-    transcript.stop();
     pairing.stop();
     // Drop our lease; the last agent out restores the directory's config. A
     // fresh-session reset re-acquires in the new instance moments later.

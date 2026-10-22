@@ -91,9 +91,22 @@ export class ChatMirror {
    */
   public onSessionDirective: ((action: string, params: Record<string, unknown>) => Promise<void>) | null = null;
 
+  /**
+   * Hand one inbox message to Pi. Set by leader.ts to the shared
+   * `deliverWebMessage` (session-transcript.ts) — the same delivery a teammate's
+   * web pairing uses, so the terminal view tags it `web` and honours its
+   * queue/steer mode. Unset, it is delivered directly (steer mid-run).
+   */
+  public onDeliver: ((text: string, mode: "queue" | "steer") => void) | null = null;
+
   constructor(pi: ExtensionAPI, client: DaemonClient) {
     this.pi = pi;
     this.client = client;
+  }
+
+  /** True while an agent run is in flight (between agent_start and agent_settled). */
+  get isAgentRunning(): boolean {
+    return this.agentRunning;
   }
 
   /** See `rollingSession`: skip deregistration during a chat-driven session roll. */
@@ -109,8 +122,12 @@ export class ChatMirror {
     return this.personaContent;
   }
 
-  /** Refresh the cached persona from the daemon (best-effort). */
-  private async refreshPersona(): Promise<void> {
+  /**
+   * Refresh the cached persona from the daemon (best-effort). Called from the
+   * leader's `before_agent_start` hook so a persona or `assistant.chatMode`
+   * change shapes the very next run's system prompt (agent_start fires too late).
+   */
+  async refreshPersona(): Promise<void> {
     try {
       const res = await this.client.getPersona();
       // `systemPrompt` is the effective prompt: chat framing + the selected
@@ -147,7 +164,10 @@ export class ChatMirror {
    * Poll the inbox and hand each queued message to Pi. Mid-run messages are
    * delivered as `steer` so they land after the current tool batch instead of
    * being dropped or waiting for the whole run to finish — this is what lets the
-   * user interrupt at will (the daemon no longer debounces anything).
+   * user interrupt at will (the daemon no longer debounces anything). A message
+   * from the terminal-mode composer carries its own `mode` (queue = followUp,
+   * steer), exactly as a teammate's composer does; the chat composer's carry
+   * none and keep the chat's steer.
    */
   private async pollForWork(): Promise<void> {
     if (!this.running) return;
@@ -157,7 +177,9 @@ export class ChatMirror {
         const prompt = item.quoted
           ? `> ${item.quoted.replace(/\n/g, "\n> ")}\n\n${item.content}`
           : item.content;
-        this.pi.sendUserMessage(prompt, this.agentRunning ? { deliverAs: "steer" } : undefined);
+        const mode = item.mode === "queue" ? "queue" : "steer";
+        if (this.onDeliver) this.onDeliver(prompt, mode);
+        else this.pi.sendUserMessage(prompt, this.agentRunning ? { deliverAs: "steer" } : undefined);
         this.delivered.add(item.id);
       }
       if (messages.length > 0) {
@@ -209,7 +231,6 @@ export class ChatMirror {
     this.agentRunning = true;
     this.thoughtSent = 0;
     this.mirroredParagraphs.clear();
-    await this.refreshPersona();
     await this.client.postThought({ clear: true, thinking: true }).catch(() => {});
     if (this.delivered.size > 0) {
       await this.client.ackInbox([...this.delivered], "read").catch(() => {});

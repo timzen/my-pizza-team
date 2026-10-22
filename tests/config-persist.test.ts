@@ -15,7 +15,7 @@ import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import type { TeamConfig } from "../shared/types.ts";
+import { resolveAssistantChatMode, type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 
 /** Every persistable field set to a non-default value, so a dropped one shows. */
@@ -30,6 +30,7 @@ const FULL: Partial<TeamConfig> = {
   favoriteDirectories: ["/tmp/mpt-fav-a", "/tmp/mpt-fav-b"],
   features: { stories: false, tasks: true, schedules: true },
   retry: { maxRetries: 2, backoffMinutes: [2, 10] },
+  assistant: { chatMode: "terminal" },
   harnesses: {
     custom: { teammate: "my-agent --name={name} --daemon={url}", leader: "my-agent --lead" },
   },
@@ -64,6 +65,8 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.features, FULL.features);
   // Errored-session retry policy has no editor; a save must keep it.
   assertEquals(saved.retry, FULL.retry);
+  // A save that doesn't change the assistant chat mode keeps it.
+  assertEquals(saved.assistant, FULL.assistant);
 }
 
 test("saveConfig writes every persistable field", () => {
@@ -185,5 +188,53 @@ test("experimental must be an object with a boolean harnesses", async () => {
   try {
     assertEquals((await putConfig(app, { experimental: "yes" })).status, 400);
     assertEquals((await putConfig(app, { experimental: { harnesses: "true" } })).status, 400);
+  } finally { cleanup(); }
+});
+
+// ─── Assistant chat mode (Config → General) ──────────────────────────
+
+test("resolveAssistantChatMode: missing or invalid is chat", () => {
+  assertEquals(resolveAssistantChatMode({}), "chat");
+  assertEquals(resolveAssistantChatMode({ assistant: {} }), "chat");
+  assertEquals(resolveAssistantChatMode({ assistant: { chatMode: "bogus" as never } }), "chat");
+  assertEquals(resolveAssistantChatMode({ assistant: { chatMode: "chat" } }), "chat");
+  assertEquals(resolveAssistantChatMode({ assistant: { chatMode: "terminal" } }), "terminal");
+});
+
+test("assistant.chatMode saves, persists, applies live, and is reported by /api/status", async () => {
+  const { app, store, onDisk, cleanup } = setup();
+  try {
+    let r = await putConfig(app, { assistant: { chatMode: "chat" } });
+    assertEquals(r.body.success, true);
+    assertEquals(onDisk().assistant, { chatMode: "chat" });
+    assertEquals(store.getConfig().assistant, { chatMode: "chat" });
+    assertEquals((await (await app.request("/api/status")).json()).assistantChatMode, "chat");
+
+    r = await putConfig(app, { assistant: { chatMode: "terminal" } });
+    assertEquals(r.body.success, true);
+    assertEquals(onDisk().assistant, { chatMode: "terminal" });
+    assertEquals((await (await app.request("/api/status")).json()).assistantChatMode, "terminal");
+
+    // `null` clears it back to the default, and nothing is written.
+    r = await putConfig(app, { assistant: null });
+    assertEquals(r.body.success, true);
+    assertEquals(onDisk().assistant, undefined);
+    assertEquals((await (await app.request("/api/status")).json()).assistantChatMode, "chat");
+  } finally { cleanup(); }
+});
+
+test("PUT /api/config rejects an invalid assistant.chatMode and changes nothing", async () => {
+  const { app, store, cleanup } = setup();
+  try {
+    const maxBefore = store.getConfig().maxTeammates;
+    let r = await putConfig(app, { assistant: { chatMode: "bubbles" }, maxTeammates: 9 });
+    assertEquals(r.status, 400);
+    assertStringIncludes(r.body.error ?? "", "assistant.chatMode");
+    assertEquals(store.getConfig().assistant, FULL.assistant);
+    assertEquals(store.getConfig().maxTeammates, maxBefore);
+
+    r = await putConfig(app, { assistant: "terminal" });
+    assertEquals(r.status, 400);
+    assertStringIncludes(r.body.error ?? "", "assistant");
   } finally { cleanup(); }
 });

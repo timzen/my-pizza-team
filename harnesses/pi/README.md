@@ -177,7 +177,10 @@ watch-only until you click **Pair**: that pauses the teammate's autonomous
 loop (like typing in its window, but permissions stay autonomous — nobody is at
 its terminal) and opens a message box. Messages queue behind the current run
 unless you **steer**; **Resume / Complete / Fail** hand it back, applied after
-any run in flight. See
+any run in flight. The assistant's terminal mode (`assistant.chatMode:
+"terminal"`) is this same view of the leader — wired by the same
+`attachTranscriptMirror` (`src/session-transcript.ts`), with an always-open
+composer whose messages reach the leader through its chat inbox. See
 [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#transcript-mirror-teammates-the-web-uis-watch-view).
 
 ## Chat Mirror
@@ -241,7 +244,8 @@ src/
 ├── teammate.ts       TeammateLoop: autonomous work loop (fresh session per work item)
 ├── chat.ts           ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session
 ├── bubbles.ts        splitIntoBubbles: assistant prose → chat bubbles
-├── transcript.ts     TranscriptMirror: teammate session → web UI watch view (only while watched)
+├── transcript.ts     TranscriptMirror: agent session → web UI watch view (only while watched)
+├── session-transcript.ts  attachTranscriptMirror / deliverWebMessage: the one wiring, shared by teammate and leader
 ├── pairing.ts        WebPairing: pair / message / release a teammate from the web UI
 ├── usage.ts          summarizeRun: every run's tokens (incl. cache) + cost for the usage ledger
 ├── session-stats.ts  model, context fill, session cost for the Team tab, after every turn

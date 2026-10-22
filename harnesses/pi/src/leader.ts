@@ -358,11 +358,14 @@ export async function setupLeader(
   );
   pi.on("session_shutdown", async () => { disposeAuthorizer(); });
 
-  // Persona: the daemon vends chat framing + the selected persona (or its
-  // default), injected as the system prompt on every run.
+  // Persona: the daemon vends the chat-mode framing (assistant.chatMode) + the
+  // selected persona (or its default), injected as the system prompt on every
+  // run. Refetched here, before the prompt is built, so a Config change applies
+  // to the next run with no restart or session reset.
   // Also the per-run feature refresh: the tool set and a note naming the kinds
   // that are off (features.ts featurePromptNote).
   pi.on("before_agent_start", async (event) => {
+    await chat.refreshPersona();
     await syncFeatures();
     const extra = [chat.persona, featurePromptNote(features)].filter(Boolean);
     if (extra.length === 0) return;
@@ -469,6 +472,18 @@ export async function setupLeader(
       pi.sendUserMessage(`/ppt-chat-resume ${file}`, { deliverAs: "followUp", expandPromptTemplates: true });
     }
   };
+
+  // ─── Live transcript (the assistant's terminal mode) ──────────────
+  // Exactly a teammate's watch view: the same mirror, wired by the same function
+  // (session-transcript.ts), streaming only while the dock's terminal view is
+  // open (assistant.chatMode: "terminal"). It runs in both modes — unwatched it
+  // costs nothing — so switching modes needs no restart. Inbox messages are
+  // handed to Pi through the same delivery as a teammate's web pairing, so they
+  // are tagged `web` and keep the composer's queue/steer choice.
+  const { TranscriptMirror } = await import("./runtime/transcript.js");
+  const { attachTranscriptMirror, deliverWebMessage } = await import("./session-transcript.js");
+  const transcript = attachTranscriptMirror(pi, new TranscriptMirror(client));
+  chat.onDeliver = (text, mode) => { deliverWebMessage(pi, transcript, text, mode, chat.isAgentRunning); };
 
   await chat.start();
 

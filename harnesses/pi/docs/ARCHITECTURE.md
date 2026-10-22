@@ -46,7 +46,8 @@ src/
 │                          #   (claims only between runs; completes only on the work prompt's own run)
 ├── chat.ts               # ChatMirror: mirrors the daemon chat ⇄ the leader's Pi session (no turns)
 ├── bubbles.ts            # splitIntoBubbles: assistant prose → chat bubbles (fence/list aware)
-├── transcript.ts         # TranscriptMirror: teammate's live session → daemon, only while watched in the web UI
+├── transcript.ts         # TranscriptMirror: an agent's live session → daemon, only while watched in the web UI
+├── session-transcript.ts # attachTranscriptMirror (the one pi.on wiring) + deliverWebMessage — teammate AND leader
 ├── pairing.ts            # WebPairing: polls web-pairing intent (pair / messages / release) for a teammate
 ├── usage.ts              # summarizeRun: a run's tokens (incl. cache read/write), cost, model, last prose
 ├── session-stats.ts      # readSessionStats: model, context fill (ctx.getContextUsage), session cost (footer arithmetic)
@@ -190,10 +191,16 @@ restart), and the directive poll refuses to dispatch until at least one sync
 has succeeded. This prevents agents from being spawned into the fallback
 session when the daemon was merely unreachable at leader startup.
 
-### Transcript mirror (teammates; the web UI's watch view)
+### Transcript mirror (teammates and the leader; the web UI's watch view)
 
 Each teammate runs a `TranscriptMirror` (`src/transcript.ts`) so the web UI can
 show its session live at `/teammates/:id` (my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate").
+The leader runs one too, for the assistant's terminal mode (`assistant.chatMode:
+"terminal"`). Both are wired by the same `attachTranscriptMirror`
+(`src/session-transcript.ts`) and take web messages through the same
+`deliverWebMessage` — the teammate from its pairing poll, the leader from its
+chat inbox (`ChatMirror.onDeliver`) — so the two views are identical by
+construction (tests/session-transcript.test.mjs).
 It's **watch-only** — nothing flows into Pi — and **streams only while watched**:
 
 ```

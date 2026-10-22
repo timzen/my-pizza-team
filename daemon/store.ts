@@ -79,6 +79,7 @@ import {
   type AssistantEvent,
   type AssistantMessage,
   type AssistantOrigin,
+  type AssistantSendMode,
   type AssistantSession,
   type InboxMessage,
 } from "./store/assistant-chat.ts";
@@ -245,6 +246,7 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.exclusiveDirectories !== undefined) out.exclusiveDirectories = config.exclusiveDirectories;
   // Absent means "everything on" (an existing team); persist only an explicit block.
   if (config.features) out.features = config.features;
+  if (config.assistant && Object.keys(config.assistant).length > 0) out.assistant = config.assistant;
   if (config.favoriteDirectories && config.favoriteDirectories.length > 0) out.favoriteDirectories = config.favoriteDirectories;
   return out;
 }
@@ -699,6 +701,7 @@ export class Store {
         delivery TEXT,           -- user rows: 'queued'|'delivered'|'read' (receipts)
         state TEXT DEFAULT 'ok', -- assistant rows: 'ok'|'failed'
         reply_to TEXT,           -- id of the message this one quotes
+        send_mode TEXT,          -- user rows: 'queue'|'steer' when the sender chose (terminal mode)
         created_at INTEGER
       );
 
@@ -802,6 +805,7 @@ export class Store {
     if (!hasAsstColumn("delivery")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN delivery TEXT");
     if (!hasAsstColumn("state")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN state TEXT DEFAULT 'ok'");
     if (!hasAsstColumn("reply_to")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN reply_to TEXT");
+    if (!hasAsstColumn("send_mode")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN send_mode TEXT");
     // Vestiges of the v1 turn model, dropped rather than carried.
     this.db.exec("DROP TABLE IF EXISTS assistant_turns");
     if (hasAsstColumn("turn_id")) this.db.exec("ALTER TABLE assistant_messages DROP COLUMN turn_id");
@@ -2859,11 +2863,15 @@ export class Store {
    * Append a user message. Always succeeds (the composer never blocks) and
    * creates the active session on demand under the current persona.
    */
-  appendUserMessage(content: string, opts: { replyTo?: string | null; origin?: AssistantOrigin } = {}): AssistantMessage {
+  appendUserMessage(
+    content: string,
+    opts: { replyTo?: string | null; origin?: AssistantOrigin; mode?: AssistantSendMode | null } = {},
+  ): AssistantMessage {
     return this.chat.appendUserMessage(content, {
       personaId: this.getAssistantPersonaId(),
       replyTo: opts.replyTo ?? null,
       origin: opts.origin,
+      mode: opts.mode ?? null,
     });
   }
 

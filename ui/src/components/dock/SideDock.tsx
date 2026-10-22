@@ -40,6 +40,10 @@
  * rendering both and hiding one would mount the chat twice (duplicate `msg-*`
  * ids, two scroll containers, double polling).
  *
+ * The Assistant tab is `AssistantPane`: the bubble chat, or — in
+ * `assistant.chatMode: "terminal"` — the teammate watch/pair view pointed at the
+ * leader (docs/DESIGN.md "Assistant Chat Model"), switching live with Config.
+ *
  * The chat stream, the team data, and the queue are owned here, not in the tabs, so
  * collapsing or switching tabs never drops the SSE connection or the badges.
  * Both tab bodies stay mounted (the inactive one hidden) so a half-typed chat
@@ -49,7 +53,7 @@
 import { useCallback, useState } from "react";
 import { Link, useMatch } from "react-router-dom";
 import { Button } from "@/components/ui/button";
-import { AssistantChat } from "@/components/assistant/AssistantChat";
+import { AssistantPane } from "@/components/assistant/AssistantPane";
 import { TeamPanel } from "@/components/team/TeamPanel";
 import { TeammateAvatar, TeamButtons } from "@/components/team/TeamParts";
 import { TeamSizeDialog } from "@/components/TeamSizeDialog";
@@ -149,7 +153,7 @@ export function SideDock() {
   const body = (
     <div className="min-h-0 flex-1">
       <div className={tab === "assistant" ? "h-full" : "hidden"}>
-        <AssistantChat stream={stream} viewingId={viewingId} onViewSession={setViewingId} />
+        <AssistantPane stream={stream} viewingId={viewingId} onViewSession={setViewingId} />
       </div>
       <div className={tab === "team" ? "h-full" : "hidden"}>
         <TeamPanel team={team} />

@@ -75,6 +75,8 @@ interface ConfigData {
   defaultHarness?: string;
   /** Custom harness templates from config.json (read-only here; adds to the picker). */
   harnesses?: Record<string, { teammate: string; leader?: string }>;
+  /** How the user talks to the assistant. Unset (or unknown) chatMode = "chat". */
+  assistant?: { chatMode?: "chat" | "terminal" };
   /** One teammate per directory (exclusive directory leases). Unset = on. */
   exclusiveDirectories?: boolean;
   /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */
@@ -235,6 +237,8 @@ function GeneralTab({ config, setConfig, saved, featureError }: {
   return (
     <div className="space-y-4">
       <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} />
+
+      <AssistantChatModeSetting config={config} setConfig={setConfig} />
 
       <Card>
         <CardContent className="p-4 space-y-3">
@@ -609,6 +613,46 @@ function TeammatesTab({ config, setConfig }: { config: ConfigData; setConfig: (c
 
       <ExperimentalHarnesses config={config} setConfig={setConfig} />
     </div>
+  );
+}
+
+// --- Assistant chat mode (docs/DESIGN.md "Assistant Chat Model") ---
+
+/**
+ * The `assistant.chatMode` picker: iMessage-style bubbles (default) or the same
+ * terminal transcript and composer used to watch and pair with a teammate.
+ * Applies live once saved — the leader picks up the matching system prompt on
+ * its next run, with no restart and no new session.
+ */
+function AssistantChatModeSetting({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
+  const mode = config.assistant?.chatMode === "terminal" ? "terminal" : "chat";
+  const set = (chatMode: "chat" | "terminal") => setConfig({ ...config, assistant: { ...config.assistant, chatMode } });
+  return (
+    <Card>
+      <CardContent className="p-4 space-y-3">
+        <h2 className="font-semibold">Assistant</h2>
+        <p className="text-xs text-muted-foreground">
+          How you talk to the assistant: a chat with message bubbles, or a terminal view of its session —
+          the same view you get when you watch and pair with a teammate.
+        </p>
+        <div className="flex flex-col gap-1.5 text-sm">
+          <label className="flex items-center gap-2">
+            <input type="radio" name="assistant-chat-mode" id="assistant-chat-mode-chat"
+              checked={mode === "chat"} onChange={() => set("chat")} />
+            Chat (bubbles)
+          </label>
+          <label className="flex items-center gap-2">
+            <input type="radio" name="assistant-chat-mode" id="assistant-chat-mode-terminal"
+              checked={mode === "terminal"} onChange={() => set("terminal")} />
+            Terminal (like watching a teammate)
+          </label>
+        </div>
+        <p className="text-xs text-muted-foreground">
+          Takes effect as soon as you save: the assistant's next reply follows the new style. The current
+          conversation carries on — no restart or new chat needed.
+        </p>
+      </CardContent>
+    </Card>
   );
 }
 

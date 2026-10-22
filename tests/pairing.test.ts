@@ -107,3 +107,35 @@ test("routes: only connected teammates can be paired", async () => {
     try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
+
+test("routes: the leader's composer (assistant terminal mode) feeds the assistant inbox, no pairing", async () => {
+  const { app, store, teamDir } = setup();
+  try {
+    // Before the leader connects, a message queues — like the chat composer.
+    assertEquals((await app.request("/api/agents/leader/messages", json({ text: "early" }))).status, 201);
+    await app.request("/api/agents/register", json({ id: "leader", name: "leader" }));
+    // No Pair step: the leader has no work loop to pause.
+    const steer = await app.request("/api/agents/leader/messages", json({ text: "look at auth.ts", mode: "steer" }));
+    assertEquals(steer.status, 201);
+    assertEquals((await steer.json()).message.origin, "web");
+    assertEquals((await app.request("/api/agents/leader/messages", json({ text: "  " }))).status, 400);
+    // A chat-composer message carries no mode (the leader steers it, as before).
+    await app.request("/api/assistant/messages", json({ content: "from the chat" }));
+
+    const inbox = await (await app.request("/api/assistant/inbox?agentId=leader")).json();
+    assertEquals(
+      inbox.messages.map((m: { content: string; mode: unknown }) => [m.content, m.mode]),
+      [["early", "queue"], ["look at auth.ts", "steer"], ["from the chat", null]],
+    );
+    // Nothing went to the pairing channel, and pair/release stay teammate-only.
+    assertEquals((await (await app.request("/api/agents/leader/pairing")).json()).messages.length, 0);
+    assertEquals((await app.request("/api/agents/leader/pair", { method: "POST" })).status, 400);
+    assertEquals((await app.request("/api/agents/leader/release", json({ action: "resume" }))).status, 400);
+    // Teammates still need a pairing first.
+    await app.request("/api/agents/register", json({ id: "t1", name: "swift-ripley" }));
+    assertEquals((await app.request("/api/agents/t1/messages", json({ text: "hi" }))).status, 409);
+  } finally {
+    store.close();
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});

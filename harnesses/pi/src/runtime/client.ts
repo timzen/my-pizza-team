@@ -149,6 +149,12 @@ export interface AssistantInboxItem {
   /** Excerpt of the quoted message, so the agent sees what is being answered. */
   quoted: string | null;
   origin: "web" | "tui" | "agent" | "system";
+  /**
+   * The sender's choice for a run in flight — `queue` (followUp) or `steer` —
+   * from the assistant's terminal-mode composer. Absent/null from the chat
+   * composer, which is steered (see ChatMirror).
+   */
+  mode?: "queue" | "steer" | null;
 }
 
 /** Response from GET /api/assistant/inbox */

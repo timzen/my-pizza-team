@@ -3,7 +3,8 @@
  *
  * Fills the center column (docs/DESIGN.md "Watching and Pairing with a Teammate"): a header strip — status,
  * what it's working on (linked to the work item's page, where the full prompt
- * and thread live), and its directory — over the CLI-ish `TranscriptView`.
+ * and thread live), and its directory — over `AgentTerminal` (the CLI-ish
+ * `TranscriptView` + composer, shared with the assistant's terminal mode).
  *
  * Watching is read-only: having this page open is what turns the teammate's
  * transcript mirror on (the SSE subscription registers a viewer), and nothing
@@ -20,10 +21,9 @@ import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { useTranscriptStream } from "@/hooks/useTranscriptStream";
-import { TranscriptView } from "@/components/transcript/TranscriptView";
-import { PairComposer } from "@/components/transcript/PairComposer";
+import { AgentTerminal } from "@/components/transcript/AgentTerminal";
 import { Button } from "@/components/ui/button";
-import { isRunning, type PairingState } from "@/lib/transcript-types";
+import type { PairingState } from "@/lib/transcript-types";
 import { workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
 import { Badge } from "@/components/ui/badge";
 import { ModelName, SessionStats, StatusIcon } from "@/components/team/TeamParts";
@@ -40,7 +40,8 @@ interface WorkItem extends LinkableWorkItem {
 
 export function TeammatePage() {
   const { id = "" } = useParams();
-  const { entries, connected } = useTranscriptStream(id);
+  const stream = useTranscriptStream(id);
+  const { connected } = stream;
   const { data: agents } = useApi<{ agents: Agent[] }>("/api/agents", [], { pollInterval: 5000 });
   const { data: work } = useApi<{ items: WorkItem[] }>("/api/work-items?state=IN_PROGRESS,MORIBUND", [], { pollInterval: 5000 });
 
@@ -51,7 +52,6 @@ export function TeammatePage() {
 
   const agent = agents?.agents.find((a) => a.id === id);
   const current = work?.items.find((w) => w.memberId === id);
-  const running = isRunning(entries);
   const paired = !!pairing?.paired;
   // Experimental ACP teammates (`mpt agent`) don't poll for pairing yet.
   const pairable = !agent?.harness || agent.harness === "pi";
@@ -116,12 +116,13 @@ export function TeammatePage() {
       </div>
       {error && <p className="shrink-0 px-4 py-1 text-xs text-destructive">{error}</p>}
       <div className="min-h-0 flex-1">
-        <TranscriptView
-          entries={entries}
+        <AgentTerminal
+          memberId={id}
+          stream={stream}
+          canSend={paired}
           empty={<p className="text-muted-foreground">{paired ? "Paired — say something below." : "Waiting for activity…"}</p>}
         />
       </div>
-      {paired && <PairComposer memberId={id} running={running} />}
     </div>
   );
 }

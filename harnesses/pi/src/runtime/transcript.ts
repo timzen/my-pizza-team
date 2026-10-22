@@ -1,4 +1,4 @@
-// Transcript mirror: stream a teammate's Pi session to the daemon — only while watched
+// Transcript mirror: stream an agent's Pi session to the daemon — only while watched
 //
 // Backs the web UI's teammate view (/teammates/:id; my-pizza-team
 // docs/DESIGN.md "Watching and Pairing with a Teammate"): a live, CLI-ish rendering of what this teammate is
@@ -16,8 +16,9 @@
 // viewer who opens mid-reply see all of it. Updates fire per token; they're
 // coalesced per key and flushed on a short timer.
 //
-// Event wiring lives in index.ts (it owns the pi.on registrations); this class
-// owns the watch state, buffering, and daemon calls.
+// Event wiring lives in ../session-transcript.ts — one function shared by the
+// teammate and the leader (the assistant's terminal mode), so both views are fed
+// identically; this class owns the watch state, buffering, and daemon calls.
 
 /** The slice of DaemonClient this mirror needs (kept narrow so tests can fake it). */
 export interface TranscriptClient {

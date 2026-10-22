@@ -71,7 +71,17 @@ export interface InboxMessage {
   /** Excerpt of the quoted message, so the agent sees what is being answered. */
   quoted: string | null;
   origin: AssistantOrigin;
+  /**
+   * How to hand it to a run in flight, when the sender chose: `queue` (Pi
+   * followUp) or `steer` — the teammate composer's two sends, used by the
+   * assistant's terminal mode. Null for the chat composer, which the agent
+   * steers (docs/DESIGN.md "Assistant Chat Model").
+   */
+  mode: AssistantSendMode | null;
 }
+
+/** A sender-chosen delivery for a mid-run message (see InboxMessage.mode). */
+export type AssistantSendMode = "queue" | "steer";
 
 /** Events pushed to subscribers of GET /api/assistant/stream. */
 export type AssistantEvent =
@@ -349,12 +359,13 @@ export class AssistantChat {
    */
   appendUserMessage(
     content: string,
-    opts: { personaId: string | null; replyTo?: string | null; origin?: AssistantOrigin } = { personaId: null },
+    opts: { personaId: string | null; replyTo?: string | null; origin?: AssistantOrigin; mode?: AssistantSendMode | null } = { personaId: null },
   ): AssistantMessage {
     const origin: AssistantOrigin = opts.origin === "tui" ? "tui" : "web";
     const session = this.ensureActiveSession(opts.personaId);
     const delivery: AssistantDelivery = origin === "tui" ? "read" : "queued";
-    const message = this.insert(session.id, "user", content, origin, delivery, "ok", opts.replyTo ?? null);
+    const mode = opts.mode === "queue" || opts.mode === "steer" ? opts.mode : null;
+    const message = this.insert(session.id, "user", content, origin, delivery, "ok", opts.replyTo ?? null, mode);
     // The first user message names the session (used in the session list + snapshot).
     if (!session.title) this.setSessionTitle(session.id, content);
     return message;
@@ -384,12 +395,13 @@ export class AssistantChat {
     delivery: AssistantDelivery | null,
     state: string,
     replyTo: string | null,
+    sendMode: AssistantSendMode | null = null,
   ): AssistantMessage {
     const now = Date.now();
     const id = `msg-${now}-${crypto.randomUUID().slice(0, 8)}`;
     this.db.prepare(
-      "INSERT INTO assistant_messages (id, session_id, role, content, origin, delivery, state, reply_to, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-    ).run(id, sessionId, role, content, origin, delivery, state, replyTo, now);
+      "INSERT INTO assistant_messages (id, session_id, role, content, origin, delivery, state, reply_to, send_mode, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(id, sessionId, role, content, origin, delivery, state, replyTo, sendMode, now);
     this.db.prepare("UPDATE assistant_sessions SET message_count = message_count + 1 WHERE id = ?").run(sessionId);
     const message = this.getMessage(id)!;
     this.emit({ type: "message", message });
@@ -421,7 +433,7 @@ export class AssistantChat {
    */
   getInbox(): InboxMessage[] {
     const rows = this.db.prepare(
-      "SELECT id, content, reply_to, origin FROM assistant_messages WHERE role = 'user' AND delivery = 'queued' ORDER BY seq ASC",
+      "SELECT id, content, reply_to, origin, send_mode FROM assistant_messages WHERE role = 'user' AND delivery = 'queued' ORDER BY seq ASC",
     ).all() as Array<Record<string, unknown>>;
     return rows.map((row) => {
       const replyTo = (row.reply_to as string) || null;
@@ -432,6 +444,7 @@ export class AssistantChat {
         replyTo,
         quoted: quote ? quote.content : null,
         origin: ((row.origin as string) || "web") as AssistantOrigin,
+        mode: row.send_mode === "queue" || row.send_mode === "steer" ? row.send_mode : null,
       };
     });
   }

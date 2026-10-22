@@ -12,6 +12,15 @@
  *
  * Only teammates can be paired: the leader is the chat agent, and you talk to it
  * in the left dock.
+ *
+ * One exception, for the assistant's terminal mode (`assistant.chatMode:
+ * "terminal"`, docs/DESIGN.md "Assistant Chat Model"): the dock renders the same
+ * transcript and `PairComposer` as a teammate's page, pointed at the leader, so
+ * `POST /api/agents/<leader>/messages` is accepted too. There is no pair/release
+ * step for the leader — those exist to pause a work loop and settle a held work
+ * item, and the leader has neither — so its messages are always accepted and go
+ * into the assistant inbox (with the chosen `mode`), the way the leader already
+ * receives every chat message. Pair and release stay teammate-only.
  */
 
 import type { RouteContext } from "./types.ts";
@@ -48,15 +57,28 @@ export function registerPairingRoutes(ctx: RouteContext): void {
     return c.json({ success: true, ...pairing.getState(id) });
   });
 
+  /**
+   * Is `id` the leader? By its member name when connected, else by the id
+   * itself (the leader registers as "leader") — so, like the chat composer, a
+   * message to an offline leader waits in the inbox instead of failing.
+   */
+  const isLeaderId = (id: string): boolean => !isPoolTeammate(store.getMember(id)?.name ?? id);
+
   app.post("/api/agents/:id/messages", async (c) => {
     const id = c.req.param("id");
-    const bad = checkTeammate(id);
+    const leader = isLeaderId(id);
+    const bad = leader ? null : checkTeammate(id);
     if (bad) return c.json({ success: false, error: bad.error }, bad.status);
     const body = await c.req.json().catch(() => ({})) as { text?: unknown; mode?: unknown };
     const text = typeof body.text === "string" ? body.text.trim() : "";
     if (!text) return c.json({ success: false, error: "Field 'text' is required" }, 400);
     if (text.length > MAX_MESSAGE_CHARS) return c.json({ success: false, error: `Message too long (max ${MAX_MESSAGE_CHARS} chars)` }, 400);
     const mode: SendMode = body.mode === "steer" ? "steer" : "queue";
+    if (leader) {
+      // Terminal mode: the leader's inbox is the assistant chat (see the header).
+      const message = store.appendUserMessage(text, { origin: "web", mode });
+      return c.json({ success: true, message }, 201);
+    }
     const message = pairing.send(id, text, mode);
     if (!message) return c.json({ success: false, error: "Pair with the teammate before messaging it" }, 409);
     return c.json({ success: true, message }, 201);

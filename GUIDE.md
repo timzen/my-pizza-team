@@ -314,6 +314,12 @@ Good things to keep: coding conventions, architecture decisions, common patterns
 
 Attach entries to a **story** (applies to all its tasks) or an individual **WorkDef** from its editor. Attached entries are inlined into the prompt under a **Reference Context** section when a teammate claims the work — so the daemon vends the right context to every harness, no per-agent tools needed.
 
+### Assistant style: chat or terminal
+
+**Config → General → Assistant** picks how you talk to the assistant. **Chat (bubbles)**, the default, is the iMessage-style chat: short replies, one bubble per paragraph. **Terminal** shows the assistant's session the way a teammate's page does when you watch and pair with it — a terminal-style transcript and the same composer. The assistant's reply style follows the choice (no bubble-shaped answers in terminal mode). It applies as soon as you save, from the assistant's next reply: no restart, and the current conversation carries on.
+
+In terminal mode the composer is always open — there's no **Pair** step, since the assistant has no queue of work to pause. As with a paired teammate, **Enter** queues your message after the current run and **⌘/Ctrl+Enter** steers it in at the next step. Like a teammate's page, the view is live from when you open it (no backfill); reading an earlier session from the session menu shows it as the chat.
+
 ### Assistant personas
 
 Tag a context entry with **`persona`** to make it a swappable assistant persona. On the Assistant tab, persona entries appear as chips above the chat; picking one starts a fresh chat with that entry as the assistant's system prompt. **Default** returns to the built-in persona. Swapping resets the assistant's context window.
@@ -393,7 +399,7 @@ The ledger is saved **in the team directory**, committed with your stories and c
 
 Visit `/config`:
 
-- **General** — the **Work items** toggles, port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
+- **General** — the **Work items** toggles, the **Assistant** style (see below), port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
 - **Workflows** — your story workflows and their state personas (see [Workflows](#workflows)); hidden while Stories are off
 - **Context** — the context library (see [Context Library](#context-library))

@@ -235,6 +235,12 @@ most of it is editable on the **Config** page. Minimal:
   // General or by starring a directory in any picker (/api/directories/favorites).
   "favoriteDirectories": ["/path/to/project"],
 
+  // ─── Assistant ─────────────────────────────────────────────────
+  // How you talk to the assistant: "chat" (default, iMessage-style bubbles) or
+  // "terminal" (the same transcript view as watching/pairing with a teammate).
+  // Config → General; applies live from the assistant's next reply.
+  "assistant": { "chatMode": "chat" },
+
   // ─── Work distribution ─────────────────────────────────────────
   // One teammate per directory (default true): overlapping work waits its turn.
   "exclusiveDirectories": true,
