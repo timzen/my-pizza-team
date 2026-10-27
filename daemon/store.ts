@@ -86,8 +86,9 @@ import {
 import { isValidCron } from "./cron.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import { type RegisterSourceOptions, type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
-import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource } from "./sources/types.ts";
-import { mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
+import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource, WorkSourceMode } from "./sources/types.ts";
+import { mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
+import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
 import { DEFAULT_SYNC_EVERY_MS, SyncRunner } from "./sources/sync.ts";
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
 import { runSolitary, taskSource } from "./sources/task.ts";
@@ -264,6 +265,31 @@ export type ProposalResult =
   | { ok: true; decision: TriageDecision }
   | { ok: false; code: "not-found" | "conflict"; error: string };
 
+/** Options for accepting a proposal (`Store.acceptProposal` / `acceptProposalOn`). */
+export interface AcceptProposalOptions {
+  from?: string;
+  /** Record work the author already created through the normal form (the "Edit" path). */
+  existingWorkDefId?: string;
+  /** The "Edit" path's changes, applied over the proposal. */
+  overrides?: TriageProposalOverrides;
+}
+
+/** The fields the "Edit" path may change before accepting. */
+export type TriageProposalOverrides = Partial<
+  Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">
+>;
+
+/** A triage subject's whole triage state (`Store.getTriageThread` / `getTriageThreadForWorkDef`). */
+export interface TriageThread {
+  workDefId: string;
+  exists: boolean;
+  entries: ThreadEntry[];
+  proposals: TriageProposalState[];
+  pending: TriageProposalState[];
+  badge: TriageBadge;
+  latestOutcome: TriageOutcome | null;
+}
+
 export class Store {
   private db: DatabaseSync;
   private teamDir: string;
@@ -350,6 +376,20 @@ export class Store {
   });
 
   /**
+   * Triage mode for external sources (docs/DESIGN.md "External sources" —
+   * "Triage mode"): the title, directory, prompt, and Run of a triage-mode
+   * mirror, which the daemon owns in place of the source's hooks.
+   */
+  private externalTriage = new ExternalTriage({
+    leaderDirectory: () => this.getLeader()?.directory,
+    getTriageInstructions: () => this.getTriageInstructions(),
+    getOpenStories: () => this.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
+    getComments: (workDefId) => this.getCommentsForRef({ workDefId }),
+    decisionSummary: (workDefId) => this.triageDecisionSummaryForWorkDef(workDefId),
+    sourceLabel: (sourceId) => this.sources.get(sourceId)?.source.label ?? sourceId,
+  });
+
+  /**
    * The built-in Story (board) source, kept by reference because the Store's
    * board methods (move, admission, position changes) delegate to its policy.
    * Story persistence stays here; these deps are how the source reaches it.
@@ -422,10 +462,25 @@ export class Store {
       hasActiveItem,
       enqueue,
       enqueueRevision: (defId, revision, opts) => enqueueRevision({ hasActiveItem, enqueue }, defaultCursor, defId, revision, opts),
-      upsertDef: (def) => upsertMirror(this.teamDir, sourceId, kv, def)?.def ?? null,
+      upsertDef: (def) => upsertMirror(this.teamDir, sourceId, kv, def, this.sourceMode(sourceId))?.def ?? null,
       kv,
       readiness: { canEnqueueNow: () => this.canScheduleNow() },
     };
+  }
+
+  /** A registered source's declared `mode` (undefined = "work"). */
+  private sourceMode(sourceId: string): WorkSourceMode | undefined {
+    return this.sources.get(sourceId)?.source.mode;
+  }
+
+  /**
+   * Is this a mirrored WorkDef in **triage mode** (its recorded mode, from the
+   * last sync — docs/DESIGN.md "External sources" — "Triage mode")? Read from
+   * the source's kv on disk, so it answers across restarts and even when the
+   * source isn't registered any more.
+   */
+  isTriageModeMirror(def: Pick<WorkDef, "id" | "parent">): boolean {
+    return def.parent?.kind === "external" && isTriageModeMirror(def, fileSourceKv(this.teamDir, sourceIdForWorkDef(def)));
   }
 
   /**
@@ -505,10 +560,14 @@ export class Store {
    * read straight from disk, so it answers even if the source isn't registered
    * any more: the revision last mirrored, and whether sync archived it for vanishing.
    */
-  getMirrorState(def: WorkDef): { revision?: string; vanished: boolean } {
-    if (def.parent?.kind !== "external") return { vanished: false };
+  getMirrorState(def: WorkDef): { revision?: string; vanished: boolean; mode: WorkSourceMode } {
+    if (def.parent?.kind !== "external") return { vanished: false, mode: "work" };
     const kv = fileSourceKv(this.teamDir, sourceIdForWorkDef(def));
-    return { revision: kv.get(mirrorRevisionKey(def.id)), vanished: kv.get(vanishedKey(def.id)) !== undefined };
+    return {
+      revision: kv.get(mirrorRevisionKey(def.id)),
+      vanished: kv.get(vanishedKey(def.id)) !== undefined,
+      mode: mirrorMode(kv, def.id),
+    };
   }
 
   /** The newest WorkItem's state for a WorkDef (CANCELED included), or null if it never had one. */
@@ -534,7 +593,9 @@ export class Store {
     const out: SyncOutcome = { ok: true, mirrored: [], enqueued: [], archived: [], held: [] };
     const seen = new Set<string>();
     for (const ext of defs) {
-      const res = upsertMirror(this.teamDir, source.id, ctx.kv, ext);
+      // The item's mode (its own, else the source's) is recorded with the mirror;
+      // a triage-mode item is enqueued exactly the same way — once per revision.
+      const res = upsertMirror(this.teamDir, source.id, ctx.kv, ext, source.mode);
       if (!res) {
         ctx.log(`skipped an invalid item from sync: ${JSON.stringify(ext)?.slice(0, 200)}`);
         continue;
@@ -1520,8 +1581,9 @@ export class Store {
     let title = def.title;
     // A registered source may override where/what the item is (hook: resolveItem;
     // e.g. a triage item takes the note's title and the leader's directory).
+    // A triage-mode mirror's title/directory are the daemon's (external-triage.ts).
     const src = this.sources.forWorkDef(def);
-    const resolved = src?.source.resolveItem?.(def, src.ctx);
+    const resolved = this.isTriageModeMirror(def) ? this.externalTriage.resolveItem(def) : src?.source.resolveItem?.(def, src.ctx);
     if (resolved?.title !== undefined) title = resolved.title;
     if (resolved?.directory !== undefined) directory = resolved.directory;
     const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
@@ -2469,32 +2531,52 @@ export class Store {
   }
 
   /**
+   * What a WorkDef is the triage *subject* of, or null when it isn't one: a
+   * note's triage container (`parent.kind: "thought"`), or a triage-mode
+   * mirrored WorkDef (docs/DESIGN.md "External sources" — "Triage mode"). Its
+   * thread holds the analyses, proposals, and decisions either way.
+   */
+  triageSubjectOf(workDefId: string): { kind: "thought"; thoughtId: string } | { kind: "mirror" } | null {
+    const def = this.getWorkDef(workDefId);
+    if (!def) return null;
+    if (def.parent?.kind === "thought") return { kind: "thought", thoughtId: def.parent.id };
+    return this.isTriageModeMirror(def) ? { kind: "mirror" } : null;
+  }
+
+  /**
    * Post one analysis (a teammate's reply to a triage run): its prose plus the
    * structured outcome and any proposals. Validated here, so a bad proposal is a
    * fixable error the agent sees instead of a broken thread line.
    */
   addTriageAnalysis(thoughtId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]):
     { ok: true } | { ok: false; error: string } {
-    const ref = { workDefId: triageWorkDefId(thoughtId) };
-    if (!this.getWorkDef(ref.workDefId)) return { ok: false, error: `No triage thread for note "${thoughtId}"` };
+    const workDefId = triageWorkDefId(thoughtId);
+    if (!this.getWorkDef(workDefId)) return { ok: false, error: `No triage thread for note "${thoughtId}"` };
+    return this.addTriageAnalysisForWorkDef(workDefId, from, body, outcome, proposals);
+  }
+
+  /**
+   * Post one analysis on any triage subject's thread (a note's container or a
+   * triage-mode mirror) — the `propose_work` route. Same validation and the
+   * same structured comment as a note's.
+   */
+  addTriageAnalysisForWorkDef(workDefId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]):
+    { ok: true } | { ok: false; error: string } {
+    if (!this.triageSubjectOf(workDefId)) return { ok: false, error: `WorkDef "${workDefId}" isn't a triage subject` };
     const invalid = validateAnalysis({ outcome, proposals }, { storyExists: (id) => this.getStory(id) !== null });
     if (invalid) return { ok: false, error: invalid };
     const entry: Comment = { from, body, at: new Date().toISOString(), outcome };
     if (outcome === "proposals" && proposals) entry.proposals = proposals;
-    return this.appendThreadEntry(ref, entry) ? { ok: true } : { ok: false, error: "Could not write the thread" };
+    return this.appendThreadEntry({ workDefId }, entry) ? { ok: true } : { ok: false, error: "Could not write the thread" };
   }
 
   /** A note's whole triage state: the thread, its proposals with decisions, the badge. */
-  getTriageThread(thoughtId: string): {
-    workDefId: string;
-    exists: boolean;
-    entries: ThreadEntry[];
-    proposals: TriageProposalState[];
-    pending: TriageProposalState[];
-    badge: TriageBadge;
-    latestOutcome: TriageOutcome | null;
-  } {
-    const workDefId = triageWorkDefId(thoughtId);
+  getTriageThread(thoughtId: string): TriageThread {
+    return this.getTriageThreadForWorkDef(triageWorkDefId(thoughtId));
+  }
+
+  /** Any triage subject's whole triage state, by its WorkDef id (`exists` false when there's no such def). */
+  getTriageThreadForWorkDef(workDefId: string): TriageThread {
     const exists = this.getWorkDef(workDefId) !== null;
     const entries = exists ? this.getThreadEntries({ workDefId }) : [];
     return {
@@ -2520,7 +2602,7 @@ export class Store {
   }
 
   /**
-   * Accept a proposal: create the work it describes and append the decision.
+   * Accept a proposal on a note: create the work it describes and append the decision.
    *
    * **Accepting creates; it never starts anything itself.** What happens next is
    * whatever that kind of work does when you create it by hand: a `task` waits for
@@ -2533,32 +2615,41 @@ export class Store {
    * the normal create form (the "Edit" path), instead of creating it here.
    * `overrides` lets that form's edits land without re-authoring the proposal.
    */
-  acceptProposal(thoughtId: string, proposalId: string, opts: {
-    from?: string;
-    existingWorkDefId?: string;
-    overrides?: Partial<Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">>;
-  } = {}): ProposalResult {
-    const found = this.findProposal(thoughtId, proposalId);
+  acceptProposal(thoughtId: string, proposalId: string, opts: AcceptProposalOptions = {}): ProposalResult {
+    if (!this.getThought(thoughtId)) return { ok: false, code: "not-found", error: `Thought "${thoughtId}" not found` };
+    return this.acceptProposalOn(triageWorkDefId(thoughtId), proposalId, opts, `note ${thoughtId}`);
+  }
+
+  /**
+   * Accept a proposal on any triage subject (a note's container or a triage-mode
+   * mirror), by its WorkDef id — same rules as `acceptProposal`. The created
+   * work's `origin` names the subject: `{ thought }` for a note, `{ workDef }`
+   * for a mirror.
+   */
+  acceptProposalOn(workDefId: string, proposalId: string, opts: AcceptProposalOptions = {}, where = workDefId): ProposalResult {
+    const found = this.findProposal(workDefId, proposalId, where);
     if (!found.ok) return found;
-    const { state } = found;
+    const { state, subject } = found;
     if (state.decision) {
       return { ok: false, code: "conflict", error: `Proposal "${proposalId}" was already ${state.decision.action}` };
     }
 
     const p = { ...state.proposal, ...opts.overrides };
     const from = opts.from || "you";
-    const origin = { thought: thoughtId, proposal: proposalId };
-    let workDefId: string | undefined = opts.existingWorkDefId;
+    const origin: WorkDefOrigin = subject.kind === "thought"
+      ? { thought: subject.thoughtId, proposal: proposalId }
+      : { workDef: workDefId, proposal: proposalId };
+    let createdId: string | undefined = opts.existingWorkDefId;
     let storyId: string | undefined;
 
-    if (!workDefId) {
+    if (!createdId) {
       switch (p.kind) {
         case "task": {
           const def = this.createWorkDef({
             title: p.title, goal: p.goal ?? "", acceptanceCriteria: p.acceptanceCriteria ?? "",
             additionalContext: p.additionalContext, directory: p.directory, origin,
           }, false); // no WorkItem: a Solitary task waits for the author to press Run
-          workDefId = def.id;
+          createdId = def.id;
           break;
         }
         case "story-task": {
@@ -2569,7 +2660,7 @@ export class Store {
           // same as adding a task to that story by hand.
           const task = this.addTask(p.storyId, { title: p.title, description: p.goal ?? "" });
           if (!task) return { ok: false, code: "conflict", error: "Could not add the task to that story" };
-          workDefId = task.id;
+          createdId = task.id;
           storyId = p.storyId;
           updateWorkDef(this.teamDir, task.id, { origin });
           break;
@@ -2593,7 +2684,7 @@ export class Store {
             additionalContext: p.additionalContext, directory: p.directory,
             parent: { kind: "schedule", id: schedule.id }, origin,
           }, false); // the cron enqueues it, not us
-          workDefId = def.id;
+          createdId = def.id;
           break;
         }
       }
@@ -2601,16 +2692,22 @@ export class Store {
 
     const decision: TriageDecision = {
       kind: "decision", proposalId, action: "accepted", from, at: new Date().toISOString(),
-      ...(workDefId ? { workDefId } : {}),
+      ...(createdId ? { workDefId: createdId } : {}),
       ...(storyId ? { storyId } : {}),
     };
-    this.appendThreadEntry({ workDefId: triageWorkDefId(thoughtId) }, decision);
+    this.appendThreadEntry({ workDefId }, decision);
     return { ok: true, decision };
   }
 
-  /** Reject a proposal: one appended line, no reason. Not a turn. */
+  /** Reject a proposal on a note: one appended line, no reason. Not a turn. */
   rejectProposal(thoughtId: string, proposalId: string, from = "you"): ProposalResult {
-    const found = this.findProposal(thoughtId, proposalId);
+    if (!this.getThought(thoughtId)) return { ok: false, code: "not-found", error: `Thought "${thoughtId}" not found` };
+    return this.rejectProposalOn(triageWorkDefId(thoughtId), proposalId, from, `note ${thoughtId}`);
+  }
+
+  /** Reject a proposal on any triage subject, by its WorkDef id. Not a turn. */
+  rejectProposalOn(workDefId: string, proposalId: string, from = "you", where = workDefId): ProposalResult {
+    const found = this.findProposal(workDefId, proposalId, where);
     if (!found.ok) return found;
     if (found.state.decision) {
       return { ok: false, code: "conflict", error: `Proposal "${proposalId}" was already ${found.state.decision.action}` };
@@ -2618,22 +2715,22 @@ export class Store {
     const decision: TriageDecision = {
       kind: "decision", proposalId, action: "rejected", from, at: new Date().toISOString(),
     };
-    this.appendThreadEntry({ workDefId: triageWorkDefId(thoughtId) }, decision);
+    this.appendThreadEntry({ workDefId }, decision);
     return { ok: true, decision };
   }
 
-  /** Locate one proposal in a note's thread. */
-  private findProposal(thoughtId: string, proposalId: string):
-    { ok: true; state: TriageProposalState } | { ok: false; code: "not-found"; error: string } {
-    if (!this.getThought(thoughtId)) {
-      return { ok: false, code: "not-found", error: `Thought "${thoughtId}" not found` };
-    }
-    const thread = this.getTriageThread(thoughtId);
+  /** Locate one proposal in a triage subject's thread (`where` names it in the error). */
+  private findProposal(workDefId: string, proposalId: string, where: string):
+    | { ok: true; state: TriageProposalState; subject: NonNullable<ReturnType<Store["triageSubjectOf"]>> }
+    | { ok: false; code: "not-found"; error: string } {
+    const subject = this.triageSubjectOf(workDefId);
+    if (!subject) return { ok: false, code: "not-found", error: `WorkDef "${workDefId}" isn't a triage subject` };
+    const thread = this.getTriageThreadForWorkDef(workDefId);
     // Latest wins if an id was reused across analyses (foldProposals keeps order).
     const state = [...thread.proposals].reverse().find((s) => s.proposal.id === proposalId);
     return state
-      ? { ok: true, state }
-      : { ok: false, code: "not-found", error: `No proposal "${proposalId}" on note ${thoughtId}` };
+      ? { ok: true, state, subject }
+      : { ok: false, code: "not-found", error: `No proposal "${proposalId}" on ${where}` };
   }
 
   /** A free story id derived from a title (stories are keyed by a human-ish slug). */
@@ -2648,6 +2745,11 @@ export class Store {
   /** Earlier proposals and what the author decided, for the next run's prompt. */
   triageDecisionSummary(thoughtId: string): string[] {
     return decisionSummary(this.getTriageThread(thoughtId).entries);
+  }
+
+  /** The same, for any triage subject by its WorkDef id (a triage-mode mirror's prompt). */
+  triageDecisionSummaryForWorkDef(workDefId: string): string[] {
+    return decisionSummary(this.getTriageThreadForWorkDef(workDefId).entries);
   }
 
   commitToGit(message?: string): void {
@@ -3434,14 +3536,30 @@ export class Store {
   }
 
   /**
+   * The claim prompt for a WorkDef, given the daemon's kind-free `base`: its
+   * source's `buildPrompt` contribution (Story: persona + story; Thought: the
+   * triage prompt), or `base` without one. A triage-mode mirror gets the triage
+   * prompt instead of its source's (docs/DESIGN.md "External sources" — "Triage mode").
+   */
+  buildPromptFor(def: WorkDef, base: string): string {
+    if (this.isTriageModeMirror(def)) return this.externalTriage.buildPrompt(def);
+    const src = this.sources.forWorkDef(def);
+    return src?.source.buildPrompt ? src.source.buildPrompt(def, base, src.ctx) : base;
+  }
+
+  /**
    * **Run** a WorkDef (`POST /api/work-defs/:id/enqueue`): its source's `run`
-   * rule (Triage: Triage now), or the Solitary rule — refuse a pending or
+   * rule (Triage: Triage now; a triage-mode mirror: Triage now), or the Solitary rule — refuse a pending or
    * in-flight def, else enqueue — for a kind without one.
    */
   runWorkDef(id: string): RunResult {
     const def = this.getWorkDef(id);
     if (!def) return { ok: false, error: "Unknown WorkDef, or one is already in flight" };
     const src = this.sources.forWorkDef(def);
+    // A triage-mode mirror: Run = Triage now (force the current revision).
+    if (this.isTriageModeMirror(def)) {
+      return this.externalTriage.run(def, src?.ctx ?? this.makeSourceContext(sourceIdForWorkDef(def)));
+    }
     if (src?.source.run) return src.source.run(def, src.ctx);
     return runSolitary(def, src?.ctx ?? this.makeSourceContext(sourceIdForWorkDef(def)));
   }

@@ -57,7 +57,8 @@ export function serializeWorkDef(def: WorkDef): string {
   if (def.pending) fm.push(`pending: true`);
   // Where an accepted triage proposal turned into this work (structural, not authored).
   if (def.origin) {
-    fm.push(`originThought: ${quote(def.origin.thought)}`);
+    if (def.origin.thought) fm.push(`originThought: ${quote(def.origin.thought)}`);
+    if (def.origin.workDef) fm.push(`originWorkDef: ${quote(def.origin.workDef)}`);
     fm.push(`originProposal: ${quote(def.origin.proposal)}`);
   }
   fm.push("---");
@@ -116,11 +117,17 @@ function parseParent(fm: string): WorkDefParent | undefined {
   return undefined;
 }
 
-/** Read the triage origin from frontmatter (originThought + originProposal). */
+/**
+ * Read the triage origin from frontmatter: originProposal plus the subject —
+ * originThought (a note) or originWorkDef (a triage-mode mirrored WorkDef).
+ */
 function parseOrigin(fm: string): WorkDefOrigin | undefined {
   const thought = scalar(fm, "originThought");
+  const workDef = scalar(fm, "originWorkDef");
   const proposal = scalar(fm, "originProposal");
-  return thought && proposal ? { thought, proposal } : undefined;
+  if (!proposal) return undefined;
+  if (thought) return { thought, proposal };
+  return workDef ? { workDef, proposal } : undefined;
 }
 
 /** List all WorkDefs on disk, sorted by id. */

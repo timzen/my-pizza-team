@@ -22,6 +22,19 @@ import type { Comment, TeamConfig, WorkDef, WorkItem } from "../../shared/types.
 export const WORK_SOURCE_API_VERSION = 1;
 
 /**
+ * How an external source's items are handled (docs/DESIGN.md "External sources"
+ * — "Triage mode"):
+ *   - `"work"` (the default): a teammate works the mirrored item itself;
+ *   - `"triage"`: a teammate *triages* it — the same flow as a note's Auto
+ *     Triage — posting an analysis and proposals (`propose_work`) the author
+ *     accepts or rejects. Accepting creates real work; nothing runs the
+ *     external item itself.
+ * Set per source (`WorkSource.mode`) and/or per item (`ExternalDef.mode`, which
+ * wins). Added in apiVersion 1 as an optional field, so it isn't a breaking change.
+ */
+export type WorkSourceMode = "work" | "triage";
+
+/**
  * A WorkDef as an external (pull-only) source reports it from `sync` (or hands
  * to `ctx.upsertDef`). The daemon keeps a read-only local copy — a **mirrored
  * WorkDef** with id `mirroredWorkDefId(sourceId, externalId)` (daemon/sources/mirror.ts)
@@ -41,6 +54,13 @@ export interface ExternalDef {
   directory?: string;
   /** Link back to the item in the external system, for the UI. */
   url?: string;
+  /**
+   * This item's mode, overriding the source's `WorkSource.mode` (default
+   * "work"). A `"triage"` item gets a triage run per revision instead of a
+   * work run: its prompt is the team's `triage.md` plus this item's content,
+   * and the teammate answers with proposals.
+   */
+  mode?: WorkSourceMode;
 }
 
 /** What one sync pass did (`Store.syncWorkSource`), for logs and tests. */
@@ -222,6 +242,16 @@ export interface WorkSource {
   readonly apiVersion: 1;
   /** Display name ("Jira"), for the UI's tab and "Open in <label>" link. Default: the id. */
   readonly label?: string;
+  /**
+   * External sources: whether a teammate works this source's items (`"work"`,
+   * the default) or triages them into proposed work (`"triage"` — like a
+   * note's Auto Triage). An item's own `ExternalDef.mode` overrides it. In
+   * triage mode the daemon owns the item's title ("Triage: …"), directory (the
+   * mirror's, else the leader's), prompt (the triage prompt), and Run
+   * (Triage now); this source's `resolveItem`, `buildPrompt`, and `run` are
+   * not called for those items. Its other hooks (eligibility, write-back) are.
+   */
+  readonly mode?: WorkSourceMode;
   /** On/off switch (feature toggle). Absent = always on, not switchable. */
   readonly toggle?: SourceToggle;
   /** Called once when registered: read config, set up state. */

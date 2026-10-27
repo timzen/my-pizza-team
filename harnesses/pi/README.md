@@ -139,7 +139,7 @@ Tools are registered per-role (all proxy to the daemon API):
 ### Teammate Tools
 - **`upload_attachment`** — Upload a file to the current work item
 - **`fail`** — Give up on the current work item: posts a comment and marks the WorkItem `FAILED`, leaving the task stuck for a human to re-enqueue/move/edit
-- **`propose_work`** — Answer an auto-triage item: a written analysis plus an `outcome` (`proposals` | `nothing` | `question`) and any proposed `task` / `story-task` / `story` / `schedule`. Creates nothing — the author accepts, edits, or rejects each one (my-pizza-team docs/DESIGN.md "Auto Triage")
+- **`propose_work`** — Answer a triage item (a note's, or an external item in triage mode): a written analysis plus an `outcome` (`proposals` | `nothing` | `question`) and any proposed `task` / `story-task` / `story` / `schedule`. Creates nothing — the author accepts, edits, or rejects each one (my-pizza-team docs/DESIGN.md "Auto Triage")
 
 ### Leader Tools (the agent you chat with)
 

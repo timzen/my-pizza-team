@@ -498,6 +498,17 @@ The hooks, and what the daemon does with each, are documented on the
 `WorkSource` and `SourceContext` types themselves. `ctx.kv` keeps small strings
 (cursors, stamps) across restarts; `ctx.log` prefixes your output.
 
+**Triage mode.** If your items are requests to *think about* rather than work to
+do — a ticket queue, say — set `mode: "triage"` on the source (or `mode` on
+individual `ExternalDef`s; an item's own wins). Each new revision then gets a
+**triage** run, like a note's Auto Triage: a teammate reads the item (with the
+team's `triage.md`) and proposes tasks, stories, or schedules, which you accept
+or reject. Accepting creates the work without starting it;
+nothing runs the item itself. In this mode the daemon sets the item's title
+("Triage: …"), directory, prompt, and Run (Triage now), so your `resolveItem`,
+`buildPrompt`, and `run` aren't called for those items; write-back hooks still are.
+It's an optional field, so `apiVersion` stays 1.
+
 **3. Settings and secrets.** The `config` of the team's package entry —
 `{ "source": "npm:mpt-acme-tracker", "config": { "tokenEnv": "ACME_TOKEN" } }`
 in `config.json` `packages` — is the factory's `options` and the source's

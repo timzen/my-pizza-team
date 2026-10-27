@@ -289,12 +289,12 @@ the `"task"` source.
 | "once per revision" stamp (`triagedVersion`) | — | — | ✅ via `enqueueRevision` | — | `ctx.enqueueRevision` |
 | `isWorkItemEligible` | ✅ story active + ready, agent state | default | ✅ note active | ✅ `sources/task.ts` | `isEligible` |
 | `setWorkItemState` (advance + admission) | ✅ advance, new position returned | — | — (result is `propose_work`) | — | `onItemTerminal` |
-| claim prompt (`routes/agents.ts buildClaimPrompt`, `prompt.ts`) | ✅ story + persona framing | base | ✅ triage prompt | base | `buildPrompt` |
+| claim prompt (`routes/agents.ts buildClaimPrompt` → `Store.buildPromptFor`, `prompt.ts`) | ✅ story + persona framing | base | ✅ triage prompt | base | `buildPrompt` (a triage-mode external item: the daemon's triage prompt) |
 | assignment row at claim (`claimWorkItem`) | ✅ recorded | — | — | — | `onItemClaimed` (release on terminal/cancel/force-fail is the daemon's, unconditional) |
 | `activateWorkDef` | ✅ enqueue in an agent state, else admission | nothing (default) | nothing (default) | ✅ enqueue | `onActivate` |
 | Run (`POST /api/work-defs/:id/enqueue` → `Store.runWorkDef`) | default | default | ✅ Triage now | ✅ refuse pending/in-flight | `run` |
 | features (`featureForWorkDef`, `isWorkDefVisible`, `activeFeatureItems`) | ⏳ `workDefType` | ⏳ | ⏳ (always on) | ⏳ | — |
-| routes: `propose_work` (agents.ts), work-defs cron edit / triage-owned PUT·DELETE, `deleteSchedule` unparenting | — | ⏳ | ⏳ | — | — |
+| routes: `propose_work` (agents.ts — any triage subject: a note's container or a triage-mode mirror), work-defs cron edit / triage-owned PUT·DELETE, `deleteSchedule` unparenting | — | ⏳ | ⏳ | — | — |
 
 **The interface** (every hook optional; a missing hook means Solitary behavior):
 
@@ -305,6 +305,7 @@ interface WorkSource {
   tick?(ctx, now: Date): void;                // the daemon's timer (Schedule fires, Thought sweeps)
   tickEveryMs?(ctx): number | null;           // that timer's interval; default 30s, null = none
   label?: string;                             // display name ("Jira"); default the id
+  mode?: "work" | "triage";                   // external: work the items (default) or triage them
   sync?(ctx): Promise<ExternalDef[]>;         // pull-only external sources: every item it has now
   syncEveryMs?(ctx): number | null;           // that poll's interval; default 60s, null = on demand
   syncTimeoutMs?: number;                     // one sync's budget; default 30s
@@ -324,7 +325,7 @@ interface WorkSource {
 //   enqueueRevision(defId, revision, { force?, cursor? }), kv (sources/<id>.json),
 //   upsertDef(ExternalDef) → the read-only mirror, readiness.canEnqueueNow()
 // ExternalDef: { externalId, revision, title, goal, acceptanceCriteria?,
-//   additionalContext?, directory?, url? }
+//   additionalContext?, directory?, url?, mode? }
 ```
 
 Defaults for a missing hook are Solitary's (eligible, the def's own title and
@@ -429,6 +430,49 @@ tests or by `config.dev.fixtureSource` (development only). The contract:
   revision, latest WorkItem state, and run count. A mirror's detail is the
   ordinary WorkDef page with editing off and **Open in <source>**. No source,
   no tab.
+
+#### Triage mode: the mirror is the triage subject
+
+A source can mark its items **triage-only** — `mode: "triage"` on the
+`WorkSource`, or per item on its `ExternalDef` (the item's wins; default
+`"work"`). A triage-mode item isn't worked; a teammate *triages* it, exactly as
+Auto Triage does a note ("Auto Triage: a Note Is a Parent"): it posts an analysis
+with `propose_work`, and you accept or reject each proposal. Accepting creates
+the real work and never starts it; nothing ever runs the external item itself.
+The motivating case is a ticket queue (a resolver group's tickets) you want
+turned into proposed tasks rather than handed straight to a teammate.
+
+- **The read-only mirror is the subject.** No container is created: the
+  mirrored WorkDef's own thread (`comments.jsonl`) holds the analyses,
+  proposals, and appended decisions — the same structured-comment model, the
+  same fold. The created work's `origin` names the mirror (`{ workDef,
+  proposal }`, frontmatter `originWorkDef`), as a note's names the note.
+- **A new revision is the turn.** Enqueueing is unchanged — once per revision
+  from the sync loop, behind readiness — so an item is re-triaged when it
+  changes in the external system and never otherwise. **Run** on it is
+  **Triage now**: force a run of the revision currently mirrored (the only way
+  to retry a failed one).
+- **The daemon owns how it runs.** The mode is recorded with the mirror (kv
+  `mode:<defId>` in `sources/<id>.json`, refreshed on every sync — so it
+  survives a restart and a source can flip it without a new revision). For a
+  triage-mode mirror the daemon, not the source, decides the WorkItem title
+  ("Triage: <title>"), its directory (the mirror's, else the leader's — the
+  note rule), the prompt (`triage.md` / the default + the mirror's *current*
+  content, open stories, earlier analyses, and what you decided), and Run
+  (`daemon/sources/external-triage.ts`). The source's other hooks —
+  eligibility, write-back of comments and terminal states — still apply; the
+  analysis and decisions aren't comments, so nothing is written back about
+  proposals (write-back of proposals is out of scope).
+- **Decisions by WorkDef.** `propose_work` takes any triage subject's item
+  (a note's container or a triage-mode mirror) and still refuses any other; the
+  accept/reject routes for a mirror are `/api/work-defs/:id/triage/…`, sharing
+  the note routes' logic.
+
+*Why the mirror, not a container like a note's?* A note needs a container
+because a note isn't a WorkDef; a mirror already is one, with a thread, and its
+content is kept current by sync — which is exactly what the prompt should read.
+Adding the mode is additive (optional fields), so `WORK_SOURCE_API_VERSION`
+stays 1.
 
 *Why pull only, and a mirror:* the external system stays the source of truth
 for *what* the work is — two-way editing would need conflict resolution MPT has

@@ -422,6 +422,8 @@ export interface FixtureSourceConfig {
   label?: string;
   /** Sync interval in seconds (default 60). */
   intervalSeconds?: number;
+  /** "triage" puts the whole source in triage mode (docs/DESIGN.md "External sources"); default "work". */
+  mode?: "work" | "triage";
 }
 
 export interface WorkDef {
@@ -464,10 +466,16 @@ export interface WorkDef {
   url?: string;
 }
 
-/** The triage proposal a WorkDef was created from. */
+/**
+ * The triage proposal a WorkDef was created from. Exactly one of `thought` /
+ * `workDef` names the triage subject: a note, or a triage-mode mirrored WorkDef
+ * (docs/DESIGN.md "External sources" — "Triage mode").
+ */
 export interface WorkDefOrigin {
-  /** The note (`thoughts/<id>.md`). */
-  thought: string;
+  /** The note (`thoughts/<id>.md`), for a note's triage. */
+  thought?: string;
+  /** The triage-mode mirrored WorkDef, for an external item's triage. */
+  workDef?: string;
   /** The proposal's id within its analysis. */
   proposal: string;
 }

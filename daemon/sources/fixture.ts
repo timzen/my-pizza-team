@@ -13,6 +13,9 @@
  *     `directory`, `url` frontmatter, and `## Goal` / `## Acceptance Criteria` /
  *     `## Additional Context` sections (a file without frontmatter is all goal,
  *     titled by its stem).
+ *   - **Mode:** `mode: triage` (or `work`) in an item's frontmatter is its
+ *     `ExternalDef.mode`; the `mode` option is the source's `WorkSource.mode`
+ *     (triage mode — docs/DESIGN.md "External sources").
  *   - **Revision:** a SHA-256 of the file's content, so touching a file without
  *     changing it doesn't re-run it.
  *   - **Write-back:** every `onComment` / `onItemTerminal` call is recorded in
@@ -28,7 +31,7 @@ import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { Comment, WorkDef, WorkItem } from "../../shared/types.ts";
 import { parseWorkDef } from "../store/workdefs.ts";
-import type { ExternalDef, SourceContext, WorkSource } from "./types.ts";
+import type { ExternalDef, SourceContext, WorkSource, WorkSourceMode } from "./types.ts";
 
 /** The fixture source's default id and label. */
 export const FIXTURE_SOURCE_ID = "fixture";
@@ -49,6 +52,8 @@ export interface FixtureSourceOptions {
   /** Sync interval in ms (default 60s; null = on demand only, as tests want). */
   syncEveryMs?: number | null;
   syncTimeoutMs?: number;
+  /** The source's mode (`WorkSource.mode`; default "work"). */
+  mode?: WorkSourceMode;
 }
 
 /** SHA-256 of a string, hex. */
@@ -62,7 +67,10 @@ function parseItem(externalId: string, raw: string): Omit<ExternalDef, "revision
   const normalized = raw.replace(/\r\n/g, "\n");
   const parsed = parseWorkDef(externalId, normalized);
   if (!parsed) return { externalId, title: externalId, goal: normalized.trim() };
+  const frontmatter = normalized.match(/^---\n([\s\S]*?)\n---\n/)?.[1] ?? "";
+  const mode = frontmatter.match(/^mode:\s*"?(work|triage)"?\s*$/m)?.[1] as WorkSourceMode | undefined;
   return {
+    ...(mode ? { mode } : {}),
     externalId,
     title: parsed.title,
     goal: parsed.goal,
@@ -78,6 +86,7 @@ export class FixtureSource implements WorkSource {
   readonly label: string;
   readonly apiVersion = 1 as const;
   readonly syncTimeoutMs?: number;
+  readonly mode?: WorkSourceMode;
   /** Every write-back call, oldest first. */
   readonly writeBacks: FixtureWriteBack[] = [];
   private readonly everyMs: number | null;
@@ -90,6 +99,7 @@ export class FixtureSource implements WorkSource {
     this.label = opts.label ?? "Fixture";
     this.everyMs = opts.syncEveryMs === undefined ? 60_000 : opts.syncEveryMs;
     this.syncTimeoutMs = opts.syncTimeoutMs;
+    if (opts.mode) this.mode = opts.mode;
   }
 
   syncEveryMs(): number | null {

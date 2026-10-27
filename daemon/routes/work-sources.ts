@@ -7,7 +7,8 @@
  *                                       `plugins`: each plugin package's load status
  *                                       (daemon/plugins/loader.ts)
  *   GET  /api/work-sources/:id/defs   — its mirrored defs: title, external link,
- *                                       last revision, latest WorkItem state, run count
+ *                                       last revision, latest WorkItem state, run count,
+ *                                       mode ("triage" for a triage-mode item)
  *   POST /api/work-sources/:id/sync   — sync it now (ignores a failure backoff)
  *
  * A mirrored def's detail and thread are the ordinary `/api/work-defs/:id`
@@ -35,8 +36,8 @@ export function externalSourceViews(store: Store): ExternalSourceView[] {
 export function mirrorView(store: Store, def: WorkDef): MirrorView | undefined {
   if (def.parent?.kind !== "external") return undefined;
   const sourceId = sourceIdForWorkDef(def);
-  const { revision, vanished } = store.getMirrorState(def);
-  return { sourceId, sourceLabel: sourceLabel(store, sourceId), externalId: def.parent.id, url: def.url, revision, vanished };
+  const { revision, vanished, mode } = store.getMirrorState(def);
+  return { sourceId, sourceLabel: sourceLabel(store, sourceId), externalId: def.parent.id, url: def.url, revision, vanished, mode };
 }
 
 /**
@@ -63,9 +64,10 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
       .filter((d) => d.parent?.kind === "external" && sourceIdForWorkDef(d) === id)
       .map((d) => {
         const exec = stats.get(d.id) ?? { executionCount: 0, lastRunAt: null };
+        const mirror = store.getMirrorState(d);
         return {
           id: d.id, title: d.title, externalId: d.parent!.id, url: d.url,
-          revision: store.getMirrorState(d).revision,
+          revision: mirror.revision, mode: mirror.mode,
           status: d.status === "archived" ? "archived" : "active",
           latestState: store.getLatestWorkItemState(d.id),
           runCount: exec.executionCount, lastRunAt: exec.lastRunAt,

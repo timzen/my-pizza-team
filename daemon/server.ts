@@ -17,7 +17,9 @@
  *     comments), self-directives, leader directives, spawn requests
  *   - assistant: chat v2 — conversation, SSE stream, agent mirror surface,
  *     session lifecycle, and the persona
- *   - thoughts: Thoughts board CRUD, batch positions, and groups
+ *   - thoughts: Thoughts board CRUD, batch positions, and groups (+ a note's triage)
+ *   - triage: proposals on any triage subject by WorkDef id (a triage-mode
+ *     external item's accept/reject), and the handling the note routes share
  *   - context: the context library of reusable prompt/context entries
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  *   - pairing: pair with / message / release a teammate from the web UI
@@ -47,6 +49,7 @@ import { registerTranscriptRoutes } from "./routes/transcripts.ts";
 import { registerPairingRoutes } from "./routes/pairing.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
 import { registerWorkSourceRoutes } from "./routes/work-sources.ts";
+import { registerTriageRoutes } from "./routes/triage.ts";
 
 /** Build the Hono app with all API routes wired to the store */
 export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hono {
@@ -90,6 +93,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerWorkRoutes(ctx);
   registerWorkDefRoutes(ctx);
   registerWorkSourceRoutes(ctx);
+  registerTriageRoutes(ctx);
   registerScheduleRoutes(ctx);
   registerTemplateRoutes(ctx);
   registerAssistantRoutes(ctx);

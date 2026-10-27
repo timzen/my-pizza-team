@@ -83,7 +83,7 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
 /**
  * Register tools for the teammate role.
  * Includes file upload for attachments, the `fail` escape hatch, and `propose_work`
- * (the answer to an auto-triage item). "Giving up" is two primitives the agent
+ * (the answer to a triage item — a note or a triage-mode external item). "Giving up" is two primitives the agent
  * composes: post a comment, then set the WorkItem FAILED (the daemon bundles
  * nothing).
  */
@@ -98,12 +98,14 @@ export function registerTeammateTools(
   registerProposeWork(pi, client, getCurrentWorkItemId);
 }
 
-// ─── propose_work (the answer to an auto-triage item) ───────────
+// ─── propose_work (the answer to a triage item) ─────────────────
 
 /**
- * How a teammate answers a triage work item: its reading of the note plus the work
- * it proposes, structured so the author can accept one with a click (my-pizza-team
- * docs/DESIGN.md "Auto Triage"). The author decides — this creates nothing.
+ * How a teammate answers a triage work item: its reading of the subject — a note,
+ * or an item from an external source in triage mode — plus the work it proposes,
+ * structured so the author can accept one with a click (my-pizza-team
+ * docs/DESIGN.md "Auto Triage", "External sources" — "Triage mode"). The author
+ * decides — this creates nothing.
  */
 function registerProposeWork(
   pi: ExtensionAPI,
@@ -134,18 +136,18 @@ function registerProposeWork(
     name: "propose_work",
     label: "Propose Work",
     description:
-      "Answer an auto-triage work item: post your reading of the note plus any work you think should come out of it. " +
+      "Answer a triage work item: post your reading of the note (or external item) being triaged plus any work you think should come out of it. " +
       "Use it once per triage item, then end your turn. It creates nothing — the author accepts, edits, or rejects " +
       "each proposal. Only valid while holding a triage item (one whose prompt shows 'Your Role: Triage').",
     promptSnippet: "Answer a triage item with an analysis and proposed work",
     promptGuidelines: [
       "Prefer concrete proposals a teammate could pick up without asking questions.",
-      "outcome 'nothing' is a real answer for a reference note or a journal entry — don't invent work.",
+      "outcome 'nothing' is a real answer for a reference note, a journal entry, or an item that needs no work here — don't invent work.",
       "outcome 'question' when one missing fact blocks a useful proposal; ask it in the body.",
       "Never create stories/tasks/schedules yourself for a triage item; propose them here instead.",
     ],
     parameters: Type.Object({
-      body: Type.String({ description: "Your written analysis: what this note is, then your reasoning" }),
+      body: Type.String({ description: "Your written analysis: what this note (or item) is, then your reasoning" }),
       outcome: Type.Union([Type.Literal("proposals"), Type.Literal("nothing"), Type.Literal("question")], {
         description: "proposals = there's work; nothing = nothing to create; question = you need something first",
       }),

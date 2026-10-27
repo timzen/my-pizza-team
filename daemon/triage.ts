@@ -7,6 +7,11 @@
  *
  * The turn rule in one line: **you edit the note, the teammate comments.** A note
  * is due when its text has moved on since the version last handed to triage.
+ *
+ * The analysis/proposal/decision helpers below work on any triage *subject's*
+ * thread — a note's triage container, or a triage-mode mirrored WorkDef from an
+ * external source (docs/DESIGN.md "External sources" — "Triage mode"), whose turn
+ * is a new revision of the external item.
  */
 
 import {
@@ -18,6 +23,7 @@ import {
   type TriageOutcome,
   type TriageProposal,
   type TriageProposalState,
+  type WorkDef,
 } from "../shared/types.ts";
 import { isValidCron } from "./cron.ts";
 
@@ -53,6 +59,15 @@ export function noteFirstLine(content: string, max = 60): string {
 export function triageWorkItemTitle(note: Pick<Thought, "id" | "content">): string {
   const first = noteFirstLine(note.content);
   return first ? `Triage: ${first}` : `Triage note ${note.id}`;
+}
+
+/**
+ * The WorkItem title for a triage-mode mirrored WorkDef — "Triage: <its title>",
+ * like a note's, so the queue and Inbox say it's a triage run, not the work itself.
+ */
+export function mirrorTriageWorkItemTitle(def: Pick<WorkDef, "id" | "title">): string {
+  const first = noteFirstLine(def.title);
+  return first ? `Triage: ${first}` : `Triage ${def.id}`;
 }
 
 /** Why a note isn't due for triage, or null when it is. */

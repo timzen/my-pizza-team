@@ -12,13 +12,9 @@
  */
 
 import type { RouteContext } from "./types.ts";
-import { type ThoughtStatus, type TriageProposal, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
+import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
 import { DEFAULT_TRIAGE_INSTRUCTIONS } from "../prompt.ts";
-
-/** The fields the "Edit" path may change before accepting (mirrors Store.acceptProposal). */
-type TriageProposalOverrides = Partial<
-  Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">
->;
+import { proposalResponse, readAcceptOptions, readRejectFrom } from "./triage.ts";
 
 const COORD_LIMIT = 1e7;
 
@@ -177,25 +173,17 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // Accept a proposal: create the work and record the decision. Creates only —
   // nothing is enqueued. `workDefId` records work the author already created
   // through the normal form (the "Edit" path); `overrides` carries its edits.
+  // (The body/response handling is shared with the WorkDef-addressed routes in
+  // daemon/routes/triage.ts, which a triage-mode external item uses.)
   app.post("/api/thoughts/:id/proposals/:proposalId/accept", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
-      workDefId?: string; overrides?: Record<string, unknown>; from?: string;
-    };
-    const res = store.acceptProposal(c.req.param("id"), c.req.param("proposalId"), {
-      from: typeof body.from === "string" ? body.from : undefined,
-      existingWorkDefId: typeof body.workDefId === "string" ? body.workDefId : undefined,
-      overrides: body.overrides as TriageProposalOverrides | undefined,
-    });
-    if (!res.ok) return c.json({ success: false, error: res.error }, res.code === "not-found" ? 404 : 409);
-    return c.json({ success: true, decision: res.decision });
+    const res = store.acceptProposal(c.req.param("id"), c.req.param("proposalId"), await readAcceptOptions(c));
+    return proposalResponse(c, res);
   });
 
   // Reject a proposal: one appended line, no reason, not a turn.
   app.post("/api/thoughts/:id/proposals/:proposalId/reject", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { from?: string };
-    const res = store.rejectProposal(c.req.param("id"), c.req.param("proposalId"), body.from);
-    if (!res.ok) return c.json({ success: false, error: res.error }, res.code === "not-found" ? 404 : 409);
-    return c.json({ success: true, decision: res.decision });
+    const res = store.rejectProposal(c.req.param("id"), c.req.param("proposalId"), await readRejectFrom(c));
+    return proposalResponse(c, res);
   });
 
   // POST /api/thoughts/:id/triage — run triage on this note now, skipping the

@@ -73,6 +73,7 @@ export function registerDevSources(store: Store, config: TeamConfig, teamDir: st
       id: fixture.id,
       label: fixture.label,
       syncEveryMs: fixture.intervalSeconds ? fixture.intervalSeconds * 1000 : undefined,
+      mode: fixture.mode === "triage" ? "triage" : undefined,
     }));
   } catch (e) {
     // A bad dev config must not stop the daemon.

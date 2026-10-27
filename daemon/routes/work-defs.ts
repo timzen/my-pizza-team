@@ -35,7 +35,9 @@
  * pull only (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins"): its defs
  * are written by sync, so PUT and DELETE 409 with "change it in <source>", and a
  * create asking for `type: "External"` is refused. Its thread (comments,
- * attachments), Run, and archive/restore work as for any WorkDef.
+ * attachments), Run, and archive/restore work as for any WorkDef. On a
+ * triage-mode mirror Run is **Triage now** (Store.runWorkDef), and its proposals
+ * are decided through daemon/routes/triage.ts.
  */
 
 import * as fs from "node:fs";

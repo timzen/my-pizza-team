@@ -170,13 +170,19 @@ function workDefFeature(store: Store): FeatureResolver {
   };
 }
 
-/** Accepting a triage proposal creates work, so it needs that kind's source to be on. */
-function proposalFeature(store: Store): FeatureResolver {
+/**
+ * Accepting a triage proposal creates work, so it needs that kind's source to be
+ * on. `by` says what the route's `:id` names: a note, or a triage subject's
+ * WorkDef (`/api/work-defs/:id/triage/…` — a triage-mode mirror, say).
+ */
+function proposalFeature(store: Store, by: "thought" | "workDef"): FeatureResolver {
   return (c) => {
-    const thoughtId = c.req.param("id");
+    const id = c.req.param("id");
     const proposalId = c.req.param("proposalId");
-    if (!thoughtId || !proposalId || !store.getThought(thoughtId)) return null;
-    const state = [...store.getTriageThread(thoughtId).proposals].reverse().find((s) => s.proposal.id === proposalId);
+    if (!id || !proposalId) return null;
+    if (by === "thought" && !store.getThought(id)) return null;
+    const thread = by === "thought" ? store.getTriageThread(id) : store.getTriageThreadForWorkDef(id);
+    const state = [...thread.proposals].reverse().find((s) => s.proposal.id === proposalId);
     return state ? featureForSource(store, sourceForProposalKind(state.proposal.kind)) : null;
   };
 }
@@ -205,7 +211,8 @@ export function registerFeatureGates(ctx: RouteContext): void {
     if (toggle.routes?.length) gate(toggle.routes, toggle.feature);
   }
   gate(["/api/work-defs", "/api/work-defs/*"], workDefFeature(store));
-  gate(["/api/thoughts/:id/proposals/:proposalId/accept"], proposalFeature(store));
+  gate(["/api/thoughts/:id/proposals/:proposalId/accept"], proposalFeature(store, "thought"));
+  gate(["/api/work-defs/:id/triage/proposals/:proposalId/accept"], proposalFeature(store, "workDef"));
 }
 
 // ─── Turning a feature off ──────────────────────────────────────────

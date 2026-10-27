@@ -230,7 +230,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // The structured half of a triage analysis: prose plus an outcome plus the work
   // it proposes (docs/DESIGN.md "Auto Triage"). Only the agent holding the triage
   // item may post, and a bad proposal comes back as a fixable error rather than a
-  // broken thread line.
+  // broken thread line. The subject is a note or a triage-mode external item.
 
   app.post("/api/agents/work-items/:workItemId/proposals", async (c) => {
     const workItemId = c.req.param("workItemId");
@@ -247,20 +247,26 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     if (item.memberId && item.memberId !== body.agentId) {
       return c.json({ success: false, error: "WorkItem not held by this agent" }, 403);
     }
-    const parent = store.getWorkDef(item.ref.workDefId)?.parent;
-    if (parent?.kind !== "thought") {
-      return c.json({ success: false, error: "propose_work is only for a triage work item (one whose parent is a note)" }, 400);
+    // The triage subject is the item's WorkDef: a note's triage container, or a
+    // triage-mode mirror of an external item (docs/DESIGN.md "External sources").
+    const workDefId = item.ref.workDefId;
+    const subject = store.triageSubjectOf(workDefId);
+    if (!subject) {
+      return c.json({
+        success: false,
+        error: "propose_work is only for a triage work item (a note's triage, or an item from an external source in triage mode)",
+      }, 400);
     }
 
-    const res = store.addTriageAnalysis(
-      parent.id,
+    const res = store.addTriageAnalysisForWorkDef(
+      workDefId,
       body.agentId,
       body.body,
       body.outcome as TriageOutcome,
       body.proposals as TriageProposal[] | undefined,
     );
     if (!res.ok) return c.json({ success: false, error: res.error }, 400);
-    return c.json({ success: true, thoughtId: parent.id });
+    return c.json({ success: true, workDefId, ...(subject.kind === "thought" ? { thoughtId: subject.thoughtId } : {}) });
   });
 
   // ─── Attachments (resolved to the backing ref) ─────────────────────
@@ -426,14 +432,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 /**
  * Assemble the canonical claim prompt for a WorkItem's ref: the daemon's base
  * prompt, then the owning Work Source's `buildPrompt` contribution, if it has
- * one (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins").
+ * one (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins"); a triage-mode
+ * external item gets the triage prompt instead.
  */
 function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): string {
   const def = store.getWorkDef(ref.workDefId);
   if (!def) return "";
-  const base = buildBasePrompt(store, ref, def);
-  const src = store.getWorkSourceFor(def);
-  return src?.source.buildPrompt ? src.source.buildPrompt(def, base, src.ctx) : base;
+  // Store.buildPromptFor: the source's hook, or — for a triage-mode mirror — the triage prompt.
+  return store.buildPromptFor(def, buildBasePrompt(store, ref, def));
 }
 
 /**

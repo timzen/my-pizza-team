@@ -423,6 +423,12 @@ export interface MirrorView {
   revision?: string;
   /** True once sync stopped reporting it (it was archived for that). */
   vanished: boolean;
+  /**
+   * "triage" when the item is in triage mode (its own or its source's
+   * `mode`): a teammate triages it into proposals rather than working it —
+   * see `GET /api/work-defs/:id/triage`. Default "work".
+   */
+  mode: "work" | "triage";
 }
 
 /** One registered external (pull-only) Work Source (`/api/status` `externalSources`). */
@@ -467,6 +473,8 @@ export interface MirroredDefRow {
   /** WorkItems created, CANCELED excluded (as `executionCount`). */
   runCount: number;
   lastRunAt: string | null;
+  /** "triage" for an item in triage mode (MirrorView.mode). */
+  mode: "work" | "triage";
 }
 
 // GET /api/work-sources/:id/defs

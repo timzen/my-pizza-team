@@ -15,7 +15,9 @@
  * values, never a stale bundled copy.
  *
  * Keep this list deliberate: whatever is exported here is API. Breaking a type
- * means bumping `WORK_SOURCE_API_VERSION`.
+ * means bumping `WORK_SOURCE_API_VERSION`. Additive changes — a new optional
+ * field or type, like `WorkSource.mode` / `ExternalDef.mode` (`WorkSourceMode`,
+ * triage mode) — are not breaking, so the version stays 1.
  */
 
 export { WORK_SOURCE_API_VERSION } from "../daemon/sources/types.ts";
@@ -32,6 +34,7 @@ export type {
   SourceKv,
   SourceToggle,
   WorkSource,
+  WorkSourceMode,
 } from "../daemon/sources/types.ts";
 
 export type { PluginFactory, PluginFactoryContext } from "../daemon/plugins/loader.ts";

@@ -18,6 +18,8 @@
  * `buildTriagePrompt` is the auto-triage variant (TODO.md "Auto Triage"): a
  * Thought-parented WorkDef carries no authored goal, so its prompt is assembled
  * from the team's `triage.md` plus the note's *current* text.
+ * `buildExternalTriagePrompt` is the same prompt with a triage-mode external
+ * item as its subject (docs/DESIGN.md "External sources" — "Triage mode").
  */
 
 import type { WorkDef } from "../shared/types.ts";
@@ -171,16 +173,13 @@ Do not edit the note, and do not create stories, tasks, or schedules yourself �
 author decides. Keep your analysis short: what you think this note is, then your
 proposals.`;
 
-export interface TriagePromptInput {
-  /** The note, as it reads right now. */
-  note: { id: string; content: string; updatedAt?: string };
-  /** The note's group name, if it's in one — light context, like a label. */
-  groupName?: string;
+/** What every triage prompt carries besides its subject. */
+interface TriagePromptCommon {
   /** The team's `triage.md`, or the built-in default when absent. */
   instructions?: string;
   /** Open stories (id + title), so a proposal can attach a task to one. */
   stories?: Array<{ id: string; title: string }>;
-  /** Earlier analyses of this note (its triage WorkDef's thread). */
+  /** Earlier analyses of this subject (its triage WorkDef's thread). */
   priorComments?: Array<{ from: string; body: string; at: string }>;
   /**
    * One line per earlier proposal and what the author did with it
@@ -189,19 +188,114 @@ export interface TriagePromptInput {
   priorDecisions?: string[];
 }
 
+export interface TriagePromptInput extends TriagePromptCommon {
+  /** The note, as it reads right now. */
+  note: { id: string; content: string; updatedAt?: string };
+  /** The note's group name, if it's in one — light context, like a label. */
+  groupName?: string;
+}
+
 /**
- * The prompt for one triage run. Deliberately *not* `buildWorkDefPrompt`: there's
- * no goal, no acceptance criteria, and the work is "read this and tell me", so
- * borrowing that shape would mean faking authored fields the WorkDef doesn't have.
+ * A triage-mode external item (docs/DESIGN.md "External sources" — "Triage
+ * mode"): its mirrored WorkDef's *current* content, which the source's sync keeps.
+ */
+export interface ExternalTriagePromptInput extends TriagePromptCommon {
+  item: {
+    /** The mirrored WorkDef's id. */
+    id: string;
+    /** The source's display name ("SIM-T"). */
+    sourceLabel: string;
+    /** The source's own id for the item. */
+    externalId: string;
+    title: string;
+    goal: string;
+    acceptanceCriteria?: string;
+    additionalContext?: string;
+    url?: string;
+  };
+}
+
+/**
+ * How the shared triage prompt names its subject. The note's wording is the
+ * original, so a note's prompt reads exactly as it always has.
+ */
+interface TriageSubject {
+  /** The `## …` heading over the subject's content. */
+  heading: string;
+  /** The subject's content, already rendered as markdown (may be empty). */
+  content: string;
+  /** Any framing between the instructions and the subject (external items only). */
+  preamble?: string;
+  /** "note" / "item" — in "Earlier Analysis of This …". */
+  noun: string;
+  /** Why there's a new round: the subject changed since the last analysis. */
+  changedSince: string;
+  /** "Don't repeat an idea … unless <this> changes it." */
+  edit: string;
+  /** "Don't re-propose something they rejected unless <this> changes it." */
+  changeName: string;
+  /** The last line's "don't change the …" clause. */
+  dontChange: string;
+}
+
+/**
+ * The prompt for one triage run of a note. Deliberately *not* `buildWorkDefPrompt`:
+ * there's no goal, no acceptance criteria, and the work is "read this and tell me",
+ * so borrowing that shape would mean faking authored fields the WorkDef doesn't have.
  */
 export function buildTriagePrompt(input: TriagePromptInput): string {
-  const { note, groupName, instructions, stories, priorComments, priorDecisions } = input;
+  const { note, groupName } = input;
+  return renderTriagePrompt({
+    heading: `The Note (\`${note.id}\`${groupName ? `, in group “${groupName}”` : ""})`,
+    content: note.content.trim(),
+    noun: "note",
+    changedSince: "You (or another teammate) already looked at this note; the author has since edited it. ",
+    edit: "the edit",
+    changeName: "the note's edit",
+    dontChange: "don't change the note — the author answers you by editing it.",
+  }, input);
+}
+
+/**
+ * The prompt for one triage run of a triage-mode external item: the same shape as
+ * a note's, with the item's current title, goal, criteria, context, and link as
+ * the subject. The item is read-only here (pull only), so its next round comes
+ * when it changes in the external system.
+ */
+export function buildExternalTriagePrompt(input: ExternalTriagePromptInput): string {
+  const { item } = input;
+  let content = `### ${item.title.trim()}\n\n`;
+  if (item.url) content += `Link: ${item.url}\n\n`;
+  if (item.goal.trim()) content += `${normalizeInstructionMarkdown(item.goal.trim(), 4)}\n\n`;
+  if (item.acceptanceCriteria?.trim()) {
+    content += `#### Acceptance Criteria\n\n${normalizeInstructionMarkdown(item.acceptanceCriteria.trim(), 5)}\n\n`;
+  }
+  if (item.additionalContext?.trim()) {
+    content += `#### Additional Context\n\n${normalizeInstructionMarkdown(item.additionalContext.trim(), 5)}\n\n`;
+  }
+  return renderTriagePrompt({
+    heading: `The Item (\`${item.externalId}\` from ${item.sourceLabel})`,
+    content: content.trim(),
+    preamble:
+      `This is an item from ${item.sourceLabel}, not a note: wherever the instructions above say "note", ` +
+      `read "this item". Don't work the item itself — triage it into proposed work.`,
+    noun: "item",
+    changedSince: `You (or another teammate) already looked at this item; it has since changed in ${item.sourceLabel}. `,
+    edit: "the update",
+    changeName: "the item's update",
+    dontChange: `don't change the item — it's read-only here; it changes in ${item.sourceLabel}, and each change is a new round.`,
+  }, input);
+}
+
+/** The shared body of every triage prompt (see `TriageSubject`). */
+function renderTriagePrompt(subject: TriageSubject, common: TriagePromptCommon): string {
+  const { instructions, stories, priorComments, priorDecisions } = common;
   let out = "## Your Role: Triage\n\n";
   out += `${normalizeInstructionMarkdown((instructions ?? DEFAULT_TRIAGE_INSTRUCTIONS).trim(), 3)}\n\n`;
+  if (subject.preamble) out += `${subject.preamble}\n\n`;
 
-  out += `## The Note (\`${note.id}\`${groupName ? `, in group “${groupName}”` : ""})\n\n`;
-  const content = note.content.trim();
-  out += content ? `${normalizeInstructionMarkdown(content, 3)}\n\n` : "_(empty)_\n\n";
+  out += `## ${subject.heading}\n\n`;
+  out += subject.content ? `${normalizeInstructionMarkdown(subject.content, 3)}\n\n` : "_(empty)_\n\n";
 
   // Open stories, so "add a task to story X" is a proposal it can actually make.
   if (stories && stories.length > 0) {
@@ -210,11 +304,12 @@ export function buildTriagePrompt(input: TriagePromptInput): string {
     out += "\n";
   }
 
-  // Earlier rounds: the note has been triaged before and then edited.
+  // Earlier rounds: the subject has been triaged before and then changed.
   if (priorComments && priorComments.length > 0) {
-    out += `## Earlier Analysis of This Note\n\n`;
-    out += `You (or another teammate) already looked at this note; the author has since edited it. `;
-    out += `Don't repeat an idea they've already seen unless the edit changes it.\n\n`;
+    const noun = subject.noun.charAt(0).toUpperCase() + subject.noun.slice(1);
+    out += `## Earlier Analysis of This ${noun}\n\n`;
+    out += subject.changedSince;
+    out += `Don't repeat an idea they've already seen unless ${subject.edit} changes it.\n\n`;
     for (const c of priorComments) out += `> **${c.from}** (${c.at}):\n>\n${c.body.split("\n").map((l) => `> ${l}`).join("\n")}\n\n`;
   }
 
@@ -222,13 +317,13 @@ export function buildTriagePrompt(input: TriagePromptInput): string {
   if (priorDecisions && priorDecisions.length > 0) {
     out += `## What the Author Did With Earlier Proposals\n\n`;
     for (const line of priorDecisions) out += `- ${line}\n`;
-    out += `\nDon't re-propose something they rejected unless the note's edit changes it.\n\n`;
+    out += `\nDon't re-propose something they rejected unless ${subject.changeName} changes it.\n\n`;
   }
 
   out += `## Finishing\n\n`;
   out += `Post your analysis with the \`propose_work\` tool — it takes your written analysis, an `;
   out += `\`outcome\` (\`proposals\`, \`nothing\`, or \`question\`), and the proposals themselves — then mark `;
   out += `this work item complete. Creating the work is the author's decision, not yours: propose it and stop. `;
-  out += `Don't pick up other work, and don't change the note — the author answers you by editing it.\n`;
+  out += `Don't pick up other work, and ${subject.dontChange}\n`;
   return out.trimEnd() + "\n";
 }
