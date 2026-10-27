@@ -328,7 +328,8 @@ export function evaluate(f: DoctorFacts): Check[] {
 /**
  * The plugin checks: one line when every package loaded, else a warning per
  * failed package (the daemon runs without it — a failing plugin is skipped,
- * never fatal). Nothing when the team declares no `packages`.
+ * never fatal), whose fix points at `mpt plugins doctor` for the details.
+ * Nothing when the team declares no `packages`.
  */
 export function pluginChecks(plugins: PluginLoadStatus[]): Check[] {
   if (plugins.length === 0) return [];
@@ -342,8 +343,8 @@ export function pluginChecks(plugins: PluginLoadStatus[]): Check[] {
     status: "warn" as const,
     detail: `failed to load: ${p.error ?? "unknown error"}`,
     fix: p.error?.includes("not installed")
-      ? `mpt plugins add ${p.spec} (or mpt plugins update), then restart the daemon`
-      : "fix the package or its entry in config.json packages, then restart the daemon (details: [plugins] in the daemon log)",
+      ? `mpt plugins add ${p.spec} (or mpt plugins update), then restart the daemon; run \`mpt plugins doctor\` for details`
+      : "fix the package or its entry in config.json packages, then restart the daemon; run `mpt plugins doctor` for details (or see [plugins] in the daemon log)",
   }));
 }
 

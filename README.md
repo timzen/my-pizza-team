@@ -83,6 +83,7 @@ mpt plugins add ./my-plugin                            # local: loads in place, 
 mpt plugins list                                       # kind, identity, ref, installed?, load status
 mpt plugins update [<spec|identity>]                   # re-fetch unpinned npm/git packages
 mpt plugins remove <spec|identity>                     # deletes the install (never a local path)
+mpt plugins doctor [<path|spec>] [--config '<json>']   # check it loads; with --config, a live init + sync
 ```
 
 npm and git packages are installed under `<teamDir>/packages/` (npm with

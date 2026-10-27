@@ -38,6 +38,7 @@ import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.t
 import type { PackageEntry } from "../shared/types.ts";
 import { npmPluginPrefix, packageInstallDir, readPluginManifest } from "../daemon/plugins/loader.ts";
 import { type GitPackageSpec, type NpmPackageSpec, type PackageSpec, parsePackageEntries } from "../daemon/plugins/spec.ts";
+import { DoctorUsageError, runPluginsDoctor } from "./plugins-doctor.ts";
 
 /** A child process's outcome. */
 export interface PluginRunResult {
@@ -72,6 +73,11 @@ const USAGE = `Usage:
   mpt plugins list                             Configured packages, install state, and load status
   mpt plugins remove <spec|identity>           Remove it from config.json and delete its install
   mpt plugins update [<spec|identity>]         Re-fetch unpinned npm/git packages (all, or one)
+  mpt plugins doctor [<path|spec|identity>]    Check packages load (all configured, or one, configured or not):
+                                               manifest, import, export, apiVersion, ids. No network, no init/sync.
+      [--config '<json>' | --config team]      …and run one package live on a throwaway context: the factory,
+                                               init, sync (twice), item checks. "team" = its config.json config
+      [--source <id>] [--hooks] [--json]       one source only; also call onComment/onItemTerminal; JSON output
 
 Specs: npm:<name>[@version], git:<host>/<path>[@ref], https://… or ssh://… git URLs [@ref],
 or a local path (absolute, ./, ../, ~/; relative paths resolve from the current directory).`;
@@ -91,6 +97,8 @@ export async function runPlugins(args: string[], d: PluginsDeps): Promise<number
         return cmdRemove(rest, d);
       case "update":
         return cmdUpdate(rest, d);
+      case "doctor":
+        return await runPluginsDoctor(rest, d);
       case undefined:
       case "help":
       case "--help":
@@ -103,7 +111,7 @@ export async function runPlugins(args: string[], d: PluginsDeps): Promise<number
         return 1;
     }
   } catch (e) {
-    if (e instanceof PluginsError) {
+    if (e instanceof PluginsError || e instanceof DoctorUsageError) {
       d.error(`❌ ${e.message}`);
       return 1;
     }

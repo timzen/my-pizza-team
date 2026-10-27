@@ -568,6 +568,49 @@ the service). A plugin that fails to load (no manifest, a throw, a wrong
 team carries on; `mpt plugins list` and `mpt doctor` show why. A plugin runs
 inside the daemon with its permissions, so only add ones you trust.
 
+### Testing your plugin
+
+Before a plugin goes into a real team, check it with `mpt plugins doctor`. It
+prints a ✓ / ⚠ / ✗ line per check, grouped by package and then by source, and
+exits non-zero if anything failed (`--json` gives the same report as JSON).
+
+```
+mpt plugins doctor                         # every package in config.json
+mpt plugins doctor ./mpt-acme-tracker      # one package: a path, a spec, or a configured identity —
+                                           # it doesn't have to be configured
+```
+
+On its own it is an **install check** — no network, no `init`, no `sync`, and a
+factory is *not* called. It checks that the spec parses and the package is there,
+that `package.json` has a valid `"mpt"` manifest, and that each source entry is
+inside the package and **imports the way the daemon imports it**
+(`my-pizza-team/plugin` resolving to this app). For an object export it also
+checks `apiVersion`, the id's format, and that no other package (or built-in)
+uses the id. A failed import says why and, for the usual causes, what to do: a
+native module built for another Node shows its `NODE_MODULE_VERSION` against this
+Node's and tells you to rebuild the package with this Node (`npm rebuild`).
+
+Add `--config` to also run the package **live**, once, on a throwaway context:
+
+```
+mpt plugins doctor ./mpt-acme-tracker --config '{"tokenEnv":"ACME_TOKEN"}'
+mpt plugins doctor npm:mpt-acme-tracker --config team      # use its config from config.json
+mpt plugins doctor ./mpt-acme-tracker --config '{}' --source acme --hooks
+```
+
+The factory is called with that config (frozen, as the daemon does), then each
+source's `init` and `sync` run against a scratch context: a temp directory as
+`teamDir`, an in-memory `kv`, `ctx.log` printed under the source, and queue calls
+(`enqueue`, `enqueueRevision`, `upsertDef`) recorded but not applied — **your
+team directory is never written**. Each item is listed (externalId, revision,
+mode, title, url, directory) and checked: required fields, duplicate
+externalIds, a mirror id the file system can hold. `sync` runs twice, and a
+revision that changes when the content didn't (or the reverse) is a warning.
+`--source <id>` runs just one source; `--hooks` also calls `onComment` and
+`onItemTerminal` (with a fake completed item) on the first item — that is a real
+write-back if your hooks do one, so point it at a test project. `--config` needs
+exactly one package: name it when the team has several.
+
 ---
 
 ## On Your Phone

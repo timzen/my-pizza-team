@@ -242,7 +242,7 @@ async function cmdUninstall(): Promise<void> {
 
 // --- Plugin packages (`mpt plugins`) ---
 
-/** `mpt plugins add|list|remove|update` — see cli/plugins.ts. */
+/** `mpt plugins add|list|remove|update|doctor` — see cli/plugins.ts and cli/plugins-doctor.ts. */
 async function cmdPlugins(args: string[]): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
@@ -257,7 +257,10 @@ async function cmdPlugins(args: string[]): Promise<void> {
     log: (l) => console.log(l),
     error: (l) => console.error(l),
   });
-  if (code !== 0) process.exit(code);
+  // A plugin the doctor ran may leave timers or sockets open: exit once stdout
+  // has flushed (a piped `--json` must arrive whole) rather than wait on them.
+  if (args[0] === "doctor") process.stdout.write("", () => process.exit(code));
+  else if (code !== 0) process.exit(code);
 }
 
 // --- Self-update (`mpt upgrade`) ---
@@ -297,7 +300,9 @@ Commands:
   rotate-token          Generate a new API token (saved to config.json)
   plugins <cmd>         Manage the team's plugin packages (config.json "packages"):
                         add <spec> [--config '<json>'], list, remove <spec|identity>,
-                        update [<spec|identity>]; restart the daemon afterwards
+                        update [<spec|identity>]; restart the daemon afterwards;
+                        doctor [<path|spec>] [--config '<json>'|team] checks a plugin
+                        (install check; with --config also a live init + sync)
   agent --harness <h>   Run a non-Pi teammate (kiro, claude) — experimental; the daemon starts these
   --version, --help
 

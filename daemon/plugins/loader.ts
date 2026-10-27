@@ -25,6 +25,10 @@
  * rejected registration — is logged with the `[plugins]` prefix and recorded
  * in that package's status, and the daemon and the other plugins carry on.
  * Loading runs once at startup; a change needs a restart (no hot reload).
+ *
+ * Steps 1–3 are exported one by one (`resolvePackageDir`, `readPluginManifest`,
+ * `resolveSourceEntry`, `importSourceEntry`, `instantiateSource`) so `mpt
+ * plugins doctor` (cli/plugins-doctor.ts) checks a package along exactly this path.
  */
 
 import * as fs from "node:fs";
@@ -162,12 +166,9 @@ async function loadPackage(host: PluginHost, { spec, config }: ParsedPackageEntr
   const status: PluginLoadStatus = { identity: spec.identity, spec: spec.raw, state: "loaded", sources: [] };
   const failed = (error: string): PluginLoadStatus => ({ ...status, state: "error", error });
 
-  const dir = packageInstallDir(spec, teamDir);
-  if (!fs.existsSync(dir)) {
-    return failed(spec.kind === "local"
-      ? `${dir} does not exist`
-      : `not installed (expected at ${dir}); run \`mpt plugins add ${spec.raw}\` or \`mpt plugins update\``);
-  }
+  const resolved = resolvePackageDir(spec, teamDir);
+  if ("error" in resolved) return failed(resolved.error);
+  const { dir } = resolved;
   const manifest = readPluginManifest(dir);
   if ("error" in manifest) return failed(manifest.error);
 
@@ -182,6 +183,21 @@ async function loadPackage(host: PluginHost, { spec, config }: ParsedPackageEntr
     }
   }
   return errors.length ? { ...status, state: "error", error: errors.join("; ") } : status;
+}
+
+/**
+ * Step 1 — where a package is, if it's there: its install dir (or local path),
+ * or why it can't be loaded (missing; not installed). Shared with `mpt plugins
+ * doctor` (cli/plugins-doctor.ts), which runs the same steps one by one.
+ */
+export function resolvePackageDir(spec: PackageSpec, teamDir: string): { dir: string } | { error: string } {
+  const dir = packageInstallDir(spec, teamDir);
+  if (fs.existsSync(dir)) return { dir };
+  return {
+    error: spec.kind === "local"
+      ? `${dir} does not exist`
+      : `not installed (expected at ${dir}); run \`mpt plugins add ${spec.raw}\` or \`mpt plugins update\``,
+  };
 }
 
 /**
@@ -208,22 +224,58 @@ export function readPluginManifest(dir: string): { sources: string[] } | { error
 }
 
 /**
- * Import one entry and turn its default export into a WorkSource. The entry
- * must stay inside the package (a manifest can't point the daemon at
- * arbitrary files). Throws with a readable message; the caller records it.
+ * Import one entry and turn its default export into a WorkSource: the steps
+ * below, in order. Throws with a readable message; the caller records it.
  */
 async function loadEntry(dir: string, entry: string, options: Record<string, unknown>, teamDir: string, timeoutMs: number): Promise<WorkSource> {
+  const file = resolveSourceEntry(dir, entry);
+  const exported = await importSourceEntry(file, timeoutMs);
+  return await instantiateSource(exported, options, { teamDir }, timeoutMs);
+}
+
+/**
+ * Step 3a — the absolute file of one `mpt.sources` entry. The entry must stay
+ * inside the package (a manifest can't point the daemon at arbitrary files)
+ * and exist. Throws why not.
+ */
+export function resolveSourceEntry(dir: string, entry: string): string {
   const file = path.resolve(dir, entry);
   const rel = path.relative(dir, file);
   if (rel.startsWith("..") || path.isAbsolute(rel)) throw new Error("the entry is outside the package");
   if (!fs.existsSync(file)) throw new Error(`${file} does not exist (is the package built?)`);
+  return file;
+}
 
+/**
+ * Step 3b — import an entry file (bounded by `timeoutMs`) and return its
+ * default export. Registers the host resolve hook first (idempotent), so
+ * `my-pizza-team/plugin` resolves to this host whoever calls it. Throws when
+ * the import fails or there is no default export.
+ */
+export async function importSourceEntry(file: string, timeoutMs: number = DEFAULT_PLUGIN_LOAD_TIMEOUT_MS): Promise<unknown> {
+  registerHostResolution();
   const mod = await withTimeout(import(pathToFileURL(file).href) as Promise<Record<string, unknown>>, timeoutMs, "import");
   const exported = mod.default;
   if (exported === undefined) throw new Error("no default export (expected a WorkSource or a factory returning one)");
-  const factoryContext: PluginFactoryContext = { teamDir };
-  const source = typeof exported === "function"
-    ? await withTimeout(Promise.resolve((exported as PluginFactory)(Object.freeze({ ...options }), factoryContext)), timeoutMs, "factory")
+  return exported;
+}
+
+/** Is a default export the factory form (`(options, { teamDir }) => WorkSource`) rather than a WorkSource? */
+export function isPluginFactory(exported: unknown): exported is PluginFactory {
+  return typeof exported === "function";
+}
+
+/**
+ * Step 3c — a default export as a WorkSource: a factory is called (bounded by
+ * `timeoutMs`) with a frozen copy of `options` and `context`; an object is
+ * used as is. Either way the result must look like a WorkSource (a string
+ * id). The registry checks the rest (apiVersion, duplicate id, id pattern).
+ */
+export async function instantiateSource(
+  exported: unknown, options: Record<string, unknown>, context: PluginFactoryContext, timeoutMs: number = DEFAULT_PLUGIN_LOAD_TIMEOUT_MS,
+): Promise<WorkSource> {
+  const source = isPluginFactory(exported)
+    ? await withTimeout(Promise.resolve(exported(Object.freeze({ ...options }), context)), timeoutMs, "factory")
     : exported;
   if (!isObject(source) || typeof source.id !== "string" || !source.id) {
     throw new Error("the default export is not a WorkSource (an object with a string id and apiVersion)");
@@ -232,7 +284,7 @@ async function loadEntry(dir: string, entry: string, options: Record<string, unk
 }
 
 /** Reject if `p` hasn't settled in `ms` (the work itself can't be cancelled; it's abandoned). */
-function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
+export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise<T> {
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {
     timer = setTimeout(() => reject(new Error(`${what} timed out after ${ms}ms`)), ms);
