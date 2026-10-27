@@ -601,6 +601,24 @@ reads; a demo team's `plugins.local.json` overlay is merged into it by the demo
 repo's setup script, so a UI save lasts until that team is reset — copy settings
 worth keeping back into the overlay.
 
+**The Sources tab: one place per source.** Config → Sources (the UI over these
+routes) is where a plugin is switched on/off, set up, previewed, and saved —
+and it's the *only* control for an external source's toggle: Config → General
+→ Work items keeps the built-in kinds and links there, rather than offering a
+second switch that could drift from the first. The two sit on different
+timescales, so they save differently: a source's on/off applies at once (like
+the disconnect it can turn into), sent as a `PUT /api/config` naming just that
+feature built from the daemon's *current* config, so a click doesn't also save
+another tab's unsaved draft; its settings have their own **Save** (`PUT
+/api/sources/:id/config`), never the page-wide one. The form is generated from
+the schema and is only a draft-shaper — an emptied input *unsets* the key
+(the default applies) rather than writing `""`, keys the schema doesn't name
+are kept as they are, and validity is the daemon's call (its field errors are
+shown inline). A schema outside the subset falls back to the JSON editor a
+schema-less source gets, rather than a half-right form. Preview always sends
+the *unsaved* draft — "what would these settings pull?" is the question you
+ask before saving.
+
 **Installing** is `mpt plugins add|list|remove|update` (cli/plugins.ts), the
 same split as pi's `pi install`: the CLI fetches and edits config.json, the
 daemon only loads. npm and git packages go under `<teamDir>/packages/`, installed
@@ -1036,8 +1054,10 @@ always on, so "everything off" is still a working team: notes in, triage out.
   /api/config` carries `featureSources` (each toggle's source, label, and
   whether it's external) next to `featureUsage`, so the Work items list is the
   built-ins under their own labels plus each plugin source under its `label`,
-  with no hard-coded names. A locked external source offers **Turn off and
-  archive N items** behind a confirm dialog. A switched-off source's Work tab
+  with no hard-coded names. External sources are switched on the **Sources**
+  tab instead (one control per source; see "Plugin settings: configSchema and
+  preview"), where switching off one still holding mirrors offers **Turn off
+  and archive N items** behind a confirm dialog. A switched-off source's Work tab
   hides and its page shows the "turned off" notice (`/api/status`
   `externalSources[].feature`).
 

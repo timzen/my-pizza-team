@@ -82,7 +82,7 @@ Workflows and the context library live under the **config** (gear) icon, as **Co
 
 The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
 
-**External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
+**External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has; **Configure** opens its settings on Config → Sources). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
 
 **Triage-mode sources.** Some sources (or some of their items) are **triage-only** — a ticket queue you'd rather *think about* than hand straight to a teammate. Such an item is marked **Triage** on its source's tab, and nothing ever works it directly: each new revision gets a **triage** run instead, exactly like a note's [auto triage](#thoughts). A teammate reads the item and the team's triage instructions and proposes tasks, story tasks, stories, or scheduled jobs. The row then wears the same badge a note gets (a lightbulb for proposals waiting, **?** for a question, **–** for nothing to create), the finished run lands in your **Inbox**, and both open the item's **Triage** tab: the item read-only (with **Open in <source>**), the latest analysis with **Accept / Edit / Reject** per proposal, and earlier rounds. Accepting creates the work and never starts it; the item itself stays where it is. Your turn is the item *in its source*: when it changes there, the next sync triages the new revision (your earlier decisions are passed along, so rejected ideas aren't re-offered). **Triage now** — the button that replaces Run on that page — forces a fresh run, e.g. after one failed. Proposals aren't written back to the external system; comments and run outcomes still are. (Plugin authors: see [Triage mode](#writing-a-work-source-plugin).)
 
@@ -403,12 +403,13 @@ Visit `/config`:
 
 - **General** — the **Work items** toggles, the **Assistant** style (see below), port, tmux session, team size (min/max teammates), default workflow, the **readiness probe**, **favorite directories**, autosave (flush/commit cadence, auto-commit)
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
+- **Sources** — your Work Source plugins: switch each on or off, edit its settings, **Preview** what it would pull, and **Save** (see [Setting up a plugin from the UI](#setting-up-a-plugin-from-the-ui))
 - **Workflows** — your story workflows and their state personas (see [Workflows](#workflows)); hidden while Stories are off
 - **Context** — the context library (see [Context Library](#context-library))
 - **Triage** — [auto triage](#thoughts): on/off, the sweep interval, the quiet period, and the instructions every run follows (`triage.md`, with its own **Save instructions** button)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
 
-Each tab has its own address (`/config/teammates`, `/config/workflows`, `/config/context`, `/config/triage`, `/config/theme`). **Save Configuration** appears on General, Teammates, and Triage — it saves the edits from all three at once. Workflows and Context save as you go, and Theme applies immediately.
+Each tab has its own address (`/config/teammates`, `/config/sources`, `/config/workflows`, `/config/context`, `/config/triage`, `/config/theme`). **Save Configuration** appears on General, Teammates, and Triage — it saves the edits from all three at once. Sources has its own Save per plugin, Workflows and Context save as you go, and Theme applies immediately.
 
 ### Work items (feature toggles)
 
@@ -426,7 +427,7 @@ When a kind is off:
 
 You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Pending stories and pending tasks count; archived ones don't. Turning a kind back on is always allowed.
 
-**External sources** (plugins like a tracker — see [Writing a Work Source plugin](#writing-a-work-source-plugin)) are listed here too, under their own names. Switching one off stops it syncing: nothing new is pulled or run from it, its Work tab disappears (a bookmark shows a "turned off" notice), and anything a teammate is already working on finishes. While it still has mirrored items, its toggle is locked like a kind's — but instead of archiving them yourself, use **Turn off and archive N items**: after you confirm, it switches the source off at once (no Save needed), archives its items (nothing is deleted; their threads stay), and cancels their queued runs. Turn it back on later and the next sync — which runs right away — brings back the items the source still has, without re-running ones already done.
+**External sources** (plugins like a tracker — see [Writing a Work Source plugin](#writing-a-work-source-plugin)) are switched on the **Sources** tab instead (Work items links there), where each one's switch applies at once — no Save needed. Switching one off stops it syncing: nothing new is pulled or run from it, its Work tab disappears (a bookmark shows a "turned off" notice), and anything a teammate is already working on finishes. While it still has mirrored items, switching it off asks first — **Turn off and archive N items**: after you confirm, it switches the source off at once, archives its items (nothing is deleted; their threads stay), and cancels their queued runs. Turn it back on later and the next sync — which runs right away — brings back the items the source still has, without re-running ones already done.
 
 ### Readiness probe
 
@@ -435,6 +436,45 @@ If your machine sometimes can't work (expired credentials, VPN down), set a **re
 ### Favorite directories
 
 Every directory field — New Story, a story's page, New Task, a WorkDef, a triage proposal's edit form, and **Spawn** — has a dropdown of suggestions: your **Favorites** first, then **Recent** directories (where teammates are working now, then recent work and story directories). Click the ☆ on any row to favorite it (★ to unfavorite), or the ☆ inside the field to favorite the path you typed. Manage the list under **Config → General → Favorite Directories**; changes save immediately (no Save button). Paths are stored resolved — `~` expanded and symlinks followed — so `~/repo` and its real path are the same favorite.
+
+### Setting up a plugin from the UI
+
+Once a plugin package is installed (`mpt plugins add …`, then restart the daemon —
+see [Writing a Work Source plugin](#writing-a-work-source-plugin), step 5), you can
+do the rest on **Config → Sources**:
+
+1. **Find it in the list.** Every plugin source is listed with its package, a status
+   pill — **Off**, **Init failed**, **Not synced yet**, **Synced 5m ago**, **Sync
+   failed 2m ago** (hover for the error), or **Backing off** — and how many items it
+   mirrors. A package that failed to load is listed in red with why. No plugins yet?
+   The tab says so and shows how to add one.
+2. **Click it** to open its settings (`/config/sources/<id>` — the **Configure** button
+   on its Work tab goes here too, and the ↗ button goes back to its Work tab). If the
+   plugin describes its settings (a `configSchema`), you get a form: text, number,
+   checkbox, drop-down, multi-choice and one-per-line list fields, each with its
+   title, help text, placeholder and default; a red `*` marks required fields. A
+   field left empty is unset, so the plugin's default applies. A plugin that doesn't
+   describe its settings gets a JSON editor instead, which checks the syntax as you
+   type.
+3. **Secrets.** A token field takes the *name* of an environment variable (say
+   `ACME_TOKEN`), never the token: put the token in the daemon's environment. Next to
+   the name you see **set** or **not set** — whether the daemon has that variable
+   (checked once saved). Values that look like secrets are never sent to the browser.
+4. **Preview.** Press **Preview** to see what the plugin *would* pull with the
+   settings on screen — saved or not: a table of items (title, linked to the item;
+   external id; Work or Triage; directory), how many, and any warnings. Nothing is
+   created, mirrored, queued or saved. Wrong settings come back as red messages
+   under the fields they're about.
+5. **Save.** **Save** writes the settings to the team's `config.json` and restarts
+   just that plugin's setup — no daemon restart. You see "Saved — re-initialized",
+   or the error if its setup failed (the settings stay saved; fix them and save
+   again), and the status pill refreshes. **Discard changes** goes back to what's
+   saved; leaving the page (a link, another source, a reload) with unsaved changes
+   asks first.
+6. **Switch it on.** Tick its checkbox in the list — that applies right away, and an
+   enabled source syncs straight after. Unticking a source that still has mirrored
+   items offers **Turn off and archive N items** (see
+   [Work items](#work-items-feature-toggles)).
 
 ### Autosave
 
@@ -472,7 +512,7 @@ installed), so you always see the running app's types and constants. Keep it in
 inside the package; other keys under `"mpt"` are ignored.
 
 **On/off.** An external source (one with `sync`) gets a toggle for free: it's listed
-under **Config → General → Work items** by its `label`, as `features.<id>` in
+on **Config → Sources** by its `label`, as `features.<id>` in
 config.json, and can be switched off or disconnected (see [Work items](#work-items-feature-toggles)).
 While it's off the daemon never calls your `sync` or `tick`, and `ctx.upsertDef` /
 `ctx.enqueue` return null. To name the flag yourself, declare `toggle: { feature:

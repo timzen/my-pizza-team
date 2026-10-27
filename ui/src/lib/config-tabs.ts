@@ -4,7 +4,8 @@
  * "Save Configuration" button.
  *
  * Config is the home for team-wide settings and libraries: General, Teammates,
- * Workflows (list + `/config/workflows/:name` detail), Context (the context
+ * Sources (Work Source plugins: on/off, settings form, Preview — list +
+ * `/config/sources/:id`), Workflows (list + `/config/workflows/:name` detail), Context (the context
  * library), Triage (auto-triage settings + `triage.md`), and Theme. Workflows
  * and Context used to be their own pages (`/workflows`, `/context`); those URLs
  * now redirect here (`legacyConfigPath`).
@@ -15,7 +16,7 @@
 import { filterByFeatures, type FeatureName, type Features } from "./features.ts";
 
 /** One Config tab. */
-export type ConfigTab = "general" | "teammates" | "workflows" | "context" | "triage" | "theme";
+export type ConfigTab = "general" | "teammates" | "sources" | "workflows" | "context" | "triage" | "theme";
 
 /** A tab's route, label, gating feature, and whether it edits the daemon config draft. */
 export interface ConfigTabDef {
@@ -26,7 +27,7 @@ export interface ConfigTabDef {
   feature?: FeatureName;
   /**
    * True for tabs that edit the page's config.json draft, so they show the
-   * global Save button. Workflows and Context save through their own flows;
+   * global Save button. Sources, Workflows and Context save through their own flows;
    * Theme is a browser preference applied immediately.
    */
   savesConfig: boolean;
@@ -36,6 +37,7 @@ export interface ConfigTabDef {
 export const CONFIG_TABS: readonly ConfigTabDef[] = [
   { tab: "general", path: "/config", label: "General", savesConfig: true },
   { tab: "teammates", path: "/config/teammates", label: "Teammates", savesConfig: true },
+  { tab: "sources", path: "/config/sources", label: "Sources", savesConfig: false },
   { tab: "workflows", path: "/config/workflows", label: "Workflows", feature: "stories", savesConfig: false },
   { tab: "context", path: "/config/context", label: "Context", savesConfig: false },
   { tab: "triage", path: "/config/triage", label: "Triage", savesConfig: true },
@@ -44,7 +46,8 @@ export const CONFIG_TABS: readonly ConfigTabDef[] = [
 
 /**
  * The tab a Config route shows, from its second path segment — so a workflow's
- * detail (`/config/workflows/:name`) keeps the Workflows tab lit. Unknown or
+ * detail (`/config/workflows/:name`) keeps the Workflows tab lit, and a
+ * source's settings (`/config/sources/:id`) the Sources tab. Unknown or
  * absent segments fall back to General.
  */
 export function configTabFromPath(pathname: string): ConfigTab {

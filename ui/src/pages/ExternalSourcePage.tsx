@@ -10,7 +10,8 @@
  * or Archive here — the source's sync decides what exists, and archives the
  * mirrors of items it no longer reports (**Show archived** lists them, with
  * their threads). **Sync now** asks the daemon
- * to pull at once instead of waiting for the next interval. Same tab layout
+ * to pull at once instead of waiting for the next interval; **Configure**
+ * opens its settings (on/off, settings form, Preview) on Config → Sources. Same tab layout
  * as the other Work tabs (WorkItemsLayout); one tab per registered source.
  * A **triage-mode** item (docs/DESIGN.md "External sources" — "Triage mode") is
  * marked **Triage** and wears a note's TriageBadge — proposals waiting, a
@@ -36,7 +37,8 @@ import { TriageBadge } from "@/components/thoughts/TriageBadge";
 import { mirrorTriagePath } from "@/lib/triage";
 import { runCountLabel } from "@/lib/run-count";
 import { isTriageMode, latestStateLabel, latestStateTone, type MirroredDefRow, openInLabel, shortRevision } from "@/lib/external-sources";
-import { ExternalLink, FolderSync, RefreshCw } from "lucide-react";
+import { sourceSettingsPath } from "@/lib/source-settings";
+import { ExternalLink, FolderSync, RefreshCw, Settings } from "lucide-react";
 
 /** Badge classes per latest-state tone. */
 const TONE_CLASS: Record<ReturnType<typeof latestStateTone>, string> = {
@@ -53,7 +55,7 @@ export function ExternalSourcePage() {
   // Until the toggles load, render nothing (no flash of a switched-off source).
   if (!features) return null;
   if (info && !isExternalSourceOn(info, features)) {
-    return <WorkItemsLayout bodyClassName="max-w-3xl"><FeatureOffNotice sourceLabel={info.label} embedded /></WorkItemsLayout>;
+    return <WorkItemsLayout bodyClassName="max-w-3xl"><FeatureOffNotice sourceLabel={info.label} sourceId={info.id} embedded /></WorkItemsLayout>;
   }
   return <ExternalSourceView sourceId={sourceId} />;
 }
@@ -102,6 +104,9 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
             </Button>
             <Button size="sm" variant="outline" onClick={syncNow} disabled={syncing} title={`Pull from ${label} now`}>
               <RefreshCw className={`h-3.5 w-3.5 mr-1 ${syncing ? "animate-spin" : ""}`} />Sync now
+            </Button>
+            <Button size="sm" variant="outline" render={<Link to={sourceSettingsPath(sourceId)} />} title={`${label}'s settings, on/off, and Preview (Config → Sources)`}>
+              <Settings className="h-3.5 w-3.5 mr-1" />Configure
             </Button>
           </div>
           {syncError && <p className="text-sm text-destructive">{syncError}</p>}

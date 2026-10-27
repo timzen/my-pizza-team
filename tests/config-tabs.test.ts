@@ -12,9 +12,9 @@ import {
 } from "../ui/src/lib/config-tabs.ts";
 
 test("CONFIG_TABS: order and deep-linkable routes", () => {
-  assertEquals(CONFIG_TABS.map((t) => t.label), ["General", "Teammates", "Workflows", "Context", "Triage", "Theme"]);
+  assertEquals(CONFIG_TABS.map((t) => t.label), ["General", "Teammates", "Sources", "Workflows", "Context", "Triage", "Theme"]);
   assertEquals(CONFIG_TABS.map((t) => t.path), [
-    "/config", "/config/teammates", "/config/workflows", "/config/context", "/config/triage", "/config/theme",
+    "/config", "/config/teammates", "/config/sources", "/config/workflows", "/config/context", "/config/triage", "/config/theme",
   ]);
 });
 
@@ -22,15 +22,16 @@ test("configTabFromPath: each tab's route, detail routes, and unknown → genera
   for (const t of CONFIG_TABS) assertEquals(configTabFromPath(t.path), t.tab, t.path);
   assertEquals(configTabFromPath("/config/"), "general");
   assertEquals(configTabFromPath("/config/workflows/coding"), "workflows");
+  assertEquals(configTabFromPath("/config/sources/jira"), "sources");
   assertEquals(configTabFromPath("/config/nope"), "general");
   assertEquals(configTabFromPath("/config/general"), "general");
 });
 
 test("visibleConfigTabs: Workflows hidden while Stories are off (and until toggles load)", () => {
   const tabs = (f: Parameters<typeof visibleConfigTabs>[0]) => visibleConfigTabs(f).map((t) => t.tab);
-  assertEquals(tabs({ stories: true, tasks: true, schedules: true }), ["general", "teammates", "workflows", "context", "triage", "theme"]);
-  assertEquals(tabs({ stories: false, tasks: true, schedules: true }), ["general", "teammates", "context", "triage", "theme"]);
-  assertEquals(tabs(null), ["general", "teammates", "context", "triage", "theme"]);
+  assertEquals(tabs({ stories: true, tasks: true, schedules: true }), ["general", "teammates", "sources", "workflows", "context", "triage", "theme"]);
+  assertEquals(tabs({ stories: false, tasks: true, schedules: true }), ["general", "teammates", "sources", "context", "triage", "theme"]);
+  assertEquals(tabs(null), ["general", "teammates", "sources", "context", "triage", "theme"]);
 });
 
 test("tabSavesConfig: only the config.json tabs show the global Save", () => {

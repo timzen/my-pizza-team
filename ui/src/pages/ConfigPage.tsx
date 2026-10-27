@@ -4,12 +4,15 @@
  * with the Board and Root page tabs):
  *
  * - **General** (`/config`) — the Work items feature toggles (the built-in
- *   kinds plus every switchable Work Source, listed from the server; an
- *   external source still holding mirrors offers "Turn off and archive"), server,
- *   scheduling, autosave, and favorite directories (which save immediately via
- *   /api/directories/favorites).
+ *   kinds, listed from the server; external sources are switched on the
+ *   Sources tab, linked from here), server, scheduling, autosave, and favorite
+ *   directories (which save immediately via /api/directories/favorites).
  * - **Teammates** (`/config/teammates`) — name nouns, one-teammate-per-directory,
  *   experimental harnesses.
+ * - **Sources** (`/config/sources`, a source's settings at
+ *   `/config/sources/:id`) — Work Source plugins: on/off (incl. "Turn off and
+ *   archive"), a settings form from each one's `configSchema`, Preview, and
+ *   its own Save (components/sources/SourcesTab.tsx).
  * - **Workflows** (`/config/workflows`, detail `/config/workflows/:name`) — the
  *   WorkflowsPage / WorkflowDetailPage, embedded. Hidden (and refused with the
  *   "turned off" notice) while Stories are off: workflows only apply to stories.
@@ -20,21 +23,23 @@
  *   applied immediately) rather than daemon config.
  *
  * Every tab renders inside TabbedPageLayout, so the title and tab bar sit in
- * the same spot on each; narrow tabs cap the body at max-w-3xl, Workflows and
- * Context at max-w-5xl (left-aligned, never centered).
+ * the same spot on each; narrow tabs cap the body at max-w-3xl, Sources,
+ * Workflows and Context at max-w-5xl (left-aligned, never centered).
  *
  * The global Save button only shows on the tabs that edit the config.json draft
- * (General, Teammates, Triage); Workflows and Context keep their own save flows.
+ * (General, Teammates, Triage); Sources, Workflows and Context keep their own save flows.
  * The draft lives above the tabs and survives switching them (the `/config*`
  * routes share this element), so edits on several tabs save together.
  */
 
 import { useState, useEffect } from "react";
-import { useLocation } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { notifyFeaturesChanged, useFeatures } from "@/hooks/useFeatures";
 import { featuresChanged, featureToggleRows, type FeatureSourceInfo, type Features } from "@/lib/features";
 import { configTabFromPath, tabSavesConfig, visibleConfigTabs } from "@/lib/config-tabs";
+import { sourceIdFromConfigPath, SOURCES_TAB_PATH } from "@/lib/source-settings";
+import { SourcesTab } from "@/components/sources/SourcesTab";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { FAVORITES_CHANGED_EVENT, notifyFavoritesChanged } from "@/lib/directories";
 import { RouteTabs, SegmentedTabs } from "@/components/RouteTabs";
@@ -51,7 +56,6 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Settings, Plus, X, Save, Star } from "lucide-react";
 
 interface TeammateConfig {
@@ -148,7 +152,7 @@ export function ConfigPage() {
 
   // Workflows and Context bring their own data and layout, and are wider
   // (pipelines, two-column cards) than the config forms.
-  const wide = activeTab === "workflows" || activeTab === "context";
+  const wide = activeTab === "workflows" || activeTab === "context" || activeTab === "sources";
 
   let content;
   if (activeTab === "workflows") {
@@ -159,6 +163,15 @@ export function ConfigPage() {
     else content = pathname.split("/").filter(Boolean).length > 2 ? <WorkflowDetailPage /> : <WorkflowsPage />;
   } else if (activeTab === "context") {
     content = <ContextPage />;
+  } else if (activeTab === "sources") {
+    content = (
+      <SourcesTab
+        selectedId={sourceIdFromConfigPath(pathname)}
+        // The daemon saved the toggle: mirror it into the draft (without
+        // refetching, which would drop unsaved edits on the other tabs).
+        onFeatureApplied={(feature, on) => setConfig((c) => c && { ...c, features: { ...c.features, [feature]: on } as Features })}
+      />
+    );
   } else if (activeTab === "theme") {
     content = <ThemeTab />;
   } else if (!config) {
@@ -168,23 +181,7 @@ export function ConfigPage() {
   } else if (activeTab === "triage") {
     content = <TriageSettings config={config} setConfig={setConfig} />;
   } else {
-    content = (
-      <GeneralTab
-        config={config} setConfig={setConfig} saved={data} featureError={featureError}
-        onDisconnected={(feature) => {
-          // The daemon switched it off and saved; reflect that in the draft
-          // without dropping the user's other unsaved edits, then refresh.
-          setConfig({
-            ...config,
-            features: { ...config.features, [feature]: false } as Features,
-            featureUsage: { ...config.featureUsage, [feature]: { count: 0, description: "0 items" } },
-          });
-          refetch();
-          notifyFeaturesChanged();
-          showToast("✓ Disconnected");
-        }}
-      />
-    );
+    content = <GeneralTab config={config} setConfig={setConfig} saved={data} featureError={featureError} />;
   }
 
   return (
@@ -241,12 +238,11 @@ function configBody(draft: ConfigData, saved: ConfigData | null): ConfigData {
 
 // --- General Tab ---
 
-function GeneralTab({ config, setConfig, saved, featureError, onDisconnected }: {
+function GeneralTab({ config, setConfig, saved, featureError }: {
   config: ConfigData;
   setConfig: (c: ConfigData) => void;
   saved: ConfigData | null;
   featureError: string | null;
-  onDisconnected: (feature: string) => void;
 }) {
   const update = (field: string, value: unknown) => {
     setConfig({ ...config, [field]: value });
@@ -258,7 +254,7 @@ function GeneralTab({ config, setConfig, saved, featureError, onDisconnected }: 
 
   return (
     <div className="space-y-4">
-      <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} onDisconnected={onDisconnected} />
+      <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} />
 
       <AssistantChatModeSetting config={config} setConfig={setConfig} />
 
@@ -367,58 +363,38 @@ function GeneralTab({ config, setConfig, saved, featureError, onDisconnected }: 
 // --- Work items: feature toggles (docs/DESIGN.md "Feature Toggles") ---
 
 /**
- * Switch the Stories, Tasks (incl. Templates), and Schedules kinds — and every
- * switchable Work Source plugin (each external source by default) — on or off,
+ * Switch the Stories, Tasks (incl. Templates), and Schedules kinds on or off,
  * saved with the page. The list comes from the server (`featureSources` from
- * GET /api/config), so a plugin's toggle appears under its label. A kind that's
- * on and still has active items can't be switched off — the daemon would
- * refuse (409) — so its checkbox is disabled with what to archive or delete
- * first (`featureUsage`). An **external** source's mirrors aren't yours to
- * archive one by one, so it offers **Turn off and archive N items** instead: a
- * confirm dialog, then `POST /api/work-sources/:id/disconnect`, which applies
- * at once (not on Save). A refusal that slips through shows as `error`.
+ * GET /api/config). A kind that's on and still has active items can't be
+ * switched off — the daemon would refuse (409) — so its checkbox is disabled
+ * with what to archive or delete first (`featureUsage`). A refusal that slips
+ * through shows as `error`.
+ *
+ * External Work Sources are switched on the **Sources** tab instead (applied at
+ * once there, with its "Turn off and archive N items" disconnect), so there's
+ * one control per source; this card links there. A non-external plugin toggle
+ * (rare: an in-daemon source declaring `toggle`) stays here.
  */
-function WorkItemFeatures({ config, setConfig, saved, error, onDisconnected }: {
+function WorkItemFeatures({ config, setConfig, saved, error }: {
   config: ConfigData;
   setConfig: (c: ConfigData) => void;
   saved: ConfigData | null;
   error: string | null;
-  onDisconnected: (feature: string) => void;
 }) {
   const features: Features = { stories: true, tasks: true, schedules: true, ...config.features };
   const set = (name: string, on: boolean) => setConfig({ ...config, features: { ...features, [name]: on } });
-  const rows = featureToggleRows(config.featureSources);
-  const [confirming, setConfirming] = useState<{ feature: string; sourceId: string; label: string; description: string } | null>(null);
-  const [disconnecting, setDisconnecting] = useState(false);
-  const [disconnectError, setDisconnectError] = useState<string | null>(null);
-
-  const disconnect = async () => {
-    if (!confirming) return;
-    setDisconnecting(true);
-    setDisconnectError(null);
-    try {
-      const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-sources/${encodeURIComponent(confirming.sourceId)}/disconnect`, {});
-      if (res.success) {
-        onDisconnected(confirming.feature);
-        setConfirming(null);
-      } else {
-        setDisconnectError(res.error || "Disconnect failed");
-      }
-    } catch (e) {
-      setDisconnectError("Network error: " + (e as Error).message);
-    }
-    setDisconnecting(false);
-  };
+  const all = featureToggleRows(config.featureSources);
+  const rows = all.filter((r) => !r.external);
+  const external = all.filter((r) => r.external);
 
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
         <h2 className="font-semibold">Work items</h2>
         <p className="text-xs text-muted-foreground">
-          The kinds of work your team uses, and the external sources it pulls work from. A kind that's off
-          disappears from the nav and the quick-create menu, and its pages, API, CLI and assistant tools are
-          refused; a source that's off stops syncing and nothing new from it runs. Thoughts, Context and the
-          Inbox are always on. Takes effect as soon as you save.
+          The kinds of work your team uses. A kind that's off disappears from the nav and the quick-create menu,
+          and its pages, API, CLI and assistant tools are refused. Thoughts, Context and the Inbox are always on.
+          Takes effect as soon as you save.
         </p>
         <div className="space-y-2">
           {rows.map((row) => {
@@ -440,49 +416,23 @@ function WorkItemFeatures({ config, setConfig, saved, error, onDisconnected }: {
                   <span className="font-medium">{row.label}</span>
                   <span className="text-xs text-muted-foreground">{row.description}</span>
                 </label>
-                {locked && usage && !row.external && (
+                {locked && usage && (
                   <p className="pl-6 text-xs text-muted-foreground">
                     To turn {row.label} off, archive or delete {usage.description} first.
                   </p>
-                )}
-                {locked && usage && row.external && row.sourceId && (
-                  <div className="pl-6 flex items-center gap-2 text-xs text-muted-foreground">
-                    <span>{row.label} still has {usage.description}.</span>
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-6 px-2 text-xs"
-                      onClick={() => { setDisconnectError(null); setConfirming({ feature: name, sourceId: row.sourceId!, label: row.label, description: usage.description }); }}
-                    >
-                      Turn off and archive {usage.description}
-                    </Button>
-                  </div>
                 )}
               </div>
             );
           })}
         </div>
+        <p className="text-xs text-muted-foreground">
+          {external.length > 0
+            ? <>External sources ({external.map((r) => r.label).join(", ")}) are switched on and off, and set up, on the{" "}</>
+            : <>Work Source plugins are switched on and off, and set up, on the{" "}</>}
+          <Link to={SOURCES_TAB_PATH} className="text-primary underline">Sources</Link> tab.
+        </p>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </CardContent>
-      <Dialog open={confirming !== null} onOpenChange={(open) => { if (!open && !disconnecting) setConfirming(null); }}>
-        <DialogContent>
-          <DialogHeader>
-            <DialogTitle>Turn off {confirming?.label}?</DialogTitle>
-            <DialogDescription>
-              This stops syncing {confirming?.label} and archives {confirming?.description} mirrored from it — nothing
-              is deleted, and their threads stay. Queued runs are canceled; anything a teammate is working on now
-              finishes. Turn it back on later and sync brings the items back. Applies immediately.
-            </DialogDescription>
-          </DialogHeader>
-          {disconnectError && <p className="text-xs text-destructive">{disconnectError}</p>}
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setConfirming(null)} disabled={disconnecting}>Cancel</Button>
-            <Button variant="destructive" onClick={disconnect} disabled={disconnecting}>
-              {disconnecting ? "Turning off..." : `Turn off and archive ${confirming?.description ?? ""}`}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
     </Card>
   );
 }

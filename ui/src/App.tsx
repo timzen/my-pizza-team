@@ -18,8 +18,9 @@
  * instead. `/work-defs/:id` isn't wrapped: its kind is only known once loaded,
  * so the page itself shows the notice on the daemon's 403.
  *
- * Context and Workflows are tabs of the Config page (`/config/context`,
- * `/config/workflows[/:name]`); their old top-level URLs redirect there with
+ * Context, Sources and Workflows are tabs of the Config page (`/config/context`,
+ * `/config/sources[/:sourceId]`, `/config/workflows[/:name]`); Context's and Workflows' old top-level URLs
+ * redirect there with
  * `replace` (lib/config-tabs.ts `legacyConfigPath`).
  *
  * Board, Tasks, and Schedule are sub-tabs of **Work** (`/work/board
@@ -134,6 +135,8 @@ function DesktopShell() {
             <Route path="/config/:tab" element={<ConfigPage />} />
             {/* A workflow's detail, inside Config's Workflows tab (gated there on Stories). */}
             <Route path="/config/workflows/:name" element={<ConfigPage />} />
+            {/* A Work Source's settings, inside Config's Sources tab. */}
+            <Route path="/config/sources/:sourceId" element={<ConfigPage />} />
             {/* Context and Workflows moved under Config; keep the old URLs working. */}
             <Route path="/context" element={<LegacyConfigRedirect />} />
             <Route path="/workflows" element={<LegacyConfigRedirect />} />
