@@ -500,6 +500,118 @@ export interface WorkSourcesResponse {
   plugins: PluginLoadStatus[];
 }
 
+/**
+ * What `GET /api/sources` shows in place of a secret-looking setting (a string
+ * under a token/secret/password/apiKey key, or a non-name in an env-var field).
+ * Send it back unchanged in `PUT /api/sources/:id/config` / `preview` and the
+ * stored value is kept (daemon/sources/settings.ts `restoreRedacted`).
+ */
+export const REDACTED_SETTING = "__mpt_redacted__";
+
+/** One env-var reference in a source's settings: shown by name, with whether the daemon's environment has it. */
+export interface SourceEnvVarRef {
+  /** Where it is in the settings block: `key`, `group.key`, or `list[0]`. */
+  path: string;
+  /** The variable's name (never its value). */
+  name: string;
+  set: boolean;
+}
+
+/** One field-level settings problem (daemon/sources/config-schema.ts `ConfigFieldError`). */
+export interface SourceFieldError {
+  /** `""` for the block itself, else `key`, `group.key`, or `list[2]`. */
+  path: string;
+  message: string;
+}
+
+/** One registered Work Source as the Config page's Sources tab sees it (`GET /api/sources`). */
+export interface SourceView {
+  id: string;
+  label: string;
+  /**
+   * Where it came from: `"built-in"` (stories, tasks, schedules, notes),
+   * `"plugin"` (a `packages` entry — the only kind whose settings can be
+   * saved), or `"external"` (an in-daemon external source, e.g. the dev fixture).
+   */
+  kind: "built-in" | "plugin" | "external";
+  /** Declares `sync` (pull-only; mirrors items). */
+  syncs: boolean;
+  /** Its plugin package (`kind: "plugin"`): the spec as written and its identity. */
+  package?: { spec: string; identity: string };
+  /** External sources: `"work"` or `"triage"`. Absent for in-daemon kinds. */
+  mode?: "work" | "triage";
+  /** Its feature toggle, or null when it's always on. */
+  toggle: { feature: string; enabled: boolean } | null;
+  /**
+   * Its declared settings schema (`WorkSource.configSchema`, a JSON Schema
+   * subset with UI hints; plugin/index.ts `SourceConfigSchema`), when it has one.
+   */
+  configSchema?: Record<string, unknown>;
+  /** Where that block lives in the package entry's `config`: all of it, or `config[<id>]`. */
+  configScope: "package" | "source";
+  /** Its current settings block (secrets replaced by `REDACTED_SETTING`). */
+  options: Record<string, unknown>;
+  /** Paths of the settings shown as `REDACTED_SETTING`. */
+  redacted: string[];
+  /** Env-var references in its settings, by name, and whether each is set. */
+  envVars: SourceEnvVarRef[];
+  /** Can `PUT /api/sources/:id/config` save it (a plugin source whose package entry is in config.json)? */
+  configurable: boolean;
+  /** Can `POST /api/sources/:id/preview` run it (it has `preview` or `sync`)? */
+  previewable: boolean;
+  /** Why its last `init` failed (startup, or a re-init after a Save); absent when fine. */
+  initError?: string;
+  /** External sources: sync health — the last sync that ran, and any backoff. Null otherwise. */
+  sync: {
+    running: boolean;
+    failures: number;
+    /** Backing off until (epoch ms); null when not. */
+    backoffUntil: number | null;
+    last: { at: number; ok: boolean; error?: string; mirrored: number; enqueued: number; archived: number; held: number } | null;
+  } | null;
+  /** External sources: how many active (non-archived) mirrored defs it has. Null otherwise. */
+  activeMirrors: number | null;
+}
+
+/** `GET /api/sources`. */
+export interface SourcesResponse {
+  sources: SourceView[];
+}
+
+/** `POST /api/sources/:id/preview` body, and `PUT /api/sources/:id/config` body: the settings block. */
+export interface SourceOptionsRequest {
+  options: Record<string, unknown>;
+}
+
+/**
+ * `POST /api/sources/:id/preview`: what a sync with the draft settings would
+ * report — nothing mirrored or enqueued. `fieldErrors` with a 400.
+ */
+export interface SourcePreviewResponse {
+  success: boolean;
+  error?: string;
+  fieldErrors?: SourceFieldError[];
+  /** Which hook answered: the source's own `preview`, or its `sync` on a no-side-effects ctx. */
+  via?: "preview" | "sync";
+  items?: Array<{ externalId: string; revision: string; title: string; goal: string; url?: string; directory?: string; mode?: "work" | "triage" }>;
+  warnings?: string[];
+  note?: string;
+}
+
+/**
+ * `PUT /api/sources/:id/config`: saved to config.json, then re-initialized.
+ * `success` with `reinit.ok: false` = saved, but its `init` failed (the
+ * source is marked errored). `reinit` lists every source of the package
+ * (they share its `config`).
+ */
+export interface SourceConfigResponse {
+  success: boolean;
+  error?: string;
+  fieldErrors?: SourceFieldError[];
+  reinit?: Array<{ id: string; ok: boolean; error?: string }>;
+  source?: SourceView;
+}
+
 /** One row of `GET /api/work-sources/:id/defs`: a mirrored def and how its runs went. */
 export interface MirroredDefRow {
   id: string;

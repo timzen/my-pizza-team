@@ -646,6 +646,21 @@ preview would see only what changed), or reads settings your factory captured
 note? }`; items the mirror would refuse (no `externalId`, `revision`, or
 `title`, or a repeated `externalId`) are dropped with a warning.
 
+**Saving settings re-runs `init` — make it idempotent.** Settings saved from
+the daemon (`PUT /api/sources/<id>/config`, what the Config page's Save calls)
+are written to the team's `config.json` and applied without a restart: your
+`ctx.options()` starts returning them, `init(ctx)` is called **again** (awaited,
+limited to `syncTimeoutMs`), any sync backoff is cleared, and an enabled source
+syncs straight away. So `init` must cope with running more than once: replace
+clients and caches rather than adding to them. Read settings from
+`ctx.options()` — a factory's `options` argument is *not* refreshed (the
+factory isn't called again), and neither are `syncEveryMs` / `tickEveryMs`
+(restart for those). If `init` throws, the new settings stay saved and the
+source is shown as errored until a later save succeeds. Settings that look
+like secrets (a `token`/`secret`/`password`/`apiKey` key holding text) are
+never sent to the browser; env-var references are shown by name, with whether
+the daemon's environment has them.
+
 ### Distributing a plugin
 
 A plugin travels as an npm package (from your npm registry) or a git repository.

@@ -90,7 +90,7 @@ import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOu
 import { disconnectedKey, mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
 import { isSourceSwitchedOff } from "./sources/toggle.ts";
 import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
-import { DEFAULT_SYNC_EVERY_MS, SyncRunner } from "./sources/sync.ts";
+import { DEFAULT_SYNC_EVERY_MS, DEFAULT_SYNC_TIMEOUT_MS, SyncRunner, type SyncStatus } from "./sources/sync.ts";
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
 import { runSolitary, taskSource } from "./sources/task.ts";
 import { ThoughtSource } from "./sources/thought.ts";
@@ -254,6 +254,11 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   if (config.features) out.features = config.features;
   if (config.assistant && Object.keys(config.assistant).length > 0) out.assistant = config.assistant;
   if (config.favoriteDirectories && config.favoriteDirectories.length > 0) out.favoriteDirectories = config.favoriteDirectories;
+  // Plugin packages (and their per-package `config`, edited by `PUT
+  // /api/sources/:id/config`) and dev-only settings: no Config-page form
+  // re-sends them, so dropping them here erased a team's plugins on any save.
+  if (config.packages !== undefined) out.packages = config.packages;
+  if (config.dev !== undefined) out.dev = config.dev;
   return out;
 }
 
@@ -455,7 +460,7 @@ export class Store {
    * `enqueueFor`, so every source inherits "pending never enqueues" and the
    * directory normalization for free.
    */
-  private makeSourceContext(sourceId: string, options: Readonly<Record<string, unknown>> = EMPTY_SOURCE_OPTIONS): SourceContext {
+  private makeSourceContext(sourceId: string, options: () => Readonly<Record<string, unknown>> = () => EMPTY_SOURCE_OPTIONS): SourceContext {
     const hasActiveItem = (defId: string) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null;
     // An external source switched off is disconnected (docs/DESIGN.md "Feature
     // Toggles"): whatever path it takes — a webhook, a write-back hook — it
@@ -471,7 +476,7 @@ export class Store {
       sourceId,
       teamDir: this.teamDir,
       config: () => this.config,
-      options: () => options,
+      options: () => options(),
       log: (message) => console.warn(`[source:${sourceId}] ${message}`),
       listWorkDefs: () => listWorkDefs(this.teamDir),
       hasActiveItem,
@@ -547,6 +552,22 @@ export class Store {
     return this.pluginStatuses;
   }
 
+  /**
+   * Replace one source's load-time settings warnings (`source "<id>": …`) in
+   * its package's status — after a settings Save re-checked them, so a fixed
+   * setting stops being reported.
+   */
+  replaceSourceConfigWarnings(sourceId: string, warnings: string[]): void {
+    const prefix = `source "${sourceId}": `;
+    this.pluginStatuses = this.pluginStatuses.map((status) => {
+      if (!status.sources.includes(sourceId)) return status;
+      const kept = (status.warnings ?? []).filter((w) => !w.startsWith(prefix));
+      const next = [...kept, ...warnings.map((w) => prefix + w)];
+      const { warnings: _old, ...rest } = status;
+      return next.length ? { ...rest, warnings: next } : rest;
+    });
+  }
+
   /** The external (pull-only) sources — those with a `sync` — in registration order. */
   listExternalSources(): SourceEntry[] {
     return this.sources.external();
@@ -568,6 +589,33 @@ export class Store {
   /** Consecutive sync failures of an external source (0 when healthy). */
   syncFailures(id: string): number {
     return this.syncRunner.failures(id);
+  }
+
+  /** An external source's sync health: the last sync's result and any backoff (daemon/sources/sync.ts `SyncStatus`). */
+  getSyncStatus(id: string): SyncStatus {
+    return this.syncRunner.status(id);
+  }
+
+  /**
+   * Re-initialize a registered source with new settings, without a restart
+   * (a Config page Save; `PUT /api/sources/:id/config`): swap its
+   * `ctx.options()`, call `init` again (awaited, bounded by its
+   * `syncTimeoutMs`), and forget its sync failures/backoff. Then, if it's an
+   * external source that's switched on, sync it now — fire-and-forget, so the
+   * caller isn't held by a slow external system. A failed `init` is returned
+   * (and kept as the entry's `initError`), never thrown; the new settings stay.
+   * Timers aren't re-armed: a changed `syncEveryMs` applies after a restart.
+   */
+  async reinitWorkSource(id: string, options: Record<string, unknown>): Promise<{ ok: true } | { ok: false; error: string }> {
+    const entry = this.sources.get(id);
+    if (!entry) return { ok: false, error: `No work source "${id}"` };
+    const timeoutMs = entry.source.syncTimeoutMs && entry.source.syncTimeoutMs > 0 ? entry.source.syncTimeoutMs : DEFAULT_SYNC_TIMEOUT_MS;
+    const result = await this.sources.reinit(id, options, timeoutMs);
+    this.syncRunner.reset(id);
+    if (result.ok && entry.source.sync && !isSourceSwitchedOff(this.config, entry.toggle)) {
+      void this.syncRunner.run(entry, { force: true });
+    }
+    return result;
   }
 
   /**

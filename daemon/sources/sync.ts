@@ -39,6 +39,22 @@ interface SourceSyncState {
   failures: number;
   /** No sync before this time (epoch ms) while backing off. */
   notBefore: number;
+  /** The last sync that called the source (skips aren't recorded). */
+  last?: { at: number; outcome: SyncOutcome };
+}
+
+/**
+ * A source's sync health, for `GET /api/sources` (in memory, like the rest of
+ * the runner's state): the last sync that ran, and any backoff in force.
+ */
+export interface SyncStatus {
+  running: boolean;
+  /** Consecutive failures (0 when healthy). */
+  failures: number;
+  /** Backing off until then (epoch ms), when failing; null otherwise. */
+  backoffUntil: number | null;
+  /** The last sync that called the source — when it finished, and how it went — or null before the first. */
+  last: { at: number; ok: boolean; error?: string; mirrored: number; enqueued: number; archived: number; held: number } | null;
 }
 
 /** An empty outcome, for skips and failures. */
@@ -89,6 +105,36 @@ export class SyncRunner {
   }
 
   /**
+   * Forget a source's failures and backoff (a re-init after a settings Save:
+   * the old failures were about the old settings). A sync in flight isn't
+   * touched; it finishes and records its result as usual.
+   */
+  reset(id: string): void {
+    const s = this.states.get(id);
+    if (!s) return;
+    s.failures = 0;
+    s.notBefore = 0;
+  }
+
+  /** A source's sync health (see `SyncStatus`). `now` decides whether a backoff is still in force. */
+  status(id: string, now: number = Date.now()): SyncStatus {
+    const s = this.states.get(id);
+    const last = s?.last;
+    return {
+      running: s?.running ?? false,
+      failures: s?.failures ?? 0,
+      backoffUntil: s && s.notBefore > now ? s.notBefore : null,
+      last: last
+        ? {
+          at: last.at, ok: last.outcome.ok, ...(last.outcome.error ? { error: last.outcome.error } : {}),
+          mirrored: last.outcome.mirrored.length, enqueued: last.outcome.enqueued.length,
+          archived: last.outcome.archived.length, held: last.outcome.held.length,
+        }
+        : null,
+    };
+  }
+
+  /**
    * Run one sync of `entry` now. Skips (without calling the source) while a run
    * is in flight or, unless `force`, while backing off. Never rejects.
    *
@@ -124,6 +170,7 @@ export class SyncRunner {
       const outcome = this.ingest(entry, defs);
       st.failures = 0;
       st.notBefore = 0;
+      st.last = { at: Date.now(), outcome };
       return outcome;
     } catch (e) {
       const error = e instanceof Error ? e.message : String(e);
@@ -131,7 +178,9 @@ export class SyncRunner {
       const wait = Math.min(this.backoff.baseMs * 2 ** (st.failures - 1), this.backoff.maxMs);
       st.notBefore = now + wait;
       ctx.log(`sync failed (${st.failures} in a row; next try in ${Math.round(wait / 1000)}s): ${error}`);
-      return emptyOutcome({ error });
+      const outcome = emptyOutcome({ error });
+      st.last = { at: Date.now(), outcome };
+      return outcome;
     } finally {
       clearTimeout(timer);
       st.running = false;

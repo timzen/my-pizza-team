@@ -524,7 +524,8 @@ error, logged and skipped; it never stops the daemon.
 
 **Per-source settings.** The object form's `config` reaches every source the
 package provides as `ctx.options()` (frozen; `{}` for built-ins and sources
-registered in code without `options`). **Secrets are referenced, never inline:**
+registered in code without `options`; replaced only by a settings Save, which
+re-inits the source). **Secrets are referenced, never inline:**
 a source takes an env var *name* (`"tokenEnv": "JIRA_TOKEN"`) and reads
 `process.env`, so config.json stays shareable.
 
@@ -574,6 +575,32 @@ sync writes elsewhere, pages through a kv cursor (it would see only the
 delta), or captured its settings in its factory (the draft wouldn't reach it)
 implements `preview`. Both are optional fields, so `apiVersion` stays 1.
 
+**Saving: re-init in place, not a restart.** The Config page saves through
+`PUT /api/sources/:id/config` (daemon/routes/sources.ts): validated like a
+preview, written into the package entry's `config` in config.json (the
+source's block per `configScope`, every other entry and key kept), then
+**re-initialized**: its `ctx.options()` swapped (the same ctx object reads the
+new frozen settings, so one a source kept from its first `init` sees them),
+`init` called again and awaited (bounded by `syncTimeoutMs`), its sync backoff
+forgotten — the failures were about the old settings — and, if it's switched
+on, a sync started at once. Every source of the package is re-inited, since
+they all read that one `config`. So **`init` may run more than once and must be
+idempotent**. Re-init deliberately isn't teardown-and-re-register: the source
+object, its kv, its mirrors, and the daemon's timers are untouched, so a Save
+can't orphan anything; the price is that a factory's `options` argument and the
+intervals read at `startTimers` (`syncEveryMs`, `tickEveryMs`) still need a
+restart. A re-init that throws keeps the new settings saved — the person just
+asked for them — and marks the source errored (`initError`) until a later
+save succeeds. **Secrets stay out of the browser:** the list redacts
+secret-looking values and shows env-var references only by name (and whether
+the variable is set); a redacted value sent back unchanged keeps the stored
+one. **Preview is rate-limited** per source (one at a time, then a short
+cooldown): it calls the external system, and a mashed button must not become a
+stampede. **Saves go to the team's config.json**, the only file the daemon
+reads; a demo team's `plugins.local.json` overlay is merged into it by the demo
+repo's setup script, so a UI save lasts until that team is reset — copy settings
+worth keeping back into the overlay.
+
 **Installing** is `mpt plugins add|list|remove|update` (cli/plugins.ts), the
 same split as pi's `pi install`: the CLI fetches and edits config.json, the
 daemon only loads. npm and git packages go under `<teamDir>/packages/`, installed
@@ -588,8 +615,9 @@ and builds with plain npm against the user's configured registry, or ships its
 other build system. A prebuilt package with no runtime dependencies needs no npm
 at all; a failed npm step quotes npm's stderr and restates the contract.
 
-**Loading** (`daemon/plugins/loader.ts`) happens once, at startup — a change
-needs a restart. A local path loads in place; an npm or git package loads from
+**Loading** (`daemon/plugins/loader.ts`) happens once, at startup — adding or
+removing a package needs a restart (a package's *settings* don't: see "Saving"
+above). A local path loads in place; an npm or git package loads from
 the copy under `<teamDir>/packages/`. **Install on start, pi-style:** a
 configured npm/git package whose install dir is missing (a fresh clone of the
 team's config) is installed by the daemon before loading, through the same code

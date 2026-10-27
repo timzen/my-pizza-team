@@ -150,7 +150,9 @@ export interface SourceContext {
    * `config` (`packages: [{ source, config: { ... } }]` in the team's
    * config.json; daemon/plugins/spec.ts); built-ins and in-code sources get `{}`
    * unless registered with `options` (`Store.registerWorkSource`). Read-only
-   * (frozen), and fixed for the daemon's lifetime: a change needs a restart.
+   * (frozen). It changes only when the settings are saved from the Config page
+   * (`PUT /api/sources/:id/config`), which then calls `init` again — so read it
+   * when you need it (or in `init`), rather than caching it elsewhere.
    *
    * **Secrets are never inline.** Reference an environment variable by name —
    * `{ "tokenEnv": "JIRA_TOKEN" }` — and read `process.env[options.tokenEnv]`,
@@ -386,7 +388,20 @@ export interface WorkSource {
    * "tasks", "schedules"); a clash is refused at registration.
    */
   readonly toggle?: SourceToggle | null;
-  /** Called once when registered: read config, set up state. */
+  /**
+   * Called when registered — read settings, set up state — and **again** each
+   * time its settings are saved from the Config page (`PUT
+   * /api/sources/:id/config`; daemon/routes/sources.ts), with `ctx.options()`
+   * already returning the new settings. So `init` must be **idempotent**:
+   * replace (don't accumulate) clients, listeners, caches, and timers of your
+   * own. The re-init is in place — the same source object, ctx, kv, and the
+   * daemon's timers — and is awaited, bounded by `syncTimeoutMs`; a throw or
+   * timeout marks the source errored (the settings stay saved), and on success
+   * its sync backoff is reset and an enabled external source syncs at once.
+   * What a re-init can't change: a factory's `options` argument (the factory
+   * isn't called again — read `ctx.options()` instead), and the intervals
+   * read at `startTimers` (`syncEveryMs`, `tickEveryMs`; a restart applies them).
+   */
   init?(ctx: SourceContext): Promise<void> | void;
   /**
    * The daemon's periodic tick (every 30s from `Store.startTimers`, and on

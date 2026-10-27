@@ -31,6 +31,8 @@ const FULL: Partial<TeamConfig> = {
   features: { stories: false, tasks: true, schedules: true },
   retry: { maxRetries: 2, backoffMinutes: [2, 10] },
   assistant: { chatMode: "terminal" },
+  packages: ["./plain-plugin", { source: "./configured-plugin", config: { project: "ACME", tokenEnv: "ACME_TOKEN" } }],
+  dev: { fixtureSource: { dir: "./fixture-items" } },
   harnesses: {
     custom: { teammate: "my-agent --name={name} --daemon={url}", leader: "my-agent --lead" },
   },
@@ -67,6 +69,9 @@ function assertPreserved(saved: Partial<TeamConfig>) {
   assertEquals(saved.retry, FULL.retry);
   // A save that doesn't change the assistant chat mode keeps it.
   assertEquals(saved.assistant, FULL.assistant);
+  // Plugin packages (and their settings) have no form on the Config page; a save must keep them.
+  assertEquals(saved.packages, FULL.packages);
+  assertEquals(saved.dev, FULL.dev);
 }
 
 test("saveConfig writes every persistable field", () => {

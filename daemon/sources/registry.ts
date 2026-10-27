@@ -31,6 +31,12 @@ export interface SourceEntry {
    * daemon/features.ts reads only this.
    */
   toggle: SourceToggle | null;
+  /**
+   * Why its last `init` failed (at registration, or a re-init after a settings
+   * Save — `SourceRegistry.reinit`); absent when it succeeded. The source stays
+   * registered either way; `GET /api/sources` shows it as errored.
+   */
+  initError?: string;
 }
 
 /**
@@ -69,6 +75,12 @@ export function sourceIdForWorkDef(def: Pick<WorkDef, "parent">): string {
  */
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
+const EMPTY_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
+
+function errorMessage(e: unknown): string {
+  return e instanceof Error ? e.message : String(e);
+}
+
 /** Options for `SourceRegistry.register` / `Store.registerWorkSource`. */
 export interface RegisterSourceOptions {
   /** The source's own settings, its `ctx.options()` (a plugin: its package entry's `config`). */
@@ -78,19 +90,27 @@ export interface RegisterSourceOptions {
 export class SourceRegistry {
   private entries = new Map<string, SourceEntry>();
 
-  private makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext;
+  /**
+   * Each source's current settings (its `ctx.options()`), by id. A cell the
+   * context reads on every call rather than a value baked into it, so a
+   * re-init (`reinit`) swaps the settings for every holder of the ctx — even
+   * one a source captured in its first `init`.
+   */
+  private options = new Map<string, Readonly<Record<string, unknown>>>();
+  private makeContext: (sourceId: string, options: () => Readonly<Record<string, unknown>>) => SourceContext;
   private isSwitchedOff: (entry: SourceEntry) => boolean;
 
   /**
-   * @param makeContext builds the daemon-side context for a source id and its
-   *   settings (`ctx.options()`); the Store supplies it.
+   * @param makeContext builds the daemon-side context for a source id and a
+   *   reader of its current settings (what `ctx.options()` returns); the Store
+   *   supplies it.
    * @param isSwitchedOff is this source's feature toggle off right now (the
    *   Store reads its live config)? An external source that's off isn't
    *   ticked; the built-ins' ticks run as they always have (their turn-off
    *   guard leaves nothing for them to fire).
    */
   constructor(
-    makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext,
+    makeContext: (sourceId: string, options: () => Readonly<Record<string, unknown>>) => SourceContext,
     isSwitchedOff: (entry: SourceEntry) => boolean = () => false,
   ) {
     this.makeContext = makeContext;
@@ -116,12 +136,52 @@ export class SourceRegistry {
     }
     const toggle = effectiveToggle(source);
     if (toggle) this.checkFeatureName(source.id, toggle.feature);
-    const options = Object.freeze({ ...(opts.options ?? {}) });
-    const entry: SourceEntry = { source, ctx: this.makeContext(source.id, options), toggle };
+    this.options.set(source.id, Object.freeze({ ...(opts.options ?? {}) }));
+    const id = source.id;
+    const entry: SourceEntry = { source, ctx: this.makeContext(id, () => this.options.get(id) ?? EMPTY_OPTIONS), toggle };
     this.entries.set(source.id, entry);
     const init = source.init?.(entry.ctx);
-    if (init instanceof Promise) init.catch((e) => entry.ctx.log(`init failed: ${e instanceof Error ? e.message : String(e)}`));
+    if (init instanceof Promise) {
+      init.catch((e) => {
+        entry.initError = errorMessage(e);
+        entry.ctx.log(`init failed: ${entry.initError}`);
+      });
+    }
     return entry;
+  }
+
+  /**
+   * Re-initialize a registered source in place with new settings (a Config
+   * page Save; docs/DESIGN.md "Plugin settings: configSchema and preview"):
+   * swap its frozen `ctx.options()` — the same ctx object, so a source that
+   * kept it from its first `init` sees the change — then call `init` again,
+   * awaited and bounded by `timeoutMs`. A throw, rejection, or timeout is
+   * recorded as the entry's `initError` and returned, never thrown; the new
+   * settings stay in place. Not a teardown/re-register: the source object,
+   * its timers, and its kv are the same (see `WorkSource.init`).
+   */
+  async reinit(id: string, options: Record<string, unknown>, timeoutMs: number): Promise<{ ok: true } | { ok: false; error: string }> {
+    const entry = this.entries.get(id);
+    if (!entry) return { ok: false, error: `No work source "${id}"` };
+    this.options.set(id, Object.freeze({ ...options }));
+    delete entry.initError;
+    if (!entry.source.init) return { ok: true };
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const timeout = new Promise<never>((_, reject) => {
+        timer = setTimeout(() => reject(new Error(`init timed out after ${timeoutMs}ms`)), timeoutMs);
+        timer.unref?.();
+      });
+      // Promise.resolve().then: an init that throws synchronously is a rejection too.
+      await Promise.race([Promise.resolve().then(() => entry.source.init!(entry.ctx)), timeout]);
+      return { ok: true };
+    } catch (e) {
+      entry.initError = errorMessage(e);
+      entry.ctx.log(`re-init failed: ${entry.initError}`);
+      return { ok: false, error: entry.initError };
+    } finally {
+      clearTimeout(timer);
+    }
   }
 
   /**
@@ -145,6 +205,7 @@ export class SourceRegistry {
    * for swapping a built-in for a fixture source; false if none was registered.
    */
   unregister(id: string): boolean {
+    this.options.delete(id);
     return this.entries.delete(id);
   }
 
