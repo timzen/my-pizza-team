@@ -725,6 +725,36 @@ note is the parent that enqueues that work, so triage needed no new machinery: t
 thread, attachments, usage, and the Inbox entry are a WorkDef's, and "whose turn is
 it" is answered by the note itself.
 
+**The subject is a note or a triage-mode mirror.** Everything below is written
+for a note, the first subject, but the machinery is about a *triage subject*: a
+WorkDef whose thread holds analyses, proposals, and decisions, and whose content
+the prompt reads fresh at claim time. There are two kinds (`triageSubjectOf`):
+
+| | A note | A triage-mode external item |
+|---|---|---|
+| The WorkDef | `triage-<noteId>`, a container created lazily | the read-only mirror `<source>~<id>` itself |
+| Content in the prompt | the note's current text | the mirror's current content (kept current by sync) |
+| The turn | you edit the note (a new version, past the quiet period) | the item changes in its source (a new revision) |
+| Enqueued by | the hourly sweep (`ThoughtSource.tick`) | the sync loop, once per revision (`enqueueRevision`) |
+| Created work's origin | `{ thought, proposal }` | `{ workDef, proposal }` |
+| Where you decide | `/thoughts/:id/triage` | the mirror's **Triage** tab |
+
+The instructions (`triage.md`), `propose_work` and its validation, the
+structured-comment + appended-decision model, the fold, the badge, "accepting
+creates, never starts", and the Inbox row are shared, not duplicated.
+
+*Why the mirror's revision is the turn.* The turn rule exists so a subject is
+re-read when *you* have said something new, and never otherwise. For a note that
+signal is its text moving on; for an external item the only thing that can say
+something new is the external system, and its revision is already exactly that
+marker — the one the sync loop uses to run a work-mode item once per
+revision. Reusing it means no second cursor, no sweep, and no quiet period (the
+source decides when an item is "done being edited" by when it reports a new
+revision), and the same readiness hold and "an in-flight run defers the next
+revision" rules apply for free. It also tells you where to answer a question:
+in the item's source, since the mirror is read-only. Details in "External
+sources" — "Triage mode: the mirror is the triage subject".
+
 - **The WorkDef is a container, not authored work.** `triage-<noteId>` is created
   lazily the first time a note is due, and holds nothing but a title and its parent.
   The instructions live **once**, in `triage.md` at the team root (absent = the

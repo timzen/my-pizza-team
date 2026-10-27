@@ -65,6 +65,26 @@ Known gaps / ideas, none blocking:
   card ("true"/"false" instead of Yes/No) — pre-existing, not triage's, but the reason
   the triage toggle is a checkbox.
 
+### Triage mode for external sources — built
+
+A Work Source (or one of its items) can declare `mode: "triage"`: the read-only
+mirror is the triage subject, a new revision is the turn, and proposals are decided on
+the mirror's Triage tab (docs/DESIGN.md "External sources" — "Triage mode"; GUIDE.md
+"Triage-mode sources" and "Writing a Work Source plugin"). Tests:
+tests/external-triage.test.ts; demo: mpt-demo-team's demo-tracker plugin (`DEMO-3`,
+checked by `run-e2e.sh`). What's left:
+
+- **Proposal write-back to the external system.** Analyses and decisions live only
+  in MPT: they aren't comments, so `onComment` never sees them, and there is no hook
+  for "a proposal was posted / accepted / rejected". A ticket's watchers can't see the
+  triage outcome (or what work it became) without opening MPT. Likely shape: an
+  optional `WorkSource.onTriage(def, event, ctx)` hook (analysis posted, proposal
+  decided, with the created WorkDef id), fire-and-forget like the others, so a
+  plugin can comment on or relabel the ticket. Additive, so `apiVersion` stays 1.
+- **Answering a question means editing the external item.** A mirror is read-only,
+  so there's no in-MPT turn; if that proves awkward, a reply passed to the next
+  run's prompt (Triage now without a new revision) is the obvious addition.
+
 ## Phone View — built
 
 `/m`: Team (teammates + queue), Chat, Thoughts, Inbox — docs/DESIGN.md "A Phone Is a

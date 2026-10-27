@@ -426,6 +426,20 @@ open stories + earlier analysis; the source's `buildPrompt` calls it, replacing 
 base prompt. Archive/restore/delete of a note cascades to its WorkDef; the generic
 `PUT`/`DELETE` WorkDef routes refuse one, and `enqueue` (Run) is Triage now.
 
+**Triage subjects.** A note is one of two triage subjects; the other is a
+**triage-mode external item** (DESIGN.md "Auto Triage" "The subject is a note or a
+triage-mode mirror", and "External sources" "Triage mode"). There the read-only
+mirrored WorkDef is the subject — no container — and the sync loop is the
+enqueuer: `ingestExternalDefs` runs `enqueueRevision` as for any mirror, and
+`sources/external-triage.ts` supplies the title, directory, prompt
+(`buildExternalTriagePrompt` → the same `renderTriagePrompt` body `buildTriagePrompt` uses, with the
+mirror's content in place of the note's), and Triage now. Everything from
+`propose_work` on is the WorkDef-keyed half of the proposal layer below. The
+end-to-end path is covered by `tests/external-triage.test.ts` (with the fixture
+source's `mode: triage` frontmatter), and the mpt-demo-team repo's demo-tracker
+plugin seeds a triage-mode issue that its `run-e2e.sh` checks against a live
+daemon.
+
 **Proposals.** An analysis is a `Comment` with `outcome` + `proposals`; a decision is
 a `TriageDecision` line in the same `comments.jsonl`. `getThreadEntries` reads every
 line, `getCommentsForRef` filters decisions out (so existing readers are unchanged),

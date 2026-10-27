@@ -84,6 +84,8 @@ The Board, Tasks, and Schedule tabs only appear while their kind is switched on 
 
 **External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
 
+**Triage-mode sources.** Some sources (or some of their items) are **triage-only** — a ticket queue you'd rather *think about* than hand straight to a teammate. Such an item is marked **Triage** on its source's tab, and nothing ever works it directly: each new revision gets a **triage** run instead, exactly like a note's [auto triage](#thoughts). A teammate reads the item and the team's triage instructions and proposes tasks, story tasks, stories, or scheduled jobs. The row then wears the same badge a note gets (a lightbulb for proposals waiting, **?** for a question, **–** for nothing to create), the finished run lands in your **Inbox**, and both open the item's **Triage** tab: the item read-only (with **Open in <source>**), the latest analysis with **Accept / Edit / Reject** per proposal, and earlier rounds. Accepting creates the work and never starts it; the item itself stays where it is. Your turn is the item *in its source*: when it changes there, the next sync triages the new revision (your earlier decisions are passed along, so rejected ideas aren't re-offered). **Triage now** — the button that replaces Run on that page — forces a fresh run, e.g. after one failed. Proposals aren't written back to the external system; comments and run outcomes still are. (Plugin authors: see [Triage mode](#writing-a-work-source-plugin).)
+
 The highlighted destination is the section you're in, detail pages included: a story, board task, Solitary task, or scheduled job page lights **Work**, and every Config tab (Workflows and Context included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
 The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. The pizza logo carries two small count badges, each hidden at zero: a **neutral** one (bottom corner) for WorkItems **queued** and not yet picked up, and an **accent** one (top corner) for **unread** Inbox items. Hover a badge for what it counts. They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark, refresh every ~10 seconds, and update right away when you mark Inbox items read or unread. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
@@ -508,6 +510,25 @@ nothing runs the item itself. In this mode the daemon sets the item's title
 ("Triage: …"), directory, prompt, and Run (Triage now), so your `resolveItem`,
 `buildPrompt`, and `run` aren't called for those items; write-back hooks still are.
 It's an optional field, so `apiVersion` stays 1.
+
+```ts
+return {
+  id: "acme-tickets", label: "Acme Tickets", apiVersion: WORK_SOURCE_API_VERSION,
+  mode: "triage",                    // every item from this source is triaged
+  async sync() {
+    return tickets.map((t) => ({
+      externalId: t.key, revision: t.updatedAt, title: t.summary, goal: t.description, url: t.link,
+      mode: t.type === "Task" ? "work" : undefined,   // "work" | "triage"; omitted = the source's mode
+    }));
+  },
+};
+```
+
+The revision is the turn, so make it cover what the item *says* (an
+`updatedAt`, or a hash of the title and body), not comments you write back
+yourself — otherwise your own write-back re-triggers a triage. A source can flip
+an item's mode without a new revision; the change applies to its next run. The
+demo team's `mpt-source-demo-tracker` plugin shows both modes end to end.
 
 In the web UI such an item is marked **Triage** on its source's Work tab, with
 the same badge a note gets (proposals waiting, a question, nothing to create).
