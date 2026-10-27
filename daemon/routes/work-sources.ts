@@ -8,7 +8,8 @@
  *                                       (daemon/plugins/loader.ts)
  *   GET  /api/work-sources/:id/defs   — its mirrored defs: title, external link,
  *                                       last revision, latest WorkItem state, run count,
- *                                       mode ("triage" for a triage-mode item)
+ *                                       mode ("triage" for a triage-mode item) and,
+ *                                       for those, `triageBadge` (the latest analysis's badge)
  *   POST /api/work-sources/:id/sync   — sync it now (ignores a failure backoff)
  *
  * A mirrored def's detail and thread are the ordinary `/api/work-defs/:id`
@@ -71,6 +72,7 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
           status: d.status === "archived" ? "archived" : "active",
           latestState: store.getLatestWorkItemState(d.id),
           runCount: exec.executionCount, lastRunAt: exec.lastRunAt,
+          ...(mirror.mode === "triage" ? { triageBadge: store.getTriageThreadForWorkDef(d.id).badge } : {}),
         };
       });
     return c.json({ source, defs } satisfies MirroredDefsResponse);

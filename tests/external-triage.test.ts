@@ -141,11 +141,17 @@ test("triage mode: sync → triage item → propose_work → accept/reject → n
 
     // The proposals, folded with decisions.
     const view = await (await app.request(`/api/work-defs/${defId}/triage`)).json();
+    assertEquals(view.latestState, "IN_PROGRESS");
     assertEquals(view.subject, "mirror");
     assertEquals(view.mirror.mode, "triage");
     assertEquals(view.badge, "proposal");
     assertEquals(view.pending.length, 2);
     assertEquals(view.latestOutcome, "proposals");
+
+    // The UI's surfaces: the source's list carries the badge; the item's runs say they're triage.
+    const rows = (await (await app.request(`/api/work-sources/${SOURCE}/defs`)).json()).defs as Array<{ id: string; mode: string; triageBadge?: string }>;
+    assertEquals(rows.find((r) => r.id === defId)?.triageBadge, "proposal");
+    assertEquals((await (await app.request(`/api/work-items/${item.id}`)).json()).item.triage, true);
 
     // Accept creates the task (never runs it) and the decision links it.
     const accept = await app.request(`/api/work-defs/${defId}/triage/proposals/p1/accept`, { method: "POST" });
@@ -163,6 +169,8 @@ test("triage mode: sync → triage item → propose_work → accept/reject → n
     assertEquals((await app.request(`/api/work-defs/${defId}/triage/proposals/nope/accept`, { method: "POST" })).status, 404);
     const after = await (await app.request(`/api/work-defs/${defId}/triage`)).json();
     assertEquals(after.badge, "none");
+    const rowsAfter = (await (await app.request(`/api/work-sources/${SOURCE}/defs`)).json()).defs as Array<{ id: string; triageBadge?: string }>;
+    assertEquals(rowsAfter.find((r) => r.id === defId)?.triageBadge, "none");
     assertEquals(after.pending.length, 0);
     // The decisions are lines in the mirror's own thread, not comments.
     const lines = fs.readFileSync(path.join(teamDir, "tasks", defId, "comments.jsonl"), "utf8").trim().split("\n").map((l) => JSON.parse(l));
@@ -231,6 +239,12 @@ test("per-item mode overrides the source's, and propose_work is refused for a wo
     const rows = (await (await app.request(`/api/work-sources/${SOURCE}/defs`)).json()).defs as Array<{ externalId: string; mode: string }>;
     assertEquals(rows.find((r) => r.externalId === "T-1")?.mode, "triage");
     assertEquals(rows.find((r) => r.externalId === "W-1")?.mode, "work");
+    // Only a triage-mode row has a badge, and only its runs are flagged triage.
+    const badges = rows as Array<{ externalId: string; triageBadge?: string }>;
+    assertEquals(badges.find((r) => r.externalId === "T-1")?.triageBadge, "none");
+    assertEquals("triageBadge" in badges.find((r) => r.externalId === "W-1")!, false);
+    assertEquals((await (await app.request(`/api/work-items/${work.id}`)).json()).item.triage, undefined);
+    assertEquals((await (await app.request(`/api/work-items/${triage.id}`)).json()).item.triage, true);
   } finally { cleanup(store, teamDir); }
 });
 

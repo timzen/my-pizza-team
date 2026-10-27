@@ -14,18 +14,14 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { notifyInboxChanged } from "@/lib/inbox";
-import { hasThreadTab, workItemPath } from "@/lib/work-item-link";
+import { hasThreadTab, workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Inbox as InboxIcon } from "lucide-react";
 
 type WorkItemState = "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED";
-type WorkItemParent = { kind: "story" | "schedule" | "thought"; id: string };
-
-interface WorkItem {
+interface WorkItem extends LinkableWorkItem {
   id: string;
   title: string;
-  ref: { workDefId: string };
-  parent?: WorkItemParent;
   directory?: string | null;
   state: WorkItemState;
   read: boolean;
@@ -44,7 +40,8 @@ const PAGE_SIZE = 20;
  *  work opens its WorkDef page (comments/outcome live on the ref either way).
  *  Deep-links to the **Thread** tab since the inbox is about a completed run's
  *  outcome, which lives in the comments — except an auto-triage run, whose page
- *  *is* its analysis (docs/DESIGN.md "Auto Triage"). */
+ *  *is* its analysis (docs/DESIGN.md "Auto Triage"), and a triage-mode external
+ *  item's run, which opens that item's Triage tab ("External sources" — "Triage mode"). */
 function refLink(item: WorkItem): string {
   return hasThreadTab(item) ? `${workItemPath(item)}?tab=thread` : workItemPath(item);
 }
@@ -53,6 +50,8 @@ function refLink(item: WorkItem): string {
 function parentLabel(item: WorkItem): string {
   if (item.parent?.kind === "story") return item.parent.id;
   if (item.parent?.kind === "thought") return "auto triage";
+  if (item.triage) return `triage · ${item.parent?.source ?? "external"}`;
+  if (item.parent?.kind === "external") return item.parent.source ?? "external";
   return "scheduled/solitary";
 }
 

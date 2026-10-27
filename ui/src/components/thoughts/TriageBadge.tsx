@@ -11,11 +11,15 @@
  * something from you, a dash when it read the note and found nothing to create —
  * and shape, not color, carries the meaning (as with teammate status). Once every
  * proposal in the latest analysis has been decided, the badge is gone.
+ *
+ * A triage-mode external item wears the same badge on its source's Work tab
+ * (pages/ExternalSourcePage), linking to the mirror's Triage tab instead — pass
+ * `to` and `subject: "item"` (docs/DESIGN.md "External sources" — "Triage mode").
  */
 
 import { Link } from "react-router-dom";
 import { Lightbulb, HelpCircle, Minus } from "lucide-react";
-import { badgeTitle, triagePath, type TriageBadge as Badge } from "@/lib/triage";
+import { badgeTitle, triagePath, type TriageBadge as Badge, type TriageSubject } from "@/lib/triage";
 
 const ICON = {
   proposal: Lightbulb,
@@ -23,19 +27,25 @@ const ICON = {
   nothing: Minus,
 } as const;
 
-export function TriageBadge({ noteId, badge, className, onPointerDown }: {
-  noteId: string;
+export function TriageBadge({ noteId, to, subject = "note", badge, className, onPointerDown }: {
+  /** The note it marks (links to its triage page) — or pass `to`. */
+  noteId?: string;
+  /** Where it links instead (a triage-mode external item's Triage tab). */
+  to?: string;
+  /** What it marks, for the tooltip's wording (default "note"). */
+  subject?: TriageSubject;
   badge: Badge | undefined;
   className?: string;
   /** The canvas needs to stop a click here from starting a note drag. */
   onPointerDown?: (e: React.PointerEvent) => void;
 }) {
-  if (!badge || badge === "none") return null;
+  const href = to ?? (noteId ? triagePath(noteId) : null);
+  if (!badge || badge === "none" || !href) return null;
   const Icon = ICON[badge];
-  const title = badgeTitle(badge);
+  const title = badgeTitle(badge, subject);
   return (
     <Link
-      to={triagePath(noteId)}
+      to={href}
       title={title}
       aria-label={title}
       onPointerDown={onPointerDown}

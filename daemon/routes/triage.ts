@@ -10,7 +10,8 @@
  * its WorkDef id, which is what a mirror has:
  *
  *   GET  /api/work-defs/:id/triage                                — thread, proposals folded
- *                                                                    with decisions, badge
+ *                                                                    with decisions, badge,
+ *                                                                    latest WorkItem state
  *   POST /api/work-defs/:id/triage/proposals/:proposalId/accept   — create the work (never start it)
  *   POST /api/work-defs/:id/triage/proposals/:proposalId/reject   — one appended line
  *
@@ -71,6 +72,9 @@ export function registerTriageRoutes(ctx: RouteContext): void {
       pending: thread.pending,
       badge: thread.badge,
       latestOutcome: thread.latestOutcome,
+      // Newest WorkItem's state (null = never run): lets the page say a run is
+      // in flight, and disable Triage now while it is.
+      latestState: store.getLatestWorkItemState(id),
     });
   });
 

@@ -12,6 +12,10 @@
  * their threads). **Sync now** asks the daemon
  * to pull at once instead of waiting for the next interval. Same tab layout
  * as the other Work tabs (WorkItemsLayout); one tab per registered source.
+ * A **triage-mode** item (docs/DESIGN.md "External sources" — "Triage mode") is
+ * marked **Triage** and wears a note's TriageBadge — proposals waiting, a
+ * question, or nothing to create — linking to its page's Triage tab; the row
+ * itself opens that tab too.
  */
 
 import { useState } from "react";
@@ -21,8 +25,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { WorkItemsLayout } from "@/components/WorkItemsTabs";
+import { TriageBadge } from "@/components/thoughts/TriageBadge";
+import { mirrorTriagePath } from "@/lib/triage";
 import { runCountLabel } from "@/lib/run-count";
-import { latestStateLabel, latestStateTone, type MirroredDefRow, openInLabel, shortRevision } from "@/lib/external-sources";
+import { isTriageMode, latestStateLabel, latestStateTone, type MirroredDefRow, openInLabel, shortRevision } from "@/lib/external-sources";
 import { ExternalLink, FolderSync, RefreshCw } from "lucide-react";
 
 /** Badge classes per latest-state tone. */
@@ -92,9 +98,12 @@ export function ExternalSourcePage() {
             {defs.map((def) => (
               <Card key={def.id} className="hover:border-primary/50 transition-colors">
                 <CardContent className="p-4 flex items-center gap-3">
-                  <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
+                  <Link to={isTriageMode(def) ? mirrorTriagePath(def.id) : `/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                     <p className="font-medium truncate">
                       {def.title}
+                      {isTriageMode(def) && (
+                        <Badge variant="outline" className="ml-2 text-[10px]" title="Triaged into proposed work, not worked directly">Triage</Badge>
+                      )}
                       {def.status === "archived" && <Badge variant="secondary" className="ml-2 text-[10px]">Archived</Badge>}
                     </p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
@@ -105,6 +114,7 @@ export function ExternalSourcePage() {
                       </span>
                     </div>
                   </Link>
+                  {isTriageMode(def) && <TriageBadge to={mirrorTriagePath(def.id)} subject="item" badge={def.triageBadge} />}
                   <Badge variant="outline" className={TONE_CLASS[latestStateTone(def.latestState)]} title="State of its latest WorkItem">
                     {latestStateLabel(def.latestState)}
                   </Badge>

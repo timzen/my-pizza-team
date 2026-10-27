@@ -2,7 +2,8 @@
  * daemon/routes/work.ts — WorkItem queue routes (the legible record of what
  * will / is / did happen). Powers the Inbox and the sidebar, plus the recovery
  * actions: cancel (READY), force-fail (MORIBUND), re-enqueue (by ref), and
- * read/unread. READY items blocked by a directory lease report `blockedBy`.
+ * read/unread. READY items blocked by a directory lease report `blockedBy`;
+ * a triage-mode external item's runs report `triage: true`.
  * See docs/DESIGN.md "The WorkItem".
  */
 
@@ -22,13 +23,16 @@ export function registerWorkRoutes(ctx: RouteContext): void {
    * Directory Affinity").
    */
   function view(wi: WorkItem): WorkItemView {
+    const def = store.getWorkDef(wi.ref.workDefId);
     const blocker = wi.state === "READY" ? store.getDirectoryBlocker(wi) : null;
     const holder = blocker?.memberId ? store.getMember(blocker.memberId) : null;
     return {
-      id: wi.id, title: wi.title, ref: wi.ref, parent: store.getWorkDef(wi.ref.workDefId)?.parent, directory: wi.directory,
+      id: wi.id, title: wi.title, ref: wi.ref, parent: def?.parent, directory: wi.directory,
       state: wi.state, read: wi.read, memberId: wi.memberId,
       enqueuedAt: wi.enqueuedAt, lastStateChangeAt: wi.lastStateChangeAt,
       attempt: wi.attempt, retryAt: wi.retryAt, error: wi.error,
+      // A triage-mode external item's run: its outcome is on the mirror's Triage tab.
+      ...(def && store.isTriageModeMirror(def) ? { triage: true } : {}),
       ...(blocker
         ? {
           blockedBy: {

@@ -5,7 +5,7 @@
  * return JSON conforming to these interfaces.
  */
 
-import type { FeaturesConfig, MemberSessionStats, WorkflowConfig } from "./types.ts";
+import type { FeaturesConfig, MemberSessionStats, TriageBadge, WorkflowConfig } from "./types.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
 // (Additive, optional routes — like POST /api/agents/:id/session-stats — are not
@@ -372,6 +372,13 @@ export interface WorkItemView {
    * "Work Matching: Directory Affinity"). Absent when the item isn't blocked.
    */
   blockedBy?: { workItemId: string; title: string; directory?: string; memberId?: string; memberName?: string };
+  /**
+   * True when the item is a run on a triage-mode external item (docs/DESIGN.md
+   * "External sources" — "Triage mode"): its result is an analysis with
+   * proposals, so clients open the mirror's Triage tab rather than its Thread.
+   * Absent otherwise (a note's triage run is told by `parent.kind: "thought"`).
+   */
+  triage?: boolean;
 }
 // GET /api/work-items?state=READY,IN_PROGRESS&read=false&limit=&offset=
 export interface WorkItemsResponse { items: WorkItemView[]; total: number }
@@ -475,6 +482,8 @@ export interface MirroredDefRow {
   lastRunAt: string | null;
   /** "triage" for an item in triage mode (MirrorView.mode). */
   mode: "work" | "triage";
+  /** Triage-mode items only: the latest analysis's badge, as on a note (TriageBadge; "none" once decided). */
+  triageBadge?: TriageBadge;
 }
 
 // GET /api/work-sources/:id/defs

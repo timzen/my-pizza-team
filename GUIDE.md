@@ -509,6 +509,14 @@ nothing runs the item itself. In this mode the daemon sets the item's title
 `buildPrompt`, and `run` aren't called for those items; write-back hooks still are.
 It's an optional field, so `apiVersion` stays 1.
 
+In the web UI such an item is marked **Triage** on its source's Work tab, with
+the same badge a note gets (proposals waiting, a question, nothing to create).
+Its page opens on a **Triage** tab: the item read-only (with **Open in
+<source>**) beside the latest analysis, each proposal with **Accept**, **Edit**,
+or **Reject**, and earlier rounds; the header's button is **Triage now**. A
+finished triage run lands in your Inbox and opens that tab. To answer a
+question, change the item in its source — the next revision is triaged again.
+
 **3. Settings and secrets.** The `config` of the team's package entry —
 `{ "source": "npm:mpt-acme-tracker", "config": { "tokenEnv": "ACME_TOKEN" } }`
 in `config.json` `packages` — is the factory's `options` and the source's

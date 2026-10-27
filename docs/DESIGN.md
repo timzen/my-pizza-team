@@ -467,6 +467,12 @@ turned into proposed tasks rather than handed straight to a teammate.
   (a note's container or a triage-mode mirror) and still refuses any other; the
   accept/reject routes for a mirror are `/api/work-defs/:id/triage/…`, sharing
   the note routes' logic.
+- **The UI is the note's, on the mirror's page.** The mirrored WorkDef's page
+  leads with a **Triage** tab — the item read-only with **Open in <source>**
+  beside the same analysis/proposal components a note's triage page uses — and
+  its Run is **Triage now**. Its row on the source's Work tab wears a note's
+  triage badge, and a finished triage run lands in the Inbox linking to that
+  tab. A question is answered where the item lives: a new revision is the turn.
 
 *Why the mirror, not a container like a note's?* A note needs a container
 because a note isn't a WorkDef; a mirror already is one, with a thread, and its

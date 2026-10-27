@@ -27,12 +27,19 @@
  * an external source's item — reuses this page with editing and Delete off,
  * an "Open in <source>" link, and Back to its source's Work tab; its
  * Thread, attachments, and Run work as for any WorkDef (docs/DESIGN.md "Work Sources").
+ * A **triage-mode** mirror leads with a **Triage** tab (its default; the Inbox
+ * links `?tab=triage`): the item read-only beside its latest analysis, each
+ * proposal with Accept / Edit / Reject, and earlier rounds
+ * (components/triage/MirrorTriagePanel) — and its Run is **Triage now**
+ * (docs/DESIGN.md "External sources" — "Triage mode").
  */
 
 import { useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { FeatureOffNotice } from "@/components/FeatureGate";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
+import { useProposalDecisions } from "@/hooks/useProposalDecisions";
+import { MirrorTriagePanel } from "@/components/triage/MirrorTriagePanel";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
@@ -47,7 +54,8 @@ import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { runCountLabel } from "@/lib/run-count";
 import { commentToneClass } from "@/lib/retry";
-import { mirroredDefHomePath, openInLabel, readOnlyHint, type MirrorInfo } from "@/lib/external-sources";
+import { isTriageMode, mirroredDefHomePath, openInLabel, readOnlyHint, type MirrorInfo } from "@/lib/external-sources";
+import { mirrorTriageNowBlocked, type WorkDefTriageView } from "@/lib/triage";
 
 interface WorkDef {
   id: string;
@@ -62,6 +70,7 @@ interface WorkDef {
   contextRefs?: string[];
   directory?: string | null;
   pending?: boolean;
+  status?: "active" | "archived";
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
   executionCount?: number;
   lastRunAt?: string | null;
@@ -97,7 +106,16 @@ export function WorkDefDetailPage() {
   const [cron, setCron] = useState("");
   const [error, setError] = useState("");
   const [newComment, setNewComment] = useState("");
-  const [tab, setTab] = useDetailTab();
+  // A triage-mode mirror's page leads with (and defaults to) its Triage tab.
+  const triageMode = isTriageMode(def?.mirror);
+  const [tab, setTab] = useDetailTab(triageMode ? "triage" : "details", triageMode);
+  const { data: triageView, refetch: refetchTriage } = useApi<WorkDefTriageView>(
+    triageMode ? `/api/work-defs/${encodeURIComponent(id ?? "")}/triage` : null, [id, triageMode], { pollInterval: 15_000 },
+  );
+  const decisions = useProposalDecisions(
+    (proposalId, action) => `/api/work-defs/${encodeURIComponent(id ?? "")}/triage/proposals/${encodeURIComponent(proposalId)}/${action}`,
+    () => { refetchTriage(); refetchComments(); },
+  );
   const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -144,11 +162,20 @@ export function WorkDefDetailPage() {
     refetchSchedule();
   };
 
+  // On a triage-mode mirror, Run is Triage now (force a triage of the current revision).
+  const triageBlocked = triageMode
+    ? mirrorTriageNowBlocked(triageView?.latestState ?? null, def.status === "archived" || !!mirror?.vanished)
+    : null;
   const run = async () => {
     setError("");
+    decisions.setError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}/enqueue`, {});
-    if (!res.success) setError(res.error || "Failed to run");
+    if (!res.success) {
+      const message = res.error || (triageMode ? "Could not start a triage run" : "Failed to run");
+      if (triageMode) decisions.setError(message); else setError(message);
+    }
     refetch();
+    if (triageMode) refetchTriage();
   };
 
   const remove = async () => {
@@ -209,7 +236,8 @@ export function WorkDefDetailPage() {
   const threadComments = [...comments].reverse();
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
+    // The Triage tab is two columns (the item beside its analysis), as a note's triage page.
+    <div className={`container mx-auto p-6 space-y-4 ${tab === "triage" ? "max-w-6xl" : "max-w-3xl"}`}>
       <div className="flex items-center gap-3">
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
@@ -234,10 +262,16 @@ export function WorkDefDetailPage() {
         {schedule && !def.pending && (schedule.pending
           ? <Button variant="outline" size="sm" onClick={() => setSchedulePending(false)} title="Resume the schedule at its next cron time (missed runs are not back-filled)"><Play className="h-3.5 w-3.5 mr-1" />Activate</Button>
           : <Button variant="ghost" size="sm" onClick={() => setSchedulePending(true)} title="Stop firing this job until you activate it again"><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button>)}
-        <Button variant="outline" size="sm" onClick={run} disabled={def.pending} title={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+        {triageMode
+          ? <Button size="sm" onClick={run} disabled={decisions.busy || triageBlocked !== null} title={triageBlocked ?? "Triage the item's current revision now"}><Play className="h-3.5 w-3.5 mr-1" />Triage now</Button>
+          : <Button variant="outline" size="sm" onClick={run} disabled={def.pending} title={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>}
       </div>
 
-      <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />
+      <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} triage={triageMode ? { pending: triageView?.pending.length ?? 0 } : undefined} />
+
+      {tab === "triage" && triageMode && (triageView
+        ? <MirrorTriagePanel item={def} view={triageView} decisions={decisions} blocked={triageBlocked} />
+        : <p className="text-sm text-muted-foreground">Loading…</p>)}
 
       {tab === "details" && (
       <div className="space-y-4">

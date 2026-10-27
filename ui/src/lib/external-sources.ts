@@ -10,6 +10,7 @@
  */
 
 import { externalSourcePath } from "./work-items.ts";
+import type { TriageBadge } from "./triage.ts";
 
 /** One row of `GET /api/work-sources/:id/defs` (shared/protocol.ts `MirroredDefRow`). */
 export interface MirroredDefRow {
@@ -22,6 +23,10 @@ export interface MirroredDefRow {
   latestState: string | null;
   runCount: number;
   lastRunAt: string | null;
+  /** "triage" for a triage-mode item (docs/DESIGN.md "External sources" — "Triage mode"). */
+  mode?: "work" | "triage";
+  /** Triage-mode items only: the latest analysis's badge. */
+  triageBadge?: TriageBadge;
 }
 
 /** A mirrored WorkDef's provenance (shared/protocol.ts `MirrorView`). */
@@ -32,6 +37,13 @@ export interface MirrorInfo {
   url?: string;
   revision?: string;
   vanished: boolean;
+  /** "triage": a teammate triages it into proposals instead of working it. */
+  mode?: "work" | "triage";
+}
+
+/** Is this mirror (or row) in triage mode — its page leads with a Triage tab, its Run is Triage now? */
+export function isTriageMode(mirror: { mode?: "work" | "triage" } | undefined): boolean {
+  return mirror?.mode === "triage";
 }
 
 /** The label of a row's latest WorkItem state ("Never run" when it has none). */

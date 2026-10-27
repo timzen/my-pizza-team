@@ -3,7 +3,7 @@
  * (ui/src/lib/triage.ts): what a badge means, what a proposal reads as, which
  * fields the Edit-before-accept form shows, when **Triage now** is unavailable,
  * and how the thread groups into rounds. Also the Inbox's routing for a triage
- * run (ui/src/lib/work-item-link.ts).
+ * run (ui/src/lib/work-item-link.ts), a note's or a triage-mode external item's.
  */
 
 import { test } from "node:test";
@@ -13,12 +13,15 @@ import {
   badgeTitle,
   editableFields,
   kindLabel,
+  mirrorTriageNowBlocked,
+  mirrorTriagePath,
   outcomeLabel,
   triageNowBlocked,
   triagePath,
   type TriageThreadEntry,
 } from "../ui/src/lib/triage.ts";
-import { hasThreadTab, workItemPath } from "../ui/src/lib/work-item-link.ts";
+import { hasThreadTab, isTriageRun, workItemPath } from "../ui/src/lib/work-item-link.ts";
+import { isTriageMode } from "../ui/src/lib/external-sources.ts";
 
 test("badge tooltips say what to expect, since the icon is the label", () => {
   assertEquals(badgeTitle("proposal").includes("accept, edit, or reject"), true);
@@ -103,4 +106,45 @@ test("the Inbox sends a triage run to its note's triage page, not the WorkDef", 
   );
   assertEquals(workItemPath({ ref: { workDefId: "wd-1" } }), "/work-defs/wd-1");
   assertEquals(hasThreadTab({ ref: { workDefId: "wd-1" } }), true);
+});
+
+test("an external item's badge tooltip says where to answer, since it can't be edited here", () => {
+  assertEquals(badgeTitle("proposal", "item").includes("from this item"), true);
+  assertEquals(badgeTitle("question", "item").includes("in its source"), true);
+  assertEquals(badgeTitle("nothing", "item").includes("this item"), true);
+  // The note wording is unchanged by default.
+  assertEquals(badgeTitle("question"), badgeTitle("question", "note"));
+});
+
+test("Triage now on an external item is blocked only while a run is in flight or it's archived", () => {
+  assertEquals(mirrorTriageNowBlocked(null, false), null);
+  assertEquals(mirrorTriageNowBlocked("COMPLETE", false), null);
+  assertEquals(mirrorTriageNowBlocked("FAILED", false), null);
+  assertEquals(mirrorTriageNowBlocked("CANCELED", false), null);
+  for (const s of ["READY", "IN_PROGRESS", "MORIBUND"]) {
+    assertEquals(mirrorTriageNowBlocked(s, false)?.includes("already queued"), true);
+  }
+  assertEquals(mirrorTriageNowBlocked(null, true)?.includes("Archived"), true);
+});
+
+test("a triage-mode external item's triage view is its WorkDef page's Triage tab", () => {
+  assertEquals(mirrorTriagePath("simt~T-1"), "/work-defs/simt~T-1?tab=triage");
+  assertEquals(mirrorTriagePath("a/b"), "/work-defs/a%2Fb?tab=triage");
+  assertEquals(isTriageMode({ mode: "triage" }), true);
+  assertEquals(isTriageMode({ mode: "work" }), false);
+  assertEquals(isTriageMode({}), false);
+  assertEquals(isTriageMode(undefined), false);
+});
+
+test("the Inbox sends a triage-mode external item's run to its Triage tab", () => {
+  const run = { ref: { workDefId: "simt~T-1" }, parent: { kind: "external" as const, id: "T-1", source: "simt" }, triage: true };
+  assertEquals(workItemPath(run), "/work-defs/simt~T-1?tab=triage");
+  assertEquals(hasThreadTab(run), false);
+  assertEquals(isTriageRun(run), true);
+  // A work-mode external item's run opens its Thread, as any WorkDef's does.
+  const work = { ref: { workDefId: "simt~T-2" }, parent: { kind: "external" as const, id: "T-2", source: "simt" } };
+  assertEquals(workItemPath(work), "/work-defs/simt~T-2");
+  assertEquals(hasThreadTab(work), true);
+  assertEquals(isTriageRun(work), false);
+  assertEquals(isTriageRun({ ref: { workDefId: "triage-th-1" }, parent: { kind: "thought" as const, id: "th-1" } }), true);
 });
