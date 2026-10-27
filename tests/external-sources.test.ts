@@ -420,9 +420,9 @@ test("routes: /api/work-sources lists external sources and their mirrored defs; 
     store.setWorkItemState(item.id, "COMPLETE");
 
     const list = await (await app.request("/api/work-sources")).json();
-    assertEquals(list.sources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker" }]);
+    assertEquals(list.sources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker", feature: FIXTURE_SOURCE_ID }]);
     const status = await (await app.request("/api/status")).json();
-    assertEquals(status.externalSources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker" }]);
+    assertEquals(status.externalSources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker", feature: FIXTURE_SOURCE_ID }]);
 
     const defs = await (await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/defs`)).json();
     assertEquals(defs.source.label, "Fixture Tracker");
@@ -501,7 +501,7 @@ test("isolation: a sync still running is not started again (no overlap)", async 
   let calls = 0;
   const source: WorkSource = { id: "slow", apiVersion: 1, sync: () => { calls++; return new Promise((r) => { release = r; }); } };
   const runner = new SyncRunner(() => ({ ok: true, mirrored: [], enqueued: [], archived: [], held: [] }));
-  const entry = { source, ctx: stubContext("slow") };
+  const entry = { source, ctx: stubContext("slow"), toggle: null };
   const first = runner.run(entry);
   assertEquals((await runner.run(entry)).skipped, "in-flight");
   release([]);
@@ -513,7 +513,7 @@ test("isolation: backoff doubles per consecutive failure, capped, and resets on 
   let fail = true;
   const source: WorkSource = { id: "flaky", apiVersion: 1, sync: () => fail ? Promise.reject(new Error("x")) : Promise.resolve([]) };
   const runner = new SyncRunner(() => ({ ok: true, mirrored: [], enqueued: [], archived: [], held: [] }), { baseMs: 100, maxMs: 250 });
-  const entry = { source, ctx: stubContext("flaky") };
+  const entry = { source, ctx: stubContext("flaky"), toggle: null };
   await runner.run(entry, { now: 0 });
   assertEquals((await runner.run(entry, { now: 99 })).skipped, "backoff");
   await runner.run(entry, { now: 100 }); // 2nd failure → wait 200

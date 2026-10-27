@@ -68,8 +68,11 @@ export interface SyncOutcome {
   ok: boolean;
   /** Why it failed (a throw, a timeout, a bad result), when `ok` is false. */
   error?: string;
-  /** Skipped without calling `sync`: already running, or backing off after failures. */
-  skipped?: "in-flight" | "backoff";
+  /**
+   * Skipped without calling `sync` (or its result dropped): already running,
+   * backing off after failures, or the source's feature toggle is off.
+   */
+  skipped?: "in-flight" | "backoff" | "disabled";
   /** Mirrored defs written (new, or a moved revision). */
   mirrored: string[];
   /** WorkItems created (one per new revision). */
@@ -252,8 +255,17 @@ export interface WorkSource {
    * not called for those items. Its other hooks (eligibility, write-back) are.
    */
   readonly mode?: WorkSourceMode;
-  /** On/off switch (feature toggle). Absent = always on, not switchable. */
-  readonly toggle?: SourceToggle;
+  /**
+   * On/off switch (feature toggle; docs/DESIGN.md "Feature Toggles"). Absent on
+   * an in-daemon source = always on, not switchable. An **external** source
+   * (one that declares `sync`) that leaves it absent gets a default toggle from
+   * the registry: `{ feature: <id> }`, gating its `/api/work-sources/<id>/defs`
+   * and `/sync` routes — so every plugin source can be switched off (and
+   * disconnected) from the Config page. `null` opts out explicitly: always on.
+   * A feature name must be unique and can't be a built-in's ("stories",
+   * "tasks", "schedules"); a clash is refused at registration.
+   */
+  readonly toggle?: SourceToggle | null;
   /** Called once when registered: read config, set up state. */
   init?(ctx: SourceContext): Promise<void> | void;
   /**

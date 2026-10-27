@@ -317,8 +317,16 @@ Inbox are always on, so every kind can be off at once.
   kind off while it has active items — e.g. "Can't turn off stories: archive or
   delete 3 stories first". Pending stories and pending WorkDefs count; archived items
   don't. Turning a kind on is always allowed.
+- **External sources (plugins) are switchable too**, as `features.<source id>` (a
+  plugin may name its own flag, or opt out with `toggle: null`). Off stops its sync —
+  nothing new is mirrored or queued — and hides its Work tab. While it still has
+  mirrors the 409 applies; `POST /api/work-sources/<id>/disconnect` switches it off
+  *and* archives (never deletes) its mirrors, canceling their queued runs (the
+  Config page's **Turn off and archive N items**). Switching it back on syncs at once
+  and restores the mirrors it still reports.
 - `GET /api/status` and `GET /api/config` report the resolved toggles as `features`;
-  `GET /api/config` also reports each kind's active items as `featureUsage`.
+  `GET /api/config` also reports each kind's active items as `featureUsage`, and
+  each toggle's source and label as `featureSources`.
 - **In the web UI** the toggles are **Config → General → Work items**. A kind that's
   off loses its Work sub-tab and its chip/rows on the mixed Pending and
   Archived lists (the Work nav item goes when all three are off) and quick-create entry, its pages show a "turned off" notice, and its triage proposals can only be rejected.

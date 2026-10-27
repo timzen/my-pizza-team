@@ -214,6 +214,30 @@ test("each broken plugin is logged and skipped; the good one still loads", async
   }
 });
 
+test("a plugin whose feature collides with a built-in's (or another plugin's) is refused and logged", async () => {
+  const env = setup();
+  try {
+    writePlugin(env.teamDir, "named-stories", { sources: ["./index.js"] }, { "index.js": objectSource("stories") });
+    writePlugin(env.teamDir, "claims-tasks", { sources: ["./index.js"] }, {
+      "index.js": `export default { id: "claimer", apiVersion: 1, toggle: { feature: "tasks" }, async sync() { return []; } };`,
+    });
+    writePlugin(env.teamDir, "first", { sources: ["./index.js"] }, { "index.js": objectSource("first") });
+    writePlugin(env.teamDir, "second", { sources: ["./index.js"] }, {
+      "index.js": `export default { id: "second", apiVersion: 1, toggle: { feature: "first" }, async sync() { return []; } };`,
+    });
+    const statuses = await load(env, ["./named-stories", "./claims-tasks", "./first", "./second"]);
+    const by = new Map(statuses.map((s) => [s.spec, s]));
+    assertStringIncludes(by.get("./named-stories")?.error ?? "", "reserved for the built-in");
+    assertStringIncludes(by.get("./claims-tasks")?.error ?? "", "reserved for the built-in");
+    assertEquals(by.get("./first")?.state, "loaded");
+    assertStringIncludes(by.get("./second")?.error ?? "", "already used by source \"first\"");
+    assertEquals(env.store.listExternalSources().map((e) => e.source.id), ["first"]);
+    assert(env.logs.some((l) => l.includes("reserved for the built-in")));
+  } finally {
+    cleanup(env);
+  }
+});
+
 test("a hanging import times out instead of stalling startup", async () => {
   const env = setup();
   try {

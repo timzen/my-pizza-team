@@ -14,7 +14,7 @@
  */
 
 import type { WorkDef } from "../../shared/types.ts";
-import { type SourceContext, WORK_SOURCE_API_VERSION, type WorkSource } from "./types.ts";
+import { type SourceContext, type SourceToggle, WORK_SOURCE_API_VERSION, type WorkSource } from "./types.ts";
 
 /** The source id of a parent-less (Solitary) WorkDef. */
 export const TASK_SOURCE_ID = "task";
@@ -23,6 +23,35 @@ export const TASK_SOURCE_ID = "task";
 export interface SourceEntry {
   source: WorkSource;
   ctx: SourceContext;
+  /**
+   * Its effective on/off switch: the source's own `toggle`, or for an external
+   * source that declared none, the default (`defaultExternalToggle`); null =
+   * always on. Kept on the entry, not the source, because a plugin's object
+   * may be frozen and is the plugin's — the daemon never mutates it.
+   * daemon/features.ts reads only this.
+   */
+  toggle: SourceToggle | null;
+}
+
+/**
+ * The built-in features and the source each belongs to. Their names are
+ * reserved: no other source may claim them (docs/DESIGN.md "Feature Toggles").
+ */
+const BUILTIN_FEATURE_OWNERS: Readonly<Record<string, string>> = { stories: "story", tasks: TASK_SOURCE_ID, schedules: "schedule" };
+
+/**
+ * The toggle an external source gets when it declares none: its id as the
+ * feature name (`features.<id>`), gating its read-only routes. The default
+ * `activeItems` (its non-archived mirrors) applies.
+ */
+export function defaultExternalToggle(sourceId: string): SourceToggle {
+  return { feature: sourceId, routes: [`/api/work-sources/${sourceId}/defs`, `/api/work-sources/${sourceId}/sync`] };
+}
+
+/** A source's effective toggle: its own; else the default for an external source; `null` opts out. */
+export function effectiveToggle(source: WorkSource): SourceToggle | null {
+  if (source.toggle !== undefined) return source.toggle;
+  return typeof source.sync === "function" ? defaultExternalToggle(source.id) : null;
 }
 
 /**
@@ -50,13 +79,22 @@ export class SourceRegistry {
   private entries = new Map<string, SourceEntry>();
 
   private makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext;
+  private isSwitchedOff: (entry: SourceEntry) => boolean;
 
   /**
    * @param makeContext builds the daemon-side context for a source id and its
    *   settings (`ctx.options()`); the Store supplies it.
+   * @param isSwitchedOff is this source's feature toggle off right now (the
+   *   Store reads its live config)? An external source that's off isn't
+   *   ticked; the built-ins' ticks run as they always have (their turn-off
+   *   guard leaves nothing for them to fire).
    */
-  constructor(makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext) {
+  constructor(
+    makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext,
+    isSwitchedOff: (entry: SourceEntry) => boolean = () => false,
+  ) {
     this.makeContext = makeContext;
+    this.isSwitchedOff = isSwitchedOff;
   }
 
   /**
@@ -76,12 +114,30 @@ export class SourceRegistry {
     if (source.sync && !SOURCE_ID_PATTERN.test(source.id)) {
       throw new Error(`Work source "${source.id}": an external source's id must match ${SOURCE_ID_PATTERN}`);
     }
+    const toggle = effectiveToggle(source);
+    if (toggle) this.checkFeatureName(source.id, toggle.feature);
     const options = Object.freeze({ ...(opts.options ?? {}) });
-    const entry: SourceEntry = { source, ctx: this.makeContext(source.id, options) };
+    const entry: SourceEntry = { source, ctx: this.makeContext(source.id, options), toggle };
     this.entries.set(source.id, entry);
     const init = source.init?.(entry.ctx);
     if (init instanceof Promise) init.catch((e) => entry.ctx.log(`init failed: ${e instanceof Error ? e.message : String(e)}`));
     return entry;
+  }
+
+  /**
+   * Refuse a feature name another source already uses, or a built-in's
+   * (stories/tasks/schedules) claimed by anything but that built-in: two
+   * sources on one `features.<name>` flag would switch each other off. Throws,
+   * like a duplicate id — the plugin loader logs it and records the package's error.
+   */
+  private checkFeatureName(sourceId: string, feature: string): void {
+    if (typeof feature !== "string" || !feature) throw new Error(`Work source "${sourceId}": toggle.feature must be a non-empty string`);
+    const owner = BUILTIN_FEATURE_OWNERS[feature];
+    if (owner !== undefined && owner !== sourceId) {
+      throw new Error(`Work source "${sourceId}": feature "${feature}" is reserved for the built-in "${owner}" source (pick another toggle.feature)`);
+    }
+    const taken = this.all().find((e) => e.toggle?.feature === feature);
+    if (taken) throw new Error(`Work source "${sourceId}": feature "${feature}" is already used by source "${taken.source.id}"`);
   }
 
   /**
@@ -117,10 +173,15 @@ export class SourceRegistry {
     for (const id of this.entries.keys()) this.tick(id, now);
   }
 
-  /** Run one source's `tick` (its timer calls this). A throw is logged, not propagated. */
+  /**
+   * Run one source's `tick` (its timer calls this). A throw is logged, not
+   * propagated. Skipped for an external source whose toggle is off.
+   */
   tick(id: string, now: Date = new Date()): void {
     const entry = this.entries.get(id);
     if (!entry?.source.tick) return;
+    // A switched-off external source is disconnected: no tick, so nothing enqueues.
+    if (typeof entry.source.sync === "function" && this.isSwitchedOff(entry)) return;
     try {
       entry.source.tick(entry.ctx, now);
     } catch (e) {

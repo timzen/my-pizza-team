@@ -51,17 +51,22 @@ export class SyncRunner {
   private stopped = false;
   private ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome;
   private backoff: SyncBackoff;
+  private isSwitchedOff: (entry: SourceEntry) => boolean;
 
   /**
    * @param ingest applies a good sync result (the Store: mirror, enqueue, archive).
    * @param backoff how long to wait after consecutive failures.
+   * @param isSwitchedOff is the source's feature toggle off right now (the
+   *   Store's live config)? Then it isn't synced at all — see `run`.
    */
   constructor(
     ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome,
     backoff: SyncBackoff = DEFAULT_SYNC_BACKOFF,
+    isSwitchedOff: (entry: SourceEntry) => boolean = () => false,
   ) {
     this.ingest = ingest;
     this.backoff = backoff;
+    this.isSwitchedOff = isSwitchedOff;
   }
 
   private state(id: string): SourceSyncState {
@@ -86,10 +91,17 @@ export class SyncRunner {
   /**
    * Run one sync of `entry` now. Skips (without calling the source) while a run
    * is in flight or, unless `force`, while backing off. Never rejects.
+   *
+   * A source whose feature toggle is off (docs/DESIGN.md "Feature Toggles") is
+   * skipped even when forced — no `sync` call, no mirrors, no enqueues — and a
+   * result that arrives after it was switched off mid-sync is dropped, so a
+   * disconnect can't be undone by a sync already in flight. Its timer keeps
+   * running, so switching it back on resumes on the next tick.
    */
   async run(entry: SourceEntry, opts: { now?: number; force?: boolean } = {}): Promise<SyncOutcome> {
     const { source, ctx } = entry;
     if (!source.sync) return emptyOutcome({ error: "not an external source" });
+    if (this.isSwitchedOff(entry)) return emptyOutcome({ skipped: "disabled" });
     const st = this.state(source.id);
     if (st.running) return emptyOutcome({ skipped: "in-flight" });
     const now = opts.now ?? Date.now();
@@ -107,6 +119,8 @@ export class SyncRunner {
       if (!Array.isArray(defs)) throw new Error("sync did not return an array");
       // The Store closed while the source was working: its DB is gone.
       if (this.stopped) return emptyOutcome({ error: "stopped" });
+      // Switched off while the source was working: drop the result (see above).
+      if (this.isSwitchedOff(entry)) return emptyOutcome({ skipped: "disabled" });
       const outcome = this.ingest(entry, defs);
       st.failures = 0;
       st.notBefore = 0;

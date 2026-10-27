@@ -442,6 +442,33 @@ export interface MirrorView {
 export interface ExternalSourceView {
   id: string;
   label: string;
+  /**
+   * Its `features.<name>` toggle (by default its id), or absent when it opted
+   * out (`toggle: null`) and is always on. The UI hides its Work tab while
+   * that feature is off.
+   */
+  feature?: string;
+}
+
+/**
+ * One toggleable feature as the Config page lists it (`GET /api/config`
+ * `featureSources`, in display order): the source that owns it, the source's
+ * label, and whether it's external — an external source with active mirrors
+ * can be *disconnected* (`POST /api/work-sources/:id/disconnect`).
+ */
+export interface FeatureSourceView {
+  feature: string;
+  sourceId: string;
+  label: string;
+  external: boolean;
+}
+
+/** `POST /api/work-sources/:id/disconnect`: the feature switched off and the mirrors archived. */
+export interface DisconnectSourceResponse {
+  success: boolean;
+  error?: string;
+  feature?: string;
+  archived?: string[];
 }
 
 /**

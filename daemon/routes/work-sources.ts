@@ -10,18 +10,25 @@
  *                                       last revision, latest WorkItem state, run count,
  *                                       mode ("triage" for a triage-mode item) and,
  *                                       for those, `triageBadge` (the latest analysis's badge)
- *   POST /api/work-sources/:id/sync   — sync it now (ignores a failure backoff)
+ *   POST /api/work-sources/:id/sync   — sync it now (ignores a failure backoff;
+ *                                       409 `skipped: "disabled"` while it's off)
+ *   POST /api/work-sources/:id/disconnect — switch it off *and* archive its mirrors
+ *                                       (daemon/features.ts `disconnectSource`)
  *
  * A mirrored def's detail and thread are the ordinary `/api/work-defs/:id`
- * routes (edit/delete refused there). Not feature-gated: an external source
- * declares no toggle unless it wants one.
+ * routes (edit/delete refused there). Feature-gated: an external source gets a
+ * toggle by default (`features.<id>`; daemon/sources/registry.ts
+ * `defaultExternalToggle`), which 403s `/defs` and `/sync` while it's off. The
+ * list and `disconnect` stay open, so the UI can still name it and finish a
+ * disconnect.
  */
 
 import type { RouteContext } from "./types.ts";
 import type { WorkDef } from "../../shared/types.ts";
-import type { ExternalSourceView, MirroredDefRow, MirroredDefsResponse, MirrorView, WorkSourcesResponse } from "../../shared/protocol.ts";
+import type { DisconnectSourceResponse, ExternalSourceView, MirroredDefRow, MirroredDefsResponse, MirrorView, WorkSourcesResponse } from "../../shared/protocol.ts";
 import type { Store } from "../store.ts";
 import { sourceIdForWorkDef } from "../sources/registry.ts";
+import { disconnectSource } from "../features.ts";
 
 /** A source's display name: its `label`, else its id (also for one no longer registered). */
 export function sourceLabel(store: Store, sourceId: string): string {
@@ -30,7 +37,9 @@ export function sourceLabel(store: Store, sourceId: string): string {
 
 /** The registered external sources, for `/api/status` and the UI's tabs. */
 export function externalSourceViews(store: Store): ExternalSourceView[] {
-  return store.listExternalSources().map(({ source }) => ({ id: source.id, label: source.label ?? source.id }));
+  return store.listExternalSources().map(({ source, toggle }) => ({
+    id: source.id, label: source.label ?? source.id, ...(toggle ? { feature: toggle.feature } : {}),
+  }));
 }
 
 /** A mirrored def's provenance (WorkDefView.mirror), or undefined for any other def. */
@@ -51,7 +60,7 @@ export function mirroredReadOnlyError(label: string): string {
 }
 
 export function registerWorkSourceRoutes(ctx: RouteContext): void {
-  const { app, store } = ctx;
+  const { app, store, config } = ctx;
 
   app.get("/api/work-sources", (c) => c.json({ sources: externalSourceViews(store), plugins: store.getPluginStatuses() } satisfies WorkSourcesResponse));
 
@@ -83,5 +92,15 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
     if (!externalSourceViews(store).some((s) => s.id === id)) return c.json({ success: false, error: `No external source "${id}"` }, 404);
     const outcome = await store.syncWorkSource(id, { force: true });
     return c.json({ success: outcome.ok, ...outcome }, outcome.ok ? 200 : outcome.skipped ? 409 : 502);
+  });
+
+  // Disconnect: the explicit opt-in past the turn-off guard's 409 — switch the
+  // source off, archive (never delete) its mirrors, cancel their READY items;
+  // in-flight ones finish. Saved to config.json like a Config-page save.
+  app.post("/api/work-sources/:id/disconnect", (c) => {
+    const result = disconnectSource(config, store, c.req.param("id"));
+    if ("error" in result) return c.json({ success: false, error: result.error } satisfies DisconnectSourceResponse, result.status);
+    store.saveConfig();
+    return c.json({ success: true, ...result } satisfies DisconnectSourceResponse);
   });
 }

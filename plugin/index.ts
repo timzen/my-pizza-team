@@ -17,7 +17,16 @@
  * Keep this list deliberate: whatever is exported here is API. Breaking a type
  * means bumping `WORK_SOURCE_API_VERSION`. Additive changes — a new optional
  * field or type, like `WorkSource.mode` / `ExternalDef.mode` (`WorkSourceMode`,
- * triage mode) — are not breaking, so the version stays 1.
+ * triage mode), or `toggle: null` — are not breaking, so the version stays 1.
+ *
+ * On/off: an external source (one that declares `sync`) is switchable from the
+ * Config page without declaring anything — the daemon gives it the toggle
+ * `{ feature: <id> }` (`features.<id>` in config.json). While it's off the
+ * daemon doesn't call its `sync` or `tick`, and `ctx.upsertDef` / `ctx.enqueue`
+ * return null; a person can also *disconnect* it (switch off and archive its
+ * mirrors). Declare `toggle: { feature }` to pick the name, or `toggle: null`
+ * to stay always on. A feature name must be unique and not a built-in's
+ * (stories, tasks, schedules), or the source is refused at load.
  */
 
 export { WORK_SOURCE_API_VERSION } from "../daemon/sources/types.ts";

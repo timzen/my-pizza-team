@@ -924,6 +924,48 @@ always on, so "everything off" is still a working team: notes in, triage out.
   schedule → `schedules` — so configs read exactly as before and nothing is
   migrated; Thought declares no toggle, so it can't be switched off. A flag for a
   source that isn't registered is left alone on disk but isn't accepted in a PUT.
+- **Every external source is switchable by default.** A source that declares
+  `sync` and no `toggle` gets `{ feature: <its id> }` from the registry
+  (daemon/sources/registry.ts `effectiveToggle`), gating its
+  `/api/work-sources/<id>/defs` and `/sync` routes — so a team can stop a
+  plugin without uninstalling it. The effective toggle lives on the registry
+  *entry*, never written onto the plugin's (possibly frozen) object; `toggle:
+  null` opts out (always on). Additive, so `WORK_SOURCE_API_VERSION` stays 1.
+  Feature names are one flag each: a built-in's name (`stories`, `tasks`,
+  `schedules`) is reserved for that built-in, and a name another source
+  already uses is refused — registration throws, the plugin loader logs it and
+  records the package's error, like a duplicate id. Silently namespacing would
+  have meant a config key the author never wrote.
+- **Off means disconnected, not just hidden.** A switched-off external source
+  isn't synced (even **Sync now** is refused), isn't ticked, and its
+  `ctx.upsertDef` / `enqueue` / `enqueueRevision` do nothing, so no path brings
+  in new mirrors or WorkItems; a sync already in flight has its result dropped.
+  In-flight WorkItems still finish (the agent protocol is never gated). Its
+  timer keeps running, so switching it back on resumes on the next interval —
+  and a `PUT /api/config` that turns it on also syncs it at once.
+- **Disconnecting is the one opt-in past the guard, for external sources only.**
+  A mirror isn't yours to archive one by one — sync owns it — so the 409
+  would leave an external source with live mirrors stuck on. `POST
+  /api/work-sources/:id/disconnect` (rather than a flag on `PUT /api/config`:
+  it's one explicit action with its own confirm, it needs none of the config
+  body, and the CLI or a script can call it alone) switches the feature off
+  *first* — so an in-flight sync can't re-mirror — then archives, never
+  deletes, every non-archived mirror, cancels their READY items (write-back
+  sees CANCELED, as for a vanished item) and leaves IN_PROGRESS/MORIBUND ones
+  to finish, and saves config.json. Each archived mirror is marked
+  `disconnected:<defId>` in the source's kv, so switching the source back on
+  restores those the source still reports — like a vanished item coming back —
+  without re-running a revision already handed over; one a person archived
+  stays archived. Without the opt-in the 409 stands (its message names the
+  route); the built-ins keep exactly the old guard.
+- **The Config page lists what the server says is switchable.** `GET
+  /api/config` carries `featureSources` (each toggle's source, label, and
+  whether it's external) next to `featureUsage`, so the Work items list is the
+  built-ins under their own labels plus each plugin source under its `label`,
+  with no hard-coded names. A locked external source offers **Turn off and
+  archive N items** behind a confirm dialog. A switched-off source's Work tab
+  hides and its page shows the "turned off" notice (`/api/status`
+  `externalSources[].feature`).
 
 ## Task Ordering: the Story Owns It
 

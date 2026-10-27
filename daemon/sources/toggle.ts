@@ -7,7 +7,8 @@
  * active items.
  */
 
-import type { ActiveSourceItems, SourceContext } from "./types.ts";
+import type { TeamConfig } from "../../shared/types.ts";
+import type { ActiveSourceItems, SourceContext, SourceToggle } from "./types.ts";
 import { sourceIdForWorkDef } from "./registry.ts";
 
 /** "1 story" / "3 stories". */
@@ -22,4 +23,14 @@ export function plural(n: number, one: string, many: string): string {
 export function activeWorkDefs(ctx: SourceContext, one = "item", many = "items"): ActiveSourceItems {
   const count = ctx.listWorkDefs().filter((d) => sourceIdForWorkDef(d) === ctx.sourceId && d.status !== "archived").length;
   return { count, description: plural(count, one, many) };
+}
+
+/**
+ * Is a source switched off right now? Only a source with a toggle can be, and
+ * only by an explicit `false` under `config.features` (missing = on). Read per
+ * call from the live config, so a Config-page change applies at once.
+ */
+export function isSourceSwitchedOff(config: Pick<TeamConfig, "features">, toggle: SourceToggle | null | undefined): boolean {
+  if (!toggle) return false;
+  return (config.features as Record<string, boolean | undefined> | undefined)?.[toggle.feature] === false;
 }

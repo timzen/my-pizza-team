@@ -87,7 +87,8 @@ import { isValidCron } from "./cron.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import { type RegisterSourceOptions, type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
 import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource, WorkSourceMode } from "./sources/types.ts";
-import { mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
+import { disconnectedKey, mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
+import { isSourceSwitchedOff } from "./sources/toggle.ts";
 import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
 import { DEFAULT_SYNC_EVERY_MS, SyncRunner } from "./sources/sync.ts";
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
@@ -353,13 +354,20 @@ export class Store {
    * (eligibility, enqueue, terminal, the periodic tick) instead of switching on
    * kind; a kind with no registered source keeps the inline default.
    */
-  private sources = new SourceRegistry((sourceId, options) => this.makeSourceContext(sourceId, options));
+  private sources = new SourceRegistry(
+    (sourceId, options) => this.makeSourceContext(sourceId, options),
+    (entry) => isSourceSwitchedOff(this.config, entry.toggle),
+  );
   /**
    * The sync loop for external (pull-only) sources: timeout, backoff, and
    * isolation (daemon/sources/sync.ts); a good result comes back to
    * `ingestExternalDefs`.
    */
-  private syncRunner = new SyncRunner((entry, defs) => this.ingestExternalDefs(entry, defs));
+  private syncRunner = new SyncRunner(
+    (entry, defs) => this.ingestExternalDefs(entry, defs),
+    undefined,
+    (entry) => isSourceSwitchedOff(this.config, entry.toggle),
+  );
   /**
    * The built-in Thought (auto-triage) source, kept by reference because the
    * Store's triage methods (sweep, Triage now, status) delegate to it.
@@ -449,7 +457,14 @@ export class Store {
    */
   private makeSourceContext(sourceId: string, options: Readonly<Record<string, unknown>> = EMPTY_SOURCE_OPTIONS): SourceContext {
     const hasActiveItem = (defId: string) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null;
-    const enqueue = (defId: string) => this.enqueueFor(defId);
+    // An external source switched off is disconnected (docs/DESIGN.md "Feature
+    // Toggles"): whatever path it takes — a webhook, a write-back hook — it
+    // mirrors and enqueues nothing until it's switched back on.
+    const disconnected = () => {
+      const entry = this.sources.get(sourceId);
+      return !!entry?.source.sync && isSourceSwitchedOff(this.config, entry.toggle);
+    };
+    const enqueue = (defId: string) => disconnected() ? null : this.enqueueFor(defId);
     const kv = fileSourceKv(this.teamDir, sourceId);
     const defaultCursor = kvRevisionCursor(kv);
     return {
@@ -462,7 +477,7 @@ export class Store {
       hasActiveItem,
       enqueue,
       enqueueRevision: (defId, revision, opts) => enqueueRevision({ hasActiveItem, enqueue }, defaultCursor, defId, revision, opts),
-      upsertDef: (def) => upsertMirror(this.teamDir, sourceId, kv, def, this.sourceMode(sourceId))?.def ?? null,
+      upsertDef: (def) => disconnected() ? null : upsertMirror(this.teamDir, sourceId, kv, def, this.sourceMode(sourceId))?.def ?? null,
       kv,
       readiness: { canEnqueueNow: () => this.canScheduleNow() },
     };
@@ -624,6 +639,30 @@ export class Store {
       out.archived.push(def.id);
     }
     return out;
+  }
+
+  /**
+   * Archive — never delete — every non-archived mirror of an external source,
+   * for a **disconnect** (daemon/features.ts `disconnectSource`, which switches
+   * the source's feature off first so no sync in flight can bring them back).
+   * A still-READY WorkItem is canceled (write-back sees CANCELED, as for a
+   * vanished item); an IN_PROGRESS/MORIBUND one is left to finish — the agent
+   * protocol is never gated. Each archived mirror is marked
+   * (`disconnected:<defId>` in the source's kv), so switching the source back
+   * on restores it when sync reports the item again. Returns the archived ids.
+   */
+  archiveExternalMirrors(sourceId: string): string[] {
+    const kv = fileSourceKv(this.teamDir, sourceId);
+    const archived: string[] = [];
+    for (const def of listWorkDefs(this.teamDir)) {
+      if (def.parent?.kind !== "external" || sourceIdForWorkDef(def) !== sourceId || def.status === "archived") continue;
+      const active = this.getActiveWorkItemForRef({ workDefId: def.id });
+      if (active?.state === "READY") this.cancelWorkItem(active.id);
+      updateWorkDef(this.teamDir, def.id, { status: "archived" });
+      kv.set(disconnectedKey(def.id), new Date().toISOString());
+      archived.push(def.id);
+    }
+    return archived;
   }
 
   /**

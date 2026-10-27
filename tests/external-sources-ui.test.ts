@@ -13,6 +13,7 @@ import {
   externalSourceIdFromPath,
   externalSourcePath,
   hasAnyWorkItemsFeature,
+  isExternalSourceOn,
   visibleWorkItemsTabs,
   workItemsTabLinks,
 } from "../ui/src/lib/work-items.ts";
@@ -81,4 +82,16 @@ test("a mirrored def's page: read-only hint, Back to its source's tab, Work high
   const hint = readOnlyHint("Jira");
   assertEquals(hint.includes("pull only") && hint.includes("edit it there"), true);
   assertEquals(sectionForWorkDefType("External"), "work-items");
+});
+
+test("workItemsTabLinks: a switched-off external source's tab hides; one without a toggle always shows", () => {
+  const jira = { id: "jira", label: "Jira", feature: "jira" };
+  const alwaysOn = { id: "fixture", label: "Fixture" };
+  const labels = (features: Record<string, boolean>) => workItemsTabLinks({ ...ALL_ON, ...features }, [jira, alwaysOn]).map((t) => t.label);
+  assertEquals(labels({ jira: true }), ["Board", "Tasks", "Schedule", "Jira", "Fixture", "Pending", "Archived"]);
+  assertEquals(labels({ jira: false }), ["Board", "Tasks", "Schedule", "Fixture", "Pending", "Archived"]);
+  // A flag the UI hasn't heard of yet means on, like the daemon.
+  assertEquals(labels({}).includes("Jira"), true);
+  assertEquals(isExternalSourceOn(jira, null), false, "nothing until the toggles load");
+  assertEquals(hasAnyWorkItemsFeature({ ...ALL_OFF, jira: false }, [jira]), false);
 });

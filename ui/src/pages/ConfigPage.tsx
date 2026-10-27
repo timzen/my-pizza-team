@@ -3,7 +3,9 @@
  * the shared RouteTabs control, so each tab is deep-linkable and consistent
  * with the Board and Root page tabs):
  *
- * - **General** (`/config`) — the Work items feature toggles, server,
+ * - **General** (`/config`) — the Work items feature toggles (the built-in
+ *   kinds plus every switchable Work Source, listed from the server; an
+ *   external source still holding mirrors offers "Turn off and archive"), server,
  *   scheduling, autosave, and favorite directories (which save immediately via
  *   /api/directories/favorites).
  * - **Teammates** (`/config/teammates`) — name nouns, one-teammate-per-directory,
@@ -31,7 +33,7 @@ import { useState, useEffect } from "react";
 import { useLocation } from "react-router-dom";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { notifyFeaturesChanged, useFeatures } from "@/hooks/useFeatures";
-import { FEATURE_DESCRIPTIONS, FEATURE_LABELS, FEATURE_NAMES, type FeatureName, type Features } from "@/lib/features";
+import { featuresChanged, featureToggleRows, type FeatureSourceInfo, type Features } from "@/lib/features";
 import { configTabFromPath, tabSavesConfig, visibleConfigTabs } from "@/lib/config-tabs";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { FAVORITES_CHANGED_EVENT, notifyFavoritesChanged } from "@/lib/directories";
@@ -49,6 +51,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Settings, Plus, X, Save, Star } from "lucide-react";
 
 interface TeammateConfig {
@@ -82,7 +85,9 @@ interface ConfigData {
   /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */
   features?: Features;
   /** Read-only: each kind's active items, which block switching it off. */
-  featureUsage?: Record<FeatureName, { count: number; description: string }>;
+  featureUsage?: Record<string, { count: number; description: string }>;
+  /** Read-only: each toggle's source, label, and whether it's external (in display order). */
+  featureSources?: FeatureSourceInfo[];
 }
 
 export function ConfigPage() {
@@ -163,7 +168,23 @@ export function ConfigPage() {
   } else if (activeTab === "triage") {
     content = <TriageSettings config={config} setConfig={setConfig} />;
   } else {
-    content = <GeneralTab config={config} setConfig={setConfig} saved={data} featureError={featureError} />;
+    content = (
+      <GeneralTab
+        config={config} setConfig={setConfig} saved={data} featureError={featureError}
+        onDisconnected={(feature) => {
+          // The daemon switched it off and saved; reflect that in the draft
+          // without dropping the user's other unsaved edits, then refresh.
+          setConfig({
+            ...config,
+            features: { ...config.features, [feature]: false } as Features,
+            featureUsage: { ...config.featureUsage, [feature]: { count: 0, description: "0 items" } },
+          });
+          refetch();
+          notifyFeaturesChanged();
+          showToast("✓ Disconnected");
+        }}
+      />
+    );
   }
 
   return (
@@ -205,26 +226,27 @@ export function ConfigPage() {
 }
 
 /**
- * The PUT body for a draft: drops the read-only `featureUsage`, and sends
- * `features` only when a toggle changed — so saving an unrelated field doesn't
- * write a `features` block into an existing team's config.json (absent = all on).
+ * The PUT body for a draft: drops the read-only `featureUsage` and
+ * `featureSources`, and sends `features` only when a toggle changed — so
+ * saving an unrelated field doesn't write a `features` block into an existing
+ * team's config.json (absent = all on).
  */
 function configBody(draft: ConfigData, saved: ConfigData | null): ConfigData {
   const body = { ...draft };
   delete body.featureUsage;
-  const features = draft.features;
-  const changed = features && FEATURE_NAMES.some((name) => features[name] !== saved?.features?.[name]);
-  if (!changed) delete body.features;
+  delete body.featureSources;
+  if (!featuresChanged(draft.features, saved?.features)) delete body.features;
   return body;
 }
 
 // --- General Tab ---
 
-function GeneralTab({ config, setConfig, saved, featureError }: {
+function GeneralTab({ config, setConfig, saved, featureError, onDisconnected }: {
   config: ConfigData;
   setConfig: (c: ConfigData) => void;
   saved: ConfigData | null;
   featureError: string | null;
+  onDisconnected: (feature: string) => void;
 }) {
   const update = (field: string, value: unknown) => {
     setConfig({ ...config, [field]: value });
@@ -236,7 +258,7 @@ function GeneralTab({ config, setConfig, saved, featureError }: {
 
   return (
     <div className="space-y-4">
-      <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} />
+      <WorkItemFeatures config={config} setConfig={setConfig} saved={saved} error={featureError} onDisconnected={onDisconnected} />
 
       <AssistantChatModeSetting config={config} setConfig={setConfig} />
 
@@ -345,52 +367,96 @@ function GeneralTab({ config, setConfig, saved, featureError }: {
 // --- Work items: feature toggles (docs/DESIGN.md "Feature Toggles") ---
 
 /**
- * Switch the Stories, Tasks (incl. Templates), and Schedules kinds on or off,
- * saved with the page. A kind that's on and still has active items can't be
- * switched off — the daemon would refuse (409) — so its checkbox is disabled with
- * what to archive or delete first (`featureUsage` from GET /api/config). A
- * refusal that slips through (items created meanwhile) shows as `error`.
+ * Switch the Stories, Tasks (incl. Templates), and Schedules kinds — and every
+ * switchable Work Source plugin (each external source by default) — on or off,
+ * saved with the page. The list comes from the server (`featureSources` from
+ * GET /api/config), so a plugin's toggle appears under its label. A kind that's
+ * on and still has active items can't be switched off — the daemon would
+ * refuse (409) — so its checkbox is disabled with what to archive or delete
+ * first (`featureUsage`). An **external** source's mirrors aren't yours to
+ * archive one by one, so it offers **Turn off and archive N items** instead: a
+ * confirm dialog, then `POST /api/work-sources/:id/disconnect`, which applies
+ * at once (not on Save). A refusal that slips through shows as `error`.
  */
-function WorkItemFeatures({ config, setConfig, saved, error }: {
+function WorkItemFeatures({ config, setConfig, saved, error, onDisconnected }: {
   config: ConfigData;
   setConfig: (c: ConfigData) => void;
   saved: ConfigData | null;
   error: string | null;
+  onDisconnected: (feature: string) => void;
 }) {
   const features: Features = { stories: true, tasks: true, schedules: true, ...config.features };
-  const set = (name: FeatureName, on: boolean) => setConfig({ ...config, features: { ...features, [name]: on } });
+  const set = (name: string, on: boolean) => setConfig({ ...config, features: { ...features, [name]: on } });
+  const rows = featureToggleRows(config.featureSources);
+  const [confirming, setConfirming] = useState<{ feature: string; sourceId: string; label: string; description: string } | null>(null);
+  const [disconnecting, setDisconnecting] = useState(false);
+  const [disconnectError, setDisconnectError] = useState<string | null>(null);
+
+  const disconnect = async () => {
+    if (!confirming) return;
+    setDisconnecting(true);
+    setDisconnectError(null);
+    try {
+      const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-sources/${encodeURIComponent(confirming.sourceId)}/disconnect`, {});
+      if (res.success) {
+        onDisconnected(confirming.feature);
+        setConfirming(null);
+      } else {
+        setDisconnectError(res.error || "Disconnect failed");
+      }
+    } catch (e) {
+      setDisconnectError("Network error: " + (e as Error).message);
+    }
+    setDisconnecting(false);
+  };
 
   return (
     <Card>
       <CardContent className="p-4 space-y-3">
         <h2 className="font-semibold">Work items</h2>
         <p className="text-xs text-muted-foreground">
-          The kinds of work your team uses. A kind that's off disappears from the nav and the quick-create
-          menu, and its pages, API, CLI and assistant tools are refused. Thoughts, Context and the Inbox are
-          always on. Takes effect as soon as you save.
+          The kinds of work your team uses, and the external sources it pulls work from. A kind that's off
+          disappears from the nav and the quick-create menu, and its pages, API, CLI and assistant tools are
+          refused; a source that's off stops syncing and nothing new from it runs. Thoughts, Context and the
+          Inbox are always on. Takes effect as soon as you save.
         </p>
         <div className="space-y-2">
-          {FEATURE_NAMES.map((name) => {
+          {rows.map((row) => {
+            const name = row.feature;
+            const on = features[name] !== false;
             const usage = config.featureUsage?.[name];
             // Only a kind that's on (as saved) and still in use is locked on.
-            const locked = saved?.features?.[name] !== false && features[name] && (usage?.count ?? 0) > 0;
+            const locked = saved?.features?.[name] !== false && on && (usage?.count ?? 0) > 0;
             return (
               <div key={name} className="space-y-0.5">
                 <label className={`flex items-center gap-2 text-sm ${locked ? "opacity-70" : ""}`}>
                   <input
                     id={`feature-${name}`}
                     type="checkbox"
-                    checked={features[name]}
+                    checked={on}
                     disabled={locked}
                     onChange={(e) => set(name, e.target.checked)}
                   />
-                  <span className="font-medium">{FEATURE_LABELS[name]}</span>
-                  <span className="text-xs text-muted-foreground">{FEATURE_DESCRIPTIONS[name]}</span>
+                  <span className="font-medium">{row.label}</span>
+                  <span className="text-xs text-muted-foreground">{row.description}</span>
                 </label>
-                {locked && usage && (
+                {locked && usage && !row.external && (
                   <p className="pl-6 text-xs text-muted-foreground">
-                    To turn {FEATURE_LABELS[name]} off, archive or delete {usage.description} first.
+                    To turn {row.label} off, archive or delete {usage.description} first.
                   </p>
+                )}
+                {locked && usage && row.external && row.sourceId && (
+                  <div className="pl-6 flex items-center gap-2 text-xs text-muted-foreground">
+                    <span>{row.label} still has {usage.description}.</span>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-6 px-2 text-xs"
+                      onClick={() => { setDisconnectError(null); setConfirming({ feature: name, sourceId: row.sourceId!, label: row.label, description: usage.description }); }}
+                    >
+                      Turn off and archive {usage.description}
+                    </Button>
+                  </div>
                 )}
               </div>
             );
@@ -398,6 +464,25 @@ function WorkItemFeatures({ config, setConfig, saved, error }: {
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </CardContent>
+      <Dialog open={confirming !== null} onOpenChange={(open) => { if (!open && !disconnecting) setConfirming(null); }}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Turn off {confirming?.label}?</DialogTitle>
+            <DialogDescription>
+              This stops syncing {confirming?.label} and archives {confirming?.description} mirrored from it — nothing
+              is deleted, and their threads stay. Queued runs are canceled; anything a teammate is working on now
+              finishes. Turn it back on later and sync brings the items back. Applies immediately.
+            </DialogDescription>
+          </DialogHeader>
+          {disconnectError && <p className="text-xs text-destructive">{disconnectError}</p>}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setConfirming(null)} disabled={disconnecting}>Cancel</Button>
+            <Button variant="destructive" onClick={disconnect} disabled={disconnecting}>
+              {disconnecting ? "Turning off..." : `Turn off and archive ${confirming?.description ?? ""}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Card>
   );
 }

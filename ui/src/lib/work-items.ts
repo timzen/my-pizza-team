@@ -56,6 +56,13 @@ export const WORK_ITEMS_TABS: readonly WorkItemsTabDef[] = [
 export interface ExternalSourceInfo {
   id: string;
   label: string;
+  /** Its `features.<name>` toggle (default: its id); absent = always on. Its tab hides while off. */
+  feature?: string;
+}
+
+/** Is this external source switched on (no toggle, or its feature isn't off)? */
+export function isExternalSourceOn(source: ExternalSourceInfo, features: Features | null): boolean {
+  return !source.feature || (features !== null && features[source.feature] !== false);
 }
 
 /** The path segment under the root for external-source tabs (`/work/source/<id>`). */
@@ -89,7 +96,7 @@ export interface WorkItemsTabLink {
 
 /**
  * Every tab to render, in order: the visible kind tabs (Board · Tasks ·
- * Schedule), one per external source, then Pending · Archived. With no
+ * Schedule), one per external source that's switched on, then Pending · Archived. With no
  * external sources this is exactly `visibleWorkItemsTabs`. Nothing until the
  * toggles load, so no tab flashes in.
  */
@@ -100,7 +107,8 @@ export function workItemsTabLinks(features: Features | null, sources: readonly E
   });
   const visible = visibleWorkItemsTabs(features);
   const lifecycle = (t: WorkItemsTabDef) => t.tab === "pending" || t.tab === "archived";
-  const external = (sources ?? []).map((s): WorkItemsTabLink => ({
+  // A switched-off source's tab hides, like a switched-off kind's.
+  const external = (sources ?? []).filter((s) => isExternalSourceOn(s, features)).map((s): WorkItemsTabLink => ({
     key: `source:${s.id}`, path: externalSourcePath(s.id), label: s.label, isActive: (p) => externalSourceIdFromPath(p) === s.id,
   }));
   return [...visible.filter((t) => !lifecycle(t)).map(toLink), ...external, ...visible.filter(lifecycle).map(toLink)];

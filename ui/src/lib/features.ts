@@ -1,6 +1,7 @@
 /**
- * lib/features.ts — The team's feature toggles (Stories, Tasks, Schedules) as the
- * UI sees them, and which UI surfaces each one governs.
+ * lib/features.ts — The team's feature toggles (Stories, Tasks, Schedules, and
+ * one per switchable Work Source plugin — every external source by default) as
+ * the UI sees them, and which UI surfaces each one governs.
  *
  * The daemon is the authority (daemon/features.ts refuses a disabled kind's
  * routes with 403); the UI only hides what would be refused, so the nav, quick
@@ -15,8 +16,12 @@
 /** One switchable work-item kind (shared/types.ts `FeatureName`). */
 export type FeatureName = "stories" | "tasks" | "schedules";
 
-/** Resolved toggles: every kind present (shared/types.ts `Required<FeaturesConfig>`). */
-export type Features = Record<FeatureName, boolean>;
+/**
+ * Resolved toggles: every built-in kind present (shared/types.ts
+ * `Required<FeaturesConfig>`), plus one flag per toggleable plugin source
+ * (`features.<id>` for an external source), keyed by its feature name.
+ */
+export type Features = Record<FeatureName, boolean> & Record<string, boolean>;
 
 /** Every switchable kind, in display order (shared/types.ts `FEATURE_NAMES`). */
 export const FEATURE_NAMES: readonly FeatureName[] = ["stories", "tasks", "schedules"];
@@ -40,11 +45,72 @@ export const FEATURE_DESCRIPTIONS: Record<FeatureName, string> = {
  * `resolveFeatures`. Tolerates a daemon too old to report `features` at all.
  */
 export function resolveFeatures(raw: Partial<Record<string, unknown>> | null | undefined): Features {
+  // Plugin sources' flags pass through (the daemon reports them resolved).
+  const plugins = Object.fromEntries(Object.entries(raw ?? {}).filter(([k, v]) => !isBuiltinFeature(k) && typeof v === "boolean")) as Record<string, boolean>;
   return {
+    ...plugins,
     stories: raw?.stories !== false,
     tasks: raw?.tasks !== false,
     schedules: raw?.schedules !== false,
   };
+}
+
+/** Is this one of the built-in kinds (stories/tasks/schedules)? */
+export function isBuiltinFeature(name: string): name is FeatureName {
+  return (FEATURE_NAMES as readonly string[]).includes(name);
+}
+
+/** Is a feature on? Missing = on, as on the daemon (a plugin's flag the UI hasn't heard of yet). */
+export function isFeatureOn(features: Features | null, feature: string): boolean {
+  return features !== null && features[feature] !== false;
+}
+
+// ─── The Config page's toggle list ──────────────────────────────────
+
+/** One toggleable feature's source, as `GET /api/config` `featureSources` reports it (shared/protocol.ts `FeatureSourceView`). */
+export interface FeatureSourceInfo {
+  feature: string;
+  sourceId: string;
+  label: string;
+  external: boolean;
+}
+
+/** One row of Config → Work items. */
+export interface FeatureToggleRow {
+  feature: string;
+  label: string;
+  description: string;
+  /** An external source: with active mirrors it offers "Turn off and archive" (disconnect). */
+  external: boolean;
+  sourceId: string | null;
+}
+
+/**
+ * The rows Config → Work items lists, in the server's order (`featureSources`):
+ * the built-ins keep their labels and descriptions, a plugin source shows its
+ * `label`. A daemon too old to report `featureSources` gets the three built-ins.
+ */
+export function featureToggleRows(sources: readonly FeatureSourceInfo[] | null | undefined): FeatureToggleRow[] {
+  const list = sources ?? FEATURE_NAMES.map((f) => ({ feature: f, sourceId: "", label: FEATURE_LABELS[f], external: false }));
+  return list.map((s) => isBuiltinFeature(s.feature) && !s.external
+    ? { feature: s.feature, label: FEATURE_LABELS[s.feature], description: FEATURE_DESCRIPTIONS[s.feature], external: false, sourceId: s.sourceId || null }
+    : {
+      feature: s.feature,
+      label: s.label,
+      description: s.external ? `Work pulled from ${s.label} (its Work tab and sync).` : `The ${s.label} source.`,
+      external: s.external,
+      sourceId: s.sourceId,
+    });
+}
+
+/**
+ * Did any toggle change between the saved config and the draft? Only then
+ * does Save send `features`, so saving an unrelated field never writes a
+ * `features` block into an existing team's config.json (absent = all on).
+ */
+export function featuresChanged(draft: Partial<Record<string, boolean>> | undefined, saved: Partial<Record<string, boolean>> | undefined): boolean {
+  if (!draft) return false;
+  return Object.keys(draft).some((name) => draft[name] !== saved?.[name]);
 }
 
 /** The feature a `/work-defs/new?type=` form needs (Scheduled → Schedules; else Tasks, incl. Template). */

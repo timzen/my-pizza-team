@@ -16,11 +16,18 @@
  * marked **Triage** and wears a note's TriageBadge — proposals waiting, a
  * question, or nothing to create — linking to its page's Triage tab; the row
  * itself opens that tab too.
+ *
+ * A source switched off (docs/DESIGN.md "Feature Toggles": every external
+ * source has a `features.<id>` toggle by default) shows the "turned off"
+ * notice instead — its tab is hidden, but a bookmark should say why.
  */
 
 import { useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { apiPost, useApi } from "@/hooks/useApi";
+import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
+import { FeatureOffNotice } from "@/components/FeatureGate";
+import { isExternalSourceOn } from "@/lib/work-items";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -41,6 +48,18 @@ const TONE_CLASS: Record<ReturnType<typeof latestStateTone>, string> = {
 
 export function ExternalSourcePage() {
   const { sourceId = "" } = useParams<{ sourceId: string }>();
+  const features = useFeatures();
+  const info = useExternalSources()?.find((s) => s.id === sourceId);
+  // Until the toggles load, render nothing (no flash of a switched-off source).
+  if (!features) return null;
+  if (info && !isExternalSourceOn(info, features)) {
+    return <WorkItemsLayout bodyClassName="max-w-3xl"><FeatureOffNotice sourceLabel={info.label} embedded /></WorkItemsLayout>;
+  }
+  return <ExternalSourceView sourceId={sourceId} />;
+}
+
+/** The source's mirrored defs, Sync now, and Show archived (it's switched on). */
+function ExternalSourceView({ sourceId }: { sourceId: string }) {
   const [showArchived, setShowArchived] = useState(false);
   const { data, error, refetch } = useApi<{ source: { id: string; label: string }; defs: MirroredDefRow[] }>(
     `/api/work-sources/${encodeURIComponent(sourceId)}/defs${showArchived ? "?status=all" : ""}`, [sourceId, showArchived], { pollInterval: 10_000 },

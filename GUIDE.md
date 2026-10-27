@@ -426,6 +426,8 @@ When a kind is off:
 
 You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Pending stories and pending tasks count; archived ones don't. Turning a kind back on is always allowed.
 
+**External sources** (plugins like a tracker — see [Writing a Work Source plugin](#writing-a-work-source-plugin)) are listed here too, under their own names. Switching one off stops it syncing: nothing new is pulled or run from it, its Work tab disappears (a bookmark shows a "turned off" notice), and anything a teammate is already working on finishes. While it still has mirrored items, its toggle is locked like a kind's — but instead of archiving them yourself, use **Turn off and archive N items**: after you confirm, it switches the source off at once (no Save needed), archives its items (nothing is deleted; their threads stay), and cancels their queued runs. Turn it back on later and the next sync — which runs right away — brings back the items the source still has, without re-running ones already done.
+
 ### Readiness probe
 
 If your machine sometimes can't work (expired credentials, VPN down), set a **readiness probe**: a shell command the daemon runs every 30 seconds. Exit 0 means ready; anything else means not ready, and its first line of output is the reason. While not ready, **scheduled** jobs are held instead of run — and when it recovers, each held job runs once (not once per missed tick). Board and Solitary work still run. With no probe, the team is always ready.
@@ -468,6 +470,15 @@ daemon answers that import with **its own** copy (even if the plugin has none
 installed), so you always see the running app's types and constants. Keep it in
 `devDependencies` too if you want the types while you write. Entries must be files
 inside the package; other keys under `"mpt"` are ignored.
+
+**On/off.** An external source (one with `sync`) gets a toggle for free: it's listed
+under **Config → General → Work items** by its `label`, as `features.<id>` in
+config.json, and can be switched off or disconnected (see [Work items](#work-items-feature-toggles)).
+While it's off the daemon never calls your `sync` or `tick`, and `ctx.upsertDef` /
+`ctx.enqueue` return null. To name the flag yourself, declare `toggle: { feature:
+"…" }`; to make the source always on, declare `toggle: null`. A feature name must be
+unique and can't be `stories`, `tasks`, or `schedules` (nor can your id be, unless
+you name another feature) — the daemon refuses such a source at load and says why.
 
 **2. The entry.** Each entry's **default export** is either a Work Source object,
 or a factory `(options, { teamDir }) => source` (it may be `async`) — use the

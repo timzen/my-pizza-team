@@ -1,5 +1,6 @@
 /**
- * useFeatures — The team's resolved feature toggles (Stories, Tasks, Schedules),
+ * useFeatures — The team's resolved feature toggles (Stories, Tasks, Schedules,
+ * and each switchable plugin source's),
  * read from `/api/status` and shared by every component that hides a kind.
  *
  * One module-level cache serves all subscribers (the NavBar, the dock, route
@@ -57,11 +58,12 @@ async function load(): Promise<void> {
 }
 
 function sameFeatures(a: Features, b: Features): boolean {
-  return a.stories === b.stories && a.tasks === b.tasks && a.schedules === b.schedules;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((k) => a[k] === b[k]);
 }
 
 function sameSources(a: ExternalSourceInfo[], b: ExternalSourceInfo[]): boolean {
-  return a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.label === b[i]!.label);
+  return a.length === b.length && a.every((s, i) => s.id === b[i]!.id && s.label === b[i]!.label && s.feature === b[i]!.feature);
 }
 
 function onChanged() { void load(); }

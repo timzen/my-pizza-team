@@ -17,6 +17,10 @@
  *   - `mirror:<defId>`   — the revision currently mirrored (re-sync of it is a no-op);
  *   - `revision:<defId>` — the revision last handed to a WorkItem (revision.ts);
  *   - `vanished:<defId>` — when sync archived it for no longer being reported;
+ *   - `disconnected:<defId>` — when a **disconnect** (switching the source off
+ *     and archiving its mirrors; daemon/features.ts `disconnectSource`) archived
+ *     it. Like `vanished`, it brings the mirror back when the source, switched
+ *     on again, reports the item — a person's archive stays put;
  *   - `mode:<defId>`     — `"triage"` while the item is in triage mode (its
  *     `ExternalDef.mode`, else its source's `WorkSource.mode`); absent = "work".
  *     Kept here rather than in `workdef.md` so it survives a restart without a
@@ -65,6 +69,11 @@ export function vanishedKey(defId: string): string {
   return `vanished:${defId}`;
 }
 
+/** kv key: set while a disconnect (the source switched off) has archived a def. */
+export function disconnectedKey(defId: string): string {
+  return `disconnected:${defId}`;
+}
+
 /** kv key: the item's effective mode, while it is "triage" (absent = "work"). */
 export function mirrorModeKey(defId: string): string {
   return `mode:${defId}`;
@@ -103,8 +112,8 @@ export interface MirrorResult {
 /**
  * Write (or refresh) the mirror of one external item. A revision equal to the
  * one already mirrored is a no-op (no write, so the team dir stays clean). A
- * mirror sync had archived for vanishing comes back active when the item is
- * reported again; one a *person* archived stays archived. Returns null when the
+ * mirror sync had archived for vanishing (or a disconnect archived) comes back
+ * active when the item is reported again; one a *person* archived stays archived. Returns null when the
  * def is invalid, or its id is taken by a WorkDef that isn't this source's mirror.
  *
  * The item's effective mode (`effectiveMode(ext, sourceMode)`) is recorded every
@@ -124,7 +133,8 @@ export function upsertMirror(
     else kv.delete(mirrorModeKey(id));
   }
 
-  const vanished = kv.get(vanishedKey(id)) !== undefined;
+  // Archived by sync (vanished) or by a disconnect: either way not a person's call, so it comes back.
+  const vanished = kv.get(vanishedKey(id)) !== undefined || kv.get(disconnectedKey(id)) !== undefined;
   const restore = existing?.status === "archived" && vanished;
   if (existing && !restore && kv.get(mirrorRevisionKey(id)) === ext.revision) return { def: existing, changed: false };
 
@@ -142,6 +152,9 @@ export function upsertMirror(
   if (ext.url?.trim()) def.url = ext.url.trim();
   writeWorkDef(teamDir, def);
   kv.set(mirrorRevisionKey(id), ext.revision);
-  if (vanished) kv.delete(vanishedKey(id));
+  if (vanished) {
+    kv.delete(vanishedKey(id));
+    kv.delete(disconnectedKey(id));
+  }
   return { def, changed: true };
 }

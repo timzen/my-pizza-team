@@ -8,7 +8,8 @@
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 import {
-  FEATURE_NAMES, featureForPath, featureForProposalKind, featureForWorkDefForm, filterByFeatures, resolveFeatures,
+  FEATURE_LABELS, FEATURE_NAMES, featureForPath, featureForProposalKind, featureForWorkDefForm, featuresChanged, featureToggleRows,
+  filterByFeatures, isFeatureOn, resolveFeatures,
 } from "../ui/src/lib/features.ts";
 import { FEATURE_NAMES as SHARED_FEATURE_NAMES, resolveFeatures as sharedResolveFeatures } from "../shared/types.ts";
 import { featureForProposalKind as daemonFeatureForProposalKind } from "../daemon/features.ts";
@@ -61,4 +62,33 @@ test("filterByFeatures: drops disabled kinds, keeps ungated items, hides gated o
   assertEquals(ids(filterByFeatures(items, { stories: false, tasks: true, schedules: false })), ["thoughts", "tasks"]);
   assertEquals(ids(filterByFeatures(items, { stories: false, tasks: false, schedules: false })), ["thoughts"]);
   assertEquals(ids(filterByFeatures(items, null)), ["thoughts"]);
+});
+
+test("resolveFeatures keeps plugin sources' flags; isFeatureOn treats missing as on", () => {
+  assertEquals(resolveFeatures({ stories: false, jira: false, fixture: true }), { jira: false, fixture: true, stories: false, tasks: true, schedules: true });
+  const f = resolveFeatures({ jira: false });
+  assertEquals(isFeatureOn(f, "jira"), false);
+  assertEquals(isFeatureOn(f, "unknown"), true);
+  assertEquals(isFeatureOn(null, "tasks"), false);
+});
+
+test("featureToggleRows: built from the server's list; built-ins keep their labels, plugins show theirs", () => {
+  const rows = featureToggleRows([
+    { feature: "stories", sourceId: "story", label: "story", external: false },
+    { feature: "tasks", sourceId: "task", label: "task", external: false },
+    { feature: "sim-t", sourceId: "sim-t", label: "SIM-T", external: true },
+  ]);
+  assertEquals(rows.map((r) => r.label), [FEATURE_LABELS.stories, FEATURE_LABELS.tasks, "SIM-T"]);
+  assertEquals(rows[2], { feature: "sim-t", label: "SIM-T", description: "Work pulled from SIM-T (its Work tab and sync).", external: true, sourceId: "sim-t" });
+  assertEquals(rows[0]!.external, false);
+  // A daemon too old to report featureSources: the three built-ins.
+  assertEquals(featureToggleRows(undefined).map((r) => r.feature), [...FEATURE_NAMES]);
+});
+
+test("featuresChanged: only a real toggle change sends `features` (plugin flags included)", () => {
+  const saved = { stories: true, tasks: true, schedules: true, jira: true };
+  assertEquals(featuresChanged({ ...saved }, saved), false);
+  assertEquals(featuresChanged(undefined, saved), false);
+  assertEquals(featuresChanged({ ...saved, jira: false }, saved), true);
+  assertEquals(featuresChanged({ ...saved, stories: false }, saved), true);
 });

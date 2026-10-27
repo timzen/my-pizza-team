@@ -5,8 +5,9 @@
  * "Feature Toggles"). The switchable kinds are the registered Work Sources that
  * declare a `toggle` (daemon/sources/types.ts `SourceToggle`) — the built-ins
  * Stories (story), Tasks (task: Solitary tasks + Templates), and Schedules
- * (schedule); Thought declares none, so it's always on. A future plugin source
- * gets the same switch by declaring one. This module is the *only* place that
+ * (schedule); Thought declares none, so it's always on. An external (plugin)
+ * source gets one by default — `features.<its id>` (daemon/sources/registry.ts
+ * `effectiveToggle`) — unless it opts out with `toggle: null`. This module is the *only* place that
  * enforces it, and it never names a kind — everything comes from the registry:
  *
  *   - `registerFeatureGates` installs one middleware per toggleable source in front of the
@@ -17,6 +18,9 @@
  *     able to tell "switched off" from "no such item".
  *   - `resolveFeaturesUpdate` validates a `PUT /api/config` `features` value and
  *     refuses to switch a kind off while it still has active (non-archived) items.
+ *   - `disconnectSource` is the one exception, for external sources only
+ *     (`POST /api/work-sources/:id/disconnect`): switch it off *and* archive its
+ *     mirrors, as one explicit step.
  *
  * Deliberately **not** gated: the WorkItem queue and Inbox (`/api/work-items`),
  * the agent protocol (`/api/agents/*` — claim, complete, comment), and the
@@ -34,6 +38,7 @@ import { SCHEDULE_SOURCE_ID } from "./sources/schedule.ts";
 import { STORY_SOURCE_ID } from "./sources/story.ts";
 import { activeWorkDefs } from "./sources/toggle.ts";
 import type { ActiveSourceItems, SourceToggle } from "./sources/types.ts";
+import type { FeatureSourceView } from "../shared/protocol.ts";
 
 /** The HTTP status of a request to a disabled feature (see the header for why 403). */
 export const FEATURE_DISABLED_STATUS = 403;
@@ -66,8 +71,8 @@ interface ToggleableSource {
  */
 function toggleableSources(store: Store): ToggleableSource[] {
   const out = store.listWorkSources()
-    .filter((entry) => entry.source.toggle)
-    .map((entry) => ({ entry, toggle: entry.source.toggle! }));
+    .filter((entry) => entry.toggle)
+    .map((entry) => ({ entry, toggle: entry.toggle! }));
   const rank = (t: ToggleableSource) => {
     const i = (FEATURE_NAMES as readonly string[]).indexOf(t.toggle.feature);
     return i === -1 ? FEATURE_NAMES.length : i;
@@ -90,7 +95,7 @@ export function enabledFeatures(store: Store, config: Pick<TeamConfig, "features
 
 /** The feature of a registered source, by id (null: none registered, or not toggleable). */
 function featureForSource(store: Store, sourceId: string): string | null {
-  return store.listWorkSources().find((e) => e.source.id === sourceId)?.source.toggle?.feature ?? null;
+  return store.listWorkSources().find((e) => e.source.id === sourceId)?.toggle?.feature ?? null;
 }
 
 /**
@@ -99,7 +104,7 @@ function featureForSource(store: Store, sourceId: string): string | null {
  * its note — Thought declares no toggle — so it has none.
  */
 export function featureForWorkDef(store: Store, def: Pick<WorkDef, "parent">): string | null {
-  return store.getWorkSourceFor(def)?.source.toggle?.feature ?? null;
+  return store.getWorkSourceFor(def)?.toggle?.feature ?? null;
 }
 
 /** The source a triage proposal would create work in (story-task → Story). */
@@ -242,6 +247,21 @@ export function featureUsage(store: Store): Record<string, ActiveFeatureItems> {
 }
 
 /**
+ * Every toggleable feature with what the Config page shows for it, in display
+ * order (`GET /api/config` `featureSources`): its source, the source's label,
+ * and whether it's external (can be disconnected). The built-ins carry their
+ * own labels in the UI.
+ */
+export function featureSources(store: Store): FeatureSourceView[] {
+  return toggleableSources(store).map(({ entry, toggle }) => ({
+    feature: toggle.feature,
+    sourceId: entry.source.id,
+    label: entry.source.label ?? entry.source.id,
+    external: typeof entry.source.sync === "function",
+  }));
+}
+
+/**
  * The `features` a `PUT /api/config` would leave in place, or why it's refused.
  *
  * Absent keeps the current value; `null` clears the block (everything on). An
@@ -279,8 +299,53 @@ export function resolveFeaturesUpdate(
     if (!current[name] || next[name]) continue;
     const active = activeFeatureItems(store, name);
     if (active.count > 0) {
-      return { error: `Can't turn off ${name}: archive or delete ${active.description} first`, status: 409 };
+      // An external source's mirrors can't be archived by hand one by one (sync
+      // owns them), so name the explicit opt-in that archives them for you.
+      const t = toggleableSources(store).find((x) => x.toggle.feature === name)!;
+      const hint = typeof t.entry.source.sync === "function"
+        ? ` (or disconnect it: POST /api/work-sources/${t.entry.source.id}/disconnect switches it off and archives them)`
+        : "";
+      return { error: `Can't turn off ${name}: archive or delete ${active.description} first${hint}`, status: 409 };
     }
   }
   return { features: next as FeaturesConfig };
+}
+
+// ─── Disconnecting an external source ───────────────────────────────
+
+/** What a disconnect did: the feature switched off and the mirrors it archived. */
+export interface DisconnectResult {
+  feature: string;
+  archived: string[];
+}
+
+/**
+ * Switch an external source off **and** archive its mirrors — the explicit
+ * opt-in past the 409 turn-off guard (docs/DESIGN.md "Feature Toggles":
+ * disconnecting). The order matters: the feature goes off first (in the live
+ * config), so a sync already in flight drops its result instead of
+ * re-mirroring, then every non-archived mirror is archived — never deleted —
+ * and its READY item canceled; an IN_PROGRESS one finishes
+ * (`Store.archiveExternalMirrors`). `features` is stored in full, as a PUT
+ * would. The caller saves the config. Idempotent: disconnecting an
+ * already-off source archives whatever is left and keeps it off.
+ *
+ * Only external sources: the built-ins' guard is unchanged (their items are
+ * yours to archive or delete), and a source that opted out of its toggle
+ * (`toggle: null`) can't be switched off at all.
+ */
+export function disconnectSource(
+  config: TeamConfig, store: Store, sourceId: string,
+): DisconnectResult | { error: string; status: 400 | 404 } {
+  const entry = store.listExternalSources().find((e) => e.source.id === sourceId);
+  if (!entry) return { error: `No external source "${sourceId}"`, status: 404 };
+  if (!entry.toggle) return { error: `Source "${sourceId}" can't be switched off (it declares toggle: null)`, status: 400 };
+  const feature = entry.toggle.feature;
+  config.features = {
+    ...(config.features as Record<string, boolean> | undefined),
+    ...enabledFeatures(store, config),
+    [feature]: false,
+  } as FeaturesConfig;
+  const archived = store.archiveExternalMirrors(sourceId);
+  return { feature, archived };
 }

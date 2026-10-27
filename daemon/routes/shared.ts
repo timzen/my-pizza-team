@@ -12,7 +12,7 @@ import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
 import {
   ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, isAssistantChatMode, isExperimentalHarness, resolveAssistantChatMode,
 } from "../../shared/types.ts";
-import { enabledFeatures, featureUsage, resolveFeaturesUpdate } from "../features.ts";
+import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./work-sources.ts";
 import { validateInstructionMarkdown } from "../workflow-lint.ts";
@@ -118,9 +118,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // `features` is the resolved view (absent ⇒ all on), not the raw block.
   // `featureUsage` counts each kind's active items, so the Config page can say
   // "archive or delete 3 stories first" before a save is refused.
+  // `featureSources` names each toggle's source (label, external or not), so
+  // the page lists plugin sources too and offers to disconnect an external one.
   app.get("/api/config", (c) => c.json({
     ...config, workflows: store.getWorkflows(), defaultNouns: DEFAULT_NOUNS, features: enabledFeatures(store, config),
-    featureUsage: featureUsage(store),
+    featureUsage: featureUsage(store), featureSources: featureSources(store),
   }));
 
   app.put("/api/config", async (c) => {
@@ -223,8 +225,15 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // in-memory config, so no restart is needed.
       // Feature toggles. Live: the gates in daemon/features.ts read this config
       // on every request.
+      const wasOn = enabledFeatures(store, config);
       if (featureSettings.features) config.features = featureSettings.features;
       else delete config.features;
+      // An external source switched back on syncs now rather than at its next
+      // interval (its timer skipped it while off; daemon/sources/sync.ts).
+      const nowOn = enabledFeatures(store, config);
+      for (const { source, toggle } of store.listExternalSources()) {
+        if (toggle && !wasOn[toggle.feature] && nowOn[toggle.feature]) void store.syncWorkSource(source.id, { force: true });
+      }
       config.experimental = harnessSettings.experimental;
       if (harnessSettings.defaultHarness) config.defaultHarness = harnessSettings.defaultHarness;
       else delete config.defaultHarness;
