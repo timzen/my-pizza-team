@@ -27,6 +27,15 @@
  * mirrors). Declare `toggle: { feature }` to pick the name, or `toggle: null`
  * to stay always on. A feature name must be unique and not a built-in's
  * (stories, tasks, schedules), or the source is refused at load.
+ *
+ * Settings and preview (also additive, apiVersion 1): `configSchema`
+ * (`SourceConfigSchema`, a small JSON Schema subset with UI hints) describes
+ * the source's settings block — the whole package entry `config`, or with
+ * `configScope: "source"` its `config[<id>]` (recommended when a package ships
+ * several sources) — for the Config page's form and the daemon's validation;
+ * `preview(ctx, draftOptions)` returns what a sync with draft settings would
+ * pull (`SourcePreview`), on a ctx that can't mirror, enqueue, or persist kv.
+ * Without `preview`, the daemon previews by running `sync` on that ctx.
  */
 
 export { WORK_SOURCE_API_VERSION } from "../daemon/sources/types.ts";
@@ -39,8 +48,19 @@ export type {
   ItemTerminalOutcome,
   RevisionCursor,
   RunResult,
+  SourceConfigBooleanField,
+  SourceConfigField,
+  SourceConfigFieldHints,
+  SourceConfigLeafField,
+  SourceConfigNumberField,
+  SourceConfigObjectField,
+  SourceConfigSchema,
+  SourceConfigScope,
+  SourceConfigStringArrayField,
+  SourceConfigStringField,
   SourceContext,
   SourceKv,
+  SourcePreview,
   SourceToggle,
   WorkSource,
   WorkSourceMode,

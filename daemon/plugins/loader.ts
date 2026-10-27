@@ -17,6 +17,10 @@
  *   4. **Register** it with the package entry's `config` as `ctx.options()`. The
  *      registry's own checks apply (apiVersion, duplicate id, an external
  *      source's id pattern), so a plugin can't shadow a built-in.
+ *   5. **Check its settings** against its `configSchema`, if it declares one
+ *      (daemon/sources/config-schema.ts): a mismatch is logged and recorded in
+ *      the package's `warnings`, never refused — the source may cope, and a
+ *      person fixes it from the Config page.
  *
  * Before the first import it installs the host resolve hook
  * (daemon/plugins/host-resolve.ts), so a plugin's `import … from
@@ -41,6 +45,7 @@ import type { PluginLoadStatus } from "../../shared/protocol.ts";
 import type { TeamConfig } from "../../shared/types.ts";
 import type { RegisterSourceOptions } from "../sources/registry.ts";
 import type { WorkSource } from "../sources/types.ts";
+import { sourceConfigWarnings } from "../sources/config-schema.ts";
 import { type PackageSpec, type ParsedPackageEntry, parsePackageEntries } from "./spec.ts";
 import { registerHostResolution } from "./host-resolve.ts";
 
@@ -162,6 +167,7 @@ export async function loadPlugins(
     const status: PluginLoadStatus = installError !== undefined
       ? { identity: entry.spec.identity, spec: entry.spec.raw, state: "error", error: `install failed: ${installError}`, sources: [] }
       : await loadPackage(host, entry, teamDir, timeoutMs);
+    for (const w of status.warnings ?? []) log(`${status.spec}: warning: ${w}`);
     if (status.state === "loaded") log(`${status.spec}: loaded (${status.sources.length ? `sources: ${status.sources.join(", ")}` : "no sources"})`);
     else log(`${status.spec}: ${status.error}${status.sources.length ? ` (still registered: ${status.sources.join(", ")})` : ""}`);
     statuses.push(status);
@@ -190,6 +196,8 @@ async function loadPackage(host: PluginHost, { spec, config }: ParsedPackageEntr
       const source = await loadEntry(dir, entry, config, teamDir, timeoutMs);
       host.registerWorkSource(source, { options: config });
       status.sources.push(source.id);
+      const warnings = sourceConfigWarnings(source, config).map((w) => `source "${source.id}": ${w}`);
+      if (warnings.length) status.warnings = [...(status.warnings ?? []), ...warnings];
     } catch (e) {
       errors.push(`${entry}: ${e instanceof Error ? e.message : String(e)}`);
     }

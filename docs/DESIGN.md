@@ -528,6 +528,52 @@ registered in code without `options`). **Secrets are referenced, never inline:**
 a source takes an env var *name* (`"tokenEnv": "JIRA_TOKEN"`) and reads
 `process.env`, so config.json stays shareable.
 
+#### Plugin settings: configSchema and preview
+
+A plugin may *describe* its settings — `WorkSource.configSchema`, a plain JSON
+Schema subset (an object of string / number / integer / boolean / enum /
+string-array fields, nested objects one level deep) with UI hints (`title`,
+`description`, `placeholder`, `default`, and `format: "env-var"` for a secret
+reference, which must be a variable *name*) — so the Config page can render a
+form instead of asking people to hand-edit JSON, and the daemon can say *which
+field* is wrong. Why a subset and an in-house validator
+(daemon/sources/config-schema.ts): a settings form needs nothing more, the
+subset maps one-to-one onto inputs, and a full JSON Schema engine would be a
+heavy dependency for it. A schema outside the subset is reported, not enforced.
+
+**Where a source's settings live.** A package entry has one `config`, but a
+package can ship several sources (MPTSimWorkSources: `sim-t` and `taskei`).
+The model: **a schema per source, describing that source's block**, and
+`configScope` says where the block is — `"package"` (the default; the whole
+`config`, as every single-source plugin already reads it) or `"source"`
+(`config[<sourceId>]`, the recommended layout for multi-source packages, and
+what MPTSimWorkSources already reads). `ctx.options()` and a factory's
+`options` stay the whole `config` either way, so no existing plugin or config
+changes meaning; the scope only tells the daemon which part to validate, edit,
+and write back (`withSourceConfigBlock` keeps the sibling sources' blocks).
+
+**Validation never refuses a source.** At load the loader checks each source's
+block against its schema and logs the mismatches (`[plugins] … warning:`),
+recording them in `PluginLoadStatus.warnings`; the source still loads — it
+may well cope (defaults), and refusing it would turn a typo into an outage.
+Drafts are a different matter: a preview (and a save) of invalid settings is
+refused with the field errors.
+
+**Preview: what it would pull, with no side effects.** `WorkSource.preview(ctx,
+draftOptions)` returns `{ items, warnings?, note? }` for draft settings,
+before they're saved. No side effects is enforced, not just asked for:
+`previewSource` (daemon/sources/preview.ts) hands the hook a restricted
+context whose `options()` is the draft, whose `upsertDef` / `enqueue` /
+`enqueueRevision` do nothing (logged, and surfaced as a warning), and whose kv
+writes land in a scratch overlay that is thrown away. It's bounded by
+`syncTimeoutMs`, and runs whether the source is on or off — checking settings
+before switching a source on is the point. Without a `preview`, an external
+source is previewed by running its `sync` on that context: right for a sync
+that reads `ctx.options()` and has no side effects of its own. A plugin whose
+sync writes elsewhere, pages through a kv cursor (it would see only the
+delta), or captured its settings in its factory (the draft wouldn't reach it)
+implements `preview`. Both are optional fields, so `apiVersion` stays 1.
+
 **Installing** is `mpt plugins add|list|remove|update` (cli/plugins.ts), the
 same split as pi's `pi install`: the CLI fetches and edits config.json, the
 daemon only loads. npm and git packages go under `<teamDir>/packages/`, installed

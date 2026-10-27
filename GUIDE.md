@@ -589,6 +589,63 @@ is limited to 10 minutes (set `MPT_PLUGIN_INSTALL_TIMEOUT_MS` in the daemon's
 environment to change it), a failed one isn't retried until the next restart,
 and local paths are never installed or changed. config.json is never written.
 
+### Describing your settings (configSchema) and preview
+
+Two optional fields make a plugin easy to set up without hand-editing JSON.
+`configSchema` describes your settings — a small subset of JSON Schema: an
+object of `string`, `number`, `integer`, `boolean`, `enum`, and string-`array`
+fields, with objects nested one level — plus hints for the form: `title`,
+`description`, `placeholder`, `default`. Mark a secret reference with
+`format: "env-var"`: the field holds the *name* of an environment variable,
+never the secret, and anything that isn't a valid name is refused. `preview`
+answers "what would you pull with these settings?" without pulling anything.
+
+```ts
+const factory: PluginFactory = () => ({
+  id: "acme", label: "Acme", apiVersion: WORK_SOURCE_API_VERSION,
+  configSchema: {
+    type: "object",
+    required: ["project"],
+    properties: {
+      project:  { type: "string", title: "Project key", placeholder: "ACME" },
+      tokenEnv: { type: "string", title: "Token", format: "env-var", default: "ACME_TOKEN",
+                  description: "The environment variable that holds your API token" },
+      status:   { type: "string", enum: ["open", "all"], default: "open" },
+      maxItems: { type: "integer", minimum: 1, maximum: 50, default: 10 },
+    },
+  },
+  async sync(ctx) { return fetchItems(ctx.options()); },
+  // Optional: without it, Preview runs `sync` with the draft settings.
+  async preview(ctx, draftOptions) {
+    const items = await fetchItems(draftOptions);
+    return { items: items.slice(0, 10), note: `${items.length} items match` };
+  },
+});
+```
+
+**Which settings the schema describes.** By default your whole package entry
+`config`. If your package ships **several sources**, give each its own block
+and say so with `configScope: "source"`: the schema then describes
+`config["<source id>"]`, e.g. `{ "config": { "sim-t": { … }, "taskei": { … } } }`.
+Either way `ctx.options()` (and a factory's `options`) is the whole `config`, as
+before.
+
+**Checked at load.** When the daemon starts it checks each source's settings
+against its schema. A mismatch is logged (`[plugins] … warning: config.project:
+is required`) and reported with the package's status (`GET /api/work-sources`,
+`plugins[].warnings`) — the source still loads.
+
+**Preview has no side effects.** Preview (and the `sync` it falls back to) gets
+a restricted `ctx`: `ctx.options()` is the draft, `upsertDef`, `enqueue`, and
+`enqueueRevision` do nothing (and show up as a warning), and `kv.set` /
+`kv.delete` change a scratch copy that's thrown away. It's limited to your
+`syncTimeoutMs` (default 30s). Don't write to the external system from it
+either. If your `sync` has side effects of its own, relies on a kv cursor (a
+preview would see only what changed), or reads settings your factory captured
+(so the draft can't reach it), implement `preview`. Return `{ items, warnings?,
+note? }`; items the mirror would refuse (no `externalId`, `revision`, or
+`title`, or a repeated `externalId`) are dropped with a warning.
+
 ### Distributing a plugin
 
 A plugin travels as an npm package (from your npm registry) or a git repository.

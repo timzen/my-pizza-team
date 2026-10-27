@@ -229,6 +229,126 @@ export interface SourceToggle {
 }
 
 /**
+ * UI hints every settings field may carry (docs/DESIGN.md "Plugin settings:
+ * configSchema and preview"). Plain JSON Schema annotations, so a schema stays
+ * valid JSON Schema.
+ */
+export interface SourceConfigFieldHints {
+  /** The field's label (default: its key). */
+  title?: string;
+  /** Help text shown under the field. */
+  description?: string;
+  /** Placeholder text for an empty input (not a value; never saved). */
+  placeholder?: string;
+}
+
+/**
+ * A string field. `format: "env-var"` marks a **secret reference**: the value
+ * is the *name* of an environment variable (`JIRA_TOKEN`), never the secret —
+ * the UI labels it "env var name", and validation refuses anything that isn't
+ * a valid variable name. `format: "uri"` must parse as a URL. `enum` makes it a
+ * select.
+ */
+export interface SourceConfigStringField extends SourceConfigFieldHints {
+  type: "string";
+  default?: string;
+  enum?: readonly string[];
+  format?: "env-var" | "uri";
+  minLength?: number;
+  maxLength?: number;
+  /** A regular expression (JavaScript syntax, unanchored as in JSON Schema). */
+  pattern?: string;
+}
+
+/** A number field; `integer` refuses fractions. `enum` makes it a select. */
+export interface SourceConfigNumberField extends SourceConfigFieldHints {
+  type: "number" | "integer";
+  default?: number;
+  enum?: readonly number[];
+  minimum?: number;
+  maximum?: number;
+}
+
+/** A checkbox. */
+export interface SourceConfigBooleanField extends SourceConfigFieldHints {
+  type: "boolean";
+  default?: boolean;
+}
+
+/** A list of strings (labels, project keys); `items.enum` makes it a multi-select. */
+export interface SourceConfigStringArrayField extends SourceConfigFieldHints {
+  type: "array";
+  items: { type: "string"; enum?: readonly string[]; format?: "env-var" | "uri"; pattern?: string };
+  default?: readonly string[];
+  minItems?: number;
+  maxItems?: number;
+  uniqueItems?: boolean;
+}
+
+/** A field that isn't an object: what a nested object's properties may be. */
+export type SourceConfigLeafField =
+  | SourceConfigStringField
+  | SourceConfigNumberField
+  | SourceConfigBooleanField
+  | SourceConfigStringArrayField;
+
+/** A group of fields, one level deep (its properties can't be objects again). */
+export interface SourceConfigObjectField extends SourceConfigFieldHints {
+  type: "object";
+  properties: Readonly<Record<string, SourceConfigLeafField>>;
+  required?: readonly string[];
+  /** Refuse keys not in `properties` (default: allowed, as in JSON Schema). */
+  additionalProperties?: boolean;
+}
+
+/** Any settings field. */
+export type SourceConfigField = SourceConfigLeafField | SourceConfigObjectField;
+
+/**
+ * A source's settings, described for the Config page's form and validated by
+ * the daemon (daemon/sources/config-schema.ts): a plain subset of JSON Schema —
+ * an object of string / number / integer / boolean / enum / string-array
+ * fields, nested objects one level deep — with UI hints (`title`,
+ * `description`, `placeholder`, `format: "env-var"`, `default`).
+ *
+ * It describes **this source's settings block** — where that block lives in
+ * the package entry's `config` is `WorkSource.configScope`.
+ */
+export interface SourceConfigSchema extends SourceConfigFieldHints {
+  type: "object";
+  properties: Readonly<Record<string, SourceConfigField>>;
+  required?: readonly string[];
+  /** Refuse keys not in `properties` (default: allowed, as in JSON Schema). */
+  additionalProperties?: boolean;
+}
+
+/**
+ * Where a source's settings block lives in its package entry's `config`:
+ *   - `"package"` (the default): the whole `config` is the block — a package
+ *     with one source: `{ "config": { "tokenEnv": "…" } }`;
+ *   - `"source"`: the block is `config[<sourceId>]` — the recommended layout
+ *     for a package with several sources, so each has its own settings:
+ *     `{ "config": { "sim-t": { … }, "taskei": { … } } }`.
+ * Either way `ctx.options()` (and a factory's `options`) is still the whole
+ * `config`, as it always was; the scope only tells the daemon which part
+ * `configSchema` describes, validates, and the Config page edits.
+ */
+export type SourceConfigScope = "package" | "source";
+
+/**
+ * What a source would pull with some settings, without pulling it
+ * (`WorkSource.preview`, the Config page's **Preview**).
+ */
+export interface SourcePreview {
+  /** The items a sync with these settings would report. Nothing is mirrored or enqueued. */
+  items: ExternalDef[];
+  /** Things the person should know (an unknown project, a filter matching nothing). */
+  warnings?: string[];
+  /** A one-line summary for the UI ("Showing the first 10 of 42"). */
+  note?: string;
+}
+
+/**
  * One WorkDef kind's plugin. Every hook but `id`/`apiVersion` is optional; the
  * daemon's default for a missing hook is the behavior of a Solitary task
  * (eligible while it exists, no title/directory override, the base prompt,
@@ -304,8 +424,36 @@ export interface WorkSource {
   sync?(ctx: SourceContext): Promise<ExternalDef[]>;
   /** How often to run `sync`, in ms (read once at `startTimers`). Default 60s; null/≤ 0 = on demand only. */
   syncEveryMs?(ctx: SourceContext): number | null;
-  /** How long one `sync` may take before it counts as failed, in ms. Default 30s. */
+  /** How long one `sync` may take before it counts as failed, in ms. Default 30s. Also bounds `preview`. */
   syncTimeoutMs?: number;
+  /**
+   * This source's settings, described (docs/DESIGN.md "Plugin settings:
+   * configSchema and preview"): the Config page renders a form from it, and the
+   * daemon validates the settings against it — at load (a mismatch is logged,
+   * never refused) and before a preview. Optional; absent = no form, no checks.
+   */
+  readonly configSchema?: SourceConfigSchema;
+  /** Which part of the package entry's `config` `configSchema` describes. Default `"package"` (all of it). */
+  readonly configScope?: SourceConfigScope;
+  /**
+   * What `sync` would report with `draftOptions` — for the Config page's
+   * **Preview**, before the settings are saved. `draftOptions` has the shape
+   * of `ctx.options()` (the whole package entry `config`, with the draft block
+   * in place per `configScope`), and `ctx.options()` returns it too.
+   *
+   * **No side effects.** The ctx is restricted: `upsertDef`, `enqueue`, and
+   * `enqueueRevision` do nothing (logged, returned as a warning), and
+   * `kv.set`/`kv.delete` change only a scratch copy thrown away afterwards
+   * (reads see the real kv). Don't write to the external system either.
+   * Bounded by `syncTimeoutMs`.
+   *
+   * Default (an external source without it): `sync` run on that restricted
+   * ctx. That's enough when `sync` reads its settings from `ctx.options()` and
+   * has no side effects of its own; implement `preview` when `sync` writes
+   * anything, depends on a kv cursor (it would see only the delta), or uses
+   * settings captured by its factory (the draft wouldn't reach it).
+   */
+  preview?(ctx: SourceContext, draftOptions: Readonly<Record<string, unknown>>): Promise<SourcePreview>;
   /**
    * The daemon just loaded its state from disk (startup): bring the queue in
    * line with the source's own state. Story: run admission for every story,

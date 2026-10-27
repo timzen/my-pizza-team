@@ -486,6 +486,12 @@ export interface PluginLoadStatus {
   error?: string;
   /** The ids of the Work Sources it registered (a partly failed package may still have some). */
   sources: string[];
+  /**
+   * Non-fatal problems found at load: a source's settings that don't match its
+   * `configSchema` (daemon/sources/config-schema.ts), or a schema outside the
+   * supported subset. The source still loaded.
+   */
+  warnings?: string[];
 }
 
 /** `GET /api/work-sources`: the registered external sources and each plugin package's load status. */
