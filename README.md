@@ -51,6 +51,9 @@ Commands:
   install               Install as a user service (launchd/systemd; starts on login)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
+  plugins <cmd>         Manage the team's plugin packages (see "Plugin packages" below):
+                        add <spec> [--config '<json>'], list, remove <spec|identity>,
+                        update [<spec|identity>]; restart the daemon afterwards
   setup --harness <h>   Prepare an experimental harness (kiro, claude)
   agent --harness <h>   Run an experimental teammate (the daemon starts these)
   --version, --help
@@ -65,6 +68,33 @@ Options:
 checkout of the extension (it steps aside and says so), and uninstall never revokes
 Pi project trust. `mpt doctor` is read-only — also the dry run for setup — and exits
 non-zero only for real breakage.
+
+### Plugin packages
+
+A team can pull work from outside sources through **plugin packages** — npm
+packages, git repositories, or local folders whose `package.json` declares
+`"mpt": { "sources": ["./dist/index.js"] }`. They are listed in the team's
+`config.json` `packages` and managed with `mpt plugins`:
+
+```
+mpt plugins add npm:@acme/mpt-jira@1.2.0 --config '{"tokenEnv":"JIRA_TOKEN"}'
+mpt plugins add git:github.com/acme/mpt-tracker@main   # @ref: branch, tag or commit
+mpt plugins add ./my-plugin                            # local: loads in place, never copied
+mpt plugins list                                       # kind, identity, ref, installed?, load status
+mpt plugins update [<spec|identity>]                   # re-fetch unpinned npm/git packages
+mpt plugins remove <spec|identity>                     # deletes the install (never a local path)
+```
+
+npm and git packages are installed under `<teamDir>/packages/` (npm with
+`--omit=peer`, so the plugin uses this mpt's copy of `my-pizza-team`; a git clone
+also gets `npm install` and `npm run build` when it has dependencies / a build
+script). `add` validates the manifest before touching config.json. A version (npm)
+or a tag/commit (git) pins a package, and `update` skips it; a branch or no ref
+follows upstream. Relative local paths resolve from the current directory. The
+daemon loads plugins at startup, so restart it after any change
+(`mpt stop && mpt start --daemon`, or restart the service); `mpt doctor` reports
+a package that failed to load. To write one, see GUIDE.md "Writing a Work Source
+plugin".
 
 `mpt lead` opens a `leader` window in the project directory running the harness's
 `leader` command. Running it again attaches to the existing leader rather than
@@ -658,6 +688,7 @@ Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 ```
 my-pizza-team/
 ├── main.ts            # The npm package's `mpt` entry (→ cli/main.ts; dist/main.js once built)
+├── plugin/            # `my-pizza-team/plugin`: the types and constants plugin authors import
 ├── daemon/            # HTTP server (Hono on @hono/node-server), Store, tmux supervisor
 │   ├── server.ts      # Route orchestrator
 │   ├── store.ts       # SQLite index + file sync (self-contained parts in store/)

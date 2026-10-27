@@ -269,8 +269,8 @@ A **Work Source** is the plugin that owns one WorkDef kind — the *parent* in t
 table above — and decides when its WorkDefs want a WorkItem. All four built-ins
 (Story, Schedule, Thought, Solitary) now run on it, and the core supports an
 external (pull-only) source — Jira, Asana, Taskei — through the same seam (see
-"External sources" below; only an in-repo fixture exists until package loading
-lands). The interface is `daemon/sources/types.ts`; the registry
+"External sources" below), loaded from a team's plugin packages ("Plugin
+packages" below) or, in development, the in-repo fixture. The interface is `daemon/sources/types.ts`; the registry
 (`daemon/sources/registry.ts`, one per Store) maps a WorkDef to its source by
 `parent.kind` — an `external` parent by its `parent.source` — with no parent =
 the `"task"` source.
@@ -319,7 +319,7 @@ interface WorkSource {
                                               // CANCELED; a sync { newStatus?, completed? } goes back to the agent
   onComment?(def, comment, ctx): void | Promise<void>;    // a comment landed on its thread (write-back)
 }
-// SourceContext: sourceId, teamDir, config(), log(), listWorkDefs(),
+// SourceContext: sourceId, teamDir, config(), options() (the source's own settings), log(), listWorkDefs(),
 //   hasActiveItem(defId), enqueue(defId) → the single enqueueFor,
 //   enqueueRevision(defId, revision, { force?, cursor? }), kv (sources/<id>.json),
 //   upsertDef(ExternalDef) → the read-only mirror, readiness.canEnqueueNow()
@@ -379,10 +379,10 @@ external-source groundwork (below).
 ### External sources: pull only, mirrored, once per revision
 
 A source that declares `sync` is **external** — the seam for Jira, Asana,
-Taskei. Until package loading lands, the in-repo **fixture source**
-(`daemon/sources/fixture.ts`: a folder of markdown files, one per item, a
-content hash as the revision) is the only one, registered by tests or by
-`config.dev.fixtureSource` (development only). The contract:
+Taskei. They arrive as plugin packages ("Plugin packages" below); the in-repo
+**fixture source** (`daemon/sources/fixture.ts`: a folder of markdown files, one
+per item, a content hash as the revision) is the reference one, registered by
+tests or by `config.dev.fixtureSource` (development only). The contract:
 
 - **Pull only.** The daemon calls `sync()`; the source returns every item it has
   *now*. MPT never creates, edits, or deletes an external item: `PUT`/`DELETE
@@ -455,9 +455,70 @@ diffing and an etag works as well as a timestamp.
 *Why:* per-kind `if (def.parent?.kind === …)` branching was spread through
 store.ts, features.ts, prompt.ts, and the routes, so adding a kind meant touching
 all of them. Naming the hook points makes each kind one file, and makes "a kind
-from somewhere else" a plugin rather than a fork. Package loading for third-party
-sources is deferred (TODO.md "Work Sources as plugins — package loading
-(deferred)").
+from somewhere else" a plugin rather than a fork — which "Plugin packages"
+below makes real: third-party sources load from npm, git, or a local folder.
+
+### Plugin packages: declared per team, like pi's
+
+A team declares plugin packages in its own `config.json` — `packages`, per team
+rather than per machine, because what a team pulls work from (its Jira project,
+its tracker) is a property of the team. Each entry is a spec string or
+`{ source, config }`, in pi's forms: `npm:<name>[@version]`; git as
+`git:<host>/<path>[@ref]`, `https://…[@ref]`, or `ssh://…[@ref]` (the ref is
+after the last `@` in the path, so `ssh://git@host/…` works); or a local path
+(absolute, `./`, `../`, `~/`; relative to the team dir). `daemon/plugins/spec.ts`
+parses them into npm / git / local specs, each with an **identity** — the npm
+name, the git URL without ref or `.git`, the resolved absolute path — so
+equivalent declarations load once (the first wins). A bad entry is a returned
+error, logged and skipped; it never stops the daemon.
+
+**Per-source settings.** The object form's `config` reaches every source the
+package provides as `ctx.options()` (frozen; `{}` for built-ins and sources
+registered in code without `options`). **Secrets are referenced, never inline:**
+a source takes an env var *name* (`"tokenEnv": "JIRA_TOKEN"`) and reads
+`process.env`, so config.json stays shareable.
+
+**Installing** is `mpt plugins add|list|remove|update` (cli/plugins.ts), the
+same split as pi's `pi install`: the CLI fetches and edits config.json, the
+daemon only loads. npm and git packages go under `<teamDir>/packages/`, installed
+with `--omit=peer` so the host package a plugin peer-depends on resolves to the
+daemon's own copy. A package is validated (manifest present, entries exist)
+before config.json changes, so a bad add leaves nothing behind. **Pinning**
+follows the spec: an npm version or a git tag/commit is pinned and `update`
+leaves it alone; no version, no ref, or a branch ref follows upstream.
+
+**Loading** (`daemon/plugins/loader.ts`) happens once, at startup — a change
+needs a restart. A local path loads in place; an npm or git package loads from
+the copy `mpt plugins` installed under `<teamDir>/packages/` (a missing one is
+an error telling you to run `mpt plugins add`). The package's package.json
+`"mpt": { "sources": [...] }` lists entry files; other keys under `"mpt"` are
+ignored, leaving room for plugin kinds that aren't Work Sources. Each entry is
+`import()`ed and its default export is a `WorkSource` or a factory
+`(options, { teamDir })` returning one. Plugins register after the built-ins
+through the same registry checks (apiVersion, duplicate id, file-safe external
+id), so a plugin can't shadow `task` or another plugin. **One bad plugin never
+stops the daemon:** every failure — bad spec, missing install or manifest, a
+throwing or hanging import or factory, a refused registration — is logged with
+`[plugins]`, recorded in that package's status (`GET /api/work-sources`
+`plugins`, `mpt doctor`), and skipped. Isolation is by error handling, not by
+process: a plugin runs in the daemon with its permissions (TODO.md "Isolation").
+
+**Host types, pi-style.** A plugin gets its types and constants from the host,
+not from a copy of its own: it imports from `my-pizza-team/plugin` (the
+package's `./plugin` subpath export, `plugin/index.ts` — the `WorkSource` /
+`SourceContext` types and the types in their signatures, plus
+`WORK_SOURCE_API_VERSION` and `SOURCE_ID_PATTERN`; nothing store-internal) and
+declares `"peerDependencies": { "my-pizza-team": "*" }`. That is pi's model for
+its extensions, and for the same reason: a bundled copy would carry stale
+constants and types that drift from the daemon actually running it. Before the
+first plugin import the loader registers a Node resolve hook
+(`module.registerHooks`, daemon/plugins/host-resolve.ts) that answers
+`my-pizza-team/plugin` with the running daemon's own module — so it resolves
+for a plugin that installed nothing (installs use `--omit=peer`; a local folder
+may have no `node_modules`), and a plugin that did install its own copy still
+gets the host's. Types are erased at runtime, so only the constants actually
+travel through the hook; the published `.d.ts` are for the author's editor and
+`tsc`. GUIDE.md "Writing a Work Source plugin" is the author-facing version.
 
 ## Pending: Write, Review, Activate
 

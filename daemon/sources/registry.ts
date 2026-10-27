@@ -9,8 +9,8 @@
  * source (or a hook a source doesn't implement) falls back to the Store's
  * inline default.
  *
- * Plugin-agnostic: no package loading (deferred; TODO.md "Work Sources as
- * plugins — package loading (deferred)").
+ * Plugin-agnostic: package loading lives in daemon/plugins/loader.ts, which
+ * registers plugin sources here through the same checks as the built-ins.
  */
 
 import type { WorkDef } from "../../shared/types.ts";
@@ -40,13 +40,22 @@ export function sourceIdForWorkDef(def: Pick<WorkDef, "parent">): string {
  */
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
+/** Options for `SourceRegistry.register` / `Store.registerWorkSource`. */
+export interface RegisterSourceOptions {
+  /** The source's own settings, its `ctx.options()` (a plugin: its package entry's `config`). */
+  options?: Record<string, unknown>;
+}
+
 export class SourceRegistry {
   private entries = new Map<string, SourceEntry>();
 
-  private makeContext: (sourceId: string) => SourceContext;
+  private makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext;
 
-  /** @param makeContext builds the daemon-side context for a source id (the Store supplies it). */
-  constructor(makeContext: (sourceId: string) => SourceContext) {
+  /**
+   * @param makeContext builds the daemon-side context for a source id and its
+   *   settings (`ctx.options()`); the Store supplies it.
+   */
+  constructor(makeContext: (sourceId: string, options: Readonly<Record<string, unknown>>) => SourceContext) {
     this.makeContext = makeContext;
   }
 
@@ -55,8 +64,10 @@ export class SourceRegistry {
    * unsupported `apiVersion` (throws), so a misconfigured source fails loudly
    * at startup rather than silently shadowing another. An async `init` is not
    * awaited; its failure is logged through the source's own context.
+   * `opts.options` becomes the source's `ctx.options()` (default `{}`), copied
+   * and frozen so the source can't change what the next reader sees.
    */
-  register(source: WorkSource): SourceEntry {
+  register(source: WorkSource, opts: RegisterSourceOptions = {}): SourceEntry {
     if (source.apiVersion !== WORK_SOURCE_API_VERSION) {
       throw new Error(`Work source "${source.id}" targets apiVersion ${source.apiVersion}; this daemon supports ${WORK_SOURCE_API_VERSION}`);
     }
@@ -65,7 +76,8 @@ export class SourceRegistry {
     if (source.sync && !SOURCE_ID_PATTERN.test(source.id)) {
       throw new Error(`Work source "${source.id}": an external source's id must match ${SOURCE_ID_PATTERN}`);
     }
-    const entry: SourceEntry = { source, ctx: this.makeContext(source.id) };
+    const options = Object.freeze({ ...(opts.options ?? {}) });
+    const entry: SourceEntry = { source, ctx: this.makeContext(source.id, options) };
     this.entries.set(source.id, entry);
     const init = source.init?.(entry.ctx);
     if (init instanceof Promise) init.catch((e) => entry.ctx.log(`init failed: ${e instanceof Error ? e.message : String(e)}`));

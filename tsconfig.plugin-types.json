@@ -1,0 +1,14 @@
+// Emits the type declarations for the `my-pizza-team/plugin` subpath export
+// (plugin/index.ts → dist/plugin/index.d.ts, plus the .d.ts of the modules its
+// types come from). Declarations only: the JS is the main build's
+// (tsconfig.build.json), which runs first in `npm run build:js`. Kept separate
+// so the rest of the package (daemon, CLI) doesn't ship — or have to be
+// declaration-clean for — .d.ts files nobody imports.
+{
+  "extends": "./tsconfig.build.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true
+  },
+  "include": ["plugin/index.ts"]
+}

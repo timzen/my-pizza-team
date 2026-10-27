@@ -3,7 +3,9 @@
  * generic read-only view of what each one mirrors.
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins" (external sources).
  *
- *   GET  /api/work-sources            — the registered external sources ({ id, label })
+ *   GET  /api/work-sources            — the registered external sources ({ id, label }), and
+ *                                       `plugins`: each plugin package's load status
+ *                                       (daemon/plugins/loader.ts)
  *   GET  /api/work-sources/:id/defs   — its mirrored defs: title, external link,
  *                                       last revision, latest WorkItem state, run count
  *   POST /api/work-sources/:id/sync   — sync it now (ignores a failure backoff)
@@ -15,7 +17,7 @@
 
 import type { RouteContext } from "./types.ts";
 import type { WorkDef } from "../../shared/types.ts";
-import type { ExternalSourceView, MirroredDefRow, MirroredDefsResponse, MirrorView } from "../../shared/protocol.ts";
+import type { ExternalSourceView, MirroredDefRow, MirroredDefsResponse, MirrorView, WorkSourcesResponse } from "../../shared/protocol.ts";
 import type { Store } from "../store.ts";
 import { sourceIdForWorkDef } from "../sources/registry.ts";
 
@@ -49,7 +51,7 @@ export function mirroredReadOnlyError(label: string): string {
 export function registerWorkSourceRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
 
-  app.get("/api/work-sources", (c) => c.json({ sources: externalSourceViews(store) }));
+  app.get("/api/work-sources", (c) => c.json({ sources: externalSourceViews(store), plugins: store.getPluginStatuses() } satisfies WorkSourcesResponse));
 
   app.get("/api/work-sources/:id/defs", (c) => {
     const id = c.req.param("id");

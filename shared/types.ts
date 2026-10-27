@@ -69,6 +69,14 @@ export interface TeamConfig {
    */
   dev?: { fixtureSource?: FixtureSourceConfig };
   /**
+   * Plugin packages for this team (TODO.md "Work Sources as plugins — package
+   * loading"), mirroring pi's `packages`. Each entry is a spec string or
+   * `{ source, config }`; parsed and validated by daemon/plugins/spec.ts
+   * (`parsePackageEntries`), where an invalid entry is reported, never fatal.
+   * Hand-edited (or via `mpt plugins`); a change needs a daemon restart.
+   */
+  packages?: PackageEntry[];
+  /**
    * One teammate per directory (default true). While a WorkItem with a
    * `directory` is IN_PROGRESS or MORIBUND, no other WorkItem whose directory
    * overlaps it (same path, parent, or child) is handed out — so two pieces of
@@ -382,6 +390,29 @@ export function isMirroredWorkDef(def: { parent?: WorkDefParent }): boolean {
 }
 
 /** `config.dev.fixtureSource`: the markdown-folder fixture source (daemon/sources/fixture.ts). */
+/**
+ * One `TeamConfig.packages` entry: a package spec string, or the object form
+ * carrying per-plugin settings. Spec forms (like pi's packages; parsed by
+ * daemon/plugins/spec.ts):
+ *
+ * - npm: `npm:<name>[@version]` (e.g. `npm:@acme/mpt-jira@1.2.0`)
+ * - git: `git:<host>/<path>[@ref]`, `https://<host>/<path>[@ref]`, `ssh://<user>@<host>/<path>[@ref]`
+ * - local path: absolute, `./`, `../`, or `~/`; relative paths resolve against the team dir
+ */
+export type PackageEntry = string | PackageEntryObject;
+
+/** The object form of a `packages` entry. */
+export interface PackageEntryObject {
+  /** The package spec (any form above). */
+  source: string;
+  /**
+   * Settings handed to every Work Source this package provides, as
+   * `SourceContext.options()`. Secrets are never inline: reference an env var
+   * by name (`tokenEnv: "JIRA_TOKEN"`) and let the source read `process.env`.
+   */
+  config?: Record<string, unknown>;
+}
+
 export interface FixtureSourceConfig {
   /** Folder of `*.md` files, one per def (absolute, or relative to the team dir). */
   dir: string;

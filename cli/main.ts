@@ -40,7 +40,8 @@ import {
   writePiSettingsFile,
   type SetupPlan,
 } from "./setup.ts";
-import { generateToken } from "../daemon/auth.ts";
+import { generateToken, resolveToken } from "../daemon/auth.ts";
+import { fetchPluginStatuses, runPlugins, runPluginCommand } from "./plugins.ts";
 import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
 import { mptInvocation } from "../daemon/self.ts";
 import { isMainModule } from "../shared/main-module.ts";
@@ -239,6 +240,26 @@ async function cmdUninstall(): Promise<void> {
   await uninstall();
 }
 
+// --- Plugin packages (`mpt plugins`) ---
+
+/** `mpt plugins add|list|remove|update` — see cli/plugins.ts. */
+async function cmdPlugins(args: string[]): Promise<void> {
+  const teamDir = getTeamDir();
+  const port = getPort();
+  const service = detectInstalledService();
+  const configToken = readTeamConfig(teamDir).apiToken as string | undefined;
+  const code = await runPlugins(args, {
+    teamDir,
+    cwd: process.cwd(),
+    run: runPluginCommand,
+    fetchStatuses: () => fetchPluginStatuses(`http://localhost:${port}`, resolveToken(configToken)),
+    restartHint: service ? service.restartHint : "mpt stop && mpt start --daemon",
+    log: (l) => console.log(l),
+    error: (l) => console.error(l),
+  });
+  if (code !== 0) process.exit(code);
+}
+
 // --- Self-update (`mpt upgrade`) ---
 
 /** `mpt upgrade [--check]` — see cli/upgrade.ts. */
@@ -274,6 +295,9 @@ Commands:
   install               Install as a user service (launchd/systemd; starts on login)
   uninstall             Remove the service
   rotate-token          Generate a new API token (saved to config.json)
+  plugins <cmd>         Manage the team's plugin packages (config.json "packages"):
+                        add <spec> [--config '<json>'], list, remove <spec|identity>,
+                        update [<spec|identity>]; restart the daemon afterwards
   agent --harness <h>   Run a non-Pi teammate (kiro, claude) — experimental; the daemon starts these
   --version, --help
 
@@ -719,6 +743,9 @@ export async function main(): Promise<void> {
       break;
     case "upgrade":
       await cmdUpgrade(args.slice(1));
+      break;
+    case "plugins":
+      await cmdPlugins(args.slice(1));
       break;
     case "doctor":
       await cmdDoctor();

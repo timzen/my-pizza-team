@@ -46,7 +46,7 @@ function memoryKv(): SourceKv & { data: Map<string, string> } {
 /** A minimal context for registry-only tests (no Store). */
 function stubContext(sourceId: string, logs: string[] = []): SourceContext {
   return {
-    sourceId, teamDir: "/nowhere", config: () => TEST_CONFIG, log: (m) => logs.push(`${sourceId}: ${m}`),
+    sourceId, teamDir: "/nowhere", config: () => TEST_CONFIG, options: () => ({}), log: (m) => logs.push(`${sourceId}: ${m}`),
     listWorkDefs: () => [], hasActiveItem: () => false, enqueue: () => null,
     enqueueRevision: () => null, upsertDef: () => null, kv: memoryKv(),
     readiness: { canEnqueueNow: () => true },

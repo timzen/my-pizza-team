@@ -459,3 +459,31 @@ test("node: a service that launches the bridge is told apart from an old binary"
   assertStringIncludes(service[0]!.detail, "bridge");
   assertStringIncludes(service[0]!.fix!, "mpt install");
 });
+
+// ─── Plugins ─────────────────────────────────────────────────────────
+
+test("plugins: none declared adds no check; all loaded is one ok line; each failure warns with a fix", () => {
+  assertEquals(evaluate(healthy({ plugins: [] })).some((c) => c.name.startsWith("Plugin")), false);
+  assertEquals(evaluate(healthy({ plugins: null })).some((c) => c.name.startsWith("Plugin")), false);
+
+  const ok = find(evaluate(healthy({ plugins: [{ identity: "/p", spec: "./p", state: "loaded", sources: ["demo"] }] })), "Plugins");
+  assertEquals(ok.status, "ok");
+  assertStringIncludes(ok.detail, "demo");
+
+  const checks = evaluate(healthy({
+    plugins: [
+      { identity: "/p", spec: "./p", state: "loaded", sources: ["demo"] },
+      { identity: "mpt-jira", spec: "npm:mpt-jira", state: "error", error: "not installed (expected at /x); run `mpt plugins add npm:mpt-jira`", sources: [] },
+      { identity: "/q", spec: "./q", state: "error", error: "no \"mpt\" manifest", sources: [] },
+    ],
+  }));
+  const jira = find(checks, "Plugin npm:mpt-jira");
+  assertEquals(jira.status, "warn");
+  assertStringIncludes(jira.fix ?? "", "mpt plugins add npm:mpt-jira");
+  const q = find(checks, "Plugin ./q");
+  assertEquals(q.status, "warn");
+  assertStringIncludes(q.fix ?? "", "restart the daemon");
+  // A down daemon reports nothing about plugins (it can't know).
+  assertEquals(evaluate(healthy({ daemonRunning: false, plugins: [{ identity: "/q", spec: "./q", state: "error", error: "x", sources: [] }] }))
+    .some((c) => c.name.startsWith("Plugin")), false);
+});

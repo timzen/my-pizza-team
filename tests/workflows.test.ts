@@ -26,7 +26,7 @@ fs.writeFileSync(
   JSON.stringify(TEST_CONFIG.workflows!["default"], null, 2)
 );
 
-const { app, store } = createApp(testDir);
+const { app, store } = await createApp(testDir);
 // The store's background timers would keep `node --test` from exiting.
 after(() => {
   store?.close();

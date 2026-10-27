@@ -82,7 +82,7 @@ Workflows and the context library live under the **config** (gear) icon, as **Co
 
 The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
 
-**External sources.** When the team has an external work source connected (for now only the development fixture source; Jira-style integrations come later), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
+**External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
 
 The highlighted destination is the section you're in, detail pages included: a story, board task, Solitary task, or scheduled job page lights **Work**, and every Config tab (Workflows and Context included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
@@ -435,6 +435,98 @@ Every directory field — New Story, a story's page, New Task, a WorkDef, a tria
 ### Autosave
 
 Your stories, tasks, notes, and usage are plain files in `.my-pizza-team/`. If that folder is inside a git repository, mpt commits it periodically (only that folder — never your own work) and pushes if there's a remote. Turn it off with **Auto Commit**.
+
+---
+
+## Writing a Work Source plugin
+
+A **plugin package** brings work in from somewhere else — a tracker, a folder, an
+API — as an external Work Source. It shows up as its own read-only tab (see
+[External sources](#navigation)), and each new revision of an item runs once. A
+plugin is an ordinary npm package, git repository, or local folder; this section is
+for whoever writes one. (Adding someone else's is `mpt plugins add` — see below.)
+
+**1. The manifest.** The package's `package.json` lists its source entries under
+`"mpt"`, and declares this app as a peer dependency rather than installing it:
+
+```json
+{
+  "name": "mpt-acme-tracker",
+  "version": "1.0.0",
+  "type": "module",
+  "mpt": { "sources": ["./dist/index.js"] },
+  "peerDependencies": { "my-pizza-team": "*" },
+  "devDependencies": { "my-pizza-team": "*", "typescript": "^6.0.0" },
+  "scripts": { "build": "tsc" }
+}
+```
+
+The peer dependency is what lets you `import … from "my-pizza-team/plugin"`: the
+daemon answers that import with **its own** copy (even if the plugin has none
+installed), so you always see the running app's types and constants. Keep it in
+`devDependencies` too if you want the types while you write. Entries must be files
+inside the package; other keys under `"mpt"` are ignored.
+
+**2. The entry.** Each entry's **default export** is either a Work Source object,
+or a factory `(options, { teamDir }) => source` (it may be `async`) — use the
+factory when the source needs its settings up front:
+
+```ts
+import { WORK_SOURCE_API_VERSION, type ExternalDef, type PluginFactory } from "my-pizza-team/plugin";
+
+const factory: PluginFactory = (options) => {
+  const tokenEnv = String(options.tokenEnv ?? "ACME_TOKEN");
+  return {
+    id: "acme",                        // lowercase letters, digits, dashes
+    label: "Acme",                     // the tab's name and "Open in Acme"
+    apiVersion: WORK_SOURCE_API_VERSION,
+    syncEveryMs: () => 5 * 60_000,     // how often to pull (default 60s)
+    async sync(ctx): Promise<ExternalDef[]> {
+      const token = process.env[tokenEnv];
+      if (!token) throw new Error(`set ${tokenEnv}`);
+      // Return every item the source has *now*; an unchanged revision is a no-op.
+      return [{ externalId: "ACME-1", revision: "2024-06-01T10:00:00Z", title: "Fix login", goal: "…", url: "https://acme.example/ACME-1" }];
+    },
+    onComment(def, comment, ctx) { /* optional: write the comment back */ },
+    onItemTerminal(def, item, ctx) { /* optional: write the outcome back */ },
+  };
+};
+export default factory;
+```
+
+The hooks, and what the daemon does with each, are documented on the
+`WorkSource` and `SourceContext` types themselves. `ctx.kv` keeps small strings
+(cursors, stamps) across restarts; `ctx.log` prefixes your output.
+
+**3. Settings and secrets.** The `config` of the team's package entry —
+`{ "source": "npm:mpt-acme-tracker", "config": { "tokenEnv": "ACME_TOKEN" } }`
+in `config.json` `packages` — is the factory's `options` and the source's
+`ctx.options()` (read-only). **Never put a secret there:** take the *name* of an
+environment variable (`tokenEnv`) and read `process.env`, so `config.json` stays
+safe to share and commit.
+
+**4. Build to JavaScript.** Node won't run TypeScript from inside
+`node_modules`, so an npm package must ship compiled `.js` (point `"mpt.sources"`
+at `dist/`). A git repository can ship sources plus a `build` script — `mpt
+plugins add` runs `npm install` and `npm run build` after cloning. A local folder
+loads in place, so a plain `.js` entry needs no build at all.
+
+**5. Add it, then restart.**
+
+```
+mpt plugins add ./mpt-acme-tracker --config '{"tokenEnv":"ACME_TOKEN"}'   # local, loads in place
+mpt plugins add npm:mpt-acme-tracker@1.0.0                                 # or git:github.com/acme/mpt-acme-tracker@v1.0.0
+mpt plugins list                                                           # installed? loaded? the error if not
+mpt plugins update [<spec>]                                                # re-fetch unpinned npm/git packages
+mpt plugins remove <spec>
+```
+
+Plugins load when the daemon starts, so **restart it after any change** — to the
+package list or to a plugin's code (`mpt stop && mpt start --daemon`, or restart
+the service). A plugin that fails to load (no manifest, a throw, a wrong
+`apiVersion`, an id another source already has) is skipped and the rest of the
+team carries on; `mpt plugins list` and `mpt doctor` show why. A plugin runs
+inside the daemon with its permissions, so only add ones you trust.
 
 ---
 

@@ -431,6 +431,29 @@ export interface ExternalSourceView {
   label: string;
 }
 
+/**
+ * How one `TeamConfig.packages` entry fared at daemon startup
+ * (daemon/plugins/loader.ts): `GET /api/work-sources` `plugins`, and `mpt doctor`.
+ */
+export interface PluginLoadStatus {
+  /** The package's dedupe identity (daemon/plugins/spec.ts), or null for an entry that didn't parse. */
+  identity: string | null;
+  /** The spec as written in config.json. */
+  spec: string;
+  /** "loaded": every entry registered; "error": the package, or at least one of its entries, failed. */
+  state: "loaded" | "error";
+  /** What went wrong (several failures joined by "; "), when `state` is "error". */
+  error?: string;
+  /** The ids of the Work Sources it registered (a partly failed package may still have some). */
+  sources: string[];
+}
+
+/** `GET /api/work-sources`: the registered external sources and each plugin package's load status. */
+export interface WorkSourcesResponse {
+  sources: ExternalSourceView[];
+  plugins: PluginLoadStatus[];
+}
+
 /** One row of `GET /api/work-sources/:id/defs`: a mirrored def and how its runs went. */
 export interface MirroredDefRow {
   id: string;

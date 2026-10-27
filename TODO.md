@@ -11,50 +11,31 @@ number. Delete an item when it's done.
   mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
   move the member's in-flight items to MORIBUND in `removeMember`.
 
-## Work Sources as plugins — package loading (deferred)
+## Work Sources as plugins — package loading — built
 
-The Work Sources story turns Task / Story / Schedule / Thought into built-in
-`WorkSource` plugins behind one interface, plus a generic UI for plugin-sourced work.
-**Loading third-party plugin packages is deferred.** Notes so they aren't lost:
+Third-party Work Sources load from plugin packages declared per team in
+`config.json` `packages` (npm, git with `@ref`, local paths, or `{ source, config }`),
+installed by `mpt plugins add|list|remove|update` into `<teamDir>/packages/`, loaded
+at startup by `daemon/plugins/loader.ts` from each package's `"mpt": { "sources": [...] }`,
+with types and constants from the host's `my-pizza-team/plugin` export (peer
+dependency, resolved to the running daemon by a resolve hook). The design is in
+docs/DESIGN.md "Plugin packages"; the author guide is GUIDE.md "Writing a Work Source
+plugin". What's left:
 
-- **Config shape, like pi's `packages`:** a `packages` array of `npm:<name>[@ver]`,
-  `git:`/`ssh://`/`https://` git URLs (optional `@ref`; tags and commits pinned), or
-  local paths. The object form `{ source, config: {...} }` carries per-plugin settings.
-  Secrets are referenced by env var name (`tokenEnv: "JIRA_TOKEN"`), never stored inline.
-- **Manifest:** the package's `package.json` declares its entries, e.g.
-  `"mpt": { "sources": ["./dist/index.js"] }`. Each entry default-exports a
-  `WorkSource` with an `apiVersion`; the daemon refuses an unknown version.
-- **Install:** `mpt install <source>` / `mpt list` / `mpt remove <source>` /
-  `mpt update`. Clone or `npm pack` into the team dir (e.g. `<teamDir>/packages/`), then
-  `npm install && npm run build` for git sources (node is already on every host for
-  pi). Local paths load in place without copying. Identity is the npm name, the git
-  URL without the ref, or the resolved absolute path, so nothing loads twice.
-- **Loading:** the daemon runs on Node, so a plugin loads with plain `import()` and
-  resolves its own `node_modules`. A TS entry under `node_modules` needs compiling first
-  (Node won't type-strip there), or jiti/tsx, the way pi loads extensions.
 - **Isolation:** plugins run with the daemon's full permissions. The core already
-  bounds what it can (built): each `sync()` has a timeout, a failing source backs off,
-  syncs never overlap, and `onComment`/`onItemTerminal` are fire-and-forget
-  (`daemon/sources/sync.ts`; docs/DESIGN.md "External sources"). What's left is
+  bounds what it can: each `sync()` has a timeout, a failing source backs off,
+  syncs never overlap, `onComment`/`onItemTerminal` are fire-and-forget
+  (`daemon/sources/sync.ts`), and import/factory have a load timeout. What's left is
   in-process: a plugin that blocks the event loop synchronously still stalls the
   daemon. Consider one Worker per plugin (Node `worker_threads`), or a
   subprocess speaking JSON-RPC over stdio (as with ACP in `agent/acp.ts`). Either way,
   plugins only reach the daemon through `SourceContext`.
-- **Host-provided types:** publish the `WorkSource` / `SourceContext` types as a small
-  package (`peerDependencies: "*"`, like pi's host packages) so plugins don't bundle a
-  copy.
-- **Open:** should `packages` live per team (`config.json`) or per machine?
-  Undecided.
-- **First external plugins once loading lands:** Jira / Asana / Taskei. The core they
-  need is built — mirrored read-only defs, the per-source sync loop with
-  once-per-revision enqueue and vanish → archive, write-back through `onComment` /
-  `onItemTerminal`, and a generic read-only Work tab — exercised by the in-repo
-  markdown-folder fixture (`daemon/sources/fixture.ts`, registered in code by tests or
-  `config.dev.fixtureSource`), which can become the packaged reference source. These
-  pull only: no creating external issues from MPT.
-- **Per-source config and secrets:** the fixture's settings live under `config.dev`;
-  a packaged source's `{ source, config }` should reach it as `ctx.config()`-style
-  per-source settings (not wired — `SourceContext.config()` is the team config today).
+- **Hot reload:** plugins load once at startup; any change (package list, a
+  plugin's code or `config`) needs a daemon restart. A reload would have to
+  deregister a source (stop its timers, drop its registry entry) and re-import
+  under a fresh URL, since Node caches ES modules.
+- **First real external plugins:** Jira / Asana / Taskei, as packages outside this
+  repo. Pull only: no creating external issues from MPT.
 - **Mirror ids on case-insensitive file systems:** a mirror's directory is
   `<sourceId>~<externalId>` (escaped), so two external ids differing only in case
   collide on macOS/Windows default volumes. Fine for Jira-style keys; revisit

@@ -23,7 +23,7 @@ import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../shared/protocol.ts";
 
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-handshake-test-"));
 fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
-const { app, store } = createApp(testDir);
+const { app, store } = await createApp(testDir);
 
 const register = (body: Record<string, unknown>) =>
   app.request("/api/agents/register", {

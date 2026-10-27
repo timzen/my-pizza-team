@@ -22,7 +22,7 @@ import { createApp } from "../daemon/app.ts";
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-attach-test-"));
 fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
-const { app, store } = createApp(testDir);
+const { app, store } = await createApp(testDir);
 
 // Create a story and task for testing via the store directly
 store!.createStory("attach-story", "Test story", "desc", "open", [], [{ title: "Test task", description: "A task" }]);

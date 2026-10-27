@@ -72,7 +72,7 @@ const settle = () => new Promise((r) => setTimeout(r, 0));
 function stubContext(sourceId: string): SourceContext {
   const data = new Map<string, string>();
   return {
-    sourceId, teamDir: "/nowhere", config: () => TEST_CONFIG, log: () => {},
+    sourceId, teamDir: "/nowhere", config: () => TEST_CONFIG, options: () => ({}), log: () => {},
     listWorkDefs: () => [], hasActiveItem: () => false, enqueue: () => null,
     enqueueRevision: () => null, upsertDef: () => null,
     kv: { get: (k) => data.get(k), set: (k, v) => { data.set(k, v); }, delete: (k) => { data.delete(k); } },

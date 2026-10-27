@@ -10,6 +10,7 @@ import { Hono } from "hono";
 import { buildApp } from "./server.ts";
 import { Store } from "./store.ts";
 import { FixtureSource } from "./sources/fixture.ts";
+import { loadPlugins } from "./plugins/loader.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -20,8 +21,12 @@ export interface AppContext {
   store: Store | null;
 }
 
-/** Create the full app with store, or a minimal app for health-only mode */
-export function createApp(teamDir?: string): AppContext {
+/**
+ * Create the full app with store, or a minimal app for health-only mode.
+ * Async because plugin packages (`config.packages`) are loaded with `import()`
+ * before the timers start; a failing plugin is logged, never thrown.
+ */
+export async function createApp(teamDir?: string): Promise<AppContext> {
   if (teamDir && existsSync(teamDir)) {
     const configFile = path.join(teamDir, "config.json");
     const userConfig = existsSync(configFile)
@@ -38,6 +43,9 @@ export function createApp(teamDir?: string): AppContext {
 
     const store = new Store(teamDir, config);
     registerDevSources(store, config, teamDir);
+    // Plugin sources register after the built-ins (so they can't take a built-in's
+    // id) and before loadFromDisk/startTimers, so they reconcile and sync with the rest.
+    store.setPluginStatuses(await loadPlugins(store, config, teamDir));
     store.loadFromDisk();
     store.startTimers();
 

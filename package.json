@@ -12,6 +12,14 @@
   "bin": {
     "mpt": "dist/main.js"
   },
+  "exports": {
+    "./plugin": {
+      "types": "./dist/plugin/index.d.ts",
+      "import": "./dist/plugin/index.js"
+    },
+    "./package.json": "./package.json",
+    "./*": "./*"
+  },
   "files": [
     "dist/",
     "ui/dist/",
@@ -28,7 +36,7 @@
     "start": "node --env-file-if-exists=.env daemon/main.ts",
     "mpt": "node --env-file-if-exists=.env cli/main.ts",
     "build": "npm run ui:ci-build && npm run build:js",
-    "build:js": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json",
+    "build:js": "node -e \"require('node:fs').rmSync('dist',{recursive:true,force:true})\" && tsc -p tsconfig.build.json && tsc -p tsconfig.plugin-types.json",
     "prepack": "npm run build",
     "test": "node --test --test-concurrency=1 'tests/*.test.ts'",
     "test:e2e": "node --test --test-concurrency=1 'tests/e2e/*.test.ts'",

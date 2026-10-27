@@ -48,6 +48,7 @@ import {
 } from "../shared/runtime-config.ts";
 import { cliEntryScript } from "../shared/paths.ts";
 import type { ServiceProgram } from "./service.ts";
+import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
 
 /** The Pi release this build was tested against. See DESIGN.md "One Protocol, One Version" — advisory, not a gate. */
 export const TESTED_PI_VERSION = "0.87.1";
@@ -96,6 +97,12 @@ export interface DoctorFacts {
    * (absent otherwise): whether each could start on this machine.
    */
   experimentalHarnesses?: Record<string, { ready: boolean; missing?: string; fix?: string }>;
+  /**
+   * How the team's plugin packages loaded, as reported by the running daemon
+   * (`GET /api/work-sources` `plugins`; daemon/plugins/loader.ts). Absent/null =
+   * not known (daemon down, or an older daemon).
+   */
+  plugins?: PluginLoadStatus[] | null;
 }
 
 /** The Node facts (shared/runtime-config.ts), gathered so the checks stay pure. */
@@ -311,9 +318,33 @@ export function evaluate(f: DoctorFacts): Check[] {
       : { name: `${name} (experimental)`, status: "warn", detail: h.missing ?? "not ready", fix: h.fix ?? `mpt setup --harness ${name}` });
   }
 
+  if (f.daemonRunning && f.plugins) checks.push(...pluginChecks(f.plugins));
+
   if (f.node) checks.push(...nodeChecks(f.node));
 
   return checks;
+}
+
+/**
+ * The plugin checks: one line when every package loaded, else a warning per
+ * failed package (the daemon runs without it — a failing plugin is skipped,
+ * never fatal). Nothing when the team declares no `packages`.
+ */
+export function pluginChecks(plugins: PluginLoadStatus[]): Check[] {
+  if (plugins.length === 0) return [];
+  const failed = plugins.filter((p) => p.state === "error");
+  if (failed.length === 0) {
+    const sources = plugins.flatMap((p) => p.sources);
+    return [{ name: "Plugins", status: "ok", detail: `${plugins.length} loaded${sources.length ? ` (sources: ${sources.join(", ")})` : ""}` }];
+  }
+  return failed.map((p) => ({
+    name: `Plugin ${p.spec}`,
+    status: "warn" as const,
+    detail: `failed to load: ${p.error ?? "unknown error"}`,
+    fix: p.error?.includes("not installed")
+      ? `mpt plugins add ${p.spec} (or mpt plugins update), then restart the daemon`
+      : "fix the package or its entry in config.json packages, then restart the daemon (details: [plugins] in the daemon log)",
+  }));
 }
 
 /**
@@ -617,6 +648,13 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   } catch {
     daemonRunning = false;
   }
+  let plugins: PluginLoadStatus[] | null = null;
+  if (daemonRunning) {
+    try {
+      const res = await fetch(`${opts.daemonUrl}/api/work-sources`, { signal: AbortSignal.timeout(1500) });
+      if (res.ok) plugins = (await res.json() as Partial<WorkSourcesResponse>).plugins ?? null;
+    } catch { /* an older or unreachable daemon: the check is skipped */ }
+  }
 
   return {
     piVersion: await probeVersion("pi"),
@@ -639,6 +677,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     serviceInstalled: opts.serviceInstalled,
     node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
+    plugins,
   };
 }
 

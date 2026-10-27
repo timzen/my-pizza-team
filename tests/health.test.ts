@@ -17,7 +17,7 @@ import { createApp } from "../daemon/app.ts";
 const testDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-health-test-"));
 fs.writeFileSync(`${testDir}/config.json`, JSON.stringify(TEST_CONFIG));
 
-const { app, store } = createApp(testDir);
+const { app, store } = await createApp(testDir);
 
 test("GET /health returns ok status with metrics", async () => {
   const res = await app.request("/health");

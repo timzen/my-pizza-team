@@ -10,8 +10,10 @@
  *
  * This file is core-facing and plugin-agnostic: it imports nothing from the
  * Store, so a source can be written (and tested) against `SourceContext` alone.
- * Third-party package loading is deferred (TODO.md "Work Sources as plugins —
- * package loading (deferred)").
+ * Third-party packages are declared in the team's `packages`
+ * (daemon/plugins/spec.ts); a plugin source's settings reach it as `ctx.options()`.
+ * Plugin authors import these types from `my-pizza-team/plugin` (plugin/index.ts),
+ * so a type exported there is public API.
  */
 
 import type { Comment, TeamConfig, WorkDef, WorkItem } from "../../shared/types.ts";
@@ -120,6 +122,18 @@ export interface SourceContext {
   readonly teamDir: string;
   /** The team's live config. */
   config(): TeamConfig;
+  /**
+   * This source's own settings. A plugin source gets its package entry's
+   * `config` (`packages: [{ source, config: { ... } }]` in the team's
+   * config.json; daemon/plugins/spec.ts); built-ins and in-code sources get `{}`
+   * unless registered with `options` (`Store.registerWorkSource`). Read-only
+   * (frozen), and fixed for the daemon's lifetime: a change needs a restart.
+   *
+   * **Secrets are never inline.** Reference an environment variable by name —
+   * `{ "tokenEnv": "JIRA_TOKEN" }` — and read `process.env[options.tokenEnv]`,
+   * so config.json stays safe to share and commit.
+   */
+  options(): Readonly<Record<string, unknown>>;
   /** Prefixed logging, so a source's output is attributable. */
   log(message: string): void;
   /** Every WorkDef (all statuses); a source filters to its own. */

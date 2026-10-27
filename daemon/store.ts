@@ -84,7 +84,8 @@ import {
   type InboxMessage,
 } from "./store/assistant-chat.ts";
 import { isValidCron } from "./cron.ts";
-import { type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
+import type { PluginLoadStatus } from "../shared/protocol.ts";
+import { type RegisterSourceOptions, type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
 import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource } from "./sources/types.ts";
 import { mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
 import { DEFAULT_SYNC_EVERY_MS, SyncRunner } from "./sources/sync.ts";
@@ -112,6 +113,9 @@ import { existsSync } from "node:fs";
 export const DISMISS_EXIT_GRACE_MS = 3_000;
 
 export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
+
+/** `ctx.options()` of a source registered without settings (the built-ins). */
+const EMPTY_SOURCE_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
 
 /**
  * Reserved singleton identity for the leader: the agent that realizes directives
@@ -323,7 +327,7 @@ export class Store {
    * (eligibility, enqueue, terminal, the periodic tick) instead of switching on
    * kind; a kind with no registered source keeps the inline default.
    */
-  private sources = new SourceRegistry((sourceId) => this.makeSourceContext(sourceId));
+  private sources = new SourceRegistry((sourceId, options) => this.makeSourceContext(sourceId, options));
   /**
    * The sync loop for external (pull-only) sources: timeout, backoff, and
    * isolation (daemon/sources/sync.ts); a good result comes back to
@@ -403,7 +407,7 @@ export class Store {
    * `enqueueFor`, so every source inherits "pending never enqueues" and the
    * directory normalization for free.
    */
-  private makeSourceContext(sourceId: string): SourceContext {
+  private makeSourceContext(sourceId: string, options: Readonly<Record<string, unknown>> = EMPTY_SOURCE_OPTIONS): SourceContext {
     const hasActiveItem = (defId: string) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null;
     const enqueue = (defId: string) => this.enqueueFor(defId);
     const kv = fileSourceKv(this.teamDir, sourceId);
@@ -412,6 +416,7 @@ export class Store {
       sourceId,
       teamDir: this.teamDir,
       config: () => this.config,
+      options: () => options,
       log: (message) => console.warn(`[source:${sourceId}] ${message}`),
       listWorkDefs: () => listWorkDefs(this.teamDir),
       hasActiveItem,
@@ -425,11 +430,12 @@ export class Store {
 
   /**
    * Register a Work Source (and run its `init`). Built-ins register in the
-   * constructor; this is the seam for in-repo fixture sources in tests. Throws
-   * on a duplicate id or unsupported apiVersion.
+   * constructor; this is the seam for in-repo fixture sources in tests and
+   * for plugin sources, whose package entry's `config` is `opts.options`
+   * (`ctx.options()`). Throws on a duplicate id or unsupported apiVersion.
    */
-  registerWorkSource(source: WorkSource): void {
-    this.sources.register(source);
+  registerWorkSource(source: WorkSource, opts: RegisterSourceOptions = {}): void {
+    this.sources.register(source, opts);
   }
 
   /**
@@ -453,6 +459,22 @@ export class Store {
   /** Run every source's periodic `tick` now (the 30s timer calls this). */
   tickWorkSources(now: Date = new Date()): void {
     this.sources.tickAll(now);
+  }
+
+  /**
+   * How each plugin package fared at startup (daemon/plugins/loader.ts records
+   * it once, after loading; `GET /api/work-sources` and `mpt doctor` read it).
+   */
+  private pluginStatuses: PluginLoadStatus[] = [];
+
+  /** Record the plugin packages' load status (the loader calls this once at startup). */
+  setPluginStatuses(statuses: PluginLoadStatus[]): void {
+    this.pluginStatuses = statuses;
+  }
+
+  /** Each plugin package's load status, in config order (empty when the team declares none). */
+  getPluginStatuses(): PluginLoadStatus[] {
+    return this.pluginStatuses;
   }
 
   /** The external (pull-only) sources — those with a `sync` — in registration order. */

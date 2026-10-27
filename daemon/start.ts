@@ -65,7 +65,7 @@ export async function startDaemonInProcess(
   // Create the app and store
   let app, store;
   try {
-    const ctx = createApp(teamDir);
+    const ctx = await createApp(teamDir);
     app = ctx.app;
     store = ctx.store;
   } catch (e) {
