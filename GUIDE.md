@@ -547,9 +547,9 @@ safe to share and commit.
 
 **4. Build to JavaScript.** Node won't run TypeScript from inside
 `node_modules`, so an npm package must ship compiled `.js` (point `"mpt.sources"`
-at `dist/`). A git repository can ship sources plus a `build` script — `mpt
-plugins add` runs `npm install` and `npm run build` after cloning. A local folder
-loads in place, so a plain `.js` entry needs no build at all.
+at `dist/`). A git repository can ship sources plus a `build` script, or commit
+its built entries — see [Distributing a plugin](#distributing-a-plugin). A local
+folder loads in place, so a plain `.js` entry needs no build at all.
 
 **5. Add it, then restart.**
 
@@ -568,6 +568,54 @@ the service). A plugin that fails to load (no manifest, a throw, a wrong
 team carries on; `mpt plugins list` and `mpt doctor` show why. A plugin runs
 inside the daemon with its permissions, so only add ones you trust.
 
+**Installed on start.** `packages` in `config.json` is enough: when the daemon
+starts, any npm or git package listed there that isn't installed yet (say, a
+teammate's fresh checkout of the team's config) is installed first, exactly as
+`mpt plugins add` would, and logged with `[plugins]`. Each package is on its own:
+one whose install fails is skipped and its error shows in `mpt plugins list`,
+`mpt doctor` and `mpt plugins doctor`, while the rest load. Each install command
+is limited to 10 minutes (set `MPT_PLUGIN_INSTALL_TIMEOUT_MS` in the daemon's
+environment to change it), a failed one isn't retried until the next restart,
+and local paths are never installed or changed. config.json is never written.
+
+### Distributing a plugin
+
+A plugin travels as an npm package (from your npm registry) or a git repository.
+MPT doesn't know about build systems — no Brazil, Bazel or the like — so a **git
+plugin must meet one contract**: either
+
+- it **installs and builds with plain npm** against the user's configured
+  registry (`npm config get registry`): `npm install --omit=peer` then
+  `npm run build` must succeed in a fresh clone, or
+- it **ships prebuilt entries**: every `mpt.sources` file is committed, so it
+  exists right after `git clone`.
+
+What `mpt plugins add <git url>` (and the daemon's install-on-start) does after
+cloning:
+
+| The clone has… | MPT runs |
+|---|---|
+| every `mpt.sources` entry committed, no `dependencies` | nothing — no npm at all |
+| every entry committed, some `dependencies` | `npm install --omit=peer --omit=dev` (runtime deps only, no build) |
+| an entry missing | `npm install --omit=peer` (dev deps too), then `npm run build`; the entries must exist afterwards |
+
+When an npm step fails you see the command, its exit code and the end of npm's
+error output (often an `E404` for a package your registry doesn't have), plus the
+contract above. A failed `add` leaves `config.json` unchanged and removes the
+partial clone.
+
+**Brazil / NpmPrettyMuch packages** usually carry internal-only devDependencies
+(the template's `@amzn/brazil`, used just by a coverage `posttest`) that a public
+or personal registry can't serve. Either move those to `optionalDependencies` —
+npm skips an optional package it can't fetch, so `npm install` and `npm run
+build` still pass (MPTSimWorkSources does this) — or commit the built entries so
+no npm run is needed. Check it the way a user will:
+
+```
+git clone <your repo> /tmp/check && cd /tmp/check && npm install --omit=peer && npm run build
+mpt plugins doctor ssh://git.example.com/you/your-plugin     # installs into a temp cache and checks it
+```
+
 ### Testing your plugin
 
 Before a plugin goes into a real team, check it with `mpt plugins doctor`. It
@@ -580,8 +628,13 @@ mpt plugins doctor ./mpt-acme-tracker      # one package: a path, a spec, or a c
                                            # it doesn't have to be configured
 ```
 
-On its own it is an **install check** — no network, no `init`, no `sync`, and a
-factory is *not* called. It checks that the spec parses and the package is there,
+A spec that isn't configured or installed (`mpt plugins doctor
+npm:mpt-acme-tracker`, or a git URL) is first installed into a temporary cache,
+removed afterwards, so you can check a package straight from its registry or
+repository without adding it.
+
+On its own it is an **install check** — no network (beyond that install), no
+`init`, no `sync`, and a factory is *not* called. It checks that the spec parses and the package is there,
 that `package.json` has a valid `"mpt"` manifest, and that each source entry is
 inside the package and **imports the way the daemon imports it**
 (`my-pizza-team/plugin` resolving to this app). For an object export it also

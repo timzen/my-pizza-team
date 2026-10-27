@@ -6,7 +6,10 @@
  *
  *   1. **Resolve** it to a directory: a local path is used in place; an npm or
  *      git package is the copy `mpt plugins` installed under `<teamDir>/packages/`
- *      (`packageInstallDir` defines that layout for both sides).
+ *      (`packageInstallDir` defines that layout for both sides). A configured
+ *      package that wasn't installed has just been installed by the daemon
+ *      (daemon/plugins/install.ts `installMissingPackages`, run first); one
+ *      whose install failed is reported with that failure (`installErrors`).
  *   2. **Read the manifest**: the package.json `"mpt": { "sources": [...] }`.
  *      Other keys under `"mpt"` are ignored, leaving room for future plugin kinds.
  *   3. **Import** each source entry and take its default export: a `WorkSource`
@@ -125,6 +128,12 @@ export interface LoadPluginsOptions {
   timeoutMs?: number;
   /** Where messages go (default: console, `[plugins]`-prefixed). */
   log?: (message: string) => void;
+  /**
+   * Packages whose install-on-start failed (identity → why;
+   * daemon/plugins/install.ts `installMissingPackages`): recorded as that
+   * package's error instead of a bare "not installed".
+   */
+  installErrors?: ReadonlyMap<string, string>;
 }
 
 /**
@@ -149,7 +158,10 @@ export async function loadPlugins(
   const statuses: PluginLoadStatus[] = [];
 
   for (const entry of parsed.packages) {
-    const status = await loadPackage(host, entry, teamDir, timeoutMs);
+    const installError = opts.installErrors?.get(entry.spec.identity);
+    const status: PluginLoadStatus = installError !== undefined
+      ? { identity: entry.spec.identity, spec: entry.spec.raw, state: "error", error: `install failed: ${installError}`, sources: [] }
+      : await loadPackage(host, entry, teamDir, timeoutMs);
     if (status.state === "loaded") log(`${status.spec}: loaded (${status.sources.length ? `sources: ${status.sources.join(", ")}` : "no sources"})`);
     else log(`${status.spec}: ${status.error}${status.sources.length ? ` (still registered: ${status.sources.join(", ")})` : ""}`);
     statuses.push(status);

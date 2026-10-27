@@ -9,8 +9,9 @@
  * factory, duplicate identity, duplicate source id, not installed, an entry
  * outside the package, a hanging import — logged and skipped while the rest
  * load; `my-pizza-team/plugin` resolving to the host's copy (even over a
- * plugin's own); the install layout; and the daemon starting with a broken plugin and
- * reporting it on `GET /api/work-sources`.
+ * plugin's own); the install layout; the daemon starting with a broken plugin and
+ * reporting it on `GET /api/work-sources`; and install-on-start (a missing npm
+ * package installed through a fake runner, a failing one isolated and reported).
  */
 
 import * as fs from "node:fs";
@@ -252,6 +253,53 @@ test("the daemon starts with a broken plugin, and GET /api/work-sources reports 
     assertEquals(body.sources.map((s) => s.id), ["app-good"]);
     assertEquals(body.plugins.map((p) => [p.spec, p.state]), [["./broken", "error"], ["./good", "loaded"]]);
     assertStringIncludes(body.plugins[0]?.error ?? "", "broken plugin");
+  } finally {
+    store?.close();
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});
+
+test("install-on-start: a configured npm package that isn't installed is installed and loads; a failing one is isolated and reported", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugin-autoinstall-test-"));
+  const config = { ...TEST_CONFIG, packages: ["npm:mpt-auto-good", "npm:mpt-auto-bad", "./local-missing"] };
+  fs.writeFileSync(path.join(teamDir, "config.json"), JSON.stringify(config));
+  const before = fs.readFileSync(path.join(teamDir, "config.json"), "utf8");
+  const calls: string[][] = [];
+  // A fake npm: lays out the good package where `npm install --prefix` would; the bad one 404s.
+  const pluginRunner = (cmd: string, args: string[]) => {
+    calls.push([cmd, ...args]);
+    if (cmd !== "npm" || args[0] !== "install") return { code: 0, stdout: "" };
+    const name = args.at(-1)!;
+    if (name === "mpt-auto-bad") return { code: 1, stdout: "", stderr: "npm error code E404\nnpm error 404 Not Found - GET https://registry.example/mpt-auto-bad" };
+    writePlugin(path.join(args[args.indexOf("--prefix") + 1]!, "node_modules"), name, { sources: ["./index.js"] }, { "index.js": objectSource("auto-good") });
+    return { code: 0, stdout: "" };
+  };
+  const { app, store } = await createApp(teamDir, { pluginRunner });
+  try {
+    assert(store);
+    const body = await (await app.request("/api/work-sources")).json() as WorkSourcesResponse;
+    assertEquals(body.sources.map((s) => s.id), ["auto-good"]);
+    assertEquals(body.plugins.map((p) => [p.spec, p.state]), [["npm:mpt-auto-good", "loaded"], ["npm:mpt-auto-bad", "error"], ["./local-missing", "error"]]);
+    assertStringIncludes(body.plugins[1]?.error ?? "", "install failed");
+    assertStringIncludes(body.plugins[1]?.error ?? "", "npm error 404 Not Found");
+    assertStringIncludes(body.plugins[2]?.error ?? "", "does not exist");
+    // One attempt per npm package (never the local path), and config.json is never written.
+    assertEquals(calls.filter((c) => c[1] === "install").map((c) => c.at(-1)), ["mpt-auto-good", "mpt-auto-bad"]);
+    assertEquals(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"), before);
+    assertEquals(fs.existsSync(path.join(teamDir, "packages", "npm", "node_modules", "mpt-auto-bad")), false);
+  } finally {
+    store?.close();
+    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
+});
+
+test("install-on-start: an installed package is left alone (no commands run)", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugin-autoinstall-test-"));
+  writePlugin(path.join(teamDir, "packages", "npm", "node_modules"), "mpt-present", { sources: ["./index.js"] }, { "index.js": objectSource("present-src") });
+  fs.writeFileSync(path.join(teamDir, "config.json"), JSON.stringify({ ...TEST_CONFIG, packages: ["npm:mpt-present"] }));
+  const { store } = await createApp(teamDir, { pluginRunner: () => { throw new Error("nothing should run"); } });
+  try {
+    assertEquals(store?.getPluginStatuses().map((p) => p.state), ["loaded"]);
   } finally {
     store?.close();
     try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }

@@ -8,8 +8,9 @@
  * called without --config and is with it; a bad manifest, a throwing import, a
  * bad apiVersion; a sync returning invalid or duplicate items, one that throws,
  * one that times out; an unstable revision; --hooks; `--config team`; --config
- * with several targets (a usage error); the --json shape; and that the real
- * team dir is never written.
+ * with several targets (a usage error); the --json shape; that the real
+ * team dir is never written; and an uninstalled npm spec installed into (and
+ * removed with) a scratch cache through a fake runner.
  */
 
 import * as fs from "node:fs";
@@ -316,15 +317,46 @@ test("doctor --json: the report's shape", async () => {
   assertEquals(report.summary.ok, p.checks.length + p.sources[0]!.checks.length);
 });
 
-test("doctor: no packages configured is fine; an npm spec that isn't installed fails without touching the network", async () => {
+test("doctor: no packages configured is fine; an uninstalled npm spec is installed into a scratch cache, checked, and removed", async () => {
   const env = setup();
   const none = await env.doctor();
   assertEquals(none.code, 0);
   assertStringIncludes(none.text, "No plugin packages configured");
-  const npm = await env.doctor("npm:mpt-not-here");
-  assertEquals(npm.code, 1);
-  assertStringIncludes(npm.text, "not installed");
+
+  // A fake npm that lays the package out where `npm install --prefix` would.
+  const prefixes: string[] = [];
+  env.deps.run = (cmd, args) => {
+    assertEquals(cmd, "npm");
+    const prefix = args[args.indexOf("--prefix") + 1]!;
+    prefixes.push(prefix);
+    writePlugin(path.join(prefix, "node_modules"), args.at(-1)!, { "index.js": objectSource("scratch-src") });
+    return { code: 0, stdout: "" };
+  };
+  const ok = await env.doctor("npm:mpt-scratch");
+  assertEquals(ok.code, 0, ok.text);
+  assertStringIncludes(ok.text, "installed into a scratch cache");
+  assertStringIncludes(ok.text, `"scratch-src"`);
+  assertEquals(prefixes.length, 1);
+  assert(!prefixes[0]!.startsWith(env.teamDir), "not installed into the team");
+  assertEquals(fs.existsSync(prefixes[0]!), false);
   assertEquals(fs.existsSync(path.join(env.teamDir, "packages")), false);
+  assertEquals(JSON.parse(fs.readFileSync(path.join(env.teamDir, "config.json"), "utf8")), { packages: [] });
+
+  // An install failure is a ✗ quoting npm's stderr; the scratch cache is still removed.
+  // Under --json the install's progress goes to stderr, keeping stdout pure JSON.
+  const stderr: string[] = [];
+  env.deps.error = (l) => stderr.push(l);
+  env.deps.run = (_cmd, args) => {
+    prefixes.push(args[args.indexOf("--prefix") + 1]!);
+    return { code: 1, stdout: "", stderr: "npm error code E404\nnpm error 404 Not Found - GET https://registry.example/mpt-not-here" };
+  };
+  const bad = await env.json("npm:mpt-not-here");
+  assertEquals(bad.code, 1);
+  const msg = bad.report.packages[0]!.checks.map((c) => c.message).join("\n");
+  assertStringIncludes(msg, "install into a scratch cache failed");
+  assertStringIncludes(msg, "npm error code E404");
+  assertEquals(fs.existsSync(prefixes[1]!), false);
+  assertStringIncludes(stderr.join("\n"), "Installing npm:mpt-not-here into a scratch cache");
 });
 
 test("describeImportError: a native ABI mismatch says which Node to rebuild with", () => {

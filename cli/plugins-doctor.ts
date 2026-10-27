@@ -19,6 +19,11 @@
  *      no-op enqueues that only record. The real team dir is never written.
  *      `--hooks` also calls `onComment` / `onItemTerminal` on the first item.
  *
+ * An unconfigured npm/git spec that isn't installed is first installed into a
+ * scratch cache (a temp team dir, removed afterwards) through the same
+ * installer as `mpt plugins add` (daemon/plugins/install.ts), so a package can
+ * be checked straight from its registry or repository.
+ *
  * Output is a ✓/⚠/✗ line per check, grouped by package then source, and a
  * summary (`--json`: the same report as JSON). Exit 0 only with no ✗.
  */
@@ -37,6 +42,7 @@ import {
   withTimeout,
 } from "../daemon/plugins/loader.ts";
 import { HOST_PLUGIN_SPECIFIER } from "../daemon/plugins/host-resolve.ts";
+import { installPackage, type PluginRunner } from "../daemon/plugins/install.ts";
 import { type PackageSpec, parsePackageEntries } from "../daemon/plugins/spec.ts";
 import { invalidExternalDef, mirroredWorkDefId } from "../daemon/sources/mirror.ts";
 import { SOURCE_ID_PATTERN, TASK_SOURCE_ID } from "../daemon/sources/registry.ts";
@@ -52,6 +58,8 @@ export interface PluginsDoctorDeps {
   cwd: string;
   log: (line: string) => void;
   error: (line: string) => void;
+  /** Runs npm/git to install an unconfigured, uninstalled spec into a scratch cache (absent: no install). */
+  run?: PluginRunner;
 }
 
 /** One check's outcome. */
@@ -151,6 +159,10 @@ interface Target {
   error?: string;
   configured: boolean;
   config?: Record<string, unknown>;
+  /** Set when it was installed into a scratch cache: that cache's team dir (removed after the checks). */
+  scratchTeamDir?: string;
+  /** Why the scratch install failed. */
+  installError?: string;
 }
 
 /** Parse `doctor`'s arguments (`--flag value` or `--flag=value`). */
@@ -259,13 +271,40 @@ export async function runPluginsDoctor(args: string[], d: PluginsDoctorDeps): Pr
   const restore = opts.json ? redirectConsoleToStderr() : () => {};
   let report: DoctorReport;
   try {
+    for (const t of targets) installIntoScratch(t, d, opts.json);
     report = await checkPlugins(targets, d.teamDir, { liveConfig, source: opts.source, hooks: opts.hooks });
   } finally {
     restore();
+    for (const t of targets) if (t.scratchTeamDir) fs.rmSync(t.scratchTeamDir, { recursive: true, force: true });
   }
   if (opts.json) d.log(JSON.stringify(report, null, 2));
   else for (const line of renderReport(report)) d.log(line);
   return report.ok ? 0 : 1;
+}
+
+/**
+ * An unconfigured npm/git spec that isn't installed in the team: install it
+ * into a scratch team dir (the caller removes it) so it can be checked at all.
+ * Progress goes to stderr under `--json` (and npm's output is captured), so the
+ * report stays the only thing on stdout. A failure is kept for `checkPackage`.
+ */
+function installIntoScratch(t: Target, d: PluginsDoctorDeps, json: boolean): void {
+  const spec = t.spec;
+  if (t.configured || !spec || spec.kind === "local" || !d.run) return;
+  if (!("error" in resolvePackageDir(spec, d.teamDir))) return;
+  const run = d.run;
+  t.scratchTeamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugins-doctor-install-"));
+  const log = json ? d.error : d.log;
+  log(`Installing ${spec.raw} into a scratch cache (${t.scratchTeamDir}; removed afterwards)…`);
+  try {
+    installPackage(spec, {
+      teamDir: t.scratchTeamDir,
+      run: json ? (cmd, args, o) => run(cmd, args, { ...o, capture: true }) : run,
+      log,
+    });
+  } catch (e) {
+    t.installError = errorMessage(e);
+  }
 }
 
 interface CheckOptions {
@@ -282,7 +321,7 @@ async function checkPlugins(targets: Target[], teamDir: string, opts: CheckOptio
   const packages: DoctorPackageReport[] = [];
   const scratch = opts.liveConfig ? fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugins-doctor-")) : undefined;
   try {
-    for (const t of targets) packages.push(await checkPackage(t, teamDir, seenIds, opts, scratch));
+    for (const t of targets) packages.push(await checkPackage(t, t.scratchTeamDir ?? teamDir, seenIds, opts, scratch));
   } finally {
     if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
   }
@@ -305,6 +344,11 @@ async function checkPackage(t: Target, teamDir: string, seenIds: Map<string, str
   Object.assign(report, { kind: spec.kind, identity: spec.identity });
   check("ok", `spec parses (${spec.kind}; identity ${spec.identity})`);
 
+  if (t.installError !== undefined) {
+    check("fail", `install into a scratch cache failed: ${t.installError}`, "see GUIDE.md \"Distributing a plugin\"");
+    return report;
+  }
+  if (t.scratchTeamDir) check("ok", "installed into a scratch cache (not configured; removed after the checks)");
   const resolved = resolvePackageDir(spec, teamDir);
   if ("error" in resolved) {
     check("fail", resolved.error, spec.kind === "local" ? "check the path" : `mpt plugins add ${spec.raw}`);

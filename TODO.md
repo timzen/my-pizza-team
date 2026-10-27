@@ -30,6 +30,11 @@ plugin". What's left:
   daemon. Consider one Worker per plugin (Node `worker_threads`), or a
   subprocess speaking JSON-RPC over stdio (as with ACP in `agent/acp.ts`). Either way,
   plugins only reach the daemon through `SourceContext`.
+- **Install-on-start blocks startup:** `installMissingPackages` (daemon/plugins/install.ts)
+  runs npm/git with `spawnSync` before the HTTP server listens, so a slow first
+  install (bounded by `MPT_PLUGIN_INSTALL_TIMEOUT_MS`, default 10 min per command)
+  delays the daemon coming up. An async install that loads each package as it lands
+  would need the loader to register sources after `startTimers`.
 - **Hot reload:** plugins load once at startup; any change (package list, a
   plugin's code or `config`) needs a daemon restart. A reload would have to
   deregister a source (stop its timers, drop its registry entry) and re-import

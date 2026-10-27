@@ -342,7 +342,9 @@ export function pluginChecks(plugins: PluginLoadStatus[]): Check[] {
     name: `Plugin ${p.spec}`,
     status: "warn" as const,
     detail: `failed to load: ${p.error ?? "unknown error"}`,
-    fix: p.error?.includes("not installed")
+    fix: p.error?.startsWith("install failed")
+      ? "the daemon's install-on-start failed: fix the package (see GUIDE.md \"Distributing a plugin\") or `mpt plugins update` it, then restart the daemon (it retries); see [plugins] in the daemon log"
+      : p.error?.includes("not installed")
       ? `mpt plugins add ${p.spec} (or mpt plugins update), then restart the daemon; run \`mpt plugins doctor\` for details`
       : "fix the package or its entry in config.json packages, then restart the daemon; run `mpt plugins doctor` for details (or see [plugins] in the daemon log)",
   }));

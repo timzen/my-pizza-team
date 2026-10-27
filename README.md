@@ -88,8 +88,10 @@ mpt plugins doctor [<path|spec>] [--config '<json>']   # check it loads; with --
 
 npm and git packages are installed under `<teamDir>/packages/` (npm with
 `--omit=peer`, so the plugin uses this mpt's copy of `my-pizza-team`; a git clone
-also gets `npm install` and `npm run build` when it has dependencies / a build
-script). `add` validates the manifest before touching config.json. A version (npm)
+also gets `npm install` and `npm run build` unless it ships its entries prebuilt —
+see GUIDE.md "Distributing a plugin"). The daemon installs any configured npm/git
+package that's missing when it starts (each on its own, 10-minute limit per
+command via `MPT_PLUGIN_INSTALL_TIMEOUT_MS`; a failure is reported, the rest load). `add` validates the manifest before touching config.json. A version (npm)
 or a tag/commit (git) pins a package, and `update` skips it; a branch or no ref
 follows upstream. Relative local paths resolve from the current directory. The
 daemon loads plugins at startup, so restart it after any change

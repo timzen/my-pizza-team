@@ -5,7 +5,10 @@
  * Local-path plugins run for real (temp dirs). Git runs real `git` against a
  * local repository: the runner rewrites the spec's https URL to that repo's
  * path, so nothing touches the network. npm is stubbed — the fake records the
- * command and lays the package out where `npm install --prefix` would.
+ * command and lays the package out where `npm install --prefix` would (a test
+ * can swap it, e.g. for a registry 404). Also covers the git prepare cases
+ * (prebuilt skip, runtime-deps only, build-then-missing entry), npm failure
+ * messages, and install-on-start's timeout (daemon/plugins/install.ts).
  */
 
 import { spawnSync } from "node:child_process";
@@ -14,8 +17,9 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
-import { normalizeCliSpec, npmInstallArgs, type PluginsDeps, runPluginCommand, runPlugins } from "../cli/plugins.ts";
+import { normalizeCliSpec, npmInstallArgs, type PluginRunResult, type PluginsDeps, runPluginCommand, runPlugins } from "../cli/plugins.ts";
 import { packageInstallDir } from "../daemon/plugins/loader.ts";
+import { DEFAULT_PLUGIN_INSTALL_TIMEOUT_MS, installMissingPackages, pluginInstallTimeoutMs, TIMEOUT_EXIT_CODE } from "../daemon/plugins/install.ts";
 import { parsePackageSpec, type NpmPackageSpec } from "../daemon/plugins/spec.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 
@@ -37,6 +41,8 @@ interface Env {
   out: string[];
   calls: string[][];
   deps: PluginsDeps;
+  /** Replace the fake npm for one test (e.g. to fail like a registry 404). */
+  npm: { fake: (args: string[], cwd?: string) => PluginRunResult };
 }
 
 /**
@@ -50,12 +56,13 @@ function setup(statuses: PluginLoadStatus[] | null = null): Env {
   fs.writeFileSync(path.join(teamDir, "config.json"), JSON.stringify({ tmuxSession: "keep-me" }, null, 2));
   const out: string[] = [];
   const calls: string[][] = [];
+  const npm = { fake: fakeNpm };
   const deps: PluginsDeps = {
     teamDir,
     cwd: path.join(root, "project"),
     run: (cmd, args, opts) => {
       calls.push([cmd, ...args]);
-      if (cmd === "npm") return fakeNpm(args, opts.cwd);
+      if (cmd === "npm") return npm.fake(args, opts.cwd);
       const mapped = args.map((a) => a.startsWith("https://git.test/") ? path.join(root, "remotes", a.slice("https://git.test/".length)) : a);
       const r = spawnSync(cmd, mapped, { cwd: opts.cwd, encoding: "utf8", stdio: ["ignore", "pipe", "pipe"] });
       return { code: r.status ?? 1, stdout: r.stdout ?? "" };
@@ -65,11 +72,11 @@ function setup(statuses: PluginLoadStatus[] | null = null): Env {
     log: (l) => out.push(l),
     error: (l) => out.push(l),
   };
-  return { root, teamDir, out, calls, deps };
+  return { root, teamDir, out, calls, deps, npm };
 }
 
 /** `npm install --prefix P … <name>[@v]` lays out P/node_modules/<name>; `npm run build` writes dist/. */
-function fakeNpm(args: string[], cwd?: string): { code: number; stdout: string } {
+function fakeNpm(args: string[], cwd?: string): PluginRunResult {
   const prefixAt = args.indexOf("--prefix");
   if (args[0] === "install" && prefixAt >= 0) {
     const target = args[args.length - 1]!;
@@ -257,6 +264,8 @@ test("git: add clones, checks out the ref, installs and builds; update follows a
     env.out.length = 0;
     assertEquals(await plugins(env, "update"), 0, env.out.join("\n"));
     assertEquals(git(dir, "rev-parse", "HEAD"), head);
+    // The previous build's dist/ is still on disk but isn't committed: not "prebuilt", so it's rebuilt.
+    assertEquals(env.calls.filter((c) => c[0] === "npm" && c[1] === "run").length, 2);
     assert(git(taggedDir, "rev-parse", "HEAD") !== v2, "tag still pinned");
     assertStringIncludes(env.out.join("\n"), "pinned to v1");
 
@@ -281,6 +290,65 @@ test("git: an add that fails validation removes the clone and writes nothing", a
     assertStringIncludes(env.out.join("\n"), `no "mpt" manifest`);
     assert(!fs.existsSync(path.join(env.teamDir, "packages", "git", "git.test", "acme", "plain")));
     assertEquals(readConfig(env).packages, undefined);
+  } finally {
+    cleanup(env);
+  }
+});
+
+test("git: prebuilt — entries committed and no runtime deps — runs no npm at all (even with a build script)", async () => {
+  const env = setup();
+  try {
+    makeRemote(env, "acme/prebuilt", { scripts: { build: "tsc" }, devDependencies: { "@internal/only": "*" } });
+    assertEquals(await plugins(env, "add", "git:git.test/acme/prebuilt"), 0, env.out.join("\n"));
+    assertEquals(env.calls.filter((c) => c[0] === "npm"), []);
+    assertStringIncludes(env.out.join("\n"), "skipping npm");
+    assertEquals(readConfig(env).packages, ["git:git.test/acme/prebuilt"]);
+  } finally {
+    cleanup(env);
+  }
+});
+
+test("git: prebuilt entries with runtime dependencies install only those (no dev deps, no build)", async () => {
+  const env = setup();
+  try {
+    makeRemote(env, "acme/deps", { scripts: { build: "tsc" }, dependencies: { "left-pad": "^1" }, devDependencies: { typescript: "^5" } });
+    assertEquals(await plugins(env, "add", "git:git.test/acme/deps"), 0, env.out.join("\n"));
+    assertEquals(env.calls.filter((c) => c[0] === "npm"), [["npm", "install", "--omit=peer", "--omit=dev", "--no-audit", "--no-fund"]]);
+  } finally {
+    cleanup(env);
+  }
+});
+
+test("git: a build that doesn't produce an mpt.sources entry fails clearly — clone removed, config.json untouched", async () => {
+  const env = setup();
+  try {
+    makeRemote(env, "acme/misbuilt", { scripts: { build: "tsc" }, mpt: { sources: ["./dist/missing.js"] } });
+    assertEquals(await plugins(env, "add", "git:git.test/acme/misbuilt"), 1);
+    assertStringIncludes(env.out.join("\n"), "built, but ./dist/missing.js is still missing — check the package's build output / mpt.sources");
+    assert(!fs.existsSync(path.join(env.teamDir, "packages", "git", "git.test", "acme", "misbuilt")), "clone removed");
+    assertEquals(readConfig(env), { tmuxSession: "keep-me" });
+  } finally {
+    cleanup(env);
+  }
+});
+
+test("git: an npm install failure shows the command, exit code, stderr tail and the contract — clone removed, config.json untouched", async () => {
+  const env = setup();
+  try {
+    makeRemote(env, "acme/e404", { scripts: { build: "tsc" }, devDependencies: { "@amzn/brazil": "*" }, mpt: { sources: ["./dist/index.js"] } });
+    env.npm.fake = (args) => args[0] === "install"
+      ? { code: 1, stdout: "", stderr: "npm error code E404\nnpm error 404 Not Found - GET https://registry.npmjs.org/@amzn%2fbrazil - Not found\n" }
+      : { code: 0, stdout: "" };
+    const before = fs.readFileSync(path.join(env.teamDir, "config.json"), "utf8");
+    assertEquals(await plugins(env, "add", "git:git.test/acme/e404"), 1);
+    const text = env.out.join("\n");
+    assertStringIncludes(text, "`npm install --omit=peer --no-audit --no-fund` failed (exit 1)");
+    assertStringIncludes(text, "npm error 404 Not Found - GET https://registry.npmjs.org/@amzn%2fbrazil");
+    assertStringIncludes(text, "Git plugins must install and build with plain npm against your npm registry (`npm config get registry`)");
+    assertStringIncludes(text, `See GUIDE.md "Distributing a plugin".`);
+    assertEquals(env.calls.filter((c) => c[0] === "npm" && c[1] === "run"), [], "no build after a failed install");
+    assert(!fs.existsSync(path.join(env.teamDir, "packages", "git", "git.test", "acme", "e404")), "partial clone removed");
+    assertEquals(fs.readFileSync(path.join(env.teamDir, "config.json"), "utf8"), before);
   } finally {
     cleanup(env);
   }
@@ -327,6 +395,31 @@ test("usage: no subcommand or an unknown one exits 1; a missing team dir is repo
 });
 
 test("runPluginCommand captures stdout and reports a missing command", () => {
-  assertEquals(runPluginCommand(process.execPath, ["-e", "process.stdout.write('hi')"], { capture: true }), { code: 0, stdout: "hi" });
+  const r = runPluginCommand(process.execPath, ["-e", "process.stdout.write('hi')"], { capture: true });
+  assertEquals([r.code, r.stdout], [0, "hi"]);
   assertEquals(runPluginCommand("definitely-not-a-command-mpt", [], { capture: true }).code, 127);
+});
+
+test("install-on-start bounds each command: a killed install reports the timeout; the limit comes from MPT_PLUGIN_INSTALL_TIMEOUT_MS", () => {
+  const env = setup();
+  try {
+    const seen: Array<number | undefined> = [];
+    const failures = installMissingPackages({ packages: ["npm:mpt-slow"] }, {
+      teamDir: env.teamDir,
+      run: (_cmd, _args, opts) => {
+        seen.push(opts.timeoutMs);
+        return { code: TIMEOUT_EXIT_CODE, stdout: "", stderr: "" };
+      },
+      log: (l) => env.out.push(l),
+      timeoutMs: 5_000,
+    });
+    assertEquals(seen[0], 5_000);
+    assertStringIncludes(failures.get("mpt-slow") ?? "", "timed out after 5s");
+    assertStringIncludes(env.out.join("\n"), "mpt-slow: install failed");
+    assertEquals(pluginInstallTimeoutMs("1234"), 1234);
+    assertEquals(pluginInstallTimeoutMs(undefined), DEFAULT_PLUGIN_INSTALL_TIMEOUT_MS);
+    assertEquals(pluginInstallTimeoutMs("nope"), DEFAULT_PLUGIN_INSTALL_TIMEOUT_MS);
+  } finally {
+    cleanup(env);
+  }
 });

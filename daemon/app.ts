@@ -11,6 +11,7 @@ import { buildApp } from "./server.ts";
 import { Store } from "./store.ts";
 import { FixtureSource } from "./sources/fixture.ts";
 import { loadPlugins } from "./plugins/loader.ts";
+import { installMissingPackages, type PluginRunner, pluginInstallTimeoutMs, runPluginCommand } from "./plugins/install.ts";
 import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -21,12 +22,21 @@ export interface AppContext {
   store: Store | null;
 }
 
+export interface CreateAppOptions {
+  /** How install-on-start runs npm/git (default: real processes; tests stub it). */
+  pluginRunner?: PluginRunner;
+  /** Per-command limit of install-on-start (default `MPT_PLUGIN_INSTALL_TIMEOUT_MS`, else 10 min). */
+  pluginInstallTimeoutMs?: number;
+}
+
 /**
  * Create the full app with store, or a minimal app for health-only mode.
  * Async because plugin packages (`config.packages`) are loaded with `import()`
- * before the timers start; a failing plugin is logged, never thrown.
+ * before the timers start; a failing plugin is logged, never thrown. Configured
+ * npm/git packages that aren't installed are installed first (pi-style), each
+ * on its own: one that fails is reported in its load status and skipped.
  */
-export async function createApp(teamDir?: string): Promise<AppContext> {
+export async function createApp(teamDir?: string, opts: CreateAppOptions = {}): Promise<AppContext> {
   if (teamDir && existsSync(teamDir)) {
     const configFile = path.join(teamDir, "config.json");
     const userConfig = existsSync(configFile)
@@ -45,7 +55,13 @@ export async function createApp(teamDir?: string): Promise<AppContext> {
     registerDevSources(store, config, teamDir);
     // Plugin sources register after the built-ins (so they can't take a built-in's
     // id) and before loadFromDisk/startTimers, so they reconcile and sync with the rest.
-    store.setPluginStatuses(await loadPlugins(store, config, teamDir));
+    const installErrors = installMissingPackages(config, {
+      teamDir,
+      run: opts.pluginRunner ?? runPluginCommand,
+      log: (m) => console.warn(`[plugins] ${m}`),
+      timeoutMs: opts.pluginInstallTimeoutMs ?? pluginInstallTimeoutMs(),
+    });
+    store.setPluginStatuses(await loadPlugins(store, config, teamDir, { installErrors }));
     store.loadFromDisk();
     store.startTimers();
 

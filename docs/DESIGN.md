@@ -536,11 +536,20 @@ daemon's own copy. A package is validated (manifest present, entries exist)
 before config.json changes, so a bad add leaves nothing behind. **Pinning**
 follows the spec: an npm version or a git tag/commit is pinned and `update`
 leaves it alone; no version, no ref, or a branch ref follows upstream.
+**Build-system agnostic:** the contract for a git package is that it installs
+and builds with plain npm against the user's configured registry, or ships its
+`mpt.sources` entries prebuilt (committed) — MPT never detects Brazil or any
+other build system. A prebuilt package with no runtime dependencies needs no npm
+at all; a failed npm step quotes npm's stderr and restates the contract.
 
 **Loading** (`daemon/plugins/loader.ts`) happens once, at startup — a change
 needs a restart. A local path loads in place; an npm or git package loads from
-the copy `mpt plugins` installed under `<teamDir>/packages/` (a missing one is
-an error telling you to run `mpt plugins add`). The package's package.json
+the copy under `<teamDir>/packages/`. **Install on start, pi-style:** a
+configured npm/git package whose install dir is missing (a fresh clone of the
+team's config) is installed by the daemon before loading, through the same code
+as `mpt plugins add` but without touching config.json — each on its own, bounded
+by a timeout, attempted once per startup; a failure is that package's load
+status and the rest still load. Local paths are never installed or modified. The package's package.json
 `"mpt": { "sources": [...] }` lists entry files; other keys under `"mpt"` are
 ignored, leaving room for plugin kinds that aren't Work Sources. Each entry is
 `import()`ed and its default export is a `WorkSource` or a factory

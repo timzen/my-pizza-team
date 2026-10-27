@@ -10,9 +10,12 @@
  *
  *   - npm:   `npm install --prefix <teamDir>/packages/npm --omit=peer <name>[@version]`
  *   - git:   `git clone` into `<teamDir>/packages/git/<host>/<path>`, check out the
- *            `@ref`, then `npm install --omit=peer` (when it has dependencies) and
- *            `npm run build` (when it has a build script)
+ *            `@ref`, then prepare it: nothing for a prebuilt package (entries
+ *            committed, no runtime deps), else `npm install` and `npm run build`
  *   - local: loaded in place; only validated, never copied or deleted
+ *
+ * The fetch/prepare steps themselves live in daemon/plugins/install.ts, shared
+ * with the daemon's install-on-start and `mpt plugins doctor <uninstalled spec>`.
  *
  * `--omit=peer` keeps the host package (`my-pizza-team`, a plugin's peer
  * dependency) out of the plugin's tree, so a plugin resolves the host's copy.
@@ -31,21 +34,19 @@
  * commands (npm) while running real git against a local repository.
  */
 
-import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
 import type { PackageEntry } from "../shared/types.ts";
-import { npmPluginPrefix, packageInstallDir, readPluginManifest } from "../daemon/plugins/loader.ts";
-import { type GitPackageSpec, type NpmPackageSpec, type PackageSpec, parsePackageEntries } from "../daemon/plugins/spec.ts";
+import { packageInstallDir } from "../daemon/plugins/loader.ts";
+import {
+  cloneGit, gitStep, type InstallDeps, installNpm, PluginInstallError, type PluginRunner,
+  prepareGit, uninstallPackage, validatePackage,
+} from "../daemon/plugins/install.ts";
+import { type GitPackageSpec, type PackageSpec, parsePackageEntries } from "../daemon/plugins/spec.ts";
 import { DoctorUsageError, runPluginsDoctor } from "./plugins-doctor.ts";
 
-/** A child process's outcome. */
-export interface PluginRunResult {
-  code: number;
-  /** Captured stdout (only when `capture` was asked for). */
-  stdout: string;
-}
+export { npmInstallArgs, type PluginRunResult, runPluginCommand } from "../daemon/plugins/install.ts";
 
 /** Side effects of `mpt plugins` (stubbed in tests). */
 export interface PluginsDeps {
@@ -54,9 +55,10 @@ export interface PluginsDeps {
   cwd: string;
   /**
    * Run a command. Output streams to the terminal unless `capture` is set, in
-   * which case stdout is returned (used for git queries). Never throws.
+   * which case stdout is returned (used for git queries); stderr is returned
+   * too when the runner keeps it (quoted when an install step fails). Never throws.
    */
-  run: (cmd: string, args: string[], opts: { cwd?: string; capture?: boolean }) => PluginRunResult;
+  run: PluginRunner;
   /** Each plugin package's load status from the running daemon, or null when it can't be reached. */
   fetchStatuses: () => Promise<PluginLoadStatus[] | null>;
   /** How to restart the daemon, for the closing hint. */
@@ -74,7 +76,8 @@ const USAGE = `Usage:
   mpt plugins remove <spec|identity>           Remove it from config.json and delete its install
   mpt plugins update [<spec|identity>]         Re-fetch unpinned npm/git packages (all, or one)
   mpt plugins doctor [<path|spec|identity>]    Check packages load (all configured, or one, configured or not):
-                                               manifest, import, export, apiVersion, ids. No network, no init/sync.
+                                               manifest, import, export, apiVersion, ids. No init/sync; an uninstalled
+                                               npm/git spec is installed into a temp cache first (removed after).
       [--config '<json>' | --config team]      …and run one package live on a throwaway context: the factory,
                                                init, sync (twice), item checks. "team" = its config.json config
       [--source <id>] [--hooks] [--json]       one source only; also call onComment/onItemTerminal; JSON output
@@ -111,7 +114,7 @@ export async function runPlugins(args: string[], d: PluginsDeps): Promise<number
         return 1;
     }
   } catch (e) {
-    if (e instanceof PluginsError || e instanceof DoctorUsageError) {
+    if (e instanceof PluginsError || e instanceof DoctorUsageError || e instanceof PluginInstallError) {
       d.error(`❌ ${e.message}`);
       return 1;
     }
@@ -255,44 +258,11 @@ function parseAddArgs(args: string[]): { spec: string; config?: Record<string, u
   return { spec, config };
 }
 
-// --- install / fetch ---
+// --- install / fetch (daemon/plugins/install.ts; this adds update's git queries) ---
 
-/** Run a step, throwing a readable error when it fails. */
-function step(d: PluginsDeps, cmd: string, args: string[], cwd?: string): void {
-  d.log(`   $ ${[cmd, ...args].join(" ")}${cwd ? `   (in ${cwd})` : ""}`);
-  const r = d.run(cmd, args, { cwd });
-  if (r.code !== 0) throw new PluginsError(`\`${cmd} ${args.join(" ")}\` failed (exit ${r.code})`);
-}
-
-/**
- * The commands that install an npm package into the shared prefix. `latest`
- * asks for the newest version (update of an unpinned entry); otherwise the
- * spec's version, if any.
- */
-export function npmInstallArgs(spec: NpmPackageSpec, teamDir: string, latest = false): string[] {
-  const target = latest ? `${spec.name}@latest` : spec.version ? `${spec.name}@${spec.version}` : spec.name;
-  return ["install", "--prefix", npmPluginPrefix(teamDir), "--omit=peer", "--no-audit", "--no-fund", target];
-}
-
-/** Install an npm package (the prefix gets a private package.json so npm treats it as a project). */
-function installNpm(spec: NpmPackageSpec, d: PluginsDeps, latest = false): void {
-  const prefix = npmPluginPrefix(d.teamDir);
-  fs.mkdirSync(prefix, { recursive: true });
-  const pkgJson = path.join(prefix, "package.json");
-  if (!fs.existsSync(pkgJson)) {
-    fs.writeFileSync(pkgJson, JSON.stringify({ name: "mpt-plugins", private: true, description: "Plugin packages installed by `mpt plugins` — don't edit by hand" }, null, 2) + "\n");
-  }
-  step(d, "npm", npmInstallArgs(spec, d.teamDir, latest));
-}
-
-/** Clone a git package fresh into its install dir and check out its ref. */
-function cloneGit(spec: GitPackageSpec, d: PluginsDeps): void {
-  const dir = packageInstallDir(spec, d.teamDir);
-  // The install dir is ours (under packages/git/): a leftover from a failed add is replaced.
-  fs.rmSync(dir, { recursive: true, force: true });
-  fs.mkdirSync(path.dirname(dir), { recursive: true });
-  step(d, "git", ["clone", "--", spec.url, dir]);
-  if (spec.ref) step(d, "git", ["-C", dir, "checkout", "--quiet", spec.ref, "--"]);
+/** The install deps of a `mpt plugins` run (no timeout: the user is watching and can Ctrl-C). */
+function installDeps(d: PluginsDeps): InstallDeps {
+  return { teamDir: d.teamDir, run: d.run, log: d.log };
 }
 
 /**
@@ -307,61 +277,7 @@ function gitRefIsBranch(spec: GitPackageSpec, dir: string, d: PluginsDeps): bool
 
 /** Bring a clone up to its remote branch (`origin/<ref>`, or the default branch `origin/HEAD`). */
 function pullGit(spec: GitPackageSpec, dir: string, d: PluginsDeps): void {
-  step(d, "git", ["-C", dir, "reset", "--hard", "--quiet", spec.ref ? `origin/${spec.ref}` : "origin/HEAD"]);
-}
-
-/**
- * After fetching a git package: `npm install --omit=peer` when it declares
- * dependencies, then `npm run build` when it has a build script. (A package with
- * neither, e.g. plain `.js` entries, needs no npm at all.)
- */
-function prepareGit(dir: string, d: PluginsDeps): void {
-  const pkg = readPackageJson(dir);
-  if (!pkg) return;
-  const hasDeps = ["dependencies", "devDependencies", "optionalDependencies"].some((k) => {
-    const v = pkg[k];
-    return typeof v === "object" && v !== null && Object.keys(v).length > 0;
-  });
-  if (hasDeps) step(d, "npm", ["install", "--omit=peer", "--no-audit", "--no-fund"], dir);
-  const scripts = pkg.scripts as Record<string, unknown> | undefined;
-  if (typeof scripts?.build === "string") step(d, "npm", ["run", "build"], dir);
-}
-
-function readPackageJson(dir: string): Record<string, unknown> | null {
-  try {
-    const v: unknown = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : null;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Check what the loader will check, before anything is written: the package
- * has a valid `"mpt"` manifest and every source entry exists inside it.
- * Returns the entries.
- */
-function validatePackage(dir: string): string[] {
-  const manifest = readPluginManifest(dir);
-  if ("error" in manifest) throw new PluginsError(manifest.error);
-  for (const entry of manifest.sources) {
-    const file = path.resolve(dir, entry);
-    const rel = path.relative(dir, file);
-    if (rel.startsWith("..") || path.isAbsolute(rel)) throw new PluginsError(`${dir}: source entry ${entry} is outside the package`);
-    if (!fs.existsSync(file)) throw new PluginsError(`${dir}: source entry ${entry} does not exist (is the package built?)`);
-  }
-  return manifest.sources;
-}
-
-/** Delete an installed npm or git package (never a local one). Best effort for npm's bookkeeping. */
-function uninstallPackage(spec: PackageSpec, d: PluginsDeps): void {
-  if (spec.kind === "local") return;
-  const dir = packageInstallDir(spec, d.teamDir);
-  if (spec.kind === "npm" && fs.existsSync(path.join(npmPluginPrefix(d.teamDir), "package.json"))) {
-    // Drops it from the prefix's package.json too; the rmSync below covers a failure.
-    d.run("npm", ["uninstall", "--prefix", npmPluginPrefix(d.teamDir), "--no-audit", "--no-fund", spec.name], {});
-  }
-  fs.rmSync(dir, { recursive: true, force: true });
+  gitStep(installDeps(d), ["-C", dir, "reset", "--hard", "--quiet", spec.ref ? `origin/${spec.ref}` : "origin/HEAD"]);
 }
 
 function restartNote(d: PluginsDeps): void {
@@ -385,17 +301,17 @@ function cmdAdd(args: string[], d: PluginsDeps): number {
   d.log(`Adding ${written} (${spec.kind})…`);
   let sources: string[];
   try {
-    if (spec.kind === "npm") installNpm(spec, d);
+    if (spec.kind === "npm") installNpm(spec, installDeps(d));
     else if (spec.kind === "git") {
-      cloneGit(spec, d);
-      prepareGit(dir, d);
+      cloneGit(spec, installDeps(d));
+      prepareGit(dir, installDeps(d));
     } else if (!fs.existsSync(dir)) {
       throw new PluginsError(`${dir} does not exist`);
     }
     sources = validatePackage(dir);
   } catch (e) {
     // Don't leave a half-installed package behind that config.json doesn't mention.
-    if (spec.kind !== "local") uninstallPackage(spec, d);
+    if (spec.kind !== "local") uninstallPackage(spec, installDeps(d));
     throw e;
   }
 
@@ -454,7 +370,7 @@ function cmdRemove(args: string[], d: PluginsDeps): number {
   for (const m of matches) {
     const shown = typeof m.raw === "string" ? m.raw : JSON.stringify(m.raw);
     if (m.spec && m.spec.kind !== "local") {
-      uninstallPackage(m.spec, d);
+      uninstallPackage(m.spec, installDeps(d));
       d.log(`✅ Removed ${shown} (deleted ${packageInstallDir(m.spec, d.teamDir)})`);
     } else {
       d.log(`✅ Removed ${shown}${m.spec ? " (a local path: left on disk)" : ""}`);
@@ -502,20 +418,20 @@ function cmdUpdate(args: string[], d: PluginsDeps): number {
           continue;
         }
         d.log(`${installed ? "Updating" : "Installing"} ${spec.raw}…`);
-        installNpm(spec, d, installed);
+        installNpm(spec, installDeps(d), installed);
       } else if (!installed) {
         d.log(`Installing ${spec.raw}…`);
-        cloneGit(spec, d);
-        prepareGit(dir, d);
+        cloneGit(spec, installDeps(d));
+        prepareGit(dir, installDeps(d));
       } else {
-        step(d, "git", ["-C", dir, "fetch", "--quiet", "--prune", "--tags", "origin"]);
+        gitStep(installDeps(d), ["-C", dir, "fetch", "--quiet", "--prune", "--tags", "origin"]);
         if (!gitRefIsBranch(spec, dir, d)) {
           d.log(`· ${spec.raw}: pinned to ${spec.ref} — skipped`);
           continue;
         }
         d.log(`Updating ${spec.raw}…`);
         pullGit(spec, dir, d);
-        prepareGit(dir, d);
+        prepareGit(dir, installDeps(d));
       }
       validatePackage(dir);
       changed++;
@@ -530,17 +446,6 @@ function cmdUpdate(args: string[], d: PluginsDeps): number {
 }
 
 // --- the real side effects ---
-
-/** Run a command with spawnSync: streamed to this terminal, or stdout captured. */
-export function runPluginCommand(cmd: string, args: string[], opts: { cwd?: string; capture?: boolean }): PluginRunResult {
-  const r = spawnSync(cmd, args, {
-    cwd: opts.cwd,
-    encoding: "utf8",
-    stdio: opts.capture ? ["ignore", "pipe", "ignore"] : ["ignore", "inherit", "inherit"],
-  });
-  if (r.error) return { code: 127, stdout: "" };
-  return { code: r.status ?? 1, stdout: r.stdout ?? "" };
-}
 
 /** `GET /api/work-sources` `plugins` from the daemon at `daemonUrl`, or null when it can't be reached. */
 export async function fetchPluginStatuses(daemonUrl: string, token: string | null): Promise<PluginLoadStatus[] | null> {
