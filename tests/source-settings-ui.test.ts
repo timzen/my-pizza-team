@@ -128,6 +128,8 @@ test("input parsing: numbers, string lists, selects", () => {
   assertEquals(stringListValue("a\n b ,c\n\n"), ["a", "b", "c"]);
   assertEquals(stringListValue("  "), undefined);
   assertEquals(stringListText(["a", "b"]), "a\nb");
+  assertEquals(stringListText("My RG"), "My RG", "a lone string (pre-schema config) shows as one line");
+  assertEquals(stringListText(5), "");
   const numSelect = { options: [5, 10] };
   assertEquals(selectValue(numSelect, "1"), 10, "a numeric enum keeps its type");
   assertEquals(selectValue(numSelect, ""), undefined);

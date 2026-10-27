@@ -701,6 +701,22 @@ like secrets (a `token`/`secret`/`password`/`apiKey` key holding text) are
 never sent to the browser; env-var references are shown by name, with whether
 the daemon's environment has them.
 
+**Adopting it in an existing plugin.** What the bundled examples
+(mpt-demo-team's demo-tracker, MPTSimWorkSources' sim-t and taskei) needed:
+
+- Settings read once in the factory and closed over: move them into a
+  variable that `init` refreshes from `ctx.options()`, and have every hook read
+  that variable. A source-level `mode` that depends on a setting can be a getter.
+- `preview`: run your fetch-and-map path on the draft (`draftOptions`) and skip
+  your own side effects — a `dryRun` gate, logging what a sync would mirror,
+  bookkeeping in kv (the ctx's kv is a scratch copy anyway). Turn problems the
+  person can fix ("not configured", a bad value, an expired login) into
+  `warnings` instead of throwing; a throw shows as the preview's error.
+- The schema has no "string or list": declare such a setting as a list. An
+  old config with a lone string still loads (with a `[plugins]` warning) and
+  shows in the form as one line; Preview and Save ask for a list until it's
+  edited.
+
 ### Distributing a plugin
 
 A plugin travels as an npm package (from your npm registry) or a git repository.

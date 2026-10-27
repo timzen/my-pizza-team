@@ -337,8 +337,15 @@ export function stringListValue(input: string): string[] | undefined {
   return items.length ? items : undefined;
 }
 
-/** A string-list setting → the textarea's text. */
+/**
+ * A string-list setting → the textarea's text. A lone string (a hand-written
+ * config from before the plugin had a schema — MPTSimWorkSources' sim-t took
+ * `"resolverGroup": "My RG"` or a list) shows as its one line rather than an
+ * empty box, so the person sees their value next to the "must be a list"
+ * error; any edit saves it as a list.
+ */
 export function stringListText(value: unknown): string {
+  if (typeof value === "string") return value;
   return Array.isArray(value) ? value.filter((v) => typeof v === "string").join("\n") : "";
 }
 
