@@ -99,6 +99,8 @@ export function invalidExternalDef(def: unknown): string | null {
   }
   if (d.goal !== undefined && typeof d.goal !== "string") return "'goal' is not a string";
   if (d.mode !== undefined && d.mode !== "work" && d.mode !== "triage") return "'mode' must be \"work\" or \"triage\"";
+  // Each comment is checked on its own when merged (sources/comments.ts); only the list's shape is the item's.
+  if (d.comments !== undefined && !Array.isArray(d.comments)) return "'comments' is not an array";
   return null;
 }
 

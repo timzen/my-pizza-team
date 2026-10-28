@@ -36,6 +36,13 @@
  * `preview(ctx, draftOptions)` returns what a sync with draft settings would
  * pull (`SourcePreview`), on a ctx that can't mirror, enqueue, or persist kv.
  * Without `preview`, the daemon previews by running `sync` on that ctx.
+ *
+ * A mirrored thread (also additive, apiVersion 1): `ExternalDef.comments`
+ * (`ExternalComment[]`) reports the item's comments, merged into the mirror's
+ * thread by their `externalId` and marked `Comment.external` (`CommentExternal`:
+ * source, id, channel, author) — never a new revision, never written back.
+ * `onComment` may return `CommentWriteBack` (`{ externalId }`), the id of the
+ * comment it posted, so that post isn't pulled in again.
  */
 
 export { WORK_SOURCE_API_VERSION } from "../daemon/sources/types.ts";
@@ -43,7 +50,9 @@ export { SOURCE_ID_PATTERN } from "../daemon/sources/registry.ts";
 
 export type {
   ActiveSourceItems,
+  CommentWriteBack,
   EnqueueRevisionOptions,
+  ExternalComment,
   ExternalDef,
   ItemTerminalOutcome,
   RevisionCursor,
@@ -69,4 +78,4 @@ export type {
 export type { PluginFactory, PluginFactoryContext } from "../daemon/plugins/loader.ts";
 
 /** Types that appear in the hooks' signatures (a WorkDef, its WorkItems and thread comments, the team config). */
-export type { Comment, TeamConfig, WorkDef, WorkItem } from "../shared/types.ts";
+export type { Comment, CommentExternal, TeamConfig, WorkDef, WorkItem } from "../shared/types.ts";

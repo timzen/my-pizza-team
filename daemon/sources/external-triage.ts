@@ -87,7 +87,8 @@ export class ExternalTriage {
       },
       instructions: this.deps.getTriageInstructions(),
       stories: this.deps.getOpenStories(),
-      priorComments: this.deps.getComments(def.id),
+      // The source's own comments (pulled by sync) aren't earlier analyses.
+      priorComments: this.deps.getComments(def.id).filter((c) => !c.external),
       priorDecisions: this.deps.decisionSummary(def.id),
     });
   }

@@ -82,7 +82,7 @@ Workflows and the context library live under the **config** (gear) icon, as **Co
 
 The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
 
-**External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has; **Configure** opens its settings on Config → Sources). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source.
+**External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has; **Configure** opens its settings on Config → Sources). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source. If the source reports its own comments, they appear in the Thread too, in time order, each with a badge naming the source and, where it has several threads, the channel (**SIM-T · Correspondence**, **SIM-T · Worklog**). Those came *from* the source, so they're never sent back; a comment you post here and the source then reports back isn't shown twice. A new comment in the source doesn't re-run the item.
 
 **Triage-mode sources.** Some sources (or some of their items) are **triage-only** — a ticket queue you'd rather *think about* than hand straight to a teammate. Such an item is marked **Triage** on its source's tab, and nothing ever works it directly: each new revision gets a **triage** run instead, exactly like a note's [auto triage](#thoughts). A teammate reads the item and the team's triage instructions and proposes tasks, story tasks, stories, or scheduled jobs. The row then wears the same badge a note gets (a lightbulb for proposals waiting, **?** for a question, **–** for nothing to create), the finished run lands in your **Inbox**, and both open the item's **Triage** tab: the item read-only (with **Open in <source>**), the latest analysis with **Accept / Edit / Reject** per proposal, and earlier rounds. Accepting creates the work and never starts it; the item itself stays where it is. Your turn is the item *in its source*: when it changes there, the next sync triages the new revision (your earlier decisions are passed along, so rejected ideas aren't re-offered). **Triage now** — the button that replaces Run on that page — forces a fresh run, e.g. after one failed. Proposals aren't written back to the external system; comments and run outcomes still are. (Plugin authors: see [Triage mode](#writing-a-work-source-plugin).)
 
@@ -588,6 +588,30 @@ Its page opens on a **Triage** tab: the item read-only (with **Open in
 or **Reject**, and earlier rounds; the header's button is **Triage now**. A
 finished triage run lands in your Inbox and opens that tab. To answer a
 question, change the item in its source — the next revision is triaged again.
+
+**The thread.** To mirror an item's comments too, return them as
+`comments` on its `ExternalDef` — `{ externalId, author, createdAt, body,
+channel? }` each (`ExternalComment`). The daemon appends the ones the mirror's
+thread hasn't seen (by `externalId`), marked as coming from your source; they
+never fire `onComment`, so nothing is echoed back. Omit `comments` on an item
+to leave its thread as it is (fetch threads only for items that changed, if
+that's expensive); a comment missing from the list isn't deleted. Comments
+aren't content: keep them out of `revision`, or every comment re-runs the item.
+When `onComment` posts a comment, return (or resolve with) its new id —
+`{ externalId }` — so it isn't pulled in again when your sync reports it:
+
+```ts
+async sync(ctx) {
+  return issues.map((i) => ({
+    externalId: i.key, revision: i.contentUpdatedAt, title: i.summary, goal: i.description,
+    comments: i.comments.map((c) => ({ externalId: c.id, author: c.author, createdAt: c.created, body: c.text, channel: c.thread })),
+  }));
+},
+async onComment(def, comment, ctx) {
+  const posted = await api.addComment(def.parent!.id, `${comment.from}: ${comment.body}`);
+  return { externalId: posted.id };   // recognised when it comes back
+},
+```
 
 **3. Settings and secrets.** The `config` of the team's package entry —
 `{ "source": "npm:mpt-acme-tracker", "config": { "tokenEnv": "ACME_TOKEN" } }`

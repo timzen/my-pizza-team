@@ -45,6 +45,7 @@ import { HOST_PLUGIN_SPECIFIER } from "../daemon/plugins/host-resolve.ts";
 import { installPackage, type PluginRunner } from "../daemon/plugins/install.ts";
 import { type PackageSpec, parsePackageEntries } from "../daemon/plugins/spec.ts";
 import { invalidExternalDef, mirroredWorkDefId } from "../daemon/sources/mirror.ts";
+import { invalidExternalComment } from "../daemon/sources/comments.ts";
 import { SOURCE_ID_PATTERN, TASK_SOURCE_ID } from "../daemon/sources/registry.ts";
 import { DEFAULT_SYNC_TIMEOUT_MS } from "../daemon/sources/sync.ts";
 import { type ExternalDef, type SourceContext, WORK_SOURCE_API_VERSION, type WorkSource } from "../daemon/sources/types.ts";
@@ -83,6 +84,8 @@ export interface DoctorItem {
   directory?: string;
   /** The mirrored WorkDef id the daemon would give it. */
   mirrorId?: string;
+  /** How many comments it reported (`ExternalDef.comments`), when it reported any list. */
+  comments?: number;
 }
 
 /** What the throwaway context's queue capabilities were asked to do (they do nothing). */
@@ -507,6 +510,7 @@ function itemSummary(sourceId: string, def: unknown): DoctorItem {
     ...(d.url !== undefined ? { url: str(d.url) } : {}),
     ...(d.directory !== undefined ? { directory: str(d.directory) } : {}),
     ...(externalId ? { mirrorId: mirroredWorkDefId(sourceId, externalId) } : {}),
+    ...(Array.isArray(d.comments) ? { comments: d.comments.length } : {}),
   };
 }
 
@@ -527,6 +531,14 @@ function itemChecks(sourceId: string, defs: unknown[]): DoctorCheck[] {
       continue;
     }
     const ext = def as ExternalDef;
+    // Comments: each is checked when merged; a bad one is skipped, not the item.
+    const commentIds = new Set<string>();
+    for (const [j, c] of (ext.comments ?? []).entries()) {
+      const bad = invalidExternalComment(c);
+      if (bad) out.push({ status: "warn", message: `item ${ext.externalId}, comment #${j + 1}: ${bad} (the daemon skips it)`, hint: "every comment needs a non-empty externalId, author, createdAt (a date), and body" });
+      else if (commentIds.has(c.externalId)) out.push({ status: "warn", message: `item ${ext.externalId}: comment id ${c.externalId} repeated (only the first is kept)` });
+      else commentIds.add(c.externalId);
+    }
     if (seen.has(ext.externalId)) dupes.add(ext.externalId);
     seen.add(ext.externalId);
     const unsafe = unsafeDirName(mirroredWorkDefId(sourceId, ext.externalId));
@@ -715,7 +727,7 @@ export function renderReport(r: DoctorReport): string[] {
       lines.push(`  ▸ ${s.entry}${s.id ? ` → source "${s.id}"` : ""}${s.export ? ` (${s.export})` : ""}`);
       for (const c of s.checks) push("    ", c);
       for (const item of s.items ?? []) {
-        const extra = [item.mode ? `mode ${item.mode}` : "", item.url ?? "", item.directory ? `dir ${item.directory}` : ""].filter(Boolean).join("  ");
+        const extra = [item.mode ? `mode ${item.mode}` : "", item.comments !== undefined ? `${item.comments} comment(s)` : "", item.url ?? "", item.directory ? `dir ${item.directory}` : ""].filter(Boolean).join("  ");
         lines.push(`      • ${item.externalId || "(no externalId)"} @ ${item.revision || "(no revision)"}  "${item.title}"${extra ? `  ${extra}` : ""}`);
       }
       for (const l of s.logs ?? []) lines.push(`      log ${l}`);

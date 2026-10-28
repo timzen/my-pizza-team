@@ -17,10 +17,17 @@
  *     `ExternalDef.mode`; the `mode` option is the source's `WorkSource.mode`
  *     (triage mode — docs/DESIGN.md "External sources").
  *   - **Revision:** a SHA-256 of the file's content, so touching a file without
- *     changing it doesn't re-run it.
+ *     changing it doesn't re-run it. The thread file below isn't part of it.
+ *   - **Thread:** `<stem>.comments.jsonl` beside an item, one `ExternalComment`
+ *     (`{ externalId, author, createdAt, body, channel? }`) per line, is its
+ *     `ExternalDef.comments` (docs/DESIGN.md "A mirrored thread"); no file =
+ *     no `comments` reported.
  *   - **Write-back:** every `onComment` / `onItemTerminal` call is recorded in
  *     memory (`writeBacks`, for tests) and appended to `dir/.writeback.jsonl`
  *     (for a person trying it out) — the folder is the "external system".
+ *     `onComment` also *posts* the comment: it appends it to the item's thread
+ *     file (id `mpt-<n>`, channel `Comments`) and returns that id, so the
+ *     round trip — post, then see it come back on the next sync — is real.
  *
  * Enabled only by test/dev config (`config.dev.fixtureSource`, daemon/app.ts)
  * or a test registering it directly; never by default.
@@ -31,13 +38,21 @@ import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { Comment, WorkDef, WorkItem } from "../../shared/types.ts";
 import { parseWorkDef } from "../store/workdefs.ts";
-import type { ExternalDef, SourceContext, WorkSource, WorkSourceMode } from "./types.ts";
+import type { CommentWriteBack, ExternalComment, ExternalDef, SourceContext, WorkSource, WorkSourceMode } from "./types.ts";
 
 /** The fixture source's default id and label. */
 export const FIXTURE_SOURCE_ID = "fixture";
 
 /** The write-back file the fixture appends to, inside its folder. */
 export const FIXTURE_WRITEBACK_FILE = ".writeback.jsonl";
+
+/** An item's thread file, beside it: `<externalId>.comments.jsonl`. */
+export function fixtureCommentsFile(dir: string, externalId: string): string {
+  return path.join(dir, `${externalId}.comments.jsonl`);
+}
+
+/** The channel the fixture posts written-back comments on. */
+export const FIXTURE_WRITEBACK_CHANNEL = "Comments";
 
 /** One recorded write-back call. */
 export type FixtureWriteBack =
@@ -81,6 +96,21 @@ function parseItem(externalId: string, raw: string): Omit<ExternalDef, "revision
   };
 }
 
+/**
+ * An item's thread file as `ExternalComment`s, or undefined when there is none.
+ * Lines are passed through as written (a malformed line is dropped) — the
+ * daemon validates each comment, as it would a real source's.
+ */
+async function readThread(file: string): Promise<ExternalComment[] | undefined> {
+  if (!existsSync(file)) return undefined;
+  const out: ExternalComment[] = [];
+  for (const line of (await fs.promises.readFile(file, "utf8")).split("\n")) {
+    if (!line.trim()) continue;
+    try { out.push(JSON.parse(line) as ExternalComment); } catch { /* skip */ }
+  }
+  return out;
+}
+
 export class FixtureSource implements WorkSource {
   readonly id: string;
   readonly label: string;
@@ -90,6 +120,8 @@ export class FixtureSource implements WorkSource {
   /** Every write-back call, oldest first. */
   readonly writeBacks: FixtureWriteBack[] = [];
   private readonly everyMs: number | null;
+  /** Comments posted by write-back (for unique ids). */
+  private posted = 0;
 
   private opts: FixtureSourceOptions;
 
@@ -114,13 +146,31 @@ export class FixtureSource implements WorkSource {
       if (!entry.isFile() || !entry.name.endsWith(".md") || entry.name.startsWith(".")) continue;
       const raw = await fs.promises.readFile(path.join(this.opts.dir, entry.name), "utf8");
       const externalId = entry.name.slice(0, -".md".length);
-      out.push({ ...parseItem(externalId, raw), revision: await sha256(raw) });
+      const comments = await readThread(fixtureCommentsFile(this.opts.dir, externalId));
+      out.push({ ...parseItem(externalId, raw), revision: await sha256(raw), ...(comments ? { comments } : {}) });
     }
     return out;
   }
 
-  onComment(def: WorkDef, comment: Comment, ctx: SourceContext): void {
-    this.record({ hook: "onComment", defId: def.id, externalId: def.parent?.id ?? "", comment }, ctx);
+  /** Record the call, and post the comment to the item's thread file; returns its new id. */
+  onComment(def: WorkDef, comment: Comment, ctx: SourceContext): CommentWriteBack | void {
+    const externalId = def.parent?.id ?? "";
+    this.record({ hook: "onComment", defId: def.id, externalId, comment }, ctx);
+    if (!externalId || !existsSync(this.opts.dir)) return;
+    const posted: ExternalComment = {
+      externalId: `mpt-${++this.posted}-${Date.now().toString(36)}`,
+      author: comment.from,
+      createdAt: comment.at,
+      body: comment.body,
+      channel: FIXTURE_WRITEBACK_CHANNEL,
+    };
+    try {
+      fs.appendFileSync(fixtureCommentsFile(this.opts.dir, externalId), JSON.stringify(posted) + "\n");
+    } catch (e) {
+      ctx.log(`could not post the comment: ${e instanceof Error ? e.message : String(e)}`);
+      return;
+    }
+    return { externalId: posted.externalId };
   }
 
   onItemTerminal(def: WorkDef, item: WorkItem, ctx: SourceContext): Promise<void> {

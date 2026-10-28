@@ -61,6 +61,52 @@ export interface ExternalDef {
    * and the teammate answers with proposals.
    */
   mode?: WorkSourceMode;
+  /**
+   * The item's thread in the source, for the mirror's thread (docs/DESIGN.md
+   * "External sources" "A mirrored thread"). Optional and additive:
+   *   - omitted = not reported this time; the mirror's thread is left alone (so
+   *     a source can fetch threads only for items that changed);
+   *   - an array is **merged**, not replaced: a comment whose `externalId` the
+   *     thread already has (or that MPT wrote back, see `onComment`) is
+   *     skipped, the rest are appended oldest first. A comment missing from
+   *     the array is not deleted; an edited one isn't re-read.
+   * Comments are not part of the item's content: a new comment is not a new
+   * revision and never enqueues a WorkItem, so keep comment activity out of
+   * `revision` (an item's updated-at that moves on every comment would re-run
+   * it). Inbound comments never fire `onComment`, so nothing is echoed back.
+   */
+  comments?: ExternalComment[];
+}
+
+/**
+ * One comment on an external item (`ExternalDef.comments`). It lands in the
+ * mirror's `comments.jsonl` as `{ from: author, body, at: createdAt,
+ * external: { source, id: externalId, channel, author } }`.
+ */
+export interface ExternalComment {
+  /** The source's own id for the comment, stable across syncs (the dedupe key, per item). */
+  externalId: string;
+  /** Who wrote it, as the UI should show it. */
+  author: string;
+  /** When it was written: an ISO-8601 timestamp (or anything `Date` parses). */
+  createdAt: string;
+  /** The text (markdown is rendered). */
+  body: string;
+  /**
+   * Which of the source's threads it's on, when it has several (SIM-T's
+   * "Correspondence", "Worklog", "Announcement"); shown beside the author.
+   */
+  channel?: string;
+}
+
+/**
+ * What `onComment` may return once it has posted a comment to the source: the
+ * new external comment's id. The daemon records it, so when the comment comes
+ * back in `ExternalDef.comments` it's recognised as MPT's own and not added to
+ * the thread a second time.
+ */
+export interface CommentWriteBack {
+  externalId: string;
 }
 
 /** What one sync pass did (`Store.syncWorkSource`), for logs and tests. */
@@ -81,6 +127,8 @@ export interface SyncOutcome {
   archived: string[];
   /** New revisions not enqueued because the daemon isn't ready (retried next sync). */
   held: string[];
+  /** Mirrored defs whose thread got new comments from the source (`ExternalDef.comments`). */
+  commented?: string[];
 }
 
 /**
@@ -503,6 +551,14 @@ export interface WorkSource {
    * a closing comment arrives before the state change after it); an async
    * hook's promise is never awaited, so it never blocks the route or the agent
    * protocol; a throw or rejection is logged. Do slow work asynchronously.
+   *
+   * Not called for a comment that came from the source (`ExternalDef.comments`)
+   * — nothing is echoed back. A source that mirrors its thread should return
+   * (or resolve with) the posted comment's id, `{ externalId }`: the daemon
+   * records it so the comment isn't pulled in again when sync reports it, and
+   * while the write-back is in flight it defers that item's new inbound
+   * comments (so a sync racing the post can't duplicate it). A source that
+   * can't get the id must leave its own posts out of `comments` itself.
    */
-  onComment?(def: WorkDef, comment: Comment, ctx: SourceContext): Promise<void> | void;
+  onComment?(def: WorkDef, comment: Comment, ctx: SourceContext): Promise<CommentWriteBack | void> | CommentWriteBack | void;
 }

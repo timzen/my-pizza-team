@@ -27,6 +27,8 @@
  * an external source's item — reuses this page with editing and Delete off,
  * an "Open in <source>" link, and Back to its source's Work tab; its
  * Thread, attachments, and Run work as for any WorkDef (docs/DESIGN.md "Work Sources").
+ * Comments its source reported (pulled by sync) carry a badge with the source
+ * and channel beside their author (docs/DESIGN.md "A mirrored thread").
  * A **triage-mode** mirror leads with a **Triage** tab (its default; the Inbox
  * links `?tab=triage`): the item read-only beside its latest analysis, each
  * proposal with Accept / Edit / Reject, and earlier rounds
@@ -54,7 +56,7 @@ import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { runCountLabel } from "@/lib/run-count";
 import { commentToneClass } from "@/lib/retry";
-import { isTriageMode, mirroredDefHomePath, openInLabel, readOnlyHint, type MirrorInfo } from "@/lib/external-sources";
+import { externalCommentLabel, isTriageMode, mirroredDefHomePath, newestFirst, openInLabel, readOnlyHint, type ExternalCommentInfo, type MirrorInfo } from "@/lib/external-sources";
 import { mirrorTriageNowBlocked, type WorkDefTriageView } from "@/lib/triage";
 
 interface WorkDef {
@@ -83,6 +85,8 @@ interface Comment {
   body: string;
   at: string;
   attachments?: Array<{ name: string; size: number; type: string }>;
+  /** Pulled from the mirror's source by sync (docs/DESIGN.md "A mirrored thread"). */
+  external?: ExternalCommentInfo;
 }
 
 interface Attachment {
@@ -231,9 +235,10 @@ export function WorkDefDetailPage() {
   };
 
   const comments = commentsData?.comments || [];
-  // Newest first: the run thread's most recent outcome should be at the top
-  // (comments are stored oldest-first).
-  const threadComments = [...comments].reverse();
+  // Newest first: the run thread's most recent outcome should be at the top.
+  // By each comment's own time, not file order: a comment pulled from the
+  // source is appended at sync time but dated when it was written there.
+  const threadComments = newestFirst(comments);
 
   return (
     // The Triage tab is two columns (the item beside its analysis), as a note's triage page.
@@ -312,7 +317,14 @@ export function WorkDefDetailPage() {
         {threadComments.map((c, i) => (
           <div key={i} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
             <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium">{c.from}</span>
+              <span className="flex items-center gap-1.5">
+                <span className="text-xs font-medium">{c.from}</span>
+                {c.external && (
+                  <Badge variant="outline" className="text-[10px]" title={`From ${mirror?.sourceLabel ?? c.external.source}${c.external.channel ? ` (${c.external.channel})` : ""} — not sent back`}>
+                    {externalCommentLabel(c.external, mirror?.sourceLabel)}
+                  </Badge>
+                )}
+              </span>
               <span className="text-xs text-muted-foreground">{new Date(c.at).toLocaleString()}</span>
             </div>
             <MarkdownView content={c.body} />

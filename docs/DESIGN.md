@@ -282,7 +282,8 @@ the `"task"` source.
 |---|---|---|---|---|---|
 | cron/readiness firing (`startTimers` → `runScheduler`) | — | ✅ `sources/schedule.ts` | — | — | `tick` |
 | external pull (`startTimers` → `syncWorkSource`) | — | — | — | — | `sync` (+ `syncEveryMs`, `syncTimeoutMs`) |
-| thread write-back (`addCommentForRef`) | — | — | — | — | `onComment` |
+| thread write-back (`addCommentForRef`) | — | — | — | — | `onComment` (→ `{ externalId }`) |
+| thread read (`ingestExternalDefs` → `ingestExternalComments`) | — | — | — | — | `sync` → `ExternalDef.comments` |
 | triage sweep timer (`runTriageSweep`) | — | — | ✅ `sources/thought.ts` | — | `tick` + `tickEveryMs` |
 | `loadFromDisk`: admission + queue reconcile on startup | ✅ `sources/story.ts` | — | — | — | `reconcile` |
 | `enqueueFor`: title/directory | ✅ story's directory | default | ✅ note title, leader dir | default | `resolveItem` |
@@ -318,14 +319,16 @@ interface WorkSource {
   onItemClaimed?(def, item, memberId, ctx): void;         // leased (sync, inside the claim transaction)
   onItemTerminal?(def, item, ctx): ItemTerminalOutcome | void | Promise<void>;  // after COMPLETE/FAILED/
                                               // CANCELED; a sync { newStatus?, completed? } goes back to the agent
-  onComment?(def, comment, ctx): void | Promise<void>;    // a comment landed on its thread (write-back)
+  onComment?(def, comment, ctx): { externalId }? | Promise<…>;  // a comment landed on its thread (write-back);
+                                              // the posted comment's id, so it isn't pulled back in
 }
 // SourceContext: sourceId, teamDir, config(), options() (the source's own settings), log(), listWorkDefs(),
 //   hasActiveItem(defId), enqueue(defId) → the single enqueueFor,
 //   enqueueRevision(defId, revision, { force?, cursor? }), kv (sources/<id>.json),
 //   upsertDef(ExternalDef) → the read-only mirror, readiness.canEnqueueNow()
 // ExternalDef: { externalId, revision, title, goal, acceptanceCriteria?,
-//   additionalContext?, directory?, url?, mode? }
+//   additionalContext?, directory?, url?, mode?, comments? }
+// ExternalComment: { externalId, author, createdAt, body, channel? }
 ```
 
 Defaults for a missing hook are Solitary's (eligible, the def's own title and
@@ -417,6 +420,8 @@ tests or by `config.dev.fixtureSource` (development only). The contract:
   (so a closing comment arrives before the state change after it), an async
   hook's promise is never awaited, and a throw or rejection is logged — the
   agent protocol never waits on, or fails because of, the external system.
+  A comment that came *from* the source never fires `onComment` ("A mirrored
+  thread" below).
 - **Isolation.** Each sync runs under `syncTimeoutMs` (default 30s) in
   `SyncRunner` (`daemon/sources/sync.ts`): a source that throws, rejects, times
   out, or returns garbage is logged and backed off (30s, doubling, capped at
@@ -430,6 +435,49 @@ tests or by `config.dev.fixtureSource` (development only). The contract:
   revision, latest WorkItem state, and run count. A mirror's detail is the
   ordinary WorkDef page with editing off and **Open in <source>**. No source,
   no tab.
+
+#### A mirrored thread: pulled, deduped, never echoed
+
+The mirror's thread mirrors the item's too. A source reports an item's
+comments as `ExternalDef.comments` — `{ externalId, author, createdAt, body,
+channel? }`, `channel` naming one of the source's threads (SIM-T's
+Correspondence and Worklog; Taskei has one list) — and after mirroring the
+item the daemon merges them into its `comments.jsonl`
+(`daemon/sources/comments.ts`, `Store.ingestExternalComments`):
+
+- **Merged, not replaced.** A comment the thread already has is skipped, by the
+  source's comment id per item; the rest are appended oldest first as `{ from:
+  author, body, at: createdAt, external: { source, id, channel, author } }`.
+  Omitting `comments` leaves the thread alone (a source may fetch threads only
+  for items that changed); a comment missing from the list isn't deleted, and
+  an edit isn't re-read — the thread stays append-only.
+- **Not content.** A comment isn't a revision: it never rewrites `workdef.md`,
+  never enqueues a WorkItem, and is merged even on an unchanged revision or a
+  person-archived mirror. A source keeps comment activity out of its
+  `revision`, or every comment re-runs the item.
+- **Never echoed.** Inbound comments are appended directly, not through
+  `addCommentForRef`, so `onComment` doesn't fire for them (and `notifyComment`
+  refuses anything marked `external`, belt and braces).
+- **MPT's own posts come back once.** `onComment` may return — or resolve with —
+  `{ externalId }`, the id the source gave the posted comment; the daemon
+  records it in the source's kv (`wroteback:<defId>:<commentId>`), so when sync
+  reports it the merge skips it: it's already in the thread, as the MPT
+  comment. While an async write-back is in flight, that item's new comments
+  wait for the next sync (bounded at two minutes, so a hung hook can't freeze
+  the thread) — a sync racing the post would otherwise see it before its id
+  is known. A source that can't learn the id filters its own posts out itself.
+- **Shown with where it came from.** The Thread sorts by each comment's own
+  time (a pulled comment is appended at sync, dated when written) and badges
+  an inbound one with its source and channel. The triage prompt leaves them
+  out of "Earlier Analysis"; surfacing them in the prompts is TODO.md.
+
+*Why on `ExternalDef`, not a separate hook:* the source already fetches the
+item in `sync`, the merge is idempotent, and "omitted = unchanged" lets a
+source skip the extra calls when it wants — one path, no new timer. *Why
+dedupe on the thread, plus kv for write-backs:* inbound comments carry their
+id in the file that holds them, so nothing can drift; only MPT's own posts,
+which are in the thread under MPT's comment, need a separate record. Additive
+(optional fields, a widened return type), so `WORK_SOURCE_API_VERSION` stays 1.
 
 #### Triage mode: the mirror is the triage subject
 
@@ -500,7 +548,8 @@ diffing and an etag works as well as a timestamp.
 - A source's failure is contained: a throwing `tick` is logged and the other
   sources still tick; a failing `onItemTerminal` or `onComment` never undoes the
   state change or the comment; a failing or slow `sync` backs only itself off.
-- External sources are pull only: their WorkDefs are mirrors, written by sync alone.
+- External sources are pull only: their WorkDefs are mirrors, written by sync alone;
+  their threads are append-only, and a comment from the source is never written back to it.
 
 *Why:* per-kind `if (def.parent?.kind === …)` branching was spread through
 store.ts, features.ts, prompt.ts, and the routes, so adding a kind meant touching

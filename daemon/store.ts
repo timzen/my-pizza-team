@@ -88,6 +88,7 @@ import type { PluginLoadStatus } from "../shared/protocol.ts";
 import { type RegisterSourceOptions, type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
 import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource, WorkSourceMode } from "./sources/types.ts";
 import { disconnectedKey, mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
+import { mergeExternalComments, wroteBackKey } from "./sources/comments.ts";
 import { isSourceSwitchedOff } from "./sources/toggle.ts";
 import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
 import { DEFAULT_SYNC_EVERY_MS, DEFAULT_SYNC_TIMEOUT_MS, SyncRunner, type SyncStatus } from "./sources/sync.ts";
@@ -118,6 +119,13 @@ export const SELF_HANDLED_ACTIONS = new Set(["new-session", "resume-session"]);
 
 /** `ctx.options()` of a source registered without settings (the built-ins). */
 const EMPTY_SOURCE_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
+
+/**
+ * How long an in-flight `onComment` write-back defers a mirror's new inbound
+ * comments (docs/DESIGN.md "A mirrored thread"); after this, a hung hook no
+ * longer holds the thread back.
+ */
+const WRITE_BACK_DEFER_MS = 120_000;
 
 /**
  * Reserved singleton identity for the leader: the agent that realizes directives
@@ -653,7 +661,7 @@ export class Store {
    */
   private ingestExternalDefs(entry: SourceEntry, defs: ExternalDef[]): SyncOutcome {
     const { source, ctx } = entry;
-    const out: SyncOutcome = { ok: true, mirrored: [], enqueued: [], archived: [], held: [] };
+    const out: SyncOutcome = { ok: true, mirrored: [], enqueued: [], archived: [], held: [], commented: [] };
     const seen = new Set<string>();
     for (const ext of defs) {
       // The item's mode (its own, else the source's) is recorded with the mirror;
@@ -666,6 +674,10 @@ export class Store {
       const { def, changed } = res;
       seen.add(def.id);
       if (changed) out.mirrored.push(def.id);
+      // The thread is merged separately from the content: a new comment is not
+      // a revision, so it never enqueues (docs/DESIGN.md "A mirrored thread").
+      // A person-archived mirror still gets its thread kept current.
+      if (ext.comments !== undefined && this.ingestExternalComments(entry, def.id, ext.comments) > 0) out.commented!.push(def.id);
       if (def.status === "archived") continue;
       const handedOver = kvRevisionCursor(ctx.kv).get(def.id) === ext.revision;
       if (handedOver || ctx.hasActiveItem(def.id)) continue;
@@ -687,6 +699,43 @@ export class Store {
       out.archived.push(def.id);
     }
     return out;
+  }
+
+  /**
+   * Merge a source's reported comments into a mirror's thread (docs/DESIGN.md
+   * "External sources" — "A mirrored thread"): append the ones it hasn't seen
+   * (by the source's comment id, or recorded as written back by MPT), marked
+   * `external`. Appended directly, not through `addCommentForRef`, so
+   * `onComment` never fires for them — nothing is echoed back. While a
+   * write-back for this def is still in flight, new comments wait for the next
+   * sync: the post may already be in the list, before its id is recorded.
+   * Returns how many were appended.
+   */
+  private ingestExternalComments(entry: SourceEntry, defId: string, reported: unknown[]): number {
+    const { source, ctx } = entry;
+    const ref = { workDefId: defId };
+    const { added, invalid } = mergeExternalComments(source.id, defId, this.getThreadEntries(ref), ctx.kv, reported);
+    for (const why of invalid) ctx.log(`skipped a comment on ${defId}: ${why}`);
+    if (added.length === 0) return 0;
+    if (this.writeBackInFlight(defId)) return 0;
+    for (const c of added) this.appendThreadEntry(ref, c);
+    return added.length;
+  }
+
+  /**
+   * `onComment` write-backs still running, per mirrored def: their start
+   * times. In memory only — after a restart nothing is in flight. An entry
+   * older than `WRITE_BACK_DEFER_MS` no longer defers anything (a hung hook
+   * mustn't freeze the thread).
+   */
+  private pendingWriteBacks = new Map<string, Set<{ startedAt: number }>>();
+
+  /** Is a write-back for this def in flight (started within `WRITE_BACK_DEFER_MS`)? */
+  private writeBackInFlight(defId: string): boolean {
+    const pending = this.pendingWriteBacks.get(defId);
+    if (!pending) return false;
+    const now = Date.now();
+    return [...pending].some((p) => now - p.startedAt < WRITE_BACK_DEFER_MS);
   }
 
   /**
@@ -4003,13 +4052,33 @@ export class Store {
    * teammate's closing comment before the state change that follows it.
    */
   private notifyComment(ref: WorkItemRef, comment: Comment): void {
+    // A comment that came from the source is never written back to it.
+    if (comment.external) return;
     const def = this.getWorkDef(ref.workDefId);
     const src = def ? this.sources.forWorkDef(def) : undefined;
     if (!def || !src?.source.onComment) return;
     const fail = (e: unknown) => src.ctx.log(`onComment failed: ${e instanceof Error ? e.message : String(e)}`);
+    // The id the source gave the posted comment: recorded so sync recognises it
+    // when it comes back (docs/DESIGN.md "A mirrored thread").
+    const record = (r: unknown) => {
+      const id = (r as { externalId?: unknown } | null | undefined)?.externalId;
+      if (typeof id !== "string" || !id) return;
+      try { src.ctx.kv.set(wroteBackKey(def.id, id), comment.at); } catch (e) { fail(e); }
+    };
     try {
       const r = src.source.onComment(def, { ...comment }, src.ctx);
-      if (r instanceof Promise) r.catch(fail);
+      if (r instanceof Promise) {
+        const pending = { startedAt: Date.now() };
+        const set = this.pendingWriteBacks.get(def.id) ?? new Set();
+        set.add(pending);
+        this.pendingWriteBacks.set(def.id, set);
+        r.then(record, fail).finally(() => {
+          set.delete(pending);
+          if (set.size === 0 && this.pendingWriteBacks.get(def.id) === set) this.pendingWriteBacks.delete(def.id);
+        });
+      } else {
+        record(r);
+      }
     } catch (e) {
       fail(e);
     }

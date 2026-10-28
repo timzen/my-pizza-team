@@ -663,6 +663,25 @@ export interface Comment {
    */
   outcome?: TriageOutcome;
   proposals?: TriageProposal[];
+  /**
+   * Set on a comment that came **from** an external source — pulled into a
+   * mirrored WorkDef's thread by sync (docs/DESIGN.md "External sources" —
+   * "A mirrored thread"). Such a comment is never written back (`onComment`
+   * doesn't fire for it). Absent on every comment written in MPT.
+   */
+  external?: CommentExternal;
+}
+
+/** Where an inbound external comment came from (`Comment.external`). */
+export interface CommentExternal {
+  /** The Work Source's id ("sim-t", "taskei"). */
+  source: string;
+  /** The source's own id for the comment (the dedupe key). */
+  id: string;
+  /** The source's thread or kind, when it has several ("Correspondence", "Worklog"). */
+  channel?: string;
+  /** Who wrote it, in the source's terms (also the comment's `from`). */
+  author: string;
 }
 
 // ─── Auto triage: analyses, proposals, decisions ──────────────────────

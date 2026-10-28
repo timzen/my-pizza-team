@@ -93,3 +93,38 @@ export function readOnlyHint(sourceLabel: string): string {
   return `Mirrored from ${sourceLabel} (pull only): edit it there and the next sync updates it here. ` +
     `Comments and attachments on the Thread still work.`;
 }
+
+/** Where a thread comment came from, when sync pulled it from the source (shared/types.ts `CommentExternal`). */
+export interface ExternalCommentInfo {
+  source: string;
+  id: string;
+  channel?: string;
+  author: string;
+}
+
+/**
+ * The badge beside an inbound comment's author on a mirror's Thread: the
+ * source and, when it has several threads, the channel ("SIM-T · Worklog").
+ * docs/DESIGN.md "External sources" — "A mirrored thread".
+ */
+export function externalCommentLabel(ext: ExternalCommentInfo, sourceLabel?: string): string {
+  const source = sourceLabel || ext.source;
+  return ext.channel ? `${source} · ${ext.channel}` : source;
+}
+
+/**
+ * A thread, newest first, by each comment's own time. Comments written in MPT
+ * are appended in time order already; ones pulled from a source arrive at
+ * sync time but carry the time they were written there, so file order alone
+ * would misplace them. Stable for equal (or unparsable) times.
+ */
+export function newestFirst<T extends { at: string }>(comments: readonly T[]): T[] {
+  const time = (c: T) => {
+    const t = Date.parse(c.at);
+    return Number.isNaN(t) ? 0 : t;
+  };
+  return comments
+    .map((c, i) => ({ c, i }))
+    .sort((a, b) => time(b.c) - time(a.c) || b.i - a.i)
+    .map(({ c }) => c);
+}

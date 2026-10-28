@@ -45,6 +45,14 @@ plugin". What's left:
   `<sourceId>~<externalId>` (escaped), so two external ids differing only in case
   collide on macOS/Windows default volumes. Fine for Jira-style keys; revisit
   (e.g. a hash suffix) if a source's ids are case-sensitive.
+- **A mirrored thread in the prompts:** comments pulled from the source
+  (`ExternalDef.comments`, docs/DESIGN.md "A mirrored thread") are in the
+  mirror's thread and UI, but neither prompt surfaces them yet — the work
+  prompt shows only lead comments, and the triage prompt leaves them out of
+  "Earlier Analysis". A ticket's correspondence is often the most useful
+  context; add a bounded "Comments in <source>" section (newest N, by channel).
+- **Edited / deleted external comments:** the thread merge is append-only by
+  comment id, so an edit or delete in the source isn't reflected.
 
 ## Auto Triage — built
 
