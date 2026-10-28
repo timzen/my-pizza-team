@@ -83,9 +83,16 @@ export interface WorkDefPromptInput {
    * the same reference material.
    */
   contextEntries?: Array<{ title: string; content: string }>;
-  /** Comments on the ref; only lead comments are surfaced (rework/feedback). */
+  /**
+   * Comments on the ref; only the human's comments are surfaced (rework/feedback).
+   * The human posts as "lead" from TaskDetailPage but as "you" from WorkDefDetailPage,
+   * so both count. Teammate comments (status, summaries) are left out.
+   */
   comments?: Array<{ from: string; body: string; at: string }>;
 }
+
+/** Comment authors that are the human (see WorkDefPromptInput.comments). */
+const HUMAN_COMMENT_AUTHORS = new Set(["lead", "you"]);
 
 export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   const { workDef, story, state, persona, comments, contextEntries } = input;
@@ -133,7 +140,7 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   }
 
   // 6. Lead comments (feedback / rework context).
-  const leadComments = (comments || []).filter((c) => c.from === "lead");
+  const leadComments = (comments || []).filter((c) => HUMAN_COMMENT_AUTHORS.has(c.from));
   if (leadComments.length > 0) {
     const bodies = leadComments.map((c) => `> ${c.body}`).join("\n\n");
     out += `## Comments from Team Lead\n\n${bodies}\n\n`;

@@ -92,3 +92,18 @@ test("buildWorkDefPrompt: omits reference context when none attached", () => {
   });
   assertEquals(out.includes("## Reference Context"), false);
 });
+
+test("buildWorkDefPrompt: a comment from the WorkDef page (\"you\") reaches the teammate", () => {
+  // WorkDefDetailPage posts as "you", TaskDetailPage as "lead". Filtering on "lead"
+  // alone silently dropped "commit these changes" from a re-run's prompt.
+  const out = buildWorkDefPrompt({
+    workDef: { title: "T", goal: "G.", acceptanceCriteria: "" },
+    comments: [
+      { from: "you", body: "Looks good, commit these changes", at: "t" },
+      { from: "sharp-gaius", body: "[done] Work complete.", at: "t" },
+    ],
+  });
+  assertStringIncludes(out, "## Comments from Team Lead");
+  assertStringIncludes(out, "> Looks good, commit these changes");
+  assertEquals(out.includes("[done] Work complete."), false);
+});

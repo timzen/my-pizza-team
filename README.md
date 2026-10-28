@@ -570,7 +570,7 @@ Release a stuck `MORIBUND` lease by force-failing the item. Turn this off with
 
 **On claim** the agent gets `workItem: { id }` and a `prompt`: the complete,
 daemon-assembled message (state persona, story, working-directory instruction, the
-task's goal/criteria/context, attached reference context, lead comments,
+task's goal/criteria/context, attached reference context, your comments (from `lead` or `you`),
 completion guidance). Harnesses deliver it verbatim.
 
 ---
