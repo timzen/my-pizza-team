@@ -70,8 +70,12 @@ test("mpt lead creates exactly one window, running the leader command in the pro
 
   const ran = await sb.waitFor(async () => (await pane(sb, "leader")).includes("LEADER-42 "), 8000);
   assertEquals(ran, true, `leader command did not run:\n${await pane(sb, "leader")}`);
-  // Assert on the *output* line specifically, not anywhere in the pane.
-  const output = (await pane(sb, "leader")).split("\n").find((l) => l.startsWith("LEADER-42 ")) ?? "";
+  // Assert on the *output* specifically, not anywhere in the pane. Take it from the
+  // marker onward rather than requiring it at line start: on a slow runner the keys
+  // can be typed before the shell draws its prompt, so the output lands on the
+  // prompt's line (`user@host:~$ LEADER-42 url=…`). Only execution prints LEADER-42.
+  const marked = (await pane(sb, "leader")).split("\n").find((l) => l.includes("LEADER-42 ")) ?? "";
+  const output = marked.slice(marked.indexOf("LEADER-42 "));
   assertStringIncludes(output, `url=http://localhost:${sb.port}`);
   assertStringIncludes(output, "win=leader");
 });
