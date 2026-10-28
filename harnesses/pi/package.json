@@ -6,6 +6,7 @@
     "pi-package"
   ],
   "license": "MIT",
+  "type": "module",
   "pi": {
     "extensions": [
       "./src/index.ts"
@@ -18,7 +19,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "node --test --experimental-strip-types --disable-warning=MODULE_TYPELESS_PACKAGE_JSON tests/*.mjs"
+    "test": "node --test --experimental-strip-types tests/*.mjs"
   },
   "devDependencies": {
     "@earendil-works/pi-coding-agent": "^0.87.1",
