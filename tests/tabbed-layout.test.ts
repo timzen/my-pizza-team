@@ -40,3 +40,25 @@ test("TabbedPageLayout keeps the header independent of the body width", async ()
   assert(outer, "outer frame present");
   assert(!src.includes('className="container') && !/className="[^"]*mx-auto/.test(src), "frame is never centered");
 });
+
+test("WorkDef/Task detail pages use DetailPageLayout with a tab-independent header width", async () => {
+  for (const page of ["WorkDefDetailPage", "TaskDetailPage"]) {
+    const src = await read(`pages/${page}.tsx`);
+    assert(src.includes("<DetailPageLayout"), `${page} should use DetailPageLayout`);
+    assert(src.includes("<DetailPageMessage"), `${page}'s not-found state should use the same frame`);
+    assert(!src.includes("mx-auto"), `${page} must not center its container`);
+    const header = src.match(/headerClassName=(\{[^}]*\}|"[^"]*")/);
+    assert(header, `${page} sets a constant header width`);
+    assert(!/\btab\b/.test(header[1] ?? ""), `${page}'s header width must not depend on the active tab`);
+  }
+  // The per-tab width lives on the body only (Triage two-column vs. Details/Thread).
+  const workDef = await read("pages/WorkDefDetailPage.tsx");
+  assert(/bodyClassName=\{tab === "triage" \? "max-w-6xl" : "max-w-3xl"\}/.test(workDef), "per-tab width is on the body");
+});
+
+test("DetailPageLayout header classes don't take a per-tab input other than headerClassName", async () => {
+  const src = await read("components/TabbedPageLayout.tsx");
+  assert(src.includes("export function DetailPageLayout"));
+  assert(/<header className=\{`space-y-4 \$\{headerClassName\}`\}/.test(src), "header width comes only from headerClassName");
+  assert(!/className=[^>]*mx-auto/.test(src), "frame is never centered");
+});

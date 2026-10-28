@@ -50,6 +50,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
+import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
 import { FileViewer } from "@/components/viewer/FileViewer";
 import { Save, Trash2, Play, Pause, CalendarClock, Zap, Upload, ExternalLink, FolderSync } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
@@ -135,9 +136,7 @@ export function WorkDefDetailPage() {
   if (!def && loadError === "HTTP 403") return <FeatureOffNotice />;
   if (!def) {
     return (
-      <div className="container mx-auto p-6">
-        <p className="text-muted-foreground">Work not found. <Link to="/work/tasks" className="underline">Back to Tasks</Link></p>
-      </div>
+      <DetailPageMessage>Work not found. <Link to="/work/tasks" className="underline">Back to Tasks</Link></DetailPageMessage>
     );
   }
 
@@ -241,8 +240,15 @@ export function WorkDefDetailPage() {
   const threadComments = newestFirst(comments);
 
   return (
-    // The Triage tab is two columns (the item beside its analysis), as a note's triage page.
-    <div className={`container mx-auto p-6 space-y-4 ${tab === "triage" ? "max-w-6xl" : "max-w-3xl"}`}>
+    // Fixed header (DetailPageLayout): its width depends only on whether the
+    // page has a Triage tab, never on the active tab, so it doesn't shift. The
+    // Triage tab body is two columns (the item beside its analysis), as a
+    // note's triage page; Details/Thread stay narrow, left-aligned under it.
+    <DetailPageLayout
+      headerClassName={triageMode ? "max-w-6xl" : "max-w-3xl"}
+      bodyClassName={tab === "triage" ? "max-w-6xl" : "max-w-3xl"}
+      tabs={<DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} triage={triageMode ? { pending: triageView?.pending.length ?? 0 } : undefined} />}
+      header={
       <div className="flex items-center gap-3">
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
@@ -271,8 +277,8 @@ export function WorkDefDetailPage() {
           ? <Button size="sm" onClick={run} disabled={decisions.busy || triageBlocked !== null} title={triageBlocked ?? "Triage the item's current revision now"}><Play className="h-3.5 w-3.5 mr-1" />Triage now</Button>
           : <Button variant="outline" size="sm" onClick={run} disabled={def.pending} title={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>}
       </div>
-
-      <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} triage={triageMode ? { pending: triageView?.pending.length ?? 0 } : undefined} />
+      }
+    >
 
       {tab === "triage" && triageMode && (triageView
         ? <MirrorTriagePanel item={def} view={triageView} decisions={decisions} blocked={triageBlocked} />
@@ -362,6 +368,6 @@ export function WorkDefDetailPage() {
           onReviewSubmitted={handleReviewSubmitted}
         />
       )}
-    </div>
+    </DetailPageLayout>
   );
 }

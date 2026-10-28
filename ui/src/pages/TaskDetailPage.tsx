@@ -32,6 +32,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { runCountLabel } from "@/lib/run-count";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
+import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
 import { Trash2, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { FileViewer } from "@/components/viewer/FileViewer";
@@ -191,14 +192,17 @@ export function TaskDetailPage() {
 
   if (!def || !task) {
     return (
-      <div className="container mx-auto p-6">
-        <p className="text-muted-foreground">Task not found. <Link to="/work/board" className="underline">Back to board</Link></p>
-      </div>
+      <DetailPageMessage>Task not found. <Link to="/work/board" className="underline">Back to board</Link></DetailPageMessage>
     );
   }
 
   return (
-    <div className="container mx-auto p-6 space-y-4 max-w-3xl">
+    // Fixed header (DetailPageLayout), left-aligned like WorkDefDetailPage.
+    <DetailPageLayout
+      headerClassName="max-w-3xl"
+      bodyClassName="max-w-3xl"
+      tabs={<DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />}
+      header={<>
       {/* Top bar: breadcrumb + status + save/delete */}
       <div className="flex items-center gap-3">
         <BackButton fallback="/work/board" title="Back to board" />
@@ -215,8 +219,8 @@ export function TaskDetailPage() {
         </Badge>
         {task.assignee && <span className="text-sm text-muted-foreground">Assigned to <strong>{task.assignee}</strong></span>}
       </div>
-
-      <DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />
+      </>}
+    >
 
       {tab === "details" && (
       <div className="space-y-4">
@@ -307,6 +311,6 @@ export function TaskDetailPage() {
           onReviewSubmitted={handleReviewSubmitted}
         />
       )}
-    </div>
+    </DetailPageLayout>
   );
 }
