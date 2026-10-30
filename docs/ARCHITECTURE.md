@@ -304,7 +304,24 @@ view to the host's `EditorCommands`), with its pure rules (vim default, `/editor
 parsing) in `lib/editorPrefs.ts`. Full-screen in `Composer` and `PairComposer`; **inline** as the Edit mode of
 `ui/markdown-field.tsx` (grows with its content, `minLines`) and `NoteEditor`, where
 `NoteDialog` cancels Esc from inside a vim editor (`[data-vim="on"]`)
-(docs/DESIGN.md "The Big Editor"); `hooks/useApi.ts` (fetch + optional polling);
+(docs/DESIGN.md "The Big Editor"); `hooks/useApi.ts` (fetch + optional polling,
+a background refresh: a thin React wrapper over the pure `lib/api-state.ts` —
+`apiReducer`, `fetchInto`, `isLoading` — where `loading` is true only until the
+current url/deps first answers, never on a poll or a manual `refetch()`; an
+answer is structurally shared with the last one (`lib/structural.ts`
+`shareStructure`, `jsonEqual`), so an unchanged poll keeps the same state and
+`data` reference and re-renders nothing; a failed poll keeps the last good `data`
+beside `error`; out-of-order and other-key answers are dropped — tested in
+tests/api-state.test.ts); `lib/list-keys.ts` (`uniqueKeys`, `keyLookup`,
+`threadEntryKey` — stable keys for id-less polled rows: comments, triage rounds
+and decisions, usage runs); `ui/markdown-view.tsx` (module-level `components`
+map and plugins, so a re-render never remounts the rendered document; task
+checkboxes numbered by a rehype plugin, the toggle passed by context);
+`ui/append-only-lines.tsx` (streaming text — live reasoning, tool output — one
+span per line, so a chunk rewrites only the last line); and the streams —
+`useAssistantStream`'s reconcile, `useTranscriptStream`'s replay/upserts, and
+`usePersonas` — structurally share too, with memoized `MessageBubble` and
+transcript rows (docs/DESIGN.md "Polling Never Disturbs the Reader");
 `lib/assistant-types.ts` (hand-mirrored wire types).
 
 ### harnesses/pi/

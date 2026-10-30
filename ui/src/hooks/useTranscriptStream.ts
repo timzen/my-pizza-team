@@ -6,10 +6,15 @@
  * frames are upserts keyed by `seq` (a streaming message or a tool call is
  * re-sent as it changes, in place). EventSource reconnects on its own, and each
  * reconnect's `hello` replaces the local copy, so a dropped frame can't leave
- * the view wrong for long.
+ * the view wrong for long. Both are structurally shared with the entries on
+ * screen (`lib/structural.ts`): a reconnect's replay or a re-sent, unchanged
+ * entry keeps the old objects, so the memoized rows don't re-render and a text
+ * selection in the transcript survives (docs/DESIGN.md "Polling Never Disturbs
+ * the Reader").
  */
 
 import { useEffect, useState } from "react";
+import { shareStructure } from "@/lib/structural";
 import type { TranscriptEntry, TranscriptStreamEvent } from "@/lib/transcript-types";
 
 export interface TranscriptStreamState {
@@ -32,7 +37,7 @@ export function useTranscriptStream(memberId: string): TranscriptStreamState {
       try { event = JSON.parse(frame.data) as TranscriptStreamEvent; } catch { return; }
       if (event.type === "hello") {
         setConnected(true);
-        setEntries(event.entries);
+        setEntries((prev) => shareStructure(prev, event.entries));
       } else if (event.type === "entry") {
         setEntries((prev) => upsert(prev, event.entry));
       }
@@ -51,7 +56,9 @@ export function useTranscriptStream(memberId: string): TranscriptStreamState {
 function upsert(prev: TranscriptEntry[], entry: TranscriptEntry): TranscriptEntry[] {
   const i = prev.findIndex((e) => e.seq === entry.seq);
   if (i === -1) return [...prev, entry];
+  const shared = shareStructure(prev[i], entry);
+  if (shared === prev[i]) return prev;
   const next = prev.slice();
-  next[i] = entry;
+  next[i] = shared;
   return next;
 }

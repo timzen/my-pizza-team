@@ -25,6 +25,7 @@
 
 import { useState, useRef } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
+import { keyLookup, threadEntryKey } from "@/lib/list-keys";
 import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -108,6 +109,7 @@ export function TaskDetailPage() {
   // Newest first: the run thread's most recent outcome should be at the top
   // (comments are stored oldest-first).
   const threadComments = [...comments].reverse();
+  const commentKey = keyLookup(comments, threadEntryKey);
   const attachments = attachData?.attachments || [];
 
   const [newComment, setNewComment] = useState("");
@@ -268,8 +270,10 @@ export function TaskDetailPage() {
           </Button>
         </div>
         {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
-        {threadComments.map((c, i) => (
-          <div key={i} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
+        {/* Newest first, so an index key would shift every row when a comment
+            lands; key by author + time instead (lib/list-keys.ts). */}
+        {threadComments.map((c) => (
+          <div key={commentKey(c)} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs font-medium">{c.from}</span>
               <span className="text-xs text-muted-foreground">{new Date(c.at).toLocaleString()}</span>

@@ -93,15 +93,6 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
     }
   };
 
-  /** Scroll to a quoted original and flash it, so the quote is a real link. */
-  const jumpTo = (id: string) => {
-    const el = document.getElementById(`msg-${id}`);
-    if (!el) return;
-    el.scrollIntoView({ behavior: "smooth", block: "center" });
-    el.classList.add("ring-2", "ring-primary/60", "rounded-2xl");
-    setTimeout(() => el.classList.remove("ring-2", "ring-primary/60", "rounded-2xl"), 1200);
-  };
-
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Persona picker — hidden while reading history (it would swap the live chat) */}
@@ -158,4 +149,17 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
       </div>
     </div>
   );
+}
+
+/**
+ * Scroll to a quoted original and flash it, so the quote is a real link.
+ * Module-level (it needs no state) so it's a stable prop and the memoized
+ * bubbles don't re-render on every chat render.
+ */
+function jumpTo(id: string) {
+  const el = document.getElementById(`msg-${id}`);
+  if (!el) return;
+  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.classList.add("ring-2", "ring-primary/60", "rounded-2xl");
+  setTimeout(() => el.classList.remove("ring-2", "ring-primary/60", "rounded-2xl"), 1200);
 }

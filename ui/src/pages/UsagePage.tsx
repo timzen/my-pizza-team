@@ -22,6 +22,7 @@
  * bucketed by the browser's timezone. Grid math is lib/usage (tested).
  */
 
+import { uniqueKeys } from "@/lib/list-keys";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
@@ -265,6 +266,8 @@ function KindSplit({ t, metric, includeCached }: { t: UsageDay[]; metric: UsageM
 function DayRuns({ date, includeCached, onClose }: { date: string; includeCached: boolean; onClose: () => void }) {
   const { data } = useApi<{ runs: UsageRun[] }>(`/api/usage/day?date=${date}&tzOffset=${TZ}`, [date]);
   const runs = data?.runs ?? [];
+  // No run id in the payload: key by when/what/who (lib/list-keys.ts), not position.
+  const runKeys = uniqueKeys(runs, (r) => `${r.at}|${r.kind}|${r.refId ?? ""}|${r.memberId ?? ""}`);
   return (
     <section className="rounded-lg border border-border p-4">
       <div className="mb-2 flex items-center justify-between">
@@ -274,7 +277,7 @@ function DayRuns({ date, includeCached, onClose }: { date: string; includeCached
       {data && runs.length === 0 && <p className="text-sm text-muted-foreground">No usage this day.</p>}
       <div className="divide-y divide-border">
         {runs.map((r, i) => (
-          <div key={i} className="flex items-center gap-3 py-1.5 text-sm">
+          <div key={runKeys[i]} className="flex items-center gap-3 py-1.5 text-sm">
             <span className={`h-2 w-2 shrink-0 rounded-full ${KIND_BAR[r.kind]}`} title={KIND_LABEL[r.kind]} />
             <span className="min-w-0 flex-1 truncate">
               {r.refId ? <Link to={`/work-defs/${encodeURIComponent(r.refId)}`} className="hover:underline">{r.title ?? r.refId}</Link> : (r.title ?? KIND_LABEL[r.kind])}

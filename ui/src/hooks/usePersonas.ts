@@ -11,6 +11,7 @@
 
 import { useEffect, useSyncExternalStore } from "react";
 import type { Persona } from "@/lib/personas";
+import { shareStructure } from "@/lib/structural";
 
 /** How long a fetched library is fresh enough to reuse. */
 const STALE_MS = 30_000;
@@ -29,7 +30,15 @@ function load(force = false): Promise<void> {
   if (!force && personas && Date.now() - fetchedAt < STALE_MS) return Promise.resolve();
   inFlight = fetch("/api/personas")
     .then((r) => (r.ok ? r.json() as Promise<{ personas: Persona[] }> : Promise.reject(new Error(`HTTP ${r.status}`))))
-    .then((body) => { personas = body.personas; fetchedAt = Date.now(); emit(); })
+    .then((body) => {
+      fetchedAt = Date.now();
+      // An unchanged library keeps its reference, so no picker re-renders
+      // (docs/DESIGN.md "Polling Never Disturbs the Reader").
+      const next = shareStructure(personas, body.personas);
+      if (next === personas) return;
+      personas = next;
+      emit();
+    })
     .catch(() => { /* keep the last list; a chip falls back to "linked" while null */ })
     .finally(() => { inFlight = null; });
   return inFlight;

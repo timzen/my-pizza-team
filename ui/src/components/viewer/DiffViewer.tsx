@@ -111,6 +111,7 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
           const comment = comments.find(c => c.line === idx);
 
           return (
+            // The diff is fetched once and never re-ordered: a line's index *is* its identity.
             <div key={idx}>
               <div
                 className={`flex cursor-pointer hover:bg-accent/5 ${cls} ${hasComment ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`}
@@ -162,8 +163,8 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
             Review ({comments.length} comment{comments.length > 1 ? "s" : ""})
           </h3>
           <div className="space-y-1">
-            {comments.map((c, i) => (
-              <div key={i} className="text-xs p-2 bg-muted rounded border-l-2 border-primary flex items-start justify-between gap-2">
+            {comments.map((c) => (
+              <div key={c.line} className="text-xs p-2 bg-muted rounded border-l-2 border-primary flex items-start justify-between gap-2">
                 <div>
                   <span className="font-semibold text-primary">Line {c.line + 1}:</span> {c.body}
                 </div>

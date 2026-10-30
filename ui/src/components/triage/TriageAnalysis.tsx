@@ -25,6 +25,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { threadEntryKey, uniqueKeys } from "@/lib/list-keys";
 import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { FEATURE_LABELS, featureForProposalKind } from "@/lib/features";
@@ -100,7 +101,7 @@ export function LatestAnalysis({ data, decisions, empty, questionHint }: {
       {latest && latest.decisions.length > 0 && (
         <div className="space-y-1">
           <h2 className="pt-1 text-sm font-medium">Decided</h2>
-          {latest.decisions.map((d, i) => <DecisionRow key={i} decision={d} proposals={data.proposals} />)}
+          {uniqueKeys(latest.decisions, decisionKey).map((k, i) => <DecisionRow key={k} decision={latest.decisions[i]!} proposals={data.proposals} />)}
         </div>
       )}
     </div>
@@ -111,11 +112,14 @@ export function LatestAnalysis({ data, decisions, empty, questionHint }: {
 export function EarlierAnalyses({ data }: { data: TriageThreadData }) {
   const earlier = analysesWithDecisions(data.entries).slice(0, -1);
   if (earlier.length === 0) return null;
+  // Keyed by the analysis (author + time), not by position: the list is newest
+  // first, so a new round would otherwise shift every card's content.
+  const keys = uniqueKeys(earlier.map((r) => r.analysis), threadEntryKey);
   return (
     <div className="space-y-2">
       <h2 className="text-sm font-medium">Earlier analysis</h2>
-      {[...earlier].reverse().map((round, i) => (
-        <Card key={i}>
+      {earlier.map((round, i) => ({ round, key: keys[i]! })).reverse().map(({ round, key }) => (
+        <Card key={key}>
           <CardContent className="space-y-2 p-4">
             <div className="flex items-center gap-2 text-xs text-muted-foreground">
               <span className="font-mono">{round.analysis.from}</span>
@@ -124,7 +128,7 @@ export function EarlierAnalyses({ data }: { data: TriageThreadData }) {
               <Badge variant="secondary" className="text-[10px]">{outcomeLabel(round.analysis.outcome ?? null)}</Badge>
             </div>
             <MarkdownView content={round.analysis.body} className="text-[13px]" />
-            {round.decisions.map((d, j) => <DecisionRow key={j} decision={d} proposals={data.proposals} />)}
+            {uniqueKeys(round.decisions, decisionKey).map((k, j) => <DecisionRow key={k} decision={round.decisions[j]!} proposals={data.proposals} />)}
           </CardContent>
         </Card>
       ))}
@@ -194,7 +198,7 @@ function ProposalCard({ state, busy, editing, onEdit, onAccept, onReject, offRea
               <div>
                 <p className="mb-1 text-xs font-medium text-muted-foreground">Tasks ({p.tasks.length})</p>
                 <ol className="list-inside list-decimal space-y-0.5 text-[13px]">
-                  {p.tasks.map((t, i) => <li key={i}><span className="font-medium">{t.title}</span> — {t.goal}</li>)}
+                  {uniqueKeys(p.tasks, (t) => t.title).map((k, i) => <li key={k}><span className="font-medium">{p.tasks![i]!.title}</span> — {p.tasks![i]!.goal}</li>)}
                 </ol>
               </div>
             )}
@@ -264,4 +268,9 @@ function ProposalCard({ state, busy, editing, onEdit, onAccept, onReject, offRea
       </CardContent>
     </Card>
   );
+}
+
+/** A decision's key: which proposal it answered, and when. */
+function decisionKey(d: TriageDecision): string {
+  return `${d.proposalId}|${d.at}`;
 }

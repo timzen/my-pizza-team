@@ -10,7 +10,7 @@
  * messages that were typed in the agent's tmux pane rather than here.
  */
 
-import { useState } from "react";
+import { memo, useState } from "react";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { BubbleDialog } from "./BubbleDialog";
 import { QuotedMessage } from "./QuotedMessage";
@@ -25,7 +25,12 @@ interface MessageBubbleProps {
   onJumpTo: (id: string) => void;
 }
 
-export function MessageBubble({ message, onReply, onJumpTo }: MessageBubbleProps) {
+/**
+ * Memoized: the chat re-renders on every reasoning chunk and delivery receipt,
+ * but a bubble whose message object is unchanged (the stream keeps references)
+ * needn't — keeping its DOM, and any text selected in it, untouched.
+ */
+export const MessageBubble = memo(function MessageBubble({ message, onReply, onJumpTo }: MessageBubbleProps) {
   const [expanded, setExpanded] = useState(false);
   const isUser = message.role === "user";
   const failed = message.state === "failed";
@@ -86,7 +91,7 @@ export function MessageBubble({ message, onReply, onJumpTo }: MessageBubbleProps
       <BubbleDialog open={expanded} onOpenChange={setExpanded} message={message} />
     </div>
   );
-}
+});
 
 /** ✓ states for a user message. Honest about the wait: delivered ≠ read. */
 function DeliveryReceipt({ delivery }: { delivery: AssistantMessage["delivery"] }) {

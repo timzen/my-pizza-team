@@ -34,6 +34,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
+import { uniqueKeys } from "@/lib/list-keys";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { BackButton } from "@/components/ui/back-button";
 import { AlertTriangle, Copy, Lock, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
@@ -254,6 +255,8 @@ function PersonaDetail({ id }: { id: string }) {
 
 /** "Used by": everything that references this persona, each linked to where it's set. */
 function UsedByPanel({ usedBy }: { usedBy: PersonaUsage[] }) {
+  // A usage has no id; its content identifies it (lib/list-keys.ts).
+  const usedByKeys = uniqueKeys(usedBy, (u) => JSON.stringify(u));
   return (
     <Card>
       <CardContent className="space-y-2 p-4">
@@ -263,7 +266,7 @@ function UsedByPanel({ usedBy }: { usedBy: PersonaUsage[] }) {
         ) : (
           <ul className="space-y-1 text-sm">
             {usedBy.map((u, i) => (
-              <li key={i}><Link to={usageHref(u)} className="text-primary hover:underline">{usageLabel(u)}</Link></li>
+              <li key={usedByKeys[i]}><Link to={usageHref(u)} className="text-primary hover:underline">{usageLabel(u)}</Link></li>
             ))}
           </ul>
         )}

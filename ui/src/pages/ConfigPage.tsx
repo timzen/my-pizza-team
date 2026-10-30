@@ -165,7 +165,11 @@ export function ConfigPage() {
     if (!features) content = null;
     else if (!features.stories) content = <FeatureOffNotice feature="stories" embedded />;
     // Second segment is the tab; a third is the workflow's name.
-    else content = pathname.split("/").filter(Boolean).length > 2 ? <WorkflowDetailPage /> : <WorkflowsPage />;
+    // Keyed by the name, so switching workflows never shows the last one's data.
+    else {
+      const workflowName = pathname.split("/").filter(Boolean)[2];
+      content = workflowName ? <WorkflowDetailPage key={workflowName} /> : <WorkflowsPage />;
+    }
   } else if (activeTab === "personas") {
     content = <PersonasPage personaId={personaIdFromConfigPath(pathname)} />;
   } else if (activeTab === "sources") {
@@ -180,6 +184,8 @@ export function ConfigPage() {
   } else if (activeTab === "theme") {
     content = <ThemeTab />;
   } else if (!config) {
+    // `config` is the draft seeded from the first answer, so this shows only
+    // before it; a refetch never blanks a loaded tab.
     content = <div className="text-muted-foreground">{loading ? "Loading..." : "Cannot load config."}</div>;
   } else if (activeTab === "teammates") {
     content = <TeammatesTab config={config} setConfig={setConfig} />;

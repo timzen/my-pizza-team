@@ -376,7 +376,7 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
           {result && <span className={`text-xs ${result.ok ? "text-green-600 dark:text-green-400" : "text-destructive"}`}>{result.message}</span>}
         </div>
 
-        {(previewing || preview) && <PreviewResult source={source} loading={previewing} preview={preview} />}
+        {(previewing || preview) && <PreviewResult source={source} previewing={previewing} preview={preview} />}
 
         <SourcePersonas source={source} onSaved={onSaved} />
       </CardContent>
@@ -612,8 +612,9 @@ function EnvVarInput({ id, field, value, source, invalid, onChange }: {
 }
 
 /** Preview's answer: the items a sync would pull, warnings, or the error — and that nothing was created. */
-function PreviewResult({ source, loading, preview }: { source: SourceView; loading: boolean; preview: SourcePreviewResponse | null }) {
-  if (loading) return <p className="text-sm text-muted-foreground">Asking {source.label} what it would pull…</p>;
+function PreviewResult({ source, previewing, preview }: { source: SourceView; previewing: boolean; preview: SourcePreviewResponse | null }) {
+  // A user-started preview, not a poll: replacing the old result is intended.
+  if (previewing) return <p className="text-sm text-muted-foreground">Asking {source.label} what it would pull…</p>;
   if (!preview) return null;
   if (!preview.success) {
     return (

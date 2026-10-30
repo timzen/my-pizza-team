@@ -1,44 +1,43 @@
 /**
- * useApi — Simple fetch wrapper for the daemon API.
+ * useApi — Fetch wrapper for the daemon API, with optional background polling.
  * Returns JSON data with loading/error state.
- * Supports optional polling interval for auto-refresh.
  * A `null` url fetches nothing (data stays null) — for a source the caller
  * doesn't need right now, e.g. a switched-off kind's list.
+ *
+ * Polling is a *background* refresh and must never disturb the reader
+ * (docs/DESIGN.md "Polling Never Disturbs the Reader"); the rules live in the
+ * pure `lib/api-state.ts` reducer:
+ *  - `loading` is true only until the current url/deps first answers — never on
+ *    a poll or a manual `refetch()` — so `if (loading) return <Spinner/>` can't
+ *    unmount a loaded page (and drop the user's text selection).
+ *  - An unchanged answer keeps the previous `data` reference (structural
+ *    sharing), so nothing re-renders; a changed one only replaces what differs.
+ *  - A failed poll keeps the last good `data` and reports `error` beside it.
+ * Callers should still gate their "Loading…" placeholder on `!data` rather
+ * than `loading` wherever possible.
  */
 
-import { useState, useEffect, useCallback } from "react";
+import { useEffect, useCallback, useReducer, useRef } from "react";
+import { apiKey, apiReducer, fetchInto, initialApiState, isLoading, type ApiAction, type ApiState } from "@/lib/api-state";
 
 export function useApi<T>(url: string | null, deps: unknown[] = [], options?: { pollInterval?: number }) {
-  const [data, setData] = useState<T | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [state, dispatch] = useReducer(
+    apiReducer as (s: ApiState<T>, a: ApiAction<T>) => ApiState<T>,
+    undefined,
+    initialApiState<T>,
+  );
   const pollInterval = options?.pollInterval;
-  // Serialize caller-supplied deps so the useCallback dependency list stays a
-  // literal array (callers pass primitives like ids/filters).
-  const depsKey = JSON.stringify(deps);
+  // url + the caller-supplied deps (primitives like ids/filters), serialized so
+  // the useCallback dependency list stays a literal array.
+  const key = apiKey(url, deps);
+  // Overlapping requests may answer out of order: only the newest started applies.
+  const seq = useRef(0);
 
-  const refetch = useCallback(async () => {
-    if (url === null) { setLoading(false); return; }
-    setLoading(true);
-    setError(null);
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const json = await res.json();
-      setData(json);
-    } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setLoading(false);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- depsKey stands in for the caller-supplied deps array
-  }, [url, depsKey]);
+  const refetch = useCallback(() => fetchInto<T>(url, key, dispatch, seq), [url, key]);
 
   // Data-fetching hook: the fetch is the external system being synced; the
-  // loading/data flips are its protocol. Restructuring to satisfy the rule
-  // would break stale-while-refetch behavior for polling consumers.
-  // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { refetch(); }, [refetch]);
+  // dispatches are its protocol (and a no-op dispatch is skipped by React).
+  useEffect(() => { void refetch(); }, [refetch]);
 
   // Auto-refresh polling
   useEffect(() => {
@@ -47,7 +46,15 @@ export function useApi<T>(url: string | null, deps: unknown[] = [], options?: { 
     return () => clearInterval(interval);
   }, [refetch, pollInterval, url]);
 
-  return { data, loading, error, refetch };
+  // Until the current key's state exists (the render right after a url/deps
+  // change), report it as loading with the previous data still shown.
+  const current = state.key === key;
+  return {
+    data: state.data,
+    loading: isLoading(state, key, url),
+    error: current ? state.error : null,
+    refetch,
+  };
 }
 
 /** POST/PUT/DELETE helper */

@@ -8,10 +8,15 @@
  * docs/DESIGN.md "Assistant Chat Model").
  *
  * A slow reconciliation fetch of `/api/assistant/messages` runs alongside it, so
- * a dropped frame or a reconnect can never leave the transcript wrong.
+ * a dropped frame or a reconnect can never leave the transcript wrong. Its
+ * answer is structurally shared with what's on screen (`lib/structural.ts`), so
+ * a reconcile that finds nothing new changes no state and re-renders nothing —
+ * a text selection in the chat survives it (docs/DESIGN.md "Polling Never
+ * Disturbs the Reader").
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { shareStructure } from "@/lib/structural";
 import type { AssistantMessage, AssistantSession, AssistantStreamEvent } from "@/lib/assistant-types";
 
 /** How often to reconcile the transcript against the server (safety net only). */
@@ -71,10 +76,12 @@ export function useAssistantStream(sessionId?: string): AssistantStreamState {
           chatAgent: { id: string; name: string } | null;
         };
         if (cancelled) return;
-        setSession(data.session);
-        setMessages(data.messages || []);
+        // Keep the current references where nothing changed (React then skips
+        // the update entirely).
+        setSession((prev) => shareStructure(prev, data.session));
+        setMessages((prev) => shareStructure(prev, data.messages || []));
         setThinking(!!data.thinking);
-        setChatAgent(data.chatAgent ?? null);
+        setChatAgent((prev) => shareStructure(prev, data.chatAgent ?? null));
       } catch {
         // Leave the last known transcript in place; the stream or the next
         // reconcile will catch us up.

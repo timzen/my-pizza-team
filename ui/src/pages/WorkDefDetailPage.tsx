@@ -40,6 +40,7 @@
 import { useState, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { FeatureOffNotice } from "@/components/FeatureGate";
+import { keyLookup, threadEntryKey } from "@/lib/list-keys";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { useProposalDecisions } from "@/hooks/useProposalDecisions";
 import { MirrorTriagePanel } from "@/components/triage/MirrorTriagePanel";
@@ -241,6 +242,7 @@ export function WorkDefDetailPage() {
   // By each comment's own time, not file order: a comment pulled from the
   // source is appended at sync time but dated when it was written there.
   const threadComments = newestFirst(comments);
+  const commentKey = keyLookup(comments, threadEntryKey);
 
   return (
     // Fixed header (DetailPageLayout): its width depends only on whether the
@@ -325,8 +327,10 @@ export function WorkDefDetailPage() {
           </Button>
         </div>
         {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
-        {threadComments.map((c, i) => (
-          <div key={i} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
+        {/* Newest first, so an index key would shift every row when a comment
+            lands; key by author + time instead (lib/list-keys.ts). */}
+        {threadComments.map((c) => (
+          <div key={commentKey(c)} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
             <div className="flex items-center justify-between mb-1">
               <span className="flex items-center gap-1.5">
                 <span className="text-xs font-medium">{c.from}</span>

@@ -16,8 +16,9 @@
  * while you're at the bottom, and leaves you alone once you scroll up.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { memo, useEffect, useRef, useState } from "react";
 import { MarkdownView } from "@/components/ui/markdown-view";
+import { AppendOnlyLines } from "@/components/ui/append-only-lines";
 import { isRunning, type TranscriptEntry } from "@/lib/transcript-types";
 
 /** Lines shown before a user block / tool result collapses. */
@@ -63,7 +64,12 @@ export function TranscriptView({ entries, empty }: { entries: TranscriptEntry[];
   );
 }
 
-function EntryRow({ entry }: { entry: TranscriptEntry }) {
+/**
+ * Memoized: a streaming frame replaces only its own entry (the stream hook keeps
+ * the others' references), so only that row re-renders and a selection in any
+ * other row is left alone.
+ */
+const EntryRow = memo(function EntryRow({ entry }: { entry: TranscriptEntry }) {
   switch (entry.kind) {
     case "watch": return <Divider label={`watching from ${clock(entry.at)}`} />;
     case "session": return <Divider label={`new session · ${clock(entry.at)}`} />;
@@ -72,7 +78,7 @@ function EntryRow({ entry }: { entry: TranscriptEntry }) {
     case "tool": return <ToolBlock entry={entry} />;
     default: return null;
   }
-}
+});
 
 function Divider({ label }: { label: string }) {
   return (
@@ -158,7 +164,7 @@ function ToolBlock({ entry }: { entry: Of<"tool"> }) {
         <div className={`ml-4 flex gap-2 ${entry.state === "error" ? "text-destructive" : "text-muted-foreground"}`}>
           <span className="select-none">⎿</span>
           <div className="min-w-0 flex-1">
-            <pre className="whitespace-pre-wrap break-words font-mono">{shown.join("\n")}</pre>
+            <pre className="whitespace-pre-wrap break-words font-mono"><AppendOnlyLines text={shown.join("\n")} /></pre>
             {lines.length > RESULT_PREVIEW_LINES && (
               <button type="button" onClick={() => setOpen(!open)} className="text-xs hover:text-foreground">
                 {open ? "▴ collapse" : `▾ ${lines.length - RESULT_PREVIEW_LINES} more lines`}

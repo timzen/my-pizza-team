@@ -17,6 +17,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
+import { AppendOnlyLines } from "@/components/ui/append-only-lines";
 
 interface ThoughtsPanelProps {
   /** Reasoning accumulated from the live stream. */
@@ -67,7 +68,7 @@ export function ThoughtsPanel({ thoughts, live, onClose }: ThoughtsPanelProps) {
         </button>
       </div>
       <pre ref={scrollRef} className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
-        {text || (fetched === null
+        {text ? <AppendOnlyLines text={text} /> : (fetched === null
           ? "Loading…"
           : "No reasoning for this run — this model may not expose its thinking, or thinking is turned off.")}
       </pre>

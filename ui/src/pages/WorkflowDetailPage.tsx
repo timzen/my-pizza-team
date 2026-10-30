@@ -52,7 +52,10 @@ export function WorkflowDetailPage() {
   const { data: configData, refetch: refetchConfig } = useApi<ConfigData>("/api/config");
   const [editing, setEditing] = useState(false);
 
-  if (loading) return <div className="text-muted-foreground">Loading...</div>;
+  // Only before the first answer: the refetch after a save keeps the page (and
+  // any text selection) mounted (docs/DESIGN.md "Polling Never Disturbs the
+  // Reader"). ConfigPage keys this page by name, so another workflow starts fresh.
+  if (loading && !data) return <div className="text-muted-foreground">Loading...</div>;
   if (!data) return <div className="text-muted-foreground">Workflow not found.</div>;
 
   const isDefault = configData?.defaultWorkflow === name;

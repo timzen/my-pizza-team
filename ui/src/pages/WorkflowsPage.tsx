@@ -41,7 +41,9 @@ export function WorkflowsPage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  if (loading) return <div className="text-muted-foreground">Loading...</div>;
+  // Only before the first answer: a refetch (after a create) keeps the list
+  // mounted (docs/DESIGN.md "Polling Never Disturbs the Reader").
+  if (loading && !data) return <div className="text-muted-foreground">Loading...</div>;
 
   /** Slugify the input: lowercase, hyphens only, no leading/trailing hyphens */
   const slugify = (val: string) =>

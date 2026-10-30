@@ -20,6 +20,7 @@ either disagrees with the code, the code is right and the doc is a bug.
 5. **The daemon coordinates; harnesses execute** — The daemon owns all state and expresses *intent*. What an agent does inside its own process (Pi sessions, slash commands, permission prompts) belongs to its harness. The one piece of mechanism the daemon owns is tmux — see "The Daemon Is the Supervisor".
 6. **Workers never move tasks** — Teammates execute work; the daemon executes flow (admission + advance); humans/the leader make judgment moves. See "The Work Model".
 7. **Fail loudly** — a missing piece must surface as an error that names its fix, never as a symptom (a teammate that never appears, a chat nobody answers). This one principle drives the version handshake, `mpt doctor`, failed-spawn reporting, and the permission-system warning.
+8. **Polling never disturbs the reader** — a background refresh or stream frame must not unmount, remount, or rewrite anything that didn't change, so a text selection (or a scroll position, a draft) survives it. See "Polling Never Disturbs the Reader".
 
 ---
 
@@ -2256,6 +2257,48 @@ reading, editing, and creating lives on dedicated, deep-linkable pages. The only
 modals are small, focused dialogs (team size, spawn, template picker, a thought's
 editor, a fullscreen chat bubble, the big editor) and the file/diff viewer. Cards carry no state
 badge (the column names the state) — only the WorkItem chip.
+
+## Polling Never Disturbs the Reader
+
+The web UI stays live by polling (`useApi`'s `pollInterval`, the shared
+`/api/status` caches) and streaming (the assistant chat, teammate transcripts).
+A refresh is a *background* concern: it must never take away what the user is
+doing — above all a text selection, which the browser drops the moment the DOM
+nodes under it are replaced. Users highlighted a comment or an answer, a poll
+landed, and the highlight was gone before they could copy it. The causes, and
+the rules that replace them:
+
+- **No spinner over loaded content.** `useApi` used to set `loading` on every
+  poll, so `if (loading) return <Loading/>` unmounted the page every few
+  seconds. Now `loading` means only "this url/deps hasn't answered yet"
+  (`lib/api-state.ts`), and placeholders are gated on `!data` as well.
+- **Unchanged data is the same data.** Every poll used to hand React a new
+  object. Answers are now structurally shared with the previous one
+  (`lib/structural.ts`): an unchanged poll returns the identical reference and
+  React skips the render; a changed one replaces only the rows that differ.
+  A failed poll keeps the last good data (the error is shown beside it).
+- **Stable component types.** `MarkdownView` built its `components` map inside
+  render, so every element of every rendered document got a new component type
+  on each re-render and was remounted — the biggest single selection killer, hit
+  by any re-render of a parent (a poll, a chat reasoning chunk). The map is
+  module-level now.
+- **Keys are identities, not positions.** Newest-first lists (run threads,
+  earlier triage rounds) keyed by index rewrote every row in place when one
+  arrived. Rows key by id, or, for id-less append-only records, by author +
+  time (`lib/list-keys.ts`). Index keys remain only where position *is*
+  identity: fixed label lists, the lines of an unchanging diff, the lines of
+  append-only streaming text.
+- **Streams touch only what changed.** Stream frames replace just their own
+  entry, reconciles are structurally shared, and the rows are memoized, so one
+  frame re-renders one row; live plain text renders one span per line
+  (`ui/append-only-lines.tsx`), so a chunk rewrites only the last line.
+
+*Why not pause updates while text is selected?* Deferring a poll while
+`window.getSelection()` is non-empty was considered and not needed: with the
+rules above an update only rewrites nodes whose content actually changed, so a
+selection is lost only when the selected text itself changes — and then the new
+text is what the user should see. Pausing would add hidden state (a frozen page
+that looks live) for no gain.
 
 ## The Big Editor
 
