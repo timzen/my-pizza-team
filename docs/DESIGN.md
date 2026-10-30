@@ -225,7 +225,8 @@ any caller extras (e.g. story homes in Spawn).
 ## WorkDefs & Parents: One Model for All Work
 
 Every unit of work is a **WorkDef**: purely *authored* content (Goal / Acceptance
-Criteria / Additional Context + `directory`, `contextRefs`), stored as
+Criteria / Additional Context + `directory`, and an optional `persona` on
+Solitary/Scheduled ones), stored as
 markdown+frontmatter under `tasks/<id>/` with its own `comments.jsonl` and
 `attachments/`. A WorkDef names its **parent** — the *enqueuer* that decides when it
 emits WorkItems — and its type is derived from that parent, never stored:
@@ -245,7 +246,7 @@ thing" without caring where it came from.
 lives elsewhere — workflow status on the Story (`tasks: [{id, status}]`), cron and
 `lastEnqueuedAt` on the Schedule — so the daemon never rewrites a `workdef.md`
 except on an explicit edit. Frontmatter carries only structural metadata (title,
-`parent`, directory, contextRefs, `status: archived` when archived, and
+`parent`, directory, `persona`, `status: archived` when archived, and
 `pending: true` while pending — activating is itself an explicit edit).
 The one exception is a **mirrored** WorkDef: its content is authored in an
 external system, so the daemon rewrites its `workdef.md` — but only from that
@@ -1206,26 +1207,13 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 
 ## Personas: One Library, Selected by Reference
 
-> **Status: being built (Unified Personas story).** In: the library
-> (`personas/<id>.md`, `builtin:*`, the package-persona registry), `resolvePersona`
-> with the built-in fallback, "Used by" and delete protection, the `/api/personas*`
-> routes and `PUT /api/workflows/:name/states/:state`, `persona` on Solitary and
-> Scheduled WorkDefs, the WorkItem snapshot columns, the context library's removal
-> (410s, attachments refused) and the on-load migration (steps 1, 2, 4–7); every
-> prompt path resolving through the library (a state's `persona`, `triage.persona`,
-> `assistant.persona`, a Solitary/Scheduled WorkDef's `persona`), with the snapshot
-> recorded at claim (`Store.resolveWorkPersona`); `persona` checks on `PUT
-> /api/config` workflows; the Pi harness tools (`list_personas`, `persona` on
-> create_task / create_schedule / edit_task); and the Work Source chain — the
-> per-source setting, the per-mirror override, the triage-mode requirement, the
-> doctor checks, and migration step 3; and the UI — Config → Personas (list,
-> editor with lint output, read-only view + Duplicate to edit, Used by, guarded
-> delete), a persona picker everywhere a reference is chosen, and the in-flight
-> chips; and persona packages — the plugin loader reading `mpt.personas`, a
-> persona-only package skipping npm, and `mpt plugins add|list|update|remove|doctor`
-> handling them; and the demo team (mpt-demo-team: persona-layout fixtures, a
-> legacy-layout fixture its `run-e2e.sh` migrates, the `mpt-personas-demo` package,
-> the demo-tracker's `defaultPersona` and per-source triage persona).
+> **Status: built (Unified Personas story).** The library (`personas/<id>.md`,
+> `builtin:*`, package personas), `resolvePersona` on every prompt path, `persona`
+> on Solitary/Scheduled WorkDefs, Work Source personas (default + per-source +
+> per-WorkDef, triage persona required), the WorkItem snapshot and in-flight chips,
+> persona packages, the Context library's removal and the on-load migration are all
+> in. Deferred follow-ups are in TODO.md "Personas". The text below keeps the
+> original problem statement ("today" means before this story) for the rationale.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by

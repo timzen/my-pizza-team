@@ -54,19 +54,19 @@ plugin". What's left:
 - **Edited / deleted external comments:** the thread merge is append-only by
   comment id, so an edit or delete in the source isn't reflected.
 
-## Personas — being built (docs/DESIGN.md "Personas: One Library, Selected by Reference")
+## Personas — built (docs/DESIGN.md "Personas: One Library, Selected by Reference")
 
 One persona library (`personas/<id>.md`, `builtin:*`, package `<name>/<id>`)
 replaces workflow state files, `triage.md`, the assistant's context-library persona,
 and the context library itself; everything selects a persona by id through
-`resolvePersona`. Being built in the Unified Personas story: the library, built-ins,
-API, migration (steps 1, 2, 4–7), WorkDef `persona`, the WorkItem snapshot (recorded
-at claim), every prompt path, the Pi tools (`list_personas`, `persona` params), and
-Work Source personas (+ migration step 3), and the UI (Config → Personas, pickers,
-the triage-persona-required state, in-flight chips, the notices strip), and persona
-packages (the loader's `mpt.personas`, `mpt plugins` and the doctor), and the demo
-team (mpt-demo-team's fixtures, legacy-layout migration check and persona package)
-are in. Deferred on purpose:
+`resolvePersona`. Shipped in the Unified Personas story: the library and built-ins,
+the API, the on-load migration (steps 1–7), WorkDef `persona`, the WorkItem snapshot
+(recorded at claim), every prompt path, the Pi tools (`list_personas`, `persona`
+params), Work Source personas, the UI (Config → Personas, pickers, the
+triage-persona-required state, in-flight chips, the notices strip), persona packages
+(the loader's `mpt.personas`, `mpt plugins` and the doctor), and the demo team
+(mpt-demo-team's fixtures, legacy-layout migration check and persona package).
+Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
   built on a package's, picking up its updates). Today Duplicate copies and never
@@ -76,8 +76,8 @@ are in. Deferred on purpose:
   state name.
 - **Per-board-task persona override:** board tasks take the workflow state's persona;
   `persona` on a board WorkDef is refused (400).
-- **Registry / marketplace UI:** browsing and installing persona packages from the
-  web UI. Today it's `mpt plugins add`.
+- **Shared registry / marketplace UI:** a shared index of persona packages, browsed
+  and installed from the web UI. Today it's `mpt plugins add <spec>`.
 - **Remove the 410 stubs** for `/api/context*`, `/api/workflows/:name/instructions/:state`,
   and `/api/triage/instructions` one release after the story ships.
 - **Hot reload of package personas:** like sources, they load once at startup
