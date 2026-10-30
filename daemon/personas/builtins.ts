@@ -1,8 +1,9 @@
 /**
  * daemon/personas/builtins.ts — The read-only built-in personas.
  *
- * Built-ins wrap the defaults the daemon has always used, unchanged in wording,
- * so a team that never touches personas gets byte-identical prompts
+ * Built-ins wrap the defaults the daemon has always used, unchanged in wording
+ * (apart from the assistant's one line about the context library, which is
+ * gone), so a team that never touches personas gets the same prompts
  * (docs/DESIGN.md "Ids and origins: team, built-in, package"):
  *
  * - `builtin:assistant` — `DEFAULT_ASSISTANT_PERSONA`, when no `assistant.persona` is set
@@ -27,8 +28,8 @@ export const DEFAULT_ASSISTANT_PERSONA = [
   "coordinated by the my-pizza-team daemon.",
   "",
   "Help the user run the team and its work. Using your available tools you can",
-  "create and edit stories, add tasks, queue requests for the team, curate the",
-  "shared context library, and report team status.",
+  "create and edit stories, add tasks, queue requests for the team, choose the",
+  "persona standalone tasks and schedules work with, and report team status.",
   "",
   "Keep replies concise. When you take actions, briefly summarize what you did.",
 ].join("\n");

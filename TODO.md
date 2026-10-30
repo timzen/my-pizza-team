@@ -60,13 +60,11 @@ One persona library (`personas/<id>.md`, `builtin:*`, package `<name>/<id>`)
 replaces workflow state files, `triage.md`, the assistant's context-library persona,
 and the context library itself; everything selects a persona by id through
 `resolvePersona`. Being built in the Unified Personas story: the library, built-ins,
-API, migration (steps 1, 2, 4–7), WorkDef `persona`, and the WorkItem snapshot columns
-are in. Still open in the story: the Solitary/Scheduled persona block and recording
-the snapshot at claim, Work Source personas (+ migration step 3), the plugin loader's
-`mpt.personas`, the Pi tools, the UI, and the demo team. Also for its final pass:
-`builtin:assistant` (`DEFAULT_ASSISTANT_PERSONA`) still says it can "curate the shared
-context library" — kept byte-identical on purpose until the harness drops
-`list_context`, then reword it. Deferred on purpose:
+API, migration (steps 1, 2, 4–7), WorkDef `persona`, the WorkItem snapshot (recorded
+at claim), every prompt path, and the Pi tools (`list_personas`, `persona` params) are
+in. Still open in the story: Work Source personas (+ migration step 3; triage-mode
+mirrors use the team's triage persona until then), the plugin loader's
+`mpt.personas`, the UI, and the demo team. Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
   built on a package's, picking up its updates). Today Duplicate copies and never

@@ -8,7 +8,7 @@
 //   - registerLeaderTools: create_story, edit_story, add_task, create_task,
 //                          create_schedule, set_schedule_pending, get_task,
 //                          edit_task, activate_task,
-//                          list_workflows, list_context,
+//                          list_workflows, list_personas,
 //                          team_status, list_thought_groups, list_thoughts,
 //                          get_thought, create_thought, edit_thought,
 //                          archive_thought, group_thoughts
@@ -27,9 +27,12 @@
 // active set. A tool called anyway gets the daemon's 403, which the client words
 // as featureDisabledMessage; propose_work refuses proposals of a disabled kind.
 //
-// Note: story/task creation can attach context-library entries via the
-// `context` parameter; list_context surfaces the available entry ids. The
-// assistant persona system prompt itself is still vended by the daemon.
+// Personas (my-pizza-team docs/DESIGN.md "Personas: One Library, Selected by
+// Reference"): create_task / create_schedule / edit_task take an optional
+// `persona` id — how the teammate should do that work — and list_personas
+// surfaces the library to pick from. Board tasks get theirs from the workflow
+// state, so create_story / add_task take none. The assistant's own persona
+// system prompt is vended by the daemon (chat.ts).
 
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
@@ -45,7 +48,7 @@ import { featureForProposalKind } from "./features.js";
  * Register tools for the leader — the agent you chat with.
  *
  * The leader answers the team chat (see chat.ts), so it gets the full planning
- * surface: stories, tasks, schedules, thoughts, context, and status. All of it is
+ * surface: stories, tasks, schedules, thoughts, personas, and status. All of it is
  * registered regardless of the feature toggles; leader.ts narrows the active set
  * with `applyFeatureTools` (features.ts).
  *
@@ -65,7 +68,7 @@ export function registerLeaderTools(pi: ExtensionAPI, client: DaemonClient): voi
   registerEditTask(pi, client);
   registerActivateTask(pi, client);
   registerListWorkflows(pi, client);
-  registerListContext(pi, client);
+  registerListPersonas(pi, client);
   registerTeamStatus(pi, client);
   registerListThoughtGroups(pi, client);
   registerListThoughts(pi, client);
@@ -259,6 +262,15 @@ const PENDING_GUIDELINE =
   "Pass pending: true when the user wants to review the work before it runs, when you're unsure the " +
   "spec is right, or when you've been asked to write tasks up rather than start them.";
 
+/** The `persona` param on create_task (create_schedule and edit_task word their own). */
+const PERSONA_PARAM = Type.Optional(Type.String({
+  description: "Persona id the teammate works with (how to do it — e.g. a reviewer or implementer). Use list_personas to find ids; omit for none.",
+}));
+
+const PERSONA_GUIDELINE =
+  "Pass persona only when a specific way of working fits (list_personas shows the options); omit it otherwise. " +
+  "Put project knowledge in the project's AGENTS.md, not the goal or a persona.";
+
 // ─── create_story ────────────────────────────────────────────────────
 
 function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
@@ -283,7 +295,6 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
       directory: Type.Optional(Type.String({ description: "Where the work happens (e.g., '~/Workspace/my-project'). Teammates biased to this directory pick it up and cd here." })),
       pending: Type.Optional(Type.Boolean({ description: "If true, the story is created pending: none of its tasks are handed out until it is activated (edit_story pending: false)" })),
       workflow: Type.Optional(Type.String({ description: "Named workflow to use for this story (defaults to the team's default). Use list_workflows to see valid names." })),
-      context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to the whole story (injected into every task's prompt). Use list_context to find ids." })),
     }),
     async execute(_toolCallId, params) {
       const result = await client.createStory({
@@ -294,7 +305,6 @@ function registerCreateStory(pi: ExtensionAPI, client: DaemonClient): void {
         directory: params.directory,
         pending: params.pending,
         workflow: params.workflow,
-        context: params.context,
       });
 
       if (!result.success) throw new Error(result.error || "Failed to create story");
@@ -376,11 +386,10 @@ function registerAddTask(pi: ExtensionAPI, client: DaemonClient): void {
       storyId: Type.String({ description: "ID of the story to add the task to" }),
       title: Type.String({ description: "Short title for the task" }),
       description: Type.String({ description: "Full task description/prompt for the teammate to execute" }),
-      context: Type.Optional(Type.Array(Type.String(), { description: "Context-library entry ids to attach to this task (injected into its prompt). Use list_context to find ids." })),
       pending: PENDING_PARAM,
     }),
     async execute(_toolCallId, params) {
-      const result = await client.createTask(params.storyId, params.title, params.description, params.context, params.pending);
+      const result = await client.createTask(params.storyId, params.title, params.description, params.pending);
       if (!result.success) throw new Error(result.error || "Failed to add task");
 
       const suffix = params.pending ? ` as PENDING (${result.task?.id}) — it won't run until activated` : "";
@@ -411,6 +420,7 @@ function registerCreateTask(pi: ExtensionAPI, client: DaemonClient): void {
       "Use create_task for a single actionable item; use create_story + add_task (when available) when work needs multiple sequential steps.",
       "Write goal as a complete prompt the teammate can execute autonomously; put concrete, checkable acceptance criteria in acceptanceCriteria.",
       "Pass directory when the work targets a specific repo/folder so a teammate biased there picks it up.",
+      PERSONA_GUIDELINE,
     ],
     parameters: Type.Object({
       title: Type.String({ description: "Short title for the task" }),
@@ -418,11 +428,12 @@ function registerCreateTask(pi: ExtensionAPI, client: DaemonClient): void {
       acceptanceCriteria: Type.Optional(Type.String({ description: "Checkable done criteria (markdown list; RFC-2119 MUST/SHOULD encouraged)" })),
       additionalContext: Type.Optional(Type.String({ description: "Any extra background the teammate should have" })),
       directory: Type.Optional(Type.String({ description: "Working directory the task targets (e.g. '~/Workspace/proj')" })),
+      persona: PERSONA_PARAM,
       pending: PENDING_PARAM,
     }),
     async execute(_toolCallId, params) {
-      const p = params as { title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string; directory?: string; pending?: boolean };
-      const res = await client.createWorkDef({ title: p.title, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, additionalContext: p.additionalContext, directory: p.directory, pending: p.pending });
+      const p = params as { title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string; directory?: string; persona?: string; pending?: boolean };
+      const res = await client.createWorkDef({ title: p.title, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, additionalContext: p.additionalContext, directory: p.directory, persona: p.persona || undefined, pending: p.pending });
       if (!res.success) throw new Error(res.error || "Failed to create task");
       const text = p.pending
         ? `Created PENDING task "${p.title}" (${res.workDef?.id}) — not enqueued; it runs once activated.`
@@ -450,6 +461,7 @@ function registerCreateSchedule(pi: ExtensionAPI, client: DaemonClient): void {
       PENDING_GUIDELINE,
       "Confirm the cadence with the user and translate it to a standard 5-field cron (MIN HOUR DOM MON DOW).",
       "goal is the prompt the teammate runs each time; keep it self-contained since each run starts fresh.",
+      PERSONA_GUIDELINE,
     ],
     parameters: Type.Object({
       title: Type.String({ description: "Short title for the scheduled job" }),
@@ -457,11 +469,12 @@ function registerCreateSchedule(pi: ExtensionAPI, client: DaemonClient): void {
       goal: Type.String({ description: "The prompt the teammate executes on each run" }),
       acceptanceCriteria: Type.Optional(Type.String({ description: "Checkable done criteria for each run" })),
       directory: Type.Optional(Type.String({ description: "Working directory the job targets" })),
+      persona: Type.Optional(Type.String({ description: "Persona id every run of this job works with (how to do it). Use list_personas to find ids; omit for none." })),
       pending: PENDING_PARAM,
     }),
     async execute(_toolCallId, params) {
-      const p = params as { title: string; cron: string; goal: string; acceptanceCriteria?: string; directory?: string; pending?: boolean };
-      const res = await client.createWorkDef({ type: "Scheduled", title: p.title, cron: p.cron, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, directory: p.directory, pending: p.pending });
+      const p = params as { title: string; cron: string; goal: string; acceptanceCriteria?: string; directory?: string; persona?: string; pending?: boolean };
+      const res = await client.createWorkDef({ type: "Scheduled", title: p.title, cron: p.cron, goal: p.goal, acceptanceCriteria: p.acceptanceCriteria, directory: p.directory, persona: p.persona || undefined, pending: p.pending });
       if (!res.success) throw new Error(res.error || "Failed to create schedule");
       const suffix = p.pending ? " as PENDING — it won't fire until activated" : "";
       return {
@@ -518,7 +531,7 @@ function formatWorkDef(d: WorkDefSummary): string {
     `Type: ${d.type}${d.parent ? ` (parent ${d.parent.kind} ${d.parent.id})` : ""} · ${d.pending ? "PENDING (editable)" : "active (locked)"}`,
   ];
   if (d.directory) lines.push(`Directory: ${d.directory}`);
-  if (d.contextRefs && d.contextRefs.length > 0) lines.push(`Context: ${d.contextRefs.join(", ")}`);
+  if (d.persona) lines.push(`Persona: ${d.persona}`);
   lines.push("", "## Goal", "", d.goal, "", "## Acceptance Criteria", "", d.acceptanceCriteria || "(none)");
   if (d.additionalContext) lines.push("", "## Additional Context", "", d.additionalContext);
   return lines.join("\n");
@@ -556,7 +569,8 @@ function registerEditTask(pi: ExtensionAPI, client: DaemonClient): void {
     description:
       "Revise a PENDING task's definition (title, goal, acceptance criteria, additional context, directory). Only " +
       "pending tasks can be edited: once active a definition is locked, and the way to change what a teammate does " +
-      "is a comment on its thread plus a re-run.",
+      "is a comment on its thread plus a re-run. A standalone task's or scheduled job's persona (how the work is " +
+      "done, not what) can be changed even once it's active; a board task's persona comes from its workflow state.",
     promptSnippet: "Edit a pending task's definition",
     promptGuidelines: [
       "Use edit_task to revise pending tasks you or the user wrote; only the fields you pass change.",
@@ -569,12 +583,14 @@ function registerEditTask(pi: ExtensionAPI, client: DaemonClient): void {
       acceptanceCriteria: Type.Optional(Type.String({ description: "New acceptance criteria" })),
       additionalContext: Type.Optional(Type.String({ description: "New additional context (empty string clears it)" })),
       directory: Type.Optional(Type.String({ description: "New working directory (empty string clears it)" })),
+      persona: Type.Optional(Type.String({ description: "Standalone task or scheduled job only: new persona id (empty string clears it). Use list_personas to find ids." })),
     }),
     async execute(_toolCallId, params) {
-      const { id, additionalContext, directory, ...rest } = params;
+      const { id, additionalContext, directory, persona, ...rest } = params;
       const updates: Parameters<DaemonClient["updateWorkDef"]>[1] = { ...rest };
       if (additionalContext !== undefined) updates.additionalContext = additionalContext || null;
       if (directory !== undefined) updates.directory = directory || null;
+      if (persona !== undefined) updates.persona = persona || null;
       const res = await client.updateWorkDef(id, updates);
       if (!res.success) throw new Error(res.error || "Failed to edit task");
       return {
@@ -869,38 +885,45 @@ function registerListWorkflows(pi: ExtensionAPI, client: DaemonClient): void {
   });
 }
 
-// ─── list_context ────────────────────────────────────────────────────
+// ─── list_personas ───────────────────────────────────────────────────
 
-function registerListContext(pi: ExtensionAPI, client: DaemonClient): void {
+/**
+ * The persona library, so the leader can pick a `persona` for create_task,
+ * create_schedule, or edit_task. Worker-hinted personas are listed first; any
+ * persona may be used anywhere (`kinds` is a hint, never a restriction).
+ */
+function registerListPersonas(pi: ExtensionAPI, client: DaemonClient): void {
   pi.registerTool({
-    name: "list_context",
-    label: "List Context Library",
+    name: "list_personas",
+    label: "List Personas",
     description:
-      "List the shared context-library entries (reusable prompt/context material). Use this to decide which entries " +
-      "to attach to a story or task via the `context` parameter of create_story/add_task.",
-    promptSnippet: "List the shared context-library entries",
+      "List the team's personas — how a teammate should behave while doing a piece of work (role, process, " +
+      "checklists). Use this to pick the `persona` for create_task, create_schedule, or edit_task. Built-in " +
+      "(builtin:*) and package (<package>/<id>) personas are read-only but can be selected like any other.",
+    promptSnippet: "List the team's personas (to pick one for a task or schedule)",
     promptGuidelines: [
-      "Use list_context when deciding what background material would help a teammate succeed.",
-      "Attach relevant entries by passing their ids to create_story (story-wide) or add_task (task-only).",
+      "Use list_personas before passing a persona to create_task, create_schedule, or edit_task; only pass ids it lists.",
+      "Project knowledge (conventions, build commands) belongs in the project's AGENTS.md, not a persona.",
     ],
     parameters: Type.Object({}),
     async execute(_toolCallId, _params) {
       try {
-        const { entries } = await client.listContext();
-        if (entries.length === 0) {
-          return { content: [{ type: "text", text: "The context library is empty." }], details: undefined };
+        const { personas } = await client.listPersonas("worker");
+        if (personas.length === 0) {
+          return { content: [{ type: "text", text: "The persona library is empty." }], details: undefined };
         }
-        const lines = entries.map((e) => {
-          const tags = e.tags.length > 0 ? ` [${e.tags.join(", ")}]` : "";
-          const desc = e.description ? ` — ${e.description}` : "";
-          return `- ${e.id}: ${e.title}${tags}${desc}`;
+        const lines = personas.map((p) => {
+          const origin = p.origin.kind === "team" ? "" : p.origin.kind === "package" ? ` (package ${p.origin.name ?? ""})` : " (built-in)";
+          const kinds = p.kinds && p.kinds.length > 0 ? ` [${p.kinds.join(", ")}]` : "";
+          const desc = p.description ? ` — ${p.description}` : "";
+          return `- ${p.id}: ${p.title}${origin}${kinds}${desc}`;
         });
         return {
-          content: [{ type: "text", text: `Context library:\n${lines.join("\n")}` }],
-          details: { entries: entries.map((e) => ({ id: e.id, title: e.title, tags: e.tags })) },
+          content: [{ type: "text", text: `Personas:\n${lines.join("\n")}` }],
+          details: { personas: personas.map((p) => ({ id: p.id, title: p.title, origin: p.origin.kind, kinds: p.kinds ?? [] })) },
         };
       } catch {
-        return { content: [{ type: "text", text: "Failed to list context entries (daemon unreachable)." }], details: undefined };
+        return { content: [{ type: "text", text: "Failed to list personas (daemon unreachable)." }], details: undefined };
       }
     },
   });

@@ -561,9 +561,9 @@ web UI's side is under "ui/src/" (Feature toggles).
 
 **Clients.** The Pi leader registers every tool but keeps a switched-off kind's
 out of the model's active set (`harnesses/pi/src/features.ts`: Stories →
-`create_story`/`edit_story`/`add_task`/`list_workflows`/`list_context`, Tasks →
+`create_story`/`edit_story`/`add_task`/`list_workflows`, Tasks →
 `create_task`, Schedules → `create_schedule`/`set_schedule_pending`, all off → also `get_task`/`edit_task`/
-`activate_task`), re-reading `/api/status` at session start, before every run, and
+`activate_task`/`list_personas`), re-reading `/api/status` at session start, before every run, and
 on its 10s poll, and adds a system-prompt note naming what's off; `propose_work`
 refuses proposals of a switched-off kind. `DaemonClient` turns the 403 into
 `DaemonError.feature` + "Stories are disabled — enable them in Config
@@ -597,9 +597,9 @@ Rationale: DESIGN.md "Errored Sessions Retry".
 
 Rationale and every decision: [DESIGN.md](DESIGN.md) "Personas: One Library,
 Selected by Reference". Built so far: the library, resolution, the API, the
-migration, and the snapshot columns; the Solitary/Scheduled persona block and the
-claim-time recording, the Work Source chain (and migration step 3), the plugin
-loader's `mpt.personas`, the Pi tools, and the UI are later tasks of the same story.
+migration, the snapshot columns, every prompt path and the claim-time recording,
+and the Pi tools; the Work Source chain (and migration step 3), the plugin loader's
+`mpt.personas`, and the UI are later tasks of the same story.
 
 - **Storage:** `personas/<id>.md` (frontmatter `title`, `description`, `tags`,
   optional `kinds`, `duplicatedFrom`). References, never bodies: `workflow.json`
@@ -613,12 +613,22 @@ loader's `mpt.personas`, the Pi tools, and the UI are later tasks of the same st
   `builtin:{assistant,triage,worker}`, package `<package.json name>/<id>`
   (`parsePersonaId`, split on the last `/`).
 - **Modules:** `daemon/personas/` (see the module map) and `daemon/routes/personas.ts`.
-- **Prompt paths today:** `Store.getStatePersona` resolves a state's `persona`
-  (missing → `builtin:worker`); `getTriageInstructions` resolves `triage.persona`
-  (unset → the built-in default; missing → `builtin:triage`); the assistant's
-  system prompt resolves `assistant.persona` (→ `builtin:assistant`). Missing
-  references are logged once per id per run (`[personas] … names persona 'x',
-  which doesn't exist — using builtin:worker`).
+- **Prompt paths:** `Store.resolveWorkPersona(def)` is each kind's chain in one
+  place — board task → its state's `persona` (`resolveStatePersona`; none = the
+  one-line state framing), note triage and triage-mode mirrors →
+  `resolveTriagePersona` (`triage.persona`, else `builtin:triage`), Solitary /
+  Scheduled → the WorkDef's `persona` (via `task` / `schedule`; none = no persona
+  block), work-mode mirror → none until the Work Source chain lands. A worker
+  reference that doesn't resolve → `builtin:worker`. `POST /api/agents/claim`
+  resolves it once, passes the `PersonaRef` to `claimWorkItem` (the snapshot) and
+  the body to the base prompt (`buildWorkDefPrompt`'s `## Your Role` block); the
+  Story source rebuilds board prompts through `getStatePersona` (delegating to
+  `resolveStatePersona`) and the Thought / external-triage prompts through
+  `getTriageInstructions`. The assistant's system prompt resolves
+  `assistant.persona` (→ `builtin:assistant`). Missing references are logged once
+  per id per run (`[personas] … names persona 'x', which doesn't exist — using
+  builtin:worker`). `PUT /api/config` checks each workflow state's `persona` when
+  it changed (a string, an agent state, resolves).
 - **Snapshot:** `work_items` `persona_id`, `persona_title`, `persona_origin`
   (`team` | `builtin` | `package:<name>`), `persona_via`, `persona_fallback_from`
   (added with `ALTER TABLE … ADD COLUMN`), written inside the claim transaction by
@@ -731,7 +741,7 @@ switched-off kind answers 403 (see "Feature toggles").
 | POST | `/api/agents/register` | Register (`id`, `name`, `directory`, `metadata`, handshake fields); 409 on an unservable `protocolVersion`, or an experimental `harness` without `experimental.harnesses` |
 | POST | `/api/agents/heartbeat` | Keep-alive; `{reregister:true}` or `{dismissed:true}` when unknown |
 | GET | `/api/agents/next-work?agentId=` | Next READY item by directory affinity, skipping items whose directory is leased |
-| POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable, including "directory busy" when an overlapping item is in flight) |
+| POST | `/api/agents/claim/:workItemId` | Lease + prompt (409 if not claimable, including "directory busy" when an overlapping item is in flight); records the resolved persona on the WorkItem |
 | POST | `/api/agents/work-items/:workItemId/state` | COMPLETE (advances a board task) or FAILED; only the holder (403 otherwise); posts no comment. FAILED + `sessionError` (the agent's model call failed) instead retries: the daemon posts `[retry]`/`[failed]` and returns `retry: { workItemId, attempt, maxAttempts, retryAt }` when it enqueued one |
 | GET/POST | `/api/agents/comments/:workItemId` | Read / post comments on the item's ref |
 | POST | `/api/agents/work-items/:workItemId/attachments` | Upload to the ref |

@@ -3,7 +3,7 @@
 // Wraps all API calls the pi-pizza-team extension makes to the
 // my-pizza-team daemon. Implements the daemon's agent protocol
 // (/api/agents/*) plus supporting endpoints for stories, tasks,
-// assistant queue, context library, and spawn requests.
+// assistant queue, persona library, and spawn requests.
 //
 // Replaces the old teammate/client.ts and assistant/client.ts with
 // a single client. All roles (leader, teammate, assistant) use this.
@@ -168,15 +168,22 @@ export interface AssistantMirrorResponse {
   error?: string;
 }
 
-/** A context-library entry (reusable prompt/context; see daemon /api/context). */
-export interface ContextEntry {
+/**
+ * A persona from the daemon's library (`GET /api/personas`): how an agent
+ * behaves, selected by id (my-pizza-team docs/DESIGN.md "Personas: One Library,
+ * Selected by Reference"). Team ids are slugs; built-ins are `builtin:<name>`;
+ * package personas are `<package>/<id>` and read-only.
+ */
+export interface PersonaSummary {
   id: string;
   title: string;
   description: string;
   tags: string[];
+  /** Picker hints (`assistant` | `worker` | `triage`); never a restriction. */
+  kinds?: string[];
+  origin: { kind: "team" | "builtin" | "package"; name?: string };
+  readOnly?: boolean;
   content: string;
-  createdAt: string;
-  updatedAt: string;
 }
 
 /** A Thoughts-board sticky note (see the daemon's Thought type). */
@@ -262,8 +269,9 @@ export interface WorkDefSummary {
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
-  contextRefs?: string[];
   directory?: string;
+  /** The persona id a Solitary/Scheduled WorkDef runs with (unset = none). */
+  persona?: string;
   /** Still pending: editable, never dispatched until activated. */
   pending: boolean;
 }
@@ -810,7 +818,7 @@ export class DaemonClient {
    * inject. When no persona is selected the daemon returns its default
    * assistant persona in `systemPrompt`, so this is never empty in practice.
    */
-  async getPersona(): Promise<{ personaId: string | null; entry: ContextEntry | null; systemPrompt: string }> {
+  async getPersona(): Promise<{ personaId: string | null; entry: PersonaSummary | null; persona?: PersonaSummary; systemPrompt: string }> {
     return this.get("/api/assistant/persona");
   }
 
@@ -837,8 +845,8 @@ export class DaemonClient {
    */
   async createWorkDef(body: {
     title: string; goal: string; acceptanceCriteria?: string; additionalContext?: string;
-    directory?: string; contextRefs?: string[]; type?: "Solitary" | "Scheduled"; cron?: string; enqueue?: boolean;
-    pending?: boolean;
+    directory?: string; type?: "Solitary" | "Scheduled"; cron?: string; enqueue?: boolean;
+    pending?: boolean; persona?: string;
   }): Promise<{ success: boolean; workDef?: { id: string; title: string }; error?: string }> {
     return this.post("/api/work-defs", body);
   }
@@ -855,7 +863,7 @@ export class DaemonClient {
    */
   async updateWorkDef(id: string, updates: {
     title?: string; goal?: string; acceptanceCriteria?: string; additionalContext?: string | null;
-    directory?: string | null; contextRefs?: string[] | null;
+    directory?: string | null; persona?: string | null;
   }): Promise<{ success: boolean; workDef?: WorkDefSummary; error?: string }> {
     return this.put(`/api/work-defs/${encodeURIComponent(id)}`, updates);
   }
@@ -901,14 +909,6 @@ export class DaemonClient {
   }
 
   // ═══════════════════════════════════════════════════════════════════
-  // CONTEXT LIBRARY
-  // ═══════════════════════════════════════════════════════════════════
-  //
-  // The context library is vended by the daemon where needed (e.g. the
-  // assistant's persona system prompt via getPersona). Agents do not perform
-  // context CRUD/search through tools, so no list/save methods live here.
-
-  // ═══════════════════════════════════════════════════════════════════
   // STORIES / TASKS (for leader tools)
   // ═══════════════════════════════════════════════════════════════════
 
@@ -927,8 +927,6 @@ export class DaemonClient {
     /** Create the story pending: nothing is handed out until it is activated. */
     pending?: boolean;
     workflow?: string;
-    /** Context-library entry ids to attach to the whole story (injected into every task prompt). */
-    context?: string[];
     tasks?: Array<{ title: string; description: string }>;
   }): Promise<CreateStoryResponse> {
     return this.post<CreateStoryResponse>("/api/stories", story);
@@ -951,14 +949,14 @@ export class DaemonClient {
    * Add a task to an existing story.
    *
    * Tasks are sequential within a story — the daemon assigns the next
-   * sequence number automatically. `context` attaches context-library entry
-   * ids to this task (injected into its prompt). `pending` creates it as pending:
-   * it holds its place in the story and gets no WorkItem until activated.
+   * sequence number automatically. `pending` creates it as pending: it holds
+   * its place in the story and gets no WorkItem until activated. (A board task
+   * gets its persona from its workflow state, so there's none to pass here.)
    */
-  async createTask(storyId: string, title: string, description: string, context?: string[], pending?: boolean): Promise<CreateTaskResponse> {
+  async createTask(storyId: string, title: string, description: string, pending?: boolean): Promise<CreateTaskResponse> {
     return this.post<CreateTaskResponse>(
       `/api/stories/${encodeURIComponent(storyId)}/tasks`,
-      { title, description, context, pending }
+      { title, description, pending }
     );
   }
 
@@ -971,11 +969,12 @@ export class DaemonClient {
   }
 
   /**
-   * List the shared context-library entries so a planner can decide which to
-   * attach to a story or task.
+   * List the team's persona library (team, built-in, and package personas) so
+   * the leader can pick one for a standalone task or a schedule. `kind` sorts
+   * the personas hinted for it first.
    */
-  async listContext(): Promise<{ entries: ContextEntry[] }> {
-    return this.get<{ entries: ContextEntry[] }>("/api/context");
+  async listPersonas(kind?: "assistant" | "worker" | "triage"): Promise<{ personas: PersonaSummary[] }> {
+    return this.get<{ personas: PersonaSummary[] }>(`/api/personas${kind ? `?kind=${kind}` : ""}`);
   }
 
   // ═══════════════════════════════════════════════════════════════════

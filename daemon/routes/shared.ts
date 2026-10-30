@@ -156,6 +156,13 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       const featureSettings = resolveFeaturesUpdate(config, body, store);
       if ("error" in featureSettings) return c.json({ success: false, error: featureSettings.error }, featureSettings.status);
 
+      // Workflows (structure and each agent state's `persona`) are validated up
+      // front too, so a refused save writes nothing.
+      for (const [name, wf] of Object.entries(body.workflows)) {
+        const invalid = validateWorkflow(wf as WorkflowConfig) ?? statePersonaError(store, name, wf as WorkflowConfig);
+        if (invalid) return c.json({ success: false, error: `Workflow "${name}": ${invalid}` }, 400);
+      }
+
       config.port = body.port || config.port;
       config.tmuxSession = body.tmuxSession || config.tmuxSession;
       config.maxTeammates = body.maxTeammates || config.maxTeammates;
@@ -173,11 +180,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       }
       config.defaultWorkflow = body.defaultWorkflow;
 
-      for (const [name, wf] of Object.entries(body.workflows)) {
-        const invalid = validateWorkflow(wf as WorkflowConfig);
-        if (invalid) return c.json({ success: false, error: `Workflow "${name}": ${invalid}` }, 400);
-        store.saveWorkflow(name, wf as WorkflowConfig);
-      }
+      for (const [name, wf] of Object.entries(body.workflows)) store.saveWorkflow(name, wf as WorkflowConfig);
       store.reloadWorkflows();
 
       if (body.autosave) {
@@ -384,4 +387,24 @@ function resolveHarnessSettings(
     };
   }
   return { experimental, defaultHarness };
+}
+
+/**
+ * Why a workflow's state `persona` references are refused, or null. A persona
+ * must be a string; one that *changed* must be on an agent state (manual states
+ * have no teammate) and must resolve — a typo at the point of entry is a 400, like
+ * `PUT /api/workflows/:name/states/:state`. An unchanged reference that has
+ * since gone stale is accepted (the config form re-sends every workflow on any
+ * save; the claim-time fallback covers it — docs/DESIGN.md "Resolution").
+ */
+function statePersonaError(store: RouteContext["store"], name: string, wf: WorkflowConfig): string | null {
+  const current = store.getWorkflows()[name];
+  for (const st of wf.states) {
+    if (st.persona === undefined || st.persona === null || st.persona === "") continue;
+    if (typeof st.persona !== "string") return `State "${st.name}": persona must be a persona id`;
+    if (st.persona === current?.states.find((s) => s.name === st.name)?.persona) continue;
+    if (st.type !== "agent") return `State "${st.name}" is manual; only agent states have a persona`;
+    if (!store.getPersona(st.persona)) return `State "${st.name}": persona "${st.persona}" doesn't exist`;
+  }
+  return null;
 }

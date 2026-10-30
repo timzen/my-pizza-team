@@ -212,11 +212,11 @@ test("polls its own directives for session replacement", () => {
   assert.ok(clientSrc.includes("/directives"));
 });
 
-// ─── Context Library ─────────────────────────────────────────────
+// ─── Personas ────────────────────────────────────────────────────
 
 // The daemon vends the assistant persona; the client reads the effective
-// persona system prompt. It may also *read* the context library (list_context)
-// and workflows (list_workflows) for planning, but never creates/edits context.
+// persona system prompt. It may also *read* the persona library (list_personas)
+// and workflows (list_workflows) for planning, but never creates/edits personas.
 test("has getPersona method returning systemPrompt", () => {
   assert.ok(clientSrc.includes("async getPersona()"));
   assert.ok(clientSrc.includes("systemPrompt: string"));
@@ -238,16 +238,21 @@ test("updateThought's PATCH helper exists (it was called but never defined)", ()
   assert.ok(clientSrc.includes('method: "PATCH"'));
 });
 
-test("has read-only listWorkflows and listContext methods", () => {
+test("has read-only listWorkflows and listPersonas methods (no context library)", () => {
   assert.ok(clientSrc.includes("async listWorkflows()"));
   assert.ok(clientSrc.includes('this.get<WorkflowSummary[]>("/api/workflows")'));
-  assert.ok(clientSrc.includes("async listContext()"));
-  assert.ok(clientSrc.includes('"/api/context"'));
+  assert.ok(clientSrc.includes("async listPersonas("));
+  assert.ok(clientSrc.includes("`/api/personas"));
+  assert.ok(!clientSrc.includes("listContext"));
+  assert.ok(!clientSrc.includes("/api/context"));
 });
 
-test("createStory and createTask accept a context array", () => {
-  assert.ok(clientSrc.includes("context?: string[]"));
-  assert.ok(clientSrc.includes("createTask(storyId: string, title: string, description: string, context?: string[], pending?: boolean)"));
+test("createStory and createTask carry no context; WorkDef create/update carry a persona", () => {
+  assert.ok(!clientSrc.includes("context?: string[]"));
+  assert.ok(!clientSrc.includes("contextRefs"));
+  assert.ok(clientSrc.includes("createTask(storyId: string, title: string, description: string, pending?: boolean)"));
+  assert.ok(clientSrc.includes("pending?: boolean; persona?: string;"));
+  assert.ok(clientSrc.includes("directory?: string | null; persona?: string | null;"));
 });
 
 test("client does NOT expose context write/search methods", () => {

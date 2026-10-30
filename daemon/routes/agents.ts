@@ -13,7 +13,8 @@
 
 import type { RouteContext } from "./types.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
-import { DEFAULT_HARNESS, isExperimentalHarness, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
+import { personaRefOf } from "../personas/resolve.ts";
+import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
 import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { dismissParams, dismissReady } from "../spawner.ts";
@@ -168,7 +169,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     const item = store.getWorkItem(workItemId);
     if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
 
-    const ok = store.claimWorkItem(workItemId, body.agentId);
+    // Resolve the persona once: the prompt carries it and the claim records it
+    // (the WorkItem snapshot — docs/DESIGN.md "The in-flight persona").
+    const def = store.getWorkDef(item.ref.workDefId);
+    const persona = def ? store.resolveWorkPersona(def) : null;
+    const ok = store.claimWorkItem(workItemId, body.agentId, persona ? personaRefOf(persona) : null);
     if (!ok) {
       // Lost a race for the item's directory lease (another agent claimed
       // overlapping work first) — say so rather than the generic refusal.
@@ -182,7 +187,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
     store.updateMemberStatus(body.agentId, "working");
 
-    const prompt = buildClaimPrompt(store, item.ref);
+    const prompt = buildClaimPrompt(store, item.ref, persona);
 
     return c.json({ success: true, workItem: { id: item.id }, prompt });
   });
@@ -442,25 +447,29 @@ export function registerAgentRoutes(ctx: RouteContext): void {
  * one (docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins"); a triage-mode
  * external item gets the triage prompt instead.
  */
-function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): string {
+function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef, persona: ResolvedPersona | null): string {
   const def = store.getWorkDef(ref.workDefId);
   if (!def) return "";
   // Store.buildPromptFor: the source's hook, or — for a triage-mode mirror — the triage prompt.
-  return store.buildPromptFor(def, buildBasePrompt(store, ref, def));
+  return store.buildPromptFor(def, buildBasePrompt(store, ref, def, persona));
 }
 
 /**
- * The daemon's base prompt for a WorkDef: the authored WorkDef and lead comments — no kind-specific framing. A source that needs
- * more (Story: the state persona and story; Thought: the triage prompt)
- * rebuilds it in its `buildPrompt`.
+ * The daemon's base prompt for a WorkDef: the persona (when it has one — a
+ * Solitary/Scheduled WorkDef's `persona`, resolved by `Store.resolveWorkPersona`),
+ * the authored WorkDef, and lead comments — no kind-specific framing. A source
+ * that needs more (Story: the state persona and story; Thought: the triage
+ * prompt) rebuilds it in its `buildPrompt`; a plugin's hook wraps it, so it
+ * never needs a persona API (docs/DESIGN.md "Prompt composition").
  */
-function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: WorkDef): string {
+function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: WorkDef, persona: ResolvedPersona | null): string {
   const comments = store.getCommentsForRef(ref);
   return buildWorkDefPrompt({
     workDef: {
       title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria,
       additionalContext: def.additionalContext, directory: def.directory,
     },
+    persona: persona?.body,
     comments: comments.length > 0 ? comments : undefined,
   });
 }

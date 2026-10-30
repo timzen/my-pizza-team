@@ -326,19 +326,23 @@ The extension communicates with the my-pizza-team daemon (default: `http://local
 ### Story/Task Management (leader tools)
 | Route | Method | Purpose |
 |-------|--------|---------|
-| `/api/stories` | POST | Create story (accepts `context`: entry ids attached story-wide) |
+| `/api/stories` | POST | Create story |
 | `/api/stories/:id` | PUT | Update story |
-| `/api/stories/:storyId/tasks` | POST | Add task to story (accepts `context`: entry ids for that task; `pending`) |
+| `/api/stories/:storyId/tasks` | POST | Add task to story (`pending`) |
 | `/api/workflows` | GET | List workflows for the `list_workflows` tool (name, counts, isDefault) |
-| `/api/context` | GET | List context-library entries for the `list_context` tool |
+| `/api/personas?kind=worker` | GET | List the persona library for the `list_personas` tool |
+| `/api/work-defs`, `/api/work-defs/:id` | POST / PUT | Create / edit a Solitary or Scheduled WorkDef (`persona`, `pending`, …) |
 | `/api/assistant/messages` | POST | Send a message to the assistant |
 
-The leader and assistant tool sets both expose planning tools: `create_story`
-and `add_task` take an optional `context` array (context-library entry ids to
-attach), and `list_workflows` / `list_context` are read-only helpers so a
-planner can pick a valid workflow and choose which context to attach before
-creating anything. Agents still never create or edit context entries — those
-are authored in the UI/daemon.
+The leader and assistant tool sets both expose planning tools. `list_workflows`
+and `list_personas` are read-only helpers so a planner can pick a valid workflow
+for `create_story`, and a persona id for the optional `persona` of `create_task`,
+`create_schedule`, and `edit_task` (a standalone task's or scheduled job's persona
+— how the work is done — can be changed even once it's active). Board tasks get
+their persona from their workflow state, so `create_story` / `add_task` take none.
+There is no context library any more (my-pizza-team docs/DESIGN.md "Personas: One
+Library, Selected by Reference"): project knowledge belongs in the project's
+AGENTS.md. Agents never create or edit personas — those are authored in the UI.
 
 The assistant also bridges the **Thoughts** board into work: `list_thought_groups`,
 `list_thoughts` (optionally by `groupId`), and `get_thought` read the user's
@@ -364,10 +368,10 @@ keeps the gated tools in `pi.getActiveTools()` only for kinds that are on:
 
 | Feature | Tools |
 |---|---|
-| `stories` | `create_story`, `edit_story`, `add_task`, `list_workflows`, `list_context` |
+| `stories` | `create_story`, `edit_story`, `add_task`, `list_workflows` |
 | `tasks` | `create_task` |
 | `schedules` | `create_schedule`, `set_schedule_pending` |
-| any of the three | `get_task`, `edit_task`, `activate_task` |
+| any of the three | `get_task`, `edit_task`, `activate_task`, `list_personas` |
 
 Other tools are never touched, and `setActiveTools` is only called on a change.
 `before_agent_start` appends `featurePromptNote(features)` (empty when all on) to
@@ -495,7 +499,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ## Key Design Decisions
 
 1. **Extension is a thin client** — no SQLite, no HTTP server, no state ownership
-2. **Daemon owns all state** — stories, tasks, workflows, context library, assistant conversation
+2. **Daemon owns all state** — stories, tasks, workflows, personas, assistant conversation
 3. **Agent protocol for teammates** — `/api/agents/*` routes: claim (lease) → set-state (COMPLETE/FAILED); workers never move tasks (the daemon reacts to a terminal WorkItem — advance + admit; see the daemon's docs/DESIGN.md "The WorkItem")
 4. **Workflow-agnostic teammate** — never hardcodes state names; the state persona in the claim prompt tells it what role it plays
 5. **Task execution uses sendUserMessage** — keeps teammate interactive for pairing

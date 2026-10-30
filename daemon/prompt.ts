@@ -7,8 +7,9 @@
  * verbatim. Keeping it here also means prompt wording/order changes in a single,
  * testable place instead of drifting across harnesses.
  *
- * Section order: state persona (role framing, board work only) → Story (board
- * work only) → working directory instruction → Goal → Acceptance Criteria →
+ * Section order: persona (role framing: a board task's workflow state, or a
+ * Solitary/Scheduled WorkDef's own `persona`) → Story (board work only) →
+ * working directory instruction → Goal → Acceptance Criteria →
  * Additional Context → lead comments → completion guidance. (The former
  * "Reference Context" section went with the context library; the persona
  * migration inlined its text into Additional Context — docs/DESIGN.md "Personas".)
@@ -76,8 +77,10 @@ export interface WorkDefPromptInput {
   /** The workflow state being worked (board work only). */
   state?: string;
   /**
-   * The state's persona body (the persona its workflow state names): role
-   * framing for whoever works this state — reviewer, implementer, CR-writer, etc.
+   * The resolved persona body (daemon/personas/resolve.ts): role framing for
+   * whoever works this — reviewer, implementer, CR-writer, etc. Board work: the
+   * persona its workflow state names. Solitary/Scheduled work: the WorkDef's own
+   * `persona`; absent = no persona block (docs/DESIGN.md "Prompt composition").
    */
   persona?: string;
   /**
@@ -96,13 +99,17 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
   const directory = workDef.directory || story?.directory;
   let out = "";
 
-  // 1. State persona (board work only) — who the worker is *in this state*.
-  //    First, because it frames how everything after it should be approached.
+  // 1. Persona — who the worker is (board work: *in this state*). First,
+  //    because it frames how everything after it should be approached. Board
+  //    work always gets the block (the one-line state framing when its state
+  //    names no persona); other work only when it has a persona.
   if (state) {
     out += `## Your Role: ${state}\n\n`;
-    out += persona
+    out += persona?.trim()
       ? `${normalizeInstructionMarkdown(persona, 3)}\n\n`
       : `You are working in the '${state}' state of this story's workflow.\n\n`;
+  } else if (persona?.trim()) {
+    out += `## Your Role\n\n${normalizeInstructionMarkdown(persona.trim(), 3)}\n\n`;
   }
 
   // 2. Story (board work only) — the bigger picture.

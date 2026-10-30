@@ -1210,12 +1210,14 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 > with the built-in fallback, "Used by" and delete protection, the `/api/personas*`
 > routes and `PUT /api/workflows/:name/states/:state`, `persona` on Solitary and
 > Scheduled WorkDefs, the WorkItem snapshot columns, the context library's removal
-> (410s, attachments refused) and the on-load migration (steps 1, 2, 4–7). The
-> existing prompt paths read through the library (a state's `persona`,
-> `triage.persona`, `assistant.persona`), so migrated teams get the same prompts.
-> Still to come, each in its own task: the persona block for Solitary/Scheduled and
-> recording the snapshot at claim, the Work Source chain and migration step 3, the
-> plugin loader feeding package personas, the Pi harness tools, and the UI.
+> (410s, attachments refused) and the on-load migration (steps 1, 2, 4–7); every
+> prompt path resolving through the library (a state's `persona`, `triage.persona`,
+> `assistant.persona`, a Solitary/Scheduled WorkDef's `persona`), with the snapshot
+> recorded at claim (`Store.resolveWorkPersona`); `persona` checks on `PUT
+> /api/config` workflows; and the Pi harness tools (`list_personas`, `persona` on
+> create_task / create_schedule / edit_task). Still to come, each in its own task:
+> the Work Source chain and migration step 3, the plugin loader feeding package
+> personas, and the UI.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by
@@ -1612,7 +1614,19 @@ Smaller decisions made while building it:
   /api/assistant/persona` (404, as before).
 - **The snapshot is written inside the claim transaction**: `claimWorkItem(id,
   memberId, persona?)` records the `PersonaRef` the caller resolved, so a run's
-  record and its lease commit together.
+  record and its lease commit together. The claim route resolves it once with
+  `Store.resolveWorkPersona(def)` (each kind's chain in one place) and hands the
+  same body to the base prompt, so the recorded persona is the one the prompt
+  carried. Until the Work Source chain lands, a work-mode mirror resolves to none
+  and a triage-mode mirror to the team's triage persona (what it ran with before).
+- **Workflow state personas on `PUT /api/config`** are checked like `PUT
+  /api/workflows/:name/states/:state` — a string, on an agent state, that resolves —
+  but only when the reference *changed*. The config form re-sends every workflow on
+  any save, so refusing an unchanged reference that went stale (a hand-deleted
+  persona) would block unrelated edits; the claim-time fallback covers it.
+- **`builtin:assistant` is reworded by one line**: it no longer offers to "curate
+  the shared context library" (there is none, and the harness's `list_context` is
+  gone); it offers to choose the persona standalone tasks and schedules work with.
 - **`GET /api/assistant/persona`** keeps `personaId` (the selection, null when unset
   or it no longer resolves) and `entry` (the selected persona, the pre-persona field
   name), and adds `persona` — what the assistant actually runs as (the built-in

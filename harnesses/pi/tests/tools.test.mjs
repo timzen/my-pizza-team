@@ -112,10 +112,11 @@ test("registerLeaderTools includes team_status", () => {
   assert.ok(leaderFn.includes("registerTeamStatus"));
 });
 
-test("registerLeaderTools includes list_workflows and list_context", () => {
+test("registerLeaderTools includes list_workflows and list_personas (not list_context)", () => {
   const leaderFn = src.slice(src.indexOf("function registerLeaderTools"), src.indexOf("function registerTeammateTools"));
   assert.ok(leaderFn.includes("registerListWorkflows"));
-  assert.ok(leaderFn.includes("registerListContext"));
+  assert.ok(leaderFn.includes("registerListPersonas"));
+  assert.ok(!leaderFn.includes("registerListContext"));
 });
 
 // ─── Teammate tools composition ──────────────────────────────────
@@ -142,7 +143,7 @@ test("registerLeaderTools carries the full planning surface (it is the chat agen
     assert.ok(leaderFn.includes(fn), `missing ${fn}`);
   }
   // Read-only planning context + status
-  for (const fn of ["registerListWorkflows", "registerListContext", "registerTeamStatus"]) {
+  for (const fn of ["registerListWorkflows", "registerListPersonas", "registerTeamStatus"]) {
     assert.ok(leaderFn.includes(fn), `missing ${fn}`);
   }
   // Thoughts: read + write (the thoughts -> work loop)
@@ -182,22 +183,32 @@ test("list_workflows calls client.listWorkflows", () => {
   assert.ok(src.includes("client.listWorkflows()"));
 });
 
-test("list_context calls client.listContext", () => {
-  assert.ok(src.includes('name: "list_context"'));
-  assert.ok(src.includes("client.listContext()"));
+test("list_personas calls client.listPersonas; list_context is gone", () => {
+  assert.ok(src.includes('name: "list_personas"'));
+  assert.ok(src.includes('client.listPersonas("worker")'));
+  assert.ok(!src.includes('name: "list_context"'));
+  assert.ok(!src.includes("listContext"));
 });
 
-test("create_story and add_task accept and forward a context param", () => {
-  // Planners attach context-library entries by id to a story or task.
-  assert.ok(src.includes("context: params.context"));
-  assert.ok(src.includes("params.storyId, params.title, params.description, params.context"));
+test("create_story and add_task take no context param (the context library was removed)", () => {
+  assert.ok(!src.includes("context: params.context"));
+  assert.ok(!src.includes("params.context"));
+  assert.ok(src.includes("client.createTask(params.storyId, params.title, params.description, params.pending)"));
+});
+
+test("create_task, create_schedule and edit_task take an optional persona and forward it", () => {
+  // Personas: select by id (my-pizza-team DESIGN.md "Personas: One Library, Selected by Reference").
+  assert.ok(src.includes("persona: PERSONA_PARAM"), "create_task");
+  assert.equal((src.match(/persona: p\.persona \|\| undefined/g) || []).length, 2, "create_task + create_schedule forward it");
+  assert.ok(src.includes("if (persona !== undefined) updates.persona = persona || null;"), "edit_task clears with an empty string");
+  assert.ok(src.includes("Use list_personas"));
 });
 
 test("work-creating tools take an optional pending param and forward it", () => {
   // Pending lets the assistant write work for review (my-pizza-team DESIGN.md "Pending: Write, Review, Activate").
   assert.ok(src.includes("const PENDING_PARAM = Type.Optional(Type.Boolean("));
   assert.equal((src.match(/pending: PENDING_PARAM/g) || []).length, 3, "add_task, create_task, create_schedule");
-  assert.ok(src.includes("params.context, params.pending)"));
+  assert.ok(src.includes("params.description, params.pending)"));
   assert.ok(src.includes("pending: p.pending"));
   assert.ok(!/\bdraft\b/i.test(src), "the old draft vocabulary is gone");
 });

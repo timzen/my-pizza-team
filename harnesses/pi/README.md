@@ -129,9 +129,9 @@ Tools are registered per-role (all proxy to the daemon API):
 > **Feature toggles.** A team can switch Stories, Tasks, and Schedules off
 > (my-pizza-team `config.features`). The leader then takes that kind's tools out
 > of the model's tool list — Stories: `create_story` / `edit_story` / `add_task` /
-> `list_workflows` / `list_context`; Tasks: `create_task`; Schedules:
+> `list_workflows`; Tasks: `create_task`; Schedules:
 > `create_schedule` / `set_schedule_pending`; all three off also hides `get_task` / `edit_task` /
-> `activate_task` — and tells the model what's off. It re-checks at session start,
+> `activate_task` / `list_personas` — and tells the model what's off. It re-checks at session start,
 > before every run, and every 10s, so a Config change needs no restart. A call the
 > daemon refuses reads "Stories are disabled — enable them in Config
 > (features.stories)"; `propose_work` refuses proposals of a kind that's off.
@@ -163,8 +163,12 @@ Tools are registered per-role (all proxy to the daemon API):
 - **`list_thought_groups`** / **`list_thoughts`** / **`get_thought`** — Read the user's Thoughts board (markdown sticky notes), optionally by group, so the assistant can turn captured ideas into work; read-only
 - **`create_thought`** / **`edit_thought`** / **`archive_thought`** / **`group_thoughts`** — Write to the board: capture a follow-up/summary note, annotate or append to a note, archive a note it has acted on, or organize notes into a group (closes the thoughts → tasks → inbox → new-thoughts loop)
 
-> The context library is **vended by the daemon** where needed (e.g. the assistant's
-> persona system prompt) — agents don't search or CRUD context through tools.
+- **`list_personas`** — List the team's persona library (team, built-in, package) to pick a `persona`
+- `create_task` / `create_schedule` / `edit_task` take an optional **`persona`** id: how the teammate should do that work (every run of a schedule uses it). Board tasks get their persona from the workflow state, so `create_story` / `add_task` take none.
+
+> Personas are **authored in the web UI** (Config → Personas) and the assistant's own
+> persona system prompt is vended by the daemon — agents don't create or edit personas
+> through tools. There is no context library (my-pizza-team docs/DESIGN.md "Personas").
 
 ## Watching a Teammate
 

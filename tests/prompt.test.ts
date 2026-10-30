@@ -60,13 +60,27 @@ test("buildWorkDefPrompt: standalone work omits board sections cleanly", () => {
   const out = buildWorkDefPrompt({
     workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
   });
-  assertEquals(out.includes("## Your Role:"), false);
+  assertEquals(out.includes("## Your Role"), false); // no persona → no persona block
   assertEquals(out.includes("## Story:"), false);
   assertEquals(out.includes("## Working Directory"), false);
   assertEquals(out.includes("## Comments from Team Lead"), false);
   assertStringIncludes(out, "## Task: T");
   assertStringIncludes(out, "## Goal");
   assertStringIncludes(out, "## Completing This Work");
+});
+
+test("buildWorkDefPrompt: a Solitary/Scheduled persona is the first section, without board framing", () => {
+  const out = buildWorkDefPrompt({
+    workDef: { title: "T", goal: "D", acceptanceCriteria: "", directory: "/tmp/p" },
+    persona: "# Reviewer\n\nNever edit code.",
+  });
+  assertEquals(out.startsWith("## Your Role\n\n### Reviewer"), true);
+  assertStringIncludes(out, "Never edit code.");
+  assertEquals(out.includes("## Your Role:"), false);
+  assertEquals(out.includes("## Story:"), false);
+  assertEquals(out.indexOf("## Your Role") < out.indexOf("## Working Directory"), true);
+  // A blank persona body is no persona.
+  assertEquals(buildWorkDefPrompt({ workDef: { title: "T", goal: "D", acceptanceCriteria: "" }, persona: "  \n" }).includes("## Your Role"), false);
 });
 
 test("buildWorkDefPrompt: has no Reference Context section (the context library is gone)", () => {

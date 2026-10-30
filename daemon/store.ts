@@ -2682,9 +2682,8 @@ export class Store {
    * `builtin:triage` with a warning (docs/DESIGN.md "Resolution").
    */
   getTriageInstructions(): string | undefined {
-    const ref = this.config.triage?.persona;
-    if (!ref) return undefined;
-    return this.resolvePersona(ref, { via: "triage", fallback: "builtin:triage" }, "triage.persona")?.body;
+    if (!this.config.triage?.persona) return undefined;
+    return this.resolveTriagePersona().body;
   }
 
   /**
@@ -2931,6 +2930,37 @@ export class Store {
     const st = this.workflows[wfName]?.states.find((s) => s.name === state);
     if (!st || st.type !== "agent" || !st.persona) return null;
     return this.resolvePersona(st.persona, { via: "workflow-state", fallback: "builtin:worker" }, `workflow '${wfName}' state '${state}'`);
+  }
+
+  /**
+   * The persona a run of `def` works with, resolved at claim — the one the
+   * prompt carries and the WorkItem snapshot records (docs/DESIGN.md "The
+   * in-flight persona"). Each kind walks its own chain:
+   *   - board task: its workflow state's `persona` (none = the one-line state framing);
+   *   - note triage and triage-mode mirrors: the triage persona (`triage.persona`,
+   *     else `builtin:triage`) — always one, since triage instructions are the whole job;
+   *   - Solitary / Scheduled: the WorkDef's own `persona` (unset = none);
+   *   - work-mode mirrors: none yet (the Work Source chain — per-WorkDef override,
+   *     per-source setting, source default — is "Work Source personas").
+   * A reference that doesn't resolve falls back to the consumer's built-in
+   * (`resolvePersona`), so this never fails a claim.
+   */
+  resolveWorkPersona(def: WorkDef): ResolvedPersona | null {
+    if (def.parent?.kind === "thought" || this.isTriageModeMirror(def)) return this.resolveTriagePersona();
+    if (!def.parent) return this.resolvePersona(def.persona, { via: "task", fallback: "builtin:worker" }, `task '${def.id}'`);
+    if (def.parent.kind === "schedule") return this.resolvePersona(def.persona, { via: "schedule", fallback: "builtin:worker" }, `schedule '${def.id}'`);
+    if (def.parent.kind === "story") {
+      const task = this.getTask(def.id);
+      if (!task) return null;
+      return this.resolveStatePersona(this.getStory(task.storyId)?.workflow, task.status);
+    }
+    return null;
+  }
+
+  /** The team's triage persona: `triage.persona`, else (or when it doesn't resolve) `builtin:triage`. */
+  resolveTriagePersona(): ResolvedPersona {
+    const ref = this.config.triage?.persona || "builtin:triage";
+    return this.resolvePersona(ref, { via: "triage", fallback: "builtin:triage" }, "triage.persona")!;
   }
 
   /**

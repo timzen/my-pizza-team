@@ -273,7 +273,7 @@ test("usage is reported against the agent", async () => {
 test("pending: create as pending, read, edit, and activate hit the WorkDef routes", async () => {
   await withServer(null, async (url, calls) => {
     const c = client(url);
-    await c.createTask("story/1", "T", "d", undefined, true);
+    await c.createTask("story/1", "T", "d", true);
     await c.createWorkDef({ title: "W", goal: "g", pending: true });
     await c.getWorkDef("wd 1");
     await c.updateWorkDef("wd 1", { goal: "g2" });
@@ -288,6 +288,24 @@ test("pending: create as pending, read, edit, and activate hit the WorkDef route
     assert.strictEqual(calls[0].body.pending, true);
     assert.strictEqual(calls[1].body.pending, true);
     assert.deepStrictEqual(calls[3].body, { goal: "g2" });
+  });
+});
+
+test("personas: listPersonas reads the library; WorkDef create/update carry the persona id", async () => {
+  await withServer(null, async (url, calls) => {
+    const c = client(url);
+    await c.listPersonas("worker");
+    await c.listPersonas();
+    await c.createWorkDef({ title: "W", goal: "g", persona: "reviewer" });
+    await c.updateWorkDef("wd", { persona: null });
+    assert.deepStrictEqual(calls.map((x) => `${x.method} ${x.url}`), [
+      "GET /api/personas?kind=worker",
+      "GET /api/personas",
+      "POST /api/work-defs",
+      "PUT /api/work-defs/wd",
+    ]);
+    assert.strictEqual(calls[2].body.persona, "reviewer");
+    assert.deepStrictEqual(calls[3].body, { persona: null });
   });
 });
 

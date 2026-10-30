@@ -333,9 +333,9 @@ Inbox are always on, so every kind can be off at once.
   Archived lists (the Work nav item goes when all three are off) and quick-create entry, its pages show a "turned off" notice, and its triage proposals can only be rejected.
 - **For the assistant** (the Pi leader) a kind that's off takes its tools out of
   the model's tool list — Stories: `create_story`, `edit_story`, `add_task`,
-  `list_workflows`, `list_context`; Tasks: `create_task`; Schedules:
-  `create_schedule`, `set_schedule_pending`; with all three off, `get_task` / `edit_task` / `activate_task`
-  too — and the system prompt says what's off. The leader re-reads the toggles
+  `list_workflows`; Tasks: `create_task`; Schedules:
+  `create_schedule`, `set_schedule_pending`; with all three off, `get_task` / `edit_task` / `activate_task` /
+  `list_personas` too — and the system prompt says what's off. The leader re-reads the toggles
   before every run and on its 10-second status poll, so a change applies without
   restarting Pi. A triage teammate's `propose_work` refuses proposals of a kind
   that's off. Anything that still reaches the daemon gets the same "… are disabled
@@ -594,9 +594,12 @@ Release a stuck `MORIBUND` lease by force-failing the item. Turn this off with
 `"exclusiveDirectories": false` or in Config → Teammates.
 
 **On claim** the agent gets `workItem: { id }` and a `prompt`: the complete,
-daemon-assembled message (state persona, story, working-directory instruction, the
+daemon-assembled message (persona — the state's for board work, the task's or
+schedule's own when it has one —, story, working-directory instruction, the
 task's goal/criteria/additional context, your comments (from `lead` or `you`),
-completion guidance). Harnesses deliver it verbatim.
+completion guidance). Harnesses deliver it verbatim. The daemon records the
+persona it used on the WorkItem (`persona` on `/api/work-items` and `/api/agents`),
+so later edits to the persona never rewrite what a run was given.
 
 ---
 

@@ -24,12 +24,11 @@ import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { FeatureName, Features } from "./runtime/client.js";
 
 /**
- * The leader tools each kind owns. `list_workflows` and `list_context` only feed
- * `create_story` / `add_task` (workflows and context attach to story work), so
- * they go with Stories.
+ * The leader tools each kind owns. `list_workflows` only feeds `create_story`
+ * (workflows attach to story work), so it goes with Stories.
  */
 export const FEATURE_TOOLS: Readonly<Record<FeatureName, readonly string[]>> = {
-  stories: ["create_story", "edit_story", "add_task", "list_workflows", "list_context"],
+  stories: ["create_story", "edit_story", "add_task", "list_workflows"],
   tasks: ["create_task"],
   schedules: ["create_schedule", "set_schedule_pending"],
 };
@@ -37,9 +36,10 @@ export const FEATURE_TOOLS: Readonly<Record<FeatureName, readonly string[]>> = {
 /**
  * Tools that work on a WorkDef of any kind (board task, Solitary, Scheduled):
  * active while at least one kind is on. The daemon still refuses a def whose own
- * kind is off.
+ * kind is off. `list_personas` feeds the `persona` of `create_task`,
+ * `create_schedule`, and `edit_task`, so it goes with them.
  */
-export const ANY_FEATURE_TOOLS: readonly string[] = ["get_task", "edit_task", "activate_task"];
+export const ANY_FEATURE_TOOLS: readonly string[] = ["get_task", "edit_task", "activate_task", "list_personas"];
 
 /** Every tool this module may switch off. Everything else is never touched. */
 export function gatedToolNames(): string[] {
@@ -107,7 +107,7 @@ export function featurePromptNote(features: Features): string {
     `This team has switched off: ${names}. Their tools are unavailable and the daemon refuses them. ` +
       "Don't offer or attempt to create, edit, or propose work of those kinds, even where another tool's guidance " +
       `mentions them. If the user asks for one, say it's turned off and can be enabled in Config → General → Work items (${keys}).` +
-      (off.length === 3 ? " With everything off, help through Thoughts and the Context library." : ""),
+      (off.length === 3 ? " With everything off, help through Thoughts." : ""),
   ].join("\n");
 }
 
