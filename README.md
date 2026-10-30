@@ -492,6 +492,17 @@ to the built-in and the daemon logs it. Saving a persona lints it (an unclosed c
 fence is refused). See `/api/personas` and
 [docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
 
+**In the web UI**, **Config → Personas** (`/config/personas`) is the library: search
+and tag filters, an origin badge (team / built-in / package), an editor showing the
+lint warnings, a read-only view with **Duplicate to edit** for built-in and package
+personas, and **Used by** (Delete is off while anything uses it). Wherever a persona
+is chosen — a workflow's agent states, Config → Triage, the assistant's chips (and
+Config → General), a Solitary/Scheduled task's form and Details tab, a source's
+Personas section on Config → Sources, an item's override — it's a picker with an
+edit/view link. While a teammate works, a ✦ chip shows the persona it was given (Team
+tab, Queue, the watch view's header, a task's **Runs**), linked to the persona or
+marked "(deleted)" if it's gone since. See GUIDE.md "Personas".
+
 **Upgrading a team.** On its first start, the daemon migrates the old layout in
 one commit: `workflows/<wf>/<state>.md` files, `triage.md`, and context-library
 entries tagged `persona` become personas (and are selected where they were used).

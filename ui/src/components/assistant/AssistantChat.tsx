@@ -18,9 +18,10 @@ import { Button } from "@/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
 import { ThinkingBubble } from "./ThinkingBubble";
 import { Composer } from "./Composer";
-import { PersonaChips } from "./PersonaChips";
+import { DEFAULT_ASSISTANT_PERSONA_ID, PersonaChips } from "./PersonaChips";
 import type { AssistantStreamState } from "@/hooks/useAssistantStream";
-import { PERSONA_TAG, type AssistantMessage, type ContextEntry } from "@/lib/assistant-types";
+import type { AssistantMessage } from "@/lib/assistant-types";
+import { usePersonas } from "@/hooks/usePersonas";
 
 interface AssistantChatProps {
   /** Live chat state, owned by the dock so it survives collapse. */
@@ -39,8 +40,8 @@ interface AssistantChatProps {
 export function AssistantChat({ stream, viewingId, onViewSession, active = true }: AssistantChatProps) {
   const { session, messages, chatAgent, thinking, thoughts, refresh } = stream;
 
-  const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null; entry: ContextEntry | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
-  const { data: contextData } = useApi<{ entries: ContextEntry[] }>("/api/context", [], { pollInterval: 30_000 });
+  const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
+  const library = usePersonas();
 
   const [draft, setDraft] = useState("");
   const [replyTo, setReplyTo] = useState<AssistantMessage | null>(null);
@@ -50,7 +51,12 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
   // The leader answers the chat (there is no separate assistant process), so
   // presence is simply "is a chat agent designated".
   const chatOnline = chatAgent !== null;
-  const personas = (contextData?.entries || []).filter((e) => e.tags.includes(PERSONA_TAG));
+  const personas = library ?? [];
+  // The chips earn their row once there's a choice to make: a persona suggested
+  // for the assistant, or a non-default one in use. (Any persona can still be
+  // picked on Config → General → Assistant.)
+  const showChips = (personaData?.personaId ?? null) !== null
+    || personas.some((p) => p.id !== DEFAULT_ASSISTANT_PERSONA_ID && p.kinds?.includes("assistant"));
   const activePersonaId = personaData?.personaId ?? null;
   // Viewing history is read-only: sending would land in the *live* session and
   // silently move you out of the transcript you're reading.
@@ -99,7 +105,7 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
   return (
     <div className="flex h-full min-h-0 flex-col">
       {/* Persona picker — hidden while reading history (it would swap the live chat) */}
-      {!isHistory && personas.length > 0 && (
+      {!isHistory && showChips && (
         <div className="shrink-0 overflow-x-auto px-3">
           <PersonaChips personas={personas} activePersonaId={activePersonaId} disabled={swapping} onSelect={swapPersona} />
         </div>

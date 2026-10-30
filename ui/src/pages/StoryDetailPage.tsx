@@ -1,8 +1,7 @@
 /**
  * StoryDetailPage — Full story view and editor at /story/:id.
  *
- * This page is the home for story *editing* (title, description, directory,
- * context). The board only links here; all story edits happen on this page.
+ * This page is the home for story *editing* (title, description, directory). The board only links here; all story edits happen on this page.
  * The header's Pending ⇄ Active toggle applies at once (docs/DESIGN.md
  * "Pending: Write, Review, Activate"): pending holds the story — a running
  * task finishes, nothing new is handed out, dependents wait.
@@ -17,7 +16,6 @@ import { Label } from "@/components/ui/label";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
-import { ContextSelector } from "@/components/board/ContextSelector";
 import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 
@@ -35,7 +33,6 @@ interface StoryView {
   directory?: string;
   pending?: boolean;
   workflow?: string;
-  context?: string[];
   tasks: StoryTask[];
 }
 
@@ -48,7 +45,6 @@ export function StoryDetailPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [directory, setDirectory] = useState("");
-  const [context, setContext] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   // Seed edit fields when the story loads/changes. Adjusting state during
@@ -60,7 +56,6 @@ export function StoryDetailPage() {
     setTitle(story.title);
     setDescription(story.description);
     setDirectory(story.directory || "");
-    setContext(story.context ? [...story.context] : []);
     setError("");
   }
 
@@ -77,7 +72,6 @@ export function StoryDetailPage() {
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/stories/${story.id}`, {
       title, description,
       directory: directory.trim() || null,
-      context,
     });
     if (res.success) refetch();
     else setError(res.error || "Failed to update");
@@ -189,8 +183,6 @@ export function StoryDetailPage() {
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={4} required />
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><p className="text-xs text-muted-foreground mb-2">Where the work happens — teammates cd here and read its AGENTS.md before starting.</p><DirectoryInput placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
-
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-2">Injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

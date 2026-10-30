@@ -10,7 +10,9 @@
  * default; Scheduled work waits for its cron. **Save as pending** saves it without
  * letting anything run — no enqueue, no cron — until it's activated from its
  * detail page (docs/DESIGN.md "Pending: Write, Review, Activate"). On success,
- * lands on the created item's detail page.
+ * lands on the created item's detail page. An optional **Persona** says how a
+ * teammate does the work (every run of a schedule uses it; unset = no persona
+ * block); it stays changeable after creating, on the detail page.
  *
  * See the daemon's docs/DESIGN.md "The WorkItem" for the model.
  */
@@ -23,7 +25,7 @@ import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { DirectoryInput } from "@/components/ui/directory-input";
-import { ContextSelector } from "@/components/board/ContextSelector";
+import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
@@ -52,7 +54,7 @@ export function NewWorkDefPage() {
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
   const [additionalContext, setAdditionalContext] = useState("");
   const [directory, setDirectory] = useState("");
-  const [contextRefs, setContextRefs] = useState<string[]>([]);
+  const [persona, setPersona] = useState<string | null>(null);
   const [cron, setCron] = useState("0 9 * * *");
   const [enqueueNow, setEnqueueNow] = useState(true);
   const [error, setError] = useState("");
@@ -76,7 +78,7 @@ export function NewWorkDefPage() {
       acceptanceCriteria: acceptanceCriteria.trim() || undefined,
       additionalContext: additionalContext.trim() || undefined,
       directory: directory.trim() || undefined,
-      contextRefs: contextRefs.length > 0 ? contextRefs : undefined,
+      persona: persona || undefined,
     };
     if (type === "Scheduled") body.cron = cron.trim();
     else if (type === "Solitary") body.enqueue = enqueueNow;
@@ -117,7 +119,7 @@ export function NewWorkDefPage() {
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — the agent cds here. Also biases which teammate picks it up.</p><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} /></div>
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into the work prompt.</p><ContextSelector value={contextRefs} onChange={setContextRefs} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-persona">Persona</Label></div><p className="text-xs text-muted-foreground mb-1">How a teammate does the work{type === "Scheduled" ? " — every run uses it" : ""}. Optional; project knowledge belongs in the directory's AGENTS.md.</p><PersonaPicker id="wd-persona" kind="worker" value={persona} onChange={setPersona} noneLabel="No persona" /></div>
 
         {type === "Scheduled" ? (
           <div>

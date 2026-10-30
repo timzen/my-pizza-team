@@ -5,6 +5,8 @@
  * session cost read. (The work queue's types are lib/queue.ts.)
  */
 
+import type { PersonaRef } from "./personas.ts";
+
 export type Role = "leader" | "teammate";
 
 export interface Teammate {
@@ -23,6 +25,10 @@ export interface Teammate {
   harnessVersion?: string;
   /** Model, context fill + session cost, when the harness reports them (null otherwise). */
   session?: TeammateSession | null;
+  /** The WorkItem in hand (IN_PROGRESS / MORIBUND), or null when idle. */
+  workItemId?: string | null;
+  /** The persona that item was claimed with (its snapshot), or null — idle, or none. */
+  persona?: PersonaRef | null;
 }
 
 /** Mirrors shared/types.ts MemberSessionStats (hand-mirrored wire type). */

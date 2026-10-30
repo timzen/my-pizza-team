@@ -1217,8 +1217,10 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 > /api/config` workflows; the Pi harness tools (`list_personas`, `persona` on
 > create_task / create_schedule / edit_task); and the Work Source chain — the
 > per-source setting, the per-mirror override, the triage-mode requirement, the
-> doctor checks, and migration step 3. Still to come, each in its own task: the
-> plugin loader feeding package personas, and the UI.
+> doctor checks, and migration step 3; and the UI — Config → Personas (list,
+> editor with lint output, read-only view + Duplicate to edit, Used by, guarded
+> delete), a persona picker everywhere a reference is chosen, and the in-flight
+> chips. Still to come: the plugin loader feeding package personas.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by

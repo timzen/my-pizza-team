@@ -5,11 +5,16 @@
  * resume of another) snapshots it to `<teamDir>/assistant/sessions/<id>.md`, and
  * resuming switches the agent's Pi session back to it so in-agent context comes
  * along (docs/DESIGN.md "Assistant Chat Model"). Sessions without a recorded Pi session
- * file can still be read, but not truly resumed — the list says so.
+ * file can still be read, but not truly resumed — the list says so. Each
+ * session names the persona it ran as, linked to it on Config → Personas
+ * (unlinked and marked "deleted" once the persona is gone).
  */
 
 import { useState } from "react";
+import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { usePersonas } from "@/hooks/usePersonas";
+import { personaPath } from "@/lib/personas";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { History, RotateCcw, SquarePen, Eye, FileText } from "lucide-react";
@@ -31,6 +36,7 @@ export function SessionMenu({ viewingId, onView, onChanged, compact }: SessionMe
   const [busy, setBusy] = useState(false);
   const { data, refetch } = useApi<{ sessions: AssistantSession[] }>("/api/assistant/sessions", [], { pollInterval: open ? 5000 : undefined });
   const sessions = data?.sessions || [];
+  const library = usePersonas();
 
   const newChat = async () => {
     if (busy) return;
@@ -107,7 +113,7 @@ export function SessionMenu({ viewingId, onView, onChanged, compact }: SessionMe
                       </p>
                       <p className="mt-0.5 text-xs text-muted-foreground">
                         {new Date(s.startedAt).toLocaleString()} · {s.messageCount} messages
-                        {s.personaTitle ? ` · ${s.personaTitle}` : " · default"}
+                        {" · "}<SessionPersona session={s} library={library} onOpen={() => setOpen(false)} />
                         {!s.piSessionPath && " · context not restorable"}
                       </p>
                     </div>
@@ -133,4 +139,16 @@ export function SessionMenu({ viewingId, onView, onChanged, compact }: SessionMe
       </Dialog>
     </>
   );
+}
+
+/** The persona a session ran as: linked to it, or "default" (the built-in), or marked deleted. */
+function SessionPersona({ session, library, onOpen }: {
+  session: AssistantSession;
+  library: Array<{ id: string }> | null;
+  onOpen: () => void;
+}) {
+  const id = session.personaId ?? "builtin:assistant";
+  const title = session.personaId ? session.personaTitle ?? session.personaId : "default";
+  if (library && !library.some((p) => p.id === id)) return <span title="This persona has since been deleted">{title} (deleted)</span>;
+  return <Link to={personaPath(id)} onClick={onOpen} className="hover:underline">{title}</Link>;
 }

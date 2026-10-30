@@ -13,6 +13,10 @@
  * A **mirrored** (External) definition passes `readOnlyNote`: it's authored in
  * its external source (pull only), so it renders read-only with that note and
  * no Edit or Activate, whatever its state (docs/DESIGN.md "Work Sources").
+ *
+ * Below the definition sits its **Persona** (components/personas/WorkDefPersona):
+ * how the work is done rather than what, so it stays changeable after
+ * activating — a Solitary/Scheduled def's own `persona`, or a mirror's override.
  */
 
 import { useState, type ReactNode } from "react";
@@ -25,7 +29,7 @@ import { MarkdownField } from "@/components/ui/markdown-field";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-editor";
 import { DirectoryInput } from "@/components/ui/directory-input";
-import { ContextSelector } from "@/components/board/ContextSelector";
+import { WorkDefPersona } from "@/components/personas/WorkDefPersona";
 import { Lock, Pencil, Save, Send, X } from "lucide-react";
 
 /** The WorkDef fields this section shows/edits (a subset of the API's WorkDefView). */
@@ -36,9 +40,12 @@ export interface WorkDefDefinitionData {
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
-  contextRefs?: string[];
   directory?: string | null;
   pending?: boolean;
+  /** Solitary/Scheduled: the persona it runs with; a mirror: its source's suggestion. */
+  persona?: string;
+  /** Mirrored (External) defs only: the source and a person's override. */
+  mirror?: { sourceId: string; sourceLabel: string; personaOverride?: string; mode?: "work" | "triage" };
 }
 
 interface Props {
@@ -82,7 +89,6 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
   const [acceptanceCriteria, setAcceptanceCriteria] = useState("");
   const [additionalContext, setAdditionalContext] = useState("");
   const [directory, setDirectory] = useState("");
-  const [contextRefs, setContextRefs] = useState<string[]>([]);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -92,7 +98,6 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
     setAcceptanceCriteria(def.acceptanceCriteria || "");
     setAdditionalContext(def.additionalContext || "");
     setDirectory(def.directory || "");
-    setContextRefs(def.contextRefs ? [...def.contextRefs] : []);
     setError("");
     setEditing(true);
   };
@@ -104,7 +109,6 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
       const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${encodeURIComponent(def.id)}`, {
         title, goal, acceptanceCriteria, additionalContext,
         directory: directory.trim() || null,
-        contextRefs,
       });
       if (!res.success) { setError(res.error || "Failed to save"); return; }
       setEditing(false);
@@ -155,7 +159,6 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
           </div>
           <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
           <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
-          <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={contextRefs} onChange={setContextRefs} /></div></div>
         </>
       ) : (
         <>
@@ -163,11 +166,6 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
           <ReadOnly label="Acceptance criteria">{def.acceptanceCriteria ? <MarkdownView content={def.acceptanceCriteria} /> : <Empty />}</ReadOnly>
           {def.additionalContext && <ReadOnly label="Additional context"><MarkdownView content={def.additionalContext} /></ReadOnly>}
           <ReadOnly label="Directory">{def.directory ? <span className="font-mono text-sm">{def.directory}</span> : <Empty />}</ReadOnly>
-          {def.contextRefs && def.contextRefs.length > 0 && (
-            <ReadOnly label="Context">
-              <div className="flex flex-wrap gap-1">{def.contextRefs.map(r => <Badge key={r} variant="secondary" className="font-mono text-[10px]">{r}</Badge>)}</div>
-            </ReadOnly>
-          )}
         </>
       )}
 
@@ -181,6 +179,8 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
         )}
         {actions}
       </div>
+
+      <WorkDefPersona def={def} onChanged={onChanged} />
     </div>
   );
 }

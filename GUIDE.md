@@ -46,7 +46,7 @@ If a teammate goes silent mid-work, its WorkItem becomes **MORIBUND** (reaped bu
 
 A workflow is an ordered list of **states** a board task passes through, e.g. `todo → in_progress → review → done` (`todo`/`done` are implicit buckets). Each state is one of two types:
 
-- **agent** — worked by teammates (claiming its WorkItem). Has an optional **persona** file — role framing injected into the prompt for that state.
+- **agent** — worked by teammates (claiming its WorkItem). Can pick a **persona** from the library — role framing injected into the prompt for that state.
 - **manual** — worked by you or the leader; moving the card onward *is* the completion (review gates, approvals).
 
 **Workers never move tasks.** Completing an agent state advances the task automatically; you make the judgment moves (send to review, approve, send back for rework). There are no per-transition permissions to configure — just the state type.
@@ -78,7 +78,7 @@ The nav bar has two destinations, plus pause / **usage** / help / config / theme
 
 **Pending** and **Archived** are each one mixed list. Every row has a type badge (**Story**, **Task**, or **Schedule**), its title, its directory, and a time when there is one (when a story was archived, otherwise when the task or job last ran) — newest first; rows with no time come last, by title. Click a row to open it. The chips at the top — **Stories · Tasks · Schedules**, each with its count — narrow the list (all on to start; click to turn one off or on), and the search box matches a title, id, or directory. On **Pending**, each row has **Activate** and an archive button; on **Archived**, tasks and jobs have **Restore** and **Delete**. Archived stories can't be restored — click one to read its synopsis. Board tasks aren't listed on their own: a pending board task waits in its story's swimlane on the **Board** (open it there to **Activate** it).
 
-Workflows and the context library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Context**.
+Workflows and the persona library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Personas**.
 
 The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
 
@@ -86,7 +86,7 @@ The Board, Tasks, and Schedule tabs only appear while their kind is switched on 
 
 **Triage-mode sources.** Some sources (or some of their items) are **triage-only** — a ticket queue you'd rather *think about* than hand straight to a teammate. Such an item is marked **Triage** on its source's tab, and nothing ever works it directly: each new revision gets a **triage** run instead, exactly like a note's [auto triage](#thoughts). A teammate reads the item and the team's triage instructions and proposes tasks, story tasks, stories, or scheduled jobs. The row then wears the same badge a note gets (a lightbulb for proposals waiting, **?** for a question, **–** for nothing to create), the finished run lands in your **Inbox**, and both open the item's **Triage** tab: the item read-only (with **Open in <source>**), the latest analysis with **Accept / Edit / Reject** per proposal, and earlier rounds. Accepting creates the work and never starts it; the item itself stays where it is. Your turn is the item *in its source*: when it changes there, the next sync triages the new revision (your earlier decisions are passed along, so rejected ideas aren't re-offered). **Triage now** — the button that replaces Run on that page — forces a fresh run, e.g. after one failed. Proposals aren't written back to the external system; comments and run outcomes still are. (Plugin authors: see [Triage mode](#writing-a-work-source-plugin).)
 
-The highlighted destination is the section you're in, detail pages included: a story, board task, Solitary task, or scheduled job page lights **Work**, and every Config tab (Workflows and Context included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
+The highlighted destination is the section you're in, detail pages included: a story, board task, Solitary task, or scheduled job page lights **Work**, and every Config tab (Workflows and Personas included) lights the gear. The ← back arrow on a detail page returns to wherever you opened it from (the Inbox, a teammate, the Usage page…); only when there's nowhere in-app to go back to (say, a link opened in a new tab) does it take you to that section's list.
 
 The **home page** (`/`, the pizza logo) has two tabs — **Queue | Inbox** — work in flight, then finished work. The pizza logo carries two small count badges, each hidden at zero: a **neutral** one (bottom corner) for WorkItems **queued** and not yet picked up, and an **accent** one (top corner) for **unread** Inbox items. Hover a badge for what it counts. They stay on the icon when the nav bar is too narrow for the "Pizza Team" wordmark, refresh every ~10 seconds, and update right away when you mark Inbox items read or unread. Quick-create (the **+** beside the queue summary) and the assistant live in the left dock, on every page.
 
@@ -122,8 +122,9 @@ Use **New Story** (from the dock's **+** menu, or `/stories/new`):
 2. **Workflow** — which workflow governs this story's tasks
 3. **Title** & **Description** (markdown)
 4. **Directory** — where teammates work (also the affinity bias). Pick from the dropdown — your **favorite directories** first, then recently used ones — or type a path (see [Favorite directories](#favorite-directories))
-5. **Context** — context-library entries injected into every task's prompt
-6. **Tasks** — optionally add initial tasks inline
+5. **Tasks** — optionally add initial tasks inline
+
+(How each task is worked comes from its workflow state's [persona](#personas). Project knowledge — conventions, build commands — belongs in the directory's AGENTS.md, which teammates read before starting.)
 
 ### Managing tasks
 
@@ -132,7 +133,7 @@ The board is for glancing and light triage; editing happens on the task page.
 - **Add a task** — the `+` on a story swimlane
 - **Move a task** — drag its card to another column (that's how you send to review, approve, or send back for rework)
 - **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Activate** it while it's [pending](#pending--write-first-activate-when-its-right) — move, delete, read comments, upload/review files)
-- **Edit a story** — click the story title to open its page (title, description, directory, context; **Make pending** / **Activate**)
+- **Edit a story** — click the story title to open its page (title, description, directory; **Make pending** / **Activate**)
 - **Hold a story** — the ⌛ on its swimlane makes it [pending](#pending--write-first-activate-when-its-right) (it moves to **Work → Pending**); ▶ there activates it again
 - **Retire a story** — the archive button on its swimlane; archived stories (with their synopses) are on **Work → Archived**
 
@@ -157,7 +158,7 @@ A task's or job's page (and a board task's page) shows the same run count in its
 
 A failed run leaves the WorkDef in place — read its Thread, add a comment with what to change, and **Run** it again (an active definition is locked; see [Pending](#pending--write-first-activate-when-its-right)).
 
-Both tabs use the same create form (`New Solitary Task` / `New Scheduled Job`). **Acceptance criteria** are entered as an add-as-you-go checklist, and each line gets a live badge scoring it against [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) — normative (MUST/SHALL), recommended (SHOULD), optional (MAY), or vague — nudging you toward testable, unambiguous criteria.
+Both tabs use the same create form (`New Solitary Task` / `New Scheduled Job`), with an optional **Persona** — how a teammate does the work (every run of a schedule uses it; see [Personas](#personas)). It stays changeable on the Details tab after you create it, even once it's active, because it's *how* the work is done, not *what*. The Details tab also lists the item's **Runs**, newest first, each with the persona it ran with. **Acceptance criteria** are entered as an add-as-you-go checklist, and each line gets a live badge scoring it against [RFC 2119](https://datatracker.ietf.org/doc/html/rfc2119) — normative (MUST/SHALL), recommended (SHOULD), optional (MAY), or vague — nudging you toward testable, unambiguous criteria.
 
 ---
 
@@ -171,13 +172,13 @@ Create a workflow by name (it starts as `in_progress` → `review`). Open one to
 
 ### State personas
 
-Each **agent** state can have a markdown **persona** file — role framing the teammate receives when working that state (implementer, reviewer, CR-writer, …). Write clear, actionable guidance; it's injected into the prompt. Saving checks it: an unclosed code fence is rejected (it would swallow the rest of the prompt), and headings are nested under the prompt's own sections automatically.
+Each **agent** state can pick a **persona** — role framing the teammate receives when working that state (implementer, reviewer, CR-writer, …). On a workflow's page, **State Personas** has a picker per agent state; a change saves at once and applies from the next claim. **edit** (or **view**, for a built-in or package persona) beside the picker opens the persona itself on [Config → Personas](#personas). No persona means just a one-line "you're working in the … state" framing.
 
 ---
 
 ## Teammates
 
-Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing its status, the model it's running (hover for provider/id), current work, working directory, how full its context window is, and what its session has cost so far. The icon *is* the status — **person**: pairing with you · **bot**: waiting for work · **spinning loader**: working · **cloud with a slash**: lost contact (hover it for the words). The gauge shows the context window's fill (hover for exact tokens; `?` just after Pi compacts, until its next reply), then the session's cost; both reset when the teammate starts a fresh session for its next work item. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when a team size can't be met (at-risk work shows in the queue strip instead). The collapsed dock shows everyone as avatars.
+Teammates live in the **Team** tab of the left dock (beside the **Assistant** tab), on every page — the teammate pool (the leader isn't listed: it's the agent you talk to on the Assistant tab), each showing its status, the model it's running (hover for provider/id), current work and the **persona** it's working with (a ✦ chip — click it to open the persona), working directory, how full its context window is, and what its session has cost so far. The icon *is* the status — **person**: pairing with you · **bot**: waiting for work · **spinning loader**: working · **cloud with a slash**: lost contact (hover it for the words). The gauge shows the context window's fill (hover for exact tokens; `?` just after Pi compacts, until its next reply), then the session's cost; both reset when the teammate starts a fresh session for its next work item. On the Assistant tab you can still see the team at a glance: the Team tab shows how many are online, and an amber dot when a team size can't be met (at-risk work shows in the queue strip instead). The collapsed dock shows everyone as avatars.
 
 ### Watching a teammate
 
@@ -302,15 +303,38 @@ When a teammate completes an agent state, the task advances to the next state. I
 
 ---
 
-## Personas (and what happened to the Context Library)
+## Personas
 
-How a teammate — or the assistant, or triage — behaves is a **persona**: a markdown file in your team's persona library (`personas/<id>.md`). Workflow states, triage, the assistant, and Solitary or Scheduled tasks each *pick* a persona by id instead of carrying their own instructions, so one edit changes everywhere it's used. Built-in personas (today's defaults) are always there and read-only; duplicate one to make your own version.
+How a teammate — or the assistant, or triage — behaves is a **persona**: a markdown file in your team's persona library (`personas/<id>.md`). Workflow states, triage, the assistant, Solitary and Scheduled tasks, and Work Sources each *pick* a persona instead of carrying their own instructions, so one edit changes everywhere it's used.
+
+**Config → Personas** (`/config/personas`) is the library:
+
+- **The list** — every persona, with a search box and tag chips. A badge says where each comes from: **team** (yours, editable), **built-in** (MPT's defaults: `builtin:worker`, `builtin:triage`, `builtin:assistant`), or the name of the **plugin package** that ships it. The small labels on the right (**worker**, **triage**, **assistant**) say which pickers list it first — a hint only; any persona can be picked anywhere.
+- **New persona** — a title, an optional id (made from the title if you leave it), a one-line description (shown in pickers), tags, which pickers to suggest it in, and the **instructions**: what's injected into the prompt. Saving checks them: an unclosed code fence is refused (it would swallow the rest of the prompt); top-level headings and stray `---` lines are saved with a warning (headings are nested under the prompt's own sections automatically).
+- **A persona's page** (`/config/personas/<id>`) — its instructions, and **Used by**: every workflow state, setting, task, and source that picks it, each linked to where you'd change it. A team persona has **Edit**, **Duplicate**, and **Delete** — Delete is off while anything uses it (re-point those first). Built-in and package personas are read-only: **Duplicate to edit** copies one into your library as a new persona you can change (it doesn't follow later updates to the original).
+
+**Where you pick one:**
+
+| What | Where | None picked means |
+|---|---|---|
+| A workflow's agent state | Config → Workflows → a workflow → **State Personas** | a one-line state framing |
+| Note triage | Config → **Triage** → **Persona** | the built-in triage persona |
+| The assistant | the chips above the chat, or Config → General → Assistant → **Persona** | the built-in assistant |
+| A Solitary task or a Scheduled job | **Persona** on its create form and its Details tab (changeable any time — every run of a schedule uses it) | no persona |
+| A Work Source | Config → Sources → the source → **Personas** | what the source declares, if anything |
+| One item from a source | **Persona** on its Details tab (an override, kept across syncs) | the source's choice |
+
+Board tasks get their persona from the workflow state they're in.
+
+**Seeing who's working how.** While a teammate works, a ✦ **persona chip** shows the persona it was given — on its row in the Team tab, on Queue rows, in the header when you watch it, and in the **Runs** list on a task's Details tab. Click it to open the persona. The chip records what the run actually got, so editing or deleting the persona later doesn't change it: a deleted one shows its name marked **(deleted)**, without a link. A run with no persona has no chip. An amber outline means the persona it asked for was missing, so a built-in stood in (hover for which).
 
 **The Context Library was removed.** *How to do the work* belongs in a persona; *what the project is* (conventions, architecture, build commands) belongs in the project itself — its AGENTS.md or README — where teammates already read it. When your team first starts on this version, MPT moves things over for you, in one commit:
 
 - context entries tagged **`persona`** become personas (and the assistant keeps the one you'd picked);
 - entries that were **attached** to a story or task are copied into those tasks' **Additional Context**, under a heading naming the entry, so their prompts carry the same text;
 - the old `context/` folder is kept as `context.migrated/`, and a one-time notice says how many entries were moved and how many were left there — turn the useful ones into personas, or move them into the project's AGENTS.md.
+
+Old links to the Context page (`/context`, `/config/context`) open Config → Personas.
 
 ### Assistant style: chat or terminal
 
@@ -320,7 +344,7 @@ In terminal mode the composer is always open — there's no **Pair** step, since
 
 ### Assistant personas
 
-Tag a context entry with **`persona`** to make it a swappable assistant persona. On the Assistant tab, persona entries appear as chips above the chat; picking one starts a fresh chat with that entry as the assistant's system prompt. **Default** returns to the built-in persona. Swapping resets the assistant's context window.
+Who the assistant is comes from the persona library too. Above the chat, **Default** (the built-in assistant) and the personas suggested for the assistant appear as chips — **Other…** picks any other persona, and **edit**/**view** opens the current one. Picking one starts a fresh chat with that persona as the assistant's system prompt (the old chat stays in the session history, which notes each session's persona). The same choice is on **Config → General → Assistant → Persona**. Swapping resets the assistant's context window.
 
 ---
 
@@ -370,7 +394,7 @@ A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sti
 
   Then it's **your turn** — and your turn is the note: edit it and the next sweep re-reads it. That's how you answer a question, and how you steer a proposal you didn't like; the next analysis is told what you accepted and rejected, so it won't offer the same thing twice. Accepting and rejecting aren't turns, so they don't trigger a fresh run.
 
-  A run that fails isn't retried on its own — **Triage now**, on the triage page, forces one. Turn triage off, change its timing, or rewrite the instructions it follows in **Config → Triage**. Archiving a note stops its triage; deleting one removes its analysis with it.
+  A run that fails isn't retried on its own — **Triage now**, on the triage page, forces one. Turn triage off, change its timing, or pick the persona it follows in **Config → Triage** (and edit that persona on Config → Personas). Archiving a note stops its triage; deleting one removes its analysis with it.
 
 - **Assistant access** — the assistant can *read* your notes ("look at the thoughts in the Q3 group and help me draft a task") and turn them into stories/tasks/schedules that flow to your Inbox, and *write* the board (leave a follow-up note, annotate, archive, group).
 
@@ -401,11 +425,11 @@ Visit `/config`:
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
 - **Sources** — your Work Source plugins: switch each on or off, edit its settings, **Preview** what it would pull, and **Save** (see [Setting up a plugin from the UI](#setting-up-a-plugin-from-the-ui))
 - **Workflows** — your story workflows and their state personas (see [Workflows](#workflows)); hidden while Stories are off
-- **Context** — the former context library, being replaced by personas (see [Personas](#personas-and-what-happened-to-the-context-library))
-- **Triage** — [auto triage](#thoughts): on/off, the sweep interval, the quiet period, and the instructions every run follows (`triage.md`, with its own **Save instructions** button)
+- **Personas** — the persona library: create, edit, duplicate, and see what uses each one (see [Personas](#personas))
+- **Triage** — [auto triage](#thoughts): on/off, the sweep interval, the quiet period, and the **persona** every note-triage run follows (edit it on Personas)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
 
-Each tab has its own address (`/config/teammates`, `/config/sources`, `/config/workflows`, `/config/context`, `/config/triage`, `/config/theme`). **Save Configuration** appears on General, Teammates, and Triage — it saves the edits from all three at once. Sources has its own Save per plugin, Workflows and Context save as you go, and Theme applies immediately.
+Each tab has its own address (`/config/teammates`, `/config/sources`, `/config/workflows`, `/config/personas`, `/config/triage`, `/config/theme`). **Save Configuration** appears on General, Teammates, and Triage — it saves the edits from all three at once. Sources has its own Save per plugin (and source personas apply at once), Workflows and Personas save as you go, the assistant's persona applies at once, and Theme applies immediately.
 
 ### Work items (feature toggles)
 
@@ -419,7 +443,7 @@ When a kind is off:
 - the assistant stops offering it: its tools for that kind leave its tool list (within about 10 seconds, or at its next reply) and it will tell you the kind is off if you ask for one;
 - the API refuses it too, and `mpt status` leaves out its counts.
 
-**Thoughts**, **Context**, the **Queue**, and the **Inbox** are always there — even with every kind off — and finished work stays in the Inbox.
+**Thoughts**, **Personas**, the **Queue**, and the **Inbox** are always there — even with every kind off — and finished work stays in the Inbox.
 
 You can only turn a kind off when it has no active work: a toggle that's still in use is greyed out with what to clear first (e.g. "archive or delete 3 stories first"). Pending stories and pending tasks count; archived ones don't. Turning a kind back on is always allowed.
 
@@ -440,7 +464,7 @@ see [Writing a Work Source plugin](#writing-a-work-source-plugin), step 5), you 
 do the rest on **Config → Sources**:
 
 1. **Find it in the list.** Every plugin source is listed with its package, a status
-   pill — **Off**, **Init failed**, **Not synced yet**, **Synced 5m ago**, **Sync
+   pill — **Off**, **Init failed**, **Needs a triage persona**, **Not synced yet**, **Synced 5m ago**, **Sync
    failed 2m ago** (hover for the error), or **Backing off** — and how many items it
    mirrors. A package that failed to load is listed in red with why. No plugins yet?
    The tab says so and shows how to add one.
@@ -471,6 +495,15 @@ do the rest on **Config → Sources**:
    enabled source syncs straight after. Unticking a source that still has mirrored
    items offers **Turn off and archive N items** (see
    [Work items](#work-items-feature-toggles)).
+7. **Personas.** Under the settings, **Personas** picks how a teammate works the
+   source's items: a **Work persona** for items it works, and a **Triage persona**
+   for items it triages into proposals. Each applies at once (no Save, and the
+   plugin isn't restarted); "Source default" means whatever the plugin declares. A
+   source in **triage mode must have a triage persona**: without one it doesn't
+   sync, its pill says **Needs a triage persona**, and this section says so in red
+   until you pick one. Your notes' triage persona (Config → Triage) is never used for
+   a source. To work one item differently, set **Persona** on that item's Details
+   tab — an override that survives every sync.
 
 ### Autosave
 
@@ -586,7 +619,7 @@ finished triage run lands in your Inbox and opens that tab. To answer a
 question, change the item in its source — the next revision is triaged again.
 
 **Personas.** Say how your items should be worked by naming a persona (see
-[Personas](#personas-and-what-happened-to-the-context-library)) — the daemon puts
+[Personas](#personas)) — the daemon puts
 it at the top of each item's prompt, as **Your Role**, before your `buildPrompt`
 sees it, so you never write that part yourself:
 
@@ -902,7 +935,7 @@ that can sign in to it. Set an API token too: the phone asks for it once.
 - **Write testable acceptance criteria** — use RFC 2119 keywords (MUST/SHOULD/MAY). The editor scores them for you.
 - **Home the right teammates** — a teammate started in a repo preferentially picks up that repo's work. Use **Spawn** to put one where the work is (pool teammates spawn in the leader's directory).
 - **Review early** — drain the Inbox; quick feedback loops keep teammates productive.
-- **Use workflow personas** — give each agent state phase-specific role framing.
-- **Use the context library** — store patterns and decisions so every teammate works consistently.
+- **Use personas** — give each agent state phase-specific role framing, and give recurring jobs a persona of their own.
+- **Keep project knowledge in the project** — conventions and build commands go in the repo's AGENTS.md, where every teammate reads them.
 - **One story per concern** — small focused stories beat one giant story.
 - **Standalone for chores** — recurring or ad-hoc work that isn't a feature belongs on Work → Tasks/Schedule, not the board.

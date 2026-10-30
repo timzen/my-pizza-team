@@ -48,15 +48,3 @@ export type AssistantStreamEvent =
   | { type: "delivery"; id: string; delivery: AssistantDelivery }
   | { type: "thinking"; active: boolean; chunk?: string }
   | { type: "session"; session: AssistantSession };
-
-/** A context-library entry; those tagged `persona` are selectable assistants. */
-export interface ContextEntry {
-  id: string;
-  title: string;
-  description: string;
-  tags: string[];
-  content: string;
-}
-
-/** The tag that marks a context entry as a selectable assistant persona. */
-export const PERSONA_TAG = "persona";

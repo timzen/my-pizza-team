@@ -27,6 +27,14 @@
  *   re-initializes the source without a restart; shows the re-init result and
  *   refreshes the status. Leaving with unsaved edits asks first
  *   (useUnsavedChangesGuard).
+ * - **Personas** (`PUT /api/sources/:id/persona`, applied at once and apart
+ *   from Save — a persona is how MPT runs the items, not a plugin setting, so
+ *   changing it never re-inits the source): the persona its work-mode items
+ *   run with and its triage persona, each defaulting to what the source
+ *   declares. A triage-mode source with no triage persona doesn't sync; the
+ *   list's pill says **Needs a triage persona** and the section says how to fix
+ *   it (docs/DESIGN.md "Work Source personas"). One item can still override
+ *   these on its own page.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -42,6 +50,8 @@ import {
   type FormField, type SourceConfigResponse, type SourcePreviewResponse, type SourceStatus, type SourceView,
 } from "@/lib/source-settings";
 import { externalSourcePath } from "@/lib/work-items";
+import { effectiveSourcePersonas } from "@/lib/personas";
+import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { DisconnectSourceDialog, type DisconnectTarget } from "@/components/sources/DisconnectSourceDialog";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -300,7 +310,7 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
             </Button>
           )}
         </div>
-        {source.initError && (
+        {source.initError && source.initError !== source.personaError && (
           <p className="text-xs text-destructive">Its last init failed: {source.initError}. Fix the settings and Save to retry.</p>
         )}
         {!source.configurable && (
@@ -367,8 +377,92 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
         </div>
 
         {(previewing || preview) && <PreviewResult source={source} loading={previewing} preview={preview} />}
+
+        <SourcePersonas source={source} onSaved={onSaved} />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * A source's persona settings: the team's choice for its work-mode items and
+ * for its triage-mode items, each applied at once. "None" falls back to what
+ * the source declares (shown), then to no persona (work) — a triage-mode source
+ * without any triage persona doesn't sync, and says so here.
+ */
+function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () => void }) {
+  const [saving, setSaving] = useState<"persona" | "triagePersona" | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const effective = effectiveSourcePersonas(source);
+  const triageMode = source.mode === "triage";
+
+  const set = async (field: "persona" | "triagePersona", id: string | null) => {
+    setSaving(field);
+    setError(null);
+    try {
+      const res = await apiPut<{ success: boolean; error?: string }>(`/api/sources/${encodeURIComponent(source.id)}/persona`, { [field]: id });
+      if (!res.success) setError(res.error || "Couldn't save it");
+      onSaved();
+    } catch (e) {
+      setError("Network error: " + (e as Error).message);
+    }
+    setSaving(null);
+  };
+
+  return (
+    <div className="space-y-3 border-t border-border pt-3" id={`source-${source.id}-personas`}>
+      <div>
+        <h3 className="text-sm font-semibold">Personas</h3>
+        <p className="text-xs text-muted-foreground">
+          How a teammate works this source's items. Applies at once (no Save, no re-init); one item can override it on its own page.
+        </p>
+      </div>
+      {source.personaError && (
+        <p className="flex items-start gap-1.5 rounded-md border border-red-500/40 bg-red-500/5 p-2 text-xs text-destructive">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>{source.personaError}. Pick a triage persona below — until then it doesn't sync.</span>
+        </p>
+      )}
+      <div className="grid grid-cols-[150px_1fr] items-start gap-3">
+        <label htmlFor={`source-${source.id}-triage-persona`} className="pt-1.5 text-sm font-medium">
+          Triage persona{triageMode && <RequiredMark />}
+        </label>
+        <div className="space-y-1">
+          <PersonaPicker
+            id={`source-${source.id}-triage-persona`}
+            kind="triage"
+            value={source.triagePersona}
+            onChange={(id) => set("triagePersona", id)}
+            noneLabel={source.defaultTriagePersona ? `Source default (${source.defaultTriagePersona})` : triageMode ? "None — pick one (required)" : "None"}
+            disabled={saving !== null}
+          />
+          <p className="text-xs text-muted-foreground">
+            {triageMode ? "Every item is triaged into proposals; " : "For any item it sends in triage mode; "}
+            {effective.triage ? <>runs with <code>{effective.triage.id}</code>{effective.triage.from === "declared" ? " (declared by the source)" : ""}.</> : "none set — triage items don't run until one is."}
+            {" "}Your notes' triage persona (Config → Triage) is not used here.
+          </p>
+        </div>
+        {!triageMode && (
+          <>
+            <label htmlFor={`source-${source.id}-persona`} className="pt-1.5 text-sm font-medium">Work persona</label>
+            <div className="space-y-1">
+              <PersonaPicker
+                id={`source-${source.id}-persona`}
+                kind="worker"
+                value={source.persona}
+                onChange={(id) => set("persona", id)}
+                noneLabel={source.defaultPersona ? `Source default (${source.defaultPersona})` : "No persona"}
+                disabled={saving !== null}
+              />
+              <p className="text-xs text-muted-foreground">
+                {effective.work ? <>Its items run with <code>{effective.work.id}</code>{effective.work.from === "declared" ? " (declared by the source)" : ""}.</> : "Its items run with no persona block."}
+              </p>
+            </div>
+          </>
+        )}
+      </div>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
   );
 }
 

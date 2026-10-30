@@ -1669,7 +1669,7 @@ export class Store {
   }
 
   /** List WorkItems, optionally filtered by state(s)/read, newest-first, paginated. */
-  getWorkItems(opts?: { states?: WorkItemState[]; read?: boolean; limit?: number; offset?: number }): { items: WorkItem[]; total: number } {
+  getWorkItems(opts?: { states?: WorkItemState[]; read?: boolean; workDefId?: string; limit?: number; offset?: number }): { items: WorkItem[]; total: number } {
     const where: string[] = [];
     const params: (string | number)[] = [];
     if (opts?.states && opts.states.length > 0) {
@@ -1677,6 +1677,8 @@ export class Store {
       params.push(...opts.states);
     }
     if (opts?.read !== undefined) { where.push("read = ?"); params.push(opts.read ? 1 : 0); }
+    // One WorkDef's runs (its detail page's run history, with each run's persona).
+    if (opts?.workDefId !== undefined) { where.push("work_def_id = ?"); params.push(opts.workDefId); }
     const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
     const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM work_items ${clause}`).get(...params) as { n: number }).n;
     let sql = `SELECT * FROM work_items ${clause} ORDER BY enqueued_at DESC`;

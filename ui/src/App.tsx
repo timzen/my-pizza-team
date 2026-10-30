@@ -18,10 +18,11 @@
  * instead. `/work-defs/:id` isn't wrapped: its kind is only known once loaded,
  * so the page itself shows the notice on the daemon's 403.
  *
- * Context, Sources and Workflows are tabs of the Config page (`/config/context`,
- * `/config/sources[/:sourceId]`, `/config/workflows[/:name]`); Context's and Workflows' old top-level URLs
- * redirect there with
- * `replace` (lib/config-tabs.ts `legacyConfigPath`).
+ * Sources, Workflows and Personas are tabs of the Config page
+ * (`/config/sources[/:sourceId]`, `/config/workflows[/:name]`,
+ * `/config/personas[/:id]`). Workflows' old top-level URLs, and the removed
+ * context library's (`/context`, `/config/context`, now Personas), redirect
+ * there with `replace` (lib/config-tabs.ts `legacyConfigPath`).
  *
  * Board, Tasks, and Schedule are sub-tabs of **Work** (`/work/board
  * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work` lands on
@@ -137,8 +138,11 @@ function DesktopShell() {
             <Route path="/config/workflows/:name" element={<ConfigPage />} />
             {/* A Work Source's settings, inside Config's Sources tab. */}
             <Route path="/config/sources/:sourceId" element={<ConfigPage />} />
-            {/* Context and Workflows moved under Config; keep the old URLs working. */}
+            {/* A persona, inside Config's Personas tab. A splat: package ids contain "/". */}
+            <Route path="/config/personas/*" element={<ConfigPage />} />
+            {/* Workflows moved under Config, and the context library became Personas; keep the old URLs working. */}
             <Route path="/context" element={<LegacyConfigRedirect />} />
+            <Route path="/config/context" element={<LegacyConfigRedirect />} />
             <Route path="/workflows" element={<LegacyConfigRedirect />} />
             <Route path="/workflows/:name" element={<LegacyConfigRedirect />} />
             <Route path="/help" element={<HelpPage />} />
@@ -154,7 +158,7 @@ function DesktopShell() {
 }
 
 /**
- * `/context`, `/workflows`, `/workflows/:name` → their Config tab, keeping any
+ * `/context`, `/config/context`, `/workflows`, `/workflows/:name` → their Config tab, keeping any
  * query string. `replace`, so Back doesn't bounce into the redirect.
  */
 function LegacyConfigRedirect() {

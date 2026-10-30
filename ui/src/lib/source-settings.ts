@@ -47,7 +47,21 @@ export interface SourceView {
   envVars: SourceEnvVarRef[];
   configurable: boolean;
   previewable: boolean;
+  /**
+   * The init failure, or — when init is fine — the persona problem (a
+   * triage-mode source with no triage persona doesn't sync); see `personaError`.
+   */
   initError?: string;
+  /** The persona problem alone, when there is one (docs/DESIGN.md "Work Source personas"). */
+  personaError?: string;
+  /** The team's persona for its work-mode items (`sourcePersonas.<id>.persona`), or null. */
+  persona: string | null;
+  /** The source's declared `defaultPersona`, or null. */
+  defaultPersona: string | null;
+  /** The team's triage persona for its triage-mode items, or null. */
+  triagePersona: string | null;
+  /** The source's declared `triagePersona`, or null. */
+  defaultTriagePersona: string | null;
   sync: {
     running: boolean;
     failures: number;
@@ -150,6 +164,10 @@ export interface SourceStatus {
  */
 export function sourceStatus(source: SourceView, now: number): SourceStatus {
   if (!isSourceEnabled(source)) return { label: "Off", tone: "neutral", detail: "Switched off: not synced, nothing new runs" };
+  // A persona problem rides `initError` when init itself is fine: say what it is.
+  if (source.personaError && source.initError === source.personaError) {
+    return { label: "Needs a triage persona", tone: "bad", detail: source.personaError };
+  }
   if (source.initError) return { label: "Init failed", tone: "bad", detail: source.initError };
   const sync = source.sync;
   if (!sync) return { label: "On", tone: "ok" };

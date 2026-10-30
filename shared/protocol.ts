@@ -401,7 +401,7 @@ export interface WorkItemView {
    */
   triage?: boolean;
 }
-// GET /api/work-items?state=READY,IN_PROGRESS&read=false&limit=&offset=
+// GET /api/work-items?state=READY,IN_PROGRESS&read=false&workDefId=&limit=&offset=  (newest first)
 export interface WorkItemsResponse { items: WorkItemView[]; total: number }
 export interface WorkItemMutationResponse { success: boolean; error?: string }
 // POST /api/work-items/:id/force-fail

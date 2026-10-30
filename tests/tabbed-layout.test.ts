@@ -24,12 +24,12 @@ test("Work tabs render inside WorkItemsLayout with no own centered container", a
   assert((await read("components/WorkItemsTabs.tsx")).includes("<TabbedPageLayout"));
 });
 
-test("Config tabs (incl. embedded Workflows/Context pages) render inside TabbedPageLayout, left-aligned", async () => {
+test("Config tabs (incl. embedded Workflows/Personas pages) render inside TabbedPageLayout, left-aligned", async () => {
   const config = await read("pages/ConfigPage.tsx");
   assert(config.includes("<TabbedPageLayout"), "ConfigPage should use TabbedPageLayout");
   assert(!config.includes("mx-auto"), "ConfigPage should not center its body");
   assert(config.includes("<FeatureOffNotice feature=\"stories\" embedded />"), "embedded notice stays left-aligned");
-  for (const page of ["WorkflowsPage", "WorkflowDetailPage", "ContextPage"]) {
+  for (const page of ["WorkflowsPage", "WorkflowDetailPage", "PersonasPage"]) {
     assert(!(await read(`pages/${page}.tsx`)).includes("mx-auto"), `${page} is embedded; it must not center itself`);
   }
 });

@@ -59,6 +59,26 @@ test("claim: a Solitary task's persona leads the prompt and is recorded (via tas
   } finally { cleanup(); }
 });
 
+test("GET /api/work-items?workDefId=: one WorkDef's run history, each run with its snapshot (kept after the persona is deleted)", async () => {
+  const { app, store, cleanup } = setup();
+  try {
+    store.createPersona({ title: "Historian", content: "Record things." });
+    const def = store.createWorkDef({ title: "Log it", goal: "g", acceptanceCriteria: "", persona: "historian" });
+    const other = store.createWorkDef({ title: "Other", goal: "g", acceptanceCriteria: "" });
+    const { itemId } = await claim(app, store, def.id);
+    // The persona goes, and the def stops naming it: history keeps what the run recorded.
+    await app.request(`/api/work-defs/${def.id}`, json("PUT", { persona: null }));
+    store.deletePersona("historian");
+    const body = await (await app.request(`/api/work-items?workDefId=${encodeURIComponent(def.id)}`)).json();
+    assertEquals(body.total, 1);
+    assertEquals(body.items.map((i: { id: string }) => i.id), [itemId]);
+    assertEquals(body.items[0].persona, { id: "historian", title: "Historian", origin: "team", via: "task" });
+    const others = await (await app.request(`/api/work-items?workDefId=${encodeURIComponent(other.id)}`)).json();
+    assertEquals(others.items.length, 1);
+    assertEquals(others.items[0].persona, undefined);
+  } finally { cleanup(); }
+});
+
 test("claim: a Solitary task without a persona gets no persona block and no snapshot", async () => {
   const { app, store, cleanup } = setup();
   try {

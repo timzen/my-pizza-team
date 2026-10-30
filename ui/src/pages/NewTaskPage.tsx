@@ -13,7 +13,6 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
-import { ContextSelector } from "@/components/board/ContextSelector";
 import { BackButton } from "@/components/ui/back-button";
 import { apiPost } from "@/hooks/useApi";
 
@@ -22,7 +21,6 @@ export function NewTaskPage() {
   const navigate = useNavigate();
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
-  const [context, setContext] = useState<string[]>([]);
   const [error, setError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
@@ -30,7 +28,7 @@ export function NewTaskPage() {
     if (!storyId) return;
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const pending = submitter?.value === "pending";
-    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, context: context.length > 0 ? context : undefined, pending: pending || undefined });
+    const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, pending: pending || undefined });
     if (res.success) navigate(-1);
     else setError(res.error || "Failed to create task");
   };
@@ -45,7 +43,6 @@ export function NewTaskPage() {
       <form onSubmit={handleSubmit} className="space-y-4">
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><div className="mt-1"><ContextSelector value={context} onChange={setContext} /></div></div>
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button type="submit" value="add">Add Task</Button>

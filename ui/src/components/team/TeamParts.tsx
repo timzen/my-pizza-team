@@ -1,7 +1,9 @@
 /**
  * TeamParts — The rows and avatars the Team tab and the dock's collapsed rail
- * are built from: an agent row (status icon, model, current work, directory,
- * context fill and session cost; reset / dismiss; teammates link to their live view), an
+ * are built from: an agent row (status icon, model, current work and the
+ * persona it's working with — a chip linking to the persona, docs/DESIGN.md
+ * "The in-flight persona" — directory, context fill and session cost; reset /
+ * dismiss; teammates link to their live view), an
  * avatar for the rail, and a pending-spawn row. (Queue rows live on the Queue
  * tab — pages/QueuePage.)
  *
@@ -13,6 +15,7 @@
  */
 
 import { Link } from "react-router-dom";
+import { PersonaChip } from "@/components/personas/PersonaChip";
 import { cn } from "@/lib/utils";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -96,7 +99,7 @@ export function SessionStats({ teammate, className }: { teammate: Teammate; clas
 export function TeammateAvatar({ teammate, selected }: { teammate: Teammate; selected?: boolean }) {
   const to = viewPath(teammate);
   const ctx = formatContext(teammate.session);
-  const title = `${teammate.name} · ${statusLabel(teammate.status)}${teammate.session?.model ? ` · ${teammate.session.model.name}` : ""}${teammate.currentWork ? ` · ⚙️ ${teammate.currentWork}` : ""}` +
+  const title = `${teammate.name} · ${statusLabel(teammate.status)}${teammate.session?.model ? ` · ${teammate.session.model.name}` : ""}${teammate.currentWork ? ` · ⚙️ ${teammate.currentWork}` : ""}${teammate.persona ? ` · as ${teammate.persona.title}` : ""}` +
     `${ctx ? ` · ${ctx.label} context` : ""}${teammate.session ? ` · ${formatCost(teammate.session.costUsd)}` : ""}${to ? " — click to watch" : ""}`;
   const circle = (
     <div className={`h-8 w-8 rounded-full flex items-center justify-center bg-background border ${selected ? "border-primary ring-2 ring-primary/30" : "border-border"} ${teammate.status === "offline" ? "opacity-50" : ""}`}>
@@ -243,8 +246,14 @@ export function TeammateRow({
         )}
       </div>
 
-      {teammate.currentWork && (
-        <p className="text-xs text-muted-foreground mt-1 truncate" title={teammate.currentWork}>⚙️ {teammate.currentWork}</p>
+      {(teammate.currentWork || teammate.persona) && (
+        <div className="mt-1 flex min-w-0 items-center gap-1.5">
+          {teammate.currentWork && (
+            <p className="min-w-0 truncate text-xs text-muted-foreground" title={teammate.currentWork}>⚙️ {teammate.currentWork}</p>
+          )}
+          {/* Above the row's stretched link, so the chip opens the persona, not the teammate. */}
+          <PersonaChip persona={teammate.persona} className="relative z-10 shrink-0 max-w-[50%]" />
+        </div>
       )}
 
       {(dir || teammate.session) && (

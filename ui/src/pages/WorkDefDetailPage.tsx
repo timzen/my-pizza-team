@@ -3,7 +3,8 @@
  *
  * The WorkDef is the home for a Solitary/Scheduled job's rich detail, split
  * into two tabs below the title: **Details** (goal, acceptance criteria,
- * context, directory) and **Thread** (the run thread — comments, including the
+ * additional context, directory, its persona, and its runs — each with the
+ * persona it worked with) and **Thread** (the run thread — comments, including the
  * completion summaries agents post after each run, newest first). Details is
  * the default; the Inbox deep-links to `?tab=thread`. The definition section is
  * `WorkDefDefinition`: a **pending** one can be edited and activated; an active
@@ -49,6 +50,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
+import { RunHistory } from "@/components/RunHistory";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
 import { FileViewer } from "@/components/viewer/FileViewer";
@@ -70,7 +72,8 @@ interface WorkDef {
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
-  contextRefs?: string[];
+  /** Solitary/Scheduled: the persona it runs with; a mirror: its source's suggestion. */
+  persona?: string;
   directory?: string | null;
   pending?: boolean;
   status?: "active" | "archived";
@@ -305,6 +308,8 @@ export function WorkDefDetailPage() {
             </p>
           </div>
         )}
+
+        <RunHistory workDefId={def.id} />
 
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>

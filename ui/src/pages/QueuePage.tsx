@@ -13,8 +13,9 @@
  *     hint explains a stall: distribution paused, or no idle teammate; an item
  *     held back by a busy directory says "waiting — directory busy (<teammate>,
  *     <item>)" (exclusive directory leases, DESIGN.md "Work Matching").
- *   - **Working** (IN_PROGRESS) — who has it (linked to their live view) and
- *     for how long.
+ *   - **Working** (IN_PROGRESS) — who has it (linked to their live view), for
+ *     how long, and the persona it's working with (a chip linking to it).
+ *     At-risk rows keep their chip too.
  *
  * Every title links to the item's page. The dock's QueueSummary strip is the
  * always-visible summary of this page (and previews it on hover).
@@ -31,6 +32,7 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { QUEUE_STATES, since, type QueueItem, type QueueState } from "@/lib/queue";
 import { retryLabel } from "@/lib/retry";
+import { PersonaChip } from "@/components/personas/PersonaChip";
 import { workItemPath } from "@/lib/work-item-link";
 import { dirName, roleOf, type Teammate } from "@/lib/team";
 import { AlertTriangle, Ban, FolderOpen, ListTodo, RotateCcw, X } from "lucide-react";
@@ -158,6 +160,7 @@ function QueueRow({
               {" · "}{since(item.lastStateChangeAt)}
             </span>
           )}
+          <PersonaChip persona={item.persona} />
           <span>{item.parent?.kind === "story" ? item.parent.id : "solitary/scheduled"}</span>
           {dir && (
             <Badge variant="secondary" className="flex items-center gap-1 font-mono text-[10px]" title={item.directory ?? undefined}>

@@ -2,7 +2,7 @@
  * NewStoryPage — Full-page form for creating a new story with optional tasks
  * (/stories/new). Replaces the old AddStoryDialog modal: creation is a real
  * destination with room for the form's sections (workflow, directory,
- * context, inline tasks). On success, lands on the new story's detail page.
+ * inline tasks). On success, lands on the new story's detail page.
  * **Save tasks as pending** creates the inline tasks as pending, so the story
  * starts but nothing runs until they're activated (docs/DESIGN.md "Pending:
  * Write, Review, Activate"). The **Pending** checkbox instead creates the
@@ -16,7 +16,6 @@ import { Input } from "@/components/ui/input";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
-import { ContextSelector } from "@/components/board/ContextSelector";
 import { SegmentedTabs } from "@/components/RouteTabs";
 import { Plus, X } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
@@ -37,24 +36,18 @@ export function NewStoryPage() {
   const [directory, setDirectory] = useState("");
   const [pending, setPending] = useState(false);
   const [workflow, setWorkflow] = useState("");
-  const [context, setContext] = useState<string[]>([]);
-  const [tasks, setTasks] = useState<Array<{ title: string; description: string; context: string[] }>>([]);
+  const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
   const [error, setError] = useState("");
 
   // Pre-select the team's default workflow once the list loads (the user can
   // still pick another); render-time derivation avoids a setState-in-effect.
   const effectiveWorkflow = workflow || (workflows || []).find(wf => wf.isDefault)?.name || "";
 
-  const addTask = () => setTasks([...tasks, { title: "", description: "", context: [] }]);
+  const addTask = () => setTasks([...tasks, { title: "", description: "" }]);
   const removeTask = (i: number) => setTasks(tasks.filter((_, idx) => idx !== i));
   const updateTask = (i: number, field: "title" | "description", value: string) => {
     const updated = [...tasks];
     updated[i] = { ...updated[i]!, [field]: value };
-    setTasks(updated);
-  };
-  const updateTaskContext = (i: number, ids: string[]) => {
-    const updated = [...tasks];
-    updated[i] = { ...updated[i]!, context: ids };
     setTasks(updated);
   };
 
@@ -71,8 +64,7 @@ export function NewStoryPage() {
     // which teammate picks up the work (directory affinity).
     if (directory.trim()) body.directory = directory.trim();
     if (pending) body.pending = true;
-    if (context.length > 0) body.context = context;
-    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, context: t.context.length > 0 ? t.context : undefined, pending: tasksPending || undefined }));
+    if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, pending: tasksPending || undefined }));
 
     const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
     if (res.success) navigate(`/story/${encodeURIComponent(id)}`);
@@ -106,8 +98,6 @@ export function NewStoryPage() {
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><DirectoryInput id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Context</Label></div><p className="text-xs text-muted-foreground mb-1">Attached entries are injected into every task's prompt for this story.</p><ContextSelector value={context} onChange={setContext} /></div>
-
         <div>
           <div className="flex items-center justify-between mb-2 pb-1 border-b border-border">
             <Label>Tasks</Label>
@@ -118,7 +108,6 @@ export function NewStoryPage() {
               <div className="flex-1 space-y-1">
                 <Input placeholder="Task title" value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
                 <Input placeholder="Description" value={task.description} onChange={e => updateTask(i, "description", e.target.value)} />
-                <ContextSelector value={task.context} onChange={ids => updateTaskContext(i, ids)} />
               </div>
               <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeTask(i)}><X className="h-3 w-3" /></Button>
             </div>

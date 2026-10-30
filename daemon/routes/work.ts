@@ -46,7 +46,7 @@ export function registerWorkRoutes(ctx: RouteContext): void {
     };
   }
 
-  // List WorkItems. Filters: ?state=READY,IN_PROGRESS  ?read=false  ?limit=&offset=
+  // List WorkItems. Filters: ?state=READY,IN_PROGRESS  ?read=false  ?workDefId=<id>  ?limit=&offset=
   app.get("/api/work-items", (c) => {
     const stateParam = c.req.query("state");
     const states = stateParam
@@ -57,7 +57,9 @@ export function registerWorkRoutes(ctx: RouteContext): void {
     const limit = c.req.query("limit") ? parseInt(c.req.query("limit")!, 10) : undefined;
     const offset = c.req.query("offset") ? parseInt(c.req.query("offset")!, 10) : undefined;
 
-    const { items, total } = store.getWorkItems({ states, read, limit, offset });
+    const workDefId = c.req.query("workDefId") || undefined;
+
+    const { items, total } = store.getWorkItems({ states, read, workDefId, limit, offset });
     return c.json({ items: items.map(view), total } satisfies WorkItemsResponse);
   });
 

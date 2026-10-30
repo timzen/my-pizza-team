@@ -16,18 +16,22 @@
  * - **Workflows** (`/config/workflows`, detail `/config/workflows/:name`) — the
  *   WorkflowsPage / WorkflowDetailPage, embedded. Hidden (and refused with the
  *   "turned off" notice) while Stories are off: workflows only apply to stories.
- * - **Context** (`/config/context`) — the context library (ContextPage, embedded).
- * - **Triage** (`/config/triage`) — auto-triage settings (saved with the page)
- *   and the `triage.md` instructions (own save, /api/triage/instructions).
+ * - **Personas** (`/config/personas`, one persona at `/config/personas/:id`) —
+ *   the persona library (PersonasPage, embedded; its own saves).
+ * - **Triage** (`/config/triage`) — auto-triage settings and the persona note
+ *   triage runs with (`triage.persona`), both saved with the page.
  * - **Theme** (`/config/theme`) — a client-side preference (localStorage,
  *   applied immediately) rather than daemon config.
  *
  * Every tab renders inside TabbedPageLayout, so the title and tab bar sit in
  * the same spot on each; narrow tabs cap the body at max-w-3xl, Sources,
- * Workflows and Context at max-w-5xl (left-aligned, never centered).
+ * Workflows and Personas at max-w-5xl (left-aligned, never centered).
  *
  * The global Save button only shows on the tabs that edit the config.json draft
- * (General, Teammates, Triage); Sources, Workflows and Context keep their own save flows.
+ * (General, Teammates, Triage); Sources, Workflows and Personas keep their own save flows.
+ * General's Assistant card also picks the assistant's persona, which applies at
+ * once (`PUT /api/assistant/persona` ends the current chat), like the chips in
+ * the chat itself.
  * The draft lives above the tabs and survives switching them (the `/config*`
  * routes share this element), so edits on several tabs save together.
  */
@@ -47,14 +51,15 @@ import { FeatureOffNotice } from "@/components/FeatureGate";
 import { TabbedPageLayout } from "@/components/TabbedPageLayout";
 import { WorkflowsPage } from "@/pages/WorkflowsPage";
 import { WorkflowDetailPage } from "@/pages/WorkflowDetailPage";
-import { ContextPage } from "@/pages/ContextPage";
+import { PersonasPage } from "@/pages/PersonasPage";
+import { PersonaPicker } from "@/components/personas/PersonaPicker";
+import { personaIdFromConfigPath, PERSONAS_TAB_PATH } from "@/lib/personas";
 import { PALETTES, getStoredPalette, applyPalette } from "@/lib/theme";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Settings, Plus, X, Save, Star } from "lucide-react";
 
@@ -75,7 +80,7 @@ interface ConfigData {
   defaultNouns?: string[];
   readinessProbe?: string;
   /** Auto triage (docs/DESIGN.md "Auto Triage"). Unset = on, hourly, 10 min quiet. */
-  triage?: { enabled?: boolean; intervalMinutes?: number; quietMinutes?: number };
+  triage?: { enabled?: boolean; intervalMinutes?: number; quietMinutes?: number; persona?: string | null };
   /** Opt-ins for unfinished features. `harnesses` allows non-Pi (ACP) teammates. */
   experimental?: { harnesses?: boolean };
   /** Harness spawned when a spawn names none. Unset (or "pi") = Pi. */
@@ -83,7 +88,7 @@ interface ConfigData {
   /** Custom harness templates from config.json (read-only here; adds to the picker). */
   harnesses?: Record<string, { teammate: string; leader?: string }>;
   /** How the user talks to the assistant. Unset (or unknown) chatMode = "chat". */
-  assistant?: { chatMode?: "chat" | "terminal" };
+  assistant?: { chatMode?: "chat" | "terminal"; persona?: string };
   /** One teammate per directory (exclusive directory leases). Unset = on. */
   exclusiveDirectories?: boolean;
   /** Which work-item kinds are on, defaults applied (docs/DESIGN.md "Feature Toggles"). */
@@ -150,9 +155,9 @@ export function ConfigPage() {
     setSaving(false);
   };
 
-  // Workflows and Context bring their own data and layout, and are wider
-  // (pipelines, two-column cards) than the config forms.
-  const wide = activeTab === "workflows" || activeTab === "context" || activeTab === "sources";
+  // Workflows, Personas and Sources bring their own data and layout, and are
+  // wider (pipelines, two-column cards) than the config forms.
+  const wide = activeTab === "workflows" || activeTab === "personas" || activeTab === "sources";
 
   let content;
   if (activeTab === "workflows") {
@@ -161,8 +166,8 @@ export function ConfigPage() {
     else if (!features.stories) content = <FeatureOffNotice feature="stories" embedded />;
     // Second segment is the tab; a third is the workflow's name.
     else content = pathname.split("/").filter(Boolean).length > 2 ? <WorkflowDetailPage /> : <WorkflowsPage />;
-  } else if (activeTab === "context") {
-    content = <ContextPage />;
+  } else if (activeTab === "personas") {
+    content = <PersonasPage personaId={personaIdFromConfigPath(pathname)} />;
   } else if (activeTab === "sources") {
     content = (
       <SourcesTab
@@ -393,7 +398,7 @@ function WorkItemFeatures({ config, setConfig, saved, error }: {
         <h2 className="font-semibold">Work items</h2>
         <p className="text-xs text-muted-foreground">
           The kinds of work your team uses. A kind that's off disappears from the nav and the quick-create menu,
-          and its pages, API, CLI and assistant tools are refused. Thoughts, Context and the Inbox are always on.
+          and its pages, API, CLI and assistant tools are refused. Thoughts, Personas and the Inbox are always on.
           Takes effect as soon as you save.
         </p>
         <div className="space-y-2">
@@ -440,30 +445,18 @@ function WorkItemFeatures({ config, setConfig, saved, error }: {
 // --- Auto triage (docs/DESIGN.md "Auto Triage") ---
 
 /**
- * The Triage tab: the sweep's settings (saved with the page's Save button) plus
- * the instructions it follows (`triage.md`). The instructions save on their own — they're a file, not part of config.json — like
- * a workflow persona.
+ * The Triage tab: the sweep's settings and the persona every note-triage run
+ * follows (`triage.persona`; unset = `builtin:triage`), all saved with the
+ * page's Save button. The persona itself is edited on Config → Personas (the
+ * picker's "edit"/"view" link); this only picks which one. Triage-mode *Work
+ * Sources* pick their own triage persona on Config → Sources — this one is for
+ * your notes only.
  */
 function TriageSettings({ config, setConfig }: { config: ConfigData; setConfig: (c: ConfigData) => void }) {
   const t = config.triage ?? {};
   const enabled = t.enabled !== false;
   const setTriage = (patch: Partial<NonNullable<ConfigData["triage"]>>) =>
     setConfig({ ...config, triage: { ...t, ...patch } });
-
-  const { data } = useApi<{ content: string; default: string }>("/api/triage/instructions");
-  const [draft, setDraft] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const content = draft ?? data?.content ?? "";
-  const usingDefault = (data?.content ?? "") === "" && draft === null;
-
-  const saveInstructions = async () => {
-    setSaving(true);
-    await apiPut("/api/triage/instructions", { content });
-    setSaving(false);
-    setSaved(true);
-    setTimeout(() => setSaved(false), 2000);
-  };
 
   return (
     <Card>
@@ -509,28 +502,22 @@ function TriageSettings({ config, setConfig }: { config: ConfigData; setConfig: 
               How long a note is left alone after your last edit, so a half-written thought isn't read.
             </p>
           </div>
-        </div>
-
-        <div className="space-y-2 border-t border-border pt-3">
-          <div className="flex items-center justify-between">
-            <Label>Instructions (triage.md)</Label>
-            <div className="flex items-center gap-2">
-              {usingDefault && <span className="text-xs text-muted-foreground">using the built-in default</span>}
-              {saved && <span className="text-xs text-green-600">Saved</span>}
-              <Button size="sm" variant="outline" disabled={saving} onClick={saveInstructions}>Save instructions</Button>
-            </div>
+          <Label htmlFor="triage-persona">Persona</Label>
+          <div className="space-y-1">
+            <PersonaPicker
+              id="triage-persona"
+              kind="triage"
+              value={t.persona ?? null}
+              // null (not undefined) so the PUT carries the clear back to the built-in.
+              onChange={(persona) => setTriage({ persona })}
+              noneLabel="Built-in triage (default)"
+              exclude={["builtin:triage"]}
+            />
+            <p className="text-xs text-muted-foreground">
+              What every note-triage run is told, before the note itself. Write or customize one on{" "}
+              <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link> (duplicate the built-in to start from it).
+            </p>
           </div>
-          <Textarea
-            rows={8}
-            value={content}
-            placeholder={data?.default}
-            onChange={(e) => setDraft(e.target.value)}
-            className="font-mono text-xs"
-          />
-          <p className="text-xs text-muted-foreground">
-            What every triage run is told, before the note itself. Leave it empty to use the
-            built-in default (shown greyed out above).
-          </p>
         </div>
       </CardContent>
     </Card>
@@ -686,8 +673,48 @@ function AssistantChatModeSetting({ config, setConfig }: { config: ConfigData; s
           Takes effect as soon as you save: the assistant's next reply follows the new style. The current
           conversation carries on — no restart or new chat needed.
         </p>
+        <AssistantPersonaSetting />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * Who the assistant is: its persona (`assistant.persona`; unset =
+ * `builtin:assistant`). Unlike the rest of the card this applies at once —
+ * `PUT /api/assistant/persona` ends the current chat (it stays in the session
+ * history) and starts a new one, as picking a chip in the chat does.
+ */
+function AssistantPersonaSetting() {
+  const { data, refetch } = useApi<{ personaId: string | null }>("/api/assistant/persona");
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pick = async (personaId: string | null) => {
+    if (busy || personaId === (data?.personaId ?? null)) return;
+    if (!confirm("Switching the assistant's persona ends the current chat (it stays in the history) and starts a new one. Switch?")) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await apiPut<{ success: boolean; error?: string }>("/api/assistant/persona", { personaId });
+      if (!res.success) setError(res.error || "Couldn't switch it");
+      await refetch();
+    } finally { setBusy(false); }
+  };
+  return (
+    <div className="space-y-1 border-t border-border pt-3">
+      <Label htmlFor="assistant-persona">Persona</Label>
+      <PersonaPicker
+        id="assistant-persona"
+        kind="assistant"
+        value={data?.personaId ?? null}
+        onChange={pick}
+        noneLabel="Built-in assistant (default)"
+        exclude={["builtin:assistant"]}
+        disabled={busy || !data}
+      />
+      <p className="text-xs text-muted-foreground">Applies at once: a new chat starts with the chosen persona.</p>
+      {error && <p className="text-xs text-destructive">{error}</p>}
+    </div>
   );
 }
 

@@ -39,6 +39,8 @@ export interface MirrorInfo {
   vanished: boolean;
   /** "triage": a teammate triages it into proposals instead of working it. */
   mode?: "work" | "triage";
+  /** A person's persona override for this mirror (`PUT /api/work-defs/:id/persona`), when set. */
+  personaOverride?: string;
 }
 
 /** Is this mirror (or row) in triage mode — its page leads with a Triage tab, its Run is Triage now? */

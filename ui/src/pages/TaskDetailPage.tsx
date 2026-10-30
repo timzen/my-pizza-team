@@ -3,7 +3,8 @@
  *
  * A board task IS a WorkDef (parent = its story), so this page mirrors the
  * WorkDefDetailPage format: two tabs below the title — **Details** (title, goal,
- * acceptance criteria, additional context, directory, context) and **Thread**
+ * acceptance criteria, additional context, directory, and its runs — each
+ * with the persona its workflow state gave it) and **Thread**
  * (the run thread — comments + attachments, newest first). Details is the
  * default; the Inbox deep-links to `?tab=thread`. The board-specific concerns
  * layered on top are the story breadcrumb, the workflow status + move buttons,
@@ -30,6 +31,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
+import { RunHistory } from "@/components/RunHistory";
 import { runCountLabel } from "@/lib/run-count";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
@@ -46,7 +48,8 @@ interface WorkDef {
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
-  contextRefs?: string[];
+  /** Solitary/Scheduled: the persona it runs with; a mirror: its source's suggestion. */
+  persona?: string;
   directory?: string | null;
   executionCount?: number;
   lastRunAt?: string | null;
@@ -247,6 +250,8 @@ export function TaskDetailPage() {
             ))}
           </div>
         )}
+
+        <RunHistory workDefId={def.id} />
 
         {editError && <p className="text-sm text-destructive">{editError}</p>}
       </div>

@@ -3,7 +3,8 @@
  *
  * Fills the center column (docs/DESIGN.md "Watching and Pairing with a Teammate"): a header strip — status,
  * what it's working on (linked to the work item's page, where the full prompt
- * and thread live), and its directory — over `AgentTerminal` (the CLI-ish
+ * and thread live), the persona it's working with (a chip linking to it), and
+ * its directory — over `AgentTerminal` (the CLI-ish
  * `TranscriptView` + composer, shared with the assistant's terminal mode).
  *
  * Watching is read-only: having this page open is what turns the teammate's
@@ -27,6 +28,8 @@ import type { PairingState } from "@/lib/transcript-types";
 import { workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
 import { Badge } from "@/components/ui/badge";
 import { ModelName, SessionStats, StatusIcon } from "@/components/team/TeamParts";
+import { PersonaChip } from "@/components/personas/PersonaChip";
+import type { PersonaRef } from "@/lib/personas";
 import { statusLabel, type Teammate } from "@/lib/team";
 import { FolderOpen, Eye, WifiOff, MessageSquare, Play, CheckCircle2, XCircle } from "lucide-react";
 
@@ -36,6 +39,7 @@ interface WorkItem extends LinkableWorkItem {
   id: string;
   title: string;
   memberId?: string | null;
+  persona?: PersonaRef;
 }
 
 export function TeammatePage() {
@@ -83,6 +87,7 @@ export function TeammatePage() {
             ⚙️ {current.title}
           </Link>
         )}
+        <PersonaChip persona={current?.persona ?? agent?.persona} className="text-xs" />
         {agent?.directory && (
           <Badge variant="secondary" className="flex items-center gap-1 font-mono text-[10px]" title={agent.directory}>
             <FolderOpen className="h-2.5 w-2.5" />{agent.directory.split("/").filter(Boolean).pop()}

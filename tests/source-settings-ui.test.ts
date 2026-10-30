@@ -25,6 +25,7 @@ function view(over: Partial<SourceView> = {}): SourceView {
     id: "jira", label: "Jira", kind: "plugin", syncs: true, package: { spec: "npm:mpt-jira", identity: "npm:mpt-jira" },
     mode: "work", toggle: { feature: "jira", enabled: true }, configScope: "package", options: {}, redacted: [], envVars: [],
     configurable: true, previewable: true, sync: { running: false, failures: 0, backoffUntil: null, last: null }, activeMirrors: 0,
+    persona: null, defaultPersona: null, triagePersona: null, defaultTriagePersona: null,
     ...over,
   };
 }
@@ -63,6 +64,12 @@ test("sourceStatus: off, init failed, never synced, ok / failed with when, backo
   assertEquals(isSourceEnabled(view({ toggle: null })), true, "no toggle = always on");
   const init = sourceStatus(view({ initError: "boom" }), NOW);
   assertEquals([init.label, init.tone, init.detail], ["Init failed", "bad", "boom"]);
+  // A persona problem rides initError when init is fine; it's named for what it is.
+  const msg = "triage-mode source jira needs a triage persona — set one on Config → Sources, or declare triagePersona";
+  const persona = sourceStatus(view({ mode: "triage", initError: msg, personaError: msg }), NOW);
+  assertEquals([persona.label, persona.tone, persona.detail], ["Needs a triage persona", "bad", msg]);
+  // A real init failure still wins over a persona problem.
+  assertEquals(sourceStatus(view({ initError: "boom", personaError: msg }), NOW).label, "Init failed");
   assertEquals(sourceStatus(view(), NOW).label, "Not synced yet");
   const last = { at: NOW - 5 * 60_000, ok: true, mirrored: 3, enqueued: 1, archived: 0, held: 0 };
   const ok = sourceStatus(view({ sync: { running: false, failures: 0, backoffUntil: null, last } }), NOW);

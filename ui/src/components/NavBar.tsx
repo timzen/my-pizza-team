@@ -1,7 +1,7 @@
 /**
  * NavBar — Navigation for the center column: links to main pages and theme toggle.
- * The links, left to right: Thoughts (ideas) and Work. (Context moved
- * into Config → Context; see lib/config-tabs.ts.)
+ * The links, left to right: Thoughts (ideas) and Work. (The persona
+ * library lives in Config → Personas; see lib/config-tabs.ts.)
  * Work replaced the separate Board, Tasks, and Schedule links: they are
  * its sub-tabs now (Board · Tasks · Schedule · Pending · Archived — see
  * WorkItemsTabs, lib/work-items.ts). It links to `/work`, which lands on
@@ -23,19 +23,24 @@
  * The status poll is shared with the pause toggle; an Inbox read/unread action
  * refetches immediately (lib/inbox.ts INBOX_CHANGED_EVENT).
  * Config is shown as a gear icon beside the theme toggle, lit for every
- * `/config/*` route — including its Workflows and Context tabs. Work is
+ * `/config/*` route — including its Workflows and Personas tabs. Work is
  * lit for every `/work/*` tab and for story/task detail pages.
  *
  * Which link is lit comes from lib/nav-section.ts. `/work-defs/*` is shared by
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type
  * (Solitary/Scheduled/Board → Work, Triage → Thoughts).
+ *
+ * Under the bar, the daemon's one-line **notices** (`/api/status` `notices` —
+ * today only the persona migration's "the context library was removed" line),
+ * each with a link to Config → Personas and a dismiss (`DELETE /api/notices/:id`).
  */
 
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { ThemeToggle } from "./ThemeToggle";
-import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn } from "lucide-react";
-import { apiPost, useApi } from "@/hooks/useApi";
+import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn, Info, X } from "lucide-react";
+import { apiDelete, apiPost, useApi } from "@/hooks/useApi";
+import { PERSONAS_TAB_PATH } from "@/lib/personas";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
@@ -46,6 +51,8 @@ interface NavStatus {
   paused?: boolean;
   queuedCount?: number;
   unreadInboxCount?: number;
+  /** One-line, dismissable notices from the daemon. */
+  notices?: Array<{ id: string; message: string }>;
 }
 
 /**
@@ -137,6 +144,23 @@ export function NavBar() {
           <ThemeToggle />
         </div>
       </div>
+      {(status?.notices ?? []).map((n) => (
+        <div key={n.id} className="flex items-start gap-2 border-t border-border bg-sky-500/5 px-4 py-1.5 text-xs" role="status">
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
+          <span className="flex-1">
+            {n.message}{" "}
+            <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link>
+          </span>
+          <button
+            onClick={async () => { await apiDelete(`/api/notices/${encodeURIComponent(n.id)}`); refetchStatus(); }}
+            className="p-0.5 text-muted-foreground hover:text-foreground"
+            title="Dismiss"
+            aria-label="Dismiss notice"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        </div>
+      ))}
     </header>
   );
 }

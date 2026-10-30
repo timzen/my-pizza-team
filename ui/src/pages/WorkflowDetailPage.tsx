@@ -4,8 +4,11 @@
  * A workflow is an ordered pipeline of active states between the implicit
  * `todo` and `done` buckets (see daemon docs/DESIGN.md "The Work Model"). This page renders
  * the pipeline, lets you edit the states (add/remove/reorder, agent|manual
- * type), and edit each agent state's persona markdown (the former "state
- * instructions" — same files, injected into that state's claim prompt).
+ * type), and pick each agent state's **persona** from the library (docs/DESIGN.md
+ * "Personas"): a picker per state, saved at once with `PUT
+ * /api/workflows/:name/states/:state { persona }`, plus an edit/view link to
+ * the persona itself on Config → Personas. Unset = no persona block, just the
+ * one-line state framing. (The per-state `<state>.md` files became personas.)
  *
  * Rendered inside the Config page's Workflows tab at `/config/workflows/:name`
  * (ConfigPage supplies the tab bar and outer layout); the old `/workflows/:name`
@@ -13,9 +16,11 @@
  */
 
 import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { Link, useParams } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
-import { PersonaEditor } from "@/components/workflow/PersonaEditor";
+import { PersonaPicker } from "@/components/personas/PersonaPicker";
+import { notifyPersonasChanged } from "@/hooks/usePersonas";
+import { PERSONAS_TAB_PATH } from "@/lib/personas";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -25,6 +30,8 @@ import { BackButton } from "@/components/ui/back-button";
 interface WorkflowState {
   name: string;
   type: "agent" | "manual";
+  /** The persona id an agent state's worker runs with (unset: none). */
+  persona?: string;
 }
 
 interface WorkflowConfig {
@@ -109,10 +116,58 @@ export function WorkflowDetailPage() {
           State Personas
         </h2>
         <p className="text-xs text-muted-foreground mb-3">
-          Each agent state's markdown is injected as the worker's role framing when it claims a task in that state.
+          The persona a teammate works with when it claims a task in each agent state — its role framing, injected
+          into the prompt. Pick one from the library; write or customize them on{" "}
+          <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link>. Applies to the next claim.
         </p>
-        <PersonaEditor workflowName={name!} states={data.states.filter(s => s.type === "agent").map(s => s.name)} />
+        <StatePersonas name={name!} states={data.states} onSaved={refetch} />
       </section>
+    </div>
+  );
+}
+
+/**
+ * A persona picker per agent state (manual states never get a prompt). Each
+ * change saves at once; a refusal (e.g. an id that doesn't resolve) shows on
+ * its row.
+ */
+function StatePersonas({ name, states, onSaved }: { name: string; states: WorkflowState[]; onSaved: () => void }) {
+  const [saving, setSaving] = useState<string | null>(null);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const agentStates = states.filter((s) => s.type === "agent");
+
+  const pick = async (state: string, persona: string | null) => {
+    setSaving(state);
+    setErrors((e) => ({ ...e, [state]: "" }));
+    try {
+      const res = await apiPut<{ success: boolean; error?: string }>(
+        `/api/workflows/${encodeURIComponent(name)}/states/${encodeURIComponent(state)}`, { persona },
+      );
+      if (!res.success) setErrors((e) => ({ ...e, [state]: res.error || "Save failed" }));
+      else { onSaved(); void notifyPersonasChanged(); }
+    } catch (e) {
+      setErrors((x) => ({ ...x, [state]: (e as Error).message }));
+    }
+    setSaving(null);
+  };
+
+  if (agentStates.length === 0) return <p className="text-xs text-muted-foreground italic">No agent states.</p>;
+  return (
+    <div className="rounded-lg border border-border divide-y divide-border">
+      {agentStates.map((s) => (
+        <div key={s.name} className="flex flex-wrap items-center gap-3 px-3 py-2">
+          <span className="flex w-40 items-center gap-1.5 text-sm font-medium"><Bot className="h-3.5 w-3.5 text-muted-foreground" />{s.name.replace(/_/g, " ")}</span>
+          <PersonaPicker
+            id={`state-persona-${s.name}`}
+            kind="worker"
+            value={s.persona ?? null}
+            onChange={(p) => pick(s.name, p)}
+            noneLabel="No persona (state framing only)"
+            disabled={saving === s.name}
+          />
+          {errors[s.name] && <span className="text-xs text-destructive">{errors[s.name]}</span>}
+        </div>
+      ))}
     </div>
   );
 }

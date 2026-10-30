@@ -6,6 +6,7 @@
  */
 
 import type { LinkableWorkItem } from "@/lib/work-item-link";
+import type { PersonaRef } from "@/lib/personas";
 
 export type QueueState = "READY" | "IN_PROGRESS" | "MORIBUND";
 
@@ -27,6 +28,8 @@ export interface QueueItem extends LinkableWorkItem {
   attempt?: number;
   /** A READY retry is held until this time (its backoff). */
   retryAt?: string;
+  /** The persona it was claimed with (absent while READY, or run without one). */
+  persona?: PersonaRef;
 }
 
 /** Human labels + colors per state, in the order they're worth your attention. */
