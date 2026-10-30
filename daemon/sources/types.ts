@@ -57,7 +57,7 @@ export interface ExternalDef {
   /**
    * This item's mode, overriding the source's `WorkSource.mode` (default
    * "work"). A `"triage"` item gets a triage run per revision instead of a
-   * work run: its prompt is the team's `triage.md` plus this item's content,
+   * work run: its prompt is the team's triage persona plus this item's content,
    * and the teammate answers with proposals.
    */
   mode?: WorkSourceMode;

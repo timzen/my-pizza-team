@@ -170,12 +170,12 @@ test("schedules off: schedule routes and Scheduled WorkDefs refuse", async () =>
   } finally { cleanup(); }
 });
 
-test("all off: Thoughts, Context, Inbox and the queue still work", async () => {
+test("all off: Thoughts, Personas, Inbox and the queue still work", async () => {
   const { app, config, cleanup } = setup({ stories: false, tasks: false, schedules: false });
   try {
     assertEquals(config.features, { stories: false, tasks: false, schedules: false });
     assertEquals((await app.request("/api/thoughts")).status, 200);
-    assertEquals((await app.request("/api/context")).status, 200);
+    assertEquals((await app.request("/api/personas")).status, 200);
     assertEquals((await app.request("/api/work-items")).status, 200);
     assertEquals((await app.request("/api/status")).status, 200);
     assertEquals((await app.request("/api/work-defs")).status, 200);

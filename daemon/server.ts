@@ -21,7 +21,8 @@
  *   - sources: every Work Source's settings — list, preview, save + re-init
  *   - triage: proposals on any triage subject by WorkDef id (a triage-mode
  *     external item's accept/reject), and the handling the note routes share
- *   - context: the context library of reusable prompt/context entries
+ *   - personas: the persona library, state persona selection, and 410s for the
+ *     removed context-library / instruction-file routes
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  *   - pairing: pair with / message / release a teammate from the web UI
  *   - usage: token-usage reports for any run + the Usage dashboard's rollups
@@ -44,7 +45,7 @@ import { registerWorkDefRoutes } from "./routes/work-defs.ts";
 import { registerScheduleRoutes } from "./routes/schedules.ts";
 import { registerTemplateRoutes } from "./routes/templates.ts";
 import { registerAssistantRoutes } from "./routes/assistant.ts";
-import { registerContextRoutes } from "./routes/context.ts";
+import { registerPersonaRoutes } from "./routes/personas.ts";
 import { registerThoughtRoutes } from "./routes/thoughts.ts";
 import { registerTranscriptRoutes } from "./routes/transcripts.ts";
 import { registerPairingRoutes } from "./routes/pairing.ts";
@@ -100,7 +101,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerScheduleRoutes(ctx);
   registerTemplateRoutes(ctx);
   registerAssistantRoutes(ctx);
-  registerContextRoutes(ctx);
+  registerPersonaRoutes(ctx);
   registerThoughtRoutes(ctx);
   registerTranscriptRoutes(ctx);
   registerPairingRoutes(ctx);

@@ -9,7 +9,9 @@
  *
  * Section order: state persona (role framing, board work only) → Story (board
  * work only) → working directory instruction → Goal → Acceptance Criteria →
- * Additional Context → reference context → lead comments → completion guidance.
+ * Additional Context → lead comments → completion guidance. (The former
+ * "Reference Context" section went with the context library; the persona
+ * migration inlined its text into Additional Context — docs/DESIGN.md "Personas".)
  *
  * There are no transition instructions: workers never move work (see
  * docs/DESIGN.md "The Work Model") — completing the work advances its story task
@@ -17,12 +19,13 @@
  *
  * `buildTriagePrompt` is the auto-triage variant (TODO.md "Auto Triage"): a
  * Thought-parented WorkDef carries no authored goal, so its prompt is assembled
- * from the team's `triage.md` plus the note's *current* text.
+ * from the team's triage persona plus the note's *current* text.
  * `buildExternalTriagePrompt` is the same prompt with a triage-mode external
  * item as its subject (docs/DESIGN.md "External sources" — "Triage mode").
  */
 
 import type { WorkDef } from "../shared/types.ts";
+import { DEFAULT_TRIAGE_INSTRUCTIONS } from "./personas/builtins.ts";
 
 /**
  * Demote instruction-file headings so they nest *below* the prompt's own
@@ -73,16 +76,10 @@ export interface WorkDefPromptInput {
   /** The workflow state being worked (board work only). */
   state?: string;
   /**
-   * The state's persona (`workflows/<wf>/<state>.md`): role framing for
-   * whoever works this state — reviewer, implementer, CR-writer, etc.
+   * The state's persona body (the persona its workflow state names): role
+   * framing for whoever works this state — reviewer, implementer, CR-writer, etc.
    */
   persona?: string;
-  /**
-   * Context-library entries attached to the story/WorkDef, resolved to their
-   * bodies and deduped by the caller. Inlined verbatim so every harness gets
-   * the same reference material.
-   */
-  contextEntries?: Array<{ title: string; content: string }>;
   /**
    * Comments on the ref; only the human's comments are surfaced (rework/feedback).
    * The human posts as "lead" from TaskDetailPage but as "you" from WorkDefDetailPage,
@@ -95,7 +92,7 @@ export interface WorkDefPromptInput {
 const HUMAN_COMMENT_AUTHORS = new Set(["lead", "you"]);
 
 export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
-  const { workDef, story, state, persona, comments, contextEntries } = input;
+  const { workDef, story, state, persona, comments } = input;
   const directory = workDef.directory || story?.directory;
   let out = "";
 
@@ -131,22 +128,14 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
     out += `## Additional Context\n\n${normalizeInstructionMarkdown(workDef.additionalContext, 3)}\n\n`;
   }
 
-  // 5. Reference context — attached context-library entries (story + WorkDef).
-  if (contextEntries && contextEntries.length > 0) {
-    out += `## Reference Context\n\n`;
-    for (const entry of contextEntries) {
-      out += `### ${entry.title}\n\n${normalizeInstructionMarkdown(entry.content, 4)}\n\n`;
-    }
-  }
-
-  // 6. Lead comments (feedback / rework context).
+  // 5. Lead comments (feedback / rework context).
   const leadComments = (comments || []).filter((c) => HUMAN_COMMENT_AUTHORS.has(c.from));
   if (leadComments.length > 0) {
     const bodies = leadComments.map((c) => `> ${c.body}`).join("\n\n");
     out += `## Comments from Team Lead\n\n${bodies}\n\n`;
   }
 
-  // 7. Completion guidance — workers never move work; finishing IS the signal.
+  // 6. Completion guidance — workers never move work; finishing IS the signal.
   out += `## Completing This Work\n\n`;
   out += `Do only this work. When you finish, end with a concise summary of what you accomplished`;
   out += state ? ` — the task then advances automatically. ` : `. `;
@@ -160,29 +149,12 @@ export function buildWorkDefPrompt(input: WorkDefPromptInput): string {
 
 // ─── Auto triage (TODO.md "Auto Triage") ─────────────────────────────
 
-/** The built-in triage instructions, used when the team has no `triage.md`. */
-export const DEFAULT_TRIAGE_INSTRUCTIONS = `Read the note below and help the author decide what, if anything, should become work.
-
-Lean toward **proposing work**: concrete tasks, a story with tasks, or a scheduled job.
-Be specific — a proposal should read like something a teammate could pick up without
-asking questions.
-
-Three honest outcomes, in order of preference:
-
-1. **Proposals** — the note describes something worth doing.
-2. **A question** — you need one thing from the author before you can propose anything
-   useful. Ask exactly one, and say what you'd propose for each likely answer.
-3. **Nothing to do** — the note is a reference, a link dump, a journal entry, or
-   already-done work. Say so plainly; inventing work from a shopping list is worse
-   than saying there's none.
-
-Do not edit the note, and do not create stories, tasks, or schedules yourself — the
-author decides. Keep your analysis short: what you think this note is, then your
-proposals.`;
+/** The built-in triage instructions (`builtin:triage`), re-exported from daemon/personas/builtins.ts. */
+export { DEFAULT_TRIAGE_INSTRUCTIONS };
 
 /** What every triage prompt carries besides its subject. */
 interface TriagePromptCommon {
-  /** The team's `triage.md`, or the built-in default when absent. */
+  /** The team's triage persona body, or the built-in default (`builtin:triage`) when absent. */
   instructions?: string;
   /** Open stories (id + title), so a proposal can attach a task to one. */
   stories?: Array<{ id: string; title: string }>;

@@ -505,7 +505,7 @@ turned into proposed tasks rather than handed straight to a teammate.
   survives a restart and a source can flip it without a new revision). For a
   triage-mode mirror the daemon, not the source, decides the WorkItem title
   ("Triage: <title>"), its directory (the mirror's, else the leader's — the
-  note rule), the prompt (`triage.md` / the default + the mirror's *current*
+  note rule), the prompt (the triage persona / the default + the mirror's *current*
   content, open stories, earlier analyses, and what you decided), and Run
   (`daemon/sources/external-triage.ts`). The source's other hooks —
   eligibility, write-back of comments and terminal states — still apply; the
@@ -889,7 +889,7 @@ the prompt reads fresh at claim time. There are two kinds (`triageSubjectOf`):
 | Created work's origin | `{ thought, proposal }` | `{ workDef, proposal }` |
 | Where you decide | `/thoughts/:id/triage` | the mirror's **Triage** tab |
 
-The instructions (`triage.md`), `propose_work` and its validation, the
+The instructions (a triage persona), `propose_work` and its validation, the
 structured-comment + appended-decision model, the fold, the badge, "accepting
 creates, never starts", and the Inbox row are shared, not duplicated.
 
@@ -907,8 +907,8 @@ sources" — "Triage mode: the mirror is the triage subject".
 
 - **The WorkDef is a container, not authored work.** `triage-<noteId>` is created
   lazily the first time a note is due, and holds nothing but a title and its parent.
-  The instructions live **once**, in `triage.md` at the team root (absent = the
-  built-in default), and the prompt is assembled at claim time from those plus the
+  The instructions live **once**, in the persona config `triage.persona` selects
+  (unset = `builtin:triage`; formerly `triage.md`, migrated — see "Personas"), and the prompt is assembled at claim time from those plus the
   note's *current* text, its group name, the open stories, and any earlier analysis.
   Copying the note into `workdef.md` would mean rewriting an authored file on every
   edit, which "WorkDefs & Parents" forbids. The *WorkItem* title is resolved at
@@ -1186,9 +1186,10 @@ When an agent claims a WorkItem, the response carries a `prompt` — the complet
 ready-to-use message assembled by `buildTaskPrompt` — and only minimal `workItem`
 metadata (`{ id }`) for bookkeeping. Order: state persona (board work) → Story
 (board work) → working-directory instruction → Task (Goal / Acceptance Criteria /
-Additional Context) → Reference Context (attached context-library entries) →
-comments from the team lead → completion guidance. There are no transition
-instructions, because workers don't transition.
+Additional Context) → comments from the team lead → completion guidance. There are no transition
+instructions, because workers don't transition. (The former Reference Context
+section went with the context library; the persona migration inlined attached
+entries into Additional Context — "Personas: One Library, Selected by Reference".)
 
 *Why:* the prompt is mostly workflow knowledge the daemon already owns. Assembling
 it in each harness caused drift and duplication. One canonical, testable prompt is
@@ -1204,12 +1205,17 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 
 ## Personas: One Library, Selected by Reference
 
-> **Status: designed, not yet built.** This section is the design the Unified
-> Personas story implements. Until it lands, the sections that describe today's
-> behaviour — "Workflows" (`workflows/<wf>/<state>.md`), "The Daemon Owns the
-> Prompt" (the Reference Context section), "Auto Triage" (`triage.md`), "Triage
-> mode", and "Assistant Chat Model" (a context-library persona) — are still
-> accurate; each implementing task rewrites its part in the same change.
+> **Status: being built (Unified Personas story).** In: the library
+> (`personas/<id>.md`, `builtin:*`, the package-persona registry), `resolvePersona`
+> with the built-in fallback, "Used by" and delete protection, the `/api/personas*`
+> routes and `PUT /api/workflows/:name/states/:state`, `persona` on Solitary and
+> Scheduled WorkDefs, the WorkItem snapshot columns, the context library's removal
+> (410s, attachments refused) and the on-load migration (steps 1, 2, 4–7). The
+> existing prompt paths read through the library (a state's `persona`,
+> `triage.persona`, `assistant.persona`), so migrated teams get the same prompts.
+> Still to come, each in its own task: the persona block for Solitary/Scheduled and
+> recording the snapshot at claim, the Work Source chain and migration step 3, the
+> plugin loader feeding package personas, the Pi harness tools, and the UI.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by
@@ -1587,6 +1593,33 @@ harness, which change in the same story; a shim that writes a persona when an
 old client PUTs instructions would have to invent ids and could overwrite a
 shared persona. A 410 that names the fix is what "Fail loudly" asks for. The 410
 stubs are a few lines and are deleted after a release (TODO.md).
+
+The same reasoning covers the **attachment fields**: a request that still sends a
+non-empty `context` (story create/update, add task) or `contextRefs` (WorkDef or
+template create/update) is refused with 400 and the same message, rather than the
+field being silently dropped — an old client that thinks it attached reference
+text must learn it didn't.
+
+Smaller decisions made while building it:
+
+- **A WorkDef's `persona` is not part of its locked definition.** Activating a
+  WorkDef locks *what* is to be done (title, goal, criteria, context, directory);
+  the persona is *how*, like a schedule's cron, so `PUT /api/work-defs/:id
+  { persona }` is accepted on an active Solitary or Scheduled def. A persona id is
+  checked on write (400 when it doesn't resolve) — the claim-time fallback is for
+  references that go stale later, not for typos at the point of entry. The same
+  check applies to `triage.persona` on `PUT /api/config` and to `PUT
+  /api/assistant/persona` (404, as before).
+- **The snapshot is written inside the claim transaction**: `claimWorkItem(id,
+  memberId, persona?)` records the `PersonaRef` the caller resolved, so a run's
+  record and its lease commit together.
+- **`GET /api/assistant/persona`** keeps `personaId` (the selection, null when unset
+  or it no longer resolves) and `entry` (the selected persona, the pre-persona field
+  name), and adds `persona` — what the assistant actually runs as (the built-in
+  when unset).
+- **Notices** live in the SQLite `settings` table (runtime, like the read state of
+  the Inbox): `/api/status` carries `notices: [{ id, message }]`, and `DELETE
+  /api/notices/:id` dismisses one.
 
 The Pi harness's assistant tools follow: `list_context` becomes **`list_personas`**
 (feeding the new `persona` param), `create_story` / `add_task` lose their `context`

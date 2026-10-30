@@ -3,7 +3,7 @@
  *
  * A Template is a reusable *mold* for a Solitary task: the same authored fields
  * as a WorkDef (title / goal / acceptance criteria / additional context /
- * directory / contextRefs) but with NO parent and NO runtime state. It never
+ * directory) but with NO parent and NO runtime state. It never
  * enqueues a WorkItem and never appears in the WorkItem queue — it exists only
  * to pre-fill a new Solitary WorkDef. Stored as `templates/<id>/template.md`,
  * reusing the WorkDef markdown format (files are the source of truth, like
@@ -33,7 +33,6 @@ function toTemplate(id: string, raw: string): Template | null {
   if (!def) return null;
   const tpl: Template = { id: def.id, title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria };
   if (def.additionalContext) tpl.additionalContext = def.additionalContext;
-  if (def.contextRefs && def.contextRefs.length > 0) tpl.contextRefs = def.contextRefs;
   if (def.directory) tpl.directory = def.directory;
   return tpl;
 }
@@ -68,7 +67,7 @@ export function writeTemplate(teamDir: string, tpl: Template): void {
 /** Create a Template; id derived from title (deduped) unless one is supplied. */
 export function saveTemplate(teamDir: string, input: {
   id?: string; title: string; goal: string; acceptanceCriteria: string;
-  additionalContext?: string; contextRefs?: string[]; directory?: string;
+  additionalContext?: string; directory?: string;
 }): Template {
   let id = input.id;
   if (!id) {
@@ -79,7 +78,6 @@ export function saveTemplate(teamDir: string, input: {
   }
   const tpl: Template = { id, title: input.title, goal: input.goal, acceptanceCriteria: input.acceptanceCriteria };
   if (input.additionalContext) tpl.additionalContext = input.additionalContext;
-  if (input.contextRefs && input.contextRefs.length > 0) tpl.contextRefs = input.contextRefs;
   if (input.directory) tpl.directory = input.directory;
   writeTemplate(teamDir, tpl);
   return tpl;
@@ -87,7 +85,7 @@ export function saveTemplate(teamDir: string, input: {
 
 export function updateTemplate(teamDir: string, id: string, updates: {
   title?: string; goal?: string; acceptanceCriteria?: string;
-  additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
+  additionalContext?: string | null; directory?: string | null;
 }): Template | null {
   const tpl = getTemplate(teamDir, id);
   if (!tpl) return null;
@@ -95,7 +93,6 @@ export function updateTemplate(teamDir: string, id: string, updates: {
   if (updates.goal !== undefined) tpl.goal = updates.goal;
   if (updates.acceptanceCriteria !== undefined) tpl.acceptanceCriteria = updates.acceptanceCriteria;
   if (updates.additionalContext !== undefined) tpl.additionalContext = updates.additionalContext || undefined;
-  if (updates.contextRefs !== undefined) tpl.contextRefs = updates.contextRefs || undefined;
   if (updates.directory !== undefined) tpl.directory = updates.directory || undefined;
   writeTemplate(teamDir, tpl);
   return tpl;

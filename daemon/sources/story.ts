@@ -67,10 +67,8 @@ export interface StorySourceDeps {
   recordAssignment(taskId: string, memberId: string): void;
   /** Drop a task's assignment row (doesn't change its position). */
   releaseAssignment(taskId: string): void;
-  /** A workflow state's persona (`workflows/<wf>/<state>.md`), if any. */
+  /** The persona body a workflow state names (resolved through the persona library), if any. */
   getStatePersona(workflow: string | undefined, state: string): string | undefined;
-  /** The story's + WorkDef's context-library entries, resolved and deduped. */
-  resolveContext(storyContext: string[] | undefined, defContext: string[] | undefined): Array<{ title: string; content: string }>;
   getComments(defId: string): Comment[];
 }
 
@@ -181,7 +179,6 @@ export class StorySource implements WorkSource {
       state: task.status,
       persona: this.deps.getStatePersona(story?.workflow, task.status),
       comments: comments.length > 0 ? comments : undefined,
-      contextEntries: this.deps.resolveContext(story?.context, def.contextRefs),
     });
   }
 

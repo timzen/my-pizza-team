@@ -69,28 +69,13 @@ test("buildWorkDefPrompt: standalone work omits board sections cleanly", () => {
   assertStringIncludes(out, "## Completing This Work");
 });
 
-test("buildWorkDefPrompt: injects attached reference context", () => {
+test("buildWorkDefPrompt: has no Reference Context section (the context library is gone)", () => {
   const out = buildWorkDefPrompt({
-    workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
-    contextEntries: [
-      { title: "Coding Standards", content: "Always write tests." },
-      { title: "API Conventions", content: "# Heading\n\nUse REST." },
-    ],
-  });
-  assertStringIncludes(out, "## Reference Context");
-  assertStringIncludes(out, "### Coding Standards");
-  assertStringIncludes(out, "Always write tests.");
-  assertStringIncludes(out, "### API Conventions");
-  // Entry headings are demoted so they nest beneath the `###` entry title.
-  assertStringIncludes(out, "#### Heading");
-});
-
-test("buildWorkDefPrompt: omits reference context when none attached", () => {
-  const out = buildWorkDefPrompt({
-    workDef: { title: "T", goal: "D", acceptanceCriteria: "" },
-    contextEntries: [],
+    workDef: { title: "T", goal: "D", acceptanceCriteria: "", additionalContext: "### Reference: X\n\nbody" },
   });
   assertEquals(out.includes("## Reference Context"), false);
+  // Migrated reference text arrives through Additional Context instead.
+  assertStringIncludes(out, "## Additional Context");
 });
 
 test("buildWorkDefPrompt: a comment from the WorkDef page (\"you\") reaches the teammate", () => {

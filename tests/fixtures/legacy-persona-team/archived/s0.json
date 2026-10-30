@@ -1,0 +1,11 @@
+{
+  "id": "s0",
+  "title": "Story zero",
+  "description": "An archived story",
+  "status": "done",
+  "dependsOn": [],
+  "tasks": [{ "id": "s0-1", "status": "done" }],
+  "context": ["project-conventions"],
+  "archivedAt": "2026-01-01T00:00:00.000Z",
+  "synopsis": "# Story zero"
+}

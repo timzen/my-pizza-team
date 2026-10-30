@@ -13,7 +13,7 @@
  *   - resolves the item's title from the note and, lacking its own directory,
  *     runs it in the leader's repo;
  *   - keeps an item eligible only while its note is active;
- *   - builds the triage prompt from `triage.md` plus the note as it reads now;
+ *   - builds the triage prompt from the triage persona plus the note as it reads now;
  *   - makes **Run** mean **Triage now**.
  * It needs nothing on terminal: the result is the analysis the teammate posts
  * with `propose_work` before it completes (Store.addTriageAnalysis).
@@ -51,7 +51,7 @@ export interface ThoughtSourceDeps {
   getThoughtGroup(id: string): ThoughtGroup | null;
   /** The registered leader's directory, if any (where triage runs by default). */
   leaderDirectory(): string | undefined;
-  /** The team's `triage.md`, or undefined for the built-in default. */
+  /** The team's triage persona body (`triage.persona`), or undefined for the built-in default. */
   getTriageInstructions(): string | undefined;
   /** Open (not done) stories, so a proposal can attach a task to one. */
   getOpenStories(): Array<{ id: string; title: string }>;
@@ -134,7 +134,7 @@ export class ThoughtSource implements WorkSource {
 
   /**
    * Not the base prompt: a triage WorkDef has no authored goal, so the prompt is
-   * the team's `triage.md` plus the note as it reads *now*, its earlier analyses,
+   * the team's triage persona plus the note as it reads *now*, its earlier analyses,
    * and what the author decided about earlier proposals.
    */
   buildPrompt(def: WorkDef, _base: string): string {
@@ -219,8 +219,8 @@ export class ThoughtSource implements WorkSource {
       }
       return existing;
     }
-    // Authored content only, and there is none: the instructions live in
-    // triage.md and the note's text is injected at claim time.
+    // Authored content only, and there is none: the instructions are the
+    // triage persona and the note's text, injected at claim time.
     return saveWorkDef(teamDir, {
       id,
       title: triageWorkDefTitle(thoughtId),

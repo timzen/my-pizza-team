@@ -15,11 +15,7 @@ import {
 import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./work-sources.ts";
-import { validateInstructionMarkdown } from "../workflow-lint.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
-import * as path from "node:path";
-import * as fs from "node:fs";
-import { existsSync } from "node:fs";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -104,7 +100,14 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // How the UI renders the assistant (default applied): "chat" bubbles or the
       // teammate-style "terminal" transcript (TeamConfig.assistant).
       assistantChatMode: resolveAssistantChatMode(config),
+      // One-line notices (the persona migration's), dismissed with DELETE /api/notices/:id.
+      notices: store.getNotices(),
     });
+  });
+
+  app.delete("/api/notices/:id", (c) => {
+    if (!store.dismissNotice(c.req.param("id"))) return c.json({ success: false, error: "Notice not found" }, 404);
+    return c.json({ success: true });
   });
 
   // ─── Control ───────────────────────────────────────────────────────
@@ -198,14 +201,17 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // prompt from this on every request, and the leader refetches it before each
       // run — so no leader restart or session reset is needed.
       if (chatMode === null) {
-        delete config.assistant;
+        // Only the mode: the persona selection lives beside it (PUT /api/assistant/persona).
+        const { chatMode: _mode, ...rest } = config.assistant ?? {};
+        if (Object.keys(rest).length > 0) config.assistant = rest;
+        else delete config.assistant;
       } else if (chatMode !== undefined) {
         config.assistant = { ...config.assistant, chatMode };
       }
       // Auto triage. A changed interval needs a daemon restart to re-arm the
       // timer; enabling/disabling and the quiet period take effect next sweep.
       if (body.triage !== undefined) {
-        const t = (body.triage || {}) as { enabled?: unknown; intervalMinutes?: unknown; quietMinutes?: unknown };
+        const t = (body.triage || {}) as { enabled?: unknown; intervalMinutes?: unknown; quietMinutes?: unknown; persona?: unknown };
         const minutes = (v: unknown, min: number) =>
           typeof v === "number" && Number.isInteger(v) && v >= min ? v : undefined;
         if (t.intervalMinutes !== undefined && minutes(t.intervalMinutes, 1) === undefined) {
@@ -214,7 +220,14 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         if (t.quietMinutes !== undefined && minutes(t.quietMinutes, 0) === undefined) {
           return c.json({ success: false, error: "triage.quietMinutes must be an integer >= 0" }, 400);
         }
+        // The note-triage persona: absent keeps the current one, null/"" clears it
+        // (back to builtin:triage), an id must resolve.
+        if (t.persona !== undefined && t.persona !== null && t.persona !== "" && (typeof t.persona !== "string" || !store.getPersona(t.persona))) {
+          return c.json({ success: false, error: `triage.persona: persona "${String(t.persona)}" doesn't exist` }, 400);
+        }
+        const triagePersona = t.persona === undefined ? config.triage?.persona : (t.persona as string | null) || undefined;
         config.triage = {
+          ...(triagePersona ? { persona: triagePersona } : {}),
           enabled: t.enabled !== false,
           ...(minutes(t.intervalMinutes, 1) !== undefined ? { intervalMinutes: t.intervalMinutes as number } : {}),
           ...(minutes(t.quietMinutes, 0) !== undefined ? { quietMinutes: t.quietMinutes as number } : {}),
@@ -316,34 +329,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     if (!wf) return c.json({ error: `Workflow "${name}" not found` }, 404);
     return c.json(wf);
   });
-
-  app.get("/api/workflows/:name/instructions/:filename", (c) => {
-    const name = c.req.param("name");
-    const filename = c.req.param("filename");
-    if (!store.getWorkflows()[name]) return c.json({ error: `Workflow "${name}" not found` }, 404);
-    const filePath = path.join(teamDir, "workflows", name, `${filename}.md`);
-    if (!existsSync(filePath)) return c.json({ error: `Instruction file "${filename}.md" not found` }, 404);
-    return c.json({ content: fs.readFileSync(filePath, "utf8") });
-  });
-
-  app.put("/api/workflows/:name/instructions/:filename", async (c) => {
-    const name = c.req.param("name");
-    const filename = c.req.param("filename");
-    const body = await c.req.json() as { content?: string };
-    if (typeof body.content !== "string") {
-      return c.json({ success: false, error: "Field 'content' is required and must be a string" }, 400);
-    }
-    // Lint before writing: block on errors (they would mangle the agent prompt),
-    // pass warnings back on success so the editor can surface them.
-    const { errors, warnings } = validateInstructionMarkdown(body.content);
-    if (errors.length > 0) {
-      return c.json({ success: false, error: errors.join(" "), errors, warnings }, 400);
-    }
-    const wfDir = path.join(teamDir, "workflows", name);
-    fs.mkdirSync(wfDir, { recursive: true });
-    fs.writeFileSync(path.join(wfDir, `${filename}.md`), body.content);
-    return c.json({ success: true, warnings });
-  });
+  // A state's persona is selected with PUT /api/workflows/:name/states/:state
+  // (daemon/routes/personas.ts); the old instruction-file routes answer 410 there.
 }
 
 /**

@@ -11,7 +11,7 @@
  * except on an explicit human/agent edit. All mutable runtime state lives off
  * the markdown: workflow status on the Story, cron/lastEnqueuedAt on the
  * Schedule, the note version last triaged on the Thought. Frontmatter carries only structural metadata (title, parent,
- * directory, contextRefs, `pending: true` while pending — legacy `draft: true` reads as pending); the body carries Goal / Acceptance Criteria /
+ * directory, persona, `pending: true` while pending — legacy `draft: true` reads as pending); the body carries Goal / Acceptance Criteria /
  * Additional Context, round-tripped by those exact headers.
  *
  * The one exception: a **mirrored** WorkDef (`parentKind: external`, plus
@@ -50,7 +50,8 @@ export function serializeWorkDef(def: WorkDef): string {
   // A mirrored def's link back to its external item (mirrored content, written by sync).
   if (def.url) fm.push(`url: ${quote(def.url)}`);
   if (def.directory) fm.push(`directory: ${quote(def.directory)}`);
-  if (def.contextRefs && def.contextRefs.length > 0) fm.push(`contextRefs: [${def.contextRefs.join(", ")}]`);
+  // The persona this work runs with (Solitary/Scheduled; a mirror's source suggestion).
+  if (def.persona) fm.push(`persona: ${quote(def.persona)}`);
   if (def.status === "archived") fm.push(`status: archived`);
   // Only pending is marked; absence means active (the default for old files).
   // A legacy `draft: true` file is rewritten as `pending: true` on its next save.
@@ -93,8 +94,8 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
   if (parent) def.parent = parent;
   const dir = scalar(fm, "directory");
   if (dir) def.directory = dir;
-  const refs = list(fm, "contextRefs");
-  if (refs.length > 0) def.contextRefs = refs;
+  const persona = scalar(fm, "persona");
+  if (persona) def.persona = persona;
   const origin = parseOrigin(fm);
   if (origin) def.origin = origin;
   const url = scalar(fm, "url");
@@ -152,8 +153,8 @@ export function getWorkDef(teamDir: string, id: string): WorkDef | null {
 /** Create a WorkDef; id derived from title (deduped) unless one is supplied. */
 export function saveWorkDef(teamDir: string, input: {
   id?: string; title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
-  additionalContext?: string; contextRefs?: string[]; directory?: string; origin?: WorkDefOrigin;
-  pending?: boolean;
+  additionalContext?: string; directory?: string; origin?: WorkDefOrigin;
+  pending?: boolean; persona?: string;
 }): WorkDef {
   let id = input.id;
   if (!id) {
@@ -171,7 +172,7 @@ export function saveWorkDef(teamDir: string, input: {
   };
   if (input.parent) def.parent = input.parent;
   if (input.additionalContext) def.additionalContext = input.additionalContext;
-  if (input.contextRefs && input.contextRefs.length > 0) def.contextRefs = input.contextRefs;
+  if (input.persona) def.persona = input.persona;
   if (input.directory) def.directory = input.directory;
   if (input.origin) def.origin = input.origin;
   if (input.pending) def.pending = true;
@@ -182,7 +183,7 @@ export function saveWorkDef(teamDir: string, input: {
 
 export function updateWorkDef(teamDir: string, id: string, updates: {
   title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
-  additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
+  additionalContext?: string | null; directory?: string | null; persona?: string | null;
   status?: "active" | "archived"; origin?: WorkDefOrigin;
   /** `false` activates a pending WorkDef (see WorkDef.pending); pending is only set at creation, never re-entered. */
   pending?: boolean;
@@ -194,7 +195,7 @@ export function updateWorkDef(teamDir: string, id: string, updates: {
   if (updates.goal !== undefined) def.goal = updates.goal;
   if (updates.acceptanceCriteria !== undefined) def.acceptanceCriteria = updates.acceptanceCriteria;
   if (updates.additionalContext !== undefined) def.additionalContext = updates.additionalContext || undefined;
-  if (updates.contextRefs !== undefined) def.contextRefs = updates.contextRefs || undefined;
+  if (updates.persona !== undefined) def.persona = updates.persona || undefined;
   if (updates.directory !== undefined) def.directory = updates.directory || undefined;
   if (updates.status !== undefined) def.status = updates.status;
   if (updates.origin !== undefined) def.origin = updates.origin;
@@ -225,11 +226,6 @@ function quote(v: string): string {
 function scalar(fm: string, key: string): string {
   const m = fm.match(new RegExp(`^${key}:\\s*(.*)$`, "m"));
   return m ? (m[1] ?? "").trim().replace(/^['"]|['"]$/g, "") : "";
-}
-function list(fm: string, key: string): string[] {
-  const m = fm.match(new RegExp(`^${key}:\\s*\\[([^\\]]*)\\]`, "m"));
-  if (!m) return [];
-  return (m[1] ?? "").split(",").map((t) => t.trim().replace(/['"]/g, "")).filter(Boolean);
 }
 /** Extract the text between section header `from` and the next header `to` (or EOF). */
 function section(body: string, from: string, to: string | null): string {

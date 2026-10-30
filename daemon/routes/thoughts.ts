@@ -8,12 +8,11 @@
  *
  * Auto triage lives here too (docs/DESIGN.md "Auto Triage"): a note's triage state
  * (its thread, proposals and decisions), accept/reject on one proposal, **Triage
- * now**, and the team's `triage.md` instructions.
+ * now** (the triage persona is selected by config `triage.persona`; see routes/personas.ts).
  */
 
 import type { RouteContext } from "./types.ts";
 import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
-import { DEFAULT_TRIAGE_INSTRUCTIONS } from "../prompt.ts";
 import { proposalResponse, readAcceptOptions, readRejectFrom } from "./triage.ts";
 
 const COORD_LIMIT = 1e7;
@@ -132,19 +131,6 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   });
 
   // ─── Auto triage ───────────────────────────────────────────────────
-
-  // The team's triage instructions. Absent/empty means the built-in default,
-  // which is returned as `default` so the editor can show what it's replacing.
-  app.get("/api/triage/instructions", (c) => {
-    return c.json({ content: store.getTriageInstructions() ?? "", default: DEFAULT_TRIAGE_INSTRUCTIONS });
-  });
-
-  app.put("/api/triage/instructions", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { content?: string };
-    if (typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required" }, 400);
-    store.setTriageInstructions(body.content);
-    return c.json({ success: true, content: store.getTriageInstructions() ?? "" });
-  });
 
   // GET /api/thoughts/:id/triage — everything the triage page shows: the note, its
   // thread (analyses *and* decisions), proposals folded with what was decided, the

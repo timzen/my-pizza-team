@@ -310,11 +310,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.get("/api/agents", (c) => {
     const members = store.getMembers();
+    // Each member's in-flight item, for the persona it is working with (the
+    // claim-time snapshot; docs/DESIGN.md "The in-flight persona").
+    const inFlight = store.getWorkItems({ states: ["IN_PROGRESS", "MORIBUND"] }).items;
     return c.json({
       daemonVersion: packageVersion(),
       protocolVersion: PROTOCOL_VERSION,
       agents: members.map(m => {
         const assignment = store.getAssignmentForMember(m.id);
+        const item = inFlight.find((wi) => wi.memberId === m.id);
         return {
           id: m.id, name: m.name, directory: m.directory, status: m.status,
           currentWork: assignment?.taskId || null, lastHeartbeat: m.lastHeartbeat,
@@ -323,6 +327,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           protocolVersion: m.protocolVersion, harness: m.harness, harnessVersion: m.harnessVersion,
           // Context fill + session cost, when the harness reports them.
           session: store.getMemberSessionStats(m.id) ?? null,
+          // The persona of the work in hand: null when idle or it has none.
+          workItemId: item?.id ?? null,
+          persona: item?.persona ?? null,
         };
       }),
     });
@@ -443,8 +450,7 @@ function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef): strin
 }
 
 /**
- * The daemon's base prompt for a WorkDef: the authored WorkDef, its attached
- * context, and lead comments — no kind-specific framing. A source that needs
+ * The daemon's base prompt for a WorkDef: the authored WorkDef and lead comments — no kind-specific framing. A source that needs
  * more (Story: the state persona and story; Thought: the triage prompt)
  * rebuilds it in its `buildPrompt`.
  */
@@ -456,7 +462,6 @@ function buildBasePrompt(store: RouteContext["store"], ref: WorkItemRef, def: Wo
       additionalContext: def.additionalContext, directory: def.directory,
     },
     comments: comments.length > 0 ? comments : undefined,
-    contextEntries: store.resolveTaskContext(undefined, def.contextRefs),
   });
 }
 

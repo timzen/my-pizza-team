@@ -25,7 +25,7 @@
  * surface (comments, attachments, token usage) is never gated.
  *
  * **A triage WorkDef is not editable here.** It's an empty container owned by its
- * note (TODO.md "Auto Triage"): its content comes from `triage.md` plus the note,
+ * note (TODO.md "Auto Triage"): its content comes from the triage persona plus the note,
  * its lifecycle follows the note, and a run is started with
  * `POST /api/thoughts/:id/triage`. Editing or deleting it directly would leave a
  * note pointing at something that no longer describes it, so those verbs 409 and
@@ -49,6 +49,7 @@ import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
 import { isWorkDefVisible } from "../features.ts";
 import { mirroredReadOnlyError, mirrorView } from "./work-sources.ts";
+import { contextFieldRefusal } from "./personas.ts";
 
 /**
  * The API shape of a WorkDef. `stats` is passed in by the list route, which
@@ -60,7 +61,8 @@ function view(d: WorkDef, store: RouteContext["store"], stats?: Map<string, Work
   return {
     id: d.id, title: d.title, type: workDefType(d.parent), parent: d.parent,
     goal: d.goal, acceptanceCriteria: d.acceptanceCriteria,
-    additionalContext: d.additionalContext, contextRefs: d.contextRefs, directory: d.directory,
+    additionalContext: d.additionalContext, directory: d.directory,
+    ...(d.persona ? { persona: d.persona } : {}),
     pending: d.pending === true,
     // Aggregate cost/tokens across this def's runs (recorded on the ref).
     tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
@@ -97,7 +99,22 @@ export function requestsPending(body: { pending?: unknown; draft?: unknown } | n
 }
 
 /** The UpdateWorkDefRequest fields that are the authored definition (everything but cron). */
-const DEFINITION_FIELDS = ["title", "goal", "acceptanceCriteria", "additionalContext", "contextRefs", "directory"] as const;
+const DEFINITION_FIELDS = ["title", "goal", "acceptanceCriteria", "additionalContext", "directory"] as const;
+
+/**
+ * Why a requested `persona` is refused, or null when it's acceptable (absent,
+ * `null` to clear, or an id that resolves). Board tasks are refused outright:
+ * they get their persona from the workflow state (per-board-task overrides are
+ * a non-goal — TODO.md "Personas"). A persona is *how* the work is done, not
+ * what it is, so it is not part of the locked definition: it can be changed
+ * after activating, like a schedule's cron.
+ */
+function personaRefusal(store: RouteContext["store"], persona: unknown, def?: WorkDef | null): string | null {
+  if (persona === undefined || persona === null || persona === "") return null;
+  if (def?.parent?.kind === "story") return "Board tasks get their persona from the workflow state; set it on the state instead.";
+  if (typeof persona !== "string") return "Field 'persona' must be a persona id or null";
+  return store.getPersona(persona) ? null : `Persona "${persona}" doesn't exist`;
+}
 
 const TRIAGE_OWNED_ERROR = (thoughtId: string) =>
   `This is the auto-triage thread for note ${thoughtId}; edit the note instead ` +
@@ -130,6 +147,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     if ((body.type as string) === "External") {
       return c.json({ success: false, error: "External work is mirrored from its source by sync (pull only); MPT never creates it." } satisfies SaveWorkDefResponse, 409);
     }
+    const refused = contextFieldRefusal(body) ?? personaRefusal(store, body.persona);
+    if (refused) return c.json({ success: false, error: refused } satisfies SaveWorkDefResponse, 400);
     const scheduled = body.type === "Scheduled";
     let parent;
     if (scheduled) {
@@ -140,7 +159,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     }
     const def = store.createWorkDef({
       title: body.title, parent, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria || "",
-      additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
+      additionalContext: body.additionalContext, directory: body.directory,
+      persona: body.persona || undefined,
       pending: requestsPending(body),
     }, body.enqueue !== false && !scheduled);
     return c.json({ success: true, workDef: view(def, store) } satisfies SaveWorkDefResponse, 201);
@@ -155,6 +175,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) } satisfies SaveWorkDefResponse, 409);
     const mirrored = mirroredRefusal(store, existing);
     if (mirrored) return c.json({ success: false, error: mirrored } satisfies SaveWorkDefResponse, 409);
+    const refused = contextFieldRefusal(body) ?? personaRefusal(store, body.persona, existing);
+    if (refused) return c.json({ success: false, error: refused } satisfies SaveWorkDefResponse, 400);
     // Active ⇒ locked: only a pending WorkDef's definition may change.
     const touchesDefinition = DEFINITION_FIELDS.some((f) => body[f] !== undefined);
     if (touchesDefinition && !existing.pending) {
@@ -167,7 +189,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     }
     const def = store.updateWorkDefDetails(id, {
       title: body.title, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria,
-      additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
+      additionalContext: body.additionalContext, directory: body.directory,
+      persona: body.persona === "" ? null : body.persona,
     });
     if (!def) return c.json({ success: false, error: "Update failed" } satisfies SaveWorkDefResponse, 400);
     return c.json({ success: true, workDef: view(def, store) } satisfies SaveWorkDefResponse);

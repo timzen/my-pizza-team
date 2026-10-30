@@ -105,7 +105,7 @@ test("triage prompt: instructions, the note, its group, stories, earlier analysi
   assertStringIncludes(p, "### Webhooks flake");
 });
 
-test("triage prompt: a team's triage.md replaces the built-in instructions", () => {
+test("triage prompt: a team's triage persona replaces the built-in instructions", () => {
   const p = buildTriagePrompt({ note: { id: "th-1", content: "hi" }, instructions: "# Only propose chores" });
   assertStringIncludes(p, "Only propose chores");
   assertEquals(p.includes("Lean toward"), false);
@@ -295,15 +295,18 @@ test("a triage item runs in the leader's directory, or anywhere with no leader",
   } finally { cleanup(teamDir, store); }
 });
 
-test("triage.md round-trips through the store; empty restores the default", () => {
+test("the triage persona: unset is the built-in default; triage.persona selects a team persona", () => {
   const { store, teamDir } = setup();
   try {
     assertEquals(store.getTriageInstructions(), undefined);
-    store.setTriageInstructions("# Only propose chores");
+    const res = store.createPersona({ title: "Chores only", content: "# Only propose chores" });
+    assertEquals(res.ok, true);
+    store.getConfig().triage = { ...store.getConfig().triage, persona: res.ok ? res.persona.id : "" };
     assertStringIncludes(store.getTriageInstructions()!, "chores");
-    assertEquals(fs.readFileSync(path.join(teamDir, "triage.md"), "utf8").endsWith("\n"), true);
-    store.setTriageInstructions("");
-    assertEquals(store.getTriageInstructions(), undefined);
+    // A selection that doesn't resolve falls back to builtin:triage (never fails a run).
+    store.getConfig().triage = { persona: "gone" };
+    assertEquals(store.getTriageInstructions(), DEFAULT_TRIAGE_INSTRUCTIONS);
+    assertEquals(fs.existsSync(path.join(teamDir, "triage.md")), false);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -338,25 +341,28 @@ test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the note
   } finally { cleanup(teamDir, store); }
 });
 
-test("GET/PUT /api/triage/instructions", async () => {
+test("/api/triage/instructions is gone (410); PUT /api/config selects triage.persona", async () => {
   const { app, store, teamDir } = setup();
   try {
-    let body = await (await app.request("/api/triage/instructions")).json();
-    assertEquals(body.content, "");
-    assertStringIncludes(body.default, "Lean toward");
+    const gone = await app.request("/api/triage/instructions");
+    assertEquals(gone.status, 410);
+    assertStringIncludes((await gone.json()).error, "triage.persona");
+    assertEquals((await app.request("/api/triage/instructions", { method: "PUT", body: "{}" })).status, 410);
 
-    const put = await app.request("/api/triage/instructions", {
-      method: "PUT", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: "# House rules" }),
+    const created = store.createPersona({ title: "House rules", content: "# House rules" });
+    const id = created.ok ? created.persona.id : "";
+    const current = await (await app.request("/api/config")).json();
+    const put = (triage: unknown) => app.request("/api/config", {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ...current, triage }),
     });
-    assertEquals(put.status, 200);
-    body = await (await app.request("/api/triage/instructions")).json();
-    assertStringIncludes(body.content, "House rules");
-
-    const bad = await app.request("/api/triage/instructions", {
-      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
-    });
-    assertEquals(bad.status, 400);
+    assertEquals((await put({ enabled: true, persona: "nope" })).status, 400);
+    assertEquals((await put({ enabled: true, persona: id })).status, 200);
+    assertStringIncludes(store.getTriageInstructions()!, "House rules");
+    // Omitting persona keeps it; null clears it back to the built-in.
+    assertEquals((await put({ enabled: true, quietMinutes: 5 })).status, 200);
+    assertEquals(store.getConfig().triage?.persona, id);
+    assertEquals((await put({ enabled: true, persona: null })).status, 200);
+    assertEquals(store.getTriageInstructions(), undefined);
   } finally { cleanup(teamDir, store); }
 });
 

@@ -1,9 +1,11 @@
 /**
- * daemon/workflow-lint.ts — Validation for workflow state instruction files.
+ * daemon/personas/lint.ts — Validation for persona markdown (formerly
+ * daemon/workflow-lint.ts, for workflow state instruction files).
  *
- * Instruction markdown is authored by users and embedded verbatim into the
- * agent prompt (see prompt.ts). This lints authored content so a mistake can't
- * mangle the assembled prompt:
+ * Every persona — team, package, or built-in — is authored markdown embedded
+ * verbatim into a prompt (see prompt.ts), so one linter applies to all of them
+ * (docs/DESIGN.md "Linting: one linter for every persona"). This lints authored
+ * content so a mistake can't mangle the assembled prompt:
  *
  *  - errors   → block the save (they genuinely break prompt structure)
  *  - warnings → allow the save but inform the author
@@ -12,15 +14,15 @@
  * (demotes) headings when embedding; the warning just nudges better authoring.
  */
 
-export interface InstructionLintResult {
+export interface PersonaLintResult {
   errors: string[];
   warnings: string[];
 }
 
 const FENCE = /^\s*(```+|~~~+)/;
 
-/** Lint a workflow instruction markdown file. */
-export function validateInstructionMarkdown(md: string): InstructionLintResult {
+/** Lint a persona's markdown body: errors refuse a save, warnings are returned with it. */
+export function validatePersonaMarkdown(md: string): PersonaLintResult {
   const errors: string[] = [];
   const warnings: string[] = [];
   const lines = md.split("\n");
@@ -38,7 +40,7 @@ export function validateInstructionMarkdown(md: string): InstructionLintResult {
 
   // Warnings — allowed, but flagged.
   if (md.trim().length === 0) {
-    warnings.push("Instructions are empty.");
+    warnings.push("The persona is empty.");
   }
 
   // Shallow headings get demoted when embedded; nudge authors toward ### or deeper.

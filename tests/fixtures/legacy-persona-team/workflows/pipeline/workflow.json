@@ -1,0 +1,6 @@
+{
+  "states": [
+    { "name": "code", "type": "agent" },
+    { "name": "review", "type": "agent", "persona": "builtin:worker" }
+  ]
+}

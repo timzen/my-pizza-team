@@ -58,12 +58,22 @@ import {
   type TriageOutcome,
   type TriageProposal,
   type TriageProposalState,
-  TRIAGE_INSTRUCTIONS_FILE,
   type TeamReadiness,
+  type BuiltinPersonaId,
+  type Persona,
+  type PersonaRef,
+  type PersonaUsage,
+  type ResolvedPersona,
+  type PersonaVia,
+  parsePersonaId,
   type Assignment,
 } from "../shared/types.ts";
 import { validateWorkflow } from "./workflow-engine.ts";
-import { listContextEntries, getContextEntry, saveContextEntry, updateContextEntry, deleteContextEntry, type ContextEntry } from "./store/context.ts";
+import { listBuiltinPersonas, getBuiltinPersona } from "./personas/builtins.ts";
+import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona, writeTeamPersona, type TeamPersonaInput } from "./personas/library.ts";
+import { PackagePersonas } from "./personas/packages.ts";
+import { personaUsage, resolvePersona } from "./personas/resolve.ts";
+import { CONTEXT_NOTICE_KEY, migrateToPersonas } from "./personas/migrate.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
@@ -175,7 +185,6 @@ export interface Task {
   acceptanceCriteria?: string;
   additionalContext?: string;
   status: string;
-  context?: string[];
 }
 
 export interface TaskWithMeta extends Task {
@@ -199,7 +208,6 @@ function serializeStory(story: Story): Story {
   if (story.directory) data.directory = story.directory;
   if (story.pending) data.pending = true;
   if (story.workflow) data.workflow = story.workflow;
-  if (story.context && story.context.length > 0) data.context = story.context;
   if (story.archivedAt) data.archivedAt = story.archivedAt;
   return data;
 }
@@ -261,6 +269,8 @@ function serializeConfig(config: TeamConfig): Record<string, unknown> {
   // Absent means "everything on" (an existing team); persist only an explicit block.
   if (config.features) out.features = config.features;
   if (config.assistant && Object.keys(config.assistant).length > 0) out.assistant = config.assistant;
+  // Per-source personas (docs/DESIGN.md "Work Source personas"): daemon-held team config.
+  if (config.sourcePersonas && Object.keys(config.sourcePersonas).length > 0) out.sourcePersonas = config.sourcePersonas;
   if (config.favoriteDirectories && config.favoriteDirectories.length > 0) out.favoriteDirectories = config.favoriteDirectories;
   // Plugin packages (and their per-package `config`, edited by `PUT
   // /api/sources/:id/config`) and dev-only settings: no Config-page form
@@ -316,8 +326,6 @@ export class Store {
   private sourceTimers: Array<ReturnType<typeof setInterval>> = [];
   /** External sources' sync timers (and their first, prompt run), cleared by `stopTimers`. */
   private syncTimers: Array<ReturnType<typeof setInterval>> = [];
-  private transitionInstructionsCache: Map<string, { content: string; mtime: number; cachedAt: number }> = new Map();
-  private transitionCacheTTL = 30000; // 30 seconds
   /**
    * The team's readiness, from the daemon's own probe (daemon/readiness.ts) or a
    * harness's `POST /api/readiness` (see TeamReadiness). Held in memory only: like
@@ -433,7 +441,6 @@ export class Store {
     },
     releaseAssignment: (taskId) => this.releaseTask(taskId),
     getStatePersona: (workflow, state) => this.getStatePersona(workflow, state),
-    resolveContext: (storyContext, defContext) => this.resolveTaskContext(storyContext, defContext),
     getComments: (defId) => this.getCommentsForRef({ workDefId: defId }),
   });
 
@@ -445,8 +452,15 @@ export class Store {
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
     this.initSchema();
-    // Persona titles come from the context library, which the Store owns.
-    this.chat = new AssistantChat(this.db, teamDir, (id) => this.getContextEntry(id)?.title ?? null);
+    // Before workflows load: legacy state files, triage.md, and the context
+    // library become personas (docs/DESIGN.md "Migration"). A no-op once done.
+    migrateToPersonas({
+      teamDir, config, db: this.db,
+      saveConfig: () => this.saveConfig(),
+      commit: (message) => { if (config.autosave?.autoCommit) this.commitToGit(message); },
+    });
+    // Session persona titles come from the persona library, which the Store owns.
+    this.chat = new AssistantChat(this.db, teamDir, (id) => this.getPersona(id)?.title ?? null);
     // Usage: the `usage/*.jsonl` files are the source of truth; rebuild the
     // SQLite cache from them (migrating the pre-files ledger on first boot).
     syncUsageLedger(this.db, teamDir);
@@ -796,7 +810,13 @@ export class Store {
           const wf: WorkflowConfig = JSON.parse(fs.readFileSync(wfFile, "utf8"));
           // Only accept the ordered-states shape (see docs/DESIGN.md "The Work Model");
           // malformed or legacy transition-matrix files are skipped.
-          if (validateWorkflow(wf) === null) this.workflows[entry.name] = wf;
+          if (validateWorkflow(wf) === null) {
+            this.workflows[entry.name] = wf;
+            // A manual state has no WorkItem, so a persona there does nothing.
+            for (const st of wf.states) {
+              if (st.type === "manual" && st.persona) console.warn(`[personas] workflow '${entry.name}' manual state '${st.name}' names persona '${st.persona}', which is ignored (manual states have no teammate)`);
+            }
+          }
         } catch {
           // Skip malformed workflow files
         }
@@ -847,7 +867,6 @@ export class Store {
         depends_on TEXT DEFAULT '[]',
         pending INTEGER DEFAULT 0,
         workflow TEXT,
-        context TEXT DEFAULT '[]',
         task_order TEXT DEFAULT '[]',
         directory TEXT,
         dir_path TEXT
@@ -862,7 +881,6 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'todo',
         result TEXT,
-        context TEXT DEFAULT '[]',
         dir_path TEXT,
         dirty INTEGER DEFAULT 0
       );
@@ -930,8 +948,8 @@ export class Store {
       -- 'active'. See docs/DESIGN.md "Assistant Chat Model".
       CREATE TABLE IF NOT EXISTS assistant_sessions (
         id TEXT PRIMARY KEY,
-        persona_id TEXT,         -- context-entry id, NULL for the default assistant
-        persona_title TEXT,      -- denormalized so listings survive entry deletion
+        persona_id TEXT,         -- persona id, NULL for the default assistant
+        persona_title TEXT,      -- denormalized so listings survive persona deletion
         title TEXT,              -- derived from the first user message
         pi_session_path TEXT,    -- backing Pi session file (reported by the extension)
         status TEXT NOT NULL,    -- 'active' | 'ended'
@@ -973,7 +991,14 @@ export class Store {
         last_state_change_at INTEGER,
         attempt INTEGER DEFAULT 1, -- n-th try at this ref (retries after an errored session)
         retry_at INTEGER,          -- a READY retry is held until this time (backoff)
-        error TEXT                 -- why this attempt's agent session errored
+        error TEXT,                -- why this attempt's agent session errored
+        -- The persona this run was given, snapshotted at claim (never rewritten;
+        -- all NULL when it had none). docs/DESIGN.md "The in-flight persona".
+        persona_id TEXT,
+        persona_title TEXT,
+        persona_origin TEXT,       -- team | builtin | package:<name>
+        persona_via TEXT,          -- PersonaVia
+        persona_fallback_from TEXT -- the id that didn't resolve, when a built-in stood in
       );
     `);
 
@@ -992,14 +1017,14 @@ export class Store {
     if (!workItemColumns.some((col) => col.name === "error")) {
       this.db.exec("ALTER TABLE work_items ADD COLUMN error TEXT");
     }
+    // The in-flight persona snapshot (docs/DESIGN.md "The in-flight persona").
+    for (const col of ["persona_id", "persona_title", "persona_origin", "persona_via", "persona_fallback_from"]) {
+      if (!workItemColumns.some((c) => c.name === col)) this.db.exec(`ALTER TABLE work_items ADD COLUMN ${col} TEXT`);
+    }
 
     const storyColumns = this.db.prepare("PRAGMA table_info(stories)").all() as Array<Record<string, unknown>>;
     if (!storyColumns.some((col) => col.name === "workflow")) {
       this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
-    }
-    // Context-library attachments.
-    if (!storyColumns.some((col) => col.name === "context")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN context TEXT DEFAULT '[]'");
     }
     // Pending stories (docs/DESIGN.md "Pending: Write, Review, Activate"); the
     // `paused` column it replaced is dropped in dropRetiredColumns.
@@ -1106,7 +1131,8 @@ export class Store {
    * before they went: capability matching (`requirements`, `capabilities`), work
    * modes (`work_mode`, `assigned_story_id`), task substatus and read tracking
    * (`substatus`, `last_read_at`), story `categories` (replaced by context), story
-   * `paused` (replaced by `pending`; the cache is rebuilt from files), and the
+   * `paused` (replaced by `pending`; the cache is rebuilt from files), story and
+   * task `context` (the context library, removed for personas), and the
    * old task|workdef WorkItem ref (`ref_kind`, `story_id`, `task_id`). Nothing reads
    * or writes them, but a column that still exists invites someone to.
    *
@@ -1121,8 +1147,8 @@ export class Store {
       this.db.exec("UPDATE work_items SET work_def_id = task_id WHERE work_def_id IS NULL AND task_id IS NOT NULL");
     }
     const retired: Array<[string, string]> = [
-      ["stories", "requirements"], ["stories", "categories"], ["stories", "paused"],
-      ["tasks", "substatus"], ["tasks", "last_read_at"],
+      ["stories", "requirements"], ["stories", "categories"], ["stories", "paused"], ["stories", "context"],
+      ["tasks", "substatus"], ["tasks", "last_read_at"], ["tasks", "context"],
       ["members", "capabilities"], ["members", "work_mode"], ["members", "assigned_story_id"],
       ["work_items", "ref_kind"], ["work_items", "story_id"], ["work_items", "task_id"],
     ];
@@ -1199,13 +1225,13 @@ export class Store {
 
   private upsertStory(story: Story): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, pending, workflow, context, task_order, directory, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, pending, workflow, task_order, directory, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       story.id, story.title, story.description, story.status,
       JSON.stringify(story.dependsOn),
       story.pending ? 1 : 0,
-      story.workflow || null, JSON.stringify(story.context || []),
+      story.workflow || null,
       JSON.stringify((story.tasks || []).map((t) => t.id)), story.directory || null,
       path.join(this.teamDir, STORIES_DIR),
     );
@@ -1214,12 +1240,12 @@ export class Store {
   /** Cache a board WorkDef (+ its story-owned status) into the tasks index. */
   private upsertTask(def: WorkDef, storyId: string, status: string, seq: number): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, context, dir_path, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, dir_path, dirty)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
     ).run(
       def.id, storyId, seq, slugify(def.title), def.title, def.goal,
       def.acceptanceCriteria || "", def.additionalContext || null,
-      status, JSON.stringify(def.contextRefs || []), workDefDir(this.teamDir, def.id),
+      status, workDefDir(this.teamDir, def.id),
     );
   }
 
@@ -1242,7 +1268,6 @@ export class Store {
       dependsOn: JSON.parse(row.depends_on as string),
       pending: row.pending ? true : undefined,
       workflow: (row.workflow as string) || undefined,
-      context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       directory: (row.directory as string) || undefined,
       tasks: ids.map((id) => ({ id, status: statusById.get(id) ?? TODO_STATE })),
       dirPath: path.join(this.teamDir, STORIES_DIR),
@@ -1261,7 +1286,6 @@ export class Store {
       acceptanceCriteria: (row.acceptance_criteria as string) || undefined,
       additionalContext: (row.additional_context as string) || undefined,
       status: row.status as string,
-      context: row.context && (row.context as string) !== "[]" ? JSON.parse(row.context as string) : undefined,
       dirPath: row.dir_path as string,
     };
   }
@@ -1282,9 +1306,8 @@ export class Store {
     description: string,
     status: "open" | "done" = "open",
     dependsOn: string[] = [],
-    tasks?: Array<{ title: string; description: string; context?: string[]; pending?: boolean }>,
+    tasks?: Array<{ title: string; description: string; pending?: boolean }>,
     workflow?: string,
-    context?: string[],
     pending?: boolean,
     directory?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
@@ -1292,7 +1315,6 @@ export class Store {
     if (directory) storyData.directory = normalizeDirectory(directory);
     if (pending) storyData.pending = true;
     if (workflow) storyData.workflow = workflow;
-    if (context && context.length > 0) storyData.context = context;
 
     // Insert the story row first so task rows can satisfy the story_id FK.
     this.upsertStory(storyData);
@@ -1313,7 +1335,6 @@ export class Store {
           parent: { kind: "story", id },
           goal: taskDef.description,
           acceptanceCriteria: "",
-          contextRefs: taskDef.context && taskDef.context.length > 0 ? taskDef.context : undefined,
           pending: taskDef.pending,
         });
         storyData.tasks.push({ id: taskId, status: TODO_STATE });
@@ -1321,7 +1342,7 @@ export class Store {
         createdTasks.push({
           id: taskId, title: def.title, description: def.goal,
           acceptanceCriteria: def.acceptanceCriteria, status: TODO_STATE,
-          context: def.contextRefs, storyId: id, seq, slug: slugify(def.title),
+          storyId: id, seq, slug: slugify(def.title),
           dirPath: workDefDir(this.teamDir, taskId),
         });
       }
@@ -1341,7 +1362,7 @@ export class Store {
    * `pending` creates it as pending, which holds its place in the story until it
    * is activated (docs/DESIGN.md "Pending: Write, Review, Activate").
    */
-  addTask(storyId: string, input: { title: string; description: string; context?: string[]; pending?: boolean }): TaskWithMeta | null {
+  addTask(storyId: string, input: { title: string; description: string; pending?: boolean }): TaskWithMeta | null {
     const story = this.getStory(storyId);
     if (!story) return null;
     const existing = this.getTasksForStory(storyId);
@@ -1350,7 +1371,6 @@ export class Store {
     const def = saveWorkDef(this.teamDir, {
       id: taskId, title: input.title, parent: { kind: "story", id: storyId },
       goal: input.description, acceptanceCriteria: "",
-      contextRefs: input.context && input.context.length > 0 ? input.context : undefined,
       pending: input.pending,
     });
     const tasks = [...story.tasks, { id: taskId, status: TODO_STATE }];
@@ -1360,7 +1380,7 @@ export class Store {
     this.runAdmission(storyId);
     return {
       id: taskId, title: def.title, description: def.goal, acceptanceCriteria: def.acceptanceCriteria,
-      status: TODO_STATE, context: def.contextRefs, storyId, seq: nextSeq,
+      status: TODO_STATE, storyId, seq: nextSeq,
       slug: slugify(def.title), dirPath: workDefDir(this.teamDir, taskId),
     };
   }
@@ -1392,7 +1412,6 @@ export class Store {
     dependsOn?: string[];
     pending?: boolean;
     workflow?: string | null;
-    context?: string[] | null;
     directory?: string | null;
   }): boolean {
     const story = this.getStory(storyId);
@@ -1404,14 +1423,13 @@ export class Store {
     const newDependsOn = updates.dependsOn ?? story.dependsOn;
     const newPending = updates.pending !== undefined ? updates.pending : (story.pending || false);
     const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
-    const newContext = updates.context !== undefined ? (updates.context || []) : (story.context || []);
     const newDirectory = updates.directory !== undefined
       ? (updates.directory ? normalizeDirectory(updates.directory) : null)
       : (story.directory || null);
 
     this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, pending = ?, workflow = ?, context = ?, directory = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPending ? 1 : 0, newWorkflow, JSON.stringify(newContext), newDirectory, storyId);
+      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, pending = ?, workflow = ?, directory = ? WHERE id = ?`
+    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPending ? 1 : 0, newWorkflow, newDirectory, storyId);
 
     // Write back to disk
     this.writeStory({
@@ -1423,7 +1441,6 @@ export class Store {
       directory: newDirectory || undefined,
       pending: newPending,
       workflow: newWorkflow || undefined,
-      context: newContext,
       tasks: story.tasks,
     });
 
@@ -1613,7 +1630,25 @@ export class Store {
       attempt: (row.attempt as number) || 1,
       retryAt: row.retry_at ? new Date(row.retry_at as number).toISOString() : undefined,
       error: (row.error as string) || undefined,
+      persona: row.persona_id ? {
+        id: row.persona_id as string,
+        title: (row.persona_title as string) || (row.persona_id as string),
+        origin: (row.persona_origin as string) || "team",
+        via: row.persona_via as PersonaVia,
+        ...(row.persona_fallback_from ? { fallbackFrom: row.persona_fallback_from as string } : {}),
+      } : undefined,
     };
+  }
+
+  /**
+   * Record the persona a WorkItem's run was given (the claim-time snapshot;
+   * docs/DESIGN.md "The in-flight persona"). `null` clears it — a run with no
+   * persona. Called by `claimWorkItem`; exposed for the prompt path that resolves it.
+   */
+  recordWorkItemPersona(id: string, persona: PersonaRef | null): void {
+    this.db.prepare(
+      "UPDATE work_items SET persona_id = ?, persona_title = ?, persona_origin = ?, persona_via = ?, persona_fallback_from = ? WHERE id = ?",
+    ).run(persona?.id ?? null, persona?.title ?? null, persona?.origin ?? null, persona?.via ?? null, persona?.fallbackFrom ?? null, id);
   }
 
   getWorkItem(id: string): WorkItem | null {
@@ -1821,7 +1856,7 @@ export class Store {
    * agents that were both offered items for one directory can't both claim
    * (docs/DESIGN.md "Work Matching: Directory Affinity").
    */
-  claimWorkItem(id: string, memberId: string): boolean {
+  claimWorkItem(id: string, memberId: string, persona?: PersonaRef | null): boolean {
     this.db.exec("BEGIN IMMEDIATE");
     try {
       const item = this.getWorkItem(id);
@@ -1830,6 +1865,8 @@ export class Store {
         return false;
       }
       this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
+      // The persona snapshot, inside the claim transaction (a retry is a new item).
+      if (persona !== undefined) this.recordWorkItemPersona(id, persona);
       const def = this.getWorkDef(item.ref.workDefId);
       const src = def ? this.sources.forWorkDef(def) : undefined;
       if (def && src?.source.onItemClaimed) src.source.onItemClaimed(def, { ...item, state: "IN_PROGRESS", memberId }, memberId, src.ctx);
@@ -2450,9 +2487,6 @@ export class Store {
           status: row.status,
           result: row.result,
         };
-        if (row.context && (row.context as string) !== "[]") {
-          taskData.context = JSON.parse(row.context as string);
-        }
         if (tokenUsage.length > 0) {
           taskData.tokenUsage = tokenUsage;
         }
@@ -2641,29 +2675,16 @@ export class Store {
   }
 
   /**
-   * The team's triage instructions (`triage.md`), or undefined when it has none —
-   * the prompt builder then uses its built-in default. One file for the team, so
-   * changing how triage works is one edit rather than one per note.
+   * The note-triage persona's body, or undefined when the team selected none —
+   * the prompt builder then uses `builtin:triage` (DEFAULT_TRIAGE_INSTRUCTIONS).
+   * One `triage.persona` for the team, so changing how triage works is one edit
+   * rather than one per note. A selection that doesn't resolve falls back to
+   * `builtin:triage` with a warning (docs/DESIGN.md "Resolution").
    */
   getTriageInstructions(): string | undefined {
-    const file = path.join(this.teamDir, TRIAGE_INSTRUCTIONS_FILE);
-    try {
-      if (!existsSync(file)) return undefined;
-      const content = fs.readFileSync(file, "utf8");
-      return content.trim() ? content : undefined;
-    } catch {
-      return undefined;
-    }
-  }
-
-  /** Write `triage.md` (empty clears it, restoring the built-in default). */
-  setTriageInstructions(content: string): void {
-    const file = path.join(this.teamDir, TRIAGE_INSTRUCTIONS_FILE);
-    if (content.trim() === "") {
-      try { fs.rmSync(file); } catch { /* already absent */ }
-      return;
-    }
-    fs.writeFileSync(file, content.endsWith("\n") ? content : content + "\n");
+    const ref = this.config.triage?.persona;
+    if (!ref) return undefined;
+    return this.resolvePersona(ref, { via: "triage", fallback: "builtin:triage" }, "triage.persona")?.body;
   }
 
   /**
@@ -2806,7 +2827,7 @@ export class Store {
           const created = this.createStory(
             id, p.title, p.description ?? p.goal ?? "", "open", [],
             (p.tasks ?? []).map((t) => ({ title: t.title, description: t.goal })),
-            undefined, undefined, undefined, p.directory,
+            undefined, undefined, p.directory,
           );
           storyId = created.story.id;
           for (const t of created.tasks) updateWorkDef(this.teamDir, t.id, { origin });
@@ -2892,47 +2913,49 @@ export class Store {
     commitTeamDir(this.teamDir, this.config.autosave, message);
   }
 
-  // --- Transition Instructions ---
+  // --- State personas ---
 
   /**
-   * The persona for an agent state: the markdown file `workflows/<wf>/<state>.md`
-   * (the former "state instructions" — same storage, same editing API). Injected
-   * into the claim prompt as the worker's role framing for that state.
+   * The persona body for an agent state: the persona its `workflow.json` state
+   * names (docs/DESIGN.md "References: select, don't embed"), or undefined when
+   * it names none (the prompt then uses the one-line state framing). A name that
+   * doesn't resolve falls back to `builtin:worker` with a warning.
    */
   getStatePersona(workflowName: string | undefined, state: string): string | undefined {
-    const wfName = workflowName || this.config.defaultWorkflow;
-    return this.readInstructionFile(wfName, `${state}.md`);
+    return this.resolveStatePersona(workflowName, state)?.body;
   }
 
-  /** Read an instruction file from the workflow's directory */
-  private readInstructionFile(workflowName: string, filename: string): string | undefined {
-    const filePath = path.join(this.teamDir, "workflows", workflowName, filename);
-    const cacheKey = workflowName + "/" + filename;
+  /** The resolved persona for an agent state, or null when it names none. */
+  resolveStatePersona(workflowName: string | undefined, state: string): ResolvedPersona | null {
+    const wfName = workflowName || this.config.defaultWorkflow;
+    const st = this.workflows[wfName]?.states.find((s) => s.name === state);
+    if (!st || st.type !== "agent" || !st.persona) return null;
+    return this.resolvePersona(st.persona, { via: "workflow-state", fallback: "builtin:worker" }, `workflow '${wfName}' state '${state}'`);
+  }
 
-    const cached = this.transitionInstructionsCache.get(cacheKey);
-    if (cached) {
-      try {
-        const stat = fs.statSync(filePath);
-        const mtime = stat.mtime?.getTime() ?? 0;
-        if (mtime === cached.mtime && Date.now() - cached.cachedAt < this.transitionCacheTTL) {
-          return cached.content;
-        }
-      } catch {
-        this.transitionInstructionsCache.delete(cacheKey);
-        return undefined;
-      }
+  /**
+   * Point a workflow agent state at a persona (`null` clears it). Errors name
+   * why: unknown workflow/state, a manual state, or a persona that doesn't exist.
+   */
+  setStatePersona(workflowName: string, state: string, persona: string | null): { ok: true; workflow: WorkflowConfig } | { ok: false; status: 400 | 404; error: string } {
+    const wf = this.workflows[workflowName];
+    if (!wf) return { ok: false, status: 404, error: `Workflow "${workflowName}" not found` };
+    const st = wf.states.find((s) => s.name === state);
+    if (!st) return { ok: false, status: 404, error: `Workflow "${workflowName}" has no state "${state}"` };
+    if (persona !== null) {
+      if (st.type !== "agent") return { ok: false, status: 400, error: `State "${state}" is manual; only agent states have a persona` };
+      if (!this.getPersona(persona)) return { ok: false, status: 400, error: `Persona "${persona}" doesn't exist` };
     }
-
-    try {
-      if (!existsSync(filePath)) return undefined;
-      const content = fs.readFileSync(filePath, "utf8");
-      const stat = fs.statSync(filePath);
-      const mtime = stat.mtime?.getTime() ?? 0;
-      this.transitionInstructionsCache.set(cacheKey, { content, mtime, cachedAt: Date.now() });
-      return content;
-    } catch {
-      return undefined;
-    }
+    const next: WorkflowConfig = {
+      ...wf,
+      states: wf.states.map((s) => {
+        if (s.name !== state) return s;
+        const { persona: _old, ...rest } = s;
+        return persona ? { ...rest, persona } : rest;
+      }),
+    };
+    this.saveWorkflow(workflowName, next);
+    return { ok: true, workflow: next };
   }
 
   // --- Archive ---
@@ -3250,16 +3273,27 @@ export class Store {
 
   // --- Assistant persona ---
   //
-  // The assistant's active "persona" is a context-library entry id whose body is
-  // injected as the assistant's system prompt (by the extension). Stored as a
-  // single setting; null means the plain/default assistant.
+  // The assistant's persona is a persona id in config.json `assistant.persona`
+  // (team configuration, committed with the team — docs/DESIGN.md "References");
+  // its body follows the chat framing in the system prompt. Null means
+  // `builtin:assistant`.
 
   getAssistantPersonaId(): string | null {
-    return this.getSetting("assistant_persona");
+    return this.config.assistant?.persona || null;
   }
 
   setAssistantPersonaId(id: string | null): void {
-    this.setSetting("assistant_persona", id);
+    const { persona: _old, ...rest } = this.config.assistant ?? {};
+    const next = id ? { ...rest, persona: id } : rest;
+    if (Object.keys(next).length > 0) this.config.assistant = next;
+    else delete this.config.assistant;
+    this.saveConfig();
+  }
+
+  /** The assistant's resolved persona: its selection, or `builtin:assistant`. */
+  resolveAssistantPersona(): ResolvedPersona {
+    const ref = this.getAssistantPersonaId() ?? "builtin:assistant";
+    return this.resolvePersona(ref, { via: "assistant", fallback: "builtin:assistant" }, "assistant.persona")!;
   }
 
   /**
@@ -3633,8 +3667,8 @@ export class Store {
    */
   createWorkDef(input: {
     title: string; parent?: WorkDefParent; goal: string; acceptanceCriteria: string;
-    additionalContext?: string; contextRefs?: string[]; directory?: string; origin?: WorkDefOrigin;
-    pending?: boolean;
+    additionalContext?: string; directory?: string; origin?: WorkDefOrigin;
+    pending?: boolean; persona?: string;
   }, enqueue = true): WorkDef {
     const def = saveWorkDef(this.teamDir, {
       ...input,
@@ -3702,7 +3736,7 @@ export class Store {
 
   updateWorkDefDetails(id: string, updates: {
     title?: string; parent?: WorkDefParent | null; goal?: string; acceptanceCriteria?: string;
-    additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
+    additionalContext?: string | null; directory?: string | null; persona?: string | null;
   }): WorkDef | null {
     const def = updateWorkDef(this.teamDir, id, {
       ...updates,
@@ -3712,8 +3746,8 @@ export class Store {
     // (what /api/stories reads). Keep that cache in sync so an edit through the
     // WorkDef path is reflected on the board without waiting for a reload.
     if (def && this.getTask(id)) {
-      this.db.prepare("UPDATE tasks SET title = ?, description = ?, context = ?, dirty = 1 WHERE id = ?")
-        .run(def.title, def.goal, JSON.stringify(def.contextRefs || []), id);
+      this.db.prepare("UPDATE tasks SET title = ?, description = ?, dirty = 1 WHERE id = ?")
+        .run(def.title, def.goal, id);
     }
     return def;
   }
@@ -3776,7 +3810,7 @@ export class Store {
   getTemplate(id: string): Template | null { return getTemplate(this.teamDir, id); }
   createTemplate(input: {
     title: string; goal: string; acceptanceCriteria: string;
-    additionalContext?: string; contextRefs?: string[]; directory?: string;
+    additionalContext?: string; directory?: string;
   }): Template {
     return saveTemplate(this.teamDir, {
       ...input,
@@ -3785,7 +3819,7 @@ export class Store {
   }
   updateTemplateDetails(id: string, updates: {
     title?: string; goal?: string; acceptanceCriteria?: string;
-    additionalContext?: string | null; contextRefs?: string[] | null; directory?: string | null;
+    additionalContext?: string | null; directory?: string | null;
   }): Template | null {
     return updateTemplate(this.teamDir, id, {
       ...updates,
@@ -4127,44 +4161,136 @@ export class Store {
     return this.getTokenUsageSummary(ref.workDefId);
   }
 
-  // --- Context entries (reusable prompt/context library; see store/context.ts) ---
+  // --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
+  //
+  // One library, three origins: team files (`personas/<id>.md`, daemon/personas/
+  // library.ts), read-only built-ins (`builtin:*`), and read-only package personas
+  // (`<package>/<id>`, registered by the plugin loader). Consumers store an id;
+  // `resolvePersona` turns it into a body.
 
-  getContextEntries(): ContextEntry[] {
-    return listContextEntries(this.teamDir);
+  /** Personas shipped by plugin packages (fed by daemon/plugins/loader.ts at startup). */
+  readonly packagePersonas = new PackagePersonas();
+  /** Missing references already warned about this run ("logged once per id"). */
+  private warnedPersonaRefs = new Set<string>();
+
+  /** The whole library: team personas, then built-ins, then package personas. */
+  listPersonas(): Persona[] {
+    return [...listTeamPersonas(this.teamDir), ...listBuiltinPersonas(), ...this.packagePersonas.list()];
   }
 
-  getContextEntry(id: string): ContextEntry | null {
-    return getContextEntry(this.teamDir, id);
-  }
-
-  saveContextEntry(input: { title: string; description?: string; tags?: string[]; content: string }): ContextEntry {
-    return saveContextEntry(this.teamDir, input);
-  }
-
-  updateContextEntry(id: string, updates: { title?: string; description?: string; tags?: string[]; content?: string }): ContextEntry | null {
-    return updateContextEntry(this.teamDir, id, updates);
-  }
-
-  deleteContextEntry(id: string): boolean {
-    return deleteContextEntry(this.teamDir, id);
+  /** One persona by id, whatever its origin, or null when it doesn't resolve. */
+  getPersona(id: string): Persona | null {
+    const kind = parsePersonaId(id).kind;
+    if (kind === "builtin") return getBuiltinPersona(id);
+    if (kind === "package") return this.packagePersonas.get(id);
+    if (kind === "team") return readTeamPersona(this.teamDir, id);
+    return null;
   }
 
   /**
-   * Resolve the context-library entries attached to a story and/or task into
-   * `{ title, content }` for prompt injection. Story entries come first, task
-   * entries after; duplicates (and ids pointing at deleted entries) are dropped.
+   * Resolve a persona reference for a prompt (daemon/personas/resolve.ts). A
+   * reference that doesn't resolve is logged once per id per run — `where` names
+   * the referrer — and resolves to `opts.fallback`.
    */
-  resolveTaskContext(storyContext?: string[], taskContext?: string[]): Array<{ title: string; content: string }> {
-    const ids = [...(storyContext || []), ...(taskContext || [])];
-    const seen = new Set<string>();
-    const resolved: Array<{ title: string; content: string }> = [];
-    for (const id of ids) {
-      if (seen.has(id)) continue;
-      seen.add(id);
-      const entry = this.getContextEntry(id);
-      if (entry) resolved.push({ title: entry.title, content: entry.content });
+  resolvePersona(ref: string | undefined | null, opts: { via: PersonaVia; fallback: BuiltinPersonaId | null }, where: string = opts.via): ResolvedPersona | null {
+    const resolved = resolvePersona((id) => this.getPersona(id), ref, opts);
+    if (ref && (!resolved || resolved.fallbackFrom) && !this.warnedPersonaRefs.has(`${where}\0${ref}`)) {
+      this.warnedPersonaRefs.add(`${where}\0${ref}`);
+      console.warn(`[personas] ${where} names persona '${ref}', which doesn't exist — ${resolved ? `using ${resolved.id}` : "using no persona"}`);
     }
     return resolved;
+  }
+
+  /** Everything that references persona `id` (the "Used by" list; computed on demand). */
+  getPersonaUsage(id: string): PersonaUsage[] {
+    return personaUsage(id, {
+      workflows: this.workflows,
+      config: this.config,
+      workDefs: listWorkDefs(this.teamDir),
+      mirrorOverrides: this.listMirrorPersonaOverrides(),
+    });
+  }
+
+  /** Per-mirror persona overrides: every source kv's `persona:<defId>` key (`sources/<id>.json`). */
+  private listMirrorPersonaOverrides(): Array<{ workDefId: string; source: string; persona: string }> {
+    const dir = path.join(this.teamDir, "sources");
+    if (!existsSync(dir)) return [];
+    const out: Array<{ workDefId: string; source: string; persona: string }> = [];
+    for (const name of fs.readdirSync(dir)) {
+      if (!name.endsWith(".json")) continue;
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as Record<string, unknown>;
+        for (const [key, value] of Object.entries(data)) {
+          if (key.startsWith("persona:") && typeof value === "string" && value) {
+            out.push({ workDefId: key.slice("persona:".length), source: name.slice(0, -5), persona: value });
+          }
+        }
+      } catch { /* a malformed kv file has no overrides we can read */ }
+    }
+    return out;
+  }
+
+  /**
+   * Create a team persona. The id is `input.id` when given (must be a free,
+   * valid team id), else derived from the title with `-2`… on collision.
+   */
+  createPersona(input: TeamPersonaInput & { id?: string }): { ok: true; persona: Persona } | { ok: false; status: 400 | 409; error: string } {
+    let id = input.id;
+    if (id !== undefined) {
+      if (parsePersonaId(id).kind !== "team") return { ok: false, status: 400, error: `Invalid persona id "${id}" (lowercase letters, digits and "-", at most 64)` };
+      if (readTeamPersona(this.teamDir, id)) return { ok: false, status: 409, error: `Persona "${id}" already exists` };
+    } else {
+      id = freeTeamPersonaId(input.title, (candidate) => readTeamPersona(this.teamDir, candidate) !== null);
+    }
+    const { id: _id, ...fields } = input;
+    writeTeamPersona(this.teamDir, id, fields);
+    return { ok: true, persona: readTeamPersona(this.teamDir, id)! };
+  }
+
+  /** Update a team persona in place (its id is kept). Null when it doesn't exist. */
+  updatePersona(id: string, updates: Partial<TeamPersonaInput>): Persona | null {
+    const existing = readTeamPersona(this.teamDir, id);
+    if (!existing) return null;
+    writeTeamPersona(this.teamDir, id, {
+      title: updates.title ?? existing.title,
+      description: updates.description ?? existing.description,
+      tags: updates.tags ?? existing.tags,
+      kinds: updates.kinds ?? existing.kinds,
+      duplicatedFrom: existing.duplicatedFrom,
+      content: updates.content ?? existing.content,
+    });
+    return readTeamPersona(this.teamDir, id);
+  }
+
+  /** Delete a team persona file. The route refuses one in use first (`getPersonaUsage`). */
+  deletePersona(id: string): boolean {
+    return deleteTeamPersona(this.teamDir, id);
+  }
+
+  /** Copy any persona into the team library (`duplicatedFrom` records the source; no inheritance). */
+  duplicatePersona(id: string, overrides: { id?: string; title?: string } = {}): { ok: true; persona: Persona } | { ok: false; status: 400 | 404 | 409; error: string } {
+    const src = this.getPersona(id);
+    if (!src) return { ok: false, status: 404, error: `Persona "${id}" not found` };
+    const title = overrides.title ?? src.title.replace(/ \(built-in\)$/, "");
+    return this.createPersona({
+      id: overrides.id, title, description: src.description,
+      tags: src.tags.filter((t) => t !== "built-in"), kinds: src.kinds, duplicatedFrom: src.id, content: src.content,
+    });
+  }
+
+  // --- Notices (one-line, dismissable; carried by /api/status) ---
+
+  /** The current notices (today: the context-library migration's), for `/api/status`. */
+  getNotices(): Array<{ id: string; message: string }> {
+    const message = this.getSetting(CONTEXT_NOTICE_KEY);
+    return message ? [{ id: "context-library-removed", message }] : [];
+  }
+
+  /** Dismiss a notice. False when there is no such notice. */
+  dismissNotice(id: string): boolean {
+    if (id !== "context-library-removed" || this.getSetting(CONTEXT_NOTICE_KEY) === null) return false;
+    this.setSetting(CONTEXT_NOTICE_KEY, null);
+    return true;
   }
 
   // --- Cleanup ---

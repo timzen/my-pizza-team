@@ -11,6 +11,7 @@
 import type { RouteContext } from "./types.ts";
 import { DONE_STATE } from "../../shared/types.ts";
 import { requestsPending } from "./work-defs.ts";
+import { contextFieldRefusal } from "./personas.ts";
 import type {
   CreateStoryRequest, CreateStoryResponse, UpdateStoryRequest, UpdateStoryResponse,
   DeleteStoryResponse, ArchiveStoryResponse, ArchivedStoriesResponse, SetStoryPendingResponse,
@@ -48,12 +49,12 @@ export function registerStoryRoutes(ctx: RouteContext): void {
           status: story.status, dependsOn: story.dependsOn,
           ready: store.isStoryReady(story.id),
           directory: story.directory,
-          pending: story.pending, workflow: story.workflow, context: story.context,
+          pending: story.pending, workflow: story.workflow,
           tasks: tasks.map(task => {
             const assignment = store.getAssignment(task.id);
             const tokenSummary = store.getTokenUsageSummary(task.id);
             const activeItem = store.getActiveWorkItemForTask(task.id);
-            return { id: task.id, seq: task.seq, title: task.title, status: task.status, pending: store.isPending(task.id), workItemState: activeItem?.state ?? null, description: task.description, context: task.context, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
+            return { id: task.id, seq: task.seq, title: task.title, status: task.status, pending: store.isPending(task.id), workItemState: activeItem?.state ?? null, description: task.description, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
           }),
         };
       }),
@@ -69,16 +70,20 @@ export function registerStoryRoutes(ctx: RouteContext): void {
     if (!body.workflow || typeof body.workflow !== "string") return c.json({ success: false, error: "Field 'workflow' is required" } satisfies CreateStoryResponse, 400);
     if (!store.getWorkflows()[body.workflow]) return c.json({ success: false, error: `Workflow '${body.workflow}' not found` } satisfies CreateStoryResponse, 400);
     if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
+    const refused = contextFieldRefusal(body) ?? (Array.isArray(body.tasks) ? body.tasks.map((t) => contextFieldRefusal(t)).find(Boolean) : null);
+    if (refused) return c.json({ success: false, error: refused } satisfies CreateStoryResponse, 400);
 
-    const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], Array.isArray(body.tasks) ? body.tasks.map((t) => ({ title: t.title, description: t.description, context: t.context, pending: requestsPending(t) })) : undefined, body.workflow, body.context, requestsStoryPending(body), body.directory);
-    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), directory: story.directory, pending: story.pending, workflow: story.workflow, context: story.context, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, pending: store.isPending(t.id), assignee: null })) } } satisfies CreateStoryResponse, 201);
+    const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], Array.isArray(body.tasks) ? body.tasks.map((t) => ({ title: t.title, description: t.description, pending: requestsPending(t) })) : undefined, body.workflow, requestsStoryPending(body), body.directory);
+    return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), directory: story.directory, pending: story.pending, workflow: story.workflow, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, pending: store.isPending(t.id), assignee: null })) } } satisfies CreateStoryResponse, 201);
   });
 
   app.put("/api/stories/:id", async (c) => {
     const storyId = c.req.param("id");
     const body = (await c.req.json()) as UpdateStoryRequest;
     if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies UpdateStoryResponse, 404);
-    store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, pending: requestsStoryPending(body), workflow: body.workflow, context: body.context, directory: body.directory });
+    const refused = contextFieldRefusal(body);
+    if (refused) return c.json({ success: false, error: refused } satisfies UpdateStoryResponse, 400);
+    store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, pending: requestsStoryPending(body), workflow: body.workflow, directory: body.directory });
     return c.json({ success: true } satisfies UpdateStoryResponse);
   });
 

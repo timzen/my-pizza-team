@@ -208,9 +208,9 @@ test("Store: directory-affinity matching (tiers + presence reservation)", () => 
   try {
     const store = new Store(teamDir, TEST_CONFIG);
     // Story A -> /repo/a ; Story B -> /repo/b ; Story C -> no directory.
-    store.createStory("sa", "A", "D", "open", [], [{ title: "TA", description: "d" }], "default", undefined, false, "/repo/a");
-    store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", undefined, false, "/repo/b");
-    store.createStory("sc", "C", "D", "open", [], [{ title: "TC", description: "d" }], "default", undefined, false);
+    store.createStory("sa", "A", "D", "open", [], [{ title: "TA", description: "d" }], "default", false, "/repo/a");
+    store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", false, "/repo/b");
+    store.createStory("sc", "C", "D", "open", [], [{ title: "TC", description: "d" }], "default", false);
 
     // Agent in /repo/a is registered online (reserves B's work from A? no — reserves A's).
     store.registerMember("ag-b", "ag-b", "/repo/b");
@@ -270,9 +270,9 @@ for (const [label, agentVia, taskVia] of [
       // belongs to an online teammate (the reservation in tier 3).
       store.registerMember("ag-x", "ag-x", "/repo/x");
       store.registerMember("ag-home", "ag-home", agentDir);
-      store.createStory("s1", "S", "D", "open", [], [{ title: "T", description: "d" }], "default", undefined, false, dirs[taskVia]);
+      store.createStory("s1", "S", "D", "open", [], [{ title: "T", description: "d" }], "default", false, dirs[taskVia]);
       // A no-directory item exists too: tier 1 must beat it for the home agent.
-      store.createStory("s2", "S2", "D", "open", [], [{ title: "T2", description: "d" }], "default", undefined, false);
+      store.createStory("s2", "S2", "D", "open", [], [{ title: "T2", description: "d" }], "default", false);
 
       assertEquals(store.getNextWorkItem({ id: "ag-home", directory: agentDir })!.ref.workDefId, "s1-1");
       assertEquals(store.getNextWorkItem({ id: "ag-x", directory: "/repo/x" })!.ref.workDefId, "s2-1");
@@ -287,7 +287,7 @@ test("Store: legacy rows holding un-resolved symlink paths still match (compare-
   const { real, link, root } = makeSymlinkedDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
-    store.createStory("sl", "L", "D", "open", [], [{ title: "TL", description: "d" }], "default", undefined, false, real);
+    store.createStory("sl", "L", "D", "open", [], [{ title: "TL", description: "d" }], "default", false, real);
     store.registerMember("ag-x", "ag-x", "/repo/x");
     store.registerMember("ag-old", "ag-old", real);
     // Simulate rows written before symlink resolution existed.
@@ -308,7 +308,7 @@ test("Store: tier-3 fallback only when no online agent has that directory", () =
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
-    store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", undefined, false, "/repo/b");
+    store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", false, "/repo/b");
 
     // No online agent in /repo/b → an agent elsewhere may take it (tier 3).
     const taken = store.getNextWorkItem({ id: "ag-x", directory: "/repo/x" });
@@ -630,7 +630,7 @@ test("Store: delete story removes from DB and disk", () => {
 test("Store: editing a board task via updateWorkDefDetails syncs the tasks cache", () => {
   // A board task is a WorkDef; editing it through the WorkDef path must keep
   // the tasks table (what /api/stories reads) in sync so the board reflects
-  // title/goal/context edits without a reload. See TaskDetailPage unification.
+  // title/goal edits without a reload. See TaskDetailPage unification.
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
@@ -640,17 +640,15 @@ test("Store: editing a board task via updateWorkDefDetails syncs the tasks cache
     const def = store.updateWorkDefDetails(taskId, {
       title: "New Title", goal: "new goal",
       acceptanceCriteria: "- done", additionalContext: "ctx",
-      contextRefs: ["conventions"],
     });
     assertExists(def);
     assertEquals(def!.title, "New Title");
     assertEquals(def!.acceptanceCriteria, "- done");
 
-    // The tasks cache (title/description/context) is updated in lockstep.
+    // The tasks cache (title/description) is updated in lockstep.
     const task = store.getTask(taskId)!;
     assertEquals(task.title, "New Title");
     assertEquals(task.description, "new goal");
-    assertEquals(task.context, ["conventions"]);
     store.close();
   } finally { cleanupDir(teamDir); }
 });
@@ -659,8 +657,8 @@ test("Store: pending/activate + archive + delete use flat story files (not dirPa
   const teamDir = createTempTeamDir();
   try {
     const store = new Store(teamDir, TEST_CONFIG);
-    store.createStory("s-a", "A", "desc a", "open", [], [{ title: "T1", description: "d" }], "default", undefined, false);
-    store.createStory("s-b", "B", "desc b", "open", [], [{ title: "T1", description: "d" }], "default", undefined, false);
+    store.createStory("s-a", "A", "desc a", "open", [], [{ title: "T1", description: "d" }], "default", false);
+    store.createStory("s-b", "B", "desc b", "open", [], [{ title: "T1", description: "d" }], "default", false);
 
     // Pending s-a: it stays in stories/ (pending is a flag, not a directory),
     // its file records pending, and the OTHER story's file is untouched.
@@ -794,7 +792,7 @@ test("Store: archiving or deleting a dependency admits its dependent", () => {
     // Archive: A's tasks are done but the story was reopened (so done-admission
     // never fired for B); archiving A is what satisfies B.
     store.createStory("arc-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
-    store.createStory("arc-b", "B", "B", "open", ["arc-a"], [{ title: "B1", description: "b" }], undefined, undefined, true);
+    store.createStory("arc-b", "B", "B", "open", ["arc-a"], [{ title: "B1", description: "b" }], undefined, true);
     finishOnlyTask(store, "arc-a-1");
     store.updateStoryDetails("arc-a", { status: "open" });
     store.updateStoryDetails("arc-b", { pending: false });
@@ -840,7 +838,7 @@ test("Store: a pending dependent (story or first task) is not admitted when its 
     const store = new Store(teamDir, TEST_CONFIG);
     store.registerMember("m1", "swift-ripley", "/tmp/repo");
     store.createStory("hold-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
-    store.createStory("hold-p", "P", "Pending story", "open", ["hold-a"], [{ title: "P1", description: "p" }], undefined, undefined, true);
+    store.createStory("hold-p", "P", "Pending story", "open", ["hold-a"], [{ title: "P1", description: "p" }], undefined, true);
     store.createStory("hold-d", "D", "Pending task", "open", ["hold-a"], [{ title: "D1", description: "d", pending: true }]);
 
     finishOnlyTask(store, "hold-a-1");

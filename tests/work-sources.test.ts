@@ -187,7 +187,7 @@ test("Store: a source still can't enqueue a pending WorkDef (the single enqueueF
 test("Store: board tasks go through the Story source (directory fallback, eligibility, advance outcome)", () => {
   const { store, teamDir } = setup();
   try {
-    store.createStory("s1", "S", "d", "open", [], [{ title: "T1", description: "g" }], undefined, undefined, false, "/repo/story");
+    store.createStory("s1", "S", "d", "open", [], [{ title: "T1", description: "g" }], undefined, false, "/repo/story");
     const task = store.getTasksForStory("s1")[0]!;
     const def = store.getWorkDef(task.id)!;
     const src = store.getWorkSourceFor(def)!;

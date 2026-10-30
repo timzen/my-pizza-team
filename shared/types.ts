@@ -127,6 +127,18 @@ export interface TeamConfig {
    * "Assistant Chat Model" and "Watching and Pairing with a Teammate".
    */
   assistant?: AssistantConfig;
+  /**
+   * Per-source persona settings, daemon-held (docs/DESIGN.md "Work Source
+   * personas"): `persona` for a source's work-mode items, `triagePersona` for its
+   * triage-mode items. Keyed by Work Source id; values are persona ids.
+   */
+  sourcePersonas?: Record<string, SourcePersonaSetting>;
+}
+
+/** One `TeamConfig.sourcePersonas` entry. */
+export interface SourcePersonaSetting {
+  persona?: string;
+  triagePersona?: string;
 }
 
 /**
@@ -143,6 +155,12 @@ export const ASSISTANT_CHAT_MODES: readonly AssistantChatMode[] = ["chat", "term
 export interface AssistantConfig {
   /** Missing (or anything unrecognized) means `chat`, so existing teams see no change. */
   chatMode?: AssistantChatMode;
+  /**
+   * The assistant's persona id (docs/DESIGN.md "Personas"); unset means
+   * `builtin:assistant`. Written by `PUT /api/assistant/persona`, which also ends
+   * the current chat session.
+   */
+  persona?: string;
 }
 
 /** Is `value` a valid `AssistantChatMode`? Used to validate `PUT /api/config`. */
@@ -210,10 +228,15 @@ export interface TriageConfig {
   intervalMinutes?: number;
   /** Leave a note alone for this long after its last edit (default 10). */
   quietMinutes?: number;
+  /**
+   * The persona id note triage runs with (docs/DESIGN.md "Personas"); unset means
+   * `builtin:triage`. Not a fallback for triage-mode Work Sources.
+   */
+  persona?: string;
 }
 
 /** Triage settings with defaults applied. */
-export function resolveTriage(config: Pick<TeamConfig, "triage">): Required<TriageConfig> {
+export function resolveTriage(config: Pick<TeamConfig, "triage">): Required<Omit<TriageConfig, "persona">> {
   const t = config.triage ?? {};
   return {
     enabled: t.enabled !== false,
@@ -280,12 +303,17 @@ export interface WorkflowState {
   name: string;
   /**
    * - `agent`: worked by teammates via the claim protocol (its task's WorkItem
-   *   is the in-flight unit; has an optional persona markdown file
-   *   `workflows/<wf>/<name>.md`).
+   *   is the in-flight unit; may name a `persona`).
    * - `manual`: worked by a human/leader; moving the card onward is the
    *   completion. No WorkItem, no persona.
    */
   type: "agent" | "manual";
+  /**
+   * The persona id an agent state's worker runs with (docs/DESIGN.md
+   * "Personas"). Unset: no persona block, just the one-line state framing.
+   * Ignored (with a load warning) on a manual state.
+   */
+  persona?: string;
 }
 
 /** Implicit bucket states present in every workflow (never in config). */
@@ -339,6 +367,12 @@ export interface WorkItem {
   retryAt?: string;
   /** Why this attempt's agent session errored (the model call's error message). */
   error?: string;
+  /**
+   * The persona this run was given, snapshotted at claim (docs/DESIGN.md "The
+   * in-flight persona"). Never rewritten: a later edit or delete of the persona
+   * leaves it as it was. Absent when the run had no persona.
+   */
+  persona?: PersonaRef;
 }
 
 /**
@@ -437,10 +471,14 @@ export interface WorkDef {
   acceptanceCriteria: string;
   /** Optional freeform markdown context. */
   additionalContext?: string;
-  /** Context-library entry ids to inline into the prompt. */
-  contextRefs?: string[];
   /** Optional working directory (affinity bias; agents cd here). */
   directory?: string;
+  /**
+   * Solitary / Scheduled (and a mirror's source suggestion) only: the persona id
+   * this work runs with (docs/DESIGN.md "Personas"). Unset = no persona block.
+   * Board tasks take theirs from the workflow state, so it is refused there.
+   */
+  persona?: string;
   /** Lifecycle status: active (default) or archived. */
   status?: "active" | "archived";
   /**
@@ -483,7 +521,7 @@ export interface WorkDefOrigin {
 /**
  * A Task Template: a reusable *mold* for a Solitary WorkDef. It carries the same
  * authored fields as a WorkDef (title / goal / acceptance criteria / additional
- * context / directory / contextRefs) but has **no parent and no runtime state**
+ * context / directory) but has **no parent and no runtime state**
  * — it never enqueues a WorkItem and never appears in the WorkItem queue. It
  * exists only to pre-fill a new Solitary task. Stored as
  * `templates/<id>/template.md`, reusing the WorkDef markdown format (files are
@@ -499,8 +537,6 @@ export interface Template {
   acceptanceCriteria: string;
   /** Optional freeform markdown context. */
   additionalContext?: string;
-  /** Context-library entry ids to pre-select on the new task. */
-  contextRefs?: string[];
   /** Optional working directory to pre-fill. */
   directory?: string;
 }
@@ -626,8 +662,6 @@ export interface Story {
    */
   pending?: boolean;
   workflow?: string;
-  /** Context-library entry ids attached to this story (injected into every child's prompt). */
-  context?: string[];
   /**
    * The story's child WorkDefs, in order, each with its workflow position. This
    * is the single source of truth for both ordering and status (no parallel
@@ -975,6 +1009,16 @@ export const WORKDEFS_DIR = "tasks";
 export const SCHEDULES_DIR = "schedules";
 /** Directory holding Task Templates (`templates/<id>/template.md`; molds for Solitary tasks). */
 export const TEMPLATES_DIR = "templates";
+/** Directory holding the team's persona library (`personas/<id>.md`; docs/DESIGN.md "Personas"). */
+export const PERSONAS_DIR = "personas";
+/**
+ * The former context library (`context/<id>.md`). Nothing reads it any more; the
+ * persona migration (daemon/personas/migrate.ts) moves it to
+ * `CONTEXT_ARCHIVE_DIR`.
+ */
+export const LEGACY_CONTEXT_DIR = "context";
+/** Where the persona migration archives the former context library. */
+export const CONTEXT_ARCHIVE_DIR = "context.migrated";
 
 /**
  * Directory holding assistant-chat artifacts. Session transcripts are markdown
@@ -992,12 +1036,11 @@ export const ASSISTANT_SESSIONS_DIR = "sessions";
 /** Directory holding thought notes (`thoughts/<id>.md`); groups live in `groups.json`. */
 export const THOUGHTS_DIR = "thoughts";
 /**
- * Auto-triage instructions: how a teammate should analyse a note. One file for
- * the whole team (edited in the UI like a workflow persona), because a triage
- * WorkDef is an empty container — copying instructions into each one would make
- * the daemon rewrite authored files on every note edit (TODO.md "Auto Triage").
+ * The former team-wide triage instructions file. Nothing reads it any more: the
+ * persona migration turns it into a team persona and sets `triage.persona`
+ * (docs/DESIGN.md "Personas" — Migration).
  */
-export const TRIAGE_INSTRUCTIONS_FILE = "triage.md";
+export const LEGACY_TRIAGE_INSTRUCTIONS_FILE = "triage.md";
 export const THOUGHT_GROUPS_FILE = "groups.json";
 
 /**
@@ -1113,4 +1156,119 @@ export function generateTeammateName(existingNames: Set<string>, config?: Teamma
   let i = 2;
   while (existingNames.has(name)) { name = `${adj}-${noun}-${i}`; i++; }
   return name;
+}
+
+// ─── Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ───
+
+/** A picker hint (never a restriction): which pickers list a persona first. */
+export type PersonaKind = "assistant" | "worker" | "triage";
+
+/** Every persona kind hint, in display order. */
+export const PERSONA_KINDS: readonly PersonaKind[] = ["worker", "triage", "assistant"];
+
+/**
+ * Where a persona comes from, which its id encodes: a team slug, `builtin:<name>`,
+ * or `<package.json name>/<id>` (docs/DESIGN.md "Ids and origins").
+ */
+export type PersonaOrigin =
+  | { kind: "team" }
+  | { kind: "builtin" }
+  | { kind: "package"; name: string; identity: string };
+
+/** How a consumer arrived at the persona it uses (recorded on the WorkItem snapshot). */
+export type PersonaVia =
+  | "workflow-state" | "task" | "schedule" | "workdef"
+  | "source-setting" | "source-default" | "triage" | "assistant";
+
+/** The built-in personas: today's defaults, read-only. */
+export type BuiltinPersonaId = "builtin:assistant" | "builtin:triage" | "builtin:worker";
+
+/** The prefix only built-in ids carry (a team id has neither `:` nor `/`). */
+export const BUILTIN_PERSONA_PREFIX = "builtin:";
+
+/** The team-id grammar: a slug of at most 64 characters. */
+export const TEAM_PERSONA_ID_PATTERN = /^[a-z0-9][a-z0-9-]{0,63}$/;
+
+/**
+ * One persona in the library: frontmatter (title, description, tags, optional
+ * `kinds` and `duplicatedFrom`) plus the markdown `content` injected into the
+ * prompt. `readOnly` is true for built-in and package personas.
+ */
+export interface Persona {
+  id: string;
+  title: string;
+  description: string;
+  tags: string[];
+  kinds?: PersonaKind[];
+  /** Informational: the persona this one was duplicated from (no inheritance). */
+  duplicatedFrom?: string;
+  content: string;
+  origin: PersonaOrigin;
+  readOnly: boolean;
+  /** Package personas only: the lint error that marked it (it still loads). */
+  lintError?: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+/** What `resolvePersona` hands a prompt builder (daemon/personas/resolve.ts). */
+export interface ResolvedPersona {
+  id: string;
+  title: string;
+  origin: PersonaOrigin;
+  body: string;
+  via: PersonaVia;
+  /** Set when the requested id didn't resolve and a built-in stood in. */
+  fallbackFrom?: string;
+}
+
+/**
+ * A recorded reference to the persona a run used: the WorkItem snapshot
+ * (`WorkItem.persona`). `origin` is flattened to `team` | `builtin` |
+ * `package:<name>` — the `work_items.persona_origin` column's shape.
+ */
+export interface PersonaRef {
+  id: string;
+  title: string;
+  origin: string;
+  via: PersonaVia;
+  fallbackFrom?: string;
+}
+
+/** One thing that references a persona (`GET /api/personas/:id` `usedBy`). */
+export type PersonaUsage =
+  | { kind: "workflow-state"; workflow: string; state: string }
+  | { kind: "triage" }
+  | { kind: "assistant" }
+  | { kind: "workdef"; workDefId: string; title: string }
+  | { kind: "mirror-override"; workDefId: string; source: string }
+  | { kind: "source-setting"; source: string; field: "persona" | "triagePersona" };
+
+/** `PersonaOrigin` flattened to the snapshot's string form (`PersonaRef.origin`). */
+export function personaOriginLabel(origin: PersonaOrigin): string {
+  return origin.kind === "package" ? `package:${origin.name}` : origin.kind;
+}
+
+/**
+ * Classify a persona id by its grammar alone: `builtin:<name>`, a package id
+ * `<package>/<id>` (split on the **last** `/`, so scoped npm names work), a team
+ * slug, or invalid.
+ */
+export function parsePersonaId(id: string):
+  | { kind: "builtin"; name: string }
+  | { kind: "package"; packageName: string; name: string }
+  | { kind: "team" }
+  | { kind: "invalid" } {
+  if (id.startsWith(BUILTIN_PERSONA_PREFIX)) return { kind: "builtin", name: id.slice(BUILTIN_PERSONA_PREFIX.length) };
+  const slash = id.lastIndexOf("/");
+  if (slash > 0 && slash < id.length - 1) {
+    const name = id.slice(slash + 1);
+    return TEAM_PERSONA_ID_PATTERN.test(name) ? { kind: "package", packageName: id.slice(0, slash), name } : { kind: "invalid" };
+  }
+  return TEAM_PERSONA_ID_PATTERN.test(id) ? { kind: "team" } : { kind: "invalid" };
+}
+
+/** Slugify text into the team-persona id grammar (lowercase, `-`, ≤ 64 chars). */
+export function slugifyPersonaId(text: string): string {
+  return text.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64).replace(/-+$/, "");
 }

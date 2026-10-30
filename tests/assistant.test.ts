@@ -330,9 +330,7 @@ test("persona: defaults to none, can be set and cleared", async () => {
     assertStringIncludes(body.systemPrompt, "You are in a live chat");
     assertStringIncludes(body.systemPrompt, "team assistant");
 
-    await post(app, "/api/context", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo.", tags: ["persona"] });
-    const entries = await (await app.request("/api/context")).json();
-    const id = entries.entries[0].id;
+    const id = (await (await post(app, "/api/personas", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo.", kinds: ["assistant"] })).json()).persona.id;
 
     const setRes = await put(app, "/api/assistant/persona", { personaId: id });
     assertEquals(setRes.status, 200);
@@ -341,6 +339,12 @@ test("persona: defaults to none, can be set and cleared", async () => {
     assertStringIncludes(body.systemPrompt, "gruff pizzaiolo");
     assertStringIncludes(body.systemPrompt, "You are in a live chat");
     assertEquals(store.getAssistantPersonaId(), id);
+    // Team configuration, not runtime state: it lands in config.json.
+    assertEquals(JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")).assistant.persona, id);
+    body = await (await app.request("/api/assistant/persona")).json();
+    assertEquals(body.persona.id, id);
+    // A built-in can be selected too.
+    assertEquals((await put(app, "/api/assistant/persona", { personaId: "builtin:assistant" })).status, 200);
 
     body = await (await put(app, "/api/assistant/persona", { personaId: null })).json();
     assertEquals(body.personaId, null);
@@ -366,8 +370,7 @@ test("persona: the framing follows assistant.chatMode (chat default, terminal on
     assertEquals(body.systemPrompt.includes("bubble"), false);
 
     // A persona swap in terminal mode keeps the terminal framing.
-    await post(env.app, "/api/context", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo.", tags: ["persona"] });
-    const id = (await (await env.app.request("/api/context")).json()).entries[0].id;
+    const id = (await (await post(env.app, "/api/personas", { title: "Pizzaiolo", content: "You are a gruff pizzaiolo." })).json()).persona.id;
     body = await (await put(env.app, "/api/assistant/persona", { personaId: id })).json();
     assertStringIncludes(body.systemPrompt, "live terminal session");
     assertStringIncludes(body.systemPrompt, "gruff pizzaiolo");
@@ -406,9 +409,8 @@ test("persona swap ends the session (snapshotted) instead of wiping the chat", a
     await post(app, "/api/assistant/messages", { content: "talking to the default" });
     const before = store.getActiveAssistantSession()!;
 
-    await post(app, "/api/context", { title: "Pizzaiolo", content: "Gruff.", tags: ["persona"] });
-    const entries = await (await app.request("/api/context")).json();
-    await put(app, "/api/assistant/persona", { personaId: entries.entries[0].id });
+    const created = await (await post(app, "/api/personas", { title: "Pizzaiolo", content: "Gruff." })).json();
+    await put(app, "/api/assistant/persona", { personaId: created.persona.id });
 
     // Old conversation preserved; a new session opened under the new persona.
     assertEquals(store.getAssistantSession(before.id)!.status, "ended");

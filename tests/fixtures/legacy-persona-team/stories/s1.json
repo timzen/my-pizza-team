@@ -1,0 +1,9 @@
+{
+  "id": "s1",
+  "title": "Story one",
+  "description": "The first story",
+  "status": "open",
+  "dependsOn": [],
+  "tasks": [{ "id": "s1-1", "status": "todo" }],
+  "context": ["project-conventions"]
+}

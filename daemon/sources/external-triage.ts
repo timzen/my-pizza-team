@@ -17,7 +17,7 @@
  * takes over from the source, for triage-mode mirrors only:
  *   - the WorkItem's title ("Triage: <title>") and directory (the mirror's, else
  *     the leader's — the thought-triage rule);
- *   - the claim prompt (`triage.md` / the built-in default + the mirror's current
+ *   - the claim prompt (the triage persona / the built-in default + the mirror's current
  *     content, open stories, earlier analyses, and the decision summary);
  *   - **Run**, which means **Triage now**: force a run of the current revision.
  *
@@ -35,7 +35,7 @@ import type { RunResult, SourceContext } from "./types.ts";
 export interface ExternalTriageDeps {
   /** The registered leader's directory, if any (where triage runs by default). */
   leaderDirectory(): string | undefined;
-  /** The team's `triage.md`, or undefined for the built-in default. */
+  /** The team's triage persona body, or undefined for the built-in default. */
   getTriageInstructions(): string | undefined;
   /** Open (not done) stories, so a proposal can attach a task to one. */
   getOpenStories(): Array<{ id: string; title: string }>;

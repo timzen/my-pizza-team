@@ -9,6 +9,7 @@
 import type { RouteContext } from "./types.ts";
 import { TODO_STATE } from "../../shared/types.ts";
 import { requestsPending } from "./work-defs.ts";
+import { contextFieldRefusal } from "./personas.ts";
 import type {
   CreateTaskRequest, CreateTaskResponse,
   DeleteTaskResponse, MoveTaskRequest, MoveTaskResponse,
@@ -28,8 +29,11 @@ export function registerTaskRoutes(ctx: RouteContext): void {
     const story = store.getStory(storyId);
     if (!story) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies CreateTaskResponse, 404);
 
+    const refused = contextFieldRefusal(body);
+    if (refused) return c.json({ success: false, error: refused } satisfies CreateTaskResponse, 400);
+
     const pending = requestsPending(body);
-    const task = store.addTask(storyId, { title: body.title, description: body.description, context: Array.isArray(body.context) ? body.context : undefined, pending });
+    const task = store.addTask(storyId, { title: body.title, description: body.description, pending });
     if (!task) return c.json({ success: false, error: "Failed to add task" } satisfies CreateTaskResponse, 400);
 
     return c.json({ success: true, task: { id: task.id, seq: task.seq, title: task.title, description: task.description, status: task.status, pending } } satisfies CreateTaskResponse, 201);

@@ -9,6 +9,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { contextFieldRefusal } from "./personas.ts";
 import type { Template } from "../../shared/types.ts";
 import type {
   TemplatesResponse, TemplateResponse, SaveTemplateRequest, UpdateTemplateRequest, SaveTemplateResponse,
@@ -17,7 +18,7 @@ import type {
 function view(t: Template) {
   return {
     id: t.id, title: t.title, goal: t.goal, acceptanceCriteria: t.acceptanceCriteria,
-    additionalContext: t.additionalContext, contextRefs: t.contextRefs, directory: t.directory,
+    additionalContext: t.additionalContext, directory: t.directory,
   };
 }
 
@@ -37,9 +38,11 @@ export function registerTemplateRoutes(ctx: RouteContext): void {
   app.post("/api/templates", async (c) => {
     const body = (await c.req.json()) as SaveTemplateRequest;
     if (!body.title) return c.json({ success: false, error: "Field 'title' is required" } satisfies SaveTemplateResponse, 400);
+    const refused = contextFieldRefusal(body);
+    if (refused) return c.json({ success: false, error: refused } satisfies SaveTemplateResponse, 400);
     const tpl = store.createTemplate({
       title: body.title, goal: body.goal || "", acceptanceCriteria: body.acceptanceCriteria || "",
-      additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
+      additionalContext: body.additionalContext, directory: body.directory,
     });
     return c.json({ success: true, template: view(tpl) } satisfies SaveTemplateResponse, 201);
   });
@@ -48,9 +51,11 @@ export function registerTemplateRoutes(ctx: RouteContext): void {
     const id = c.req.param("id");
     const body = (await c.req.json()) as UpdateTemplateRequest;
     if (!store.getTemplate(id)) return c.json({ success: false, error: "Template not found" } satisfies SaveTemplateResponse, 404);
+    const refused = contextFieldRefusal(body);
+    if (refused) return c.json({ success: false, error: refused } satisfies SaveTemplateResponse, 400);
     const tpl = store.updateTemplateDetails(id, {
       title: body.title, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria,
-      additionalContext: body.additionalContext, contextRefs: body.contextRefs, directory: body.directory,
+      additionalContext: body.additionalContext, directory: body.directory,
     });
     if (!tpl) return c.json({ success: false, error: "Update failed" } satisfies SaveTemplateResponse, 400);
     return c.json({ success: true, template: view(tpl) } satisfies SaveTemplateResponse);

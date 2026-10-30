@@ -54,12 +54,19 @@ plugin". What's left:
 - **Edited / deleted external comments:** the thread merge is append-only by
   comment id, so an edit or delete in the source isn't reflected.
 
-## Personas — designed (docs/DESIGN.md "Personas: One Library, Selected by Reference")
+## Personas — being built (docs/DESIGN.md "Personas: One Library, Selected by Reference")
 
 One persona library (`personas/<id>.md`, `builtin:*`, package `<name>/<id>`)
 replaces workflow state files, `triage.md`, the assistant's context-library persona,
 and the context library itself; everything selects a persona by id through
-`resolvePersona`. Being built in the Unified Personas story. Deferred on purpose:
+`resolvePersona`. Being built in the Unified Personas story: the library, built-ins,
+API, migration (steps 1, 2, 4–7), WorkDef `persona`, and the WorkItem snapshot columns
+are in. Still open in the story: the Solitary/Scheduled persona block and recording
+the snapshot at claim, Work Source personas (+ migration step 3), the plugin loader's
+`mpt.personas`, the Pi tools, the UI, and the demo team. Also for its final pass:
+`builtin:assistant` (`DEFAULT_ASSISTANT_PERSONA`) still says it can "curate the shared
+context library" — kept byte-identical on purpose until the harness drops
+`list_context`, then reword it. Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
   built on a package's, picking up its updates). Today Duplicate copies and never
@@ -88,7 +95,8 @@ Open questions (decide while building, or leave as-is and record why):
 - **Package personas and `config`:** a package might want per-team values in its
   persona text (a team name, a queue URL); that's templating, deferred above.
 - **Notices surface:** the migration notice is the first `/api/status` `notices`
-  entry; if a second kind appears, give notices their own route and dismissal store.
+  entry (dismissed with `DELETE /api/notices/:id`, held in SQLite `settings`); if a
+  second kind appears, give notices their own store.
 
 ## Auto Triage — built
 

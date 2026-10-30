@@ -302,19 +302,15 @@ When a teammate completes an agent state, the task advances to the next state. I
 
 ---
 
-## Context Library
+## Personas (and what happened to the Context Library)
 
-**Config → Context** (`/config/context`) stores reusable prompt/context entries to inject into teammates or the assistant. Each entry saves on its own — no Save Configuration needed. (The old `/context` address still works and takes you there.)
+How a teammate — or the assistant, or triage — behaves is a **persona**: a markdown file in your team's persona library (`personas/<id>.md`). Workflow states, triage, the assistant, and Solitary or Scheduled tasks each *pick* a persona by id instead of carrying their own instructions, so one edit changes everywhere it's used. Built-in personas (today's defaults) are always there and read-only; duplicate one to make your own version.
 
-- **Metadata** — title, short description, tags
-- **Filter** — tag chips + free-text search (client-side; the collection is meant to stay small)
-- **Markdown body** — the prompt/context text itself
+**The Context Library was removed.** *How to do the work* belongs in a persona; *what the project is* (conventions, architecture, build commands) belongs in the project itself — its AGENTS.md or README — where teammates already read it. When your team first starts on this version, MPT moves things over for you, in one commit:
 
-Good things to keep: coding conventions, architecture decisions, common patterns/gotchas, project-specific context.
-
-### Attaching context to work
-
-Attach entries to a **story** (applies to all its tasks) or an individual **WorkDef** from its editor. Attached entries are inlined into the prompt under a **Reference Context** section when a teammate claims the work — so the daemon vends the right context to every harness, no per-agent tools needed.
+- context entries tagged **`persona`** become personas (and the assistant keeps the one you'd picked);
+- entries that were **attached** to a story or task are copied into those tasks' **Additional Context**, under a heading naming the entry, so their prompts carry the same text;
+- the old `context/` folder is kept as `context.migrated/`, and a one-time notice says how many entries were moved and how many were left there — turn the useful ones into personas, or move them into the project's AGENTS.md.
 
 ### Assistant style: chat or terminal
 
@@ -405,7 +401,7 @@ Visit `/config`:
 - **Teammates** — the nouns used to name teammates, **One teammate per directory**, and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the default harness; applies on save, no restart)
 - **Sources** — your Work Source plugins: switch each on or off, edit its settings, **Preview** what it would pull, and **Save** (see [Setting up a plugin from the UI](#setting-up-a-plugin-from-the-ui))
 - **Workflows** — your story workflows and their state personas (see [Workflows](#workflows)); hidden while Stories are off
-- **Context** — the context library (see [Context Library](#context-library))
+- **Context** — the former context library, being replaced by personas (see [Personas](#personas-and-what-happened-to-the-context-library))
 - **Triage** — [auto triage](#thoughts): on/off, the sweep interval, the quiet period, and the instructions every run follows (`triage.md`, with its own **Save instructions** button)
 - **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
 

@@ -96,7 +96,7 @@ test("createStory admits the first task and enqueues a READY WorkItem; the rest 
 test("pending stories admit nothing until activated", () => {
   const { store, teamDir } = setup();
   try {
-    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default", undefined, true);
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default", true);
     assertEquals(store.getTask("s1-1")?.status, "todo");
     store.updateStoryDetails("s1", { pending: false });
     assertEquals(store.getTask("s1-1")?.status, "in_progress");
@@ -195,7 +195,7 @@ test("claim prompt includes the story's working directory instruction", async ()
   const { app, store, teamDir } = setup();
   try {
     store.registerMember("a1", "neo", "/tmp");
-    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default", undefined, false, "/tmp/proj");
+    store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default", false, "/tmp/proj");
     const body = await (await post(app, `/api/agents/claim/${workItemFor(store, "s1-1")}`, { agentId: "a1" })).json();
     assertStringIncludes(body.prompt, "Working Directory");
     assertStringIncludes(body.prompt, "/tmp/proj");
@@ -394,7 +394,7 @@ test("DELETE /api/agents/:id returns 404 for unknown", async () => {
 test("next-work biases to the agent's directory; unhomed work is anyone's", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.createStory("sa", "A", "D", "open", [], [{ title: "TA", description: "d" }], "default", undefined, false, "/repo/a");
+    store.createStory("sa", "A", "D", "open", [], [{ title: "TA", description: "d" }], "default", false, "/repo/a");
     store.createStory("sc", "C", "D", "open", [], [{ title: "TC", description: "d" }], "default");
 
     // Agent in /repo/a gets its own repo's work (tier 1).
@@ -411,7 +411,7 @@ test("next-work biases to the agent's directory; unhomed work is anyone's", asyn
 test("next-work: a directory-tagged item waits for an online agent with that dir", async () => {
   const { app, store, teamDir } = setup();
   try {
-    store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", undefined, false, "/repo/b");
+    store.createStory("sb", "B", "D", "open", [], [{ title: "TB", description: "d" }], "default", false, "/repo/b");
     store.registerMember("ag-b", "b", "/repo/b");   // online, matching dir
     store.registerMember("ag-x", "x", "/repo/x");   // wrong dir
 

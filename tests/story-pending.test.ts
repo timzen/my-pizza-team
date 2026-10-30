@@ -80,7 +80,7 @@ test("pending story: READY work is not handed out; activating resumes it", () =>
 test("pending story created pending: nothing admitted until activated", () => {
   const { store, cleanup } = setup();
   try {
-    store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", undefined, true);
+    store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", true);
     assertEquals(store.getTask("s1-1")!.status, "todo");
     assertEquals(store.getActiveWorkItemForTask("s1-1"), null);
     store.setStoryPending("s1", false);
@@ -136,7 +136,7 @@ test("pending mid-flight: advancing into the next agent state is not handed out"
 test("a story depending on a pending story waits; it stays on the board", () => {
   const { store, cleanup } = setup();
   try {
-    store.createStory("a", "A", "d", "open", [], [{ title: "A1", description: "d" }], "default", undefined, true);
+    store.createStory("a", "A", "d", "open", [], [{ title: "A1", description: "d" }], "default", true);
     store.createStory("b", "B", "d", "open", ["a"], [{ title: "B1", description: "d" }], "default");
     assertEquals(store.isStoryReady("b"), false);
     assertEquals(store.getTask("b-1")!.status, "todo");
@@ -156,7 +156,7 @@ test("a story depending on a pending story waits; it stays on the board", () => 
 test("pending survives a restart (stories/<id>.json carries it)", () => {
   const { store, teamDir, cleanup } = setup();
   try {
-    store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", undefined, true);
+    store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", true);
     assertEquals(readStoryFile(teamDir, "s1").pending, true);
     store.loadFromDisk();
     assertEquals(store.getStory("s1")!.pending, true);

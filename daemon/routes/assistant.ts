@@ -18,23 +18,13 @@
 import type { RouteContext } from "./types.ts";
 import type { AssistantDelivery } from "../store/assistant-chat.ts";
 import { resolveAssistantChatMode, type AssistantChatMode } from "../../shared/types.ts";
+import { DEFAULT_ASSISTANT_PERSONA } from "../personas/builtins.ts";
 
 /**
- * The default assistant persona. When no context-library persona is selected,
- * the daemon supplies this as the assistant's system prompt so it always has
- * role framing (the harness no longer hardcodes any). Picking a persona in the
- * UI replaces this entirely.
+ * The default assistant persona (`builtin:assistant`), re-exported from
+ * daemon/personas/builtins.ts where it now lives.
  */
-export const DEFAULT_ASSISTANT_PERSONA = [
-  "You are the team assistant for a \"pizza team\" \u2014 a small group of AI teammates",
-  "coordinated by the my-pizza-team daemon.",
-  "",
-  "Help the user run the team and its work. Using your available tools you can",
-  "create and edit stories, add tasks, queue requests for the team, curate the",
-  "shared context library, and report team status.",
-  "",
-  "Keep replies concise. When you take actions, briefly summarize what you did.",
-].join("\n");
+export { DEFAULT_ASSISTANT_PERSONA };
 
 /**
  * Chat framing injected ahead of every persona (custom or default) in the
@@ -269,38 +259,34 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
 
   // ─── Persona ───────────────────────────────────────────────────────
   //
-  // The active persona is a context-library entry id. GET resolves it to the
-  // entry (null if unset or deleted). PUT swaps it: because a persona change is
+  // The selection is a persona id in config.json `assistant.persona` (unset =
+  // `builtin:assistant`; docs/DESIGN.md "Personas" — References). GET returns the
+  // selection (null if unset or it no longer resolves), the persona it resolves
+  // to, and the composed system prompt. PUT swaps it: because a persona change is
   // a change of who you're talking to, it ends the current session (snapshotted)
-  // and opens a new one — it no longer deletes the transcript.
+  // and opens a new one — it never deletes the transcript.
 
-  app.get("/api/assistant/persona", (c) => {
+  /** The selection, if it still resolves, and the persona the assistant actually runs as. */
+  const current = () => {
     const personaId = store.getAssistantPersonaId();
-    const entry = personaId ? store.getContextEntry(personaId) : null;
-    return c.json({
-      personaId: entry ? personaId : null,
-      entry,
-      systemPrompt: composeSystemPrompt(entry ? entry.content : null, resolveAssistantChatMode(config)),
-    });
-  });
+    const entry = personaId ? store.getPersona(personaId) : null;
+    const resolved = store.resolveAssistantPersona();
+    const persona = store.getPersona(resolved.id)!;
+    return { personaId: entry ? personaId : null, persona, entry, systemPrompt: composeSystemPrompt(resolved.body, resolveAssistantChatMode(config)) };
+  };
+
+  app.get("/api/assistant/persona", (c) => c.json(current()));
 
   app.put("/api/assistant/persona", async (c) => {
-    const body = await c.req.json();
-    const personaId: string | null = typeof body.personaId === "string" ? body.personaId : null;
-    if (personaId) {
-      const entry = store.getContextEntry(personaId);
-      if (!entry) return c.json({ success: false, error: "Context entry not found" }, 404);
+    const body = await c.req.json().catch(() => ({})) as { personaId?: unknown };
+    const personaId: string | null = typeof body.personaId === "string" && body.personaId ? body.personaId : null;
+    if (personaId && !store.getPersona(personaId)) {
+      return c.json({ success: false, error: `Persona "${personaId}" not found` }, 404);
     }
     store.setAssistantPersonaId(personaId);
-    const entry = personaId ? store.getContextEntry(personaId) : null;
+    const now = current();
     // End the old session and start a fresh one as the new persona.
-    const session = store.newAssistantSession(`New chat as ${entry ? entry.title : "the default assistant"}`);
-    return c.json({
-      success: true,
-      personaId,
-      entry,
-      session,
-      systemPrompt: composeSystemPrompt(entry ? entry.content : null, resolveAssistantChatMode(config)),
-    });
+    const session = store.newAssistantSession(`New chat as ${now.entry ? now.entry.title : "the default assistant"}`);
+    return c.json({ success: true, ...now, personaId, session });
   });
 }

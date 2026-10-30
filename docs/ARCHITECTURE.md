@@ -36,18 +36,18 @@ committed by autosave.
 
 | Path | Contents | Source of truth |
 |---|---|---|
-| `config.json` | Team config (`TeamConfig`), including the `features` toggles (absent ⇒ all on; see "Feature toggles") | file |
-| `workflows/<name>/workflow.json` | `{ states: [{name, type}] }` | file |
-| `workflows/<name>/<state>.md` | Persona for an agent state | file |
-| `stories/<id>.json` | Story: title, description, workflow, directory, context, `pending: true` while pending, dependsOn, `tasks: [{id, status}]` (legacy `paused` is migrated on load) | file (indexed in SQLite) |
-| `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, contextRefs, `status: archived`, `pending: true` while pending — legacy `draft: true` reads as pending) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
+| `config.json` | Team config (`TeamConfig`), including the `features` toggles (absent ⇒ all on; see "Feature toggles") and the persona selections `triage.persona`, `assistant.persona`, `sourcePersonas` | file |
+| `workflows/<name>/workflow.json` | `{ states: [{name, type, persona?}] }` — an agent state's `persona` is a persona id | file |
+| `personas/<id>.md` | A team persona: frontmatter (`title`, `description`, `tags`, optional `kinds`, `duplicatedFrom`) + the markdown body injected into prompts (see "Personas") | file |
+| `stories/<id>.json` | Story: title, description, workflow, directory, `pending: true` while pending, dependsOn, `tasks: [{id, status}]` (legacy `paused` is migrated on load) | file (indexed in SQLite) |
+| `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, `persona` (Solitary/Scheduled), `status: archived`, `pending: true` while pending — legacy `draft: true` reads as pending) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
 | `tasks/<id>/comments.jsonl`, `attachments/` | The WorkDef's thread and files (append-only comments) | file |
 | `schedules/<id>.json` | Cron parent: cron, lastEnqueuedAt, `heldForReadiness?`, `pending?` (reversible), `resumedAt?` (last reactivation) | file |
 | `sources/<sourceId>.json` | A Work Source's own key/value state (e.g. `revision:<defId>` stamps from `enqueueRevision`); written only by a source that uses `ctx.kv` — the built-ins don't. An external source's mirrors keep `mirror:<defId>` (revision mirrored), `vanished:<defId>` (archived by sync), and `mode:<defId>` (`"triage"` while the item is in triage mode) here | file |
 | `tasks/<sourceId>~<externalId>/workdef.md` | A **mirrored** WorkDef (`parentKind: external`, `parentSource`, `url`): an external source's item, written only by its sync (`sources/mirror.ts`); MPT's edit/delete/create routes refuse it. Its thread and attachments are ordinary | file |
 | `templates/<id>/template.md` | Task Template (WorkDef format, never enqueued) | file |
 | `archived/<id>.json` | Archived stories (with synopsis). A legacy `backlog/<id>.json` is moved back to `stories/` as pending on load (`store/story-migration.ts`) | file |
-| `context/<id>.md` | Context-library entry (title/description/tags frontmatter) | file |
+| `context.migrated/` | The former context library, archived by the persona migration (with a README); nothing reads it | file |
 | `thoughts/<id>.md`, `groups.json` | Thoughts notes and groups | file |
 | `assistant/sessions/<id>.md` | Chat session transcripts | file (messages live in SQLite) |
 | `usage/YYYY-MM.jsonl` | Token-usage ledger, one line per run | file (cached in `token_usage`) |
@@ -99,12 +99,11 @@ Activating re-runs admission; its waiting READY items become eligible again.
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
 - `static.ts` — Serves the UI with SPA fallback to `index.html`: `UI_DIST` if set, else the package's own `ui/dist/` (`shared/paths.ts`), else `<cwd>/ui/dist`.
 - `lifecycle.ts` — PID file, SIGTERM/SIGINT handling, flush-and-close on exit, and `redirectOutputToLog` (a background daemon's console → `daemon.log`, the previous run's kept as `daemon.log.1`, uncaught errors included).
-- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, the entry points into the board policy (`moveTask`, `updateTaskStatus`, `runAdmission`, `admitDependents` — all delegating to the Story source; `writeTaskPosition` persists a position), the **WorkItem queue** (`enqueueFor` — the single creator, which refuses pending WorkDefs; `getNextWorkItem` — directory affinity, skipping items blocked by an exclusive directory lease; `claimWorkItem` — re-checks the lease in a `BEGIN IMMEDIATE` transaction; `getDirectoryBlocker` — the in-flight item holding an overlapping directory; `setWorkItemState`; `failWorkItemForSessionError` — an errored agent session: `[retry]` comment + a backoff-held retry item (`attempt`, `retry_at`), or `[failed]` once `resolveRetry`'s retries run out, DESIGN.md "Errored Sessions Retry"; cancel/force-fail/re-enqueue; `getExecutionStats` / `getExecutionStatsFor` — per-WorkDef run count and last run, one aggregate over `work_items` with CANCELED excluded, DESIGN.md "Execution Count: Derived, not Counted"), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness, the Work Source registry (`registerWorkSource`, `getWorkSourceFor`, `tickWorkSources`; hooks called from `loadFromDisk` (`reconcile`), `enqueueFor`, `isWorkItemEligible`, `claimWorkItem`, `setWorkItemState` / cancel / force-fail / a board move's withdrawal (`onItemTerminal`), `addCommentForRef` (`onComment`; a returned `{ externalId }` is recorded as `wroteback:<defId>:<id>` in the source's kv, and a comment marked `external` never fires it), `activateWorkDef`, `runWorkDef`), external sources (`syncWorkSource` → `SyncRunner` → `ingestExternalDefs`: mirror, merge the item's `comments` into the mirror's thread (`ingestExternalComments` — appended directly, never through `onComment`; deferred while a write-back for that def is in flight), enqueue once per revision behind readiness, archive what vanished; `listExternalSources`, `getMirrorState` (revision, vanished, mode), `getLatestWorkItemState`; triage mode — `isTriageModeMirror`, and for those mirrors the daemon's title/directory in `enqueueFor`, prompt in `buildPromptFor`, and Triage now in `runWorkDef`, via `sources/external-triage.ts`) and `runScheduler` (a synchronous call into the Schedule source), story pending ⇄ active (`setStoryPending`) and archive, attachments, context resolution (`resolveTaskContext`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s Work Source tick (`tickWorkSources`; the Schedule source fires there), and one sync timer per external source (`syncEveryMs`, default 60s, plus a first run 1s after start). Self-contained concerns live in `store/`:
+- `store.ts` — The Store: SQLite (`node:sqlite` `DatabaseSync`) plus file sync. Owns schema and migrations, story/task CRUD and ordering, the entry points into the board policy (`moveTask`, `updateTaskStatus`, `runAdmission`, `admitDependents` — all delegating to the Story source; `writeTaskPosition` persists a position), the **WorkItem queue** (`enqueueFor` — the single creator, which refuses pending WorkDefs; `getNextWorkItem` — directory affinity, skipping items blocked by an exclusive directory lease; `claimWorkItem` — re-checks the lease in a `BEGIN IMMEDIATE` transaction; `getDirectoryBlocker` — the in-flight item holding an overlapping directory; `setWorkItemState`; `failWorkItemForSessionError` — an errored agent session: `[retry]` comment + a backoff-held retry item (`attempt`, `retry_at`), or `[failed]` once `resolveRetry`'s retries run out, DESIGN.md "Errored Sessions Retry"; cancel/force-fail/re-enqueue; `getExecutionStats` / `getExecutionStatsFor` — per-WorkDef run count and last run, one aggregate over `work_items` with CANCELED excluded, DESIGN.md "Execution Count: Derived, not Counted"), members and heartbeats (`reapOfflineAgents`, `dismissMember` tombstones), leader directives, the teammate pool (`reconcileTeammatePool`), team readiness, the Work Source registry (`registerWorkSource`, `getWorkSourceFor`, `tickWorkSources`; hooks called from `loadFromDisk` (`reconcile`), `enqueueFor`, `isWorkItemEligible`, `claimWorkItem`, `setWorkItemState` / cancel / force-fail / a board move's withdrawal (`onItemTerminal`), `addCommentForRef` (`onComment`; a returned `{ externalId }` is recorded as `wroteback:<defId>:<id>` in the source's kv, and a comment marked `external` never fires it), `activateWorkDef`, `runWorkDef`), external sources (`syncWorkSource` → `SyncRunner` → `ingestExternalDefs`: mirror, merge the item's `comments` into the mirror's thread (`ingestExternalComments` — appended directly, never through `onComment`; deferred while a write-back for that def is in flight), enqueue once per revision behind readiness, archive what vanished; `listExternalSources`, `getMirrorState` (revision, vanished, mode), `getLatestWorkItemState`; triage mode — `isTriageModeMirror`, and for those mirrors the daemon's title/directory in `enqueueFor`, prompt in `buildPromptFor`, and Triage now in `runWorkDef`, via `sources/external-triage.ts`) and `runScheduler` (a synchronous call into the Schedule source), story pending ⇄ active (`setStoryPending`) and archive, attachments, the persona library (`listPersonas`, `getPersona`, `createPersona`/`updatePersona`/`deletePersona`/`duplicatePersona`, `resolvePersona` — logs a missing reference once per id, `getPersonaUsage`, `resolveStatePersona`/`setStatePersona`, `resolveAssistantPersona`, `packagePersonas`), the WorkItem persona snapshot (`recordWorkItemPersona`, and `claimWorkItem`'s optional `persona`), notices (`getNotices`/`dismissNotice`), and config persistence (`saveConfig` → `serializeConfig`, the single writer). Timers (`startTimers`): flush + autocommit, a 30s tick (reap → refresh chat snapshot → reconcile pool), and a 30s Work Source tick (`tickWorkSources`; the Schedule source fires there), and one sync timer per external source (`syncEveryMs`, default 60s, plus a first run 1s after start). Self-contained concerns live in `store/`:
   - `store/workdefs.ts` — WorkDef markdown IO (`serializeWorkDef`/`parseWorkDef`, including the `pending` flag, reading legacy `draft: true` as pending) and per-def comments.
   - `store/story-migration.ts` — `migrateLegacyStoryFiles`, run first by `loadFromDisk`: story `paused: true` → `pending: true`, `backlog/<id>.json` → `stories/` as pending (`backloggedAt` dropped, `backlog/` removed once empty; an id already in `stories/` is left and warned about). Idempotent.
   - `store/schedules.ts` — Schedule JSON files.
   - `store/templates.ts` — Template IO (reuses the WorkDef serializer; files only, no index).
-  - `store/context.ts` — Context-library markdown entries.
   - `store/thoughts.ts` — Thought notes and `groups.json` (files only). A group is a spatial rectangle; membership lives on each note's `groupId`.
   - `store/assistant-chat.ts` — The chat: sessions, messages, receipts, the agent inbox (each item's `mode`: `queue`/`steer` from the terminal-mode composer, `send_mode` column; null from the chat composer), the ephemeral reasoning buffer, and SSE fan-out. At most one session is `active`.
   - `store/assistant-snapshots.ts` — Session markdown transcripts (reasoning excluded).
@@ -135,7 +134,13 @@ Activating re-runs admission; its waiting READY items become eligible again.
   - `sources/fixture.ts` — `FixtureSource`, the in-repo markdown-folder external source (one `*.md` per item, SHA-256 content revision, `mode: triage` frontmatter or the `mode` option for triage mode, `<stem>.comments.jsonl` as the item's `comments`, write-back recorded in `writeBacks` and `<dir>/.writeback.jsonl` — and `onComment` also posts to the item's comments file and returns the new id). Registered only by tests or `config.dev.fixtureSource` (`daemon/app.ts registerDevSources`).
   - `sources/thought.ts` — The built-in Thought (auto-triage) source, `ThoughtSource`: the sweep as its `tick` (every `triage.intervalMinutes`; no timer when triage is off), `triageNow`, `statusFor`, `ensureWorkDef`, and the hooks — `resolveItem` (note title, leader directory), `isEligible` (note active), `buildPrompt` (`buildTriagePrompt`), `run` (= Triage now). Store reads come in as `ThoughtSourceDeps`.
 - `workflow-engine.ts` — Position logic: `activeStateNames`, `isAgentState`, `firstActiveState`, `nextState`, `boardColumns`, `isValidPosition`, `validateWorkflow`.
-- `workflow-lint.ts` — `validateInstructionMarkdown`: unbalanced fences are errors; shallow headings and `---` are warnings.
+- `personas/` — The persona library (DESIGN.md "Personas: One Library, Selected by Reference"):
+  - `personas/builtins.ts` — The read-only `builtin:assistant` / `builtin:triage` / `builtin:worker` (`DEFAULT_ASSISTANT_PERSONA`, `DEFAULT_TRIAGE_INSTRUCTIONS`, `DEFAULT_WORKER_PERSONA`; the first two re-exported from `routes/assistant.ts` / `prompt.ts`).
+  - `personas/library.ts` — Team persona files (`personas/<id>.md`): list/read/write/delete, `parsePersonaFile`, `freeTeamPersonaId` (`-2`… on collision), `normalizeKinds`.
+  - `personas/packages.ts` — `PackagePersonas`: the registry of package personas (`<package.json name>/<id>`, read-only; lint warnings/errors reported, a lint error marks `lintError` but still loads; a second package with the same name is refused). Fed by the plugin loader.
+  - `personas/resolve.ts` — `resolvePersona` (an id → body; a missing id → the consumer's built-in with `fallbackFrom`), `personaRefOf` (the WorkItem snapshot), `personaUsage` (the "Used by" scan). Pure.
+  - `personas/lint.ts` — `validatePersonaMarkdown` (formerly `workflow-lint.ts`): unbalanced fences are errors; shallow headings and `---` are warnings.
+  - `personas/migrate.ts` — `migrateToPersonas`, run by the Store constructor before workflows load: state files, `triage.md`, persona-tagged context entries, the `assistant_persona` setting (+ session remap), attached context inlined into Additional Context, `context/` → `context.migrated/` + a notice. Idempotent; one autocommit `mpt: migrate to personas`.
 - `prompt.ts` — `buildTaskPrompt` (see DESIGN.md "The Daemon Owns the Prompt") and `normalizeInstructionMarkdown` (fence-aware heading demotion).
 - `triage.ts` — Auto-triage rules (pure, like cron.ts): `triageSkipReason`/`isTriageDue` (the turn rule), `triageWorkDefId`, `triageWorkItemTitle`, `mirrorTriageWorkItemTitle`, `noteFirstLine`, and the proposal layer — `validateAnalysis`/`validateProposal`, `foldProposals`, `latestAnalysis`, `pendingProposals`, `triageBadge`, `decisionSummary`.
 - `cron.ts` — Vendored 5-field cron parser (`parseCron`, `cronMatches`, `isCronDue`, `isValidCron`).
@@ -161,7 +166,8 @@ Activating re-runs admission; its waiting READY items become eligible again.
 - `routes/transcripts.ts` — Teammate transcript SSE (subscribing registers a viewer), the agent's watch poll and batched POST, and a snapshot.
 - `routes/pairing.ts` — Pair / message / release (UI), pairing state, and the draining agent poll. Pi teammates only (ACP teammates don't poll it yet).
 - `routes/usage.ts` — Usage reports from any run, and the dashboard's daily/day rollups.
-- `routes/context.ts`, `routes/thoughts.ts` — Thin CRUD shells over their store modules.
+- `routes/personas.ts` — The persona library (`/api/personas*`: lint on save, read-only built-in/package personas, delete protection, duplicate), `PUT /api/workflows/:name/states/:state`, the 410 stubs for `/api/context*`, `/api/workflows/:name/instructions/:state`, `/api/triage/instructions`, and `contextFieldRefusal` (a request still carrying `context`/`contextRefs` → 400).
+- `routes/thoughts.ts` — Thin CRUD shell over its store module.
 
 ### cli/
 
@@ -427,7 +433,7 @@ Thought Work Source (`daemon/sources/thought.ts`): the sweep (its `tick`, on its
 timer every `triage.intervalMinutes`, default 60), **Triage now** (overrides
 quiet/unchanged, refuses in-flight), the lazy WorkDef, and the status; the Store's
 `runTriageSweep`, `triageNow`, `ensureTriageWorkDef`, and `triageStatusFor` delegate to
-it, and the Store keeps `get/setTriageInstructions` (`triage.md`). The note's
+it, and the Store's `getTriageInstructions` resolves the `triage.persona` selection (unset → the built-in). The note's
 frontmatter carries `triagedVersion`, stamped when a run is *enqueued* — the source
 enqueues through `ctx.enqueueRevision` with `updatedAt` as the revision and that
 frontmatter field as the cursor. `buildTriagePrompt` (daemon/prompt.ts, with
@@ -520,7 +526,7 @@ such item". `GET /api/work-defs` omits the disabled kinds' WorkDefs. **Never gat
 `/api/work-items*` (Queue, Inbox, recovery), `/api/agents/*` (claim, comment,
 complete — so work already queued finishes), the WorkDef thread surface
 (`/api/work-defs/:id/comments|comment|attachments|token-usage`), triage WorkDefs,
-Thoughts, Context, and the timers (the scheduler, admission). The gates read the live
+Thoughts, Personas, and the timers (the scheduler, admission). The gates read the live
 config per request, so a `PUT /api/config` applies without a restart.
 
 **Turning a kind off** through `PUT /api/config` is refused with **409** while it has
@@ -587,38 +593,55 @@ with `attempt > 1` until its `retry_at` passes and the team is ready
 (migrated in place); `/api/work-items` returns them as `attempt`/`retryAt`/`error`.
 Rationale: DESIGN.md "Errored Sessions Retry".
 
-## Personas (planned)
+## Personas
 
-> **Designed, not yet built** — the rationale and every decision are in
-> [DESIGN.md](DESIGN.md) "Personas: One Library, Selected by Reference". This
-> stub is the map the implementing tasks fill in; until then the module map,
-> storage table, and routes below describe today's layout (`workflows/<wf>/<state>.md`,
-> `triage.md`, `context/`, the `assistant_persona` setting).
+Rationale and every decision: [DESIGN.md](DESIGN.md) "Personas: One Library,
+Selected by Reference". Built so far: the library, resolution, the API, the
+migration, and the snapshot columns; the Solitary/Scheduled persona block and the
+claim-time recording, the Work Source chain (and migration step 3), the plugin
+loader's `mpt.personas`, the Pi tools, and the UI are later tasks of the same story.
 
 - **Storage:** `personas/<id>.md` (frontmatter `title`, `description`, `tags`,
   optional `kinds`, `duplicatedFrom`). References, never bodies: `workflow.json`
   state `persona`, config.json `triage.persona`, `assistant.persona`,
   `sourcePersonas.<sourceId>.{persona,triagePersona}`; `workdef.md` frontmatter
   `persona` (Solitary/Scheduled; a mirror's from `ExternalDef.persona`); a mirror's
-  person override in `sources/<id>.json` `persona:<defId>`. `context/` is removed
-  (migrated to `context.migrated/`).
-- **Ids:** team `<slug>`, built-in `builtin:{assistant,triage,worker}`, package
-  `<package.json name>/<id>`.
-- **Modules:** `daemon/personas/` — `library.ts`, `builtins.ts`, `packages.ts`,
-  `resolve.ts` (`resolvePersona`, `usedBy`), `lint.ts` (from
-  `daemon/workflow-lint.ts`), `migrate.ts`; `daemon/routes/personas.ts`.
-  Removed: `daemon/store/context.ts`, `daemon/routes/context.ts`,
-  `Store.resolveTaskContext`, `ui/src/components/board/ContextSelector.tsx`.
-- **Data flow:** claim → the source/prompt builder picks a reference (state,
-  WorkDef, source chain) → `resolvePersona` (missing id → built-in + warning) →
-  prompt; the resolved persona is snapshotted on the WorkItem (`work_items`
-  `persona_id`, `persona_title`, `persona_origin`, `persona_via`,
-  `persona_fallback_from`) and returned as `WorkItem.persona`.
+  person override in `sources/<id>.json` `persona:<defId>`. The context library is
+  gone (archived to `context.migrated/`), and so are story `context` and WorkDef /
+  template `contextRefs` (SQLite `stories.context` / `tasks.context` dropped).
+- **Ids:** team `<slug>` (`TEAM_PERSONA_ID_PATTERN`), built-in
+  `builtin:{assistant,triage,worker}`, package `<package.json name>/<id>`
+  (`parsePersonaId`, split on the last `/`).
+- **Modules:** `daemon/personas/` (see the module map) and `daemon/routes/personas.ts`.
+- **Prompt paths today:** `Store.getStatePersona` resolves a state's `persona`
+  (missing → `builtin:worker`); `getTriageInstructions` resolves `triage.persona`
+  (unset → the built-in default; missing → `builtin:triage`); the assistant's
+  system prompt resolves `assistant.persona` (→ `builtin:assistant`). Missing
+  references are logged once per id per run (`[personas] … names persona 'x',
+  which doesn't exist — using builtin:worker`).
+- **Snapshot:** `work_items` `persona_id`, `persona_title`, `persona_origin`
+  (`team` | `builtin` | `package:<name>`), `persona_via`, `persona_fallback_from`
+  (added with `ALTER TABLE … ADD COLUMN`), written inside the claim transaction by
+  `claimWorkItem(id, memberId, persona)` / `recordWorkItemPersona`, returned as
+  `WorkItem.persona` by `/api/work-items` and, for each member's in-flight item, by
+  `/api/agents` (`persona`, `workItemId`).
+- **Migration** (`migrateToPersonas`, Store constructor, before `loadWorkflows`):
+  `workflows/<wf>/<state>.md` → persona `<wf>-<state>` + state `persona` (an empty
+  file is just removed; a file beside a state that already names one is left and
+  warned about); `triage.md` → persona `triage` + `triage.persona`; persona-tagged
+  `context/` entries (and the selected one, whatever its tags) → personas, and the
+  SQLite `assistant_persona` → `assistant.persona`, remapping `assistant_sessions`
+  and snapshot `persona:` lines through collision renames; every non-mirror
+  WorkDef and template's attached entries (story ones first, deduped) appended to
+  Additional Context under `### Reference: <title> (from the former context
+  library, \`<id>\`)` — the marker also makes a re-run skip it; then story
+  `context` is dropped and `context/` → `context.migrated[-N]/` with a README and
+  the `notice:context-library-removed` setting (`/api/status` `notices`). Config
+  is written through `saveConfig`; one commit when autosave's `autoCommit` is on.
+  Fixture: `tests/fixtures/legacy-persona-team`.
 - **Packages:** package.json `"mpt": { "personas": ["personas/*.md"] }` (sources
-  optional); `PluginLoadStatus.personas`.
-- **Routes:** `/api/personas[/:id[/duplicate]]`, `PUT /api/workflows/:name/states/:state`,
-  `PUT /api/sources/:id/persona`, `PUT /api/work-defs/:id/persona`; 410 Gone for
-  `/api/context*`, `/api/workflows/:name/instructions/:state`, `/api/triage/instructions`.
+  optional); `PluginLoadStatus.personas`. The registry (`store.packagePersonas`)
+  exists; the loader doesn't feed it yet.
 
 ## API Routes
 
@@ -630,7 +653,7 @@ switched-off kind answers 403 (see "Feature toggles").
 | Method | Path | Description |
 |--------|------|-------------|
 | GET | `/health` | `status`, `uptime`, `agents` (online), `queueDepth`, `memory`, `lastCommitTime`, `tmuxSession`, `leaderPresent`, `notReady` (readiness when not ready, else null), `spawning` (spawn capability) |
-| GET | `/api/status` | Story/task/member counts, `paused`, `queuedCount` (READY WorkItems), `unreadInboxCount` (unread COMPLETE/FAILED), `defaultWorkflow`, `workflows`, `features` (resolved toggles), `externalSources` (`[{ id, label }]`, the registered external Work Sources), `assistantChatMode` (`"chat"` \| `"terminal"`, `resolveAssistantChatMode`) |
+| GET | `/api/status` | Story/task/member counts, `paused`, `queuedCount` (READY WorkItems), `unreadInboxCount` (unread COMPLETE/FAILED), `defaultWorkflow`, `workflows`, `features` (resolved toggles), `externalSources` (`[{ id, label }]`, the registered external Work Sources), `assistantChatMode` (`"chat"` \| `"terminal"`, `resolveAssistantChatMode`), `notices` (`[{ id, message }]` — e.g. the persona migration's "context library was removed" line; `DELETE /api/notices/:id`) |
 | GET | `/api/work-sources` | The registered external (pull-only) sources and each plugin package's load status, `{ sources: [{ id, label }], plugins: [{ identity, spec, state: "loaded" \| "error", error?, sources }] }` |
 | GET | `/api/work-sources/:id/defs` | Its mirrored defs (`?status=active` default, `archived`, `all`): `id`, `title`, `externalId`, `url`, `revision`, `status`, `latestState` (newest WorkItem, CANCELED included), `runCount`, `lastRunAt`, `mode` (`"triage"` for a triage-mode item), `triageBadge` (triage-mode items only). 404 for an unknown source |
 | GET | `/api/sources` | Every registered Work Source (`SourcesResponse`): `id`, `label`, `kind` (`built-in` \| `plugin` \| `external`), `syncs`, `package` (`{ spec, identity }`, plugins), `mode` (external), `toggle` (`{ feature, enabled }` or null), `configSchema`, `configScope`, `options` (its settings block, secrets as `REDACTED_SETTING`), `redacted`, `envVars` (`[{ path, name, set }]` — names only), `configurable`, `previewable`, `initError`, `sync` (`{ running, failures, backoffUntil, last: { at, ok, error?, mirrored, enqueued, archived, held } \| null }`, external only), `activeMirrors` |
@@ -643,15 +666,15 @@ switched-off kind answers 403 (see "Feature toggles").
 | POST | `/api/directories/favorites` | `{ directory }` — append a favorite (normalized; no-op if present); 400 if empty |
 | PUT | `/api/directories/favorites` | `{ directories }` — replace/reorder the list; 400 unless an array of non-empty strings |
 | DELETE | `/api/directories/favorites?directory=` | Remove one (matched after normalization); 404 if not a favorite |
-| PUT | `/api/config` | Update config (ignores `favoriteDirectories` — edited only via `/api/directories/favorites`, so a stale Config draft can't undo a star); requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), `features` (partial object of booleans, `null` = all on; 400 for an unknown key or non-boolean, **409** when switching off a kind that still has active items — see "Feature toggles"), `assistant` (`{ chatMode: "chat" \| "terminal" }`, `null` = default chat; 400 otherwise — the persona route composes the leader's framing from it per request, so it applies on the leader's next run), applied live; reconciles the pool |
+| PUT | `/api/config` | Update config (ignores `favoriteDirectories` — edited only via `/api/directories/favorites`, so a stale Config draft can't undo a star); requires `workflows` + a valid `defaultWorkflow`; validates and saves each workflow to `workflows/<name>/workflow.json`; `exclusiveDirectories` (boolean, `null` = default on; 400 otherwise), `experimental` and `defaultHarness` (a known harness; `""`/`"pi"` = unset; 400 for an unknown one or a non-Pi default without `experimental.harnesses`), `features` (partial object of booleans, `null` = all on; 400 for an unknown key or non-boolean, **409** when switching off a kind that still has active items — see "Feature toggles"), `assistant` (`{ chatMode: "chat" \| "terminal" }`, `null` = default chat — the persona selection beside it is kept; 400 otherwise — the persona route composes the leader's framing from it per request, so it applies on the leader's next run), `triage.persona` (a persona id that resolves, `null`/`""` = the built-in; absent keeps the current one; 400 for an unknown id), applied live; reconciles the pool |
 | GET | `/api/teammate-pool` | `{ minTeammates (effective), isDefault, maxTeammates, online, pending, leaderPresent }` |
 | PUT | `/api/teammate-pool` | `{ minTeammates }` (non-negative integer, clamped to max; `null` = default) — persists and reconciles |
 | GET | `/api/readiness` | `{ readiness }` (null if never reported) |
 | POST | `/api/readiness` | Report `{ ready, reason? }` (the daemon's own probe also writes this) |
 | GET | `/api/workflows` | Summaries: name, stateCount, agentCount, manualCount, isDefault |
 | GET | `/api/workflows/:name` | Full `WorkflowConfig` |
-| GET/PUT | `/api/workflows/:name/instructions/:state` | Read/write a persona; PUT lints (errors → 400; warnings returned) |
-| GET/PUT | `/api/triage/instructions` | The team's `triage.md`; GET also returns the built-in `default`. Empty content clears it |
+| PUT | `/api/workflows/:name/states/:state` | `{ persona: id \| null }` — select an agent state's persona (400 manual state or unknown persona; 404 unknown workflow/state) |
+| * | `/api/workflows/:name/instructions/:state`, `/api/triage/instructions` | **410 Gone**, naming the replacement (personas; `triage.persona`) |
 | POST | `/api/thoughts/:id/triage` | **Triage now**: enqueue a run for this note, skipping the quiet period and the unchanged rule (409 when one is in flight) |
 | GET | `/api/thoughts/:id/triage` | The triage page's payload: the note, thread entries, proposals folded with decisions, `pending`, `badge`, `latestOutcome`, `skipReason` |
 | GET | `/api/triage/badges` | `{ noteId: badge }` for every note with one (the canvas/list badges) |
@@ -679,8 +702,8 @@ switched-off kind answers 403 (see "Feature toggles").
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET/POST | `/api/work-defs` | List (`?status=active` default, `archived`, `all`; each view has `pending`, `executionCount` — WorkItems created for it, CANCELED excluded — and `lastRunAt`, ISO or null) / create (enqueues unless `enqueue:false`; `pending:true` saves it pending, never enqueued; deprecated alias `draft:true`) |
-| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete any WorkDef. PUT of a definition field is 409 unless it's pending; a cron-only PUT is always accepted. A mirrored (External) def: PUT and DELETE are 409 (pull only) |
+| GET/POST | `/api/work-defs` | List (`?status=active` default, `archived`, `all`; each view has `pending`, `executionCount` — WorkItems created for it, CANCELED excluded — and `lastRunAt`, ISO or null) / create (enqueues unless `enqueue:false`; `pending:true` saves it pending, never enqueued; deprecated alias `draft:true`; optional `persona` — an id that resolves, else 400; a non-empty `contextRefs` → 400, the context library is gone) |
+| GET/PUT/DELETE | `/api/work-defs/:id` | Get / update / delete any WorkDef. PUT of a definition field is 409 unless it's pending; a cron-only PUT is always accepted, and so is `persona` (`null` clears; Solitary/Scheduled only — 400 on a board task, which takes the workflow state's). A mirrored (External) def: PUT and DELETE are 409 (pull only) |
 | POST | `/api/work-defs/:id/activate` | End pending (409 if not pending; `/publish` is a deprecated alias for one release): locks it; Solitary is enqueued unless `{enqueue:false}`, Board runs admission (or enqueues in place), Scheduled waits for its cron. Returns `workItemId` (or null) |
 | POST | `/api/work-defs/:id/enqueue` | Enqueue a READY WorkItem (409 while pending). On a triage-mode mirror (or a note's container) it's **Triage now**: force a run of the current revision (409 in flight / archived) |
 | POST | `/api/work-defs/:id/archive` \| `/restore` | Archive (also stops cron firing) / restore |
@@ -750,14 +773,21 @@ switched-off kind answers 403 (see "Feature toggles").
 | POST | `/api/assistant/sessions/new` | Snapshot + end the active session; emit `new-session` |
 | POST | `/api/assistant/sessions/:id/resume` | Reopen; emit `resume-session` (`contextRestored:false` if no file) |
 | GET | `/api/assistant/sessions/:id/snapshot` | The session's markdown |
-| GET/PUT | `/api/assistant/persona` | Active persona + effective system prompt (the `assistant.chatMode` framing — `ASSISTANT_CHAT_FRAMING` or `ASSISTANT_TERMINAL_FRAMING` — then the persona) / swap (ends + snapshots the session; `null` = default) |
+| GET/PUT | `/api/assistant/persona` | `{ personaId, persona, entry }` (the `assistant.persona` selection, what it resolves to, the selected persona) + effective system prompt (the `assistant.chatMode` framing — `ASSISTANT_CHAT_FRAMING` or `ASSISTANT_TERMINAL_FRAMING` — then the persona) / swap (ends + snapshots the session; `null` = default) |
 
-### Context, Thoughts, Usage
+### Personas, Thoughts, Usage
 
 | Method | Path | Description |
 |--------|------|-------------|
-| GET/POST | `/api/context` | List / create (id from title) |
-| GET/PUT/DELETE | `/api/context/:id` | Get / update / delete |
+| GET | `/api/personas[?kind=worker\|triage\|assistant]` | The whole library (team, built-in, package); `kind` lists hinted personas first |
+| POST | `/api/personas` | Create a team persona (`id` optional — from the title, `-2`… on collision); linted: errors → 400, `warnings` returned |
+| GET | `/api/personas/:id` | `{ persona, usedBy }` (`:id` is `{.+}`: package ids contain `/`) |
+| PUT | `/api/personas/:id` | Update a team persona (linted); 409 for a read-only (built-in/package) one |
+| DELETE | `/api/personas/:id` | Delete a team persona; 409 read-only, **409 + `usedBy`** while referenced |
+| GET | `/api/personas/:id/usage` | `{ usedBy }` |
+| POST | `/api/personas/:id/duplicate` | Copy any persona into the team library (`{ id?, title? }`; `duplicatedFrom` set) |
+| * | `/api/context`, `/api/context/*` | **410 Gone** — the context library was removed |
+| DELETE | `/api/notices/:id` | Dismiss a `/api/status` notice (404 unknown) |
 | GET/POST | `/api/thoughts` | List (`?status=`) with groups / create (auto-placed unless x/y given) |
 | GET/PATCH/DELETE | `/api/thoughts/:id` | Get / partial update / hard delete |
 | POST | `/api/thoughts/positions` | Batch geometry for one gesture |

@@ -5,7 +5,7 @@
  * return JSON conforming to these interfaces.
  */
 
-import type { FeaturesConfig, MemberSessionStats, TriageBadge, WorkflowConfig } from "./types.ts";
+import type { FeaturesConfig, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, TriageBadge, WorkflowConfig } from "./types.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
 // (Additive, optional routes — like POST /api/agents/:id/session-stats — are not
@@ -70,6 +70,11 @@ export interface StatusResponse {
   workflow?: WorkflowConfig;
   /** Which work-item kinds are on, defaults applied (`resolveFeatures`). */
   features: Required<FeaturesConfig>;
+  /**
+   * One-line, dismissable notices (`DELETE /api/notices/:id`) — today only the
+   * persona migration's "the context library was removed" line.
+   */
+  notices: Array<{ id: string; message: string }>;
 }
 
 // GET /api/stories
@@ -89,7 +94,6 @@ export interface StoryView {
   /** A pending story: nothing new is admitted or handed out; dependents wait. Reversible. */
   pending?: boolean;
   workflow?: string;
-  context?: string[];
   tasks: TaskView[];
 }
 
@@ -103,7 +107,6 @@ export interface TaskView {
   /** Active WorkItem state for this task, if any (drives the board chip). */
   workItemState?: string | null;
   description?: string;
-  context?: string[];
   assignee: string | null;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
 }
@@ -120,7 +123,7 @@ export interface CommentsResponse { comments: Array<{ from: string; body: string
  * `pending` creates the story pending (nothing runs until it is activated). The
  * legacy `paused` field is still accepted as a deprecated alias (one release).
  */
-export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; pending?: boolean; /** @deprecated use `pending` */ paused?: boolean; workflow?: string; context?: string[]; tasks?: Array<{ title: string; description: string; context?: string[]; pending?: boolean; /** @deprecated use `pending` */ draft?: boolean }> }
+export interface CreateStoryRequest { id: string; title: string; description: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string; pending?: boolean; /** @deprecated use `pending` */ paused?: boolean; workflow?: string; tasks?: Array<{ title: string; description: string; pending?: boolean; /** @deprecated use `pending` */ draft?: boolean }> }
 export interface CreateStoryResponse { success: boolean; story?: StoryView; error?: string }
 
 // POST /api/stories/:storyId/tasks
@@ -128,7 +131,7 @@ export interface CreateStoryResponse { success: boolean; story?: StoryView; erro
  * `pending` creates it as pending: it holds its place in the story until activated.
  * The legacy `draft` field is still accepted as a deprecated alias (one release).
  */
-export interface CreateTaskRequest { title: string; description: string; context?: string[]; pending?: boolean; /** @deprecated use `pending` */ draft?: boolean }
+export interface CreateTaskRequest { title: string; description: string; pending?: boolean; /** @deprecated use `pending` */ draft?: boolean }
 export interface CreateTaskResponse { success: boolean; task?: { id: string; seq: number; title: string; description: string; status: string; pending?: boolean }; error?: string }
 
 // PUT /api/tasks/:id
@@ -151,7 +154,7 @@ export interface TokenUsageResponse { success: boolean; costUsd?: number; error?
 
 // PUT /api/stories/:id
 /** `pending` moves the story active ⇄ pending; `paused` is a deprecated alias (one release). */
-export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string | null; pending?: boolean; /** @deprecated use `pending` */ paused?: boolean; workflow?: string | null; context?: string[] | null }
+export interface UpdateStoryRequest { title?: string; description?: string; status?: "open" | "done"; dependsOn?: string[]; directory?: string | null; pending?: boolean; /** @deprecated use `pending` */ paused?: boolean; workflow?: string | null }
 export interface UpdateStoryResponse { success: boolean; error?: string }
 
 // DELETE /api/stories/:id
@@ -256,24 +259,40 @@ export interface AssistantSessionsResponse { sessions: AssistantSession[] }
 // POST /api/assistant/sessions/new, POST /api/assistant/sessions/:id/resume
 export interface AssistantSessionResponse { success: boolean; session?: AssistantSession; contextRestored?: boolean; error?: string }
 
-// --- Context Library ---
-export interface ContextEntry { id: string; title: string; description: string; tags: string[]; content: string; createdAt: string; updatedAt: string }
-export interface ContextEntriesResponse { entries: ContextEntry[] }
-export interface ContextEntryResponse { entry?: ContextEntry; success?: boolean; error?: string }
-export interface SaveContextEntryRequest { title: string; description?: string; tags?: string[]; content: string }
-export interface UpdateContextEntryRequest { title?: string; description?: string; tags?: string[]; content?: string }
-export interface SaveContextEntryResponse { success: boolean; entry?: ContextEntry; error?: string }
-export interface DeleteContextEntryResponse { success: boolean; error?: string }
+// --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
+// The context library (`/api/context*`) was removed; those routes answer 410.
+// GET /api/personas[?kind=worker|triage|assistant] — team, built-in, package (hinted kind first)
+export interface PersonasResponse { personas: Persona[] }
+// GET /api/personas/:id
+export interface PersonaResponse { persona?: Persona; usedBy?: PersonaUsage[]; success?: boolean; error?: string }
+// POST /api/personas (id optional: derived from the title)
+export interface SavePersonaRequest { id?: string; title: string; description?: string; tags?: string[]; kinds?: PersonaKind[]; content: string }
+// PUT /api/personas/:id (team personas only)
+export interface UpdatePersonaRequest { title?: string; description?: string; tags?: string[]; kinds?: PersonaKind[]; content?: string }
+/** Create/update/duplicate: the saved persona plus any lint warnings (errors refuse with 400). */
+export interface SavePersonaResponse { success: boolean; persona?: Persona; warnings?: string[]; errors?: string[]; error?: string }
+// DELETE /api/personas/:id — 409 with `usedBy` while referenced
+export interface DeletePersonaResponse { success: boolean; usedBy?: PersonaUsage[]; error?: string }
+// GET /api/personas/:id/usage
+export interface PersonaUsageResponse { usedBy: PersonaUsage[] }
+// POST /api/personas/:id/duplicate
+export interface DuplicatePersonaRequest { id?: string; title?: string }
+// PUT /api/workflows/:name/states/:state
+export interface SetStatePersonaRequest { persona: string | null }
+export interface SetStatePersonaResponse { success: boolean; workflow?: WorkflowConfig; error?: string }
 
 // --- Scratch Pad (removed: replaced by the Thoughts board) ---
 
 // --- Assistant Persona ---
 // Swapping a persona ends the current session (snapshotted) and starts a new one.
 // GET /api/assistant/persona
-export interface AssistantPersonaResponse { personaId: string | null; entry: ContextEntry | null; systemPrompt: string }
+// `personaId` is the selection (null = `builtin:assistant`); `persona` is what it
+// resolves to (the built-in when unset). `entry` is the selected persona, or null
+// when none is selected — the pre-persona field name, kept for the chat UI.
+export interface AssistantPersonaResponse { personaId: string | null; persona: Persona; entry: Persona | null; systemPrompt: string }
 // PUT /api/assistant/persona
 export interface SetAssistantPersonaRequest { personaId: string | null }
-export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; entry?: ContextEntry | null; systemPrompt?: string; session?: AssistantSession; error?: string }
+export interface SetAssistantPersonaResponse { success: boolean; personaId?: string | null; persona?: Persona; entry?: Persona | null; systemPrompt?: string; session?: AssistantSession; error?: string }
 
 // --- Agents API (WorkItem-centric; see docs/DESIGN.md "The WorkItem") ---
 
@@ -366,6 +385,8 @@ export interface WorkItemView {
   retryAt?: string;
   /** Why this attempt's agent session errored, if it did. */
   error?: string;
+  /** The persona this run was given, snapshotted at claim (absent: no persona, or not claimed yet). */
+  persona?: PersonaRef;
   /**
    * READY only: the active WorkItem holding an overlapping directory lease, when
    * that's why this one is waiting (`exclusiveDirectories`; docs/DESIGN.md
@@ -398,8 +419,9 @@ export interface WorkDefView {
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
-  contextRefs?: string[];
   directory?: string;
+  /** Solitary/Scheduled (and a mirror's suggestion): the persona id it runs with. */
+  persona?: string;
   /** Still pending: editable, never enqueued until activated (docs/DESIGN.md "Pending: Write, Review, Activate"). */
   pending: boolean;
   /** Aggregate token usage/cost across this def's runs (recorded on the ref). */
@@ -642,8 +664,9 @@ export interface SaveWorkDefRequest {
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
-  contextRefs?: string[];
   directory?: string;
+  /** Optional persona id (Solitary/Scheduled only; every run of a schedule uses it). */
+  persona?: string;
   /** Required when type === "Scheduled": the cron for the created Schedule. */
   cron?: string;
   /** When true (default) for Solitary, also enqueue a WorkItem immediately. Ignored when pending. */
@@ -658,8 +681,9 @@ export interface UpdateWorkDefRequest {
   goal?: string;
   acceptanceCriteria?: string;
   additionalContext?: string | null;
-  contextRefs?: string[] | null;
   directory?: string | null;
+  /** Solitary/Scheduled only: the persona id (`null` clears it). Changeable after activating. */
+  persona?: string | null;
   /** For a Scheduled WorkDef, update its parent Schedule's cron. */
   cron?: string | null;
 }
@@ -679,7 +703,6 @@ export interface TemplateView {
   goal: string;
   acceptanceCriteria: string;
   additionalContext?: string;
-  contextRefs?: string[];
   directory?: string;
 }
 export interface TemplatesResponse { templates: TemplateView[] }
@@ -689,7 +712,6 @@ export interface SaveTemplateRequest {
   goal: string;
   acceptanceCriteria?: string;
   additionalContext?: string;
-  contextRefs?: string[];
   directory?: string;
 }
 export interface UpdateTemplateRequest {
@@ -697,7 +719,6 @@ export interface UpdateTemplateRequest {
   goal?: string;
   acceptanceCriteria?: string;
   additionalContext?: string | null;
-  contextRefs?: string[] | null;
   directory?: string | null;
 }
 export interface SaveTemplateResponse { success: boolean; template?: TemplateView; error?: string }

@@ -1,0 +1,6 @@
+{
+  "states": [
+    { "name": "in_progress", "type": "agent" },
+    { "name": "review", "type": "manual" }
+  ]
+}

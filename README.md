@@ -301,7 +301,7 @@ most of it is editable on the **Config** page. Minimal:
 
 `features` switches whole work-item kinds on or off: **`stories`** (stories and their
 board tasks, pending stories, archive), **`tasks`** (Solitary tasks *and* Task Templates — templates are hidden from the web UI), and
-**`schedules`** (Scheduled tasks and their cron). Thoughts, Context, the Queue and the
+**`schedules`** (Scheduled tasks and their cron). Thoughts, Personas, the Queue and the
 Inbox are always on, so every kind can be off at once.
 
 - **Defaults.** No `features` key — every team that predates the toggles — means
@@ -368,8 +368,8 @@ Inbox are always on, so every kind can be off at once.
 ├── daemon.log           # a background daemon's output (daemon.log.1: the run before)
 ├── workflows/
 │   └── default/
-│       ├── workflow.json
-│       └── in_progress.md   # persona for each agent state
+│       └── workflow.json    # states; an agent state may name a "persona"
+├── personas/            # the team persona library (personas/<id>.md)
 ├── stories/             # one file per story: order + status of its tasks
 │   └── my-story.json    #   tasks: [{id, status}]
 ├── tasks/               # EVERY unit of work is a WorkDef
@@ -382,10 +382,9 @@ Inbox are always on, so every kind can be off at once.
 ├── templates/           # reusable molds for Solitary tasks (never enqueued)
 │   └── investigate-ticket/template.md
 ├── archived/            # archived stories (with a synopsis)
-├── context/             # context library: reusable prompt/context markdown
+├── context.migrated/    # only if you had a context library: archived by the persona migration
 ├── assistant/
 │   └── sessions/        # one markdown transcript per chat session
-├── triage.md            # Auto-triage instructions (optional; absent = built-in)
 ├── thoughts/            # Thoughts board notes (thoughts/<id>.md)
 ├── groups.json          # Thought groups
 └── usage/               # token-usage ledger, one JSON line per agent run
@@ -463,17 +462,43 @@ WorkItem table on each read. Work → Tasks shows the count per row, sorts by it
 filters to **Never run** (count 0) — the work you haven't started. See
 [docs/DESIGN.md](docs/DESIGN.md#execution-count-derived-not-counted).
 
-**Personas.** A markdown file named after an agent state
-(`workflows/<name>/<state>.md`) is role framing injected into that state's prompt:
+**Personas.** How a teammate behaves is a **persona**: a markdown file in the team's
+persona library (`personas/<id>.md`) whose body is role framing injected into the
+prompt. Everything that needs one *references it by id* — an agent state
+(`"persona"` in `workflow.json`), note triage (`triage.persona` in config.json), the
+assistant (`assistant.persona`), and optionally a Solitary or Scheduled task
+(`persona` on the WorkDef):
 
 ```markdown
+---
+title: Implementer
+description: Careful, minimal changes; builds and tests before finishing.
+tags: [coding]
+kinds: [worker]
+---
 You are a careful implementer. Write the code the task describes,
 add tests, and keep the change minimal. Summarize what you did when
 you finish — the task advances automatically.
 ```
 
-Manual states need no persona. Create workflows, edit their states, and edit
-personas under **Config → Workflows** (`/config/workflows`); every story names its workflow at
+Besides your team's personas there are read-only built-ins (`builtin:worker`,
+`builtin:triage`, `builtin:assistant` — today's defaults) and, later, personas
+shipped by plugin packages (`<package>/<id>`); duplicate a read-only one to
+customize it. A reference that no longer resolves never fails a run: it falls back
+to the built-in and the daemon logs it. Saving a persona lints it (an unclosed code
+fence is refused). See `/api/personas` and
+[docs/DESIGN.md](docs/DESIGN.md#personas-one-library-selected-by-reference).
+
+**Upgrading a team.** On its first start, the daemon migrates the old layout in
+one commit: `workflows/<wf>/<state>.md` files, `triage.md`, and context-library
+entries tagged `persona` become personas (and are selected where they were used).
+The **context library is gone** — project knowledge belongs in the project's own
+AGENTS.md / README. Entries that were attached to stories or tasks are inlined into
+those tasks' Additional Context, so prompts carry the same text, and `context/` is
+archived to `context.migrated/`.
+
+Manual states need no persona. Create workflows and edit their states under
+**Config → Workflows** (`/config/workflows`); every story names its workflow at
 creation. With no workflows on disk, a built-in `default` (`in_progress` →
 `review`) is used.
 
@@ -504,8 +529,8 @@ phone, the chat is a tab of the [phone view](#phone-view).
 - **Peek at its thinking** — click the `…`. Ephemeral: never saved.
 - **Terminal parity.** Type in the leader's tmux window and it appears in the web
   chat (with a terminal glyph), and vice versa.
-- **Personas.** Any context-library entry tagged `persona` becomes a selectable
-  assistant. Swapping starts a new chat as that persona; nothing is deleted.
+- **Personas.** Any persona can be the assistant (`assistant.persona`; unset is
+  `builtin:assistant`). Swapping starts a new chat as that persona; nothing is deleted.
 - **Sessions: nothing is lost.** New chat, a persona swap, or resuming another
   session snapshots the current transcript to `assistant/sessions/<id>.md`.
   **History** lists every session; **Resume** switches the leader back to that Pi
@@ -570,7 +595,7 @@ Release a stuck `MORIBUND` lease by force-failing the item. Turn this off with
 
 **On claim** the agent gets `workItem: { id }` and a `prompt`: the complete,
 daemon-assembled message (state persona, story, working-directory instruction, the
-task's goal/criteria/context, attached reference context, your comments (from `lead` or `you`),
+task's goal/criteria/additional context, your comments (from `lead` or `you`),
 completion guidance). Harnesses deliver it verbatim.
 
 ---
@@ -687,9 +712,9 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
 | Teammate pairing | `POST /api/agents/:id/pair\|messages\|release`, `GET .../pairing[/state]` | Talk to a paused teammate from the browser |
 | Usage | `POST /api/agents/:id/usage`, `GET /api/usage/daily\|day` | Token and cost ledger; dashboard rollups |
 | Assistant | `/api/assistant/*` | The chat: messages, SSE stream, receipts, thoughts peek, sessions, persona |
-| Context | `/api/context/*` | Reusable prompt/context library |
+| Personas | `/api/personas[/:id[/usage\|/duplicate]]` | The persona library (team, built-in, package); `/api/context*` answers 410 |
 | Thoughts | `/api/thoughts/*`, `/api/thought-groups/*` | Markdown sticky-note board |
-| Workflows | `GET /api/workflows[/:name]`, `GET/PUT .../instructions/:state` | Workflows and their personas |
+| Workflows | `GET /api/workflows[/:name]`, `PUT .../states/:state` | Workflows; select a state's persona |
 
 Full route table: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md#api-routes)
 
