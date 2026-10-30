@@ -587,6 +587,39 @@ with `attempt > 1` until its `retry_at` passes and the team is ready
 (migrated in place); `/api/work-items` returns them as `attempt`/`retryAt`/`error`.
 Rationale: DESIGN.md "Errored Sessions Retry".
 
+## Personas (planned)
+
+> **Designed, not yet built** — the rationale and every decision are in
+> [DESIGN.md](DESIGN.md) "Personas: One Library, Selected by Reference". This
+> stub is the map the implementing tasks fill in; until then the module map,
+> storage table, and routes below describe today's layout (`workflows/<wf>/<state>.md`,
+> `triage.md`, `context/`, the `assistant_persona` setting).
+
+- **Storage:** `personas/<id>.md` (frontmatter `title`, `description`, `tags`,
+  optional `kinds`, `duplicatedFrom`). References, never bodies: `workflow.json`
+  state `persona`, config.json `triage.persona`, `assistant.persona`,
+  `sourcePersonas.<sourceId>.{persona,triagePersona}`; `workdef.md` frontmatter
+  `persona` (Solitary/Scheduled; a mirror's from `ExternalDef.persona`); a mirror's
+  person override in `sources/<id>.json` `persona:<defId>`. `context/` is removed
+  (migrated to `context.migrated/`).
+- **Ids:** team `<slug>`, built-in `builtin:{assistant,triage,worker}`, package
+  `<package.json name>/<id>`.
+- **Modules:** `daemon/personas/` — `library.ts`, `builtins.ts`, `packages.ts`,
+  `resolve.ts` (`resolvePersona`, `usedBy`), `lint.ts` (from
+  `daemon/workflow-lint.ts`), `migrate.ts`; `daemon/routes/personas.ts`.
+  Removed: `daemon/store/context.ts`, `daemon/routes/context.ts`,
+  `Store.resolveTaskContext`, `ui/src/components/board/ContextSelector.tsx`.
+- **Data flow:** claim → the source/prompt builder picks a reference (state,
+  WorkDef, source chain) → `resolvePersona` (missing id → built-in + warning) →
+  prompt; the resolved persona is snapshotted on the WorkItem (`work_items`
+  `persona_id`, `persona_title`, `persona_origin`, `persona_via`,
+  `persona_fallback_from`) and returned as `WorkItem.persona`.
+- **Packages:** package.json `"mpt": { "personas": ["personas/*.md"] }` (sources
+  optional); `PluginLoadStatus.personas`.
+- **Routes:** `/api/personas[/:id[/duplicate]]`, `PUT /api/workflows/:name/states/:state`,
+  `PUT /api/sources/:id/persona`, `PUT /api/work-defs/:id/persona`; 410 Gone for
+  `/api/context*`, `/api/workflows/:name/instructions/:state`, `/api/triage/instructions`.
+
 ## API Routes
 
 When a token is configured, every path except `/health` requires it. A route of a

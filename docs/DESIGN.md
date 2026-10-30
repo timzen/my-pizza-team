@@ -1202,6 +1202,486 @@ they nest under its `##` sections — the durable guarantee — and saving a per
 **lints** it (`workflow-lint.ts`): an unbalanced code fence is an error (it would
 swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 
+## Personas: One Library, Selected by Reference
+
+> **Status: designed, not yet built.** This section is the design the Unified
+> Personas story implements. Until it lands, the sections that describe today's
+> behaviour — "Workflows" (`workflows/<wf>/<state>.md`), "The Daemon Owns the
+> Prompt" (the Reference Context section), "Auto Triage" (`triage.md`), "Triage
+> mode", and "Assistant Chat Model" (a context-library persona) — are still
+> accurate; each implementing task rewrites its part in the same change.
+
+*How an agent behaves* is defined in four disconnected places today: a workflow
+state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by
+triage-mode external sources), a context-library entry tagged `persona` picked
+by the `assistant_persona` SQLite setting, and nothing at all for standalone
+tasks, schedules, or Work Sources. Beside them sits the **context library**
+(`context/<id>.md`), attached to stories, tasks, and templates as a "Reference
+Context" section of the prompt.
+
+The design collapses all of it into one concept: **a persona is the only
+behaviour/context object in MPT.** Everything that needs an agent to behave a
+certain way *references a persona by id*; nothing embeds instructions of its own.
+The context library is removed.
+
+### The model: `personas/<id>.md`
+
+A persona is a markdown file under the team dir with frontmatter, the same shape
+a context entry has today (`shared/frontmatter.ts` serializes both):
+
+```markdown
+---
+title: Implementer
+description: Careful, minimal changes; builds and tests before finishing.
+tags: [coding, brazil]
+kinds: [worker]            # optional UI hint: assistant | worker | triage
+---
+You are the **implementer** …
+```
+
+- **`title`** (required; defaults to the first `# ` heading, then the id),
+  **`description`** (one line, shown in pickers), **`tags`** (free-form, for
+  filtering).
+- **`kinds`** is a **hint for pickers only**: the Assistant picker lists
+  `assistant` personas first, the triage picker `triage`, the state/task/schedule
+  pickers `worker`. It never restricts: any persona can be selected anywhere. A
+  missing `kinds` means "show everywhere, sorted after the hinted ones". *Why not
+  enforce it:* a persona is prose; the daemon can't verify that "reviewer" text
+  is unsuitable for triage, and a guard that only checks a label would block
+  legitimate reuse while catching nothing.
+- The **body** is what is injected into the prompt, verbatim apart from heading
+  normalization ("The Daemon Owns the Prompt").
+- Files are the source of truth (no SQLite index), like templates: the library is
+  a directory listing, small enough to read on demand.
+
+**Why personas replace the context library rather than sit beside it.** The two
+were different in name only — same file format, same editor, and the assistant
+persona *was* a context entry with a tag. What the library was used for splits
+cleanly in two, and MPT should only own one half:
+
+- **How to do the work** — role, voice, process, checklists ("you are the
+  reviewer; never edit code; check X, Y, Z"). That belongs to a persona, and
+  MPT owns it.
+- **What the project is** — conventions, architecture, build commands. That
+  belongs to the *project*, in its AGENTS.md / README / docs, where the teammate
+  already reads it (the prompt's Working Directory section tells it to) and where
+  it is versioned with the code it describes. A copy in MPT goes stale silently.
+
+Keeping both concepts would mean keeping two pickers, two attachment models
+(selected persona vs. attached-many context), and two prompt sections that
+authors could never tell apart. Removing one is the simplification.
+
+### Ids and origins: team, built-in, package
+
+Every persona has an **origin**, and the id says which:
+
+| Origin | Id | Where it lives | Writable |
+|---|---|---|---|
+| **team** | `<id>` — a slug, `^[a-z0-9][a-z0-9-]{0,63}$` | `personas/<id>.md` in the team dir | yes |
+| **built-in** | `builtin:<name>` | constants in `daemon/personas/builtins.ts` | no |
+| **package** | `<package-name>/<id>` | a plugin package's `personas/*.md` | no |
+
+The grammar is unambiguous by construction: a team id contains neither `:` nor
+`/`; a built-in id is the only one with `:`; a package id is the only one with
+`/`, split on the **last** `/` (so a scoped npm name like
+`@acme/mpt-personas/reviewer` works — the package part may contain `/`, the
+persona part may not). In URLs the id is always `encodeURIComponent`ed
+(`/config/personas/%40acme%2Fmpt-personas%2Freviewer`).
+
+**Built-ins** wrap the defaults that exist today, unchanged in wording, so a team
+that never touches personas gets byte-identical prompts:
+
+| Id | Body | Used when |
+|---|---|---|
+| `builtin:assistant` | `DEFAULT_ASSISTANT_PERSONA` | no `assistant.persona` is set (or it doesn't resolve) |
+| `builtin:triage` | `DEFAULT_TRIAGE_INSTRUCTIONS` | no `triage.persona` is set (or it doesn't resolve) |
+| `builtin:worker` | a generic worker framing (today's one-line "You are working in the … state" text, generalized so it reads correctly outside a workflow state) | only as the **fallback** for a worker reference that doesn't resolve (below), and as a starting point to duplicate |
+
+The constants move to `daemon/personas/builtins.ts` and are re-exported from
+their current homes for the prompt tests.
+
+**Package personas** are namespaced by the package's package.json **`name`**,
+not its spec identity. *Why not the identity* (the npm name, git URL, or absolute
+path, `daemon/plugins/spec.ts`): the same package installed from npm, from git,
+or from a local checkout during development would get three different persona
+ids, and every reference in workflow.json would break when a team switches how it
+installs a package. The `name` is stable across install methods and readable. A
+package that ships personas must have a `name` (`mpt plugins doctor` ✗ without
+one). Two *different* packages (different identities) with the same `name` is a
+load error on the second package's personas — the first wins, as the loader's
+dedupe already does for identities.
+
+**Read-only, duplicate to customize.** Built-in and package personas can't be
+edited or deleted through MPT: `PUT`/`DELETE` answer 409 "read-only — duplicate
+it to customize". **Duplicate** (`POST /api/personas/:id/duplicate`) copies the
+body and frontmatter into a new team persona (id from the title, `-2`… on
+collision) with `duplicatedFrom: <id>` in its frontmatter, purely informational —
+there is no inheritance, so a later package update does not flow into the copy
+(TODO.md "Personas — composition/inheritance").
+
+### References: select, don't embed
+
+Each consumer stores **a persona id**, never a body:
+
+| Consumer | Where the reference lives | Unset means |
+|---|---|---|
+| Workflow agent state | `workflow.json`: `{ "name": "review", "type": "agent", "persona": "reviewer" }` | no persona block — today's one-line state framing |
+| Triage (notes) | `config.json` `triage.persona` | `builtin:triage` |
+| Assistant | `config.json` `assistant.persona` | `builtin:assistant` |
+| Solitary / Scheduled WorkDef | `workdef.md` frontmatter `persona` | no persona block |
+| External mirror (work or triage mode) | person's override: the source's kv `persona:<defId>`; source's suggestion: `ExternalDef.persona` → mirror frontmatter | falls through to the source |
+| Work Source | `config.json` `sourcePersonas.<sourceId>.{persona, triagePersona}` (daemon-held); a source may declare `defaultPersona` / `triagePersona` | see "Work Source personas" |
+
+A `persona` on a **manual** state is ignored with a load warning (manual states
+have no WorkItem). A `persona` on a **board** WorkDef is refused (400 "board
+tasks get their persona from the workflow state") — per-board-task overrides are
+a non-goal (TODO.md).
+
+**`assistant.persona` replaces the `assistant_persona` setting.** That setting
+lives in SQLite `settings`, which is runtime state: never committed, invisible in
+the team's git history, lost with `state.db`, and different on every clone of a
+team. Who the assistant is, is team configuration like `assistant.chatMode`, so it
+moves to config.json beside it. `PUT /api/assistant/persona` is **kept**, because
+it is an *action*, not just a setting: it validates the id, writes
+`assistant.persona`, and ends the current chat session ("Nothing is destroyed;
+sessions are the unit of history"). Its body is unchanged (`{ personaId }`); only
+the id space changes (persona ids, not context-entry ids). `assistant_sessions.persona_id`
+/ `persona_title` keep their denormalized meaning.
+
+**Why `persona` on the WorkDef is allowed (authored-only invariant).** It *is*
+authored content — a choice the author made about how the work should be done —
+so it belongs in `workdef.md` frontmatter beside `directory`. A **mirror's**
+`workdef.md` is written only by sync, so a person's override of a mirror can't
+live there: it goes in the source's kv (`sources/<id>.json`, `persona:<defId>`),
+which is committed, survives re-syncs by construction, and is where every other
+piece of per-mirror runtime state already lives. The source's own suggestion
+(`ExternalDef.persona`) is content, so sync writes it into the mirror's
+frontmatter like the rest of the item.
+
+### Work Source personas: default + per-WorkDef override
+
+A source *may* say how its items should be worked; the team *may* override it per
+source; a person *may* override it per item:
+
+```
+work-mode mirror:   kv persona:<defId> → ExternalDef.persona → sourcePersonas.<id>.persona
+                    → WorkSource.defaultPersona → none
+triage-mode mirror: kv persona:<defId> → ExternalDef.persona → sourcePersonas.<id>.triagePersona
+                    → WorkSource.triagePersona → (required — see below)
+```
+
+- **`WorkSource.defaultPersona?: string` and `triagePersona?: string`** are new
+  optional fields (additive, so `WORK_SOURCE_API_VERSION` stays 1). Usually a
+  package persona id from the same package (`mpt-source-jira/jira-worker`).
+- **The per-source setting is daemon-held**: `config.json`
+  `sourcePersonas: { "<sourceId>": { "persona"?, "triagePersona"? } }`, written by
+  `PUT /api/sources/:id/persona`. *Why not in the package's `config`:* that block
+  is the plugin's, validated against the plugin's `configSchema`, passed to the
+  plugin as `ctx.options()`, and saving it re-inits the source. A persona is how
+  *MPT* runs the items, not a setting the plugin reads; mixing it in would make
+  every plugin's schema either declare it or warn about it, and a persona change
+  would needlessly re-init the source. *Why config.json and not SQLite:* it is
+  team configuration, so it is committed and shared like the rest.
+- **Triage-mode sources MUST have a triage persona.** Triage instructions are the
+  *whole* job of a triage run; silently borrowing the notes' triage persona means
+  a ticket queue gets advice written for personal notes. So a source whose
+  `mode` is `"triage"` with no `triagePersona` (declared or per-source), or one
+  whose id doesn't resolve, **does not sync**: it reports
+  `initError: "triage-mode source <id> needs a triage persona — set one on Config
+  → Sources, or declare triagePersona"`, shown on Config → Sources and ✗ in
+  `mpt plugins doctor`. The check runs at registration, on every per-source save,
+  and when a persona is deleted or a package's personas change (startup). A
+  work-mode source whose `sync` returns an individual item with `mode: "triage"`
+  needs one too: that item is mirrored but **not enqueued** (nothing stamped, like
+  a readiness hold), and the source's status carries the same message, so fixing
+  it runs the item on the next sync. *Migration seeds it* for existing triage
+  plugins (below), so nothing that works today stops working — but the
+  requirement itself is explicit.
+- **The team's notes triage persona (`triage.persona`) is not a fallback** for
+  external triage, for the reason above.
+
+### Resolution: one `resolvePersona`, never fails a claim
+
+`daemon/personas/resolve.ts` exports the single resolver every prompt builder
+uses:
+
+```ts
+type PersonaOrigin = { kind: "team" } | { kind: "builtin" } | { kind: "package"; name: string; identity: string };
+type PersonaVia = "workflow-state" | "task" | "schedule" | "workdef"   // a mirror's own (override or suggestion)
+                | "source-setting" | "source-default" | "triage" | "assistant";
+interface ResolvedPersona {
+  id: string; title: string; origin: PersonaOrigin; body: string;
+  via: PersonaVia;
+  /** Set when the requested id didn't resolve and a built-in stood in. */
+  fallbackFrom?: string;
+}
+resolvePersona(ref: string | undefined, opts: { via: PersonaVia; fallback: BuiltinId | null }): ResolvedPersona | null;
+```
+
+The callers walk their own chain (the tables above) to pick `ref` and `via`;
+`resolvePersona` turns the one id into a body. A chain is just "first non-empty
+id", so it lives with the caller (the Story source for states, the external
+source glue for mirrors) and stays testable as a pure function.
+
+**A missing id never fails a claim.** A reference to a deleted team persona, an
+uninstalled package, or a mistyped id is logged once per id per daemon run
+(`[personas] workflow 'default' state 'review' names persona 'reviewr', which
+doesn't exist — using builtin:worker`) and resolved to the consumer's built-in
+(`builtin:worker` for workers, `builtin:triage` / `builtin:assistant`), with
+`fallbackFrom` set so the UI can show it. *Why fall back rather than drop the
+block:* the author asked for *a* persona; a generic one is closer to their intent
+than none, and the chip ("builtin:worker — stands in for missing 'reviewr'")
+makes the problem visible without stalling the queue ("Fail loudly" is satisfied
+by the log, the chip, and the "Used by"/doctor views; failing the claim would
+turn a typo into an outage). The one exception is the triage-mode requirement
+above, which is checked *before* anything is enqueued, so it never reaches a
+claim.
+
+### Prompt composition
+
+`resolvePersona` feeds every prompt the daemon builds:
+
+| Prompt | Builder | Persona block |
+|---|---|---|
+| Board work | `buildWorkDefPrompt` via `StorySource.buildPrompt` | `## Your Role: <state>` + body (unchanged position: first) |
+| Solitary / Scheduled | `buildWorkDefPrompt` | `## Your Role` + body, first — only when a persona is set |
+| Work-mode mirror | `buildWorkDefPrompt`, then the source's `buildPrompt(def, base)` | as Solitary; the daemon composes it *before* the source's hook, so a plugin can wrap the prompt but never needs (or gets) a persona API |
+| Note triage | `buildTriagePrompt` | `## Your Role: Triage` + body (replaces `instructions ?? DEFAULT_TRIAGE_INSTRUCTIONS`) |
+| Triage-mode mirror | `buildExternalTriagePrompt` (`daemon/sources/external-triage.ts`) | same, with the source's triage persona |
+| Assistant system prompt | `composeSystemPrompt` (`routes/assistant.ts`) | mode framing, then body |
+
+Every body goes through `normalizeInstructionMarkdown(body, 3)` as today.
+**The "Reference Context" section is removed** from `buildWorkDefPrompt` along with
+`WorkDefPromptInput.contextEntries`; migration moves its text into Additional
+Context (below), so a migrated task's prompt carries the same words.
+
+**Chat framing stays system-level** ("Assistant Chat Model" point 7): the
+`ASSISTANT_CHAT_FRAMING` / `ASSISTANT_TERMINAL_FRAMING` prefix is the daemon's,
+chosen by `assistant.chatMode`, and is never part of a persona — so any persona
+works in either mode and a persona author never writes delivery mechanics.
+
+### The in-flight persona: a snapshot on the WorkItem
+
+While a teammate works, the UI shows which persona it's using. That needs a
+record, not a recomputation: re-resolving at display time would show today's
+persona for yesterday's run, and a deleted persona would vanish from history.
+
+- **At claim**, inside the claim transaction, the daemon records the
+  `ResolvedPersona` it used on the WorkItem: new `work_items` columns
+  `persona_id`, `persona_title`, `persona_origin` (`team` | `builtin` |
+  `package:<name>`), `persona_via`, `persona_fallback_from` — all NULL when the run
+  had no persona. Added with the existing `ALTER TABLE … ADD COLUMN` pattern.
+  *Why at claim, not enqueue:* the prompt is built at claim, so that is the
+  persona the agent actually got; a READY item has no persona yet. A retry is a
+  new claim and records afresh.
+- **A snapshot, never rewritten.** Editing, renaming, or deleting the persona
+  later changes nothing recorded. `WorkItem.persona?: { id, title, origin, via,
+  fallbackFrom? }` is returned by every API that returns WorkItems — `/api/agents`
+  (each member's current item), the queue / in-flight lists, and a WorkDef's run
+  history.
+- **The chip.** Wherever a working teammate is shown — the teammates view, Queue
+  in-flight rows, a WorkDef/task's run history, the Watch/pair terminal header — a
+  persona chip shows the recorded title and links to `/config/personas/:id`
+  (read-only view for built-in and package personas). If the id no longer
+  resolves, the chip shows the recorded title, unlinked, marked "deleted". No
+  persona, no chip. The chip's text and link are a pure helper in `ui/src/lib`
+  (tested there).
+- WorkItems are runtime state (`state.db`), so this history lasts as long as the
+  queue's own — the same lifetime as the run it describes.
+
+### Linting: one linter for every persona
+
+`daemon/workflow-lint.ts` (`validateInstructionMarkdown`, renamed
+`validatePersonaMarkdown` and moved to `daemon/personas/lint.ts`) applies to
+**every** persona, whatever it's used for — an unbalanced code fence swallows the
+rest of *any* prompt:
+
+- **Team personas** are linted on save (`POST`/`PUT /api/personas`): an error
+  refuses the save with the message; warnings are returned and saved.
+- **Package personas** are linted at load. A warning goes to
+  `PluginLoadStatus.warnings`; an error marks that persona `lintError` and the
+  package's status `error`, `mpt plugins doctor` shows ✗ — but the persona still
+  loads and references still resolve to it ("Validation never refuses a source"
+  applies: refusing it would turn a packaging mistake into fallback prompts
+  across the team, which is no more correct and much less visible).
+- **Built-ins** are linted by a test.
+
+### "Used by" and delete protection
+
+`GET /api/personas/:id` includes **`usedBy`**, computed on demand by scanning the
+references above: workflow states (`{ kind: "workflow-state", workflow, state }`),
+`triage.persona`, `assistant.persona`, Solitary/Scheduled WorkDefs, mirror
+overrides and suggestions, and `sourcePersonas`. It's a small scan (workflows,
+config, WorkDef frontmatter already indexed at load), so there's no reverse index
+to keep consistent.
+
+**`DELETE /api/personas/:id` refuses a persona in use** — 409 with the `usedBy`
+list, so the UI can link each user to re-point it. There is no force flag: the
+person re-points the users first, and a reference only ever dangles because
+something outside MPT changed (a hand-edited file, an uninstalled package), which
+the fallback handles. Built-in and package personas are never deletable (they're
+read-only); a package persona disappearing on `mpt plugins remove` is reported by
+`remove` as "N references will fall back to built-ins" (listed), not blocked —
+the CLI edits config.json and doesn't hold the daemon's view.
+
+### Persona packages
+
+A plugin package (see "Plugin packages") may ship personas, alongside its sources
+or instead of them:
+
+```json
+{
+  "name": "acme-mpt-personas",
+  "mpt": { "personas": ["personas/*.md"], "sources": ["./dist/index.js"] }
+}
+```
+
+- **`mpt.personas`** lists files or globs relative to the package root; only a `*`
+  in the **last** path segment is supported (`personas/*.md`, `docs/reviewer.md`)
+  — enough for the use, and it needs no glob dependency. Each file's base name is
+  the persona's id within the package (the team-id grammar applies).
+- **A package may ship only personas** — `"sources"` becomes optional; a manifest
+  with neither is an error. Personas need no code, so a persona-only package never
+  runs npm's build (`entriesCommitted` treats it as prebuilt), fits the
+  "build-system agnostic" contract with nothing to build, and is safe to load:
+  markdown is read, never `import()`ed.
+- **`mpt plugins add|update`** validate personas like entries (files exist,
+  frontmatter parses, ids are valid, lint has no errors) before config.json
+  changes, so a bad add leaves nothing behind. **`list`** shows a persona count
+  per package. **`doctor`** lists each package's personas with ✓/✗ (lint error,
+  missing `name`, duplicate `name`, a triage-mode source whose triage persona
+  doesn't resolve).
+- **`PluginLoadStatus`** gains `personas: string[]` (the full ids it registered),
+  beside `sources`; persona problems join `error` / `warnings` as above. A package
+  whose personas all loaded and which has no sources is `loaded`.
+- **Loaded once, at startup**, like sources (TODO.md "Hot reload" applies);
+  `update` needs a restart to show new persona text. Running items keep the
+  snapshot they started with.
+- **`config` doesn't apply to personas** — they're static text (templating is a
+  non-goal).
+
+### Routes
+
+| Method | Path | |
+|---|---|---|
+| GET | `/api/personas` | the whole library: team, built-in, package (`?kind=` sorts hinted first) |
+| POST | `/api/personas` | create a team persona (id from title, or given); linted |
+| GET | `/api/personas/:id` | one persona + `origin` + `readOnly` + `usedBy` |
+| PUT / DELETE | `/api/personas/:id` | team only (409 for read-only; 409 + `usedBy` for delete-in-use) |
+| POST | `/api/personas/:id/duplicate` | copy any persona into the team library |
+| PUT | `/api/workflows/:name/states/:state` | `{ persona: id \| null }` |
+| PUT | `/api/sources/:id/persona` | `{ persona?, triagePersona? }` → `sourcePersonas` (re-checks the triage requirement) |
+| PUT | `/api/work-defs/:id/persona` | a mirror's override (`{ persona: id \| null }`, into the kv); Solitary/Scheduled set `persona` through the ordinary WorkDef create/update |
+| PUT | `/api/assistant/persona` | kept (see above) |
+
+`:id` routes match the encoded id (`/api/personas/:id{.+}`), since package ids
+contain `/`.
+
+**Removed outright, answering 410 Gone** with the replacement named:
+`/api/context*` ("the context library was removed; use personas, or put project
+knowledge in the project's AGENTS.md"), `GET`/`PUT
+/api/workflows/:name/instructions/:state` ("use /api/personas and
+/api/workflows/:name/states/:state"), `GET`/`PUT /api/triage/instructions` ("use
+config triage.persona"). *Why no shim:* the only clients are this repo's UI and
+harness, which change in the same story; a shim that writes a persona when an
+old client PUTs instructions would have to invent ids and could overwrite a
+shared persona. A 410 that names the fix is what "Fail loudly" asks for. The 410
+stubs are a few lines and are deleted after a release (TODO.md).
+
+The Pi harness's assistant tools follow: `list_context` becomes **`list_personas`**
+(feeding the new `persona` param), `create_story` / `add_task` lose their `context`
+params, and `create_task` / `create_schedule` / `edit_task` gain an optional
+`persona`.
+
+### Migration: on load, lossless, idempotent
+
+`daemon/personas/migrate.ts` runs at Store load, before workflows and sources
+load, and is a no-op on a migrated team. It writes config.json through the same path `PUT /api/config` uses, so the in-memory config the Store holds matches the file. Each step is idempotent on its own
+(guarded by "is the old thing still there?"), so a crash midway is finished by
+the next start; the whole run ends in one autocommit, `mpt: migrate to personas`,
+so the change is one reviewable, revertable commit.
+
+**Id collisions** (every step that creates a team persona): if `personas/<id>.md`
+exists with the *same* body, reuse it; otherwise take `<id>-2`, `-3`… and record
+the rename in the step's mapping so references follow it. Ids are slugified to the
+team grammar first.
+
+1. **Workflow state files.** For each agent state with no `persona` and a
+   non-empty `workflows/<wf>/<state>.md`: create persona `<wf>-<state>` (title
+   "<Workflow> — <state>", `kinds: [worker]`), set the state's `persona`, delete the
+   `.md`. A state that already has `persona` keeps it; a leftover `.md` beside it
+   is left alone and warned about (someone may have edited it by hand).
+2. **`triage.md`.** If present and `triage.persona` is unset: persona `triage`
+   (`kinds: [triage]`), set `triage.persona`, delete `triage.md`. No `triage.md` →
+   nothing (the built-in is already the default).
+3. **Triage-mode sources.** For each configured *package* whose source declares
+   `mode: "triage"`, no `triagePersona`, and has no `sourcePersonas` entry: seed
+   `sourcePersonas.<id>.triagePersona` with the team's triage persona (step 2's,
+   else `builtin:triage`) — exactly what it runs with today — and log it. (Needs
+   the sources loaded, so this step runs after plugin load rather than with the
+   rest; it's still guarded and idempotent.)
+4. **Context entries tagged `persona`** → team personas (same id, collision rule),
+   tag kept. These are assistant personas today, so `kinds: [assistant]`.
+5. **Assistant selection.** If the SQLite `assistant_persona` setting is set and
+   `assistant.persona` is not: write `assistant.persona` (through step 4's mapping;
+   an id that pointed at a deleted entry is dropped with a log line — it already
+   resolved to the default), then clear the setting. Remap
+   `assistant_sessions.persona_id` and the `personaId` in session snapshot
+   frontmatter (`assistant/sessions/*.md`) through the mapping.
+6. **Attached context is inlined.** For every WorkDef (active, pending, and
+   archived; board, Solitary, Scheduled) and template with `contextRefs`, and every
+   story (`stories/`, `archived/`) with `context`: the referenced entries' text is
+   appended to the WorkDef's Additional Context, story-level entries first (onto
+   *each* of the story's tasks), then the WorkDef's own, deduped — the exact order
+   `resolveTaskContext` used — each under a heading naming it:
+
+   ```markdown
+   ### Reference: Project conventions (from the former context library, `project-conventions`)
+
+   <entry body, headings demoted under it>
+   ```
+
+   Then `contextRefs` / `context` is dropped from the file. This is a one-time,
+   explicit edit of authored content — the "workdef.md is authored-only"
+   invariant allows explicit edits, and this one preserves meaning — so the
+   migrated prompt carries the same words, one section earlier. Persona-tagged
+   entries that were *also* attached are inlined too (attached means reference
+   text). Ids that point at deleted entries are dropped (they contributed nothing).
+   Mirrors are skipped: their files are written only by sync, and the UI never
+   allowed attaching context to one.
+7. **Archive `context/`.** Once 4–6 are done, `context/` is renamed to
+   **`context.migrated/`** (or `context.migrated-2/`… if that exists), with a
+   `README.md` written into it saying what happened and that nothing reads it.
+   *Why archive, not delete:* it's free (it's in git either way), it keeps the
+   unattached entries discoverable in the team dir, and it makes "where did my
+   context go?" answerable by `ls`. The daemon logs, and `/api/status` carries
+   (`notices`), one line: "The context library was removed: N entries were
+   attached and are now in their tasks' Additional Context; M unattached entries
+   are in context.migrated/ — turn the useful ones into personas, or move project
+   knowledge into the project's AGENTS.md." The notice clears when dismissed.
+
+The `context/` directory reappearing later (an old clone merged in) re-runs steps
+4–7, which is the right thing.
+
+### Where it lives
+
+`daemon/personas/` — `library.ts` (team files: list/read/write, the frontmatter
+shape), `builtins.ts`, `packages.ts` (personas loaded from plugin packages, fed by
+`daemon/plugins/loader.ts`), `resolve.ts` (`resolvePersona`, `usedBy`), `lint.ts`,
+`migrate.ts`; routes in `daemon/routes/personas.ts`. `daemon/store/context.ts`,
+`daemon/routes/context.ts`, `resolveTaskContext`, the Config → Context tab, and
+`ui/src/components/board/ContextSelector.tsx` are deleted. The UI gets Config →
+Personas (`/config/personas`, `/config/personas/:id`), persona pickers on
+workflow states, Triage, the Assistant, Task and Schedule create/edit, per-source
+and per-mirror pickers, the triage-persona-required error on Config → Sources,
+and the in-flight chips.
+
+### Deferred
+
+Composition/inheritance, templating variables (`{state}`, `{directory}`),
+per-board-task overrides, and a public registry/marketplace are non-goals here;
+they and the open questions are in TODO.md "Personas".
+
 ## Comments
 
 Lead ↔ teammate communication is **comments on the work** (the WorkDef), not a
