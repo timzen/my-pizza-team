@@ -672,8 +672,8 @@ ask before saving.
 same split as pi's `pi install`: the CLI fetches and edits config.json, the
 daemon only loads. npm and git packages go under `<teamDir>/packages/`, installed
 with `--omit=peer` so the host package a plugin peer-depends on resolves to the
-daemon's own copy. A package is validated (manifest present, entries exist)
-before config.json changes, so a bad add leaves nothing behind. **Pinning**
+daemon's own copy. A package is validated (manifest present, entries exist,
+personas lint) before config.json changes, so a bad add leaves nothing behind. **Pinning**
 follows the spec: an npm version or a git tag/commit is pinned and `update`
 leaves it alone; no version, no ref, or a branch ref follows upstream.
 **Build-system agnostic:** the contract for a git package is that it installs
@@ -691,8 +691,9 @@ team's config) is installed by the daemon before loading, through the same code
 as `mpt plugins add` but without touching config.json — each on its own, bounded
 by a timeout, attempted once per startup; a failure is that package's load
 status and the rest still load. Local paths are never installed or modified. The package's package.json
-`"mpt": { "sources": [...] }` lists entry files; other keys under `"mpt"` are
-ignored, leaving room for plugin kinds that aren't Work Sources. Each entry is
+`"mpt": { "sources": [...] }` lists entry files and `"mpt": { "personas": [...] }`
+persona files (either, or both; "Persona packages" below); other keys under `"mpt"`
+are ignored, leaving room for plugin kinds that aren't Work Sources. Each entry is
 `import()`ed and its default export is a `WorkSource` or a factory
 `(options, { teamDir })` returning one. Plugins register after the built-ins
 through the same registry checks (apiVersion, duplicate id, file-safe external
@@ -1220,7 +1221,9 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 > doctor checks, and migration step 3; and the UI — Config → Personas (list,
 > editor with lint output, read-only view + Duplicate to edit, Used by, guarded
 > delete), a persona picker everywhere a reference is chosen, and the in-flight
-> chips. Still to come: the plugin loader feeding package personas.
+> chips; and persona packages — the plugin loader reading `mpt.personas`, a
+> persona-only package skipping npm, and `mpt plugins add|list|update|remove|doctor`
+> handling them. Still to come: the demo team.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by
@@ -1570,6 +1573,19 @@ or instead of them:
   snapshot they started with.
 - **`config` doesn't apply to personas** — they're static text (templating is a
   non-goal).
+- **Files stay inside the package.** A pattern is resolved against the package
+  root and each match's real path (symlinks followed) must still be inside it —
+  the same rule as a source entry, for the same reason: a manifest can't point
+  the daemon at arbitrary files. A literal file that's missing, a file outside,
+  a `*` before the last segment, or two files with the same base name (id) are
+  errors on that package; a glob that matches nothing is a warning (the package
+  may legitimately ship none yet).
+- **Removing a package whose personas are in use** isn't blocked: `mpt plugins
+  remove` runs the same "Used by" scan as the daemon (`personaUsage`, over the
+  files — `daemon/personas/usage-disk.ts`) before deleting it, and lists each
+  reference with what it will fall back to (`builtin:worker` / `builtin:triage` /
+  `builtin:assistant`; a triage-mode source's triage persona has no fallback, so
+  that source stops syncing until re-pointed).
 
 ### Routes
 

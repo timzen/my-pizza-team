@@ -63,10 +63,9 @@ and the context library itself; everything selects a persona by id through
 API, migration (steps 1, 2, 4–7), WorkDef `persona`, the WorkItem snapshot (recorded
 at claim), every prompt path, the Pi tools (`list_personas`, `persona` params), and
 Work Source personas (+ migration step 3), and the UI (Config → Personas, pickers,
-the triage-persona-required state, in-flight chips, the notices strip) are in. Still
-open in the story: the plugin loader's `mpt.personas` (until then a source's package
-persona id doesn't resolve: startup warns and items fall back to the built-in), and
-the demo team. Deferred on purpose:
+the triage-persona-required state, in-flight chips, the notices strip), and persona
+packages (the loader's `mpt.personas`, `mpt plugins` and the doctor) are in. Still
+open in the story: the demo team. Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
   built on a package's, picking up its updates). Today Duplicate copies and never
@@ -82,6 +81,9 @@ the demo team. Deferred on purpose:
   and `/api/triage/instructions` one release after the story ships.
 - **Hot reload of package personas:** like sources, they load once at startup
   (see "Hot reload" above).
+- **Richer persona globs:** `mpt.personas` supports a `*` in the last path segment
+  only (`personas/*.md`), no `**` or braces; add them if a package needs nested
+  folders.
 - **Persona on the Inbox and board cards:** the chip shows on in-flight work (Team,
   Queue, the watch header) and a task's **Runs**; the Inbox rows and board task
   cards don't carry it yet (the data is on every WorkItem, so it's UI-only).

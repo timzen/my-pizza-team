@@ -12,6 +12,8 @@
  *   - npm:   `npm install --prefix <teamDir>/packages/npm --omit=peer <name>[@version]`
  *   - git:   `git clone` into `<teamDir>/packages/git/<host>/<path>`, check out the
  *            `@ref`, then `prepareGit`:
+ *              · a persona-only package (no `mpt.sources`) → no npm at all:
+ *                personas are markdown, read and never built or imported;
  *              · every `mpt.sources` entry committed and no runtime `dependencies`
  *                → no npm at all (a prebuilt package);
  *              · entries committed, runtime deps declared
@@ -30,7 +32,8 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { TeamConfig } from "../../shared/types.ts";
-import { npmPluginPrefix, packageInstallDir, readPluginManifest } from "./loader.ts";
+import { npmPluginPrefix, packageInstallDir, readPackagePersonaFiles, readPluginManifest } from "./loader.ts";
+import { PackagePersonas } from "../personas/packages.ts";
 import { type GitPackageSpec, type NpmPackageSpec, type PackageSpec, parsePackageEntries } from "./spec.ts";
 
 /** A child process's outcome. */
@@ -149,6 +152,12 @@ export function prepareGit(dir: string, d: InstallDeps): void {
   const entries = "error" in manifest ? [] : manifest.sources;
   const runtimeDeps = hasKeys(pkg.dependencies);
 
+  // Personas need no code: a persona-only package is never built (docs/DESIGN.md "Persona packages").
+  if (!("error" in manifest) && entries.length === 0 && manifest.personas.length > 0) {
+    d.log("   persona-only package: nothing to build — skipping npm");
+    return;
+  }
+
   if (!("error" in manifest) && entriesCommitted(dir, entries, d)) {
     if (!runtimeDeps) {
       d.log("   prebuilt: every mpt.sources entry is in the repository and there are no runtime dependencies — skipping npm");
@@ -202,11 +211,24 @@ function readPackageJson(dir: string): Record<string, unknown> | null {
   }
 }
 
+/** What a valid package provides (`validatePackage`). */
+export interface ValidatedPackage {
+  /** Its `mpt.sources` entries. */
+  sources: string[];
+  /** The full ids of its personas (`<name>/<id>`). */
+  personas: string[];
+  /** Non-fatal persona findings (lint warnings, a glob matching nothing). */
+  warnings: string[];
+}
+
 /**
- * Check what the loader will check: the package has a valid `"mpt"` manifest
- * and every source entry exists inside it. Returns the entries.
+ * Check what the loader will check: the package has a valid `"mpt"` manifest,
+ * every source entry exists inside it, and every persona file is inside it,
+ * has a valid id, and lints without errors — under a package.json `name`
+ * (docs/DESIGN.md "Persona packages"). Throws the first problems; returns what
+ * it provides. `mpt plugins add|update` call it before touching config.json.
  */
-export function validatePackage(dir: string): string[] {
+export function validatePackage(dir: string): ValidatedPackage {
   const manifest = readPluginManifest(dir);
   if ("error" in manifest) throw new PluginInstallError(manifest.error);
   for (const entry of manifest.sources) {
@@ -215,15 +237,25 @@ export function validatePackage(dir: string): string[] {
     if (rel.startsWith("..") || path.isAbsolute(rel)) throw new PluginInstallError(`${dir}: source entry ${entry} is outside the package`);
     if (!fs.existsSync(file)) throw new PluginInstallError(`${dir}: source entry ${entry} does not exist (is the package built?)`);
   }
-  return manifest.sources;
+  const result: ValidatedPackage = { sources: manifest.sources, personas: [], warnings: [] };
+  if (manifest.personas.length) {
+    const found = readPackagePersonaFiles(dir, manifest.personas);
+    // A scratch registry: the same checks the daemon's registration makes (name, ids, lint).
+    const registered = new PackagePersonas().register({ name: manifest.name ?? "", identity: dir }, found.files);
+    const errors = [...found.errors, ...registered.errors];
+    if (errors.length) throw new PluginInstallError(`${dir}: ${errors.join("; ")}`);
+    result.personas = registered.personas;
+    result.warnings = [...found.warnings, ...registered.warnings];
+  }
+  return result;
 }
 
 /**
  * Install one npm or git package fresh (a clone replaces any leftover) and
- * validate it. Returns its source entries. Local specs are refused — they load
+ * validate it. Returns what it provides (sources, personas). Local specs are refused — they load
  * in place and are never installed or modified.
  */
-export function installPackage(spec: PackageSpec, d: InstallDeps): string[] {
+export function installPackage(spec: PackageSpec, d: InstallDeps): ValidatedPackage {
   if (spec.kind === "local") throw new PluginInstallError(`${spec.raw} is a local path: it loads in place and is never installed`);
   const dir = packageInstallDir(spec, d.teamDir);
   if (spec.kind === "npm") installNpm(spec, d);

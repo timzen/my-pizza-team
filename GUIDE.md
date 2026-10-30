@@ -346,6 +346,40 @@ In terminal mode the composer is always open — there's no **Pair** step, since
 
 Who the assistant is comes from the persona library too. Above the chat, **Default** (the built-in assistant) and the personas suggested for the assistant appear as chips — **Other…** picks any other persona, and **edit**/**view** opens the current one. Picking one starts a fresh chat with that persona as the assistant's system prompt (the old chat stays in the session history, which notes each session's persona). The same choice is on **Config → General → Assistant → Persona**. Swapping resets the assistant's context window.
 
+### Distributing a persona package
+
+Personas you want to share between teams travel as a **plugin package** — the same npm package, git repository, or local folder a [Work Source plugin](#writing-a-work-source-plugin) uses, with or without any sources. Install one with `mpt plugins add` and restart the daemon; its personas appear on **Config → Personas** with the package's name as their badge, ready to pick anywhere.
+
+**Layout.** Persona files are ordinary persona markdown (frontmatter `title`, `description`, `tags`, optional `kinds`, then the instructions):
+
+```
+acme-mpt-personas/
+├── package.json
+└── personas/
+    ├── reviewer.md
+    └── implementer.md
+```
+
+**Manifest.** List the files in `package.json` under `"mpt"`. Paths are relative to the package and must stay inside it; a `*` is allowed in the last part of a path only (`personas/*.md`, or name files one by one). A package can ship personas alone, or beside its `"sources"`:
+
+```json
+{
+  "name": "acme-mpt-personas",
+  "version": "1.2.0",
+  "mpt": { "personas": ["personas/*.md"] }
+}
+```
+
+**Naming.** A package persona's id is `<package name>/<file name without .md>` — `acme-mpt-personas/reviewer`, or `@acme/personas/reviewer` for a scoped name. The `name` is required, and it's the package.json `name` (not how you installed it), so a workflow keeps working when you switch from a local checkout to npm or git. File names follow the team-id rules: lowercase letters, digits, and `-`. Two different packages with the same `name` can't both ship personas — the second one's are refused. A source in the same package can name its own personas (`defaultPersona: "acme-mpt-personas/implementer"`).
+
+**Checking it.** `mpt plugins doctor ./acme-mpt-personas` lists each persona with ✓, ⚠ for a lint warning (a top-level heading, a stray `---`), and ✗ for an unclosed code fence, a file outside the package or missing, a bad file name, no `name`, or a `name` another configured package already uses. `mpt plugins add` and `update` run the same checks and refuse a package with a ✗, leaving `config.json` as it was. `mpt plugins list` shows how many personas each package provides. A persona-only package needs no build: MPT never runs npm in a cloned persona-only repository.
+
+**Versioning.** Version the package like any other (semver tags for git, `version` for npm), and pin it in the spec (`npm:acme-mpt-personas@1.2.0`, `git:…@v1.2.0`) when you don't want updates; `mpt plugins update` re-fetches unpinned ones. New persona text takes effect after a daemon restart; work already running keeps the persona it started with, and each run's persona chip records what it actually got.
+
+**Customizing.** Package personas are read-only. To change one for your team, open it on Config → Personas and **Duplicate to edit**: you get a team copy to edit and point your workflows at. The copy doesn't follow later updates to the package.
+
+**Removing.** `mpt plugins remove` lists anything still using the package's personas — workflow states, triage, the assistant, tasks, sources — and what each will fall back to (`builtin:worker`, `builtin:triage`, or `builtin:assistant`; a triage-mode source's triage persona has no fallback, so that source stops syncing until you pick another). Re-point them, or duplicate the personas first.
+
 ---
 
 ## The Big Editor
@@ -865,13 +899,14 @@ repository without adding it.
 
 On its own it is an **install check** — no network (beyond that install), no
 `init`, no `sync`, and a factory is *not* called. It checks that the spec parses and the package is there,
-that `package.json` has a valid `"mpt"` manifest, and that each source entry is
+that `package.json` has a valid `"mpt"` manifest, that each persona it ships is
+usable (see [Distributing a persona package](#distributing-a-persona-package)), and that each source entry is
 inside the package and **imports the way the daemon imports it**
 (`my-pizza-team/plugin` resolving to this app). For an object export it also
 checks `apiVersion`, the id's format, and that no other package (or built-in)
 uses the id, and its personas: a `defaultPersona` or `triagePersona` that
-isn't a team or built-in persona is ⚠ (a package persona is listed, not checked —
-the daemon resolves those when it starts), and a triage-mode source with no
+isn't a team, built-in, or package persona is ⚠ (package personas are checked
+against the configured packages' persona files), and a triage-mode source with no
 triage persona — declared, or the team's `sourcePersonas` choice — is ✗, since the
 daemon won't sync it. A failed import says why and, for the usual causes, what to do: a
 native module built for another Node shows its `NODE_MODULE_VERSION` against this

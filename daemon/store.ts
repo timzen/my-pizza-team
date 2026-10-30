@@ -72,8 +72,9 @@ import {
 import { validateWorkflow } from "./workflow-engine.ts";
 import { listBuiltinPersonas, getBuiltinPersona } from "./personas/builtins.ts";
 import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona, writeTeamPersona, type TeamPersonaInput } from "./personas/library.ts";
-import { PackagePersonas } from "./personas/packages.ts";
+import { type PackagePersonaFile, type PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { personaUsage, resolvePersona } from "./personas/resolve.ts";
+import { listMirrorPersonaOverrides } from "./personas/usage-disk.ts";
 import { CONTEXT_NOTICE_KEY, migrateToPersonas } from "./personas/migrate.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
@@ -4401,6 +4402,15 @@ export class Store {
 
   /** Personas shipped by plugin packages (fed by daemon/plugins/loader.ts at startup). */
   readonly packagePersonas = new PackagePersonas();
+
+  /**
+   * Register a plugin package's personas, read-only, as `<name>/<id>` — the
+   * loader's seam (daemon/plugins/loader.ts `PluginHost`). Loaded once at
+   * startup, like sources.
+   */
+  registerPackagePersonas(pkg: { name: string; identity: string }, files: PackagePersonaFile[]): PackagePersonaResult {
+    return this.packagePersonas.register(pkg, files);
+  }
   /** Missing references already warned about this run ("logged once per id"). */
   private warnedPersonaRefs = new Set<string>();
 
@@ -4444,21 +4454,7 @@ export class Store {
 
   /** Per-mirror persona overrides: every source kv's `persona:<defId>` key (`sources/<id>.json`). */
   private listMirrorPersonaOverrides(): Array<{ workDefId: string; source: string; persona: string }> {
-    const dir = path.join(this.teamDir, "sources");
-    if (!existsSync(dir)) return [];
-    const out: Array<{ workDefId: string; source: string; persona: string }> = [];
-    for (const name of fs.readdirSync(dir)) {
-      if (!name.endsWith(".json")) continue;
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")) as Record<string, unknown>;
-        for (const [key, value] of Object.entries(data)) {
-          if (key.startsWith("persona:") && typeof value === "string" && value) {
-            out.push({ workDefId: key.slice("persona:".length), source: name.slice(0, -5), persona: value });
-          }
-        }
-      } catch { /* a malformed kv file has no overrides we can read */ }
-    }
-    return out;
+    return listMirrorPersonaOverrides(this.teamDir);
   }
 
   /**

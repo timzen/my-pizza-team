@@ -1,7 +1,8 @@
 /**
  * cli/plugins.ts — `mpt plugins add|list|remove|update`: manage the team's plugin
- * packages (`TeamConfig.packages`). See docs/DESIGN.md "Plugin packages" and
- * docs/ARCHITECTURE.md "Plugin packages".
+ * packages (`TeamConfig.packages`) — Work Sources, personas, or both. See
+ * docs/DESIGN.md "Plugin packages" / "Persona packages" and docs/ARCHITECTURE.md
+ * "Plugin packages".
  *
  * The daemon only *loads* plugins (daemon/plugins/loader.ts); this is the half
  * that fetches them and edits config.json. Both sides share the spec parser
@@ -10,8 +11,9 @@
  *
  *   - npm:   `npm install --prefix <teamDir>/packages/npm --omit=peer <name>[@version]`
  *   - git:   `git clone` into `<teamDir>/packages/git/<host>/<path>`, check out the
- *            `@ref`, then prepare it: nothing for a prebuilt package (entries
- *            committed, no runtime deps), else `npm install` and `npm run build`
+ *            `@ref`, then prepare it: nothing for a persona-only package or a
+ *            prebuilt one (entries committed, no runtime deps), else `npm
+ *            install` and `npm run build`
  *   - local: loaded in place; only validated, never copied or deleted
  *
  * The fetch/prepare steps themselves live in daemon/plugins/install.ts, shared
@@ -26,7 +28,11 @@
  * not. Local entries are never updated.
  *
  * Every command validates before it writes config.json (`add` refuses a package
- * without an `"mpt"` manifest, or a duplicate identity), and every mutating
+ * without an `"mpt"` manifest, a duplicate identity, or a persona that doesn't
+ * lint), `list` shows how many sources and personas each package provides,
+ * `remove` warns when the team references the package's personas (those
+ * references fall back to built-ins; docs/DESIGN.md "'Used by' and delete
+ * protection"), and every mutating
  * command ends by saying the daemon must be restarted — loading happens once,
  * at startup (no hot reload).
  *
@@ -38,10 +44,13 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
 import type { PackageEntry } from "../shared/types.ts";
-import { packageInstallDir } from "../daemon/plugins/loader.ts";
+import { packageInstallDir, readPackagePersonaFiles, readPluginManifest } from "../daemon/plugins/loader.ts";
+import { personaUsage } from "../daemon/personas/resolve.ts";
+import { readPersonaUsageInput } from "../daemon/personas/usage-disk.ts";
+import type { PersonaUsage, TeamConfig } from "../shared/types.ts";
 import {
   cloneGit, gitStep, type InstallDeps, installNpm, PluginInstallError, type PluginRunner,
-  prepareGit, uninstallPackage, validatePackage,
+  prepareGit, uninstallPackage, validatePackage, type ValidatedPackage,
 } from "../daemon/plugins/install.ts";
 import { type GitPackageSpec, type PackageSpec, parsePackageEntries } from "../daemon/plugins/spec.ts";
 import { DoctorUsageError, runPluginsDoctor } from "./plugins-doctor.ts";
@@ -71,8 +80,8 @@ export interface PluginsDeps {
 class PluginsError extends Error {}
 
 const USAGE = `Usage:
-  mpt plugins add <spec> [--config '<json>']   Install a plugin package and add it to config.json
-  mpt plugins list                             Configured packages, install state, and load status
+  mpt plugins add <spec> [--config '<json>']   Install a plugin package (sources and/or personas) and add it to config.json
+  mpt plugins list                             Configured packages, what they provide, install state, and load status
   mpt plugins remove <spec|identity>           Remove it from config.json and delete its install
   mpt plugins update [<spec|identity>]         Re-fetch unpinned npm/git packages (all, or one)
   mpt plugins doctor [<path|spec|identity>]    Check packages load (all configured, or one, configured or not):
@@ -299,7 +308,7 @@ function cmdAdd(args: string[], d: PluginsDeps): number {
 
   const dir = packageInstallDir(spec, d.teamDir);
   d.log(`Adding ${written} (${spec.kind})…`);
-  let sources: string[];
+  let provided: ValidatedPackage;
   try {
     if (spec.kind === "npm") installNpm(spec, installDeps(d));
     else if (spec.kind === "git") {
@@ -308,7 +317,7 @@ function cmdAdd(args: string[], d: PluginsDeps): number {
     } else if (!fs.existsSync(dir)) {
       throw new PluginsError(`${dir} does not exist`);
     }
-    sources = validatePackage(dir);
+    provided = validatePackage(dir);
   } catch (e) {
     // Don't leave a half-installed package behind that config.json doesn't mention.
     if (spec.kind !== "local") uninstallPackage(spec, installDeps(d));
@@ -319,7 +328,9 @@ function cmdAdd(args: string[], d: PluginsDeps): number {
   config.packages = [...raw, entry];
   writeRawConfig(d.teamDir, config);
   d.log(`✅ Added ${written}${spec.kind === "local" ? ` (loads in place from ${dir})` : ` (installed at ${dir})`}`);
-  d.log(`   Source entries: ${sources.length ? sources.join(", ") : "none"}`);
+  d.log(`   Source entries: ${provided.sources.length ? provided.sources.join(", ") : "none"}`);
+  d.log(`   Personas: ${provided.personas.length ? provided.personas.join(", ") : "none"}`);
+  for (const w of provided.warnings) d.log(`   ⚠️  ${w}`);
   restartNote(d);
   return 0;
 }
@@ -343,12 +354,17 @@ async function cmdList(d: PluginsDeps): Promise<number> {
     d.log(`${installed ? "•" : "✗"} ${e.spec.raw}`);
     d.log(`    kind: ${e.spec.kind}   identity: ${e.spec.identity}   ref: ${refOf(e.spec) ?? "-"}`);
     d.log(`    installed: ${installed ? `yes (${dir})` : `no (expected at ${dir})`}`);
+    if (installed) d.log(`    provides: ${describeProvides(dir)}`);
     if (statuses === null) {
       d.log("    status: unknown (daemon not running)");
     } else {
       const s = statuses.find((st) => st.identity === e.spec!.identity);
+      const loaded = [
+        s?.sources.length ? `sources: ${s.sources.join(", ")}` : "",
+        s?.personas?.length ? `personas: ${s.personas.length}` : "",
+      ].filter(Boolean).join("; ");
       if (!s) d.log("    status: not loaded (added since the daemon started? restart it)");
-      else if (s.state === "loaded") d.log(`    status: loaded${s.sources.length ? ` (sources: ${s.sources.join(", ")})` : ""}`);
+      else if (s.state === "loaded") d.log(`    status: loaded${loaded ? ` (${loaded})` : ""}`);
       else d.log(`    status: error — ${s.error ?? "unknown error"}`);
     }
   }
@@ -364,6 +380,9 @@ function cmdRemove(args: string[], d: PluginsDeps): number {
   const matches = findEntries(configuredEntries(raw, d.teamDir), arg, d);
   if (matches.length === 0) throw new PluginsError(`No configured package matches ${arg} (see \`mpt plugins list\`).`);
 
+  // Before anything is deleted: which of its personas the team still references.
+  const dangling = danglingPersonaReferences(matches, config, d.teamDir);
+
   const drop = new Set(matches.map((m) => m.index));
   config.packages = raw.filter((_, i) => !drop.has(i));
   writeRawConfig(d.teamDir, config);
@@ -375,6 +394,11 @@ function cmdRemove(args: string[], d: PluginsDeps): number {
     } else {
       d.log(`✅ Removed ${shown}${m.spec ? " (a local path: left on disk)" : ""}`);
     }
+  }
+  if (dangling.length) {
+    d.log(`\n   ⚠️  ${dangling.length} reference${dangling.length === 1 ? "" : "s"} to this package's personas will fall back to built-ins:`);
+    for (const r of dangling) d.log(`      • ${r.persona} — ${describeUsage(r.usage)} → ${fallbackOf(r.usage)}`);
+    d.log("      Re-point them on Config → Personas (each persona's \"Used by\"), or duplicate the persona into the team library first.");
   }
   restartNote(d);
   return 0;
@@ -433,9 +457,10 @@ function cmdUpdate(args: string[], d: PluginsDeps): number {
         pullGit(spec, dir, d);
         prepareGit(dir, installDeps(d));
       }
-      validatePackage(dir);
+      const provided = validatePackage(dir);
       changed++;
-      d.log(`✅ ${spec.raw} is up to date`);
+      for (const w of provided.warnings) d.log(`   ⚠️  ${w}`);
+      d.log(`✅ ${spec.raw} is up to date (${plural(provided.sources.length, "source entry", "source entries")}, ${plural(provided.personas.length, "persona", "personas")})`);
     } catch (err) {
       failed++;
       d.error(`❌ ${spec.raw}: ${(err as Error).message}`);
@@ -443,6 +468,58 @@ function cmdUpdate(args: string[], d: PluginsDeps): number {
   }
   if (changed > 0) restartNote(d);
   return failed > 0 ? 1 : 0;
+}
+
+// --- persona packages ---
+
+function plural(n: number, one: string, many: string): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** "1 source entry, 3 personas" — what an installed package's manifest provides, read from disk. */
+function describeProvides(dir: string): string {
+  const manifest = readPluginManifest(dir);
+  if ("error" in manifest) return `nothing loadable (${manifest.error})`;
+  const personas = manifest.personas.length ? readPackagePersonaFiles(dir, manifest.personas).files.length : 0;
+  return `${plural(manifest.sources.length, "source entry", "source entries")}, ${plural(personas, "persona", "personas")}`;
+}
+
+/** The full persona ids (`<name>/<id>`) an installed package provides, read from disk (none when it isn't installed). */
+function packagePersonaIds(spec: PackageSpec, teamDir: string): string[] {
+  const dir = packageInstallDir(spec, teamDir);
+  if (!fs.existsSync(dir)) return [];
+  const manifest = readPluginManifest(dir);
+  if ("error" in manifest || !manifest.name || manifest.personas.length === 0) return [];
+  return readPackagePersonaFiles(dir, manifest.personas).files.map((f) => `${manifest.name}/${f.name}`);
+}
+
+/** Every team reference to a persona the removed packages provide (the daemon's "Used by" scan, from disk). */
+function danglingPersonaReferences(matches: ConfiguredEntry[], config: Record<string, unknown>, teamDir: string): Array<{ persona: string; usage: PersonaUsage }> {
+  const ids = matches.flatMap((m) => (m.spec ? packagePersonaIds(m.spec, teamDir) : []));
+  if (ids.length === 0) return [];
+  const input = readPersonaUsageInput(teamDir, config as Pick<TeamConfig, "triage" | "assistant" | "sourcePersonas">);
+  return ids.flatMap((persona) => personaUsage(persona, input).map((usage) => ({ persona, usage })));
+}
+
+/** One "Used by" reference, for the terminal. */
+export function describeUsage(u: PersonaUsage): string {
+  switch (u.kind) {
+    case "workflow-state": return `workflow "${u.workflow}" state "${u.state}"`;
+    case "triage": return "triage (config.json triage.persona)";
+    case "assistant": return "the assistant (config.json assistant.persona)";
+    case "workdef": return `task "${u.title}" (${u.workDefId})`;
+    case "mirror-override": return `mirrored item ${u.workDefId} (source "${u.source}" override)`;
+    case "source-setting": return `source "${u.source}" ${u.field === "triagePersona" ? "triage persona" : "persona"} setting`;
+  }
+}
+
+/** What a reference resolves to once its persona is gone (docs/DESIGN.md "Resolution"). */
+function fallbackOf(u: PersonaUsage): string {
+  if (u.kind === "triage") return "builtin:triage";
+  if (u.kind === "assistant") return "builtin:assistant";
+  if (u.kind === "source-setting" && u.field === "triagePersona") return "the source stops syncing until it has a triage persona";
+  if (u.kind === "mirror-override") return "builtin:worker (builtin:triage for a triage item)";
+  return "builtin:worker";
 }
 
 // --- the real side effects ---

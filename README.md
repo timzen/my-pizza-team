@@ -73,16 +73,18 @@ non-zero only for real breakage.
 
 A team can pull work from outside sources through **plugin packages** — npm
 packages, git repositories, or local folders whose `package.json` declares
-`"mpt": { "sources": ["./dist/index.js"] }`. They are listed in the team's
+`"mpt": { "sources": ["./dist/index.js"] }` — and share personas the same way
+(`"mpt": { "personas": ["personas/*.md"] }`, with or without sources; see GUIDE.md
+"Distributing a persona package"). They are listed in the team's
 `config.json` `packages` and managed with `mpt plugins`:
 
 ```
 mpt plugins add npm:@acme/mpt-jira@1.2.0 --config '{"tokenEnv":"JIRA_TOKEN"}'
 mpt plugins add git:github.com/acme/mpt-tracker@main   # @ref: branch, tag or commit
 mpt plugins add ./my-plugin                            # local: loads in place, never copied
-mpt plugins list                                       # kind, identity, ref, installed?, load status
+mpt plugins list                                       # kind, identity, ref, installed?, sources/personas, load status
 mpt plugins update [<spec|identity>]                   # re-fetch unpinned npm/git packages
-mpt plugins remove <spec|identity>                     # deletes the install (never a local path)
+mpt plugins remove <spec|identity>                     # deletes the install (never a local path); warns if its personas are in use
 mpt plugins doctor [<path|spec>] [--config '<json>']   # check it loads; with --config, a live init + sync
 ```
 
@@ -91,7 +93,7 @@ npm and git packages are installed under `<teamDir>/packages/` (npm with
 also gets `npm install` and `npm run build` unless it ships its entries prebuilt —
 see GUIDE.md "Distributing a plugin"). The daemon installs any configured npm/git
 package that's missing when it starts (each on its own, 10-minute limit per
-command via `MPT_PLUGIN_INSTALL_TIMEOUT_MS`; a failure is reported, the rest load). `add` validates the manifest before touching config.json. A version (npm)
+command via `MPT_PLUGIN_INSTALL_TIMEOUT_MS`; a failure is reported, the rest load). `add` validates the manifest (and lints any personas) before touching config.json. A version (npm)
 or a tag/commit (git) pins a package, and `update` skips it; a branch or no ref
 follows upstream. Relative local paths resolve from the current directory. The
 daemon loads plugins at startup, so restart it after any change
@@ -485,8 +487,8 @@ you finish — the task advances automatically.
 ```
 
 Besides your team's personas there are read-only built-ins (`builtin:worker`,
-`builtin:triage`, `builtin:assistant` — today's defaults) and, later, personas
-shipped by plugin packages (`<package>/<id>`); duplicate a read-only one to
+`builtin:triage`, `builtin:assistant` — today's defaults) and personas shipped by
+plugin packages (`<package.json name>/<id>`, installed with `mpt plugins add`); duplicate a read-only one to
 customize it. A reference that no longer resolves never fails a run: it falls back
 to the built-in and the daemon logs it. Saving a persona lints it (an unclosed code
 fence is refused). See `/api/personas` and

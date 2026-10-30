@@ -508,16 +508,24 @@ export interface PluginLoadStatus {
   identity: string | null;
   /** The spec as written in config.json. */
   spec: string;
-  /** "loaded": every entry registered; "error": the package, or at least one of its entries, failed. */
+  /** "loaded": every entry (and persona) registered cleanly; "error": the package, or at least one of its entries or personas, failed. */
   state: "loaded" | "error";
   /** What went wrong (several failures joined by "; "), when `state` is "error". */
   error?: string;
   /** The ids of the Work Sources it registered (a partly failed package may still have some). */
   sources: string[];
   /**
+   * The full ids (`<package name>/<id>`) of the personas it registered
+   * (docs/DESIGN.md "Persona packages"). A persona with a lint error is still
+   * registered (and makes `state` "error"). Always set by this daemon; optional
+   * so a CLI talking to an older daemon reads its statuses.
+   */
+  personas?: string[];
+  /**
    * Non-fatal problems found at load: a source's settings that don't match its
    * `configSchema` (daemon/sources/config-schema.ts), or a schema outside the
-   * supported subset. The source still loaded.
+   * supported subset; a persona's lint warnings; a persona glob matching no
+   * files. The source (or persona) still loaded.
    */
   warnings?: string[];
 }

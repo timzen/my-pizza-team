@@ -87,7 +87,7 @@ test("a local plugin with a .js entry loads, gets its config as ctx.options(), a
   try {
     writePlugin(env.teamDir, "demo", { sources: ["./dist/index.js"], futureKind: ["ignored"] }, { "dist/index.js": objectSource("demo") });
     const statuses = await load(env, [{ source: "./demo", config: { greeting: "hello" } }]);
-    assertEquals(statuses, [{ identity: path.join(env.teamDir, "demo"), spec: "./demo", state: "loaded", sources: ["demo"] }]);
+    assertEquals(statuses, [{ identity: path.join(env.teamDir, "demo"), spec: "./demo", state: "loaded", sources: ["demo"], personas: [] }]);
     assertEquals(env.store.listExternalSources().map((e) => e.source.id), ["demo"]);
     assertStringIncludes(env.logs[0] ?? "", "loaded");
 

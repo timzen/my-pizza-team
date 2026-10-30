@@ -1,6 +1,7 @@
 /**
- * daemon/plugins/loader.ts — Load plugin packages' Work Sources at daemon startup.
- * See docs/DESIGN.md "Plugin packages" and docs/ARCHITECTURE.md "Plugin packages".
+ * daemon/plugins/loader.ts — Load plugin packages' Work Sources and personas at
+ * daemon startup. See docs/DESIGN.md "Plugin packages" / "Persona packages" and
+ * docs/ARCHITECTURE.md "Plugin packages".
  *
  * For each `TeamConfig.packages` entry (parsed by daemon/plugins/spec.ts):
  *
@@ -10,8 +11,14 @@
  *      package that wasn't installed has just been installed by the daemon
  *      (daemon/plugins/install.ts `installMissingPackages`, run first); one
  *      whose install failed is reported with that failure (`installErrors`).
- *   2. **Read the manifest**: the package.json `"mpt": { "sources": [...] }`.
- *      Other keys under `"mpt"` are ignored, leaving room for future plugin kinds.
+ *   2. **Read the manifest**: the package.json `"mpt": { "sources": [...],
+ *      "personas": [...] }` — either may be absent, not both. Other keys under
+ *      `"mpt"` are ignored, leaving room for future plugin kinds.
+ *   2b. **Register its personas** (`mpt.personas`: files, or a `*` glob in the
+ *      last path segment, all inside the package): each file is read — never
+ *      imported — and registered read-only as `<package.json name>/<base name>`
+ *      (daemon/personas/packages.ts lints it). Before the sources, so a source
+ *      may name its own package's personas. A persona-only package stops here.
  *   3. **Import** each source entry and take its default export: a `WorkSource`
  *      object, or a factory `(options, { teamDir }) => WorkSource | Promise<WorkSource>`.
  *   4. **Register** it with the package entry's `config` as `ctx.options()`. The
@@ -34,8 +41,10 @@
  * Loading runs once at startup; a change needs a restart (no hot reload).
  *
  * Steps 1–3 are exported one by one (`resolvePackageDir`, `readPluginManifest`,
- * `resolveSourceEntry`, `importSourceEntry`, `instantiateSource`) so `mpt
- * plugins doctor` (cli/plugins-doctor.ts) checks a package along exactly this path.
+ * `readPackagePersonaFiles`, `resolveSourceEntry`, `importSourceEntry`,
+ * `instantiateSource`) so `mpt plugins doctor` (cli/plugins-doctor.ts) and `mpt
+ * plugins add|update` (daemon/plugins/install.ts `validatePackage`) check a
+ * package along exactly this path.
  */
 
 import * as fs from "node:fs";
@@ -48,6 +57,7 @@ import type { WorkSource } from "../sources/types.ts";
 import { sourceConfigWarnings } from "../sources/config-schema.ts";
 import { type PackageSpec, type ParsedPackageEntry, parsePackageEntries } from "./spec.ts";
 import { registerHostResolution } from "./host-resolve.ts";
+import type { PackagePersonaFile, PackagePersonaResult } from "../personas/packages.ts";
 
 /** The team-dir folder `mpt plugins` installs npm and git packages into. */
 export const PLUGIN_PACKAGES_DIR = "packages";
@@ -111,9 +121,11 @@ function gitPathSegments(url: string): string[] {
   return [u.hostname, ...segments.filter(Boolean)];
 }
 
-/** What the loader needs from the daemon: the Store's registration seam. */
+/** What the loader needs from the daemon: the Store's registration seams. */
 export interface PluginHost {
   registerWorkSource(source: WorkSource, opts?: RegisterSourceOptions): void;
+  /** Register a package's personas read-only (daemon/personas/packages.ts `PackagePersonas.register`). */
+  registerPackagePersonas(pkg: { name: string; identity: string }, files: PackagePersonaFile[]): PackagePersonaResult;
 }
 
 /** The second argument of a factory default export. */
@@ -165,23 +177,32 @@ export async function loadPlugins(
   for (const entry of parsed.packages) {
     const installError = opts.installErrors?.get(entry.spec.identity);
     const status: PluginLoadStatus = installError !== undefined
-      ? { identity: entry.spec.identity, spec: entry.spec.raw, state: "error", error: `install failed: ${installError}`, sources: [] }
+      ? { identity: entry.spec.identity, spec: entry.spec.raw, state: "error", error: `install failed: ${installError}`, sources: [], personas: [] }
       : await loadPackage(host, entry, teamDir, timeoutMs);
     for (const w of status.warnings ?? []) log(`${status.spec}: warning: ${w}`);
-    if (status.state === "loaded") log(`${status.spec}: loaded (${status.sources.length ? `sources: ${status.sources.join(", ")}` : "no sources"})`);
-    else log(`${status.spec}: ${status.error}${status.sources.length ? ` (still registered: ${status.sources.join(", ")})` : ""}`);
+    const registered = describeRegistered(status);
+    if (status.state === "loaded") log(`${status.spec}: loaded (${registered || "no sources"})`);
+    else log(`${status.spec}: ${status.error}${registered ? ` (still registered: ${registered})` : ""}`);
     statuses.push(status);
   }
   for (const r of parsed.rejected) {
     log(r.error);
-    statuses.push({ identity: r.identity ?? null, spec: r.raw, state: "error", error: r.error, sources: [] });
+    statuses.push({ identity: r.identity ?? null, spec: r.raw, state: "error", error: r.error, sources: [], personas: [] });
   }
   return statuses;
 }
 
-/** One package: resolve, read its manifest, then load each source entry; failures are collected, not thrown. */
+/** "sources: a, b; personas: p/x" — what a status registered, for the log ("" when nothing). */
+function describeRegistered(status: PluginLoadStatus): string {
+  const parts: string[] = [];
+  if (status.sources.length) parts.push(`sources: ${status.sources.join(", ")}`);
+  if (status.personas?.length) parts.push(`personas: ${status.personas.join(", ")}`);
+  return parts.join("; ");
+}
+
+/** One package: resolve, read its manifest, register its personas, then load each source entry; failures are collected, not thrown. */
 async function loadPackage(host: PluginHost, { spec, config }: ParsedPackageEntry, teamDir: string, timeoutMs: number): Promise<PluginLoadStatus> {
-  const status: PluginLoadStatus = { identity: spec.identity, spec: spec.raw, state: "loaded", sources: [] };
+  const status: PluginLoadStatus = { identity: spec.identity, spec: spec.raw, state: "loaded", sources: [], personas: [] };
   const failed = (error: string): PluginLoadStatus => ({ ...status, state: "error", error });
 
   const resolved = resolvePackageDir(spec, teamDir);
@@ -191,13 +212,23 @@ async function loadPackage(host: PluginHost, { spec, config }: ParsedPackageEntr
   if ("error" in manifest) return failed(manifest.error);
 
   const errors: string[] = [];
+  const warn = (ws: string[]) => {
+    if (ws.length) status.warnings = [...(status.warnings ?? []), ...ws];
+  };
+  // Personas first: a source may declare one of its own package's personas.
+  if (manifest.personas.length) {
+    const found = readPackagePersonaFiles(dir, manifest.personas);
+    const registered = host.registerPackagePersonas({ name: manifest.name ?? "", identity: spec.identity }, found.files);
+    status.personas = registered.personas;
+    errors.push(...found.errors, ...registered.errors);
+    warn([...found.warnings, ...registered.warnings]);
+  }
   for (const entry of manifest.sources) {
     try {
       const source = await loadEntry(dir, entry, config, teamDir, timeoutMs);
       host.registerWorkSource(source, { options: config });
       status.sources.push(source.id);
-      const warnings = sourceConfigWarnings(source, config).map((w) => `source "${source.id}": ${w}`);
-      if (warnings.length) status.warnings = [...(status.warnings ?? []), ...warnings];
+      warn(sourceConfigWarnings(source, config).map((w) => `source "${source.id}": ${w}`));
     } catch (e) {
       errors.push(`${entry}: ${e instanceof Error ? e.message : String(e)}`);
     }
@@ -220,12 +251,23 @@ export function resolvePackageDir(spec: PackageSpec, teamDir: string): { dir: st
   };
 }
 
+/** A package's `"mpt"` manifest, as the loader reads it. */
+export interface PluginManifest {
+  /** package.json `name` — the namespace of its personas (`<name>/<id>`); absent when unset. */
+  name?: string;
+  /** `mpt.sources`: Work Source entry files (empty for a persona-only package). */
+  sources: string[];
+  /** `mpt.personas`: persona files or last-segment globs (empty for a sources-only package). */
+  personas: string[];
+}
+
 /**
- * The package.json `"mpt"` manifest's source entries, or why there are none to
- * load. Shared with `mpt plugins add` (cli/plugins.ts), which validates a
- * package with it before writing config.json.
+ * The package.json `"mpt"` manifest — its source entries and persona patterns —
+ * or why there is nothing to load. A package may ship only sources, only
+ * personas, or both; one with neither is an error. Shared with `mpt plugins add`
+ * (cli/plugins.ts), which validates a package with it before writing config.json.
  */
-export function readPluginManifest(dir: string): { sources: string[] } | { error: string } {
+export function readPluginManifest(dir: string): PluginManifest | { error: string } {
   const file = path.join(dir, "package.json");
   let pkg: unknown;
   try {
@@ -233,14 +275,123 @@ export function readPluginManifest(dir: string): { sources: string[] } | { error
   } catch (e) {
     return { error: `cannot read ${file}: ${e instanceof Error ? e.message : String(e)}` };
   }
+  const expected = `(expected "mpt": { "sources": ["./dist/index.js"] } and/or "mpt": { "personas": ["personas/*.md"] })`;
   const mpt = isObject(pkg) ? pkg.mpt : undefined;
-  if (!isObject(mpt)) return { error: `${file} has no "mpt" manifest (expected "mpt": { "sources": ["./dist/index.js"] })` };
-  // No `sources` is a package for some other (future) plugin kind: nothing to load here, not an error.
-  if (mpt.sources === undefined) return { sources: [] };
-  if (!Array.isArray(mpt.sources) || !mpt.sources.every((s) => typeof s === "string" && s.trim())) {
-    return { error: `${file}: "mpt.sources" must be an array of entry paths` };
+  if (!isObject(mpt)) return { error: `${file} has no "mpt" manifest ${expected}` };
+  const list = (key: "sources" | "personas", what: string): string[] | { error: string } => {
+    const v = mpt[key];
+    if (v === undefined) return [];
+    if (!Array.isArray(v) || !v.every((s) => typeof s === "string" && s.trim())) return { error: `${file}: "mpt.${key}" must be an array of ${what}` };
+    return v as string[];
+  };
+  const sources = list("sources", "entry paths");
+  if (!Array.isArray(sources)) return sources;
+  const personas = list("personas", "persona file paths or globs");
+  if (!Array.isArray(personas)) return personas;
+  if (mpt.sources === undefined && mpt.personas === undefined) return { error: `${file}: the "mpt" manifest lists neither sources nor personas ${expected}` };
+  const name = isObject(pkg) && typeof pkg.name === "string" && pkg.name.trim() ? pkg.name.trim() : undefined;
+  return { ...(name ? { name } : {}), sources, personas };
+}
+
+/** The persona files a package's `mpt.personas` patterns name, read from disk. */
+export interface PackagePersonaFiles {
+  /** One per persona: its id within the package (the file's base name) and its text. */
+  files: PackagePersonaFile[];
+  /** A pattern or file that can't be used (outside the package, missing, a duplicate id). */
+  errors: string[];
+  /** Not fatal: a glob that matched no files. */
+  warnings: string[];
+}
+
+/**
+ * Step 2b — expand `mpt.personas` and read each file (as text: personas are
+ * never imported). A pattern is a path relative to the package root, with at
+ * most a `*` in its **last** segment (`personas/*.md`) — enough for the use,
+ * and no glob dependency (docs/DESIGN.md "Persona packages"). Every file must
+ * stay inside the package, symlinks included (a manifest can't point the
+ * daemon at arbitrary files). A file's id is its base name without extension;
+ * two files with the same id are an error on the second.
+ */
+export function readPackagePersonaFiles(dir: string, patterns: string[]): PackagePersonaFiles {
+  const out: PackagePersonaFiles = { files: [], errors: [], warnings: [] };
+  let root: string;
+  try {
+    root = fs.realpathSync(dir);
+  } catch (e) {
+    out.errors.push(`cannot read ${dir}: ${e instanceof Error ? e.message : String(e)}`);
+    return out;
   }
-  return { sources: mpt.sources as string[] };
+  const inside = (p: string) => {
+    const rel = path.relative(root, p);
+    return rel !== "" && !rel.startsWith("..") && !path.isAbsolute(rel);
+  };
+  const seen = new Map<string, string>();
+  for (const pattern of patterns) {
+    const norm = pattern.replace(/\\/g, "/");
+    const segments = norm.split("/");
+    const last = segments[segments.length - 1] ?? "";
+    if (segments.slice(0, -1).some((s) => s.includes("*"))) {
+      out.errors.push(`persona pattern ${pattern}: only a * in the last path segment is supported (e.g. personas/*.md)`);
+      continue;
+    }
+    const parent = path.resolve(root, ...segments.slice(0, -1));
+    let candidates: string[];
+    if (last.includes("*")) {
+      const rel = path.relative(root, parent);
+      if (rel.startsWith("..") || path.isAbsolute(rel)) {
+        out.errors.push(`persona pattern ${pattern} is outside the package`);
+        continue;
+      }
+      const re = globSegmentRegExp(last);
+      let names: string[] = [];
+      try {
+        names = fs.readdirSync(parent, { withFileTypes: true }).filter((e) => !e.isDirectory() && re.test(e.name)).map((e) => e.name).sort();
+      } catch {
+        // A missing directory matches nothing (warned below).
+      }
+      if (names.length === 0) out.warnings.push(`persona pattern ${pattern} matches no files`);
+      candidates = names.map((n) => path.join(parent, n));
+    } else {
+      candidates = [path.join(parent, last)];
+    }
+    for (const file of candidates) {
+      const shown = path.relative(root, file).split(path.sep).join("/");
+      if (!inside(file)) {
+        out.errors.push(`persona file ${pattern} is outside the package`);
+        continue;
+      }
+      let real: string;
+      try {
+        real = fs.realpathSync(file);
+      } catch {
+        out.errors.push(`persona file ${shown} does not exist`);
+        continue;
+      }
+      if (!inside(real)) {
+        out.errors.push(`persona file ${shown} is outside the package (a symlink out of it)`);
+        continue;
+      }
+      if (!fs.statSync(real).isFile()) {
+        out.errors.push(`persona file ${shown} is not a file`);
+        continue;
+      }
+      const name = path.parse(file).name;
+      const prior = seen.get(name);
+      if (prior !== undefined) {
+        if (prior !== shown) out.errors.push(`persona files ${prior} and ${shown} both have the id "${name}"`);
+        continue;
+      }
+      seen.set(name, shown);
+      out.files.push({ name, raw: fs.readFileSync(real, "utf8") });
+    }
+  }
+  return out;
+}
+
+/** A path segment with `*` wildcards (no other glob syntax) as an anchored RegExp. */
+function globSegmentRegExp(segment: string): RegExp {
+  const escaped = segment.split("*").map((part) => part.replace(/[.+?^$\{}()|[\]\\]/g, "\\$&"));
+  return new RegExp(`^${escaped.join("[^/]*")}$`);
 }
 
 /**
