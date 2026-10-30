@@ -1223,7 +1223,9 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 > delete), a persona picker everywhere a reference is chosen, and the in-flight
 > chips; and persona packages — the plugin loader reading `mpt.personas`, a
 > persona-only package skipping npm, and `mpt plugins add|list|update|remove|doctor`
-> handling them. Still to come: the demo team.
+> handling them; and the demo team (mpt-demo-team: persona-layout fixtures, a
+> legacy-layout fixture its `run-e2e.sh` migrates, the `mpt-personas-demo` package,
+> the demo-tracker's `defaultPersona` and per-source triage persona).
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by

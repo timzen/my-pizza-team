@@ -64,8 +64,9 @@ API, migration (steps 1, 2, 4–7), WorkDef `persona`, the WorkItem snapshot (re
 at claim), every prompt path, the Pi tools (`list_personas`, `persona` params), and
 Work Source personas (+ migration step 3), and the UI (Config → Personas, pickers,
 the triage-persona-required state, in-flight chips, the notices strip), and persona
-packages (the loader's `mpt.personas`, `mpt plugins` and the doctor) are in. Still
-open in the story: the demo team. Deferred on purpose:
+packages (the loader's `mpt.personas`, `mpt plugins` and the doctor), and the demo
+team (mpt-demo-team's fixtures, legacy-layout migration check and persona package)
+are in. Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
   built on a package's, picking up its updates). Today Duplicate copies and never
