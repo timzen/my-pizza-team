@@ -25,7 +25,11 @@
  *     `ExternalDef.mode`, else its source's `WorkSource.mode`); absent = "work".
  *     Kept here rather than in `workdef.md` so it survives a restart without a
  *     frontmatter field, and is refreshed on every sync — even an unchanged
- *     revision — so a source switching mode takes effect at once.
+ *     revision — so a source switching mode takes effect at once;
+ *   - `persona:<defId>`  — a person's persona override for the mirror
+ *     (daemon/sources/persona.ts; `PUT /api/work-defs/:id/persona`). The
+ *     source's own suggestion, `ExternalDef.persona`, is content, so it is
+ *     written into the file (`persona:` frontmatter) like the rest.
  */
 
 import type { WorkDef } from "../../shared/types.ts";
@@ -99,6 +103,7 @@ export function invalidExternalDef(def: unknown): string | null {
   }
   if (d.goal !== undefined && typeof d.goal !== "string") return "'goal' is not a string";
   if (d.mode !== undefined && d.mode !== "work" && d.mode !== "triage") return "'mode' must be \"work\" or \"triage\"";
+  if (d.persona !== undefined && typeof d.persona !== "string") return "'persona' is not a string";
   // Each comment is checked on its own when merged (sources/comments.ts); only the list's shape is the item's.
   if (d.comments !== undefined && !Array.isArray(d.comments)) return "'comments' is not an array";
   return null;
@@ -152,6 +157,8 @@ export function upsertMirror(
   if (ext.additionalContext?.trim()) def.additionalContext = ext.additionalContext.trim();
   if (ext.directory?.trim()) def.directory = ext.directory.trim();
   if (ext.url?.trim()) def.url = ext.url.trim();
+  // The source's persona suggestion for this item (docs/DESIGN.md "Work Source personas").
+  if (ext.persona?.trim()) def.persona = ext.persona.trim();
   writeWorkDef(teamDir, def);
   kv.set(mirrorRevisionKey(id), ext.revision);
   if (vanished) {

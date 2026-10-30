@@ -16,6 +16,9 @@
  *   - **Mode:** `mode: triage` (or `work`) in an item's frontmatter is its
  *     `ExternalDef.mode`; the `mode` option is the source's `WorkSource.mode`
  *     (triage mode — docs/DESIGN.md "External sources").
+ *   - **Persona:** `persona: <id>` in an item's frontmatter is its
+ *     `ExternalDef.persona`; the `defaultPersona` / `triagePersona` options are
+ *     the source's declarations (docs/DESIGN.md "Work Source personas").
  *   - **Revision:** a SHA-256 of the file's content, so touching a file without
  *     changing it doesn't re-run it. The thread file below isn't part of it.
  *   - **Thread:** `<stem>.comments.jsonl` beside an item, one `ExternalComment`
@@ -69,6 +72,10 @@ export interface FixtureSourceOptions {
   syncTimeoutMs?: number;
   /** The source's mode (`WorkSource.mode`; default "work"). */
   mode?: WorkSourceMode;
+  /** The source's declared work persona (`WorkSource.defaultPersona`). */
+  defaultPersona?: string;
+  /** The source's declared triage persona (`WorkSource.triagePersona`). */
+  triagePersona?: string;
 }
 
 /** SHA-256 of a string, hex. */
@@ -93,6 +100,7 @@ function parseItem(externalId: string, raw: string): Omit<ExternalDef, "revision
     additionalContext: parsed.additionalContext,
     directory: parsed.directory,
     url: parsed.url,
+    ...(parsed.persona ? { persona: parsed.persona } : {}),
   };
 }
 
@@ -117,6 +125,8 @@ export class FixtureSource implements WorkSource {
   readonly apiVersion = 1 as const;
   readonly syncTimeoutMs?: number;
   readonly mode?: WorkSourceMode;
+  readonly defaultPersona?: string;
+  readonly triagePersona?: string;
   /** Every write-back call, oldest first. */
   readonly writeBacks: FixtureWriteBack[] = [];
   private readonly everyMs: number | null;
@@ -132,6 +142,8 @@ export class FixtureSource implements WorkSource {
     this.everyMs = opts.syncEveryMs === undefined ? 60_000 : opts.syncEveryMs;
     this.syncTimeoutMs = opts.syncTimeoutMs;
     if (opts.mode) this.mode = opts.mode;
+    if (opts.defaultPersona) this.defaultPersona = opts.defaultPersona;
+    if (opts.triagePersona) this.triagePersona = opts.triagePersona;
   }
 
   syncEveryMs(): number | null {

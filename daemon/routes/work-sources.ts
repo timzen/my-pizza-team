@@ -46,8 +46,11 @@ export function externalSourceViews(store: Store): ExternalSourceView[] {
 export function mirrorView(store: Store, def: WorkDef): MirrorView | undefined {
   if (def.parent?.kind !== "external") return undefined;
   const sourceId = sourceIdForWorkDef(def);
-  const { revision, vanished, mode } = store.getMirrorState(def);
-  return { sourceId, sourceLabel: sourceLabel(store, sourceId), externalId: def.parent.id, url: def.url, revision, vanished, mode };
+  const { revision, vanished, mode, personaOverride } = store.getMirrorState(def);
+  return {
+    sourceId, sourceLabel: sourceLabel(store, sourceId), externalId: def.parent.id, url: def.url, revision, vanished, mode,
+    ...(personaOverride ? { personaOverride } : {}),
+  };
 }
 
 /**

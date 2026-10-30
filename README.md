@@ -466,8 +466,11 @@ filters to **Never run** (count 0) — the work you haven't started. See
 persona library (`personas/<id>.md`) whose body is role framing injected into the
 prompt. Everything that needs one *references it by id* — an agent state
 (`"persona"` in `workflow.json`), note triage (`triage.persona` in config.json), the
-assistant (`assistant.persona`), and optionally a Solitary or Scheduled task
-(`persona` on the WorkDef):
+assistant (`assistant.persona`), optionally a Solitary or Scheduled task
+(`persona` on the WorkDef), and a Work Source's items (a plugin's
+`defaultPersona` / `triagePersona`, the team's per-source choice in
+`sourcePersonas`, or a per-item override — see GUIDE.md "Writing a Work Source
+plugin"; a triage-mode source must have a triage persona or it doesn't sync):
 
 ```markdown
 ---
@@ -495,7 +498,9 @@ entries tagged `persona` become personas (and are selected where they were used)
 The **context library is gone** — project knowledge belongs in the project's own
 AGENTS.md / README. Entries that were attached to stories or tasks are inlined into
 those tasks' Additional Context, so prompts carry the same text, and `context/` is
-archived to `context.migrated/`.
+archived to `context.migrated/`. A triage-mode plugin source that declares no
+triage persona gets the team's triage persona as its per-source choice, once, so
+it keeps syncing.
 
 Manual states need no persona. Create workflows and edit their states under
 **Config → Workflows** (`/config/workflows`); every story names its workflow at

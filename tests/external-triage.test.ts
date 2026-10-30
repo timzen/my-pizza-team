@@ -29,13 +29,18 @@ import type { TriageProposal } from "../shared/types.ts";
 const JSON_HEADERS = { "Content-Type": "application/json" };
 const SOURCE = "simt";
 
-function setup(mode: "work" | "triage" = "triage") {
+/**
+ * A team with the fixture source as SIM-T. It declares `builtin:triage` as its
+ * triage persona — a triage-mode source must have one (docs/DESIGN.md "Work
+ * Source personas"; the requirement itself is covered in source-personas.test.ts).
+ */
+function setup(mode: "work" | "triage" = "triage", triagePersona: string | undefined = "builtin:triage") {
   const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-triage-test-"));
   fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
   const folder = path.join(teamDir, "external");
   fs.mkdirSync(folder);
   const store = new Store(teamDir, TEST_CONFIG);
-  store.registerWorkSource(new FixtureSource({ dir: folder, id: SOURCE, label: "SIM-T", syncEveryMs: null, mode }));
+  store.registerWorkSource(new FixtureSource({ dir: folder, id: SOURCE, label: "SIM-T", syncEveryMs: null, mode, triagePersona }));
   const app = buildApp(store, TEST_CONFIG, teamDir);
   return { store, app, teamDir, folder };
 }

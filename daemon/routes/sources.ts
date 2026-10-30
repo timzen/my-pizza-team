@@ -7,7 +7,9 @@
  *                                    (built-in / plugin / external), package, mode,
  *                                    toggle, configSchema, current settings (secrets
  *                                    redacted; env-var refs by name + whether set),
- *                                    init error, sync health, active mirror count
+ *                                    init error (or persona problem), personas (the
+ *                                    team's setting + the source's declaration),
+ *                                    sync health, active mirror count
  *   POST /api/sources/:id/preview  — `{ options }`: validate (400 + fieldErrors),
  *                                    then what a sync with them would report —
  *                                    nothing mirrored, enqueued, or persisted.
@@ -18,6 +20,12 @@
  *                                    config.json `packages[]` entry's `config` (per
  *                                    the source's `configScope`), then re-init every
  *                                    source of that package in place — no restart
+ *   PUT  /api/sources/:id/persona  — `{ persona?, triagePersona? }`: the team's
+ *                                    persona settings for the source, into config.json
+ *                                    `sourcePersonas.<id>` (docs/DESIGN.md "Work Source
+ *                                    personas"). Validated against the library; never
+ *                                    re-inits the source (it isn't the plugin's setting)
+ *                                    — a changed triage persona just syncs it now
  *
  * The same admin surface as `PUT /api/config`: behind the daemon's API token
  * when one is set (daemon/auth.ts), and not feature-gated — a switched-off
@@ -37,7 +45,7 @@ import * as path from "node:path";
 import type { Context } from "hono";
 import type { RouteContext } from "./types.ts";
 import type {
-  PluginLoadStatus, SourceConfigResponse, SourcePreviewResponse, SourcesResponse, SourceView,
+  PluginLoadStatus, SourceConfigResponse, SourcePersonaRequest, SourcePersonaResponse, SourcePreviewResponse, SourcesResponse, SourceView,
 } from "../../shared/protocol.ts";
 import type { PackageEntry, TeamConfig } from "../../shared/types.ts";
 import type { Store } from "../store.ts";
@@ -76,6 +84,9 @@ export function sourceView(store: Store, config: TeamConfig, entry: SourceEntry)
   const kind: SourceView["kind"] = pkg ? "plugin" : BUILT_IN_SOURCE_IDS.has(source.id) ? "built-in" : "external";
   const schemaUsable = source.configSchema !== undefined && checkConfigSchema(source.configSchema).length === 0;
   const settings = viewSettings(schemaUsable ? source.configSchema : undefined, sourceConfigBlock(source, ctx.options()));
+  const personaSetting = config.sourcePersonas?.[source.id];
+  const personaError = store.sourcePersonaStatus(source.id);
+  const initError = entry.initError ?? personaError;
   return {
     id: source.id,
     label: source.label ?? source.id,
@@ -89,7 +100,12 @@ export function sourceView(store: Store, config: TeamConfig, entry: SourceEntry)
     ...settings,
     configurable: kind === "plugin",
     previewable: typeof source.preview === "function" || syncs,
-    ...(entry.initError ? { initError: entry.initError } : {}),
+    ...(initError ? { initError } : {}),
+    ...(personaError ? { personaError } : {}),
+    persona: personaSetting?.persona ?? null,
+    defaultPersona: source.defaultPersona ?? null,
+    triagePersona: personaSetting?.triagePersona ?? null,
+    defaultTriagePersona: source.triagePersona ?? null,
     sync: syncs ? store.getSyncStatus(source.id) : null,
     activeMirrors: syncs
       ? store.getWorkDefs("active").filter((d) => d.parent?.kind === "external" && sourceIdForWorkDef(d) === source.id).length
@@ -168,6 +184,20 @@ export function registerSourceRoutes(ctx: RouteContext): void {
       previewing.delete(id);
       previewDoneAt.set(id, Date.now());
     }
+  });
+
+  app.put("/api/sources/:id/persona", async (c) => {
+    const id = c.req.param("id");
+    const entry = find(id);
+    if (!entry) return notFound(c, id);
+    const body = await c.req.json().catch(() => null) as unknown;
+    if (!isPlainObject(body) || (body.persona === undefined && body.triagePersona === undefined)) {
+      return c.json({ success: false, error: 'Body must be { "persona"?: id | null, "triagePersona"?: id | null }' } satisfies SourcePersonaResponse, 400);
+    }
+    const update = body as SourcePersonaRequest;
+    const res = store.setSourcePersona(id, { persona: update.persona, triagePersona: update.triagePersona });
+    if (!res.ok) return c.json({ success: false, error: res.error } satisfies SourcePersonaResponse, res.status);
+    return c.json({ success: true, source: sourceView(store, config, entry) } satisfies SourcePersonaResponse);
   });
 
   app.put("/api/sources/:id/config", async (c) => {

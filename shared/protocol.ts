@@ -458,6 +458,12 @@ export interface MirrorView {
    * see `GET /api/work-defs/:id/triage`. Default "work".
    */
   mode: "work" | "triage";
+  /**
+   * A person's persona override for this mirror (`PUT /api/work-defs/:id/persona`,
+   * kept in the source's kv so re-syncs never touch it), when set. It wins over
+   * the source's suggestion (`WorkDefView.persona`) and the source's settings.
+   */
+  personaOverride?: string;
 }
 
 /** One registered external (pull-only) Work Source (`/api/status` `externalSources`). */
@@ -581,8 +587,27 @@ export interface SourceView {
   configurable: boolean;
   /** Can `POST /api/sources/:id/preview` run it (it has `preview` or `sync`)? */
   previewable: boolean;
-  /** Why its last `init` failed (startup, or a re-init after a Save); absent when fine. */
+  /**
+   * Why it isn't working: its last `init` failed (startup, or a re-init after
+   * a Save), or — when init is fine — a persona problem: a triage-mode source
+   * with no triage persona (or one that doesn't resolve), which doesn't sync
+   * until one is set, or a work-mode source with triage-mode items waiting for
+   * one (docs/DESIGN.md "Work Source personas"). Absent when fine.
+   */
   initError?: string;
+  /** The persona problem alone (also folded into `initError` when init is fine); absent when none. */
+  personaError?: string;
+  /**
+   * The team's per-source persona setting for its work-mode items
+   * (`sourcePersonas.<id>.persona`), or null. Set with `PUT /api/sources/:id/persona`.
+   */
+  persona: string | null;
+  /** The source's declared `WorkSource.defaultPersona`, or null. */
+  defaultPersona: string | null;
+  /** The team's per-source triage persona (`sourcePersonas.<id>.triagePersona`), or null. */
+  triagePersona: string | null;
+  /** The source's declared `WorkSource.triagePersona`, or null. */
+  defaultTriagePersona: string | null;
   /** External sources: sync health — the last sync that ran, and any backoff. Null otherwise. */
   sync: {
     running: boolean;
@@ -632,6 +657,28 @@ export interface SourceConfigResponse {
   fieldErrors?: SourceFieldError[];
   reinit?: Array<{ id: string; ok: boolean; error?: string }>;
   source?: SourceView;
+}
+
+/**
+ * `PUT /api/sources/:id/persona`: the team's persona settings for a source
+ * (config.json `sourcePersonas.<id>`). Absent keeps a field; null or "" clears
+ * it; an id must resolve (400). Never re-initializes the source.
+ */
+export interface SourcePersonaRequest {
+  persona?: string | null;
+  triagePersona?: string | null;
+}
+
+/** `PUT /api/sources/:id/persona`. */
+export interface SourcePersonaResponse {
+  success: boolean;
+  error?: string;
+  source?: SourceView;
+}
+
+/** `PUT /api/work-defs/:id/persona`: a person's persona override on a mirror (null clears it). */
+export interface MirrorPersonaRequest {
+  persona: string | null;
 }
 
 /** One row of `GET /api/work-sources/:id/defs`: a mirrored def and how its runs went. */

@@ -458,6 +458,10 @@ export interface FixtureSourceConfig {
   intervalSeconds?: number;
   /** "triage" puts the whole source in triage mode (docs/DESIGN.md "External sources"); default "work". */
   mode?: "work" | "triage";
+  /** The source's declared work persona (`WorkSource.defaultPersona`; docs/DESIGN.md "Work Source personas"). */
+  defaultPersona?: string;
+  /** The source's declared triage persona (`WorkSource.triagePersona`) — a triage-mode source needs one (or a per-source setting). */
+  triagePersona?: string;
 }
 
 export interface WorkDef {

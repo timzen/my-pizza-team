@@ -505,7 +505,7 @@ turned into proposed tasks rather than handed straight to a teammate.
   survives a restart and a source can flip it without a new revision). For a
   triage-mode mirror the daemon, not the source, decides the WorkItem title
   ("Triage: <title>"), its directory (the mirror's, else the leader's — the
-  note rule), the prompt (the triage persona / the default + the mirror's *current*
+  note rule), the prompt (the item's triage persona — required, see "Work Source personas" — + the mirror's *current*
   content, open stories, earlier analyses, and what you decided), and Run
   (`daemon/sources/external-triage.ts`). The source's other hooks —
   eligibility, write-back of comments and terminal states — still apply; the
@@ -1214,10 +1214,11 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 > prompt path resolving through the library (a state's `persona`, `triage.persona`,
 > `assistant.persona`, a Solitary/Scheduled WorkDef's `persona`), with the snapshot
 > recorded at claim (`Store.resolveWorkPersona`); `persona` checks on `PUT
-> /api/config` workflows; and the Pi harness tools (`list_personas`, `persona` on
-> create_task / create_schedule / edit_task). Still to come, each in its own task:
-> the Work Source chain and migration step 3, the plugin loader feeding package
-> personas, and the UI.
+> /api/config` workflows; the Pi harness tools (`list_personas`, `persona` on
+> create_task / create_schedule / edit_task); and the Work Source chain — the
+> per-source setting, the per-mirror override, the triage-mode requirement, the
+> doctor checks, and migration step 3. Still to come, each in its own task: the
+> plugin loader feeding package personas, and the UI.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
 state's `workflows/<wf>/<state>.md`, the team's single `triage.md` (also used by
@@ -1617,8 +1618,37 @@ Smaller decisions made while building it:
   record and its lease commit together. The claim route resolves it once with
   `Store.resolveWorkPersona(def)` (each kind's chain in one place) and hands the
   same body to the base prompt, so the recorded persona is the one the prompt
-  carried. Until the Work Source chain lands, a work-mode mirror resolves to none
-  and a triage-mode mirror to the team's triage persona (what it ran with before).
+  carried (a triage-mode mirror's triage prompt gets it too, through
+  `buildPromptFor(def, base, persona)`).
+- **Work Source personas, as built** (`daemon/sources/persona.ts`, pure; the
+  Store supplies the inputs):
+  - *The source's status* keeps one error field: `GET /api/sources` `initError`
+    is the init failure, else the persona problem — so existing clients show it
+    unchanged — and `personaError` carries the persona problem alone for a UI
+    that wants to say "pick a triage persona" rather than "fix the settings".
+    It is computed on demand from the live config and library, which is how
+    "the check runs on every save and when a persona is deleted" holds without
+    hooks in each of those paths.
+  - *A refused sync is not a failure.* `SyncRunner` asks a `blockedReason` before
+    calling `sync`; a triage-mode source without a triage persona is skipped
+    (`"misconfigured"`) without counting a failure or backing off, so the next
+    tick after the fix syncs. `PUT /api/sources/:id/persona` also kicks a sync
+    when the triage persona changed, so the fix shows at once.
+  - *A cleared entry stays.* Clearing both fields leaves `sourcePersonas.<id>:
+    {}` in config.json: step 3's guard is "no entry", so an empty entry is what
+    stops the startup seed from refilling a choice a person removed.
+  - *The seed only covers package sources* (they are the existing triage plugins);
+    an in-daemon source such as the dev fixture declares its `triagePersona`
+    (`dev.fixtureSource.triagePersona`). The seed runs after `loadPlugins` and
+    commits on its own (`mpt: migrate to personas (source triage personas)`).
+  - *A triage-mode item already queued* when its source loses its triage persona
+    still claims: it resolves to `builtin:triage` (via `source-default`) rather
+    than failing the claim, per "never fails a claim".
+  - *Unknown declared personas* are a `PluginLoadStatus` warning at startup
+    (`checkDeclaredSourcePersonas`) and ⚠ in `mpt plugins doctor`. The doctor
+    resolves team and built-in ids against the team dir; it can't load package
+    personas, so a package id is listed as "resolved by the daemon at startup"
+    rather than reported missing.
 - **Workflow state personas on `PUT /api/config`** are checked like `PUT
   /api/workflows/:name/states/:state` — a string, on an agent state, that resolves —
   but only when the reference *changed*. The config form re-sends every workflow on

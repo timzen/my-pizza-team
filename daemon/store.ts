@@ -64,6 +64,7 @@ import {
   type PersonaRef,
   type PersonaUsage,
   type ResolvedPersona,
+  type SourcePersonaSetting,
   type PersonaVia,
   parsePersonaId,
   type Assignment,
@@ -101,6 +102,7 @@ import { disconnectedKey, mirrorMode, mirrorRevisionKey, upsertMirror, vanishedK
 import { mergeExternalComments, wroteBackKey } from "./sources/comments.ts";
 import { isSourceSwitchedOff } from "./sources/toggle.ts";
 import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
+import { heldTriageItemsMessage, mirrorPersonaKey, mirrorPersonaPick, type PersonaPick, triagePersonaProblem } from "./sources/persona.ts";
 import { DEFAULT_SYNC_EVERY_MS, DEFAULT_SYNC_TIMEOUT_MS, SyncRunner, type SyncStatus } from "./sources/sync.ts";
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
 import { runSolitary, taskSource } from "./sources/task.ts";
@@ -388,6 +390,8 @@ export class Store {
     (entry, defs) => this.ingestExternalDefs(entry, defs),
     undefined,
     (entry) => isSourceSwitchedOff(this.config, entry.toggle),
+    // A triage-mode source without a triage persona doesn't sync (docs/DESIGN.md "Work Source personas").
+    (entry) => this.sourcePersonaProblem(entry.source.id),
   );
   /**
    * The built-in Thought (auto-triage) source, kept by reference because the
@@ -411,7 +415,6 @@ export class Store {
    */
   private externalTriage = new ExternalTriage({
     leaderDirectory: () => this.getLeader()?.directory,
-    getTriageInstructions: () => this.getTriageInstructions(),
     getOpenStories: () => this.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
     getComments: (workDefId) => this.getCommentsForRef({ workDefId }),
     decisionSummary: (workDefId) => this.triageDecisionSummaryForWorkDef(workDefId),
@@ -645,13 +648,15 @@ export class Store {
    * read straight from disk, so it answers even if the source isn't registered
    * any more: the revision last mirrored, and whether sync archived it for vanishing.
    */
-  getMirrorState(def: WorkDef): { revision?: string; vanished: boolean; mode: WorkSourceMode } {
+  getMirrorState(def: WorkDef): { revision?: string; vanished: boolean; mode: WorkSourceMode; personaOverride?: string } {
     if (def.parent?.kind !== "external") return { vanished: false, mode: "work" };
     const kv = fileSourceKv(this.teamDir, sourceIdForWorkDef(def));
+    const personaOverride = kv.get(mirrorPersonaKey(def.id));
     return {
       revision: kv.get(mirrorRevisionKey(def.id)),
       vanished: kv.get(vanishedKey(def.id)) !== undefined,
       mode: mirrorMode(kv, def.id),
+      ...(personaOverride ? { personaOverride } : {}),
     };
   }
 
@@ -675,7 +680,7 @@ export class Store {
    */
   private ingestExternalDefs(entry: SourceEntry, defs: ExternalDef[]): SyncOutcome {
     const { source, ctx } = entry;
-    const out: SyncOutcome = { ok: true, mirrored: [], enqueued: [], archived: [], held: [], commented: [] };
+    const out: SyncOutcome = { ok: true, mirrored: [], enqueued: [], archived: [], held: [], commented: [], needsPersona: [] };
     const seen = new Set<string>();
     for (const ext of defs) {
       // The item's mode (its own, else the source's) is recorded with the mirror;
@@ -695,6 +700,12 @@ export class Store {
       if (def.status === "archived") continue;
       const handedOver = kvRevisionCursor(ctx.kv).get(def.id) === ext.revision;
       if (handedOver || ctx.hasActiveItem(def.id)) continue;
+      // A triage item with no triage persona is mirrored but not enqueued —
+      // nothing stamped, so it runs on the first sync after one is set.
+      if (mirrorMode(ctx.kv, def.id) === "triage" && !this.mirrorHasTriagePersona(def)) {
+        out.needsPersona!.push(def.id);
+        continue;
+      }
       // Readiness gating, as a Schedule holds its firing (docs/DESIGN.md "Readiness Gating").
       if (!ctx.readiness.canEnqueueNow()) {
         out.held.push(def.id);
@@ -712,6 +723,7 @@ export class Store {
       ctx.kv.set(vanishedKey(def.id), new Date().toISOString());
       out.archived.push(def.id);
     }
+    this.personaHeld.set(source.id, new Set(out.needsPersona));
     return out;
   }
 
@@ -2937,16 +2949,17 @@ export class Store {
    * prompt carries and the WorkItem snapshot records (docs/DESIGN.md "The
    * in-flight persona"). Each kind walks its own chain:
    *   - board task: its workflow state's `persona` (none = the one-line state framing);
-   *   - note triage and triage-mode mirrors: the triage persona (`triage.persona`,
-   *     else `builtin:triage`) — always one, since triage instructions are the whole job;
+   *   - note triage: the triage persona (`triage.persona`, else `builtin:triage`);
    *   - Solitary / Scheduled: the WorkDef's own `persona` (unset = none);
-   *   - work-mode mirrors: none yet (the Work Source chain — per-WorkDef override,
-   *     per-source setting, source default — is "Work Source personas").
+   *   - mirrors (work or triage mode): the Work Source chain — the person's
+   *     override, the item's suggestion, the per-source setting, the source's
+   *     declaration (`resolveMirrorPersona`; docs/DESIGN.md "Work Source personas").
    * A reference that doesn't resolve falls back to the consumer's built-in
    * (`resolvePersona`), so this never fails a claim.
    */
   resolveWorkPersona(def: WorkDef): ResolvedPersona | null {
-    if (def.parent?.kind === "thought" || this.isTriageModeMirror(def)) return this.resolveTriagePersona();
+    if (def.parent?.kind === "thought") return this.resolveTriagePersona();
+    if (def.parent?.kind === "external") return this.resolveMirrorPersona(def);
     if (!def.parent) return this.resolvePersona(def.persona, { via: "task", fallback: "builtin:worker" }, `task '${def.id}'`);
     if (def.parent.kind === "schedule") return this.resolvePersona(def.persona, { via: "schedule", fallback: "builtin:worker" }, `schedule '${def.id}'`);
     if (def.parent.kind === "story") {
@@ -2955,6 +2968,186 @@ export class Store {
       return this.resolveStatePersona(this.getStory(task.storyId)?.workflow, task.status);
     }
     return null;
+  }
+
+  /**
+   * A mirrored WorkDef's persona (docs/DESIGN.md "Work Source personas"), by
+   * its chain (daemon/sources/persona.ts). Work mode: none when nothing names
+   * one; a stale id falls back to `builtin:worker`. Triage mode: always one — a
+   * stale id, or (only for an item enqueued before its source lost its triage
+   * persona) none at all, stands in as `builtin:triage`, so a claim never fails.
+   */
+  resolveMirrorPersona(def: WorkDef): ResolvedPersona | null {
+    const triage = this.isTriageModeMirror(def);
+    const pick = this.mirrorPersonaPickFor(def);
+    const where = `${triage ? "triage-mode " : ""}mirror '${def.id}'`;
+    if (!triage) return pick ? this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:worker" }, where) : null;
+    if (!pick) return this.resolvePersona("builtin:triage", { via: "source-default", fallback: "builtin:triage" }, where);
+    return this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:triage" }, where);
+  }
+
+  /** The persona id a mirror's chain picks (and how), or null when nothing names one. */
+  private mirrorPersonaPickFor(def: WorkDef): PersonaPick | null {
+    const sourceId = sourceIdForWorkDef(def);
+    const kv = fileSourceKv(this.teamDir, sourceId);
+    return mirrorPersonaPick({
+      mode: mirrorMode(kv, def.id),
+      override: kv.get(mirrorPersonaKey(def.id)),
+      suggestion: def.persona,
+      setting: this.config.sourcePersonas?.[sourceId],
+      source: this.sources.get(sourceId)?.source,
+    });
+  }
+
+  /**
+   * Does a triage-mode mirror have a triage persona that resolves? Checked
+   * before it is enqueued (and on Run), so a run never starts without one.
+   */
+  private mirrorHasTriagePersona(def: WorkDef): boolean {
+    const pick = this.mirrorPersonaPickFor(def);
+    return pick !== null && this.getPersona(pick.ref) !== null;
+  }
+
+  /**
+   * Why this source is refused a sync, or null: a **triage-mode** source (its
+   * declared `mode`) whose source-level triage persona — per-source setting,
+   * else declared — is missing or doesn't resolve. Computed on demand, so a
+   * per-source save, a persona created or deleted, or a package's personas
+   * changing at startup all count at once (docs/DESIGN.md "Work Source personas").
+   */
+  sourcePersonaProblem(sourceId: string): string | null {
+    const source = this.sources.get(sourceId)?.source;
+    if (!source || source.mode !== "triage") return null;
+    return triagePersonaProblem(sourceId, this.config.sourcePersonas?.[sourceId], source, (id) => this.getPersona(id) !== null);
+  }
+
+  /**
+   * A source's persona problem for its status (`GET /api/sources` `initError`):
+   * the triage-mode requirement, else — for a work-mode source — its
+   * triage-mode items the last sync couldn't enqueue for want of one.
+   */
+  sourcePersonaStatus(sourceId: string): string | null {
+    const problem = this.sourcePersonaProblem(sourceId);
+    if (problem) return problem;
+    const held = this.personaHeld.get(sourceId);
+    return held && held.size > 0 ? heldTriageItemsMessage(sourceId, held.size) : null;
+  }
+
+  /** Triage-mode mirrors the last sync of each source held for want of a triage persona. */
+  private personaHeld = new Map<string, Set<string>>();
+
+  /**
+   * Set a source's persona settings (`PUT /api/sources/:id/persona`):
+   * `persona` for its work-mode items, `triagePersona` for its triage-mode
+   * ones. Absent keeps a field, null/"" clears it; an id must resolve. Written
+   * to config.json `sourcePersonas` — never the package's `config`, so the
+   * source isn't re-initialized. The entry is kept (even empty) once set, so
+   * the startup seed for triage plugins never refills a field a person cleared.
+   * A changed triage persona on an enabled external source syncs it now (a
+   * source that was refused for want of one picks up at once).
+   */
+  setSourcePersona(sourceId: string, update: { persona?: string | null; triagePersona?: string | null }):
+    { ok: true; setting: SourcePersonaSetting } | { ok: false; status: 400 | 404; error: string } {
+    const entry = this.sources.get(sourceId);
+    if (!entry) return { ok: false, status: 404, error: `No work source "${sourceId}"` };
+    for (const field of ["persona", "triagePersona"] as const) {
+      const v = update[field];
+      if (v === undefined || v === null || v === "") continue;
+      if (typeof v !== "string") return { ok: false, status: 400, error: `Field '${field}' must be a persona id or null` };
+      if (!this.getPersona(v)) return { ok: false, status: 400, error: `Persona "${v}" doesn't exist` };
+    }
+    const current = this.config.sourcePersonas?.[sourceId] ?? {};
+    const next: SourcePersonaSetting = { ...current };
+    for (const field of ["persona", "triagePersona"] as const) {
+      const v = update[field];
+      if (v === undefined) continue;
+      if (v) next[field] = v;
+      else delete next[field];
+    }
+    this.config.sourcePersonas = { ...this.config.sourcePersonas, [sourceId]: next };
+    this.saveConfig();
+    if (update.triagePersona !== undefined && next.triagePersona !== current.triagePersona
+      && entry.source.sync && !isSourceSwitchedOff(this.config, entry.toggle)) {
+      void this.syncRunner.run(entry, { force: true });
+    }
+    return { ok: true, setting: next };
+  }
+
+  /** A person's persona override for a mirror (kv `persona:<defId>`), if any. */
+  getMirrorPersonaOverride(def: Pick<WorkDef, "id" | "parent">): string | undefined {
+    if (def.parent?.kind !== "external") return undefined;
+    return fileSourceKv(this.teamDir, sourceIdForWorkDef(def)).get(mirrorPersonaKey(def.id)) || undefined;
+  }
+
+  /**
+   * Set (or, with null, clear) a person's persona override on a mirror
+   * (`PUT /api/work-defs/:id/persona`): in the source's kv, since only sync
+   * writes a mirror's file — so it survives every re-sync. Refuses a def that
+   * isn't a mirror (Solitary/Scheduled set `persona` through the ordinary
+   * update) and an id that doesn't resolve.
+   */
+  setMirrorPersona(defId: string, persona: string | null): { ok: true } | { ok: false; status: 400 | 404 | 409; error: string } {
+    const def = this.getWorkDef(defId);
+    if (!def) return { ok: false, status: 404, error: "WorkDef not found" };
+    if (def.parent?.kind !== "external") {
+      return { ok: false, status: 409, error: "Only a mirrored WorkDef has a persona override; set a task's or schedule's persona with PUT /api/work-defs/:id" };
+    }
+    if (persona !== null && !this.getPersona(persona)) return { ok: false, status: 400, error: `Persona "${persona}" doesn't exist` };
+    const kv = fileSourceKv(this.teamDir, sourceIdForWorkDef(def));
+    if (persona) kv.set(mirrorPersonaKey(def.id), persona);
+    else kv.delete(mirrorPersonaKey(def.id));
+    return { ok: true };
+  }
+
+  /**
+   * Startup, after the plugins load (docs/DESIGN.md "Migration", step 3): for
+   * every plugin-package source that declares `mode: "triage"` but no
+   * `triagePersona`, and has no `sourcePersonas` entry yet, seed
+   * `sourcePersonas.<id>.triagePersona` with what it ran with before the
+   * requirement — the team's triage persona, else `builtin:triage` — so nothing
+   * that worked stops. Guarded by "no entry", so it runs once per source (a
+   * person clearing it later keeps the empty entry). Returns the seeded ids.
+   */
+  seedSourceTriagePersonas(): string[] {
+    const fromPackages = new Set(this.pluginStatuses.flatMap((p) => p.sources));
+    const seeded: string[] = [];
+    for (const { source } of this.sources.all()) {
+      if (!fromPackages.has(source.id) || source.mode !== "triage" || source.triagePersona) continue;
+      if (this.config.sourcePersonas?.[source.id] !== undefined) continue;
+      const ref = this.config.triage?.persona && this.getPersona(this.config.triage.persona) ? this.config.triage.persona : "builtin:triage";
+      this.config.sourcePersonas = { ...this.config.sourcePersonas, [source.id]: { triagePersona: ref } };
+      console.warn(`[personas] triage-mode source "${source.id}" declares no triagePersona: set its triage persona to ${ref} (what it ran with before)`);
+      seeded.push(source.id);
+    }
+    if (seeded.length) {
+      this.saveConfig();
+      if (this.config.autosave?.autoCommit) this.commitToGit("mpt: migrate to personas (source triage personas)");
+    }
+    return seeded;
+  }
+
+  /**
+   * Warnings about the personas plugin sources declare (`defaultPersona`,
+   * `triagePersona`) that don't resolve — added to their package's load status
+   * at startup, after the plugins (and their personas) loaded. Not an error: a
+   * stale work persona falls back to `builtin:worker`, and a triage one is
+   * reported by the source's own status.
+   */
+  checkDeclaredSourcePersonas(): void {
+    this.pluginStatuses = this.pluginStatuses.map((status) => {
+      const warnings: string[] = [];
+      for (const sid of status.sources) {
+        const source = this.sources.get(sid)?.source;
+        if (!source) continue;
+        for (const field of ["defaultPersona", "triagePersona"] as const) {
+          const ref = source[field];
+          if (ref && !this.getPersona(ref)) warnings.push(`source "${sid}": ${field} "${ref}" doesn't exist (no such team, built-in, or package persona)`);
+        }
+      }
+      if (!warnings.length) return status;
+      for (const w of warnings) console.warn(`[plugins] ${status.spec}: warning: ${w}`);
+      return { ...status, warnings: [...(status.warnings ?? []), ...warnings] };
+    });
   }
 
   /** The team's triage persona: `triage.persona`, else (or when it doesn't resolve) `builtin:triage`. */
@@ -3739,10 +3932,12 @@ export class Store {
    * The claim prompt for a WorkDef, given the daemon's kind-free `base`: its
    * source's `buildPrompt` contribution (Story: persona + story; Thought: the
    * triage prompt), or `base` without one. A triage-mode mirror gets the triage
-   * prompt instead of its source's (docs/DESIGN.md "External sources" — "Triage mode").
+   * prompt instead of its source's (docs/DESIGN.md "External sources" — "Triage mode"),
+   * with `persona` — the claim's resolved persona — as its instructions.
    */
-  buildPromptFor(def: WorkDef, base: string): string {
-    if (this.isTriageModeMirror(def)) return this.externalTriage.buildPrompt(def);
+  buildPromptFor(def: WorkDef, base: string, persona?: ResolvedPersona | null): string {
+    // A triage-mode mirror's prompt carries its triage persona (the one the claim resolved and recorded).
+    if (this.isTriageModeMirror(def)) return this.externalTriage.buildPrompt(def, (persona ?? this.resolveMirrorPersona(def))?.body);
     const src = this.sources.forWorkDef(def);
     return src?.source.buildPrompt ? src.source.buildPrompt(def, base, src.ctx) : base;
   }
@@ -3758,6 +3953,10 @@ export class Store {
     const src = this.sources.forWorkDef(def);
     // A triage-mode mirror: Run = Triage now (force the current revision).
     if (this.isTriageModeMirror(def)) {
+      // No triage persona, no triage run (docs/DESIGN.md "Work Source personas").
+      if (!this.mirrorHasTriagePersona(def)) {
+        return { ok: false, conflict: true, error: this.sourcePersonaProblem(sourceIdForWorkDef(def)) ?? heldTriageItemsMessage(sourceIdForWorkDef(def), 1) };
+      }
       return this.externalTriage.run(def, src?.ctx ?? this.makeSourceContext(sourceIdForWorkDef(def)));
     }
     if (src?.source.run) return src.source.run(def, src.ctx);

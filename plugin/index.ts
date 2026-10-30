@@ -43,6 +43,13 @@
  * source, id, channel, author) — never a new revision, never written back.
  * `onComment` may return `CommentWriteBack` (`{ externalId }`), the id of the
  * comment it posted, so that post isn't pulled in again.
+ *
+ * Personas (also additive, apiVersion 1): `WorkSource.defaultPersona` /
+ * `triagePersona` and `ExternalDef.persona` name the persona (by id) the daemon
+ * composes into an item's prompt — the team can override it per source and per
+ * item, and a triage-mode source must end up with a triage persona or it doesn't
+ * sync (docs/DESIGN.md "Work Source personas"). The daemon does the composing;
+ * a plugin never builds a persona block itself.
  */
 
 export { WORK_SOURCE_API_VERSION } from "../daemon/sources/types.ts";

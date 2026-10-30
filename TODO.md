@@ -61,10 +61,12 @@ replaces workflow state files, `triage.md`, the assistant's context-library pers
 and the context library itself; everything selects a persona by id through
 `resolvePersona`. Being built in the Unified Personas story: the library, built-ins,
 API, migration (steps 1, 2, 4–7), WorkDef `persona`, the WorkItem snapshot (recorded
-at claim), every prompt path, and the Pi tools (`list_personas`, `persona` params) are
-in. Still open in the story: Work Source personas (+ migration step 3; triage-mode
-mirrors use the team's triage persona until then), the plugin loader's
-`mpt.personas`, the UI, and the demo team. Deferred on purpose:
+at claim), every prompt path, the Pi tools (`list_personas`, `persona` params), and
+Work Source personas (+ migration step 3) are in. Still open in the story: the plugin
+loader's `mpt.personas` (until then a source's package persona id doesn't resolve:
+startup warns and items fall back to the built-in), the UI (the per-source and
+per-mirror pickers, the triage-persona-required state on Config → Sources), and the
+demo team. Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
   built on a package's, picking up its updates). Today Duplicate copies and never

@@ -11,7 +11,11 @@
  *      (daemon/plugins/loader.ts `resolvePackageDir`, `readPluginManifest`,
  *      `resolveSourceEntry`, `importSourceEntry` — the real import, with the
  *      host resolve hook registered), then the registry's checks for an
- *      object export (apiVersion, the external id pattern, duplicate ids).
+ *      object export (apiVersion, the external id pattern, duplicate ids) and
+ *      its personas (docs/DESIGN.md "Work Source personas"): a declared
+ *      `defaultPersona` / `triagePersona` that doesn't resolve is ⚠, and a
+ *      triage-mode source with no triage persona — declared, or the team's
+ *      `sourcePersonas.<id>.triagePersona` — is ✗ (the daemon won't sync it).
  *   2. **Live check** (`--config '<json>'` or `--config team`; exactly one
  *      package). The factory is called as the daemon would, and each source
  *      runs `init` and `sync` (twice, to check revision stability) against a
@@ -50,7 +54,10 @@ import { SOURCE_ID_PATTERN, TASK_SOURCE_ID } from "../daemon/sources/registry.ts
 import { DEFAULT_SYNC_TIMEOUT_MS } from "../daemon/sources/sync.ts";
 import { type ExternalDef, type SourceContext, WORK_SOURCE_API_VERSION, type WorkSource } from "../daemon/sources/types.ts";
 import { normalizeCliSpec } from "./plugins.ts";
-import { type Comment, DEFAULT_CONFIG, type WorkDef, type WorkItem } from "../shared/types.ts";
+import { type Comment, DEFAULT_CONFIG, parsePersonaId, type SourcePersonaSetting, type WorkDef, type WorkItem } from "../shared/types.ts";
+import { getBuiltinPersona } from "../daemon/personas/builtins.ts";
+import { readTeamPersona } from "../daemon/personas/library.ts";
+import { sourcePersonaPick } from "../daemon/sources/persona.ts";
 
 /** What the doctor needs from `mpt plugins` (a subset of `PluginsDeps`). */
 export interface PluginsDoctorDeps {
@@ -208,6 +215,39 @@ function parseConfigJson(json: string): Record<string, unknown> {
   return v;
 }
 
+/**
+ * What the persona checks read from the team: whether an id resolves, and the
+ * team's per-source settings. Package personas are registered by the daemon at
+ * startup, so the doctor can't see them: a package id is reported as
+ * unverified rather than missing.
+ */
+interface PersonaCheckContext {
+  /** "yes" / "no" for a team or built-in id; "unverified" for a package id. */
+  resolves(id: string): "yes" | "no" | "unverified";
+  setting(sourceId: string): SourcePersonaSetting | undefined;
+}
+
+/** The persona checks' view of a team dir (its `personas/` and config.json `sourcePersonas`). */
+function personaCheckContext(teamDir: string): PersonaCheckContext {
+  let settings: Record<string, SourcePersonaSetting> = {};
+  try {
+    const raw = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as unknown;
+    if (isObject(raw) && isObject(raw.sourcePersonas)) settings = raw.sourcePersonas as Record<string, SourcePersonaSetting>;
+  } catch {
+    // No (or an unreadable) config.json: no per-source settings.
+  }
+  return {
+    resolves: (id) => {
+      const kind = parsePersonaId(id).kind;
+      if (kind === "package") return "unverified";
+      if (kind === "builtin") return getBuiltinPersona(id) ? "yes" : "no";
+      if (kind === "team") return fs.existsSync(teamDir) && readTeamPersona(teamDir, id) ? "yes" : "no";
+      return "no";
+    },
+    setting: (sourceId) => (isObject(settings[sourceId]) ? settings[sourceId] : undefined),
+  };
+}
+
 /** The team's raw config.json `packages` (empty when there's no config.json or no team dir). */
 function configuredPackages(teamDir: string): unknown[] {
   const file = path.join(teamDir, "config.json");
@@ -321,10 +361,12 @@ interface CheckOptions {
 async function checkPlugins(targets: Target[], teamDir: string, opts: CheckOptions): Promise<DoctorReport> {
   // Source ids seen so far, across packages (the daemon's registry is one namespace).
   const seenIds = new Map<string, string>(BUILT_IN_SOURCE_IDS.map((id) => [id, "a built-in source"]));
+  // Personas resolve against the real team (not a scratch install's cache).
+  const personas = personaCheckContext(teamDir);
   const packages: DoctorPackageReport[] = [];
   const scratch = opts.liveConfig ? fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugins-doctor-")) : undefined;
   try {
-    for (const t of targets) packages.push(await checkPackage(t, t.scratchTeamDir ?? teamDir, seenIds, opts, scratch));
+    for (const t of targets) packages.push(await checkPackage(t, t.scratchTeamDir ?? teamDir, seenIds, personas, opts, scratch));
   } finally {
     if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
   }
@@ -336,7 +378,9 @@ async function checkPlugins(targets: Target[], teamDir: string, opts: CheckOptio
 }
 
 /** The install check (and, live, the run) of one package. */
-async function checkPackage(t: Target, teamDir: string, seenIds: Map<string, string>, opts: CheckOptions, scratch?: string): Promise<DoctorPackageReport> {
+async function checkPackage(
+  t: Target, teamDir: string, seenIds: Map<string, string>, personas: PersonaCheckContext, opts: CheckOptions, scratch?: string,
+): Promise<DoctorPackageReport> {
   const report: DoctorPackageReport = { spec: t.raw, configured: t.configured, checks: [], sources: [] };
   const check = (status: DoctorStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
   if (!t.spec) {
@@ -369,7 +413,7 @@ async function checkPackage(t: Target, teamDir: string, seenIds: Map<string, str
   check(manifest.sources.length ? "ok" : "warn", `package.json "mpt" manifest: ${manifest.sources.length} source entr${manifest.sources.length === 1 ? "y" : "ies"}${manifest.sources.length ? ` (${manifest.sources.join(", ")})` : ""}`);
 
   for (const entry of manifest.sources) {
-    report.sources.push(await checkEntry(dir, entry, seenIds, opts, spec.raw, scratch));
+    report.sources.push(await checkEntry(dir, entry, seenIds, personas, opts, spec.raw, scratch));
   }
   if (opts.liveConfig && opts.source !== undefined && !report.sources.some((s) => s.id === opts.source)) {
     check("fail", `--source ${opts.source}: no source with that id in this package (found: ${report.sources.map((s) => s.id ?? "?").join(", ") || "none"})`);
@@ -379,7 +423,7 @@ async function checkPackage(t: Target, teamDir: string, seenIds: Map<string, str
 
 /** One source entry: import it through the real loader path, check its export, and (live) run it. */
 async function checkEntry(
-  dir: string, entry: string, seenIds: Map<string, string>, opts: CheckOptions, spec: string, scratch?: string,
+  dir: string, entry: string, seenIds: Map<string, string>, personas: PersonaCheckContext, opts: CheckOptions, spec: string, scratch?: string,
 ): Promise<DoctorSourceReport> {
   const report: DoctorSourceReport = { entry, checks: [] };
   const check = (status: DoctorStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
@@ -421,6 +465,7 @@ async function checkEntry(
   }
   report.id = source.id;
   for (const c of sourceChecks(source, seenIds, spec)) report.checks.push(c);
+  for (const c of personaChecks(source, personas)) report.checks.push(c);
 
   if (opts.liveConfig && !report.checks.some((c) => c.status === "fail")) {
     if (opts.source === undefined || opts.source === source.id) await liveCheck(source, opts, report, scratch!);
@@ -440,6 +485,37 @@ function sourceChecks(source: WorkSource, seenIds: Map<string, string>, spec: st
   const other = seenIds.get(source.id);
   if (other) out.push({ status: "fail", message: `id "${source.id}" is already taken by ${other}`, hint: "give the source a unique id" });
   else seenIds.set(source.id, spec);
+  return out;
+}
+
+/**
+ * A source's personas (docs/DESIGN.md "Work Source personas"): each declared
+ * id that doesn't resolve is a warning (work items fall back to
+ * `builtin:worker`); a triage-mode source whose triage persona — the team's
+ * per-source setting, else declared — is missing or doesn't resolve fails,
+ * since the daemon won't sync it.
+ */
+function personaChecks(source: WorkSource, personas: PersonaCheckContext): DoctorCheck[] {
+  const out: DoctorCheck[] = [];
+  for (const field of ["defaultPersona", "triagePersona"] as const) {
+    const ref = source[field];
+    if (ref === undefined) continue;
+    if (typeof ref !== "string" || !ref.trim()) {
+      out.push({ status: "warn", message: `${field} is not a persona id (${JSON.stringify(ref)})`, hint: "a team id, builtin:<name>, or <package>/<id>" });
+      continue;
+    }
+    const r = personas.resolves(ref);
+    if (r === "yes") out.push({ status: "ok", message: `${field} "${ref}" exists` });
+    else if (r === "unverified") out.push({ status: "ok", message: `${field} "${ref}" (a package persona; the daemon resolves it at startup)` });
+    else out.push({ status: "warn", message: `${field} "${ref}" doesn't exist in this team (no such team or built-in persona)`, hint: "create it under Config → Personas, or fix the id" });
+  }
+  if (source.mode === "triage") {
+    const pick = sourcePersonaPick("triage", personas.setting(source.id), source);
+    const hint = `set its triage persona on Config → Sources (sourcePersonas.${source.id}.triagePersona), or declare triagePersona`;
+    if (!pick) out.push({ status: "fail", message: "triage-mode source has no triage persona: the daemon won't sync it", hint });
+    else if (personas.resolves(pick.ref) === "no") out.push({ status: "fail", message: `triage persona "${pick.ref}" doesn't exist: the daemon won't sync it`, hint });
+    else out.push({ status: "ok", message: `triage persona: ${pick.ref} (${pick.via === "source-setting" ? "the team's setting" : "declared"})` });
+  }
   return out;
 }
 

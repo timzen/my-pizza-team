@@ -366,3 +366,35 @@ test("describeImportError: a native ABI mismatch says which Node to rebuild with
   assertStringIncludes(hint ?? "", `Node ${process.versions.node} (NODE_MODULE_VERSION ${process.versions.modules})`);
   assertStringIncludes(hint ?? "", "cd /pkg && npm rebuild");
 });
+
+test("doctor: personas — an unknown defaultPersona warns; a triage-mode source without a triage persona fails", async () => {
+  const env = setup();
+  // Declared personas: one that doesn't exist (⚠), one built-in (✓).
+  const work = writePlugin(env.root, "work-p", { "index.js": objectSource("work-src", "[]", `defaultPersona: "nobody", triagePersona: "builtin:triage",`) });
+  let { code, report } = await env.json(work);
+  assertEquals(code, 0);
+  let checks = report.packages[0]!.sources[0]!.checks;
+  assert(checks.some((c) => c.status === "warn" && c.message.startsWith(`defaultPersona "nobody" doesn't exist`)));
+  assert(checks.some((c) => c.status === "ok" && c.message === `triagePersona "builtin:triage" exists`));
+
+  // A triage-mode source with none: ✗ (the daemon won't sync it)…
+  const triage = writePlugin(env.root, "triage-p", { "index.js": objectSource("triage-src", "[]", `mode: "triage",`) });
+  ({ code, report } = await env.json(triage));
+  assertEquals(code, 1);
+  checks = report.packages[0]!.sources[0]!.checks;
+  assert(checks.some((c) => c.status === "fail" && c.message.startsWith("triage-mode source has no triage persona")));
+
+  // …until the team sets one per source (a team persona that exists).
+  fs.mkdirSync(path.join(env.teamDir, "personas"));
+  fs.writeFileSync(path.join(env.teamDir, "personas", "ticket-triage.md"), "---\ntitle: Ticket triage\n---\nTriage tickets.\n");
+  fs.writeFileSync(path.join(env.teamDir, "config.json"), JSON.stringify({ packages: [], sourcePersonas: { "triage-src": { triagePersona: "ticket-triage" } } }));
+  ({ code, report } = await env.json(triage));
+  assertEquals(code, 0);
+  checks = report.packages[0]!.sources[0]!.checks;
+  assert(checks.some((c) => c.status === "ok" && c.message === "triage persona: ticket-triage (the team's setting)"));
+
+  // A setting naming a persona that doesn't exist fails again.
+  fs.writeFileSync(path.join(env.teamDir, "config.json"), JSON.stringify({ packages: [], sourcePersonas: { "triage-src": { triagePersona: "gone" } } }));
+  ({ code } = await env.json(triage));
+  assertEquals(code, 1);
+});

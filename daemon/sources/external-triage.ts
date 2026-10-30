@@ -17,7 +17,8 @@
  * takes over from the source, for triage-mode mirrors only:
  *   - the WorkItem's title ("Triage: <title>") and directory (the mirror's, else
  *     the leader's — the thought-triage rule);
- *   - the claim prompt (the triage persona / the built-in default + the mirror's current
+ *   - the claim prompt (the item's triage persona — resolved by the Store through
+ *     the source's chain, daemon/sources/persona.ts — plus the mirror's current
  *     content, open stories, earlier analyses, and the decision summary);
  *   - **Run**, which means **Triage now**: force a run of the current revision.
  *
@@ -35,8 +36,6 @@ import type { RunResult, SourceContext } from "./types.ts";
 export interface ExternalTriageDeps {
   /** The registered leader's directory, if any (where triage runs by default). */
   leaderDirectory(): string | undefined;
-  /** The team's triage persona body, or undefined for the built-in default. */
-  getTriageInstructions(): string | undefined;
   /** Open (not done) stories, so a proposal can attach a task to one. */
   getOpenStories(): Array<{ id: string; title: string }>;
   /** The def's thread (analyses and other comments; decisions filtered out). */
@@ -70,9 +69,11 @@ export class ExternalTriage {
 
   /**
    * At claim: the triage prompt with the mirror's *current* content as its
-   * subject (sync keeps it current), not the work prompt.
+   * subject (sync keeps it current), not the work prompt. `instructions` is the
+   * body of the persona the claim resolved for it (docs/DESIGN.md "Work Source
+   * personas"); undefined = the built-in default.
    */
-  buildPrompt(def: WorkDef): string {
+  buildPrompt(def: WorkDef, instructions?: string): string {
     const sourceId = def.parent?.source ?? "external";
     return buildExternalTriagePrompt({
       item: {
@@ -85,7 +86,7 @@ export class ExternalTriage {
         additionalContext: def.additionalContext,
         url: def.url,
       },
-      instructions: this.deps.getTriageInstructions(),
+      instructions,
       stories: this.deps.getOpenStories(),
       // The source's own comments (pulled by sync) aren't earlier analyses.
       priorComments: this.deps.getComments(def.id).filter((c) => !c.external),

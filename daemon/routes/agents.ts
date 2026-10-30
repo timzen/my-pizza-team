@@ -450,13 +450,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 function buildClaimPrompt(store: RouteContext["store"], ref: WorkItemRef, persona: ResolvedPersona | null): string {
   const def = store.getWorkDef(ref.workDefId);
   if (!def) return "";
-  // Store.buildPromptFor: the source's hook, or — for a triage-mode mirror — the triage prompt.
-  return store.buildPromptFor(def, buildBasePrompt(store, ref, def, persona));
+  // Store.buildPromptFor: the source's hook, or — for a triage-mode mirror — the
+  // triage prompt, with the same resolved persona as its instructions.
+  return store.buildPromptFor(def, buildBasePrompt(store, ref, def, persona), persona);
 }
 
 /**
  * The daemon's base prompt for a WorkDef: the persona (when it has one — a
- * Solitary/Scheduled WorkDef's `persona`, resolved by `Store.resolveWorkPersona`),
+ * Solitary/Scheduled WorkDef's `persona`, or a work-mode mirror's Work Source
+ * chain, resolved by `Store.resolveWorkPersona`),
  * the authored WorkDef, and lead comments — no kind-specific framing. A source
  * that needs more (Story: the state persona and story; Thought: the triage
  * prompt) rebuilds it in its `buildPrompt`; a plugin's hook wraps it, so it

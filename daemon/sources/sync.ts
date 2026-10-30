@@ -68,21 +68,28 @@ export class SyncRunner {
   private ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome;
   private backoff: SyncBackoff;
   private isSwitchedOff: (entry: SourceEntry) => boolean;
+  private blockedReason: (entry: SourceEntry) => string | null;
 
   /**
    * @param ingest applies a good sync result (the Store: mirror, enqueue, archive).
    * @param backoff how long to wait after consecutive failures.
    * @param isSwitchedOff is the source's feature toggle off right now (the
    *   Store's live config)? Then it isn't synced at all — see `run`.
+   * @param blockedReason why the daemon refuses to sync this source right now
+   *   (a triage-mode source without a triage persona — docs/DESIGN.md "Work
+   *   Source personas"), or null. Checked on every run, so fixing it takes
+   *   effect on the next tick; not a failure, so it never backs the source off.
    */
   constructor(
     ingest: (entry: SourceEntry, defs: ExternalDef[]) => SyncOutcome,
     backoff: SyncBackoff = DEFAULT_SYNC_BACKOFF,
     isSwitchedOff: (entry: SourceEntry) => boolean = () => false,
+    blockedReason: (entry: SourceEntry) => string | null = () => null,
   ) {
     this.ingest = ingest;
     this.backoff = backoff;
     this.isSwitchedOff = isSwitchedOff;
+    this.blockedReason = blockedReason;
   }
 
   private state(id: string): SourceSyncState {
@@ -148,6 +155,9 @@ export class SyncRunner {
     const { source, ctx } = entry;
     if (!source.sync) return emptyOutcome({ error: "not an external source" });
     if (this.isSwitchedOff(entry)) return emptyOutcome({ skipped: "disabled" });
+    // Misconfigured (no triage persona): the source's status carries the reason.
+    const blocked = this.blockedReason(entry);
+    if (blocked) return emptyOutcome({ skipped: "misconfigured", error: blocked });
     const st = this.state(source.id);
     if (st.running) return emptyOutcome({ skipped: "in-flight" });
     const now = opts.now ?? Date.now();

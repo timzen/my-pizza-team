@@ -37,13 +37,16 @@
  * create asking for `type: "External"` is refused. Its thread (comments,
  * attachments), Run, and archive/restore work as for any WorkDef. On a
  * triage-mode mirror Run is **Triage now** (Store.runWorkDef), and its proposals
- * are decided through daemon/routes/triage.ts.
+ * are decided through daemon/routes/triage.ts. Its one editable setting is a
+ * person's **persona override**, `PUT /:id/persona` — kept in the source's kv,
+ * not the synced file, so re-syncs never touch it (docs/DESIGN.md "Work Source
+ * personas").
  */
 
 import * as fs from "node:fs";
 import type { RouteContext } from "./types.ts";
 import { workDefType, type WorkDef } from "../../shared/types.ts";
-import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse } from "../../shared/protocol.ts";
+import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse, MirrorPersonaRequest } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
@@ -234,6 +237,19 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
       return c.json({ success: true, workDef: view(res.def, store), workItemId: res.workItem?.id ?? null } satisfies ActivateWorkDefResponse);
     });
   }
+
+  // A mirror's persona override (docs/DESIGN.md "Work Source personas"): the one
+  // edit a mirror accepts, since it lives in the source's kv, not the synced file.
+  app.put("/api/work-defs/:id/persona", async (c) => {
+    const body = (await c.req.json().catch(() => null)) as MirrorPersonaRequest | null;
+    const persona = body?.persona;
+    if (!body || (persona !== null && persona !== "" && typeof persona !== "string")) {
+      return c.json({ success: false, error: 'Body must be { "persona": id | null }' }, 400);
+    }
+    const res = store.setMirrorPersona(c.req.param("id"), persona || null);
+    if (!res.ok) return c.json({ success: false, error: res.error }, res.status);
+    return c.json({ success: true, workDef: view(store.getWorkDef(c.req.param("id"))!, store) });
+  });
 
   // Enqueue a READY WorkItem for this def (manual trigger / "save then enqueue").
   app.post("/api/work-defs/:id/enqueue", (c) => {

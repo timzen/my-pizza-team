@@ -62,6 +62,17 @@ export interface ExternalDef {
    */
   mode?: WorkSourceMode;
   /**
+   * The persona this item should be worked (or, in triage mode, triaged) with —
+   * the source's *suggestion* for this one item (docs/DESIGN.md "Work Source
+   * personas"). Written into the mirror's frontmatter like the rest of the
+   * item's content; a person's per-item override (Config → the mirror's page)
+   * still wins, and it in turn wins over the per-source setting and the
+   * source's `defaultPersona` / `triagePersona`. A persona id (a team slug,
+   * `builtin:<name>`, or `<package>/<id>`); one that doesn't resolve falls back
+   * to the built-in at claim. Optional and additive (apiVersion 1).
+   */
+  persona?: string;
+  /**
    * The item's thread in the source, for the mirror's thread (docs/DESIGN.md
    * "External sources" "A mirrored thread"). Optional and additive:
    *   - omitted = not reported this time; the mirror's thread is left alone (so
@@ -116,9 +127,12 @@ export interface SyncOutcome {
   error?: string;
   /**
    * Skipped without calling `sync` (or its result dropped): already running,
-   * backing off after failures, or the source's feature toggle is off.
+   * backing off after failures, the source's feature toggle is off, or it is
+   * misconfigured in a way the daemon refuses to sync past (a triage-mode
+   * source without a triage persona — `error` says which; docs/DESIGN.md
+   * "Work Source personas").
    */
-  skipped?: "in-flight" | "backoff" | "disabled";
+  skipped?: "in-flight" | "backoff" | "disabled" | "misconfigured";
   /** Mirrored defs written (new, or a moved revision). */
   mirrored: string[];
   /** WorkItems created (one per new revision). */
@@ -129,6 +143,11 @@ export interface SyncOutcome {
   held: string[];
   /** Mirrored defs whose thread got new comments from the source (`ExternalDef.comments`). */
   commented?: string[];
+  /**
+   * Triage-mode mirrors not enqueued because no triage persona resolves for
+   * them (the source's status says so); like `held`, retried every sync.
+   */
+  needsPersona?: string[];
 }
 
 /**
@@ -425,6 +444,29 @@ export interface WorkSource {
    * not called for those items. Its other hooks (eligibility, write-back) are.
    */
   readonly mode?: WorkSourceMode;
+  /**
+   * The persona this source's **work-mode** items are worked with, unless the
+   * team overrides it per source (Config → Sources; config.json
+   * `sourcePersonas.<id>.persona`) or per item (`ExternalDef.persona`, or a
+   * person's override on the mirror). Usually one the same package ships
+   * (`"mpt-source-jira/jira-worker"`); a team or `builtin:*` id works too.
+   * Absent = no persona block (the plain WorkDef prompt). An id that doesn't
+   * resolve falls back to `builtin:worker` at claim, with a warning (and a ⚠
+   * in `mpt plugins doctor`). The daemon composes it into the base prompt
+   * *before* your `buildPrompt`, so you never assemble it yourself.
+   * docs/DESIGN.md "Work Source personas". Optional and additive (apiVersion 1).
+   */
+  readonly defaultPersona?: string;
+  /**
+   * The persona this source's **triage-mode** items are triaged with, unless
+   * the team overrides it (`sourcePersonas.<id>.triagePersona`) or an item
+   * does. A source whose `mode` is `"triage"` **must** end up with one —
+   * declared here or set per source — or it doesn't sync (its status reports
+   * why); a work-mode source's individual triage items are mirrored but not
+   * enqueued until one is set. The team's note-triage persona is *not* a
+   * fallback. Optional and additive (apiVersion 1).
+   */
+  readonly triagePersona?: string;
   /**
    * On/off switch (feature toggle; docs/DESIGN.md "Feature Toggles"). Absent on
    * an in-daemon source = always on, not switchable. An **external** source

@@ -62,6 +62,11 @@ export async function createApp(teamDir?: string, opts: CreateAppOptions = {}): 
       timeoutMs: opts.pluginInstallTimeoutMs ?? pluginInstallTimeoutMs(),
     });
     store.setPluginStatuses(await loadPlugins(store, config, teamDir, { installErrors }));
+    // Work Source personas (docs/DESIGN.md "Work Source personas"), once every
+    // source and package persona is registered: seed a triage plugin's triage
+    // persona (migration step 3), then warn about declared ids that don't resolve.
+    store.seedSourceTriagePersonas();
+    store.checkDeclaredSourcePersonas();
     store.loadFromDisk();
     store.startTimers();
 
@@ -90,6 +95,8 @@ export function registerDevSources(store: Store, config: TeamConfig, teamDir: st
       label: fixture.label,
       syncEveryMs: fixture.intervalSeconds ? fixture.intervalSeconds * 1000 : undefined,
       mode: fixture.mode === "triage" ? "triage" : undefined,
+      defaultPersona: fixture.defaultPersona,
+      triagePersona: fixture.triagePersona,
     }));
   } catch (e) {
     // A bad dev config must not stop the daemon.

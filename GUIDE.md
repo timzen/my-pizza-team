@@ -551,8 +551,8 @@ The hooks, and what the daemon does with each, are documented on the
 do — a ticket queue, say — set `mode: "triage"` on the source (or `mode` on
 individual `ExternalDef`s; an item's own wins). Each new revision then gets a
 **triage** run, like a note's Auto Triage: a teammate reads the item (with the
-team's `triage.md`) and proposes tasks, stories, or schedules, which you accept
-or reject. Accepting creates the work without starting it;
+source's **triage persona** — see Personas below) and proposes tasks, stories,
+or schedules, which you accept or reject. Accepting creates the work without starting it;
 nothing runs the item itself. In this mode the daemon sets the item's title
 ("Triage: …"), directory, prompt, and Run (Triage now), so your `resolveItem`,
 `buildPrompt`, and `run` aren't called for those items; write-back hooks still are.
@@ -584,6 +584,44 @@ Its page opens on a **Triage** tab: the item read-only (with **Open in
 or **Reject**, and earlier rounds; the header's button is **Triage now**. A
 finished triage run lands in your Inbox and opens that tab. To answer a
 question, change the item in its source — the next revision is triaged again.
+
+**Personas.** Say how your items should be worked by naming a persona (see
+[Personas](#personas-and-what-happened-to-the-context-library)) — the daemon puts
+it at the top of each item's prompt, as **Your Role**, before your `buildPrompt`
+sees it, so you never write that part yourself:
+
+```ts
+return {
+  id: "acme", label: "Acme", apiVersion: WORK_SOURCE_API_VERSION,
+  defaultPersona: "mpt-acme-tracker/acme-worker",   // work-mode items (optional)
+  triagePersona: "builtin:triage",                   // triage-mode items (required for mode: "triage")
+  async sync() {
+    return issues.map((i) => ({ /* … */ persona: i.type === "Bug" ? "bug-fixer" : undefined }));  // per item (optional)
+  },
+};
+```
+
+A persona id is a team persona (`reviewer`), a built-in (`builtin:triage`,
+`builtin:worker`), or one a package ships (`<package name>/<id>`). Who wins, first
+to last: a person's override on the item (`PUT /api/work-defs/<id>/persona`), the
+item's own `persona`, the team's choice for your source (config.json
+`sourcePersonas.<id>.persona` / `.triagePersona`, set with `PUT
+/api/sources/<id>/persona` — saving it never re-runs your `init`), then your
+`defaultPersona` / `triagePersona`. Nothing named means no persona for a
+work-mode item. An id that doesn't exist falls back to the built-in when the item
+runs (logged, and a ⚠ in `mpt plugins doctor`). Each run records the persona it
+used, so the UI can show it.
+
+**A triage-mode source must have a triage persona** — declared as
+`triagePersona`, or set by the team for your source. Without one (or with one
+that doesn't exist) the daemon **doesn't sync it**: the source shows the error on
+**Config → Sources** ("needs a triage persona — set one on Config → Sources, or
+declare triagePersona") and `mpt plugins doctor` marks it ✗. The team's
+note-triage persona is deliberately not used instead. In a work-mode source, an
+individual triage item without one is mirrored but not queued until one is set.
+(Teams upgrading with a triage plugin already installed get the team's triage
+persona filled in for it automatically, once, so nothing stops working.) These
+are optional fields too, so `apiVersion` stays 1.
 
 **The thread.** To mirror an item's comments too, return them as
 `comments` on its `ExternalDef` — `{ externalId, author, createdAt, body,
@@ -798,7 +836,11 @@ that `package.json` has a valid `"mpt"` manifest, and that each source entry is
 inside the package and **imports the way the daemon imports it**
 (`my-pizza-team/plugin` resolving to this app). For an object export it also
 checks `apiVersion`, the id's format, and that no other package (or built-in)
-uses the id. A failed import says why and, for the usual causes, what to do: a
+uses the id, and its personas: a `defaultPersona` or `triagePersona` that
+isn't a team or built-in persona is ⚠ (a package persona is listed, not checked —
+the daemon resolves those when it starts), and a triage-mode source with no
+triage persona — declared, or the team's `sourcePersonas` choice — is ✗, since the
+daemon won't sync it. A failed import says why and, for the usual causes, what to do: a
 native module built for another Node shows its `NODE_MODULE_VERSION` against this
 Node's and tells you to rebuild the package with this Node (`npm rebuild`).
 
