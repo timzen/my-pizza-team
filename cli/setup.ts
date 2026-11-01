@@ -15,6 +15,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../shared/atomic-write.ts";
 import {
   type ExtensionRegistration,
   packageSource,
@@ -185,13 +186,7 @@ export function applyPackageChanges(
 export function writePiSettingsFile(agentDir: string, raw: Record<string, unknown>): void {
   fs.mkdirSync(agentDir, { recursive: true });
   const target = path.join(agentDir, "settings.json");
-  const temp = `${target}.mpt-tmp-${crypto.randomUUID().slice(0, 8)}`;
-  try {
-    fs.writeFileSync(temp, `${JSON.stringify(raw, null, 2)}\n`);
-    fs.renameSync(temp, target);
-  } finally {
-    if (existsSync(temp)) fs.rmSync(temp);
-  }
+  writeFileAtomic(target, `${JSON.stringify(raw, null, 2)}\n`);
 }
 
 /**
@@ -222,13 +217,7 @@ export function trustProject(agentDir: string, projectDir: string): void {
   }
   trust[path.resolve(projectDir)] = true;
   fs.mkdirSync(agentDir, { recursive: true });
-  const temp = `${file}.mpt-tmp-${crypto.randomUUID().slice(0, 8)}`;
-  try {
-    fs.writeFileSync(temp, `${JSON.stringify(trust, null, 2)}\n`);
-    fs.renameSync(temp, file);
-  } finally {
-    if (existsSync(temp)) fs.rmSync(temp);
-  }
+  writeFileAtomic(file, `${JSON.stringify(trust, null, 2)}\n`);
 }
 
 // ─── Uninstall manifest ──────────────────────────────────────────────
@@ -272,5 +261,5 @@ export function readManifest(file: string): SetupManifest | null {
 
 export function writeManifest(file: string, manifest: SetupManifest): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  fs.writeFileSync(file, `${JSON.stringify(manifest, null, 2)}\n`);
+  writeFileAtomic(file, `${JSON.stringify(manifest, null, 2)}\n`);
 }

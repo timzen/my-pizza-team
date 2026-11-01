@@ -16,6 +16,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import type { SourceKv } from "../sources/types.ts";
 
 /** The team-dir subdirectory holding one JSON file per source. */
@@ -44,7 +45,7 @@ function write(teamDir: string, sourceId: string, data: Record<string, string>):
   fs.mkdirSync(path.dirname(f), { recursive: true });
   // Sorted keys so the committed file diffs cleanly.
   const sorted = Object.fromEntries(Object.entries(data).sort(([a], [b]) => a.localeCompare(b)));
-  fs.writeFileSync(f, JSON.stringify(sorted, null, 2) + "\n");
+  writeFileAtomic(f, JSON.stringify(sorted, null, 2) + "\n");
 }
 
 /** The file-backed key/value store for one source (`sources/<sourceId>.json`). */

@@ -26,6 +26,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { ARCHIVED_DIR, STORIES_DIR } from "../../shared/types.ts";
 
 /** The retired backlog directory (`<teamDir>/backlog/`). Only migration reads it. */
@@ -77,7 +78,7 @@ function readJsonObject(file: string): Record<string, unknown> | null {
 }
 
 function writeJson(file: string, data: Record<string, unknown>): void {
-  fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+  writeFileAtomic(file, JSON.stringify(data, null, 2) + "\n");
 }
 
 /**

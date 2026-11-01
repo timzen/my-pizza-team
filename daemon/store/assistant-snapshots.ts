@@ -17,6 +17,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR } from "../../shared/types.ts";
 
 /** The session fields a snapshot needs. Mirrors the stored session row. */
@@ -73,7 +74,7 @@ export function writeSnapshot(
   const dir = sessionsDir(teamDir);
   fs.mkdirSync(dir, { recursive: true });
   const file = snapshotPath(teamDir, session.id);
-  fs.writeFileSync(file, renderSnapshot(session, messages));
+  writeFileAtomic(file, renderSnapshot(session, messages));
   return file;
 }
 

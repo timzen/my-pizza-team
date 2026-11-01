@@ -118,6 +118,7 @@ import { migrateUsageColumns, recordUsage, dailyUsage, runsOnDay, syncUsageLedge
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../shared/atomic-write.ts";
 
 /**
  * Directive actions an agent realizes itself rather than via its host leader.
@@ -827,7 +828,7 @@ export class Store {
     const workflowsDir = path.join(this.teamDir, "workflows");
     const wfDir = path.join(workflowsDir, name);
     fs.mkdirSync(wfDir, { recursive: true });
-    fs.writeFileSync(path.join(wfDir, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
+    writeFileAtomic(path.join(wfDir, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
     this.workflows[name] = wf;
   }
 
@@ -1208,7 +1209,7 @@ export class Store {
   /** Write a story to its flat json file. */
   private writeStory(story: Story): void {
     fs.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
-    fs.writeFileSync(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
+    writeFileAtomic(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
   }
 
   private upsertStory(story: Story): void {
@@ -3142,7 +3143,7 @@ export class Store {
     data.archivedAt = archivedAt;
     data.synopsis = this.buildSynopsis(story, tasks, archivedAt);
     fs.mkdirSync(path.dirname(file), { recursive: true });
-    fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+    writeFileAtomic(file, JSON.stringify(data, null, 2) + "\n");
 
     this.removeStoryFromDb(storyId);
     // Archived = done for its dependents (isStoryReady); normally they were

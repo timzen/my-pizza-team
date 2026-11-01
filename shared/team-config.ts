@@ -22,6 +22,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { writeFileAtomic } from "./atomic-write.ts";
 import { CONFIG_FILE, DEFAULT_CONFIG, type TeamConfig } from "./types.ts";
 
 /** The path of a team's config.json. */
@@ -126,12 +127,5 @@ export function serializeTeamConfig(config: TeamConfig | Record<string, unknown>
  * CLI's); neither adds a default the object doesn't already hold.
  */
 export function saveTeamConfig(teamDir: string, config: TeamConfig | Record<string, unknown>): void {
-  const file = teamConfigPath(teamDir);
-  const tmp = `${file}.tmp-${process.pid}`;
-  try {
-    fs.writeFileSync(tmp, JSON.stringify(serializeTeamConfig(config), null, 2) + "\n");
-    fs.renameSync(tmp, file);
-  } finally {
-    if (fs.existsSync(tmp)) fs.rmSync(tmp);
-  }
+  writeFileAtomic(teamConfigPath(teamDir), JSON.stringify(serializeTeamConfig(config), null, 2) + "\n");
 }

@@ -11,6 +11,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { spawnSync } from "node:child_process";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import type { AutosaveConfig } from "../../shared/types.ts";
 
 /**
@@ -56,7 +57,7 @@ export function ensureTeamGitignore(teamDir: string): void {
 
   const prefix = current.length > 0 && !current.endsWith("\n") ? "\n" : "";
   const header = current.includes(GITIGNORE_MARKER) ? "" : `${GITIGNORE_MARKER}\n`;
-  fs.writeFileSync(file, `${current}${prefix}${header}${missing.join("\n")}\n`);
+  writeFileAtomic(file, `${current}${prefix}${header}${missing.join("\n")}\n`);
 }
 
 function git(args: string[], cwd: string): string {

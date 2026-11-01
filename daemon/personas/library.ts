@@ -15,6 +15,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { parseFrontmatter, serializeFrontmatter, type PersonaMeta } from "../../shared/frontmatter.ts";
 import {
   PERSONA_KINDS, PERSONAS_DIR, TEAM_PERSONA_ID_PATTERN, slugifyPersonaId,
@@ -117,7 +118,7 @@ export function listTeamPersonas(teamDir: string): Persona[] {
 export function writeTeamPersona(teamDir: string, id: string, input: TeamPersonaInput): void {
   if (!isTeamPersonaId(id)) throw new Error(`Invalid persona id "${id}"`);
   fs.mkdirSync(personasDir(teamDir), { recursive: true });
-  fs.writeFileSync(path.join(personasDir(teamDir), `${id}.md`), serializePersona(input));
+  writeFileAtomic(path.join(personasDir(teamDir), `${id}.md`), serializePersona(input));
 }
 
 /** Delete a team persona file. False when it doesn't exist. */

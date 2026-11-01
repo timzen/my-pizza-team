@@ -17,6 +17,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { slugify, type Schedule, SCHEDULES_DIR } from "../../shared/types.ts";
 
 function dir(teamDir: string): string {
@@ -54,7 +55,7 @@ export function getSchedule(teamDir: string, id: string): Schedule | null {
 
 export function writeSchedule(teamDir: string, sched: Schedule): void {
   fs.mkdirSync(dir(teamDir), { recursive: true });
-  fs.writeFileSync(file(teamDir, sched.id), JSON.stringify(sched, null, 2) + "\n");
+  writeFileAtomic(file(teamDir, sched.id), JSON.stringify(sched, null, 2) + "\n");
 }
 
 /** Create a Schedule; id derived from title (deduped) unless supplied. */

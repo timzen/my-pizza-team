@@ -13,6 +13,7 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../shared/atomic-write.ts";
 import { cliEntryScript } from "../shared/paths.ts";
 
 const SERVICE_LABEL = "com.my-pizza-team.daemon";
@@ -148,7 +149,7 @@ async function installLaunchd(teamDir: string, port: number, node: string): Prom
   const plistPath = getPlistPath();
 
   // Write plist file
-  fs.writeFileSync(plistPath, plistContent);
+  writeFileAtomic(plistPath, plistContent);
   console.log(`✅ Wrote launchd plist: ${plistPath}`);
 
   // Load the service
@@ -249,7 +250,7 @@ async function installSystemd(teamDir: string, port: number, node: string): Prom
   const unitPath = getUnitPath();
 
   // Write unit file
-  fs.writeFileSync(unitPath, unitContent);
+  writeFileAtomic(unitPath, unitContent);
   console.log(`✅ Wrote systemd unit: ${unitPath}`);
 
   // Reload systemd daemon

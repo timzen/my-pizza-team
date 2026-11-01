@@ -13,6 +13,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { slugify, type Template, TEMPLATES_DIR } from "../../shared/types.ts";
 import { serializeWorkDef, parseWorkDef } from "./workdefs.ts";
 
@@ -61,7 +62,7 @@ export function writeTemplate(teamDir: string, tpl: Template): void {
   fs.mkdirSync(dir, { recursive: true });
   // A Template is a parent-less WorkDef, so it round-trips through the WorkDef
   // markdown serializer (Goal / Acceptance Criteria / Additional Context).
-  fs.writeFileSync(path.join(dir, FILE), serializeWorkDef({ ...tpl }) + "\n");
+  writeFileAtomic(path.join(dir, FILE), serializeWorkDef({ ...tpl }) + "\n");
 }
 
 /** Create a Template; id derived from title (deduped) unless one is supplied. */

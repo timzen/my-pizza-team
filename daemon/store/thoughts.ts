@@ -17,6 +17,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import {
   type Thought,
   type ThoughtGroup,
@@ -113,7 +114,7 @@ export function getThought(teamDir: string, id: string): Thought | null {
 export function writeThought(teamDir: string, t: Thought): void {
   const dir = thoughtsDir(teamDir);
   fs.mkdirSync(dir, { recursive: true });
-  atomicWrite(thoughtFile(teamDir, t.id), serializeThought(t) + "\n");
+  writeFileAtomic(thoughtFile(teamDir, t.id), serializeThought(t) + "\n");
 }
 
 export function deleteThoughtFile(teamDir: string, id: string): boolean {
@@ -152,22 +153,10 @@ export function listThoughtGroups(teamDir: string): ThoughtGroup[] {
 }
 
 export function writeThoughtGroups(teamDir: string, groups: ThoughtGroup[]): void {
-  atomicWrite(path.join(teamDir, THOUGHT_GROUPS_FILE), JSON.stringify(groups, null, 2) + "\n");
+  writeFileAtomic(path.join(teamDir, THOUGHT_GROUPS_FILE), JSON.stringify(groups, null, 2) + "\n");
 }
 
 // ─── helpers ────────────────────────────────────────────────────────
-
-/** Crash-safe write: temp file then rename (atomic on POSIX). */
-function atomicWrite(filePath: string, data: string): void {
-  const tmp = `${filePath}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, data);
-  try {
-    fs.renameSync(tmp, filePath);
-  } catch (err) {
-    try { fs.rmSync(tmp); } catch { /* already gone */ }
-    throw err;
-  }
-}
 
 function quote(v: string): string {
   if (v === "") return '""';

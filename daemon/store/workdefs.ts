@@ -22,6 +22,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { slugify, type WorkDef, type WorkDefOrigin, type WorkDefParent, type WorkDefParentKind, WORKDEFS_DIR } from "../../shared/types.ts";
 
 const FILE = "workdef.md";
@@ -214,7 +215,7 @@ export function deleteWorkDef(teamDir: string, id: string): boolean {
 export function writeWorkDef(teamDir: string, def: WorkDef): void {
   const dir = workDefDir(teamDir, def.id);
   fs.mkdirSync(dir, { recursive: true });
-  fs.writeFileSync(path.join(dir, FILE), serializeWorkDef(def) + "\n");
+  writeFileAtomic(path.join(dir, FILE), serializeWorkDef(def) + "\n");
 }
 
 // ─── frontmatter/body helpers ──────────────────────────────────────

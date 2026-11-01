@@ -24,7 +24,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import * as crypto from "node:crypto";
+import { writeFileAtomic } from "./atomic-write.ts";
 import { spawnSync } from "node:child_process";
 import { packageRoot } from "./paths.ts";
 
@@ -74,18 +74,12 @@ export function readRuntimeConfig(file: string = runtimeConfigPath()): RuntimeCo
 }
 
 /**
- * Write the settings file atomically (temp file + rename, like cli/setup.ts), so an
+ * Write the settings file atomically (`writeFileAtomic`: temp file + rename), so an
  * interrupted write can't leave a truncated file the service depends on.
  */
 export function writeRuntimeConfig(config: RuntimeConfig, file: string = runtimeConfigPath()): void {
   fs.mkdirSync(path.dirname(file), { recursive: true });
-  const temp = `${file}.mpt-tmp-${crypto.randomUUID().slice(0, 8)}`;
-  try {
-    fs.writeFileSync(temp, `${JSON.stringify(config, null, 2)}\n`);
-    fs.renameSync(temp, file);
-  } finally {
-    if (fs.existsSync(temp)) fs.rmSync(temp);
-  }
+  writeFileAtomic(file, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 /** Record `node` as the Node that runs mpt, keeping any other keys in the file. */

@@ -31,6 +31,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import type { DatabaseSync } from "node:sqlite";
+import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { parseFrontmatter } from "../../shared/frontmatter.ts";
 import {
   ARCHIVED_DIR, ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, CONTEXT_ARCHIVE_DIR, LEGACY_CONTEXT_DIR,
@@ -136,7 +137,7 @@ export function migrateToPersonas(env: MigrationEnv): MigrationReport {
         fs.rmSync(mdFile);
         report.changed = true;
       }
-      if (wfDirty) fs.writeFileSync(wfFile, JSON.stringify(wf, null, 2) + "\n");
+      if (wfDirty) writeFileAtomic(wfFile, JSON.stringify(wf, null, 2) + "\n");
     }
   });
 
@@ -229,7 +230,7 @@ export function migrateToPersonas(env: MigrationEnv): MigrationReport {
       if (sections.length === 0 && !hasRefsLine) return false;
       if (sections.length > 0) def.additionalContext = [existing.trim(), ...sections].filter(Boolean).join("\n\n");
       // serializeWorkDef writes no contextRefs, so the attachment is dropped here.
-      fs.writeFileSync(file, serializeWorkDef(def) + "\n");
+      writeFileAtomic(file, serializeWorkDef(def) + "\n");
       return true;
     };
 
@@ -267,7 +268,7 @@ export function migrateToPersonas(env: MigrationEnv): MigrationReport {
         try { data = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>; } catch { continue; }
         if (!("context" in data)) continue;
         delete data.context;
-        fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
+        writeFileAtomic(file, JSON.stringify(data, null, 2) + "\n");
         report.changed = true;
       }
     }
@@ -348,7 +349,7 @@ function remapSnapshotPersona(teamDir: string, from: string, to: string): void {
     const fm = frontmatterOf(raw);
     if (scalarOf(fm, "persona") !== from) continue;
     const next = raw.replace(/^persona: .*$/m, `persona: ${/[:#[\]"']/.test(to) ? JSON.stringify(to) : to}`);
-    fs.writeFileSync(file, next);
+    writeFileAtomic(file, next);
   }
 }
 
