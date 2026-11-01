@@ -5,7 +5,10 @@
  * return JSON conforming to these interfaces.
  */
 
-import type { FeaturesConfig, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, TriageBadge, WorkflowConfig } from "./types.ts";
+import type {
+  AssistantChatMode, Comment, FeaturesConfig, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
+  TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkflowConfig, WorkItemState,
+} from "./types.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
 // (Additive, optional routes — like POST /api/agents/:id/session-stats — are not
@@ -68,8 +71,15 @@ export interface StatusResponse {
   defaultWorkflow: string;
   workflows: Record<string, WorkflowConfig>;
   workflow?: WorkflowConfig;
-  /** Which work-item kinds are on, defaults applied (`resolveFeatures`). */
-  features: Required<FeaturesConfig>;
+  /**
+   * Which work-item kinds are on, defaults applied (`resolveFeatures`), plus one
+   * flag per toggleable plugin Work Source (daemon/features.ts `enabledFeatures`).
+   */
+  features: Required<FeaturesConfig> & Record<string, boolean>;
+  /** The registered external (pull-only) Work Sources — one read-only Work tab each. */
+  externalSources: ExternalSourceView[];
+  /** How the UI renders the assistant, default applied (`resolveAssistantChatMode`). */
+  assistantChatMode: AssistantChatMode;
   /**
    * One-line, dismissable notices (`DELETE /api/notices/:id`) — today only the
    * persona migration's "the context library was removed" line.
@@ -105,7 +115,7 @@ export interface TaskView {
   /** A pending task: holds its place in the story, gets no WorkItem until activated. */
   pending?: boolean;
   /** Active WorkItem state for this task, if any (drives the board chip). */
-  workItemState?: string | null;
+  workItemState?: WorkItemState | null;
   description?: string;
   assignee: string | null;
   tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
@@ -229,6 +239,62 @@ export type AssistantStreamEvent =
   | { type: "delivery"; id: string; delivery: AssistantDelivery }
   | { type: "thinking"; active: boolean; chunk?: string }
   | { type: "session"; session: AssistantSession };
+
+// --- Live teammate transcripts (docs/DESIGN.md "Watching and Pairing with a Teammate") ---
+// The buffer itself is daemon/store/transcripts.ts.
+
+/**
+ * Where a user entry came from: typed in the tmux pane (`tui`), sent from the
+ * web UI while pairing (`web`), or anything else the extension delivered — in
+ * practice the work prompt (`extension`).
+ */
+export type TranscriptInputOrigin = "tui" | "web" | "extension";
+
+/** The part of an entry the agent supplies (plus an optional upsert `key`). */
+export type TranscriptEntryBody =
+  /** A fresh Pi session started (teammates take one per work item). */
+  | { kind: "session" }
+  /**
+   * User input. `delivery` is Pi's streamingBehavior when it arrived mid-run:
+   * `followUp` (queued behind the current run) or `steer` (next tool step).
+   */
+  | { kind: "user"; text: string; origin: TranscriptInputOrigin; delivery?: "steer" | "followUp" }
+  /** An agent run started/ended — drives the "working…" cursor. */
+  | { kind: "run"; state: "start" | "end" }
+  /** An assistant message; `text`/`thinking` are the full content so far. */
+  | { kind: "message"; text?: string; thinking?: string }
+  /**
+   * A tool call. `args` is absent when the start happened before anyone was
+   * watching (the view labels it "already running").
+   */
+  | { kind: "tool"; name: string; args?: unknown; state: "running" | "done" | "error"; result?: string }
+  /** Daemon-inserted: a watching period began here. */
+  | { kind: "watch" };
+
+export type TranscriptEntry = TranscriptEntryBody & {
+  /** Position in the transcript; stable across upserts. */
+  seq: number;
+  /** Upsert key, when the entry evolves over time. */
+  key?: string;
+  /** Epoch ms the entry was first seen. */
+  at: number;
+};
+
+/** A frame on `GET /api/agents/:id/transcript/stream` (SSE): the buffer on connect, then each upsert. */
+export type TranscriptStreamEvent =
+  | { type: "hello"; entries: TranscriptEntry[] }
+  | { type: "entry"; entry: TranscriptEntry };
+
+/** A release the teammate hasn't picked up yet: resume its work, or complete/fail it. */
+export type PairingReleaseAction = "resume" | "complete" | "fail";
+
+/** `GET /api/agents/:id/pairing/state` (and the body of pair/release replies, with `success`). */
+export interface PairingStateResponse {
+  paired: boolean;
+  since: number | null;
+  /** A release the teammate hasn't picked up yet (it waits out a run in flight). */
+  pendingRelease: PairingReleaseAction | null;
+}
 
 // --- Assistant agent-facing (the extension mirrors Pi <-> daemon) ---
 
@@ -361,7 +427,29 @@ export interface AgentPostCommentRequest { agentId: string; body: string; attach
 export interface AgentPostCommentResponse { success: boolean }
 
 // GET /api/agents
-export interface AgentListResponse { agents: Array<{ id: string; name: string; directory?: string; status: string; currentWork: string | null; lastHeartbeat: number }> }
+/** One agent as `GET /api/agents` lists it (the Team tab's row). */
+export interface AgentView {
+  id: string;
+  name: string;
+  directory?: string;
+  status: Member["status"];
+  /** taskId of the WorkItem this agent currently holds, if any. */
+  currentWork: string | null;
+  lastHeartbeat: number;
+  /** Agent-protocol version reported at registration; absent = pre-handshake. */
+  protocolVersion?: number;
+  /** Which harness the agent runs under (e.g. "pi"). */
+  harness?: string;
+  /** The harness integration's build version. */
+  harnessVersion?: string;
+  /** Model, context fill + session cost, when the harness reports them (null otherwise). */
+  session: MemberSessionStats | null;
+  /** The WorkItem in hand (IN_PROGRESS / MORIBUND), or null when idle. */
+  workItemId: string | null;
+  /** The persona that item was claimed with (its snapshot), or null — idle, or none. */
+  persona: PersonaRef | null;
+}
+export interface AgentListResponse { daemonVersion: string; protocolVersion: number; agents: AgentView[] }
 
 // DELETE /api/agents/:id
 export interface AgentDeleteResponse { success: boolean; error?: string }
@@ -374,7 +462,7 @@ export interface WorkItemView {
   /** The backing WorkDef's parent, so clients can route to the right detail page. */
   parent?: { kind: "story" | "schedule" | "thought" | "external"; id: string; source?: string };
   directory?: string;
-  state: string;
+  state: WorkItemState;
   read: boolean;
   memberId?: string;
   enqueuedAt: string;
@@ -638,6 +726,9 @@ export interface SourceOptionsRequest {
   options: Record<string, unknown>;
 }
 
+/** One item a preview reports (`SourcePreviewResponse.items`). */
+export interface SourcePreviewItem { externalId: string; revision: string; title: string; goal: string; url?: string; directory?: string; mode?: "work" | "triage" }
+
 /**
  * `POST /api/sources/:id/preview`: what a sync with the draft settings would
  * report — nothing mirrored or enqueued. `fieldErrors` with a 400.
@@ -648,7 +739,7 @@ export interface SourcePreviewResponse {
   fieldErrors?: SourceFieldError[];
   /** Which hook answered: the source's own `preview`, or its `sync` on a no-side-effects ctx. */
   via?: "preview" | "sync";
-  items?: Array<{ externalId: string; revision: string; title: string; goal: string; url?: string; directory?: string; mode?: "work" | "triage" }>;
+  items?: SourcePreviewItem[];
   warnings?: string[];
   note?: string;
 }
@@ -708,9 +799,54 @@ export interface MirroredDefRow {
   triageBadge?: TriageBadge;
 }
 
+// --- Thoughts (the notes canvas) ---
+
+// GET /api/thoughts?status= — the notes and every group (groups aren't filtered by status).
+export interface ThoughtsResponse { thoughts: Thought[]; groups: ThoughtGroup[] }
+
+// --- Auto triage (docs/DESIGN.md "Auto Triage: a Note Is a Parent") ---
+
+/** The thread a triage subject's page shows: analyses and decisions, proposals folded with what was decided. */
+export interface TriageThreadView {
+  entries: ThreadEntry[];
+  proposals: TriageProposalState[];
+  /** The proposals still undecided. */
+  pending: TriageProposalState[];
+  badge: TriageBadge;
+  latestOutcome: TriageOutcome | null;
+}
+
+/** `GET /api/thoughts/:id/triage`: a note's triage page. */
+export interface ThoughtTriageResponse extends TriageThreadView {
+  note: Thought;
+  workDefId: string;
+  /** Whether the note's triage WorkDef exists yet (it's created on first use). */
+  triaged: boolean;
+  /** Why the sweep would skip this note now; null = it's due. */
+  skipReason: TriageSkipReason | null;
+}
+
+/** `GET /api/work-defs/:id/triage`: any triage subject by WorkDef id (what a triage-mode mirror's page uses). */
+export interface WorkDefTriageResponse extends TriageThreadView {
+  workDefId: string;
+  subject: "thought" | "mirror";
+  /** `subject: "thought"` only. */
+  thoughtId?: string;
+  /** A mirror's provenance (absent for a note's triage WorkDef). */
+  mirror?: MirrorView;
+  /** The newest WorkItem's state (null = never run). */
+  latestState: WorkItemState | null;
+}
+
 // GET /api/work-sources/:id/defs
 export interface MirroredDefsResponse { source: ExternalSourceView; defs: MirroredDefRow[] }
 export interface WorkDefsResponse { workDefs: WorkDefView[] }
+// GET /api/work-defs/:id/comments — the thread, oldest first (an unknown id answers an empty list).
+export interface WorkDefCommentsResponse { comments: Comment[] }
+/** One file attached to a WorkDef (stored as `<epoch-ms>-<name>`). */
+export interface AttachmentView { name: string; storedName: string; size: number; addedAt: number }
+// GET /api/work-defs/:id/attachments
+export interface AttachmentsResponse { attachments: AttachmentView[] }
 export interface WorkDefResponse { workDef?: WorkDefView; success?: boolean; error?: string }
 export interface SaveWorkDefRequest {
   title: string;
@@ -782,6 +918,8 @@ export interface SaveTemplateResponse { success: boolean; template?: TemplateVie
 /** `pending` is the Schedule's reversible pending flag (docs/DESIGN.md "Pending schedules: reversible, no catch-up"). */
 export interface ScheduleView { id: string; title?: string; cron: string; lastEnqueuedAt?: string; pending: boolean }
 export interface SchedulesResponse { schedules: ScheduleView[] }
+// GET /api/schedules/:id
+export interface ScheduleResponse { schedule: ScheduleView }
 // PUT /api/schedules/:id
 export interface UpdateScheduleRequest { title?: string | null; cron?: string; pending?: boolean }
 // POST /api/schedules/:id/pending, POST /api/schedules/:id/activate

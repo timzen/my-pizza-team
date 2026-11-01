@@ -18,7 +18,6 @@ import {
   slugify,
   DEFAULT_CONFIG,
   generateTeammateName,
-  normalizeDirectory,
   directoriesOverlap,
   exclusiveDirectoriesEnabled,
   TODO_STATE,
@@ -67,6 +66,7 @@ import {
   parsePersonaId,
   type Assignment,
 } from "../shared/types.ts";
+import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
 import { validateWorkflow } from "./workflow-engine.ts";
 import { listBuiltinPersonas, getBuiltinPersona } from "./personas/builtins.ts";

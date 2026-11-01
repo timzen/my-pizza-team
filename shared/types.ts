@@ -4,9 +4,11 @@
  * The canonical definitions. The Pi extension (harnesses/pi/) has no copy of
  * these types; the few constants it needs are generated from this file into
  * harnesses/pi/src/shared/types.ts by `npm run sync-shared`.
+ *
+ * Keep this module free of `node:` imports and Node globals: the web UI imports
+ * its types (and a few pure constants) directly. Helpers that need the file
+ * system live beside it — `normalizeDirectory` is in shared/directory.ts.
  */
-
-import * as fs from "node:fs";
 
 /** Standard API response envelope. */
 export interface ApiResponse<T = unknown> {
@@ -581,34 +583,6 @@ export interface Schedule {
 }
 
 /**
- * Normalize a directory value for comparison: expand a leading `~` to $HOME,
- * strip a trailing slash, then resolve symlinks to the real path (so
- * `/home/u/repo` and `/local/home/u/repo` via a `/home/u` symlink compare
- * equal). If the path doesn't exist or can't be resolved on this machine, the
- * `~`/slash-only form is returned — this never throws. Applied at write time
- * *and* at compare time in `Store.getNextWorkItem`, so rows stored before
- * symlink resolution (or before the path existed) still match. Directory
- * matching is only a soft affinity bias, so an imperfect normalization (e.g. a
- * path missing on the daemon's host) merely loses the preference — it never
- * strands work (docs/DESIGN.md "Work Matching: Directory Affinity"). The
- * exclusive directory lease compares the same normalized form (see
- * `directoriesOverlap`); a miss there only lets two items run side by side, as
- * they would with the lease off.
- */
-export function normalizeDirectory(dir: string): string {
-  const expanded = dir.replace(/^~(?=$|\/)/, process.env["HOME"] || "~");
-  // Keep a bare "/" as-is rather than stripping it to the empty string.
-  const stripped = expanded.replace(/\/+$/, "") || (expanded ? "/" : "");
-  if (!stripped) return stripped;
-  try {
-    return fs.realpathSync(stripped);
-  } catch {
-    // Missing, unreadable, or no --allow-read: fall back to the string form.
-    return stripped;
-  }
-}
-
-/**
  * Do two directories overlap — the same path, or one inside the other? Compares
  * whole path segments, not string prefixes, so `/ws/foo` and `/ws/foobar` do
  * **not** overlap while `/ws/mpt-dev` and `/ws/mpt-dev/my-pizza-team` do. Pass
@@ -809,6 +783,14 @@ export interface TriageProposalState {
  * every proposal has been dealt with.
  */
 export type TriageBadge = "none" | "proposal" | "nothing" | "question";
+
+/** Why a note isn't due for triage, or null when it is (daemon/triage.ts `triageSkipReason`). */
+export type TriageSkipReason =
+  | "archived"
+  | "empty"
+  | "in-flight"
+  | "unchanged"
+  | "too-fresh";
 
 export interface Member {
   id: string;

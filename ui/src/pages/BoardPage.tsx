@@ -27,35 +27,9 @@ import { StorySwimlane } from "@/components/board/StorySwimlane";
 import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { useStoryCollapse } from "@/hooks/useStoryCollapse";
 import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import type { StatusResponse, StoryView } from "@shared/protocol";
 
-interface StoryView {
-  id: string;
-  title: string;
-  description: string;
-  status: "open" | "done";
-  dependsOn: string[];
-  ready: boolean;
-  directory?: string;
-  pending?: boolean;
-  workflow?: string;
-  context?: string[];
-  tasks: Array<{
-    id: string;
-    seq: number;
-    title: string;
-    status: string;
-    pending?: boolean;
-    workItemState?: "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED" | null;
-    description?: string;
-    assignee: string | null;
-    tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
-  }>;
-}
-
-interface StatusData {
-  defaultWorkflow: string;
-  workflows: Record<string, { states: Array<{ name: string; type: "agent" | "manual" }> }>;
-}
+type StatusData = Pick<StatusResponse, "defaultWorkflow" | "workflows">;
 
 type SortOption = "title" | "status" | "ready";
 

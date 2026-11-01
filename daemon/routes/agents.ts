@@ -16,7 +16,7 @@ import { readBody, fail } from "./http.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
 import { personaRefOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
-import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION } from "../../shared/protocol.ts";
+import { MIN_PROTOCOL_VERSION, PROTOCOL_VERSION, type AgentListResponse } from "../../shared/protocol.ts";
 import { packageVersion } from "../../shared/paths.ts";
 import { dismissParams, dismissReady } from "../spawner.ts";
 
@@ -325,7 +325,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
           persona: item?.persona ?? null,
         };
       }),
-    });
+    } satisfies AgentListResponse);
   });
 
   app.delete("/api/agents/:id", (c) => {

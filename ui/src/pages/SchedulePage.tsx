@@ -29,28 +29,10 @@ import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { runCountLabel } from "@/lib/run-count";
 import { isActiveScheduledJob } from "@/lib/work-items";
 import { Plus, Play, Pause, CalendarClock, FolderOpen, Archive } from "lucide-react";
+import type { ScheduleView, WorkDefView } from "@shared/protocol";
 
-interface WorkDef {
-  id: string;
-  title: string;
-  type: "Solitary" | "Scheduled" | "Board";
-  parent?: { kind: "story" | "schedule"; id: string };
-  goal: string;
-  directory?: string | null;
-  pending?: boolean;
-  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
-  executionCount?: number;
-  lastRunAt?: string | null;
-}
-
-interface Schedule {
-  id: string;
-  title?: string;
-  cron: string;
-  lastEnqueuedAt?: string | null;
-  /** Reversible schedule-level pending (the job doesn't fire while set). */
-  pending?: boolean;
-}
+type WorkDef = WorkDefView;
+type Schedule = ScheduleView;
 
 /** Best-effort human phrasing for the common cron shapes; falls back to raw. */
 function describeCron(cron?: string | null): string {

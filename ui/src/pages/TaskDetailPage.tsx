@@ -40,49 +40,11 @@ import { Trash2, Upload } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { FileViewer } from "@/components/viewer/FileViewer";
 import { commentToneClass } from "@/lib/retry";
+import type { Comment } from "@shared/types";
+import type { AttachmentView, StoryView, WorkDefView } from "@shared/protocol";
 
-interface WorkDef {
-  id: string;
-  title: string;
-  type: "Solitary" | "Scheduled" | "Board";
-  pending?: boolean;
-  goal: string;
-  acceptanceCriteria?: string;
-  additionalContext?: string;
-  /** Solitary/Scheduled: the persona it runs with; a mirror: its source's suggestion. */
-  persona?: string;
-  directory?: string | null;
-  executionCount?: number;
-  lastRunAt?: string | null;
-}
-
-interface Comment {
-  from: string;
-  body: string;
-  at: string;
-  attachments?: Array<{ name: string; size: number; type: string }>;
-}
-
-interface Attachment {
-  name: string;
-  storedName: string;
-  size: number;
-  addedAt: number;
-}
-
-interface TaskData {
-  id: string;
-  title: string;
-  status: string;
-  assignee: string | null;
-}
-
-interface StoryView {
-  id: string;
-  title: string;
-  workflow?: string;
-  tasks: TaskData[];
-}
+type WorkDef = WorkDefView;
+type Attachment = AttachmentView;
 
 interface StatusData {
   defaultWorkflow: string;

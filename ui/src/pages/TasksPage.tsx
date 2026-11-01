@@ -26,18 +26,9 @@ import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { filterByPending } from "@/lib/pending";
 import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type RunFilter, type RunSort } from "@/lib/run-count";
 import { Plus, Play, Zap, FolderOpen, Archive } from "lucide-react";
+import type { WorkDefView } from "@shared/protocol";
 
-interface WorkDef {
-  id: string;
-  title: string;
-  type: "Solitary" | "Scheduled" | "Board";
-  goal: string;
-  directory?: string | null;
-  pending?: boolean;
-  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
-  executionCount?: number;
-  lastRunAt?: string | null;
-}
+type WorkDef = WorkDefView;
 
 export function TasksPage() {
   const { data, refetch } = useApi<{ workDefs: WorkDef[] }>("/api/work-defs", [], { pollInterval: 10_000 });

@@ -4,44 +4,19 @@
  * and the read-only WorkDef detail page.
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins" (external sources).
  *
- * The wire types are hand-mirrored from shared/protocol.ts (`MirroredDefRow`,
- * `MirrorView`), as lib/triage.ts does. Kept pure (no React) so it's
- * unit-tested (tests/external-sources-ui.test.ts).
+ * The wire types are shared/protocol.ts's (`MirroredDefRow`, `MirrorView`). Kept
+ * pure (no React) so it's unit-tested (tests/external-sources-ui.test.ts).
  */
 
+import type { CommentExternal } from "@shared/types";
+import type { MirroredDefRow, MirrorView } from "@shared/protocol";
 import { externalSourcePath } from "./work-items.ts";
-import type { TriageBadge } from "./triage.ts";
 
-/** One row of `GET /api/work-sources/:id/defs` (shared/protocol.ts `MirroredDefRow`). */
-export interface MirroredDefRow {
-  id: string;
-  title: string;
-  externalId: string;
-  url?: string;
-  revision?: string;
-  status: "active" | "archived";
-  latestState: string | null;
-  runCount: number;
-  lastRunAt: string | null;
-  /** "triage" for a triage-mode item (docs/DESIGN.md "External sources" — "Triage mode"). */
-  mode?: "work" | "triage";
-  /** Triage-mode items only: the latest analysis's badge. */
-  triageBadge?: TriageBadge;
-}
+/** One row of `GET /api/work-sources/:id/defs`. */
+export type { MirroredDefRow };
 
-/** A mirrored WorkDef's provenance (shared/protocol.ts `MirrorView`). */
-export interface MirrorInfo {
-  sourceId: string;
-  sourceLabel: string;
-  externalId: string;
-  url?: string;
-  revision?: string;
-  vanished: boolean;
-  /** "triage": a teammate triages it into proposals instead of working it. */
-  mode?: "work" | "triage";
-  /** A person's persona override for this mirror (`PUT /api/work-defs/:id/persona`), when set. */
-  personaOverride?: string;
-}
+/** A mirrored WorkDef's provenance (`WorkDefView.mirror`). */
+export type MirrorInfo = MirrorView;
 
 /** Is this mirror (or row) in triage mode — its page leads with a Triage tab, its Run is Triage now? */
 export function isTriageMode(mirror: { mode?: "work" | "triage" } | undefined): boolean {
@@ -96,13 +71,8 @@ export function readOnlyHint(sourceLabel: string): string {
     `Comments and attachments on the Thread still work.`;
 }
 
-/** Where a thread comment came from, when sync pulled it from the source (shared/types.ts `CommentExternal`). */
-export interface ExternalCommentInfo {
-  source: string;
-  id: string;
-  channel?: string;
-  author: string;
-}
+/** Where a thread comment came from, when sync pulled it from the source. */
+export type ExternalCommentInfo = CommentExternal;
 
 /**
  * The badge beside an inbound comment's author on a mirror's Thread: the

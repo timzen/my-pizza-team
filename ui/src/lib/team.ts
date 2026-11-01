@@ -5,41 +5,16 @@
  * session cost read. (The work queue's types are lib/queue.ts.)
  */
 
-import type { PersonaRef } from "./personas.ts";
+import type { MemberSessionStats } from "@shared/types";
+import type { AgentView } from "@shared/protocol";
 
 export type Role = "leader" | "teammate";
 
-export interface Teammate {
-  id: string;
-  name: string;
-  directory?: string | null;
-  status: string;
-  /** taskId of the WorkItem this agent currently holds, if any. */
-  currentWork?: string | null;
-  lastHeartbeat: number;
-  /** Agent-protocol version reported at registration; absent = pre-handshake. */
-  protocolVersion?: number;
-  /** Which harness the agent runs under (e.g. "pi"). */
-  harness?: string;
-  /** The harness integration's build version. */
-  harnessVersion?: string;
-  /** Model, context fill + session cost, when the harness reports them (null otherwise). */
-  session?: TeammateSession | null;
-  /** The WorkItem in hand (IN_PROGRESS / MORIBUND), or null when idle. */
-  workItemId?: string | null;
-  /** The persona that item was claimed with (its snapshot), or null — idle, or none. */
-  persona?: PersonaRef | null;
-}
+/** One agent as `GET /api/agents` lists it. */
+export type Teammate = AgentView;
 
-/** Mirrors shared/types.ts MemberSessionStats (hand-mirrored wire type). */
-export interface TeammateSession {
-  contextTokens: number | null;
-  contextWindow: number | null;
-  contextPercent: number | null;
-  costUsd: number;
-  model: { id: string; name: string; provider: string } | null;
-  at: number;
-}
+/** An agent's model, context fill and session cost (`Teammate.session`). */
+export type TeammateSession = MemberSessionStats;
 
 /**
  * Is this agent's harness out of step with the daemon?

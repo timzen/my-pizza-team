@@ -38,14 +38,10 @@ import { applyWheelToView, wheelGesture } from "@/lib/wheelGesture";
 import { NOTE_W, NOTE_H, centerViewOn, dropTarget, groupsByNoteCount, membershipChanges, noteCenter, plateRect, previewRect } from "@/lib/thoughtGeometry";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { placeForGroupChange, slotBelowAll, slotInPlate } from "@/lib/thoughtList";
+import type { Thought, ThoughtGroup } from "@shared/types";
+import type { ThoughtsResponse } from "@shared/protocol";
 
-interface Thought {
-  id: string; content: string; color: string; status: "active" | "archived";
-  x: number; y: number; w: number | null; h: number | null; zIndex: number;
-  pinned: boolean; groupId: string | null; createdBy: string; createdAt: string; updatedAt: string;
-}
-interface ThoughtGroup { id: string; title: string; x: number; y: number; w: number; h: number; groupColor: string | null; plateOpacity: "subtle" | "medium" | "solid"; }
-interface ThoughtsData { thoughts: Thought[]; groups: ThoughtGroup[]; }
+type ThoughtsData = ThoughtsResponse;
 
 /** localStorage key for the minimap on/off choice (default on). */
 const MINIMAP_KEY = "mpt.thoughts.minimap";

@@ -21,6 +21,7 @@
  * tests/external-sources-ui.test.ts).
  */
 
+import type { ExternalSourceView } from "@shared/protocol";
 import type { FeatureName, Features } from "./features.ts";
 
 /** One Work sub-tab. */
@@ -53,12 +54,7 @@ export const WORK_ITEMS_TABS: readonly WorkItemsTabDef[] = [
 ];
 
 /** A registered external (pull-only) Work Source, as `/api/status` reports it. */
-export interface ExternalSourceInfo {
-  id: string;
-  label: string;
-  /** Its `features.<name>` toggle (default: its id); absent = always on. Its tab hides while off. */
-  feature?: string;
-}
+export type ExternalSourceInfo = ExternalSourceView;
 
 /** Is this external source switched on (no toggle, or its feature isn't off)? */
 export function isExternalSourceOn(source: ExternalSourceInfo, features: Features | null): boolean {

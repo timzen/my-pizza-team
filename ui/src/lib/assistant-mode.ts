@@ -4,13 +4,15 @@
  * `assistant.chatMode` (TeamConfig, docs/DESIGN.md "Assistant Chat Model"):
  * `chat` is the iMessage-style bubble chat (the default); `terminal` is exactly
  * the teammate watch/pair view (TranscriptView + PairComposer via AgentTerminal),
- * pointed at the leader. Pure functions so the choice is testable without React;
- * hand-mirrors `resolveAssistantChatMode` in shared/types.ts (tests keep them in
- * step).
+ * pointed at the leader. Pure functions so the choice is testable without React.
+ * `resolveAssistantChatMode` here reads the mode `/api/status` reports and applies
+ * the same default as shared/types.ts's (tests keep them in step).
  */
 
+import type { AssistantChatMode } from "@shared/types";
+
 /** The assistant's UI (TeamConfig.assistant.chatMode, default applied). */
-export type AssistantChatMode = "chat" | "terminal";
+export type { AssistantChatMode };
 
 /**
  * The leader's member id when no leader is online. It always registers as

@@ -16,7 +16,9 @@
  * is recorded whether or not the daemon remembers the pairing.
  */
 
-export type ReleaseAction = "resume" | "complete" | "fail";
+import type { PairingReleaseAction, PairingStateResponse } from "../../shared/protocol.ts";
+
+export type ReleaseAction = PairingReleaseAction;
 /** `queue` lands after the current run (Pi followUp); `steer` at the next tool step. */
 export type SendMode = "queue" | "steer";
 
@@ -62,7 +64,7 @@ export class TeammatePairing {
   }
 
   /** The UI's view: is a web pairing open, and since when? */
-  getState(memberId: string): { paired: boolean; since: number | null; pendingRelease: ReleaseAction | null } {
+  getState(memberId: string): PairingStateResponse {
     const s = this.states.get(memberId);
     return { paired: !!s?.paired, since: s?.since ?? null, pendingRelease: s?.release ?? null };
   }

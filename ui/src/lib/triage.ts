@@ -4,90 +4,37 @@
  * a note, and a triage-mode external item (docs/DESIGN.md "External sources" —
  * "Triage mode"), whose mirrored WorkDef's own thread holds the analyses.
  *
- * The wire types are hand-mirrored from shared/types.ts (as lib/assistant-types.ts
- * does), and the rules here are the ones worth testing without a browser
- * (tests/triage-ui.test.ts): what a badge means, how a proposal reads, and which
- * fields a kind lets you edit before accepting.
+ * The wire types are shared/types.ts's and shared/protocol.ts's; the rules here
+ * are the ones worth testing without a browser (tests/triage-ui.test.ts): what a
+ * badge means, how a proposal reads, and which fields a kind lets you edit before
+ * accepting.
  */
 
-export type TriageOutcome = "proposals" | "nothing" | "question";
-export type TriageBadge = "none" | "proposal" | "nothing" | "question";
-export type TriageProposalKind = "task" | "story-task" | "story" | "schedule";
+import type {
+  Comment,
+  ThreadEntry,
+  TriageBadge,
+  TriageDecision,
+  TriageOutcome,
+  TriageProposal,
+  TriageProposalKind,
+  TriageProposalState,
+} from "@shared/types";
+import type { ThoughtTriageResponse, WorkDefTriageResponse } from "@shared/protocol";
 
-export interface TriageProposal {
-  id: string;
-  kind: TriageProposalKind;
-  title: string;
-  goal?: string;
-  acceptanceCriteria?: string;
-  additionalContext?: string;
-  directory?: string;
-  storyId?: string;
-  cron?: string;
-  description?: string;
-  tasks?: Array<{ title: string; goal: string; acceptanceCriteria?: string }>;
-}
-
-export interface TriageDecision {
-  kind: "decision";
-  proposalId: string;
-  action: "accepted" | "rejected";
-  workDefId?: string;
-  storyId?: string;
-  from: string;
-  at: string;
-}
+export type { TriageBadge, TriageDecision, TriageOutcome, TriageProposal, TriageProposalKind, TriageProposalState };
 
 /** An analysis (a comment carrying an outcome) or an ordinary comment. */
-export interface TriageComment {
-  from: string;
-  body: string;
-  at: string;
-  outcome?: TriageOutcome;
-  proposals?: TriageProposal[];
-}
+export type TriageComment = Comment;
 
-export type TriageThreadEntry = TriageComment | TriageDecision;
-
-export interface TriageProposalState {
-  proposal: TriageProposal;
-  at: string;
-  from: string;
-  decision?: TriageDecision;
-}
+/** One line of a triage thread: an analysis/comment, or a decision. */
+export type TriageThreadEntry = ThreadEntry;
 
 /** GET /api/thoughts/:id/triage */
-export interface TriageView {
-  note: {
-    id: string; content: string; color: string; status: string; groupId: string | null;
-    updatedAt: string; createdAt: string; triagedVersion?: string;
-  };
-  workDefId: string;
-  triaged: boolean;
-  entries: TriageThreadEntry[];
-  proposals: TriageProposalState[];
-  pending: TriageProposalState[];
-  badge: TriageBadge;
-  latestOutcome: TriageOutcome | null;
-  /** Why the sweep would skip this note now; null = it's due. */
-  skipReason: "archived" | "empty" | "in-flight" | "unchanged" | "too-fresh" | null;
-}
+export type TriageView = ThoughtTriageResponse;
 
 /** GET /api/work-defs/:id/triage — any triage subject by WorkDef id (what a triage-mode mirror's page uses). */
-export interface WorkDefTriageView {
-  workDefId: string;
-  subject: "thought" | "mirror";
-  thoughtId?: string;
-  /** A mirror's provenance (lib/external-sources.ts MirrorInfo, hand-mirrored loosely here). */
-  mirror?: { sourceId: string; sourceLabel: string; externalId: string; url?: string; revision?: string; vanished: boolean; mode: "work" | "triage" };
-  entries: TriageThreadEntry[];
-  proposals: TriageProposalState[];
-  pending: TriageProposalState[];
-  badge: TriageBadge;
-  latestOutcome: TriageOutcome | null;
-  /** The newest WorkItem's state (null = never run). */
-  latestState: string | null;
-}
+export type WorkDefTriageView = WorkDefTriageResponse;
 
 /** What is being triaged: a note, or an external (mirrored) item. Picks the wording. */
 export type TriageSubject = "note" | "item";

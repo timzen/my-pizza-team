@@ -26,17 +26,7 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { GitBranch, Pencil, ArrowRight, Trash2, ChevronUp, ChevronDown, Plus, Bot, User } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
-
-interface WorkflowState {
-  name: string;
-  type: "agent" | "manual";
-  /** The persona id an agent state's worker runs with (unset: none). */
-  persona?: string;
-}
-
-interface WorkflowConfig {
-  states: WorkflowState[];
-}
+import type { WorkflowConfig, WorkflowState } from "@shared/types";
 
 interface ConfigData {
   port: number;

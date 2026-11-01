@@ -9,12 +9,18 @@
  * Kept pure (no React) so the mapping is unit-tested (tests/features-ui.test.ts);
  * hooks/useFeatures.ts supplies the live toggles from `/api/status`.
  *
- * The wire types are hand-mirrored from shared/types.ts (`FeaturesConfig`,
- * `FEATURE_NAMES`, `resolveFeatures`), as lib/triage.ts does.
+ * `FeatureName` and `FEATURE_NAMES` are shared/types.ts's own; `resolveFeatures`
+ * here is the UI's tolerant reading of `/api/status` `features`.
  */
 
-/** One switchable work-item kind (shared/types.ts `FeatureName`). */
-export type FeatureName = "stories" | "tasks" | "schedules";
+import type { FeatureName } from "@shared/types";
+import type { FeatureSourceView } from "@shared/protocol";
+// A runtime value, so a relative path: the tests run this module under Node,
+// which can't resolve the `@shared` alias (shared/types.ts has no node: imports).
+import { FEATURE_NAMES } from "../../../shared/types.ts";
+
+export type { FeatureName };
+export { FEATURE_NAMES };
 
 /**
  * Resolved toggles: every built-in kind present (shared/types.ts
@@ -22,9 +28,6 @@ export type FeatureName = "stories" | "tasks" | "schedules";
  * (`features.<id>` for an external source), keyed by its feature name.
  */
 export type Features = Record<FeatureName, boolean> & Record<string, boolean>;
-
-/** Every switchable kind, in display order (shared/types.ts `FEATURE_NAMES`). */
-export const FEATURE_NAMES: readonly FeatureName[] = ["stories", "tasks", "schedules"];
 
 /** How each kind is named in the UI (Config toggles, "turned off" notices). */
 export const FEATURE_LABELS: Record<FeatureName, string> = {
@@ -67,13 +70,8 @@ export function isFeatureOn(features: Features | null, feature: string): boolean
 
 // ─── The Config page's toggle list ──────────────────────────────────
 
-/** One toggleable feature's source, as `GET /api/config` `featureSources` reports it (shared/protocol.ts `FeatureSourceView`). */
-export interface FeatureSourceInfo {
-  feature: string;
-  sourceId: string;
-  label: string;
-  external: boolean;
-}
+/** One toggleable feature's source, as `GET /api/config` `featureSources` reports it. */
+export type FeatureSourceInfo = FeatureSourceView;
 
 /** One row of Config → Work items. */
 export interface FeatureToggleRow {

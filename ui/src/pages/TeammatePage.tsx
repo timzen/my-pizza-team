@@ -25,22 +25,17 @@ import { useTranscriptStream } from "@/hooks/useTranscriptStream";
 import { AgentTerminal } from "@/components/transcript/AgentTerminal";
 import { Button } from "@/components/ui/button";
 import type { PairingState } from "@/lib/transcript-types";
-import { workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
+import { workItemPath } from "@/lib/work-item-link";
 import { Badge } from "@/components/ui/badge";
 import { ModelName, SessionStats, StatusIcon } from "@/components/team/TeamParts";
 import { PersonaChip } from "@/components/personas/PersonaChip";
-import type { PersonaRef } from "@/lib/personas";
 import { statusLabel, type Teammate } from "@/lib/team";
 import { FolderOpen, Eye, WifiOff, MessageSquare, Play, CheckCircle2, XCircle } from "lucide-react";
+import type { WorkItemView } from "@shared/protocol";
 
 type Agent = Teammate;
 
-interface WorkItem extends LinkableWorkItem {
-  id: string;
-  title: string;
-  memberId?: string | null;
-  persona?: PersonaRef;
-}
+type WorkItem = WorkItemView;
 
 export function TeammatePage() {
   const { id = "" } = useParams();

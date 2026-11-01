@@ -4,7 +4,12 @@
  * class names dynamically). Light/dark aware.
  */
 
-export const THOUGHT_COLORS = ["yellow", "blue", "green", "pink", "purple", "orange"] as const;
+// A runtime value, so a relative path: the tests run this module under Node,
+// which can't resolve the `@shared` alias (shared/types.ts has no node: imports).
+import { THOUGHT_COLORS } from "../../../shared/types.ts";
+
+/** The fixed note palette (shared/types.ts, which the daemon validates against). */
+export { THOUGHT_COLORS };
 export type ThoughtColor = (typeof THOUGHT_COLORS)[number];
 
 /** Note body: background + border. */

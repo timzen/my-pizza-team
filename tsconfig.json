@@ -33,7 +33,12 @@
     "forceConsistentCasingInFileNames": true,
 
     "skipLibCheck": true,
-    "types": ["node"]
+    "types": ["node"],
+
+    // The UI's alias for shared/ (ui/tsconfig.app.json), so the ui/src/lib/ modules
+    // the tests import type-check here too. Only `import type` uses it — Node can't
+    // resolve it at runtime, so runtime imports of shared/ use relative paths.
+    "paths": { "@shared/*": ["./shared/*"] }
   },
   "include": [
     "main.ts",

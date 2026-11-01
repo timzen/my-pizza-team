@@ -1,4 +1,4 @@
-import { defineConfig } from "vite";
+import { defineConfig, searchForWorkspaceRoot } from "vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import path from "node:path";
@@ -12,9 +12,14 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The daemon's wire types (docs/ARCHITECTURE.md "Shared Types"): `import type`
+      // from here; the few runtime values the UI shares are pure modules.
+      "@shared": path.resolve(__dirname, "../shared"),
     },
   },
   server: {
+    // ../shared sits outside the UI package, so let the dev server serve it too.
+    fs: { allow: [searchForWorkspaceRoot(process.cwd()), path.resolve(__dirname, "../shared")] },
     proxy: {
       "/api": {
         target: "http://localhost:7437",

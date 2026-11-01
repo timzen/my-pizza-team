@@ -16,22 +16,14 @@ import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { MarkdownView } from "@/components/ui/markdown-view";
-import { hasThreadTab, workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
+import { hasThreadTab, workItemPath } from "@/lib/work-item-link";
+import type { Comment } from "@shared/types";
+import type { WorkItemView } from "@shared/protocol";
 import { since } from "@/lib/queue";
 import { inboxOutcome, mergeInboxRows, outcomeBody } from "@/lib/mobile";
 import { CheckCircle2, ExternalLink, Inbox as InboxIcon, XCircle } from "lucide-react";
 
-interface WorkItem extends LinkableWorkItem {
-  id: string;
-  title: string;
-  state: "COMPLETE" | "FAILED";
-  read: boolean;
-  memberId?: string | null;
-  enqueuedAt: string;
-  lastStateChangeAt: string;
-}
-
-interface Comment { from: string; body: string; at: string }
+type WorkItem = WorkItemView;
 
 /** How many rows to show. A phone is for the latest; history is the desktop's. */
 const LIMIT = 30;

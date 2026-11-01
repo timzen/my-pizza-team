@@ -1,39 +1,16 @@
 /**
- * lib/transcript-types.ts — Client-side mirror of the daemon's live teammate
- * transcript types (daemon/store/transcripts.ts; docs/DESIGN.md "Watching and Pairing with a Teammate"),
- * plus the one derived fact both the view and the page need (isRunning).
+ * lib/transcript-types.ts — The live teammate transcript's wire types
+ * (shared/protocol.ts; the buffer is daemon/store/transcripts.ts; docs/DESIGN.md
+ * "Watching and Pairing with a Teammate"), plus the one derived fact both the
+ * view and the page need (isRunning).
  */
 
-interface EntryBase {
-  /** Position in the transcript; stable across upserts. */
-  seq: number;
-  key?: string;
-  /** Epoch ms the entry was first seen. */
-  at: number;
-}
+import type { PairingStateResponse, TranscriptEntry, TranscriptStreamEvent } from "@shared/protocol";
 
-export type TranscriptEntry = EntryBase & (
-  | { kind: "session" }
-  | { kind: "watch" }
-  /** `web` = sent from the pairing composer; `delivery` = how it landed mid-run. */
-  | { kind: "user"; text: string; origin: "tui" | "web" | "extension"; delivery?: "steer" | "followUp" }
-  | { kind: "run"; state: "start" | "end" }
-  | { kind: "message"; text?: string; thinking?: string }
-  /** `args` is absent when the call started before anyone was watching. */
-  | { kind: "tool"; name: string; args?: unknown; state: "running" | "done" | "error"; result?: string }
-);
+export type { TranscriptEntry, TranscriptStreamEvent };
 
 /** GET /api/agents/:id/pairing/state (docs/DESIGN.md "Watching and Pairing with a Teammate"). */
-export interface PairingState {
-  paired: boolean;
-  since: number | null;
-  /** A release the teammate hasn't picked up yet (it waits out a run in flight). */
-  pendingRelease: "resume" | "complete" | "fail" | null;
-}
-
-export type TranscriptStreamEvent =
-  | { type: "hello"; entries: TranscriptEntry[] }
-  | { type: "entry"; entry: TranscriptEntry };
+export type PairingState = PairingStateResponse;
 
 /** A run is in flight if the latest run marker is a start (a new session resets it). */
 export function isRunning(entries: TranscriptEntry[]): boolean {

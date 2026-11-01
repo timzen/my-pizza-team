@@ -18,23 +18,7 @@ import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
 import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
-
-interface StoryTask {
-  id: string;
-  title: string;
-  status: string;
-}
-
-interface StoryView {
-  id: string;
-  title: string;
-  description: string;
-  status?: "open" | "done";
-  directory?: string;
-  pending?: boolean;
-  workflow?: string;
-  tasks: StoryTask[];
-}
+import type { StoryView } from "@shared/protocol";
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();

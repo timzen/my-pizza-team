@@ -10,7 +10,7 @@
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { Schedule } from "../../shared/types.ts";
-import type { ScheduleView, SchedulesResponse, SetSchedulePendingResponse, UpdateScheduleRequest } from "../../shared/protocol.ts";
+import type { ScheduleResponse, ScheduleView, SchedulesResponse, SetSchedulePendingResponse, UpdateScheduleRequest } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
 
 function view(s: Schedule): ScheduleView {
@@ -27,7 +27,7 @@ export function registerScheduleRoutes(ctx: RouteContext): void {
   app.get("/api/schedules/:id", (c) => {
     const sched = store.getSchedule(c.req.param("id"));
     if (!sched) return fail(c, 404, "Schedule not found");
-    return c.json({ schedule: view(sched) });
+    return c.json({ schedule: view(sched) } satisfies ScheduleResponse);
   });
 
   app.put("/api/schedules/:id", async (c) => {

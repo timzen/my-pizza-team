@@ -5,12 +5,16 @@ number. Delete an item when it's done.
 
 ## Code health
 
-- **Helper copies outside `shared/`:** `ui/src/lib/structural.ts` and
-  `ui/src/lib/source-settings.ts` define their own `isPlainObject` (the
-  structural one also rejects non-plain prototypes), and `harnesses/pi/src/leader.ts`
-  writes `err instanceof Error ? err.message : String(err)` inline, because neither
-  the UI nor the Pi extension can import `shared/` yet. Fold them into
-  `shared/util.ts` with the wire-protocol work that gives them access.
+- **Helper copies outside `shared/`:** `harnesses/pi/src/leader.ts` writes
+  `err instanceof Error ? err.message : String(err)` inline, because the Pi
+  extension can't import `shared/`. (`ui/src/lib/structural.ts` keeps its own
+  `isPlainObject` on purpose: it also rejects non-plain prototypes.)
+- **UI shapes with no protocol type yet:** `GET /api/config` (ConfigPage,
+  WorkflowsPage, WorkflowDetailPage's `ConfigData`), `/api/workflows`, `/api/usage`,
+  and `/api/spawn-requests` are still typed by local slices in `ui/src/`; add them
+  to `shared/protocol.ts`. TaskDetailPage reads a `transitions` map on
+  `/api/status` `workflows` that the daemon never sends, so its Move buttons never
+  render — remove or implement them.
 - **`(e as Error).message`** in `catch` blocks across `cli/`, `agent/` and `daemon/`
   prints `undefined` for a non-`Error` throw; `errorMessage` (`shared/util.ts`) would
   stringify it instead. Left as is because switching changes that (edge-case) output.

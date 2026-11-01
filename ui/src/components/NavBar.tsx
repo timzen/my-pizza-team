@@ -45,15 +45,10 @@ import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
 import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
+import type { StatusResponse } from "@shared/protocol";
 
-/** The slice of `/api/status` the bar reads (shared/protocol.ts StatusResponse). */
-interface NavStatus {
-  paused?: boolean;
-  queuedCount?: number;
-  unreadInboxCount?: number;
-  /** One-line, dismissable notices from the daemon. */
-  notices?: Array<{ id: string; message: string }>;
-}
+/** The slice of `/api/status` the bar reads (all optional: the first poll hasn't answered yet). */
+type NavStatus = Partial<Pick<StatusResponse, "paused" | "queuedCount" | "unreadInboxCount" | "notices">>;
 
 /**
  * Primary nav items. Work needs at least one work-item kind switched on

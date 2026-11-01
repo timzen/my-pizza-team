@@ -10,7 +10,7 @@ my-pizza-team is one repository producing one npm package, `my-pizza-team`, whos
 - **daemon/** — HTTP API server: [Hono](https://hono.dev/) served by `@hono/node-server`, a SQLite runtime index over plain files, tmux supervision, and timers (heartbeat reaper, scheduler, autosave, readiness probe, spawn realization).
 - **cli/** — the `mpt` command: start/stop the daemon, `setup`, `doctor`, `lead`, `upgrade`, service install.
 - **ui/** — the web UI (React + Vite + shadcn/ui), built into `ui/dist/` and served by the daemon.
-- **shared/** — types, protocol contracts, and constants shared by the daemon, CLI, and (via generation) the Pi extension.
+- **shared/** — types, protocol contracts, and constants shared by the daemon, CLI, the web UI (imported directly), and (via generation) the Pi extension.
 - **harnesses/pi/** — the Pi extension: a Node/npm package with its own `tsconfig.json`, `package.json`, and tests. Its source ships in the `my-pizza-team` package and is written out by `mpt setup`.
 - **agent/** — `mpt agent`, the supervisor that runs an experimental non-Pi teammate (Kiro, Claude Code) over the Agent Client Protocol.
 - **desktop/** — optional tray/menu-bar apps (macOS SwiftUI, Windows PowerShell).
@@ -235,17 +235,30 @@ The experimental ACP supervisor (DESIGN.md "Harness Tiers, and Why Not MCP"). Pa
 
 ### shared/
 
-- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, the feature toggles (`FeaturesConfig`, `FEATURE_NAMES`, `resolveFeatures` — absent ⇒ on, `NEW_TEAM_FEATURES`, `newTeamConfig`), `normalizeDirectory` (`~` expansion, trailing-slash strip, symlink resolution via `realPathSync` with string fallback), `slugify`, `generateTeammateName`.
+- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, the feature toggles (`FeaturesConfig`, `FEATURE_NAMES`, `resolveFeatures` — absent ⇒ on, `NEW_TEAM_FEATURES`, `newTeamConfig`), `slugify`, `generateTeammateName`. Free of `node:` imports and Node globals, because the web UI imports it (see "ui/src/" below).
+- `directory.ts` — `normalizeDirectory` (`~` expansion, trailing-slash strip, symlink resolution via `realPathSync` with string fallback), kept out of `types.ts` because it reads the file system.
 - `team-config.ts` — The one read/write path for a team's `config.json`, used by the daemon and the CLI: `readTeamConfigFile` (the file as written, no defaults; `undefined` when absent), `loadTeamConfig` / `applyTeamConfigDefaults` (merged over `DEFAULT_CONFIG`, nested `autosave` and `teammates` too), and `saveTeamConfig` (atomic, `writeFileAtomic`, via `serializeTeamConfig`: every key is written back, including ones this version doesn't know, except the derived ones — `workflows`, which live in `workflows/`, and an unset `minTeammates` — and optional blocks whose empty value means absent, so config.json stays minimal).
 - `atomic-write.ts` — `writeFileAtomic(file, data)`: write a temp file in the target's directory, then rename it over the target, so a crash mid-write leaves the old file or the new one, never a truncated one. Every file mpt rewrites goes through it (config.json, story/WorkDef/template/schedule/thought/persona files, `workflow.json`, source kv, assistant snapshots, the migrations' rewrites, `.gitignore`, Pi's settings/trust, the setup manifest, `runtime.json`, the service unit/plist); append-only `*.jsonl` logs (comments, usage) stay appends and new uploads (attachments) are written directly.
-- `protocol.ts` — Request/response contracts for the HTTP API, and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION`.
+- `protocol.ts` — Request/response contracts for the HTTP API (routes check their replies against them with `satisfies`), the live transcript and pairing shapes, and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION`. Pure (type imports from `types.ts` only); the web UI imports it directly.
 - `frontmatter.ts` — The small YAML-like frontmatter parser/serializer used by markdown files.
 - `paths.ts` — Where mpt's own files are, from source and from the installed npm package alike: `packageRoot()` (walk up to the package.json named `my-pizza-team`), `isRunningFromSource()` (false iff this module lives under `<root>/dist/`, the compiled package), `cliEntryScript()`, `uiDistDir()`, `piExtensionDir()`.
 - `main-module.ts` — `isMainModule()`, Node's stand-in for `import.meta.main`.
-- `util.ts` — Tiny dependency-free helpers, defined once for the daemon, CLI, `mpt agent` and scripts: `isPlainObject(v)` (a non-null, non-array object — the shape parsed JSON objects and plugin config are narrowed to) and `errorMessage(e)` (a caught value's message: `Error.message`, else `String(e)`). The UI (`ui/src/lib/structural.ts`, `source-settings.ts`) and the Pi extension can't import `shared/` yet and keep their own copies (TODO.md "Code health").
+- `util.ts` — Tiny dependency-free helpers, defined once for the daemon, CLI, `mpt agent` and scripts: `isPlainObject(v)` (a non-null, non-array object — the shape parsed JSON objects and plugin config are narrowed to) and `errorMessage(e)` (a caught value's message: `Error.message`, else `String(e)`). The UI imports them (`ui/src/lib/source-settings.ts`); `ui/src/lib/structural.ts` keeps its own, stricter `isPlainObject` (it also rejects class instances). The Pi extension can't import `shared/` and keeps its own copies (TODO.md "Code health").
 - `runtime-config.ts` — The saved Node setting, `~/.config/mpt/runtime.json` (`$XDG_CONFIG_HOME/mpt/` on Linux if set): `{ node, chosenAt }`, written atomically, unknown keys kept. `configuredNode()` applies `--node` > `MPT_NODE` > file. `checkNode()` validates (exists, executable, `<node> -p process.versions.node` meets package.json `engines`), never resolving symlinks — `/opt/homebrew/bin/node` must survive `brew upgrade`. `pinnedNodeManager`/`pinnedNodeWarning` flag version-pinned paths (nvm, fnm, volta, asdf, mise, Homebrew Cellar) and `stableNodeAlternative`/`suggestedNode` find a stable one. Used by the CLI and by `daemon/self.ts`.
 
 ### ui/src/
+
+**Wire types come from `shared/`.** The UI imports the daemon's own types — `import type
+{ WorkDefView } from "@shared/protocol"` — through the `@shared/*` alias to `../shared`
+(`ui/tsconfig.app.json`, `ui/vite.config.ts`; the root `tsconfig.json` maps it too,
+so the tests that import `ui/src/lib/` type-check). Type-only imports are erased, so no
+daemon code reaches the bundle. The few pure runtime values it shares (`FEATURE_NAMES`,
+`PERSONA_KINDS`, `THOUGHT_COLORS`, `slugifyPersonaId`, `REDACTED_SETTING`,
+`isPlainObject`) are imported by relative path (`../../../shared/types.ts`) instead,
+since the tests run those `lib/` modules under Node, which can't resolve the alias; only
+`shared/types.ts`, `shared/protocol.ts` and `shared/util.ts` may be imported, and they
+stay free of `node:` imports. When the UI needs a shape the daemon sends but
+`shared/protocol.ts` lacks, add it there (and `satisfies` it in the route).
 
 **Shell.** `App.tsx` is the router and the two-column shell (`h-dvh`, so each region
 scrolls itself): the `SideDock` on the left and the center (NavBar + scrollable
@@ -260,7 +273,7 @@ the **phone shell** (`mobile/`, below), and sends a phone (`lib/mobile.ts`
 toggles from `/api/status` in one module-level cache (`useSyncExternalStore`; refetched
 on `notifyFeaturesChanged()` after a Config save, and every 30s while subscribed);
 `null` until loaded, and gated things stay hidden until then. `lib/features.ts` is the
-pure, tested half (tests/features-ui.test.ts): hand-mirrored names/defaults,
+pure, tested half (tests/features-ui.test.ts): the names and defaults (from `shared/types.ts`),
 `featureForPath`, `featureForProposalKind`, and `filterByFeatures` (used by
 `lib/start-work.ts` and Config's tabs — Workflows carries `feature: "stories"`).
 The same cache carries `/api/status` `assistantChatMode`, read with
@@ -357,7 +370,7 @@ span per line, so a chunk rewrites only the last line); and the streams —
 `useAssistantStream`'s reconcile, `useTranscriptStream`'s replay/upserts, and
 `usePersonas` — structurally share too, with memoized `MessageBubble` and
 transcript rows (docs/DESIGN.md "Polling Never Disturbs the Reader");
-`lib/assistant-types.ts` (hand-mirrored wire types).
+`lib/assistant-types.ts` (the assistant wire types, re-exported from `shared/protocol.ts`).
 
 ### harnesses/pi/
 
@@ -544,7 +557,7 @@ read-only, the latest analysis, pending proposals with Accept / Edit (an overrid
 built from `editableFields`, reusing `AcceptanceCriteriaEditor` and `DirectoryInput`) /
 Reject, earlier rounds, and **Triage now**. `thoughts/TriageBadge.tsx` is a note's only
 triage footprint on the canvas card and list row, fed by one `/api/triage/badges` poll
-in `ThoughtsPage`. Wording and the hand-mirrored wire types live in `lib/triage.ts`
+in `ThoughtsPage`. Wording and the wire types (from `shared/`) live in `lib/triage.ts`
 (`badgeTitle`, `outcomeLabel`, `kindLabel`, `editableFields`, `triageNowBlocked`,
 `analysesWithDecisions`); `lib/work-item-link.ts` routes a `thought`-parented item to
 the triage page (`hasThreadTab` is false for it, so the Inbox doesn't deep-link a

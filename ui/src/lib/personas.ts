@@ -13,78 +13,21 @@
  * - **The chip** shows the persona a run recorded at claim (a snapshot): linked
  *   to its page, or marked "deleted" and unlinked when the id no longer resolves.
  *
- * Wire types are hand-mirrored from shared/types.ts (`Persona`, `PersonaRef`,
- * `PersonaUsage`), as elsewhere in the UI. Kept pure (no React) so the rules are
+ * Wire types are shared/types.ts's (`Persona`, `PersonaRef`, `PersonaUsage`) and
+ * shared/protocol.ts's. Kept pure (no React) so the rules are
  * unit-tested (tests/personas-ui.test.ts).
  */
 
-/** A picker hint (never a restriction): which pickers list a persona first. */
-export type PersonaKind = "assistant" | "worker" | "triage";
+import type { Persona, PersonaKind, PersonaOrigin, PersonaRef, PersonaUsage, PersonaVia } from "@shared/types";
+import type { DeletePersonaResponse, SavePersonaResponse, SourceView } from "@shared/protocol";
+// Runtime values, so a relative path: the tests run this module under Node, which
+// can't resolve the `@shared` alias (shared/types.ts has no node: imports).
+import { PERSONA_KINDS, slugifyPersonaId } from "../../../shared/types.ts";
 
-/** Every kind hint, in display order (mirrors shared/types.ts `PERSONA_KINDS`). */
-export const PERSONA_KINDS: readonly PersonaKind[] = ["worker", "triage", "assistant"];
+export type { DeletePersonaResponse, Persona, PersonaKind, PersonaOrigin, PersonaRef, PersonaUsage, PersonaVia, SavePersonaResponse };
 
-/** Where a persona comes from (shared/types.ts `PersonaOrigin`). */
-export type PersonaOrigin =
-  | { kind: "team" }
-  | { kind: "builtin" }
-  | { kind: "package"; name: string; identity: string };
-
-/** How a run arrived at its persona (shared/types.ts `PersonaVia`). */
-export type PersonaVia =
-  | "workflow-state" | "task" | "schedule" | "workdef"
-  | "source-setting" | "source-default" | "triage" | "assistant";
-
-/** One persona in the library (`GET /api/personas`). */
-export interface Persona {
-  id: string;
-  title: string;
-  description: string;
-  tags: string[];
-  kinds?: PersonaKind[];
-  duplicatedFrom?: string;
-  content: string;
-  origin: PersonaOrigin;
-  readOnly: boolean;
-  lintError?: string;
-  createdAt?: string;
-  updatedAt?: string;
-}
-
-/** The persona a run recorded at claim (`WorkItemView.persona`, `/api/agents` `persona`). */
-export interface PersonaRef {
-  id: string;
-  title: string;
-  /** `team` | `builtin` | `package:<name>`. */
-  origin: string;
-  via: PersonaVia;
-  fallbackFrom?: string;
-}
-
-/** One thing that references a persona (`GET /api/personas/:id` `usedBy`). */
-export type PersonaUsage =
-  | { kind: "workflow-state"; workflow: string; state: string }
-  | { kind: "triage" }
-  | { kind: "assistant" }
-  | { kind: "workdef"; workDefId: string; title: string }
-  | { kind: "mirror-override"; workDefId: string; source: string }
-  | { kind: "source-setting"; source: string; field: "persona" | "triagePersona" };
-
-/** `POST`/`PUT /api/personas[/:id]` and duplicate: the saved persona plus lint output. */
-export interface SavePersonaResponse {
-  success: boolean;
-  persona?: Persona;
-  warnings?: string[];
-  errors?: string[];
-  error?: string;
-}
-
-/** `DELETE /api/personas/:id`: 409 with `usedBy` while referenced. */
-export interface DeletePersonaResponse {
-  success: boolean;
-  usedBy?: PersonaUsage[];
-  error?: string;
-}
+/** Every kind hint, in display order. */
+export { PERSONA_KINDS };
 
 // ─── Routes ─────────────────────────────────────────────────────────
 
@@ -278,15 +221,8 @@ export function personaChip(ref: PersonaRef, library: Pick<Persona, "id">[] | nu
 
 // ─── Work Sources ───────────────────────────────────────────────────
 
-/** The persona fields of `GET /api/sources` (shared/protocol.ts `SourceView`). */
-export interface SourcePersonaFields {
-  mode?: "work" | "triage";
-  persona: string | null;
-  defaultPersona: string | null;
-  triagePersona: string | null;
-  defaultTriagePersona: string | null;
-  personaError?: string;
-}
+/** The persona fields of `GET /api/sources`. */
+export type SourcePersonaFields = Pick<SourceView, "mode" | "persona" | "defaultPersona" | "triagePersona" | "defaultTriagePersona" | "personaError">;
 
 /**
  * What a source's items run with when no item overrides it — the team's
@@ -303,9 +239,9 @@ export function effectiveSourcePersonas(s: SourcePersonaFields): {
 }
 
 /**
- * The id a new team persona would get from its title (mirrors shared/types.ts
+ * The id a new team persona would get from its title (shared/types.ts
  * `slugifyPersonaId`; the daemon adds `-2`… on a collision). A placeholder only.
  */
 export function slugHint(title: string): string {
-  return title.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 64).replace(/-+$/, "");
+  return slugifyPersonaId(title);
 }

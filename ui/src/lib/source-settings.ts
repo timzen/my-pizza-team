@@ -8,99 +8,23 @@
  * See docs/DESIGN.md "Plugin settings: configSchema and preview" and GUIDE.md
  * "Setting up a plugin from the UI".
  *
- * The wire types are hand-mirrored from shared/protocol.ts (`SourceView`,
- * `SourcePreviewResponse`, `SourceConfigResponse`, `REDACTED_SETTING`) and the
- * schema subset from daemon/sources/types.ts (`SourceConfigSchema`), as
- * lib/triage.ts does. The daemon is the authority on validity — the form
+ * The wire types are shared/protocol.ts's (`SourceView`, `SourcePreviewResponse`,
+ * `SourceConfigResponse`, `REDACTED_SETTING`); the form reads `configSchema` as
+ * the subset daemon/sources/types.ts (`SourceConfigSchema`) describes. The daemon is the authority on validity — the form
  * only shapes the draft; `PUT`/`preview` answer with field-level errors.
  */
 
-/** What `GET /api/sources` shows in place of a secret (shared/protocol.ts `REDACTED_SETTING`). */
-export const REDACTED_SETTING = "__mpt_redacted__";
+import type { SourceConfigResponse, SourceEnvVarRef, SourceFieldError, SourcePreviewItem, SourcePreviewResponse, SourceView } from "@shared/protocol";
+// Runtime values, so relative paths: the tests run this module under Node, which
+// can't resolve the `@shared` alias (both modules are pure — no node: imports).
+import { REDACTED_SETTING } from "../../../shared/protocol.ts";
+import { isPlainObject } from "../../../shared/util.ts";
 
-/** One field-level settings problem (shared/protocol.ts `SourceFieldError`). */
-export interface SourceFieldError {
-  path: string;
-  message: string;
-}
+export type { SourceConfigResponse, SourceEnvVarRef, SourceFieldError, SourcePreviewResponse, SourceView };
+export { REDACTED_SETTING };
 
-/** One env-var reference in a source's saved settings (shared/protocol.ts `SourceEnvVarRef`). */
-export interface SourceEnvVarRef {
-  path: string;
-  name: string;
-  set: boolean;
-}
-
-/** One registered Work Source (shared/protocol.ts `SourceView`). */
-export interface SourceView {
-  id: string;
-  label: string;
-  kind: "built-in" | "plugin" | "external";
-  syncs: boolean;
-  package?: { spec: string; identity: string };
-  mode?: "work" | "triage";
-  toggle: { feature: string; enabled: boolean } | null;
-  configSchema?: Record<string, unknown>;
-  configScope: "package" | "source";
-  options: Record<string, unknown>;
-  redacted: string[];
-  envVars: SourceEnvVarRef[];
-  configurable: boolean;
-  previewable: boolean;
-  /**
-   * The init failure, or — when init is fine — the persona problem (a
-   * triage-mode source with no triage persona doesn't sync); see `personaError`.
-   */
-  initError?: string;
-  /** The persona problem alone, when there is one (docs/DESIGN.md "Work Source personas"). */
-  personaError?: string;
-  /** The team's persona for its work-mode items (`sourcePersonas.<id>.persona`), or null. */
-  persona: string | null;
-  /** The source's declared `defaultPersona`, or null. */
-  defaultPersona: string | null;
-  /** The team's triage persona for its triage-mode items, or null. */
-  triagePersona: string | null;
-  /** The source's declared `triagePersona`, or null. */
-  defaultTriagePersona: string | null;
-  sync: {
-    running: boolean;
-    failures: number;
-    backoffUntil: number | null;
-    last: { at: number; ok: boolean; error?: string; mirrored: number; enqueued: number; archived: number; held: number } | null;
-  } | null;
-  activeMirrors: number | null;
-}
-
-/** One previewed item (shared/protocol.ts `SourcePreviewResponse.items`). */
-export interface PreviewItem {
-  externalId: string;
-  revision: string;
-  title: string;
-  goal: string;
-  url?: string;
-  directory?: string;
-  mode?: "work" | "triage";
-}
-
-/** `POST /api/sources/:id/preview` (shared/protocol.ts `SourcePreviewResponse`). */
-export interface SourcePreviewResponse {
-  success: boolean;
-  error?: string;
-  fieldErrors?: SourceFieldError[];
-  via?: "preview" | "sync";
-  items?: PreviewItem[];
-  warnings?: string[];
-  note?: string;
-}
-
-/** `PUT /api/sources/:id/config` (shared/protocol.ts `SourceConfigResponse`). */
-export interface SourceConfigResponse {
-  success: boolean;
-  error?: string;
-  fieldErrors?: SourceFieldError[];
-  reinit?: Array<{ id: string; ok: boolean; error?: string }>;
-  source?: SourceView;
-}
+/** One previewed item (`SourcePreviewResponse.items`). */
+export type PreviewItem = SourcePreviewItem;
 
 // ─── Routes ─────────────────────────────────────────────────────────
 
@@ -233,10 +157,6 @@ export interface FormField {
   integer?: boolean;
   /** `group` only: its fields (leaves). */
   fields?: FormField[];
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 function hints(raw: Record<string, unknown>, key: string): Pick<FormField, "title" | "description" | "placeholder"> {

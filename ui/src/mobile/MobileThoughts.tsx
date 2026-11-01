@@ -32,20 +32,10 @@ import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { MOBILE_TAB_PATHS } from "@/lib/mobile";
 import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
 import { Archive, ChevronDown, ChevronLeft, ChevronRight, Eye, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import type { Thought, ThoughtGroup } from "@shared/types";
 
-/** The fields of `/api/thoughts` this view reads (shared/types.ts `Thought`). */
-interface Note {
-  id: string;
-  content: string;
-  color: string;
-  x: number;
-  y: number;
-  pinned: boolean;
-  groupId: string | null;
-  createdAt: string;
-  updatedAt: string;
-}
-interface Group { id: string; title: string; x: number; y: number; w: number; h: number }
+type Note = Thought;
+type Group = ThoughtGroup;
 
 /** How long Edit waits after the last keystroke before saving (as the desktop pane). */
 const AUTOSAVE_MS = 600;

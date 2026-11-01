@@ -60,46 +60,14 @@ import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { runCountLabel } from "@/lib/run-count";
 import { commentToneClass } from "@/lib/retry";
-import { externalCommentLabel, isTriageMode, mirroredDefHomePath, newestFirst, openInLabel, readOnlyHint, type ExternalCommentInfo, type MirrorInfo } from "@/lib/external-sources";
+import { externalCommentLabel, isTriageMode, mirroredDefHomePath, newestFirst, openInLabel, readOnlyHint } from "@/lib/external-sources";
 import { mirrorTriageNowBlocked, type WorkDefTriageView } from "@/lib/triage";
+import type { Comment } from "@shared/types";
+import type { AttachmentView, ScheduleView, WorkDefView } from "@shared/protocol";
 
-interface WorkDef {
-  id: string;
-  title: string;
-  type: "Solitary" | "Scheduled" | "Board" | "Triage" | "External";
-  parent?: { kind: "story" | "schedule" | "thought" | "external"; id: string; source?: string };
-  /** Mirrored (External) defs only: where it comes from (lib/external-sources.ts). */
-  mirror?: MirrorInfo;
-  goal: string;
-  acceptanceCriteria?: string;
-  additionalContext?: string;
-  /** Solitary/Scheduled: the persona it runs with; a mirror: its source's suggestion. */
-  persona?: string;
-  directory?: string | null;
-  pending?: boolean;
-  status?: "active" | "archived";
-  tokenUsage?: { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number };
-  executionCount?: number;
-  lastRunAt?: string | null;
-}
-
-interface Schedule { id: string; cron: string; lastEnqueuedAt?: string | null; pending?: boolean }
-
-interface Comment {
-  from: string;
-  body: string;
-  at: string;
-  attachments?: Array<{ name: string; size: number; type: string }>;
-  /** Pulled from the mirror's source by sync (docs/DESIGN.md "A mirrored thread"). */
-  external?: ExternalCommentInfo;
-}
-
-interface Attachment {
-  name: string;
-  storedName: string;
-  size: number;
-  addedAt: number;
-}
+type WorkDef = WorkDefView;
+type Schedule = ScheduleView;
+type Attachment = AttachmentView;
 
 export function WorkDefDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -171,7 +139,7 @@ export function WorkDefDetailPage() {
 
   // On a triage-mode mirror, Run is Triage now (force a triage of the current revision).
   const triageBlocked = triageMode
-    ? mirrorTriageNowBlocked(triageView?.latestState ?? null, def.status === "archived" || !!mirror?.vanished)
+    ? mirrorTriageNowBlocked(triageView?.latestState ?? null, !!mirror?.vanished)
     : null;
   const run = async () => {
     setError("");

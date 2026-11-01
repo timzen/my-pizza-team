@@ -6,8 +6,10 @@
  * needed it; this is the one definition. Keep this file to small, pure helpers
  * with no imports — anything with I/O or domain knowledge belongs elsewhere.
  *
- * The UI (`ui/src/`) and the Pi extension (`harnesses/pi/src/`) can't import
- * `shared/` yet, so they keep their own copies for now.
+ * The web UI imports these too (ui/src/lib/source-settings.ts), so they must stay
+ * free of `node:` imports. (ui/src/lib/structural.ts keeps its own, stricter
+ * `isPlainObject` — it also rejects class instances.) The Pi extension
+ * (`harnesses/pi/src/`) can't import `shared/`, so it keeps its own copies.
  */
 
 /**

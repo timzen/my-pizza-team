@@ -23,6 +23,7 @@ import {
   type TriageOutcome,
   type TriageProposal,
   type TriageProposalState,
+  type TriageSkipReason,
   type WorkDef,
 } from "../shared/types.ts";
 import { isValidCron } from "./cron.ts";
@@ -70,13 +71,7 @@ export function mirrorTriageWorkItemTitle(def: Pick<WorkDef, "id" | "title">): s
   return first ? `Triage: ${first}` : `Triage ${def.id}`;
 }
 
-/** Why a note isn't due for triage, or null when it is. */
-export type TriageSkipReason =
-  | "archived"
-  | "empty"
-  | "in-flight"
-  | "unchanged"
-  | "too-fresh";
+export type { TriageSkipReason };
 
 export interface TriageDueInput {
   note: Pick<Thought, "status" | "content" | "updatedAt" | "triagedVersion">;

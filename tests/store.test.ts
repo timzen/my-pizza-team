@@ -10,7 +10,8 @@ import { test } from "node:test";
 import { assert, assertEquals, assertExists } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { normalizeDirectory, workDefType } from "../shared/types.ts";
+import { workDefType } from "../shared/types.ts";
+import { normalizeDirectory } from "../shared/directory.ts";
 import * as path from "node:path";
 
 function createTempTeamDir(): string {

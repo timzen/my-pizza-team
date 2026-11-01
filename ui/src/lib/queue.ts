@@ -5,32 +5,12 @@
  * reviewed in the Inbox; this is work *in flight*.
  */
 
-import type { LinkableWorkItem } from "@/lib/work-item-link";
-import type { PersonaRef } from "@/lib/personas";
+import type { WorkItemView } from "@shared/protocol";
 
 export type QueueState = "READY" | "IN_PROGRESS" | "MORIBUND";
 
-export interface QueueItem extends LinkableWorkItem {
-  id: string;
-  title: string;
-  state: QueueState;
-  /** The teammate holding it (IN_PROGRESS / MORIBUND). */
-  memberId?: string | null;
-  directory?: string | null;
-  /**
-   * READY only: the in-flight item holding an overlapping directory, when that's
-   * why this one waits (exclusive directory leases).
-   */
-  blockedBy?: { workItemId: string; title: string; memberId?: string; memberName?: string };
-  enqueuedAt: string;
-  lastStateChangeAt: string;
-  /** 1 for a first run; n for an automatic retry after an errored agent session. */
-  attempt?: number;
-  /** A READY retry is held until this time (its backoff). */
-  retryAt?: string;
-  /** The persona it was claimed with (absent while READY, or run without one). */
-  persona?: PersonaRef;
-}
+/** One non-terminal WorkItem (`GET /api/work-items?state=READY,IN_PROGRESS,MORIBUND`). */
+export type QueueItem = Omit<WorkItemView, "state"> & { state: QueueState };
 
 /** Human labels + colors per state, in the order they're worth your attention. */
 export const QUEUE_STATES: Array<{ state: QueueState; label: string; dot: string; chip: string }> = [

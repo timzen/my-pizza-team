@@ -22,10 +22,14 @@ const agent = (over: Partial<Teammate> = {}): Teammate => ({
   id: "a1",
   name: "swift-ripley",
   status: "idle",
+  currentWork: null,
   lastHeartbeat: Date.now(),
   protocolVersion: 1,
   harness: "pi",
   harnessVersion: "0.17.2",
+  session: null,
+  workItemId: null,
+  persona: null,
   ...over,
 });
 

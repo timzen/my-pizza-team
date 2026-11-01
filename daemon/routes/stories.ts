@@ -15,7 +15,7 @@ import { requestsPending } from "./work-defs.ts";
 import { contextFieldRefusal } from "./personas.ts";
 import type {
   CreateStoryRequest, CreateStoryResponse, UpdateStoryRequest, UpdateStoryResponse,
-  DeleteStoryResponse, ArchiveStoryResponse, ArchivedStoriesResponse, SetStoryPendingResponse,
+  DeleteStoryResponse, ArchiveStoryResponse, ArchivedStoriesResponse, SetStoryPendingResponse, StoriesResponse,
 } from "../../shared/protocol.ts";
 
 /**
@@ -59,7 +59,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
           }),
         };
       }),
-    });
+    } satisfies StoriesResponse);
   });
 
   app.post("/api/stories", async (c) => {

@@ -17,6 +17,7 @@ import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../share
 import { proposalResponse, readAcceptOptions, readRejectFrom } from "./triage.ts";
 import { triageWorkDefId } from "../triage.ts";
 import type { ProposalResult } from "../store.ts";
+import type { ThoughtsResponse, ThoughtTriageResponse } from "../../shared/protocol.ts";
 
 const COORD_LIMIT = 1e7;
 
@@ -39,7 +40,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // along so the canvas renders plates from the same fetch.
   app.get("/api/thoughts", (c) => {
     const status = c.req.query("status");
-    return c.json({ thoughts: store.getThoughts(status), groups: store.getThoughtGroups() });
+    return c.json({ thoughts: store.getThoughts(status), groups: store.getThoughtGroups() } satisfies ThoughtsResponse);
   });
 
   app.get("/api/thoughts/:id", (c) => {
@@ -158,7 +159,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
       badge: thread.badge,
       latestOutcome: thread.latestOutcome,
       skipReason: store.triageStatusFor(id),
-    });
+    } satisfies ThoughtTriageResponse);
   });
 
   // The badges for every note that has one (the canvas and list read this).

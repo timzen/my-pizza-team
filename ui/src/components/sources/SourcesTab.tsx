@@ -59,15 +59,8 @@ import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, Eye, ExternalLink, Plug, RotateCcw, Save } from "lucide-react";
+import type { PluginLoadStatus } from "@shared/protocol";
 
-/** One `packages` entry's load status (shared/protocol.ts `PluginLoadStatus`), for failed packages. */
-interface PluginLoadStatus {
-  identity: string | null;
-  spec: string;
-  state: "loaded" | "error";
-  error?: string;
-  sources: string[];
-}
 
 const TONE_CLASS: Record<SourceStatus["tone"], string> = {
   ok: "border-emerald-500/60 text-emerald-600",

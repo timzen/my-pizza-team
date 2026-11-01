@@ -28,42 +28,10 @@
 
 // ─── Types ──────────────────────────────────────────────────────────
 
-/**
- * Where a user entry came from: typed in the tmux pane (`tui`), sent from the
- * web UI while pairing (`web`), or anything else the extension delivered — in
- * practice the work prompt (`extension`).
- */
-export type TranscriptInputOrigin = "tui" | "web" | "extension";
+// The wire shapes live in shared/protocol.ts (the UI reads them too).
+import type { TranscriptEntry, TranscriptEntryBody, TranscriptInputOrigin } from "../../shared/protocol.ts";
 
-/** The part of an entry the agent supplies (plus an optional upsert `key`). */
-export type TranscriptEntryBody =
-  /** A fresh Pi session started (teammates take one per work item). */
-  | { kind: "session" }
-  /**
-   * User input. `delivery` is Pi's streamingBehavior when it arrived mid-run:
-   * `followUp` (queued behind the current run) or `steer` (next tool step).
-   */
-  | { kind: "user"; text: string; origin: TranscriptInputOrigin; delivery?: "steer" | "followUp" }
-  /** An agent run started/ended — drives the "working…" cursor. */
-  | { kind: "run"; state: "start" | "end" }
-  /** An assistant message; `text`/`thinking` are the full content so far. */
-  | { kind: "message"; text?: string; thinking?: string }
-  /**
-   * A tool call. `args` is absent when the start happened before anyone was
-   * watching (the view labels it "already running").
-   */
-  | { kind: "tool"; name: string; args?: unknown; state: "running" | "done" | "error"; result?: string }
-  /** Daemon-inserted: a watching period began here. */
-  | { kind: "watch" };
-
-export type TranscriptEntry = TranscriptEntryBody & {
-  /** Position in the transcript; stable across upserts. */
-  seq: number;
-  /** Upsert key, when the entry evolves over time. */
-  key?: string;
-  /** Epoch ms the entry was first seen. */
-  at: number;
-};
+export type { TranscriptEntry, TranscriptEntryBody, TranscriptInputOrigin };
 
 /** What the agent posts: an entry body, optionally keyed for upsert. */
 export type TranscriptInput = TranscriptEntryBody & { key?: string };

@@ -25,6 +25,7 @@ import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides } from "../store.ts";
 import { mirrorView } from "./work-sources.ts";
+import type { WorkDefTriageResponse } from "../../shared/protocol.ts";
 
 /** Read an accept request's body: `workDefId` (the "Edit" path's already-created work), `overrides`, `from`. */
 export async function readAcceptOptions(c: Context): Promise<AcceptProposalOptions> {
@@ -76,7 +77,7 @@ export function registerTriageRoutes(ctx: RouteContext): void {
       // Newest WorkItem's state (null = never run): lets the page say a run is
       // in flight, and disable Triage now while it is.
       latestState: store.getLatestWorkItemState(id),
-    });
+    } satisfies WorkDefTriageResponse);
   });
 
   // Accept: create the work and record the decision. Creates only — nothing is enqueued.

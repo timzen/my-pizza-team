@@ -47,7 +47,7 @@ import * as fs from "node:fs";
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import { workDefType, type WorkDef } from "../../shared/types.ts";
-import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse, MirrorPersonaRequest } from "../../shared/protocol.ts";
+import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse, MirrorPersonaRequest, WorkDefCommentsResponse, AttachmentsResponse } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
@@ -264,8 +264,8 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   // Comments live on the WorkDef (per-def run thread).
   app.get("/api/work-defs/:id/comments", (c) => {
     const id = c.req.param("id");
-    if (!store.getWorkDef(id)) return c.json({ comments: [] });
-    return c.json({ comments: store.getCommentsForRef({ workDefId: id }) });
+    if (!store.getWorkDef(id)) return c.json({ comments: [] } satisfies WorkDefCommentsResponse);
+    return c.json({ comments: store.getCommentsForRef({ workDefId: id }) } satisfies WorkDefCommentsResponse);
   });
 
   app.post("/api/work-defs/:id/comment", async (c) => {
@@ -312,7 +312,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   app.get("/api/work-defs/:id/attachments", (c) => {
     const id = c.req.param("id");
     if (!store.getWorkDef(id)) return fail(c, 404, "WorkDef not found");
-    return c.json({ attachments: store.getAttachmentsForRef({ workDefId: id }) });
+    return c.json({ attachments: store.getAttachmentsForRef({ workDefId: id }) } satisfies AttachmentsResponse);
   });
 
   app.get("/api/work-defs/:id/attachments/:filename", (c) => {

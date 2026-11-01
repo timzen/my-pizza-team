@@ -14,25 +14,12 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { notifyInboxChanged } from "@/lib/inbox";
-import { hasThreadTab, workItemPath, type LinkableWorkItem } from "@/lib/work-item-link";
+import { hasThreadTab, workItemPath } from "@/lib/work-item-link";
+import type { WorkItemView } from "@shared/protocol";
 import { Button } from "@/components/ui/button";
 import { CheckCircle2, XCircle, Inbox as InboxIcon } from "lucide-react";
 
-type WorkItemState = "READY" | "IN_PROGRESS" | "MORIBUND" | "COMPLETE" | "FAILED" | "CANCELED";
-interface WorkItem extends LinkableWorkItem {
-  id: string;
-  title: string;
-  directory?: string | null;
-  state: WorkItemState;
-  read: boolean;
-  memberId?: string | null;
-  enqueuedAt: string;
-  lastStateChangeAt: string;
-  /** 1 for a first run; n for an automatic retry after an errored session. */
-  attempt?: number;
-  /** Why this attempt's agent session errored (e.g. a Bedrock 503). */
-  error?: string;
-}
+type WorkItem = WorkItemView;
 
 const PAGE_SIZE = 20;
 
