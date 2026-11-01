@@ -36,18 +36,33 @@ test("the root lockfile matches package.json's version", async () => {
   assertEquals(lock.packages?.[""]?.version, version, `package-lock.json packages[""] is ${fix}`);
 });
 
-test("the extension's generated shared constants are in step", async () => {
-  // harnesses/pi/src/shared/types.ts is generated from shared/types.ts. Using the
-  // generator's own `render()` rather than reimplementing it here is the point: a
-  // test that rendered independently could disagree with the generator, which is
-  // the drift this task exists to remove.
-  const { render, SOURCE, TARGET } = await import("../scripts/sync-shared.ts");
-  const expected = render(await import(SOURCE.href));
-  assertEquals(
-    await fs.promises.readFile(TARGET, "utf8"),
-    expected,
-    "harnesses/pi/src/shared/types.ts is stale — run `npm run sync-shared`",
-  );
+test("the extension's generated shared files are in step", async () => {
+  // harnesses/pi/src/shared/types.ts is generated from shared/types.ts, and
+  // harnesses/pi/src/shared/agent-protocol.ts is a copy of shared/agent-protocol.ts.
+  // Using the generator's own `generatedFiles()` rather than reimplementing it here
+  // is the point: a test that rendered independently could disagree with the
+  // generator, which is the drift this task exists to remove.
+  const { generatedFiles } = await import("../scripts/sync-shared.ts");
+  const files = await generatedFiles();
+  assertEquals(files.length, 2);
+  for (const { target, content } of files) {
+    assertEquals(
+      await fs.promises.readFile(target, "utf8"),
+      content,
+      `${target.pathname} is stale — run \`npm run sync-shared\``,
+    );
+  }
+});
+
+test("the agent-protocol generator refuses a source with imports", async () => {
+  // The copy lives where shared/ doesn't, so an import would not resolve there.
+  const { renderAgentProtocol } = await import("../scripts/sync-shared.ts");
+  for (const bad of ['import type { X } from "./types.ts";', 'export { Y } from "./types.ts";', "const z = await import('./x.ts');"]) {
+    let threw = false;
+    try { renderAgentProtocol(`// ok\n${bad}\n`); } catch { threw = true; }
+    assertEquals(threw, true, `should refuse: ${bad}`);
+  }
+  assertEquals(renderAgentProtocol("export const A = 1;\n").endsWith("export const A = 1;\n"), true);
 });
 
 test("the extension declares no runtime dependencies", async () => {

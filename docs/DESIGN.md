@@ -1809,8 +1809,21 @@ links. Agents read and write them through `/api/agents/comments/:workItemId`
 The daemon and the Pi extension are one protocol shipped as one artifact. They
 live in one repo, the root `package.json` owns the version, `harnesses/pi/package.json` (and
 `package-lock.json`) are generated from it (`npm run sync-version`, enforced by `tests/version.test.ts`),
-shared constants are generated into the extension (`npm run sync-shared`), and the
+shared definitions are generated into the extension (`npm run sync-shared`), and the
 `mpt` npm package **ships the extension's source** and writes it out on `mpt setup`.
+
+**The wire types have one source.** The UI imports the daemon's types from `shared/`
+directly. The extension can't — `mpt setup` copies it outside the repo, where a
+relative import into `shared/` would not resolve — so instead of hand-mirroring the
+protocol it gets generated copies: the constants it needs from `shared/types.ts`, and
+`shared/agent-protocol.ts` (`PROTOCOL_VERSION`, the feature toggles, and the agent
+routes' reply types) copied verbatim. That file has no imports, which is what makes a
+verbatim copy self-contained; `shared/protocol.ts` re-exports it, and extends it
+where the daemon sends more than a harness may rely on. Drift fails `npm run check`
+and both test suites. Hand copies had already drifted both ways — the extension's
+`WorkflowConfig.states` was `string[]` after the daemon moved to `WorkflowState[]`,
+and `shared/protocol.ts` still described an inbox `chat` flag the daemon had stopped
+sending.
 
 *Why:* when the two halves shipped separately, they drifted and nothing noticed —
 an old extension kept running while streaming no transcript and recording no
@@ -2008,7 +2021,9 @@ daemon *protocol* with no external imports, no relative *value* imports, and no
 mention of Pi (enforced by `tests/runtime-purity.test.ts`); everything beside it is
 Pi-specific. The no-value-imports rule is what keeps those modules loadable — and
 so testable — under plain Node, whose resolver doesn't remap `./x.js` to `./x.ts`
-the way Pi's loader does. It is deliberately not a top-level shared package: the
+the way Pi's loader does. Its one exception is the generated, import-free
+`../shared/*.ts` (the protocol definitions above), imported by its `.ts` name, which
+Node resolves as written. It is deliberately not a top-level shared package: the
 tiers leave no second in-process consumer, and hoisting it would break the
 self-containment the embedded extension needs.
 

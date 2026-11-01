@@ -3,43 +3,37 @@
  *
  * Defines the contract between daemon, CLI, UI, and harnesses. All endpoints
  * return JSON conforming to these interfaces.
+ *
+ * The agent-facing half — `PROTOCOL_VERSION`, the feature names, and the agent
+ * routes' replies — is defined in agent-protocol.ts (self-contained, so it can be
+ * copied verbatim into the Pi extension by `npm run sync-shared`) and re-exported
+ * here, so there is one definition for every side (docs/DESIGN.md "One Protocol,
+ * One Version").
  */
 
 import type {
   AssistantChatMode, Comment, FeaturesConfig, Member, MemberSessionStats, Persona, PersonaKind, PersonaRef, PersonaUsage, ThreadEntry, Thought, ThoughtGroup,
   TriageBadge, TriageOutcome, TriageProposalState, TriageSkipReason, WorkflowConfig, WorkItemState,
 } from "./types.ts";
+import type {
+  AgentRegisterResponse as AgentRegisterResponseOf,
+  AssistantDelivery,
+  AssistantOrigin,
+  PairingReleaseAction,
+  StatusResponse as AgentStatusResponse,
+} from "./agent-protocol.ts";
+
+export { PROTOCOL_VERSION } from "./agent-protocol.ts";
+export type {
+  AgentClaimResponse, AgentNextWorkResponse, AgentSetWorkItemStateResponse, AssistantDelivery, AssistantInboxItem,
+  AssistantInboxResponse, AssistantOrigin, CreateLeaderDirectiveResponse, LeaderDirective, LeaderDirectivesResponse,
+  PairingPoll, PairingReleaseAction,
+} from "./agent-protocol.ts";
 
 // ─── Protocol version ────────────────────────────────────────────────
-// (Additive, optional routes — like POST /api/agents/:id/session-stats — are not
-// a protocol change: an older harness simply never calls them.)
 
-/**
- * The agent-protocol version this build speaks.
- *
- * **Bump this only on a breaking change to the agent protocol** — a route an
- * agent depends on moving or changing shape. Do *not* bump it for the release
- * version: the two are deliberately separate, because gating on build version
- * would nag the whole team on every patch release until people learned to ignore
- * the warning (docs/DESIGN.md "One Protocol, One Version").
- *
- * The daemon refuses to register an agent speaking a version it cannot serve, so
- * skew fails loudly at startup instead of silently half-working — the failure
- * mode docs/DESIGN.md "One Protocol, One Version" describes, where an old extension kept running
- * but streamed no transcript and recorded no usage.
- *
- * History:
- *   1 — WorkItem-centric agent protocol, per-host leader directives.
- *   2 — Leader directives moved from /api/hosts/:hostId/leader/directives to
- *       /api/leader/directives (one leader, so no host key). P1c-1.
- *   3 — Readiness moved from POST /api/hosts/:hostId/readiness to
- *       POST /api/readiness, and is a team-level fact. P1c-3.
- *   4 — Host routing removed: register no longer takes hostId, and
- *       GET /api/hosts/:hostId is gone (use GET /api/config). P1c-2.
- *   5 — GET /api/assistant/inbox no longer returns `chat`: with one leader there
- *       is no chat-agent designation to report. P1c-4.
- */
-export const PROTOCOL_VERSION = 5;
+// `PROTOCOL_VERSION` (and its history) lives in agent-protocol.ts with the rest of
+// the agent-facing protocol, re-exported above.
 
 /**
  * The lowest agent-protocol version this daemon still serves. Raise it in the
@@ -56,20 +50,15 @@ export const MIN_PROTOCOL_VERSION = 5;
 /** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
 export type HarnessKind = "pi" | (string & {});
 
-// GET /api/status
-export interface StatusResponse {
+// GET /api/status — what a harness reads (agent-protocol.ts), plus the rest the UI uses.
+export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   running: boolean;
-  stories: { total: number; open: number; done: number };
-  tasks: { total: number; byStatus: Record<string, number> };
-  members: { total: number; working: number; idle: number };
   /** Task distribution paused (control/pause). */
   paused: boolean;
   /** READY WorkItems — queued, not yet picked up (Pizza Team link badge). */
   queuedCount: number;
   /** Unread COMPLETE/FAILED WorkItems — the Inbox's unread count (Pizza Team link badge). */
   unreadInboxCount: number;
-  defaultWorkflow: string;
-  workflows: Record<string, WorkflowConfig>;
   workflow?: WorkflowConfig;
   /**
    * Which work-item kinds are on, defaults applied (`resolveFeatures`), plus one
@@ -186,10 +175,7 @@ export interface ArchivedStoriesResponse { stories: Array<{ id: string; title: s
 // composer never locks, and delivery receipts advance queued -> delivered -> read
 // as the agent picks a message up. See docs/DESIGN.md "Assistant Chat Model".
 
-/** Where a message came from: the web UI, the agent's terminal, the agent, the daemon. */
-export type AssistantOrigin = "web" | "tui" | "agent" | "system";
-/** Receipt states for a user message (null on assistant/system rows). */
-export type AssistantDelivery = "queued" | "delivered" | "read";
+// `AssistantOrigin` and `AssistantDelivery` are agent-facing: agent-protocol.ts.
 
 export interface AssistantMessage {
   id: string;
@@ -285,8 +271,7 @@ export type TranscriptStreamEvent =
   | { type: "hello"; entries: TranscriptEntry[] }
   | { type: "entry"; entry: TranscriptEntry };
 
-/** A release the teammate hasn't picked up yet: resume its work, or complete/fail it. */
-export type PairingReleaseAction = "resume" | "complete" | "fail";
+// `PairingReleaseAction` and the agent's `PairingPoll` are in agent-protocol.ts.
 
 /** `GET /api/agents/:id/pairing/state` (and the body of pair/release replies, with `success`). */
 export interface PairingStateResponse {
@@ -298,13 +283,7 @@ export interface PairingStateResponse {
 
 // --- Assistant agent-facing (the extension mirrors Pi <-> daemon) ---
 
-/**
- * GET /api/assistant/inbox?agentId= — user messages not yet handed to Pi.
- * `chat` is false for any agent that is not the designated chat agent; it gets no
- * messages and must not mirror its own output.
- */
-export interface AssistantInboxItem { id: string; content: string; replyTo: string | null; quoted: string | null; origin: AssistantOrigin }
-export interface AssistantInboxResponse { chat: boolean; messages: AssistantInboxItem[] }
+// GET /api/assistant/inbox?agentId= — `AssistantInboxResponse`, agent-protocol.ts.
 // POST /api/assistant/inbox/ack — empty `ids` with state 'read' promotes all delivered.
 export interface AssistantAckRequest { ids?: string[]; state: AssistantDelivery }
 export interface AssistantAckResponse { success: boolean; updated?: number; error?: string }
@@ -381,15 +360,8 @@ export interface AgentRegisterRequest {
   /** The harness integration's own build version. Informational only. */
   harnessVersion?: string;
 }
-export interface AgentRegisterResponse {
-  success: boolean;
-  config: { defaultWorkflow: string; workflows: Record<string, WorkflowConfig> };
-  error?: string;
-  /** The daemon's protocol version, so a harness can warn on its own side too. */
-  protocolVersion?: number;
-  /** The daemon's build version, for the UI's skew banner. */
-  daemonVersion?: string;
-}
+/** The registration reply (agent-protocol.ts), with the daemon's workflow config type. */
+export type AgentRegisterResponse = AgentRegisterResponseOf<WorkflowConfig>;
 
 // POST /api/agents/heartbeat
 export interface AgentHeartbeatRequest { id: string; status: "idle" | "working" | "pairing" | "offline"; currentTask?: string }
@@ -400,12 +372,11 @@ export interface AgentHeartbeatResponse { success: boolean }
 export type AgentSessionStatsRequest = Omit<MemberSessionStats, "at">;
 export interface AgentSessionStatsResponse { success: boolean; error?: string }
 
-// GET /api/agents/next-work?agentId=X
-export interface AgentNextWorkResponse { workItem: { id: string; title: string } | null }
+// GET /api/agents/next-work?agentId=X — `AgentNextWorkResponse`, agent-protocol.ts.
 
 // POST /api/agents/claim/:workItemId
 export interface AgentClaimRequest { agentId: string }
-export interface AgentClaimResponse { success: boolean; error?: string; workItem?: { id: string }; prompt?: string }
+// Reply: `AgentClaimResponse`, agent-protocol.ts.
 
 // POST /api/agents/work-items/:workItemId/state — the single state-setter.
 // The daemon reacts: COMPLETE advances a task ref; FAILED leaves it stuck.
@@ -413,11 +384,7 @@ export interface AgentClaimResponse { success: boolean; error?: string; workItem
 // failed), not that the agent gave up: the daemon then retries with backoff and
 // posts the attempt's comment itself (docs/DESIGN.md "Errored Sessions Retry").
 export interface AgentSetWorkItemStateRequest { agentId: string; state: "COMPLETE" | "FAILED"; result?: string; sessionError?: string }
-export interface AgentSetWorkItemStateResponse {
-  success: boolean; error?: string; newStatus?: string; completed?: boolean;
-  /** Present when a `sessionError` FAILED scheduled a retry. */
-  retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
-}
+// Reply: `AgentSetWorkItemStateResponse`, agent-protocol.ts.
 
 // GET /api/agents/comments/:workItemId
 export interface AgentCommentsResponse { comments: Array<{ from: string; body: string; at: string; attachments?: Array<{ name: string; size: number; type: string }> }> }
@@ -926,26 +893,12 @@ export interface UpdateScheduleRequest { title?: string | null; cron?: string; p
 export interface SetSchedulePendingResponse { success: boolean; schedule?: ScheduleView; error?: string }
 // --- Leader Directives (the single daemon->leader work queue) ---
 
-/** A directive is an ask to the leader: "do X about an agent" (spawn, reset-session, ...). */
-export interface LeaderDirective {
-  id: string;
-  action: string;
-  /** Target member for actions on an existing agent (absent for spawn). */
-  memberId?: string;
-  /** Action params, e.g. spawn { name, cwd, storyId, reason }. */
-  params: Record<string, unknown>;
-  /** Target member's opaque metadata (e.g. tmux window), resolved for the leader. */
-  metadata: Record<string, unknown>;
-  status: "pending" | "done";
-  createdAt: string;
-}
-
-// GET /api/leader/directives
-export interface LeaderDirectivesResponse { directives: LeaderDirective[] }
+// `LeaderDirective` and `LeaderDirectivesResponse` (GET /api/leader/directives)
+// are agent-facing: agent-protocol.ts.
 
 // POST /api/leader/directives
 export interface CreateLeaderDirectiveRequest { action: string; memberId?: string; params?: Record<string, unknown> }
-export interface CreateLeaderDirectiveResponse { success: boolean; directive?: LeaderDirective; error?: string }
+// Reply: `CreateLeaderDirectiveResponse`, agent-protocol.ts.
 
 // PUT /api/leader/directives/:id
 export interface UpdateLeaderDirectiveRequest { status: string }

@@ -709,7 +709,7 @@ while true; do
 done
 ```
 
-The current protocol version is `PROTOCOL_VERSION` in `shared/protocol.ts`.
+The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts` (re-exported by `shared/protocol.ts`).
 
 ---
 
@@ -789,7 +789,7 @@ npm run test:ext         # the Pi extension's suites
 ```
 
 The root `package.json` owns the version; the extension's `package.json` and the lockfile
-are generated from it (`npm run sync-version`), and its shared constants from `shared/types.ts` (`npm run sync-shared`); CI fails
+are generated from it (`npm run sync-version`), and its shared constants and agent-protocol definitions from `shared/types.ts` and `shared/agent-protocol.ts` (`npm run sync-shared`); CI fails
 if either is out of step.
 
 ## Building

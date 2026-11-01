@@ -6,15 +6,15 @@
  * The CLI has no commands that create or edit work items — that's the web UI
  * and the Pi tools — so its part is reporting: `mpt status` leaves out a
  * switched-off kind's counts and says what's off, and any daemon refusal is
- * worded the same way the Pi tools word it (`featureDisabledMessage`, shared
- * with harnesses/pi so the fix — "enable it in Config" — reads identically).
+ * worded the same way the Pi tools word it (`featureDisabledMessage`, defined
+ * once in shared/agent-protocol.ts — the extension gets a generated copy — so the
+ * fix, "enable it in Config", reads identically).
  * A future work-item command should gate on `featuresFromStatus` up front and
  * exit non-zero with `featureDisabledMessage`, with `daemonErrorMessage` as the
  * backstop for the daemon's 403.
  */
 
-import { FEATURE_NAMES, featureDisabledMessage, featuresFromStatus } from "../harnesses/pi/src/runtime/client.ts";
-import type { FeatureName } from "../shared/types.ts";
+import { FEATURE_NAMES, featureDisabledMessage, featuresFromStatus, type FeatureName } from "../shared/agent-protocol.ts";
 
 export { featureDisabledMessage };
 

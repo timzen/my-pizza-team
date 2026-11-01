@@ -16,7 +16,7 @@ const {
   FEATURE_TOOLS, ANY_FEATURE_TOOLS, gatedToolNames, activeToolsFor, applyFeatureTools,
   featurePromptNote, featureForProposalKind,
 } = await import("../src/features.ts");
-const { featuresFromStatus, featureDisabledMessage, ALL_FEATURES_ON } = await import("../src/runtime/client.ts");
+const { featuresFromStatus, featureDisabledMessage, ALL_FEATURES_ON } = await import("../src/shared/agent-protocol.ts");
 
 /** Every tool registerLeaderTools registers (kept in sync by the source check below). */
 const LEADER_TOOLS = [

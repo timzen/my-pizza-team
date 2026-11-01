@@ -21,7 +21,7 @@
 // standalone under Node's type stripping, which is what lets tests import it.
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import type { FeatureName, Features } from "./runtime/client.js";
+import type { FeatureName, Features } from "./shared/agent-protocol.js";
 
 /**
  * The leader tools each kind owns. `list_workflows` only feeds `create_story`

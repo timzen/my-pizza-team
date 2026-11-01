@@ -94,7 +94,8 @@ The extension under `harnesses/pi/` is its own npm package, with its own
 `tsconfig.json`, `package.json`, and suites (run from the root as above). The root
 `package.json` owns the version; the extension's version and the lockfile's are
 generated from it — never edit them by hand (`npm run sync-version`). Its shared
-constants are generated from `shared/types.ts` (`npm run sync-shared`).
+constants and agent-protocol definitions are generated from `shared/types.ts` and
+`shared/agent-protocol.ts` (`npm run sync-shared`).
 
 ## Reference
 

@@ -26,7 +26,8 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { ALL_FEATURES_ON, type DaemonClient, type Features, featuresFromStatus } from "./runtime/client.js";
+import type { DaemonClient } from "./runtime/client.js";
+import { ALL_FEATURES_ON, type Features, featuresFromStatus } from "./shared/agent-protocol.js";
 import { registerLeaderTools } from "./tools.js";
 import { applyFeatureTools, featurePromptNote } from "./features.js";
 import { prepareSpawnConfig } from "./permissions.js";

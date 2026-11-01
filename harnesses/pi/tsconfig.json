@@ -16,6 +16,11 @@
     // './client.js' to client.ts, without asserting anything about Node.
     "module": "ESNext",
     "moduleResolution": "Bundler",
+    // runtime/ imports the generated ../shared/agent-protocol.ts by its `.ts`
+    // name, which Node's type stripping can resolve (it can't remap '.js'), so
+    // the CLI and the tests load runtime/ standalone. Type-check only, so no
+    // emitted specifier needs rewriting.
+    "allowImportingTsExtensions": true,
 
     "noEmit": true,
 

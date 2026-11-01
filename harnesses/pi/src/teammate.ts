@@ -34,7 +34,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import type { DaemonClient } from "./runtime/client.js";
-import type { PairReleaseAction } from "./runtime/client.js";
+import type { PairingReleaseAction } from "./shared/agent-protocol.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -72,7 +72,7 @@ export class TeammateLoop {
    * (applyPendingRelease). Acting mid-run would read the in-flight run — often
    * a reply to your chat message — as the work item's completion.
    */
-  private pendingRelease: PairReleaseAction | null = null;
+  private pendingRelease: PairingReleaseAction | null = null;
 
   public onTaskComplete: ((workItemId: string, result: string) => void) | null = null;
 
@@ -152,7 +152,7 @@ export class TeammateLoop {
    * With no held item, all three just resume polling for work. Mid-run, the
    * release waits for the run to end (see `pendingRelease`).
    */
-  async releasePairing(action: PairReleaseAction, lastText: string): Promise<void> {
+  async releasePairing(action: PairingReleaseAction, lastText: string): Promise<void> {
     if (this.agentRunning) {
       this.pendingRelease = action;
       return;

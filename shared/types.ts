@@ -3,12 +3,15 @@
  *
  * The canonical definitions. The Pi extension (harnesses/pi/) has no copy of
  * these types; the few constants it needs are generated from this file into
- * harnesses/pi/src/shared/types.ts by `npm run sync-shared`.
+ * harnesses/pi/src/shared/types.ts by `npm run sync-shared`. (What it needs of the
+ * protocol itself — feature names included — is shared/agent-protocol.ts.)
  *
  * Keep this module free of `node:` imports and Node globals: the web UI imports
  * its types (and a few pure constants) directly. Helpers that need the file
  * system live beside it — `normalizeDirectory` is in shared/directory.ts.
  */
+
+import { FEATURE_NAMES, type FeatureName } from "./agent-protocol.ts";
 
 /** Standard API response envelope. */
 export interface ApiResponse<T = unknown> {
@@ -185,17 +188,12 @@ export function resolveAssistantChatMode(config: Pick<TeamConfig, "assistant">):
  * covers Scheduled WorkDefs and their Schedules. Thoughts, Context, and the
  * Inbox are always on. A missing flag means on.
  */
-export interface FeaturesConfig {
-  stories?: boolean;
-  tasks?: boolean;
-  schedules?: boolean;
-}
+export type FeaturesConfig = Partial<Record<FeatureName, boolean>>;
 
-/** One switchable work-item kind (a key of `FeaturesConfig`). */
-export type FeatureName = keyof FeaturesConfig;
-
-/** Every switchable kind, in display order. */
-export const FEATURE_NAMES: readonly FeatureName[] = ["stories", "tasks", "schedules"];
+// `FeatureName` (one switchable kind) and `FEATURE_NAMES` (every one, in display
+// order) are defined with the agent protocol — a harness gates its tools on them —
+// in agent-protocol.ts, and re-exported here.
+export { FEATURE_NAMES, type FeatureName };
 
 /** What `mpt setup` writes for a brand-new team: Tasks only. */
 export const NEW_TEAM_FEATURES: Required<FeaturesConfig> = { tasks: true, stories: false, schedules: false };

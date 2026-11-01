@@ -14,7 +14,7 @@
 // (you can only pair or message from there), slow otherwise — a release can
 // still arrive after you navigate away and come back.
 
-import type { PairingPoll, PairReleaseAction } from "./client.js";
+import type { PairingPoll, PairingReleaseAction } from "../shared/agent-protocol.ts";
 
 /** The slice of DaemonClient this needs (kept narrow so tests can fake it). */
 export interface PairingClient {
@@ -24,7 +24,7 @@ export interface PairingClient {
 export interface PairingHandlers {
   onPair(): void;
   onMessage(text: string, mode: "queue" | "steer"): void;
-  onRelease(action: PairReleaseAction): void | Promise<void>;
+  onRelease(action: PairingReleaseAction): void | Promise<void>;
 }
 
 const FAST_POLL_MS = 1000;

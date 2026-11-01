@@ -37,7 +37,8 @@
 import * as fs from "node:fs";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
-import { type DaemonClient, featureDisabledMessage, featuresFromStatus, type FeatureName, type WorkDefSummary } from "./runtime/client.js";
+import type { DaemonClient, WorkDefSummary } from "./runtime/client.js";
+import { featureDisabledMessage, featuresFromStatus, type FeatureName } from "./shared/agent-protocol.js";
 import { featureForProposalKind } from "./features.js";
 
 // ═══════════════════════════════════════════════════════════════════════

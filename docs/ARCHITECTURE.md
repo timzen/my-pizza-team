@@ -217,7 +217,7 @@ Activating re-runs admission; its waiting READY items become eligible again.
 - `legacy.ts` — `mpt adopt-legacy-internal <node> <bridge> [service]`, the TypeScript half of `scripts/legacy-bridge.sh` (DESIGN.md "Moving Old Binaries Across"): saves `<node>` as the configured Node when none is, and with `service` re-points an old service that launches the bridge's path with no entry script — TEAM_DIR/PORT read back with `service.ts` `parseServiceEnv`, `unloadServiceForRewrite` (launchd), `install()`, then a systemd restart. Side effects via `AdoptDeps`.
 - `node-choice.ts` — `ensureNodeConfigured({ interactive, assumeYes })`: settles which Node runs mpt — a valid saved/overridden one is used (an override is saved); otherwise suggest `process.execPath` (or a stable spelling of it on PATH / a well-known location), ask (or, with no terminal or `--yes`, take it), validate, save. A saved Node that stopped working is re-asked, or fails clearly with no terminal.
 - `service.ts` — launchd plist / systemd user unit generation (both run `[<configured node>, <abs entry: cli/main.ts or dist/main.js>, "start"]`, with TEAM_DIR, PORT and the installing shell's PATH), detection of an installed service and the Node + entry script it launches, and `restart()`.
-- `features.ts` — The CLI's side of the feature toggles: `statusSummaryLines` (what `mpt status` prints — a switched-off kind's counts left out, plus a `Turned off: …` line) and `daemonErrorMessage` (a 403 `{ feature }` → `featureDisabledMessage`, the wording shared with the Pi tools from `harnesses/pi/src/runtime/client.ts`). The CLI has no work-item commands, so nothing else is gated.
+- `features.ts` — The CLI's side of the feature toggles: `statusSummaryLines` (what `mpt status` prints — a switched-off kind's counts left out, plus a `Turned off: …` line) and `daemonErrorMessage` (a 403 `{ feature }` → `featureDisabledMessage`, the wording shared with the Pi tools, from `shared/agent-protocol.ts`). The CLI has no work-item commands, so nothing else is gated.
 
 ### agent/
 
@@ -235,11 +235,12 @@ The experimental ACP supervisor (DESIGN.md "Harness Tiers, and Why Not MCP"). Pa
 
 ### shared/
 
-- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, the feature toggles (`FeaturesConfig`, `FEATURE_NAMES`, `resolveFeatures` — absent ⇒ on, `NEW_TEAM_FEATURES`, `newTeamConfig`), `slugify`, `generateTeammateName`. Free of `node:` imports and Node globals, because the web UI imports it (see "ui/src/" below).
+- `types.ts` — Domain types (`TeamConfig`, `WorkflowConfig`, `Story`, `WorkDef`, `WorkItem`, `Schedule`, `Template`, `Member`, `TeamReadiness`, `Thought`, …), `DEFAULT_CONFIG`, `DEFAULT_HARNESS_TEMPLATES`, team-dir constants, `resolveMinTeammates`, the feature toggles (`FeaturesConfig`, `FEATURE_NAMES` — re-exported from `agent-protocol.ts` —, `resolveFeatures` — absent ⇒ on, `NEW_TEAM_FEATURES`, `newTeamConfig`), `slugify`, `generateTeammateName`. Free of `node:` imports and Node globals, because the web UI imports it (see "ui/src/" below).
 - `directory.ts` — `normalizeDirectory` (`~` expansion, trailing-slash strip, symlink resolution via `realPathSync` with string fallback), kept out of `types.ts` because it reads the file system.
 - `team-config.ts` — The one read/write path for a team's `config.json`, used by the daemon and the CLI: `readTeamConfigFile` (the file as written, no defaults; `undefined` when absent), `loadTeamConfig` / `applyTeamConfigDefaults` (merged over `DEFAULT_CONFIG`, nested `autosave` and `teammates` too), and `saveTeamConfig` (atomic, `writeFileAtomic`, via `serializeTeamConfig`: every key is written back, including ones this version doesn't know, except the derived ones — `workflows`, which live in `workflows/`, and an unset `minTeammates` — and optional blocks whose empty value means absent, so config.json stays minimal).
 - `atomic-write.ts` — `writeFileAtomic(file, data)`: write a temp file in the target's directory, then rename it over the target, so a crash mid-write leaves the old file or the new one, never a truncated one. Every file mpt rewrites goes through it (config.json, story/WorkDef/template/schedule/thought/persona files, `workflow.json`, source kv, assistant snapshots, the migrations' rewrites, `.gitignore`, Pi's settings/trust, the setup manifest, `runtime.json`, the service unit/plist); append-only `*.jsonl` logs (comments, usage) stay appends and new uploads (attachments) are written directly.
-- `protocol.ts` — Request/response contracts for the HTTP API (routes check their replies against them with `satisfies`), the live transcript and pairing shapes, and `PROTOCOL_VERSION` / `MIN_PROTOCOL_VERSION`. Pure (type imports from `types.ts` only); the web UI imports it directly.
+- `protocol.ts` — Request/response contracts for the HTTP API (routes check their replies against them with `satisfies`), the live transcript and pairing shapes, and `MIN_PROTOCOL_VERSION`; re-exports everything agent-facing from `agent-protocol.ts` (extending `StatusResponse` with the fields only the UI reads). Pure (type imports from `types.ts` and `agent-protocol.ts`, plus the `PROTOCOL_VERSION` re-export); the web UI imports it directly.
+- `agent-protocol.ts` — The agent-facing half of the protocol, the one definition both sides use: `PROTOCOL_VERSION`, the feature toggles (`FeatureName`, `FEATURE_NAMES`, `Features`, `ALL_FEATURES_ON`, `featureDisabledMessage`, `featuresFromStatus`), and the agent routes' replies (`AgentRegisterResponse`, `AgentNextWorkResponse`, `AgentClaimResponse`, `AgentSetWorkItemStateResponse`, `PairingPoll`, `AssistantInboxResponse`, `LeaderDirective*`, and the harness's view of `StatusResponse`). **No imports**, so `npm run sync-shared` can copy it verbatim into `harnesses/pi/src/shared/agent-protocol.ts`; the generator refuses a source with imports, and `npm run check`, `tests/version.test.ts` and the extension's `tests/shared-sync.test.mjs` fail on a stale copy.
 - `frontmatter.ts` — The small YAML-like frontmatter parser/serializer used by markdown files.
 - `paths.ts` — Where mpt's own files are, from source and from the installed npm package alike: `packageRoot()` (walk up to the package.json named `my-pizza-team`), `isRunningFromSource()` (false iff this module lives under `<root>/dist/`, the compiled package), `cliEntryScript()`, `uiDistDir()`, `piExtensionDir()`.
 - `main-module.ts` — `isMainModule()`, Node's stand-in for `import.meta.main`.
@@ -256,8 +257,8 @@ daemon code reaches the bundle. The few pure runtime values it shares (`FEATURE_
 `PERSONA_KINDS`, `THOUGHT_COLORS`, `slugifyPersonaId`, `REDACTED_SETTING`,
 `isPlainObject`) are imported by relative path (`../../../shared/types.ts`) instead,
 since the tests run those `lib/` modules under Node, which can't resolve the alias; only
-`shared/types.ts`, `shared/protocol.ts` and `shared/util.ts` may be imported, and they
-stay free of `node:` imports. When the UI needs a shape the daemon sends but
+`shared/types.ts`, `shared/protocol.ts`, `shared/agent-protocol.ts` (which the first two
+import) and `shared/util.ts` may be imported, and they stay free of `node:` imports. When the UI needs a shape the daemon sends but
 `shared/protocol.ts` lacks, add it there (and `satisfies` it in the route).
 
 **Shell.** `App.tsx` is the router and the two-column shell (`h-dvh`, so each region
@@ -390,15 +391,18 @@ src/
 ├── tools.ts        — LLM tools (role-specific): fail, stories/tasks/schedules (each with an optional `pending`), get/edit/activate a pending task, thoughts, workflows, context, team status, attachments
 ├── features.ts     — Feature toggles: the leader tools each kind owns, `applyFeatureTools` (keeps a switched-off kind's tools out of `pi.setActiveTools`), `featurePromptNote`
 ├── permissions.ts  — Autonomous permission handling via @gotgenes/pi-permission-system (optional; warns when absent)
-├── runtime/        — Harness-agnostic protocol code: no external imports, no relative value imports,
+├── runtime/        — Harness-agnostic protocol code: no external imports, no relative value imports
+│   │                 except the generated `../shared/*.ts` (by their `.ts` name, so Node resolves them),
 │   │                 no mention of Pi (tests/runtime-purity.test.ts)
-│   ├── client.ts     — DaemonClient: every HTTP call; `featuresFromStatus`, `featureDisabledMessage` (a 403 `{ feature }` → `DaemonError.feature`)
+│   ├── client.ts     — DaemonClient: every HTTP call; a 403 `{ feature }` → `DaemonError.feature` + `featureDisabledMessage`
 │   ├── transcript.ts — TranscriptMirror: streams the session while watched
 │   ├── bubbles.ts    — Splits prose into chat bubbles (fence/list aware)
 │   ├── pairing.ts    — WebPairing: pause/message/release from the browser
 │   ├── usage.ts      — Summarises a run's token usage
 │   └── session-stats.ts — Model, context fill, session cost (Pi's footer numbers), reported after every turn
-└── shared/types.ts — GENERATED from shared/types.ts by `npm run sync-shared`
+└── shared/         — GENERATED by `npm run sync-shared`; do not edit
+    ├── types.ts      — constants rendered from shared/types.ts
+    └── agent-protocol.ts — a verbatim copy of shared/agent-protocol.ts (PROTOCOL_VERSION, feature toggles, agent reply types)
 ```
 
 The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs/`.

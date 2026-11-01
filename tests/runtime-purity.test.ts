@@ -16,7 +16,9 @@
  *      './x.js' literally, while only Pi's loader remaps it to './x.ts'. A
  *      type-only import is erased; a value import is not. That is how adding one
  *      import to client.ts broke the behavioural suite during P1b, and why
- *      tests/../client-behavior.test.mjs can exercise real HTTP at all.
+ *      tests/../client-behavior.test.mjs can exercise real HTTP at all. The one
+ *      exception is the generated, import-free `../shared/*.ts` (npm run
+ *      sync-shared), imported by its `.ts` name, which Node resolves as written.
  *
  * P1c-9. Note this is narrower than the plan first described: there is no
  * top-level `agent-runtime/` shared between harnesses, because no second harness
@@ -29,6 +31,13 @@ import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 
 const RUNTIME_DIR = new URL("../harnesses/pi/src/runtime/", import.meta.url);
+
+/**
+ * The value imports runtime/ may make: the extension's generated shared files
+ * (scripts/sync-shared.ts), by their `.ts` name. They have no imports themselves,
+ * so loading them under plain Node needs nothing else (checked below).
+ */
+const GENERATED_SHARED = /^\.\.\/shared\/[\w-]+\.ts$/;
 
 /** Every `import ... from "<specifier>"`, with whether it was type-only. */
 function imports(source: string): Array<{ specifier: string; typeOnly: boolean }> {
@@ -74,14 +83,15 @@ test("runtime/ imports no dependency and no runtime builtin", async () => {
   );
 });
 
-test("runtime/ has no relative *value* imports — only type-only ones", async () => {
+test("runtime/ has no relative *value* imports — only type-only ones, and the generated shared files", async () => {
   // This is the property that keeps these modules loadable under plain Node, and
   // therefore testable. A type-only import is erased at runtime; a value import
-  // makes Node resolve a './x.js' path that does not exist on disk.
+  // makes Node resolve a './x.js' path that does not exist on disk. The generated
+  // ../shared/*.ts are the exception: named by their real `.ts` path, and import-free.
   const offenders: string[] = [];
   for (const { name, source } of await runtimeModules()) {
     for (const { specifier, typeOnly } of imports(source)) {
-      if (specifier.startsWith(".") && !typeOnly) offenders.push(`${name} → ${specifier}`);
+      if (specifier.startsWith(".") && !typeOnly && !GENERATED_SHARED.test(specifier)) offenders.push(`${name} → ${specifier}`);
     }
   }
   assertEquals(
@@ -91,6 +101,19 @@ test("runtime/ has no relative *value* imports — only type-only ones", async (
       "(only Pi's loader remaps .js → .ts), which is what makes runtime/ testable.\n" +
       `  offenders: ${offenders.join(", ")}`,
   );
+});
+
+test("the generated shared files runtime/ imports have no imports of their own", async () => {
+  // Otherwise the exception above would let a './x.js' (or Pi) in one hop removed.
+  const offenders: string[] = [];
+  for (const { name, source } of await runtimeModules()) {
+    for (const { specifier } of imports(source)) {
+      if (!GENERATED_SHARED.test(specifier)) continue;
+      const target = await fs.promises.readFile(new URL(specifier, RUNTIME_DIR), "utf8");
+      if (imports(target).length > 0) offenders.push(`${name} → ${specifier}`);
+    }
+  }
+  assertEquals(offenders, [], `generated shared files must be import-free: ${offenders.join(", ")}`);
 });
 
 test("runtime/ never mentions the Pi extension API", async () => {

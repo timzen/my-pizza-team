@@ -18,7 +18,8 @@ import { test } from "node:test";
 import * as assert from "node:assert";
 import * as http from "node:http";
 
-const { DaemonClient, DaemonError, PROTOCOL_VERSION } = await import("../src/runtime/client.ts");
+const { DaemonClient, DaemonError } = await import("../src/runtime/client.ts");
+const { PROTOCOL_VERSION } = await import("../src/shared/agent-protocol.ts");
 
 /**
  * Start a throwaway server on an ephemeral port. `handler(req, body)` returns

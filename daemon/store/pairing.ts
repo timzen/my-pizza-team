@@ -16,7 +16,7 @@
  * is recorded whether or not the daemon remembers the pairing.
  */
 
-import type { PairingReleaseAction, PairingStateResponse } from "../../shared/protocol.ts";
+import type { PairingPoll, PairingReleaseAction, PairingStateResponse } from "../../shared/protocol.ts";
 
 export type ReleaseAction = PairingReleaseAction;
 /** `queue` lands after the current run (Pi followUp); `steer` at the next tool step. */
@@ -101,7 +101,7 @@ export class TeammatePairing {
   }
 
   /** Agent-facing: current intent, draining messages and any pending release. */
-  poll(memberId: string): { paired: boolean; release: ReleaseAction | null; messages: PairMessage[] } {
+  poll(memberId: string): PairingPoll {
     const s = this.states.get(memberId);
     if (!s) return { paired: false, release: null, messages: [] };
     const out = { paired: s.paired, release: s.release, messages: s.outbox };
