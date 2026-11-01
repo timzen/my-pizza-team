@@ -679,7 +679,11 @@ test("Store: pending/activate + archive + delete use flat story files (not dirPa
     store.archiveStory("s-b");
     assertEquals(store.getStory("s-b"), null);
     assertEquals(store.getArchivedStories().map((s) => s.id), ["s-b"]);
-    assertEquals(fs.statSync(path.join(teamDir, "archived", "s-b.json")).isFile(), true);
+    // Archived in place: still stories/s-b.json, flagged by archivedAt + synopsis; no archived/ dir.
+    const archivedFile = JSON.parse(fs.readFileSync(path.join(teamDir, "stories", "s-b.json"), "utf8"));
+    assertEquals(typeof archivedFile.archivedAt, "string");
+    assertEquals(typeof archivedFile.synopsis, "string");
+    assertEquals(existsSyncTest(path.join(teamDir, "archived")), false);
 
     // Delete s-a: flat file gone, sibling data intact.
     store.deleteStory("s-a");

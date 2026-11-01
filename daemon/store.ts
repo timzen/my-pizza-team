@@ -199,6 +199,12 @@ export interface TaskWithMeta extends Task {
 }
 
 /** Serialize a Story to the on-disk story.json shape (omitting empty fields). */
+/** True for a story file's data that carries the archived flag (`archivedAt`). */
+function isArchivedStoryData(data: unknown): data is Record<string, unknown> {
+  return !!data && typeof data === "object" && typeof (data as Record<string, unknown>).archivedAt === "string"
+    && (data as Record<string, unknown>).archivedAt !== "";
+}
+
 function serializeStory(story: Story): Story {
   const data: Story = {
     id: story.id,
@@ -1178,7 +1184,7 @@ export class Store {
     // Old story files first: `paused` and `backlog/` become pending (idempotent).
     const migrated = migrateLegacyStoryFiles(this.teamDir);
     if (migrated.conflicts.length > 0) {
-      console.warn(`[store] backlog/ stories not migrated (an active story already has that id): ${migrated.conflicts.join(", ")}`);
+      console.warn(`[store] backlog/ or archived/ stories not migrated (stories/ already has that id): ${migrated.conflicts.join(", ")}`);
     }
 
     // Read flat story files (stories/<id>.json).
@@ -1202,6 +1208,12 @@ export class Store {
     }
 
     for (const story of stories) {
+      // Archived stories stay in stories/ but never enter the active cache, so
+      // the board, admission and reconcile don't see them (nor their tasks).
+      if (isArchivedStoryData(story)) {
+        if (this.hasStory(story.id)) this.removeStoryFromDb(story.id);
+        continue;
+      }
       // Reconcile story.tasks against the board WorkDefs actually on disk:
       // keep listed ones that still exist (in order), append orphans as todo.
       const defs = boardByStory.get(story.id) || [];
@@ -1308,9 +1320,19 @@ export class Store {
     return rows.map((row) => this.rowToStory(row));
   }
 
+  /** True when the id is an active story (in the SQLite cache). */
   hasStory(id: string): boolean {
     const row = this.db.prepare("SELECT 1 FROM stories WHERE id = ?").get(id);
     return !!row;
+  }
+
+  /**
+   * True when the id is taken by an active or an archived story. Use it before
+   * creating a story: an archived story still owns stories/<id>.json and its
+   * `<id>-<n>` task WorkDefs, so reusing the id would clobber them.
+   */
+  isStoryIdTaken(id: string): boolean {
+    return this.hasStory(id) || existsSync(this.storyFile(id));
   }
 
   createStory(
@@ -1324,6 +1346,8 @@ export class Store {
     pending?: boolean,
     directory?: string
   ): { story: Story; tasks: TaskWithMeta[] } {
+    // Never overwrite an archived story's file (or its task WorkDefs) in place.
+    if (this.isStoryArchived(id)) throw new Error(`Story "${id}" is archived; pick another id`);
     const storyData: Story = { id, title, description, status, dependsOn, tasks: [] };
     if (directory) storyData.directory = normalizeDirectory(directory);
     if (pending) storyData.pending = true;
@@ -1411,7 +1435,8 @@ export class Store {
 
     for (const depId of story.dependsOn) {
       const dep = this.getStory(depId);
-      // If dep is missing from active stories, it was archived (= done)
+      // Missing from the active cache: archived (= done) or deleted — either
+      // way it no longer blocks (archived stories never load into the cache).
       if (!dep) continue;
       if (dep.status !== "done") return false;
     }
@@ -2909,7 +2934,7 @@ export class Store {
     const base = slugify(title) || "story";
     let id = base;
     let n = 2;
-    while (this.getStory(id)) { id = `${base}-${n}`; n++; }
+    while (this.isStoryIdTaken(id)) { id = `${base}-${n}`; n++; }
     return id;
   }
 
@@ -3264,6 +3289,12 @@ export class Store {
     return tasks.every((t) => t.status === DONE_STATE);
   }
 
+  /**
+   * Archive a finished story in place: stories/<id>.json gains `archivedAt`
+   * (ISO, the archived flag) and an inline `synopsis`, and the story leaves the
+   * active SQLite cache (board, admission, reconcile). Its child task WorkDefs
+   * stay in tasks/. See docs/ARCHITECTURE.md "Team directory".
+   */
   archiveStory(storyId: string): void {
     if (!this.isStoryArchivable(storyId)) {
       throw new Error(`Cannot archive story "${storyId}": not all tasks are done`);
@@ -3272,22 +3303,18 @@ export class Store {
     const story = this.getStory(storyId);
     if (!story) throw new Error(`Story "${storyId}" not found`);
 
-    const archivedDir = path.join(this.teamDir, "archived");
-    fs.mkdirSync(archivedDir, { recursive: true });
     const archivedAt = new Date().toISOString();
     const tasks = this.getTasksForStory(storyId);
 
-    // Flat model: write archived/<id>.json (story fields + archivedAt + an
-    // inline synopsis). The child task WorkDefs stay in tasks/ (hidden once the
-    // story leaves stories/); getArchivedStoryContext reads them back by id.
-    const src = this.storyFile(storyId);
-    const data = existsSync(src)
-      ? JSON.parse(fs.readFileSync(src, "utf8")) as Record<string, unknown>
+    // Start from the file on disk (keeps any fields the cache doesn't carry).
+    const file = this.storyFile(storyId);
+    const data = existsSync(file)
+      ? JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>
       : serializeStory(story) as unknown as Record<string, unknown>;
     data.archivedAt = archivedAt;
     data.synopsis = this.buildSynopsis(story, tasks, archivedAt);
-    fs.writeFileSync(path.join(archivedDir, `${storyId}.json`), JSON.stringify(data, null, 2) + "\n");
-    if (existsSync(src)) fs.rmSync(src);
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(file, JSON.stringify(data, null, 2) + "\n");
 
     this.removeStoryFromDb(storyId);
     // Archived = done for its dependents (isStoryReady); normally they were
@@ -3295,31 +3322,50 @@ export class Store {
     this.admitDependents(storyId);
   }
 
+  /**
+   * Read an archived story's file (stories/<id>.json carrying `archivedAt`), or
+   * null when there's no such file, it's malformed, or the story is active.
+   */
+  private readArchivedStory(storyId: string): Record<string, unknown> | null {
+    const file = this.storyFile(storyId);
+    if (!existsSync(file)) return null;
+    try {
+      const data = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+      return isArchivedStoryData(data) ? data : null;
+    } catch { return null; }
+  }
+
+  /** True when `storyId` names an archived story (stories/<id>.json with `archivedAt`). */
+  isStoryArchived(storyId: string): boolean {
+    return this.readArchivedStory(storyId) !== null;
+  }
+
+  /** Every archived story (id, title, synopsis), read from stories/ by its `archivedAt` flag. */
   getArchivedStories(): Array<{ id: string; title: string; synopsis: string }> {
-    const archivedDir = path.join(this.teamDir, "archived");
-    if (!existsSync(archivedDir)) return [];
+    const storiesDir = path.join(this.teamDir, STORIES_DIR);
+    if (!existsSync(storiesDir)) return [];
 
     const results: Array<{ id: string; title: string; synopsis: string }> = [];
-    for (const entry of fs.readdirSync(archivedDir, { withFileTypes: true })) {
+    for (const entry of fs.readdirSync(storiesDir, { withFileTypes: true })) {
       if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
       try {
-        const data = JSON.parse(fs.readFileSync(path.join(archivedDir, entry.name), "utf8"));
-        results.push({ id: data.id, title: data.title, synopsis: data.synopsis || data.description || "" });
+        const data = JSON.parse(fs.readFileSync(path.join(storiesDir, entry.name), "utf8"));
+        if (!isArchivedStoryData(data)) continue;
+        results.push({ id: data.id as string, title: data.title as string, synopsis: (data.synopsis as string) || (data.description as string) || "" });
       } catch { /* skip malformed */ }
     }
     return results;
   }
 
+  /** An archived story's file plus its tasks' WorkDefs and comments, or null if it isn't archived. */
   getArchivedStoryContext(storyId: string): { story: Record<string, unknown>; tasks: Record<string, unknown>[]; comments: Record<string, Comment[]> } | null {
-    const file = path.join(this.teamDir, "archived", `${storyId}.json`);
-    if (!existsSync(file)) return null;
-
-    const story = JSON.parse(fs.readFileSync(file, "utf8"));
+    const story = this.readArchivedStory(storyId);
+    if (!story) return null;
     const tasks: Record<string, unknown>[] = [];
     const comments: Record<string, Comment[]> = {};
 
     // The archived story lists its task ids; their WorkDefs + comments still
-    // live under tasks/<id>/ (flat model doesn't move them on archive).
+    // live under tasks/<id>/ (archiving doesn't move them).
     for (const t of (story.tasks as Array<{ id: string; status: string }> | undefined) ?? []) {
       const def = getWorkDef(this.teamDir, t.id);
       if (def) tasks.push({ id: def.id, title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria, status: t.status });

@@ -12,17 +12,21 @@
  *     the `paused` and any stray `backloggedAt` fields are dropped.
  *   - `backlog/<id>.json` → `stories/<id>.json` with `pending: true` and no
  *     `backloggedAt`; the `backlog/` directory is removed once empty.
+ *   - `archived/<id>.json` → `stories/<id>.json`, unchanged (it keeps its
+ *     `archivedAt` and `synopsis`): archived stories now live in `stories/` with
+ *     `archivedAt` as the flag, like tasks archive in place. The `archived/`
+ *     directory is removed once empty.
  *
- * It's idempotent: a migrated team has no `paused` fields and no `backlog/`, so a
- * second run changes nothing. A backlog file whose id already exists in
- * `stories/` is left in place (never clobber a live story) and reported, so it
- * can be resolved by hand.
+ * It's idempotent: a migrated team has no `paused` fields, no `backlog/` and no
+ * `archived/`, so a second run changes nothing. A backlog or archived file whose
+ * id already exists in `stories/` is left in place (never clobber a story) and
+ * reported, so it can be resolved by hand.
  */
 
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
-import { STORIES_DIR } from "../../shared/types.ts";
+import { ARCHIVED_DIR, STORIES_DIR } from "../../shared/types.ts";
 
 /** The retired backlog directory (`<teamDir>/backlog/`). Only migration reads it. */
 export const LEGACY_BACKLOG_DIR = "backlog";
@@ -33,7 +37,9 @@ export interface StoryMigrationResult {
   rewritten: string[];
   /** Stories moved from `backlog/` back into `stories/` as pending. */
   unbacklogged: string[];
-  /** Backlog files left in place because `stories/` already has that id. */
+  /** Stories moved from the legacy `archived/` dir into `stories/` (still archived). */
+  unarchivedDir: string[];
+  /** Backlog/archived files left in place because `stories/` already has that id. */
   conflicts: string[];
 }
 
@@ -75,11 +81,11 @@ function writeJson(file: string, data: Record<string, unknown>): void {
 }
 
 /**
- * Rewrite a team directory's legacy story files (`paused`, `backlog/`) into the
- * pending model. Safe to run on every load; see the file header for the rules.
+ * Rewrite a team directory's legacy story files (`paused`, `backlog/`,
+ * `archived/`) into the pending / archive-in-place model. Safe to run on every load; see the file header for the rules.
  */
 export function migrateLegacyStoryFiles(teamDir: string): StoryMigrationResult {
-  const result: StoryMigrationResult = { rewritten: [], unbacklogged: [], conflicts: [] };
+  const result: StoryMigrationResult = { rewritten: [], unbacklogged: [], unarchivedDir: [], conflicts: [] };
   const storiesDir = path.join(teamDir, STORIES_DIR);
 
   // 1. paused → pending in the live stories.
@@ -114,6 +120,31 @@ export function migrateLegacyStoryFiles(teamDir: string): StoryMigrationResult {
     }
     // Drop the directory once nothing is left in it (conflicts keep it).
     if (fs.readdirSync(backlogDir).length === 0) fs.rmdirSync(backlogDir);
+  }
+
+  // 3. archived/<id>.json → stories/<id>.json, as is (archivedAt + synopsis are
+  // the archived flag). Its tasks already stay in tasks/, so again only the file moves.
+  const archivedDir = path.join(teamDir, ARCHIVED_DIR);
+  if (existsSync(archivedDir)) {
+    fs.mkdirSync(storiesDir, { recursive: true });
+    for (const entry of fs.readdirSync(archivedDir, { withFileTypes: true })) {
+      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+      const src = path.join(archivedDir, entry.name);
+      const data = readJsonObject(src);
+      if (!data) continue; // malformed: leave it for a human
+      const dest = path.join(storiesDir, entry.name);
+      const id = String(data.id ?? entry.name.slice(0, -5));
+      if (existsSync(dest)) { result.conflicts.push(id); continue; }
+      normalizeStoryData(data, false);
+      // A legacy file without a stamp would read as active; it was archived.
+      if (typeof data.archivedAt !== "string" || data.archivedAt === "") {
+        data.archivedAt = fs.statSync(src).mtime.toISOString();
+      }
+      writeJson(dest, data);
+      fs.rmSync(src);
+      result.unarchivedDir.push(id);
+    }
+    if (fs.readdirSync(archivedDir).length === 0) fs.rmdirSync(archivedDir);
   }
 
   return result;

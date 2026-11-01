@@ -70,6 +70,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
     if (!body.workflow || typeof body.workflow !== "string") return c.json({ success: false, error: "Field 'workflow' is required" } satisfies CreateStoryResponse, 400);
     if (!store.getWorkflows()[body.workflow]) return c.json({ success: false, error: `Workflow '${body.workflow}' not found` } satisfies CreateStoryResponse, 400);
     if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
+    if (store.isStoryIdTaken(body.id)) return c.json({ success: false, error: `Story '${body.id}' is archived; pick another id` } satisfies CreateStoryResponse, 409);
     const refused = contextFieldRefusal(body) ?? (Array.isArray(body.tasks) ? body.tasks.map((t) => contextFieldRefusal(t)).find(Boolean) : null);
     if (refused) return c.json({ success: false, error: refused } satisfies CreateStoryResponse, 400);
 

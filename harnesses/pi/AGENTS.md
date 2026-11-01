@@ -61,7 +61,7 @@ These must never be violated:
 
 - JSON files in `stories/` are the source of truth for active story/task definitions
 - SQLite is the runtime engine — never the source of truth for persistent data
-- `loadFromDisk()` only reads from `stories/`, never from `archived/` (a legacy `backlog/` is migrated into `stories/` as pending, then removed)
+- `loadFromDisk()` only reads from `stories/` and skips archived stories (`archivedAt` set); a legacy `backlog/` or `archived/` is migrated into `stories/` (as pending / still archived), then removed
 - Messages are appended to JSONL immediately (never buffered, never lost)
 - Archived stories retain all original files for historical reference
 - Workflows live in `workflows/{name}/` directories with a `workflow.json` — not in config.json

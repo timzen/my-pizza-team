@@ -372,7 +372,7 @@ Inbox are always on, so every kind can be off at once.
 │   └── default/
 │       └── workflow.json    # states; an agent state may name a "persona"
 ├── personas/            # the team persona library (personas/<id>.md)
-├── stories/             # one file per story: order + status of its tasks
+├── stories/             # one file per story: order + status of its tasks (archived: archivedAt + synopsis)
 │   └── my-story.json    #   tasks: [{id, status}]
 ├── tasks/               # EVERY unit of work is a WorkDef
 │   └── my-story-1/
@@ -383,7 +383,6 @@ Inbox are always on, so every kind can be off at once.
 │   └── nightly.json
 ├── templates/           # reusable molds for Solitary tasks (never enqueued)
 │   └── investigate-ticket/template.md
-├── archived/            # archived stories (with a synopsis)
 ├── context.migrated/    # only if you had a context library: archived by the persona migration
 ├── assistant/
 │   └── sessions/        # one markdown transcript per chat session
@@ -445,7 +444,9 @@ running finishes, but no task is admitted and no READY item is offered — and s
 that `dependsOn` it wait. Activating resumes it where it was. Pending replaced the old
 story `paused` flag and the `backlog/` directory: on load, `paused: true` becomes
 `pending: true` and `backlog/<id>.json` moves back to `stories/` as pending
-(`backloggedAt` dropped). For one release the API still accepts `paused` as an
+(`backloggedAt` dropped). Archived stories likewise used to move to `archived/`;
+they now stay in `stories/` with `archivedAt` set, and a legacy `archived/<id>.json`
+moves back on load. For one release the API still accepts `paused` as an
 alias of `pending`.
 
 **Pending schedules.** A Schedule (a Scheduled job's cron parent) can also go

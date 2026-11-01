@@ -39,14 +39,14 @@ committed by autosave.
 | `config.json` | Team config (`TeamConfig`), including the `features` toggles (absent ⇒ all on; see "Feature toggles") and the persona selections `triage.persona`, `assistant.persona`, `sourcePersonas` | file |
 | `workflows/<name>/workflow.json` | `{ states: [{name, type, persona?}] }` — an agent state's `persona` is a persona id | file |
 | `personas/<id>.md` | A team persona: frontmatter (`title`, `description`, `tags`, optional `kinds`, `duplicatedFrom`) + the markdown body injected into prompts (see "Personas") | file |
-| `stories/<id>.json` | Story: title, description, workflow, directory, `pending: true` while pending, dependsOn, `tasks: [{id, status}]` (legacy `paused` is migrated on load) | file (indexed in SQLite) |
+| `stories/<id>.json` | Story: title, description, workflow, directory, `pending: true` while pending, dependsOn, `tasks: [{id, status}]` (legacy `paused` is migrated on load). An **archived** story stays here with `archivedAt` (ISO, the archived flag) and an inline `synopsis`; `loadFromDisk` skips it, so only active stories are indexed, and the story routes treat it as not found (create refuses its id) | file (indexed in SQLite while active) |
 | `tasks/<id>/workdef.md` | A WorkDef: frontmatter (title, `parent`, directory, `persona` (Solitary/Scheduled), `status: archived`, `pending: true` while pending — legacy `draft: true` reads as pending) + `## Goal` / `## Acceptance Criteria` / `## Additional Context` | file (board ones cached in the `tasks` table) |
 | `tasks/<id>/comments.jsonl`, `attachments/` | The WorkDef's thread and files (append-only comments) | file |
 | `schedules/<id>.json` | Cron parent: cron, lastEnqueuedAt, `heldForReadiness?`, `pending?` (reversible), `resumedAt?` (last reactivation) | file |
 | `sources/<sourceId>.json` | A Work Source's own key/value state (e.g. `revision:<defId>` stamps from `enqueueRevision`); written only by a source that uses `ctx.kv` — the built-ins don't. An external source's mirrors keep `mirror:<defId>` (revision mirrored), `vanished:<defId>` (archived by sync), and `mode:<defId>` (`"triage"` while the item is in triage mode) here | file |
 | `tasks/<sourceId>~<externalId>/workdef.md` | A **mirrored** WorkDef (`parentKind: external`, `parentSource`, `url`): an external source's item, written only by its sync (`sources/mirror.ts`); MPT's edit/delete/create routes refuse it. Its thread and attachments are ordinary | file |
 | `templates/<id>/template.md` | Task Template (WorkDef format, never enqueued) | file |
-| `archived/<id>.json` | Archived stories (with synopsis). A legacy `backlog/<id>.json` is moved back to `stories/` as pending on load (`store/story-migration.ts`) | file |
+| `archived/<id>.json`, `backlog/<id>.json` | Legacy only. On load `store/story-migration.ts` moves `archived/<id>.json` into `stories/` (keeping `archivedAt` + `synopsis`) and `backlog/<id>.json` into `stories/` as pending, then removes each dir once empty; an id already in `stories/` is left in both places and logged | file |
 | `context.migrated/` | The former context library, archived by the persona migration (with a README); nothing reads it | file |
 | `thoughts/<id>.md`, `groups.json` | Thoughts notes and groups | file |
 | `assistant/sessions/<id>.md` | Chat session transcripts | file (messages live in SQLite) |
@@ -764,7 +764,7 @@ switched-off kind answers 403 (see "Feature toggles").
 | GET/POST | `/api/stories` | List (with tasks) / create (optionally with tasks) |
 | PUT/DELETE | `/api/stories/:id` | Update (incl. `pending`; deprecated alias `paused`) / delete. `POST /api/stories` also takes `pending`; `GET /api/stories` views carry `pending` |
 | POST | `/api/stories/:id/pending`, `/api/stories/:id/activate` | Make the story pending (nothing new admitted or handed out; an in-flight task finishes) / active again (re-runs admission). 404 unknown |
-| POST | `/api/stories/:id/archive` | Archive (writes `archived/<id>.json` with a synopsis) |
+| POST | `/api/stories/:id/archive` | Archive in place (sets `archivedAt` + a synopsis in `stories/<id>.json`; the story leaves the board) |
 | GET | `/api/archived` | List archived stories |
 | POST | `/api/stories/:storyId/tasks` | Create a board task in a story (`pending:true` → a pending task that holds its place; deprecated alias `draft:true`). `GET /api/stories` task views carry `pending` |
 | POST | `/api/stories/:storyId/tasks/reorder` | `{ order: [taskId, …] }` |

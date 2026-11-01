@@ -1716,7 +1716,7 @@ team grammar first.
    frontmatter (`assistant/sessions/*.md`) through the mapping.
 6. **Attached context is inlined.** For every WorkDef (active, pending, and
    archived; board, Solitary, Scheduled) and template with `contextRefs`, and every
-   story (`stories/`, `archived/`) with `context`: the referenced entries' text is
+   story (`stories/`, active or archived, plus a legacy `archived/`) with `context`: the referenced entries' text is
    appended to the WorkDef's Additional Context, story-level entries first (onto
    *each* of the story's tasks), then the WorkDef's own, deduped — the exact order
    `resolveTaskContext` used — each under a heading naming it:

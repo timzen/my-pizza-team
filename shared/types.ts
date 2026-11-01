@@ -673,6 +673,11 @@ export interface Story {
    * the WorkDefs actually on disk (appends orphans, ignores danglers).
    */
   tasks: StoryTaskRef[];
+  /**
+   * Set (ISO time) when the story is archived — the archived flag. An archived
+   * story stays in `stories/<id>.json` (with an inline `synopsis`) but never
+   * loads into the active board.
+   */
   archivedAt?: string;
 }
 
@@ -1005,6 +1010,11 @@ export function resolveMinTeammates(config: Pick<TeamConfig, "maxTeammates" | "m
 }
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
+/**
+ * Legacy: archived stories used to move to `archived/<id>.json`. They now stay in
+ * `stories/<id>.json` with `archivedAt` set; only the load-time migration
+ * (daemon/store/story-migration.ts) and old-layout readers use this.
+ */
 export const ARCHIVED_DIR = "archived";
 export const WORKFLOWS_DIR = "workflows";
 /** Directory holding every WorkDef (`tasks/<id>/workdef.md` + comments + attachments). */

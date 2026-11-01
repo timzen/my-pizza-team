@@ -315,7 +315,10 @@ function readLegacyEntries(dir: string): Map<string, LegacyEntry> {
   return out;
 }
 
-/** Story id → its attached context ids, from active and archived story files. */
+/**
+ * Story id → its attached context ids, from active and archived story files
+ * (archived ones live in `stories/` now; `archived/` covers the legacy layout).
+ */
 function readStoryContext(teamDir: string): Map<string, string[]> {
   const out = new Map<string, string[]>();
   for (const dir of [STORIES_DIR, ARCHIVED_DIR]) {
