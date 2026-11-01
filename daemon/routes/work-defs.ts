@@ -68,7 +68,7 @@ function view(d: WorkDef, store: RouteContext["store"], stats?: Map<string, Work
     ...(d.persona ? { persona: d.persona } : {}),
     pending: d.pending === true,
     // Aggregate cost/tokens across this def's runs (recorded on the ref).
-    tokenUsage: store.getTokenUsageSummaryForRef({ workDefId: d.id }) || undefined,
+    tokenUsage: store.getTokenUsageSummary({ workDefId: d.id }) || undefined,
     executionCount: exec.executionCount,
     lastRunAt: exec.lastRunAt,
     mirror: mirrorView(store, d),
@@ -342,7 +342,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
     // Prefer the harness-reported cost; estimate only as a fallback.
     const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
-    store.addTokenUsageForRef({ workDefId: id }, body.inputTokens, body.outputTokens, body.model, costUsd);
+    store.addTokenUsage({ workDefId: id }, body.inputTokens, body.outputTokens, body.model, costUsd);
     return c.json({ success: true, costUsd });
   });
 }

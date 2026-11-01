@@ -103,7 +103,3 @@ export function registerDevSources(store: Store, config: TeamConfig, teamDir: st
     console.warn(`[sources] fixture source not registered: ${e instanceof Error ? e.message : String(e)}`);
   }
 }
-
-// Export a default minimal app for simple test imports (no store, basic health only)
-export const app = new Hono();
-app.get("/health", (c) => c.json({ status: "ok", service: "my-pizza-team" }));

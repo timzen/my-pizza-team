@@ -63,7 +63,7 @@ test("pending story: READY work is not handed out; activating resumes it", () =>
   const { store, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default");
-    const wi = store.getActiveWorkItemForTask("s1-1");
+    const wi = store.getActiveWorkItem("s1-1");
     assertExists(wi);
     assertEquals(wi.state, "READY");
 
@@ -82,10 +82,10 @@ test("pending story created pending: nothing admitted until activated", () => {
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", true);
     assertEquals(store.getTask("s1-1")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("s1-1"), null);
+    assertEquals(store.getActiveWorkItem("s1-1"), null);
     store.setStoryPending("s1", false);
     assertEquals(store.getTask("s1-1")!.status, "work");
-    assertExists(store.getActiveWorkItemForTask("s1-1"));
+    assertExists(store.getActiveWorkItem("s1-1"));
   } finally { cleanup(); }
 });
 
@@ -95,7 +95,7 @@ test("pending mid-flight: the in-progress task finishes; the next task is not ad
     store.createStory("s1", "S1", "d", "open", [], [
       { title: "T1", description: "d" }, { title: "T2", description: "d" },
     ], "default");
-    const wi = store.getActiveWorkItemForTask("s1-1")!;
+    const wi = store.getActiveWorkItem("s1-1")!;
     assertEquals(store.claimWorkItem(wi.id, "a1"), true);
 
     store.setStoryPending("s1", true);
@@ -105,7 +105,7 @@ test("pending mid-flight: the in-progress task finishes; the next task is not ad
     assertEquals(store.getTask("s1-1")!.status, "done");
     // …but nothing new starts.
     assertEquals(store.getTask("s1-2")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("s1-2"), null);
+    assertEquals(store.getActiveWorkItem("s1-2"), null);
 
     // Toggling back to active admits and hands out the next task.
     store.setStoryPending("s1", false);
@@ -118,13 +118,13 @@ test("pending mid-flight: advancing into the next agent state is not handed out"
   const { store, cleanup } = setup();
   try {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "two");
-    const wi = store.getActiveWorkItemForTask("s1-1")!;
+    const wi = store.getActiveWorkItem("s1-1")!;
     assertEquals(store.claimWorkItem(wi.id, "a1"), true);
     store.setStoryPending("s1", true);
     assertEquals(store.setWorkItemState(wi.id, "COMPLETE").ok, true);
     // Advance still happens (it's the finishing task's own move)…
     assertEquals(store.getTask("s1-1")!.status, "check");
-    const next = store.getActiveWorkItemForTask("s1-1");
+    const next = store.getActiveWorkItem("s1-1");
     assertExists(next);
     // …but its fresh READY item waits for activation.
     assertEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp" }), null);
@@ -145,7 +145,7 @@ test("a story depending on a pending story waits; it stays on the board", () => 
 
     // Activate a and finish it: b is admitted.
     store.setStoryPending("a", false);
-    const wi = store.getActiveWorkItemForTask("a-1")!;
+    const wi = store.getActiveWorkItem("a-1")!;
     store.claimWorkItem(wi.id, "a1");
     store.setWorkItemState(wi.id, "COMPLETE");
     assertEquals(store.getStory("a")!.status, "done");
@@ -160,7 +160,7 @@ test("pending survives a restart (stories/<id>.json carries it)", () => {
     assertEquals(readStoryFile(teamDir, "s1").pending, true);
     store.loadFromDisk();
     assertEquals(store.getStory("s1")!.pending, true);
-    assertEquals(store.getActiveWorkItemForTask("s1-1"), null);
+    assertEquals(store.getActiveWorkItem("s1-1"), null);
   } finally { cleanup(); }
 });
 

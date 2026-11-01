@@ -490,14 +490,16 @@ agent), `foldProposals`, `latestAnalysis`, `pendingProposals`, `triageBadge`,
 `addTriageAnalysis`, `getTriageThread`, `getTriageBadges`, `acceptProposal` (creates
 `task`/`story-task`/`story`/`schedule`, stamps `origin` frontmatter, appends the
 decision; `existingWorkDefId`/`overrides` serve the UI's "Edit" path),
-`rejectProposal`, and `triageDecisionSummary`; both return a `ProposalResult` whose
+`rejectProposal`, and `triageDecisionSummary`; accept/reject return a `ProposalResult` whose
 failure carries a `code` so routes map it to 404/409 without reading the message.
-Each note-keyed method is a thin wrapper over a WorkDef-keyed one —
-`triageSubjectOf` (a note's container, a triage-mode mirror, or null),
-`addTriageAnalysisForWorkDef`, `getTriageThreadForWorkDef`, `acceptProposalOn`,
-`rejectProposalOn`, `triageDecisionSummaryForWorkDef` — which is what a triage-mode
-external item uses (its `origin` is `{ workDef, proposal }`, frontmatter
-`originWorkDef`). The teammate posts through `propose_work`
+All but `addTriageAnalysis` (whose note-keyed form wraps `addTriageAnalysisForWorkDef`)
+are keyed by the triage subject's WorkDef id — `triageSubjectOf` says what that is (a
+note's container, a triage-mode mirror, or null). The note routes
+(`routes/thoughts.ts`, and the proposal gate in `features.ts`) check the note exists
+(`Thought "<id>" not found`) and convert its id with `triageWorkDefId`, passing
+`note <id>` as the subject's name for the "No proposal" error; a triage-mode external
+item uses the same methods directly (its `origin` is `{ workDef, proposal }`,
+frontmatter `originWorkDef`). The teammate posts through `propose_work`
 (harnesses/pi/src/tools.ts → `POST /api/agents/work-items/:id/proposals`,
 holder-only and triage-only — the item's WorkDef must be a triage subject).
 

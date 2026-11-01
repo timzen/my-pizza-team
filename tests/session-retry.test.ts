@@ -116,7 +116,7 @@ test("success after a retry → COMPLETE and the board task advances", () => {
     const res = store.failWorkItemForSessionError(first.id, ERR, now);
     // The task keeps its position while its retry waits.
     assertEquals(store.getTask("rs-1")!.status, "in_progress");
-    assertEquals(store.getActiveWorkItemForTask("rs-1")?.id, res.retry!.workItemId);
+    assertEquals(store.getActiveWorkItem("rs-1")?.id, res.retry!.workItemId);
 
     const second = store.getNextWorkItem({ id: "m1" }, now + 2 * MIN)!;
     assertEquals(second.id, res.retry!.workItemId);
@@ -149,7 +149,7 @@ test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment carr
     const final = store.getWorkItem(current.id)!;
     assertEquals(final.state, "FAILED");
     assertEquals(final.read, false);
-    assertEquals(store.getActiveWorkItemForTask(defId), null);
+    assertEquals(store.getActiveWorkItem(defId), null);
     // Exactly one unread item for this run: the final failure.
     const unread = store.getWorkItems({ states: ["COMPLETE", "FAILED"], read: false }).items;
     assertEquals(unread.map((i) => i.id), [final.id]);
@@ -177,13 +177,13 @@ test("a plain FAILED (the agent gave up) is not retried; a successful empty comp
   try {
     const a = claimedSolitary(store);
     store.setWorkItemState(a.item.id, "FAILED");
-    assertEquals(store.getActiveWorkItemForTask(a.defId), null);
+    assertEquals(store.getActiveWorkItem(a.defId), null);
 
     const b = claimedSolitary(store);
     assertEquals(store.setWorkItemState(b.item.id, "COMPLETE").ok, true);
     assertEquals(store.getWorkItem(b.item.id)!.state, "COMPLETE");
     assertEquals(store.getWorkItem(b.item.id)!.attempt, 1);
-    assertEquals(store.getActiveWorkItemForTask(b.defId), null);
+    assertEquals(store.getActiveWorkItem(b.defId), null);
   } finally { cleanup(); }
 });
 

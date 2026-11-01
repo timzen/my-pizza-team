@@ -55,7 +55,7 @@ export function registerUsageRoutes(ctx: RouteContext): void {
 
     const item = typeof body.workItemId === "string" ? store.getWorkItem(body.workItemId) : null;
     if (item) {
-      store.addTokenUsageForRef(item.ref, inputTokens, outputTokens, body.model, costUsd, extra);
+      store.addTokenUsage(item.ref, inputTokens, outputTokens, body.model, costUsd, extra);
     } else {
       store.recordRunUsage({ ...extra, inputTokens, outputTokens, model: body.model, costUsd, title: kind === "chat" ? "Assistant chat" : null });
     }

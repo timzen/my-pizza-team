@@ -52,8 +52,8 @@ export function registerStoryRoutes(ctx: RouteContext): void {
           pending: story.pending, workflow: story.workflow,
           tasks: tasks.map(task => {
             const assignment = store.getAssignment(task.id);
-            const tokenSummary = store.getTokenUsageSummary(task.id);
-            const activeItem = store.getActiveWorkItemForTask(task.id);
+            const tokenSummary = store.getTokenUsageSummary({ workDefId: task.id });
+            const activeItem = store.getActiveWorkItem(task.id);
             return { id: task.id, seq: task.seq, title: task.title, status: task.status, pending: store.isPending(task.id), workItemState: activeItem?.state ?? null, description: task.description, assignee: assignment?.memberId || null, tokenUsage: tokenSummary || undefined };
           }),
         };

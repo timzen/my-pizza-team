@@ -41,7 +41,7 @@ function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
 
 /** The READY WorkItem id for a task (the one admission enqueued). */
 function workItemFor(store: Store, taskId: string): string {
-  return store.getActiveWorkItemForTask(taskId)!.id;
+  return store.getActiveWorkItem(taskId)!.id;
 }
 
 // The default workflow: in_progress (agent) → review (manual).
@@ -87,9 +87,9 @@ test("createStory admits the first task and enqueues a READY WorkItem; the rest 
       { title: "T1", description: "D1" }, { title: "T2", description: "D2" },
     ], "default");
     assertEquals(store.getTask("s1-1")!.status, "in_progress");
-    assertEquals(store.getActiveWorkItemForTask("s1-1")!.state, "READY");
+    assertEquals(store.getActiveWorkItem("s1-1")!.state, "READY");
     assertEquals(store.getTask("s1-2")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("s1-2"), null);
+    assertEquals(store.getActiveWorkItem("s1-2"), null);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -240,7 +240,7 @@ test("state=COMPLETE in the last state completes the task and admits the next on
     assertEquals(store.getTask("s1-1")?.status, "done");
     // CONWIP token freed → T2 admitted with its own READY WorkItem.
     assertEquals(store.getTask("s1-2")?.status, "work");
-    assertEquals(store.getActiveWorkItemForTask("s1-2")!.state, "READY");
+    assertEquals(store.getActiveWorkItem("s1-2")!.state, "READY");
   } finally { cleanup(teamDir, store); }
 });
 
@@ -268,7 +268,7 @@ test("state=FAILED leaves the task stuck with no active WorkItem", async () => {
     await post(app, `/api/agents/work-items/${wid}/state`, { agentId: "a1", state: "FAILED" });
     assertEquals(store.getWorkItem(wid)!.state, "FAILED");
     assertEquals(store.getTask("s1-1")!.status, "in_progress");
-    assertEquals(store.getActiveWorkItemForTask("s1-1"), null);
+    assertEquals(store.getActiveWorkItem("s1-1"), null);
     assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).some(c => c.body.includes("Need the API key")), true);
   } finally { cleanup(teamDir, store); }
 });
@@ -316,7 +316,7 @@ test("Rework: human sends the task back; re-entry ≡ first entry (fresh WorkIte
     store.addCommentForRef({ workDefId: "s1-1" }, "lead", "Please fix the edge case in parser.ts");
     await post(app, "/api/tasks/s1-1/move", { status: "in_progress" });
     // Fresh READY WorkItem for the re-entry.
-    const wid2 = store.getActiveWorkItemForTask("s1-1")!.id;
+    const wid2 = store.getActiveWorkItem("s1-1")!.id;
     assertEquals(store.getWorkItem(wid2)!.state, "READY");
     assertEquals(wid2 !== wid, true);
     assertEquals(store.getTask("s1-2")?.status, "todo"); // rework doesn't free the token

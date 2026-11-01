@@ -37,6 +37,7 @@ import { TASK_SOURCE_ID } from "./sources/registry.ts";
 import { SCHEDULE_SOURCE_ID } from "./sources/schedule.ts";
 import { STORY_SOURCE_ID } from "./sources/story.ts";
 import { activeWorkDefs } from "./sources/toggle.ts";
+import { triageWorkDefId } from "./triage.ts";
 import type { ActiveSourceItems, SourceToggle } from "./sources/types.ts";
 import type { FeatureSourceView } from "../shared/protocol.ts";
 
@@ -186,7 +187,7 @@ function proposalFeature(store: Store, by: "thought" | "workDef"): FeatureResolv
     const proposalId = c.req.param("proposalId");
     if (!id || !proposalId) return null;
     if (by === "thought" && !store.getThought(id)) return null;
-    const thread = by === "thought" ? store.getTriageThread(id) : store.getTriageThreadForWorkDef(id);
+    const thread = store.getTriageThread(by === "thought" ? triageWorkDefId(id) : id);
     const state = [...thread.proposals].reverse().find((s) => s.proposal.id === proposalId);
     return state ? featureForSource(store, sourceForProposalKind(state.proposal.kind)) : null;
   };

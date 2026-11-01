@@ -61,10 +61,10 @@ test("Store: admission places the first task and enqueues a READY WorkItem", () 
     assertEquals(retrieved[1]!.status, "todo");
 
     // A READY WorkItem exists for the admitted task only.
-    const wi = store.getActiveWorkItemForTask("story-tasks-1");
+    const wi = store.getActiveWorkItem("story-tasks-1");
     assertExists(wi);
     assertEquals(wi.state, "READY");
-    assertEquals(store.getActiveWorkItemForTask("story-tasks-2"), null);
+    assertEquals(store.getActiveWorkItem("story-tasks-2"), null);
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
 
     store.close();
@@ -99,7 +99,7 @@ test("Store: WorkItem drives the task (claim -> COMPLETE advances + admits next)
     // Moving the review task to done frees the CONWIP token → T2 is admitted.
     store.moveTask("drive-1", "done");
     assertEquals(store.getTask("drive-2")!.status, "in_progress");
-    assertExists(store.getActiveWorkItemForTask("drive-2"));
+    assertExists(store.getActiveWorkItem("drive-2"));
 
     store.close();
   } finally { cleanupDir(teamDir); }
@@ -116,7 +116,7 @@ test("Store: boot clears stale members/assignments and orphans IN_PROGRESS to MO
     assertExists(item);
     assertEquals(store.claimWorkItem(item.id, "m1"), true);
     assertEquals(store.getWorkItem(item.id)!.state, "IN_PROGRESS");
-    assertExists(store.getActiveWorkItemForTask("boot-1"));
+    assertExists(store.getActiveWorkItem("boot-1"));
     store.close();
 
     // Second run (daemon restart): a fresh Store on the same dir has no live
@@ -147,7 +147,7 @@ test("Store: FAILED leaves the task stuck; re-enqueue creates a fresh item", () 
     // Terminal, and the task stays put with no active WorkItem.
     assertEquals(store.getWorkItem(item.id)!.state, "FAILED");
     assertEquals(store.getTask("fail-1")!.status, "in_progress");
-    assertEquals(store.getActiveWorkItemForTask("fail-1"), null);
+    assertEquals(store.getActiveWorkItem("fail-1"), null);
 
     // Re-enqueue creates a new READY item (a fresh attempt, not a re-open).
     const fresh = store.reEnqueueRef({ workDefId: "fail-1" });
@@ -550,13 +550,13 @@ test("Store: judgment move validation + rework re-enqueues", () => {
     assertEquals(r1.ok, true);
     assertEquals(store.getTask("wf-test-1")!.status, "review");
     // review is manual → no active WorkItem.
-    assertEquals(store.getActiveWorkItemForTask("wf-test-1"), null);
+    assertEquals(store.getActiveWorkItem("wf-test-1"), null);
 
     assertEquals(store.moveTask("wf-test-1", "nonsense").ok, false);
 
     // Rework: move back into the agent state → a fresh READY WorkItem.
     assertEquals(store.moveTask("wf-test-1", "in_progress").ok, true);
-    assertEquals(store.getActiveWorkItemForTask("wf-test-1")!.state, "READY");
+    assertEquals(store.getActiveWorkItem("wf-test-1")!.state, "READY");
 
     store.close();
   } finally { cleanupDir(teamDir); }
@@ -602,7 +602,7 @@ test("Store: loadFromDisk rebuilds the queue for agent-state tasks", () => {
     store2.loadFromDisk();
     assertEquals(store2.getStory("reload-test")!.title, "RT");
     // The admitted task's READY WorkItem is rebuilt on load.
-    const wi = store2.getActiveWorkItemForTask("reload-test-1");
+    const wi = store2.getActiveWorkItem("reload-test-1");
     assertExists(wi);
     assertEquals(wi.state, "READY");
     store2.close();
@@ -758,7 +758,7 @@ test("Store: WorkDef archive + restore lifecycle", () => {
 
 /** Drive a story's single task to done the way a run does: claim → COMPLETE → review → done. */
 function finishOnlyTask(store: Store, taskId: string): void {
-  const item = store.getActiveWorkItemForTask(taskId);
+  const item = store.getActiveWorkItem(taskId);
   assertExists(item);
   assertEquals(store.claimWorkItem(item.id, "m1"), true);
   assertEquals(store.setWorkItemState(item.id, "COMPLETE").ok, true);
@@ -773,17 +773,17 @@ test("Store: completing a dependency's last task admits its dependent", () => {
     store.createStory("dep-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
     store.createStory("dep-b", "B", "B", "open", ["dep-a"], [{ title: "B1", description: "b" }]);
     assertEquals(store.getTask("dep-b-1")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("dep-b-1"), null);
+    assertEquals(store.getActiveWorkItem("dep-b-1"), null);
 
     finishOnlyTask(store, "dep-a-1");
     assertEquals(store.getStory("dep-a")!.status, "done");
     assertEquals(store.getTask("dep-b-1")!.status, "in_progress");
-    const wi = store.getActiveWorkItemForTask("dep-b-1");
+    const wi = store.getActiveWorkItem("dep-b-1");
     assertExists(wi);
     assertEquals(wi.state, "READY");
     // Idempotent: re-running admission doesn't double-enqueue.
     store.runAdmission("dep-b");
-    assertEquals(store.getActiveWorkItemForTask("dep-b-1")!.id, wi.id);
+    assertEquals(store.getActiveWorkItem("dep-b-1")!.id, wi.id);
     store.close();
   } finally { cleanupDir(teamDir); }
 });
@@ -803,7 +803,7 @@ test("Store: archiving or deleting a dependency admits its dependent", () => {
     assertEquals(store.getTask("arc-b-1")!.status, "todo");
     store.archiveStory("arc-a");
     assertEquals(store.getTask("arc-b-1")!.status, "in_progress");
-    assertExists(store.getActiveWorkItemForTask("arc-b-1"));
+    assertExists(store.getActiveWorkItem("arc-b-1"));
 
     // Delete: an open dependency removed from the board stops blocking.
     store.createStory("del-a", "A", "A", "open", [], [{ title: "A1", description: "a" }]);
@@ -811,7 +811,7 @@ test("Store: archiving or deleting a dependency admits its dependent", () => {
     assertEquals(store.getTask("del-b-1")!.status, "todo");
     assertEquals(store.deleteStory("del-a"), true);
     assertEquals(store.getTask("del-b-1")!.status, "in_progress");
-    assertExists(store.getActiveWorkItemForTask("del-b-1"));
+    assertExists(store.getActiveWorkItem("del-b-1"));
     store.close();
   } finally { cleanupDir(teamDir); }
 });
@@ -827,11 +827,11 @@ test("Store: a dependent with two dependencies waits for both", () => {
 
     finishOnlyTask(store, "two-a-1");
     assertEquals(store.getTask("two-b-1")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("two-b-1"), null);
+    assertEquals(store.getActiveWorkItem("two-b-1"), null);
 
     finishOnlyTask(store, "two-c-1");
     assertEquals(store.getTask("two-b-1")!.status, "in_progress");
-    assertExists(store.getActiveWorkItemForTask("two-b-1"));
+    assertExists(store.getActiveWorkItem("two-b-1"));
     store.close();
   } finally { cleanupDir(teamDir); }
 });
@@ -847,9 +847,9 @@ test("Store: a pending dependent (story or first task) is not admitted when its 
 
     finishOnlyTask(store, "hold-a-1");
     assertEquals(store.getTask("hold-p-1")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("hold-p-1"), null);
+    assertEquals(store.getActiveWorkItem("hold-p-1"), null);
     assertEquals(store.getTask("hold-d-1")!.status, "todo");
-    assertEquals(store.getActiveWorkItemForTask("hold-d-1"), null);
+    assertEquals(store.getActiveWorkItem("hold-d-1"), null);
 
     // Activating then admits it (the existing trigger still works).
     store.updateStoryDetails("hold-p", { pending: false });

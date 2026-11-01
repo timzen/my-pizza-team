@@ -262,7 +262,7 @@ test("triage mode survives a restart, and an accepted proposal's origin reloads"
     store.registerMember("a1", "swift-neo", "/x", {});
     assert(store.claimWorkItem(out.enqueued[0]!, "a1"));
     assertEquals(store.addTriageAnalysisForWorkDef(defId, "a1", "One task.", "proposals", [task()]).ok, true);
-    const res = store.acceptProposalOn(defId, "p1") as { ok: true; decision: { workDefId?: string } };
+    const res = store.acceptProposal(defId, "p1") as { ok: true; decision: { workDefId?: string } };
     assert(res.ok);
 
     // A fresh Store with no source registered still knows the mode.
@@ -270,7 +270,7 @@ test("triage mode survives a restart, and an accepted proposal's origin reloads"
     try {
       assert(store2.isTriageModeMirror(store2.getWorkDef(defId)!));
       assertEquals(store2.getWorkDef(res.decision.workDefId!)?.origin, { workDef: defId, proposal: "p1" });
-      assertEquals(store2.getTriageThreadForWorkDef(defId).proposals[0]?.decision?.action, "accepted");
+      assertEquals(store2.getTriageThread(defId).proposals[0]?.decision?.action, "accepted");
     } finally { store2.close(); }
   } finally { cleanup(store, teamDir); }
 });

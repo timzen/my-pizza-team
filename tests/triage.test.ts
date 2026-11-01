@@ -540,10 +540,10 @@ test("an analysis lands in the thread; a bad one is refused with a fixable reaso
     const bad = store.addTriageAnalysis(t.id, "swift-neo", "x", "proposals", [task({ goal: "" })]);
     assertEquals(bad.ok, false);
     assertStringIncludes((bad as { error: string }).error, "needs a goal");
-    assertEquals(store.getTriageThread(t.id).entries.length, 0); // nothing written
+    assertEquals(store.getTriageThread(triageWorkDefId(t.id)).entries.length, 0); // nothing written
 
     postAnalysis(store, t.id, [task()]);
-    const thread = store.getTriageThread(t.id);
+    const thread = store.getTriageThread(triageWorkDefId(t.id));
     assertEquals(thread.badge, "proposal");
     assertEquals(thread.latestOutcome, "proposals");
     assertEquals(thread.pending.length, 1);
@@ -559,7 +559,7 @@ test("accept a task proposal: creates the WorkDef, doesn't run it, links both wa
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task()]);
 
-    const res = store.acceptProposal(t.id, "p1");
+    const res = store.acceptProposal(triageWorkDefId(t.id), "p1");
     assertEquals(res.ok, true);
     const workDefId = (res as { decision: { workDefId?: string } }).decision.workDefId!;
     const def = store.getWorkDef(workDefId)!;
@@ -569,7 +569,7 @@ test("accept a task proposal: creates the WorkDef, doesn't run it, links both wa
     // Create only: nothing queued for it.
     assertEquals(store.getWorkItems({ states: ["READY"] }).items.some((wi) => wi.ref.workDefId === workDefId), false);
     // …and the decision is in the thread, so the badge clears.
-    assertEquals(store.getTriageThread(t.id).badge, "none");
+    assertEquals(store.getTriageThread(triageWorkDefId(t.id)).badge, "none");
     assertEquals(store.getTriageBadges()[t.id], undefined);
   } finally { cleanup(teamDir, store); }
 });
@@ -586,18 +586,18 @@ test("accept: story-task, story, and schedule proposals create the right shapes"
       task({ id: "p3", kind: "schedule", title: "Nightly webhook report", cron: "0 9 * * 1-5" }),
     ]);
 
-    const a = store.acceptProposal(t.id, "p1") as { ok: true; decision: { workDefId?: string; storyId?: string } };
+    const a = store.acceptProposal(triageWorkDefId(t.id), "p1") as { ok: true; decision: { workDefId?: string; storyId?: string } };
     assertEquals(a.decision.storyId, "payments");
     assertEquals(store.getWorkDef(a.decision.workDefId!)?.parent, { kind: "story", id: "payments" });
     assertEquals(store.getTasksForStory("payments").length, 1);
 
-    const b = store.acceptProposal(t.id, "p2") as { ok: true; decision: { storyId?: string } };
+    const b = store.acceptProposal(triageWorkDefId(t.id), "p2") as { ok: true; decision: { storyId?: string } };
     const story = store.getStory(b.decision.storyId!)!;
     assertEquals(story.title, "Webhook reliability");
     assertEquals(store.getTasksForStory(story.id).length, 2);
     assertEquals(store.getWorkDef(store.getTasksForStory(story.id)[0]!.id)?.origin?.proposal, "p2");
 
-    const c = store.acceptProposal(t.id, "p3") as { ok: true; decision: { workDefId?: string } };
+    const c = store.acceptProposal(triageWorkDefId(t.id), "p3") as { ok: true; decision: { workDefId?: string } };
     const sched = store.getWorkDef(c.decision.workDefId!)!;
     assertEquals(sched.parent?.kind, "schedule");
     assertEquals(store.getSchedules().find((s) => s.id === sched.parent!.id)?.cron, "0 9 * * 1-5");
@@ -613,13 +613,13 @@ test("accept creates but never starts: a task waits for Run; a story task follow
     postAnalysis(store, t.id, [task(), task({ id: "p2", kind: "story-task", storyId: "payments", title: "Retry the sender" })]);
 
     // A Solitary task is created idle — nothing queued for it.
-    const a = store.acceptProposal(t.id, "p1") as { ok: true; decision: { workDefId?: string } };
+    const a = store.acceptProposal(triageWorkDefId(t.id), "p1") as { ok: true; decision: { workDefId?: string } };
     assertEquals(store.getWorkItems({ states: ["READY"] }).items.some((wi) => wi.ref.workDefId === a.decision.workDefId), false);
 
     // A story task enters its story's workflow, which admits it exactly as it
     // would a task you added by hand — so it *is* queued. Not a triage rule; the
     // board's (the hand-added task below proves they behave the same).
-    const b = store.acceptProposal(t.id, "p2") as { ok: true; decision: { workDefId?: string } };
+    const b = store.acceptProposal(triageWorkDefId(t.id), "p2") as { ok: true; decision: { workDefId?: string } };
     assertEquals(store.getWorkItems({ states: ["READY"] }).items.some((wi) => wi.ref.workDefId === b.decision.workDefId), true);
     store.createStory("other", "Other", "d");
     const byHand = store.addTask("other", { title: "By hand", description: "g" })!;
@@ -634,14 +634,14 @@ test("accept with overrides (the Edit path), or recording work created elsewhere
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task(), task({ id: "p2", title: "Alert" })]);
 
-    const edited = store.acceptProposal(t.id, "p1", { overrides: { title: "Retry with backoff", goal: "Exponential, 5 tries" } }) as { ok: true; decision: { workDefId?: string } };
+    const edited = store.acceptProposal(triageWorkDefId(t.id), "p1", { overrides: { title: "Retry with backoff", goal: "Exponential, 5 tries" } }) as { ok: true; decision: { workDefId?: string } };
     const def = store.getWorkDef(edited.decision.workDefId!)!;
     assertEquals(def.title, "Retry with backoff");
     assertEquals(def.goal, "Exponential, 5 tries");
 
     // The author created it through the normal form; we only record the decision.
     const own = store.createWorkDef({ title: "Alerting, my way", goal: "…", acceptanceCriteria: "" }, false);
-    const rec = store.acceptProposal(t.id, "p2", { existingWorkDefId: own.id }) as { ok: true; decision: { workDefId?: string } };
+    const rec = store.acceptProposal(triageWorkDefId(t.id), "p2", { existingWorkDefId: own.id }) as { ok: true; decision: { workDefId?: string } };
     assertEquals(rec.decision.workDefId, own.id);
     assertEquals(store.getWorkDefs().filter((d) => d.title === "Alert").length, 0); // nothing duplicated
   } finally { cleanup(teamDir, store); }
@@ -656,17 +656,17 @@ test("reject is one line and not a turn; a decided proposal can't be decided twi
     postAnalysis(store, t.id, [task()]);
     const before = store.getThought(t.id)!.updatedAt;
 
-    assertEquals(store.rejectProposal(t.id, "p1").ok, true);
-    assertEquals(store.getTriageThread(t.id).proposals[0]!.decision?.action, "rejected");
+    assertEquals(store.rejectProposal(triageWorkDefId(t.id), "p1").ok, true);
+    assertEquals(store.getTriageThread(triageWorkDefId(t.id)).proposals[0]!.decision?.action, "rejected");
     // Not a turn: the note is untouched, so no new run is due.
     assertEquals(store.getThought(t.id)!.updatedAt, before);
     assertEquals(store.runTriageSweep(LATER()).length, 0);
 
-    const twice = store.rejectProposal(t.id, "p1");
+    const twice = store.rejectProposal(triageWorkDefId(t.id), "p1");
     assertEquals(twice.ok, false);
     assertStringIncludes((twice as { error: string }).error, "already rejected");
-    assertStringIncludes((store.acceptProposal(t.id, "p1") as { error: string }).error, "already rejected");
-    assertStringIncludes((store.rejectProposal(t.id, "nope") as { error: string }).error, 'No proposal "nope"');
+    assertStringIncludes((store.acceptProposal(triageWorkDefId(t.id), "p1") as { error: string }).error, "already rejected");
+    assertStringIncludes((store.rejectProposal(triageWorkDefId(t.id), "nope") as { error: string }).error, 'No proposal "nope"');
   } finally { cleanup(teamDir, store); }
 });
 
@@ -677,8 +677,8 @@ test("the next run's prompt carries what the author decided", async () => {
     const [first] = store.runTriageSweep(LATER());
     runItem(store, first!.id, "COMPLETE");
     postAnalysis(store, t.id, [task(), task({ id: "p2", title: "Alert on failure" })]);
-    store.acceptProposal(t.id, "p1");
-    store.rejectProposal(t.id, "p2");
+    store.acceptProposal(triageWorkDefId(t.id), "p1");
+    store.rejectProposal(triageWorkDefId(t.id), "p2");
 
     store.updateThought(t.id, { content: "webhooks flake — and the retries didn't help" });
     const second = store.triageNow(t.id) as { ok: true; workItem: { id: string } };
@@ -719,7 +719,7 @@ test("POST /api/agents/work-items/:id/proposals is for the holder of a triage it
 
     const ok = await post({ agentId: "a1", body: "Two things here.", outcome: "proposals", proposals: [task()] });
     assertEquals(ok.status, 200);
-    assertEquals(store.getTriageThread(t.id).pending.length, 1);
+    assertEquals(store.getTriageThread(triageWorkDefId(t.id)).pending.length, 1);
 
     // A non-triage item can't use it.
     const solitary = store.createWorkDef({ title: "Ordinary", goal: "g", acceptanceCriteria: "" });
@@ -754,6 +754,15 @@ test("GET /api/thoughts/:id/triage and the accept/reject routes", async () => {
     assertEquals(reject.status, 200);
     assertEquals((await app.request(`/api/thoughts/${t.id}/proposals/p2/reject`, { method: "POST" })).status, 409);
     assertEquals((await app.request(`/api/thoughts/${t.id}/proposals/nope/accept`, { method: "POST" })).status, 404);
+    // The note routes name the note in their errors (and 404 a missing note).
+    const noProposal = await app.request(`/api/thoughts/${t.id}/proposals/nope/reject`, { method: "POST" });
+    assertEquals(noProposal.status, 404);
+    assertEquals((await noProposal.json()).error, `No proposal "nope" on note ${t.id}`);
+    for (const action of ["accept", "reject"]) {
+      const missing = await app.request(`/api/thoughts/ghost/proposals/p1/${action}`, { method: "POST" });
+      assertEquals(missing.status, 404);
+      assertEquals((await missing.json()).error, 'Thought "ghost" not found');
+    }
 
     const badges = await (await app.request("/api/triage/badges")).json();
     assertEquals(badges.badges[t.id], undefined); // all decided
@@ -767,7 +776,7 @@ test("an accepted proposal's WorkDef keeps its origin across a reload", () => {
     const t = note_(store, "webhooks flake");
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task()]);
-    const res = store.acceptProposal(t.id, "p1") as { ok: true; decision: { workDefId?: string } };
+    const res = store.acceptProposal(triageWorkDefId(t.id), "p1") as { ok: true; decision: { workDefId?: string } };
     const store2 = new Store(teamDir, TEST_CONFIG);
     try {
       assertEquals(store2.getWorkDef(res.decision.workDefId!)?.origin, { thought: t.id, proposal: "p1" });

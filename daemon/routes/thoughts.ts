@@ -14,12 +14,19 @@
 import type { RouteContext } from "./types.ts";
 import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
 import { proposalResponse, readAcceptOptions, readRejectFrom } from "./triage.ts";
+import { triageWorkDefId } from "../triage.ts";
+import type { ProposalResult } from "../store.ts";
 
 const COORD_LIMIT = 1e7;
 
 /** A finite coordinate within ±COORD_LIMIT (rejects Infinity / absurd values). */
 function validCoord(v: unknown): v is number {
   return typeof v === "number" && Number.isFinite(v) && Math.abs(v) <= COORD_LIMIT;
+}
+
+/** The accept/reject result for a note that doesn't exist (a 404 via proposalResponse). */
+function thoughtNotFound(id: string): ProposalResult {
+  return { ok: false, code: "not-found", error: `Thought "${id}" not found` };
 }
 
 export function registerThoughtRoutes(ctx: RouteContext): void {
@@ -139,7 +146,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
     const id = c.req.param("id");
     const note = store.getThought(id);
     if (!note) return c.json({ success: false, error: "Thought not found" }, 404);
-    const thread = store.getTriageThread(id);
+    const thread = store.getTriageThread(triageWorkDefId(id));
     return c.json({
       note,
       workDefId: thread.workDefId,
@@ -162,13 +169,21 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // (The body/response handling is shared with the WorkDef-addressed routes in
   // daemon/routes/triage.ts, which a triage-mode external item uses.)
   app.post("/api/thoughts/:id/proposals/:proposalId/accept", async (c) => {
-    const res = store.acceptProposal(c.req.param("id"), c.req.param("proposalId"), await readAcceptOptions(c));
+    const id = c.req.param("id");
+    const opts = await readAcceptOptions(c);
+    const res = store.getThought(id)
+      ? store.acceptProposal(triageWorkDefId(id), c.req.param("proposalId"), opts, `note ${id}`)
+      : thoughtNotFound(id);
     return proposalResponse(c, res);
   });
 
   // Reject a proposal: one appended line, no reason, not a turn.
   app.post("/api/thoughts/:id/proposals/:proposalId/reject", async (c) => {
-    const res = store.rejectProposal(c.req.param("id"), c.req.param("proposalId"), await readRejectFrom(c));
+    const id = c.req.param("id");
+    const from = await readRejectFrom(c);
+    const res = store.getThought(id)
+      ? store.rejectProposal(triageWorkDefId(id), c.req.param("proposalId"), from, `note ${id}`)
+      : thoughtNotFound(id);
     return proposalResponse(c, res);
   });
 

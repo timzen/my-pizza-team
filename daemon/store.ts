@@ -297,7 +297,7 @@ export type ProposalResult =
   | { ok: true; decision: TriageDecision }
   | { ok: false; code: "not-found" | "conflict"; error: string };
 
-/** Options for accepting a proposal (`Store.acceptProposal` / `acceptProposalOn`). */
+/** Options for accepting a proposal (`Store.acceptProposal`). */
 export interface AcceptProposalOptions {
   from?: string;
   /** Record work the author already created through the normal form (the "Edit" path). */
@@ -311,7 +311,7 @@ export type TriageProposalOverrides = Partial<
   Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">
 >;
 
-/** A triage subject's whole triage state (`Store.getTriageThread` / `getTriageThreadForWorkDef`). */
+/** A triage subject's whole triage state (`Store.getTriageThread`). */
 export interface TriageThread {
   workDefId: string;
   exists: boolean;
@@ -410,9 +410,9 @@ export class Store {
     getThoughtGroup: (id) => this.getThoughtGroup(id),
     leaderDirectory: () => this.getLeader()?.directory,
     getTriageInstructions: () => this.getTriageInstructions(),
-    getOpenStories: () => this.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
-    getComments: (workDefId) => this.getCommentsForRef({ workDefId }),
-    decisionSummary: (thoughtId) => this.triageDecisionSummary(thoughtId),
+    getOpenStories: () => this.openStoryRefs(),
+    getComments: (workDefId) => this.commentsForWorkDef(workDefId),
+    decisionSummary: (thoughtId) => this.triageDecisionSummary(triageWorkDefId(thoughtId)),
   });
 
   /**
@@ -422,9 +422,9 @@ export class Store {
    */
   private externalTriage = new ExternalTriage({
     leaderDirectory: () => this.getLeader()?.directory,
-    getOpenStories: () => this.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title })),
-    getComments: (workDefId) => this.getCommentsForRef({ workDefId }),
-    decisionSummary: (workDefId) => this.triageDecisionSummaryForWorkDef(workDefId),
+    getOpenStories: () => this.openStoryRefs(),
+    getComments: (workDefId) => this.commentsForWorkDef(workDefId),
+    decisionSummary: (workDefId) => this.triageDecisionSummary(workDefId),
     sourceLabel: (sourceId) => this.sources.get(sourceId)?.source.label ?? sourceId,
   });
 
@@ -443,7 +443,7 @@ export class Store {
     isPending: (id) => this.isPending(id),
     writeTaskPosition: (taskId, status) => this.writeTaskPosition(taskId, status),
     setStoryStatus: (id, status) => this.updateStoryStatus(id, status),
-    getActiveItem: (defId) => this.getActiveWorkItemForTask(defId),
+    getActiveItem: (defId) => this.getActiveWorkItem(defId),
     cancelActiveItem: (defId) => this.abandonActiveWorkItem(defId),
     recordAssignment: (taskId, memberId) => {
       this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
@@ -451,8 +451,18 @@ export class Store {
     },
     releaseAssignment: (taskId) => this.releaseTask(taskId),
     getStatePersona: (workflow, state) => this.getStatePersona(workflow, state),
-    getComments: (defId) => this.getCommentsForRef({ workDefId: defId }),
+    getComments: (defId) => this.commentsForWorkDef(defId),
   });
+
+  /** The stories not yet done, as `{ id, title }` (a triage prompt's "Open Stories"). */
+  private openStoryRefs(): Array<{ id: string; title: string }> {
+    return this.getStories().filter((s) => s.status !== "done").map((s) => ({ id: s.id, title: s.title }));
+  }
+
+  /** A WorkDef's comments (the sources' `getComments` dependency). */
+  private commentsForWorkDef(workDefId: string): Comment[] {
+    return this.getCommentsForRef({ workDefId });
+  }
 
   constructor(teamDir: string, config: TeamConfig) {
     this.teamDir = teamDir;
@@ -493,7 +503,7 @@ export class Store {
    * directory normalization for free.
    */
   private makeSourceContext(sourceId: string, options: () => Readonly<Record<string, unknown>> = () => EMPTY_SOURCE_OPTIONS): SourceContext {
-    const hasActiveItem = (defId: string) => this.getActiveWorkItemForRef({ workDefId: defId }) !== null;
+    const hasActiveItem = (defId: string) => this.getActiveWorkItem(defId) !== null;
     // An external source switched off is disconnected (docs/DESIGN.md "Feature
     // Toggles"): whatever path it takes — a webhook, a write-back hook — it
     // mirrors and enqueues nothing until it's switched back on.
@@ -724,7 +734,7 @@ export class Store {
     for (const def of listWorkDefs(this.teamDir)) {
       if (sourceIdForWorkDef(def) !== source.id || def.parent?.kind !== "external") continue;
       if (def.status === "archived" || seen.has(def.id)) continue;
-      const active = this.getActiveWorkItemForRef({ workDefId: def.id });
+      const active = this.getActiveWorkItem(def.id);
       if (active?.state === "READY") this.cancelWorkItem(active.id);
       updateWorkDef(this.teamDir, def.id, { status: "archived" });
       ctx.kv.set(vanishedKey(def.id), new Date().toISOString());
@@ -786,7 +796,7 @@ export class Store {
     const archived: string[] = [];
     for (const def of listWorkDefs(this.teamDir)) {
       if (def.parent?.kind !== "external" || sourceIdForWorkDef(def) !== sourceId || def.status === "archived") continue;
-      const active = this.getActiveWorkItemForRef({ workDefId: def.id });
+      const active = this.getActiveWorkItem(def.id);
       if (active?.state === "READY") this.cancelWorkItem(active.id);
       updateWorkDef(this.teamDir, def.id, { status: "archived" });
       kv.set(disconnectedKey(def.id), new Date().toISOString());
@@ -1729,7 +1739,7 @@ export class Store {
   }
 
   /** The active (READY/IN_PROGRESS/MORIBUND) WorkItem for a WorkDef, if any. */
-  getActiveWorkItemForTask(workDefId: string): WorkItem | null {
+  getActiveWorkItem(workDefId: string): WorkItem | null {
     const row = this.db.prepare(
       `SELECT * FROM work_items WHERE work_def_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
     ).get(workDefId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
@@ -1768,10 +1778,6 @@ export class Store {
        WHERE work_def_id = ? AND state != 'CANCELED'`
     ).get(workDefId) as { n: number; last: number | null };
     return { executionCount: r.n, lastRunAt: r.last ? new Date(r.last).toISOString() : null };
-  }
-
-  private getActiveWorkItemForRef(ref: WorkItemRef): WorkItem | null {
-    return this.getActiveWorkItemForTask(ref.workDefId);
   }
 
   /**
@@ -1815,7 +1821,7 @@ export class Store {
 
   /** Cancel a task's active WorkItem (internal override on position changes). */
   private abandonActiveWorkItem(taskId: string): void {
-    const item = this.getActiveWorkItemForTask(taskId);
+    const item = this.getActiveWorkItem(taskId);
     if (!item) return;
     this.setWorkItemStateRow(item.id, "CANCELED");
     this.notifyItemTerminal(item.id);
@@ -2058,7 +2064,7 @@ export class Store {
     this.setWorkItemState(id, "FAILED");
     this.markWorkItemRead(id, true);
     // Re-check: setWorkItemState → advance/admission never enqueues on FAILED, but stay safe.
-    if (this.getActiveWorkItemForRef(item.ref)) return { ok: true };
+    if (this.getActiveWorkItem(item.ref.workDefId)) return { ok: true };
     const fresh = this.enqueueFor(item.ref.workDefId, { attempt: next, retryAt });
     if (!fresh) return { ok: true };
     return { ok: true, retry: { workItemId: fresh.id, attempt: next, maxAttempts, retryAt: new Date(retryAt).toISOString() } };
@@ -2088,7 +2094,7 @@ export class Store {
 
   /** Create a fresh READY WorkItem for a ref that has no active one. */
   reEnqueueRef(ref: WorkItemRef): WorkItem | null {
-    if (this.getActiveWorkItemForRef(ref)) return null;
+    if (this.getActiveWorkItem(ref.workDefId)) return null;
     return this.enqueueFor(ref.workDefId);
   }
 
@@ -2182,15 +2188,19 @@ export class Store {
   // --- Token Usage ---
 
   /**
-   * Record a run's usage against a ref (a board task / WorkDef id). `extra`
-   * carries the ledger's newer fields — cache tokens, kind, member, title
+   * Record a run's usage against a ref (any WorkDef; token_usage is keyed by the
+   * WorkDef id). A no-op when the WorkDef doesn't exist. The title is
+   * snapshotted, since the ledger outlives the ref (archive/delete). `extra`
+   * carries the ledger's newer fields — cache tokens, kind, member
    * (store/usage.ts).
    */
   addTokenUsage(
-    taskId: string, inputTokens: number, outputTokens: number, model: string, costUsd: number,
-    extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd"> = {},
+    ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number,
+    extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd" | "title"> = {},
   ): void {
-    recordUsage(this.db, { ...extra, refId: taskId, inputTokens, outputTokens, model, costUsd }, this.teamDir);
+    if (!this.refDir(ref)) return;
+    const title = this.getWorkDef(ref.workDefId)?.title ?? null;
+    recordUsage(this.db, { ...extra, title, refId: ref.workDefId, inputTokens, outputTokens, model, costUsd }, this.teamDir);
   }
 
   /** Record a run's usage that isn't for any ref (the leader's chat, a teammate between items). */
@@ -2219,10 +2229,11 @@ export class Store {
     }));
   }
 
-  getTokenUsageSummary(taskId: string): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {
+  /** A ref's total cost and tokens across its runs, or null when it has none. */
+  getTokenUsageSummary(ref: WorkItemRef): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {
     const row = this.db.prepare(
       "SELECT SUM(input_tokens) as inp, SUM(output_tokens) as out, SUM(cost_usd) as cost FROM token_usage WHERE task_id = ?"
-    ).get(taskId) as Record<string, unknown> | undefined;
+    ).get(ref.workDefId) as Record<string, unknown> | undefined;
     if (!row || row.cost === null) return null;
     return { totalCostUsd: row.cost as number, totalInputTokens: row.inp as number, totalOutputTokens: row.out as number };
   }
@@ -2642,13 +2653,13 @@ export class Store {
     return this.appendThreadEntry({ workDefId }, entry) ? { ok: true } : { ok: false, error: "Could not write the thread" };
   }
 
-  /** A note's whole triage state: the thread, its proposals with decisions, the badge. */
-  getTriageThread(thoughtId: string): TriageThread {
-    return this.getTriageThreadForWorkDef(triageWorkDefId(thoughtId));
-  }
-
-  /** Any triage subject's whole triage state, by its WorkDef id (`exists` false when there's no such def). */
-  getTriageThreadForWorkDef(workDefId: string): TriageThread {
+  /**
+   * A triage subject's whole triage state — the thread, its proposals with
+   * decisions, the badge — by its WorkDef id (a note's container,
+   * `triageWorkDefId(noteId)`, or a triage-mode mirror). `exists` is false when
+   * there's no such def.
+   */
+  getTriageThread(workDefId: string): TriageThread {
     const exists = this.getWorkDef(workDefId) !== null;
     const entries = exists ? this.getThreadEntries({ workDefId }) : [];
     return {
@@ -2674,7 +2685,9 @@ export class Store {
   }
 
   /**
-   * Accept a proposal on a note: create the work it describes and append the decision.
+   * Accept a proposal on a triage subject (a note's container,
+   * `triageWorkDefId(noteId)`, or a triage-mode mirror), by its WorkDef id:
+   * create the work it describes and append the decision.
    *
    * **Accepting creates; it never starts anything itself.** What happens next is
    * whatever that kind of work does when you create it by hand: a `task` waits for
@@ -2686,19 +2699,11 @@ export class Store {
    * `existingWorkDefId` records an acceptance the author already completed through
    * the normal create form (the "Edit" path), instead of creating it here.
    * `overrides` lets that form's edits land without re-authoring the proposal.
+   * The created work's `origin` names the subject: `{ thought }` for a note,
+   * `{ workDef }` for a mirror. `where` names the subject in a "No proposal"
+   * error (the note routes pass `note <id>`; they check the note exists first).
    */
-  acceptProposal(thoughtId: string, proposalId: string, opts: AcceptProposalOptions = {}): ProposalResult {
-    if (!this.getThought(thoughtId)) return { ok: false, code: "not-found", error: `Thought "${thoughtId}" not found` };
-    return this.acceptProposalOn(triageWorkDefId(thoughtId), proposalId, opts, `note ${thoughtId}`);
-  }
-
-  /**
-   * Accept a proposal on any triage subject (a note's container or a triage-mode
-   * mirror), by its WorkDef id — same rules as `acceptProposal`. The created
-   * work's `origin` names the subject: `{ thought }` for a note, `{ workDef }`
-   * for a mirror.
-   */
-  acceptProposalOn(workDefId: string, proposalId: string, opts: AcceptProposalOptions = {}, where = workDefId): ProposalResult {
+  acceptProposal(workDefId: string, proposalId: string, opts: AcceptProposalOptions = {}, where = workDefId): ProposalResult {
     const found = this.findProposal(workDefId, proposalId, where);
     if (!found.ok) return found;
     const { state, subject } = found;
@@ -2771,14 +2776,11 @@ export class Store {
     return { ok: true, decision };
   }
 
-  /** Reject a proposal on a note: one appended line, no reason. Not a turn. */
-  rejectProposal(thoughtId: string, proposalId: string, from = "you"): ProposalResult {
-    if (!this.getThought(thoughtId)) return { ok: false, code: "not-found", error: `Thought "${thoughtId}" not found` };
-    return this.rejectProposalOn(triageWorkDefId(thoughtId), proposalId, from, `note ${thoughtId}`);
-  }
-
-  /** Reject a proposal on any triage subject, by its WorkDef id. Not a turn. */
-  rejectProposalOn(workDefId: string, proposalId: string, from = "you", where = workDefId): ProposalResult {
+  /**
+   * Reject a proposal on a triage subject, by its WorkDef id (`where` as for
+   * `acceptProposal`): one appended line, no reason. Not a turn.
+   */
+  rejectProposal(workDefId: string, proposalId: string, from = "you", where = workDefId): ProposalResult {
     const found = this.findProposal(workDefId, proposalId, where);
     if (!found.ok) return found;
     if (found.state.decision) {
@@ -2797,7 +2799,7 @@ export class Store {
     | { ok: false; code: "not-found"; error: string } {
     const subject = this.triageSubjectOf(workDefId);
     if (!subject) return { ok: false, code: "not-found", error: `WorkDef "${workDefId}" isn't a triage subject` };
-    const thread = this.getTriageThreadForWorkDef(workDefId);
+    const thread = this.getTriageThread(workDefId);
     // Latest wins if an id was reused across analyses (foldProposals keeps order).
     const state = [...thread.proposals].reverse().find((s) => s.proposal.id === proposalId);
     return state
@@ -2814,14 +2816,12 @@ export class Store {
     return id;
   }
 
-  /** Earlier proposals and what the author decided, for the next run's prompt. */
-  triageDecisionSummary(thoughtId: string): string[] {
-    return decisionSummary(this.getTriageThread(thoughtId).entries);
-  }
-
-  /** The same, for any triage subject by its WorkDef id (a triage-mode mirror's prompt). */
-  triageDecisionSummaryForWorkDef(workDefId: string): string[] {
-    return decisionSummary(this.getTriageThreadForWorkDef(workDefId).entries);
+  /**
+   * Earlier proposals and what the author decided, for the next run's prompt —
+   * any triage subject, by its WorkDef id (a note's container or a triage-mode mirror).
+   */
+  triageDecisionSummary(workDefId: string): string[] {
+    return decisionSummary(this.getTriageThread(workDefId).entries);
   }
 
   commitToGit(message?: string): void {
@@ -3906,7 +3906,7 @@ export class Store {
 
   deleteWorkDef(id: string): boolean {
     // Cancel any active WorkItem for this def, then remove it from disk.
-    const active = this.getActiveWorkItemForRef({ workDefId: id });
+    const active = this.getActiveWorkItem(id);
     if (active) {
       this.setWorkItemStateRow(active.id, "CANCELED");
       this.notifyItemTerminal(active.id);
@@ -3926,7 +3926,7 @@ export class Store {
 
   /** Enqueue a READY WorkItem for a WorkDef (unless one is already active). */
   enqueueWorkDef(id: string): WorkItem | null {
-    if (this.getActiveWorkItemForRef({ workDefId: id })) return null;
+    if (this.getActiveWorkItem(id)) return null;
     return this.enqueueFor(id);
   }
 
@@ -4098,7 +4098,7 @@ export class Store {
   archiveThought(id: string): Thought | null {
     const t = this.updateThought(id, { status: "archived" });
     if (t) {
-      const item = this.getActiveWorkItemForRef({ workDefId: triageWorkDefId(id) });
+      const item = this.getActiveWorkItem(triageWorkDefId(id));
       if (item) this.setWorkItemStateRow(item.id, "CANCELED");
       if (getWorkDef(this.teamDir, triageWorkDefId(id))) {
         updateWorkDef(this.teamDir, triageWorkDefId(id), { status: "archived" });
@@ -4123,7 +4123,7 @@ export class Store {
    */
   deleteThought(id: string): boolean {
     const defId = triageWorkDefId(id);
-    const item = this.getActiveWorkItemForRef({ workDefId: defId });
+    const item = this.getActiveWorkItem(defId);
     if (item) this.setWorkItemStateRow(item.id, "CANCELED");
     if (getWorkDef(this.teamDir, defId)) deleteWorkDef(this.teamDir, defId);
     return deleteThoughtFile(this.teamDir, id);
@@ -4295,22 +4295,6 @@ export class Store {
     const filePath = this.getAttachmentPathForRef(ref, storedName);
     if (!filePath) return false;
     try { fs.rmSync(filePath); return true; } catch { return false; }
-  }
-
-  // Token usage on the ref (works for any WorkDef; token_usage is keyed by the
-  // WorkDef id).
-  addTokenUsageForRef(
-    ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number,
-    extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd" | "title"> = {},
-  ): void {
-    if (!this.refDir(ref)) return;
-    // Snapshot the title: the ledger outlives the ref (archive/delete).
-    const title = this.getWorkDef(ref.workDefId)?.title ?? null;
-    this.addTokenUsage(ref.workDefId, inputTokens, outputTokens, model, costUsd, { ...extra, title });
-  }
-
-  getTokenUsageSummaryForRef(ref: WorkItemRef): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {
-    return this.getTokenUsageSummary(ref.workDefId);
   }
 
   // --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---

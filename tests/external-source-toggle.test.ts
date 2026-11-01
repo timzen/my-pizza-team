@@ -221,8 +221,8 @@ test("disconnect archives mirrors, cancels READY items, leaves IN_PROGRESS ones,
     assertEquals(first.enqueued.length, 2);
     const id1 = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1");
     const id2 = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-2");
-    const running = store.getActiveWorkItemForTask(id1)!;
-    const ready = store.getActiveWorkItemForTask(id2)!;
+    const running = store.getActiveWorkItem(id1)!;
+    const ready = store.getActiveWorkItem(id2)!;
     store.registerMember("a1", "a1", "/x", {});
     store.claimWorkItem(running.id, "a1");
 
@@ -255,7 +255,7 @@ test("disconnect archives mirrors, cancels READY items, leaves IN_PROGRESS ones,
     await settle(); // the immediate sync the re-enable fired
     assertEquals(store.getWorkDef(id1)!.status, "active");
     assertEquals(store.getWorkDef(id2)!.status, "active");
-    assertEquals(store.getActiveWorkItemForTask(id2), null, "its revision was already handed over");
+    assertEquals(store.getActiveWorkItem(id2), null, "its revision was already handed over");
   } finally { env.cleanup(); }
 });
 

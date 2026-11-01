@@ -147,7 +147,7 @@ test("sync: mirrors each item read-only and enqueues once per revision", async (
     const kv = fileSourceKv(teamDir, FIXTURE_SOURCE_ID);
     assert(kv.get(mirrorRevisionKey(id1)));
     // The item runs where the external item says.
-    const item1 = store.getActiveWorkItemForTask(id1)!;
+    const item1 = store.getActiveWorkItem(id1)!;
     assertEquals(item1.title, "First thing");
     assertEquals(item1.directory, "/repo/one");
 
@@ -178,7 +178,7 @@ test("sync: a revision landing while an item is in flight runs once that item en
     writeItem(folder, "T-1", "Thing", "v1");
     await store.syncWorkSource(FIXTURE_SOURCE_ID);
     const id = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1");
-    const item = store.getActiveWorkItemForTask(id)!;
+    const item = store.getActiveWorkItem(id)!;
     store.registerMember("a1", "a1", "/x", {});
     store.claimWorkItem(item.id, "a1");
 
@@ -221,7 +221,7 @@ test("sync: a vanished item's mirror is archived (not deleted), and comes back i
     writeItem(folder, "T-2", "Goes", "b");
     await store.syncWorkSource(FIXTURE_SOURCE_ID);
     const gone = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-2");
-    const queued = store.getActiveWorkItemForTask(gone)!;
+    const queued = store.getActiveWorkItem(gone)!;
     store.addCommentForRef({ workDefId: gone }, "you", "a note on the thread");
 
     fs.rmSync(path.join(folder, "T-2.md"));
@@ -254,7 +254,7 @@ test("sync: a mirror a person archived stays archived (content kept current) and
     writeItem(folder, "T-1", "Thing", "v1");
     await store.syncWorkSource(FIXTURE_SOURCE_ID);
     const id = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1");
-    store.cancelWorkItem(store.getActiveWorkItemForTask(id)!.id);
+    store.cancelWorkItem(store.getActiveWorkItem(id)!.id);
     store.archiveWorkDef(id);
     writeItem(folder, "T-1", "Thing", "v2");
     const res = await store.syncWorkSource(FIXTURE_SOURCE_ID);
@@ -275,7 +275,7 @@ test("ctx.upsertDef mirrors without enqueueing; an unchanged revision is a no-op
     const ext: ExternalDef = { externalId: "P-9", revision: "r1", title: "Pushed", goal: "g" };
     const def = ctx.upsertDef(ext)!;
     assertEquals(def.id, mirroredWorkDefId(FIXTURE_SOURCE_ID, "P-9"));
-    assertEquals(store.getActiveWorkItemForTask(def.id), null);
+    assertEquals(store.getActiveWorkItem(def.id), null);
     assertEquals(ctx.upsertDef({ ...ext, title: "ignored" })!.title, "Pushed");
     assertEquals(ctx.upsertDef({ ...ext, revision: "r2", title: "Updated" })!.title, "Updated");
     assertEquals(ctx.upsertDef({ externalId: "", revision: "r", title: "t", goal: "" }), null);
@@ -298,7 +298,7 @@ test("write-back: onComment for thread comments; onItemTerminal on COMPLETE, FAI
     // A human comment through the route, then the teammate's completion comment + COMPLETE.
     const res = await app.request(`/api/work-defs/${id}/comment`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ from: "you", body: "please hurry" }) });
     assertEquals(res.status, 200);
-    const item = store.getActiveWorkItemForTask(id)!;
+    const item = store.getActiveWorkItem(id)!;
     store.registerMember("a1", "a1", "/x", {});
     store.claimWorkItem(item.id, "a1");
     store.addCommentForRef({ workDefId: id }, "a1", "Done: did the thing");
@@ -346,7 +346,7 @@ test("write-back: a throwing or rejecting hook is logged and never breaks the co
     const res = await app.request(`/api/work-defs/${id}/comment`, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ from: "you", body: "hi" }) });
     assertEquals(res.status, 200);
     assertEquals(store.getCommentsForRef({ workDefId: id }).length, 1);
-    const item = store.getActiveWorkItemForTask(id)!;
+    const item = store.getActiveWorkItem(id)!;
     store.registerMember("a1", "a1", "/x", {});
     store.claimWorkItem(item.id, "a1");
     assertEquals(store.setWorkItemState(item.id, "COMPLETE").ok, true);
@@ -414,7 +414,7 @@ test("routes: /api/work-sources lists external sources and their mirrored defs; 
     assertEquals(synced.status, 200);
     assertEquals((await synced.json()).enqueued.length, 2);
     const id1 = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1");
-    const item = store.getActiveWorkItemForTask(id1)!;
+    const item = store.getActiveWorkItem(id1)!;
     store.registerMember("a1", "a1", "/x", {});
     store.claimWorkItem(item.id, "a1");
     store.setWorkItemState(item.id, "COMPLETE");

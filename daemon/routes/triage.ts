@@ -61,7 +61,7 @@ export function registerTriageRoutes(ctx: RouteContext): void {
     if (!def) return c.json({ success: false, error: "WorkDef not found" }, 404);
     const subject = store.triageSubjectOf(id);
     if (!subject) return c.json({ success: false, error: `WorkDef "${id}" isn't triaged (not a note's triage, nor an external item in triage mode)` }, 409);
-    const thread = store.getTriageThreadForWorkDef(id);
+    const thread = store.getTriageThread(id);
     return c.json({
       workDefId: id,
       subject: subject.kind,
@@ -80,13 +80,13 @@ export function registerTriageRoutes(ctx: RouteContext): void {
 
   // Accept: create the work and record the decision. Creates only — nothing is enqueued.
   app.post("/api/work-defs/:id/triage/proposals/:proposalId/accept", async (c) => {
-    const res = store.acceptProposalOn(c.req.param("id"), c.req.param("proposalId"), await readAcceptOptions(c));
+    const res = store.acceptProposal(c.req.param("id"), c.req.param("proposalId"), await readAcceptOptions(c));
     return proposalResponse(c, res);
   });
 
   // Reject: one appended line, no reason, not a turn.
   app.post("/api/work-defs/:id/triage/proposals/:proposalId/reject", async (c) => {
-    const res = store.rejectProposalOn(c.req.param("id"), c.req.param("proposalId"), await readRejectFrom(c));
+    const res = store.rejectProposal(c.req.param("id"), c.req.param("proposalId"), await readRejectFrom(c));
     return proposalResponse(c, res);
   });
 }

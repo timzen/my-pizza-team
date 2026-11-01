@@ -62,7 +62,7 @@ test("usage: a work run is recorded on the item's ref, with a title snapshot", a
     assertEquals(runs[0]!.refId, wd.workDef.id);
     assertEquals(runs[0]!.title, "Audit deps");
     // The per-WorkDef rollup (Tasks page cost) still sees it.
-    assertAlmostEquals(store.getTokenUsageSummaryForRef({ workDefId: wd.workDef.id })!.totalCostUsd, 0.1);
+    assertAlmostEquals(store.getTokenUsageSummary({ workDefId: wd.workDef.id })!.totalCostUsd, 0.1);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -94,7 +94,7 @@ test("usage: the ledger survives removing a story's live data (archive/delete)",
     const { tasks } = store.createStory("s1", "S", "desc", "open", [], [{ title: "T", description: "t" }], "default");
     const storyId = "s1";
     const taskId = tasks[0]!.id;
-    store.addTokenUsage(taskId, 5, 5, "m", 0.5);
+    store.addTokenUsage({ workDefId: taskId }, 5, 5, "m", 0.5);
     store.deleteStory(storyId);
     const runs = store.getUsageRunsOnDay({ date: new Date().toISOString().slice(0, 10), tzOffsetMin: 0 });
     assertEquals(runs.length, 1);

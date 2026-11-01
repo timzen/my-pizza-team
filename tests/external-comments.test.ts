@@ -111,7 +111,7 @@ test("sync pulls an item's comments into the mirror's thread, marked external; n
     // Re-sync: nothing new. A new comment upstream: appended, but no revision, no WorkItem.
     assertEquals((await store.syncWorkSource(FIXTURE_SOURCE_ID)).commented, []);
     fs.appendFileSync(commentsFile, JSON.stringify(c("k2", "2025-01-03T00:00:00Z", { channel: "Correspondence" })) + "\n");
-    const item = store.getActiveWorkItemForTask(id)!;
+    const item = store.getActiveWorkItem(id)!;
     store.cancelWorkItem(item.id); // nothing in flight, so an enqueue would show
     const third = await store.syncWorkSource(FIXTURE_SOURCE_ID);
     assertEquals(third.commented, [id]);

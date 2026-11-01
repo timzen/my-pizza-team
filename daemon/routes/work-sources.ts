@@ -84,7 +84,7 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
           status: d.status === "archived" ? "archived" : "active",
           latestState: store.getLatestWorkItemState(d.id),
           runCount: exec.executionCount, lastRunAt: exec.lastRunAt,
-          ...(mirror.mode === "triage" ? { triageBadge: store.getTriageThreadForWorkDef(d.id).badge } : {}),
+          ...(mirror.mode === "triage" ? { triageBadge: store.getTriageThread(d.id).badge } : {}),
         };
       });
     return c.json({ source, defs } satisfies MirroredDefsResponse);

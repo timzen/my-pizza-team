@@ -33,7 +33,7 @@ function setup(overrides: Partial<TeamConfig> = {}) {
 /** Create a standalone WorkDef in `directory` and return its READY WorkItem. */
 function enqueue(store: Store, title: string, directory?: string): WorkItem {
   const def = store.createWorkDef({ title, goal: "g", acceptanceCriteria: "a", directory });
-  return store.getActiveWorkItemForTask(def.id)!;
+  return store.getActiveWorkItem(def.id)!;
 }
 
 /** Poll as a teammate with no registered directory (no tier-1 preference). */
