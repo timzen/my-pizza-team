@@ -750,7 +750,7 @@ my-pizza-team/
 ├── plugin/            # `my-pizza-team/plugin`: the types and constants plugin authors import
 ├── daemon/            # HTTP server (Hono on @hono/node-server), Store, tmux supervisor
 │   ├── server.ts      # Route orchestrator
-│   ├── store.ts       # SQLite index + file sync (self-contained parts in store/)
+│   ├── store.ts       # SQLite index + file sync (a facade over domain modules in store/)
 │   └── routes/        # Route modules
 ├── cli/               # The mpt command (start, setup, doctor, lead, upgrade, service)
 ├── ui/                # Web UI (React + Vite + shadcn/ui)
