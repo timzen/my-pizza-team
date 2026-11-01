@@ -19,8 +19,8 @@ import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
+import { makeTeam, type Team } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
-import { Store } from "../daemon/store.ts";
 import { createApp } from "../daemon/app.ts";
 import { loadPlugins, packageInstallDir } from "../daemon/plugins/loader.ts";
 import { SOURCE_ID_PATTERN } from "../daemon/sources/registry.ts";
@@ -54,21 +54,12 @@ function writePlugin(root: string, name: string, mpt: unknown, files: Record<str
   return dir;
 }
 
-interface Env {
-  teamDir: string;
-  store: Store;
+interface Env extends Team {
   logs: string[];
 }
 
 function setup(): Env {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugin-loader-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  return { teamDir, store: new Store(teamDir, TEST_CONFIG), logs: [] };
-}
-
-function cleanup({ store, teamDir }: Env): void {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  return Object.assign(makeTeam(), { logs: [] as string[] });
 }
 
 /** Load `packages` into the env's store, collecting log lines. */
@@ -97,7 +88,7 @@ test("a local plugin with a .js entry loads, gets its config as ctx.options(), a
     assertEquals(mirrored.length, 1);
     assertEquals(mirrored[0]!.goal, "greeting: hello");
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -118,7 +109,7 @@ test("a factory default export gets (options, { teamDir }); async factories and 
     assertEquals(a.source.label, `L@${env.teamDir}`);
     assertEquals(a.ctx.options(), { label: "L" });
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -152,7 +143,7 @@ test("a plugin's `my-pizza-team/plugin` import resolves to the host's copy, even
   } finally {
     delete g.__mptHostSurface;
     delete g.__mptShadowSurface;
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -210,7 +201,7 @@ test("each broken plugin is logged and skipped; the good one still loads", async
     assertEquals(env.store.listExternalSources().map((e) => e.source.id), ["good", "partial-ok"]);
     assertEquals(env.logs.length, statuses.length);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -234,7 +225,7 @@ test("a plugin whose feature collides with a built-in's (or another plugin's) is
     assertEquals(env.store.listExternalSources().map((e) => e.source.id), ["first"]);
     assert(env.logs.some((l) => l.includes("reserved for the built-in")));
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -246,7 +237,7 @@ test("a hanging import times out instead of stalling startup", async () => {
     assertEquals(status?.state, "error");
     assertStringIncludes(status?.error ?? "", "timed out");
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 

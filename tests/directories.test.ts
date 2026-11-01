@@ -10,30 +10,22 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
+import { makeTeam, JSON_HEADERS } from "./_team.ts";
 import * as path from "node:path";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import type { TeamConfig } from "../shared/types.ts";
 import { orderDirectorySuggestions } from "../ui/src/lib/directories.ts";
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
 function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-dirs-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
+  const team = makeTeam();
   // Real (symlink-free) scratch dirs, so realpath normalization is predictable.
   const work = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-dirs-work-")));
-  const config: TeamConfig = structuredClone(TEST_CONFIG);
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  const onDisk = () => JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as Partial<TeamConfig>;
+  const onDisk = () => JSON.parse(fs.readFileSync(path.join(team.teamDir, "config.json"), "utf8")) as Partial<TeamConfig>;
   const cleanup = () => {
-    store.close();
-    fs.rmSync(teamDir, { recursive: true, force: true });
+    team.cleanup();
     fs.rmSync(work, { recursive: true, force: true });
   };
-  return { app, store, config, work, onDisk, cleanup };
+  return { app: team.app, store: team.store, config: team.config, work, onDisk, cleanup };
 }
 
 test("favorites are normalized (trailing slash, symlinks, ~), deduped, and persisted", () => {

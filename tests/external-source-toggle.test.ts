@@ -12,11 +12,10 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes, assertThrows } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { makeTeam, jsonInit, JSON_HEADERS, type Team } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
 import { FIXTURE_SOURCE_ID, FixtureSource } from "../daemon/sources/fixture.ts";
@@ -26,31 +25,23 @@ import type { ExternalDef, SourceContext, WorkSource } from "../daemon/sources/t
 import { featureNames } from "../daemon/features.ts";
 import type { FeaturesConfig, TeamConfig } from "../shared/types.ts";
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
-const put = (body: unknown) => ({ method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body) });
 const postReq = { method: "POST", headers: JSON_HEADERS, body: "{}" };
 
-interface Env {
-  store: Store;
-  config: TeamConfig;
-  teamDir: string;
+interface Env extends Team {
   folder: string;
-  app: ReturnType<typeof buildApp>;
-  cleanup(): void;
 }
 
 /** A Store + app with the fixture source registered (demand-only sync), before `buildApp` like a plugin. */
 function setup(features?: Record<string, boolean>): Env {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-toggle-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const folder = path.join(teamDir, "external");
-  fs.mkdirSync(folder);
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...(features ? { features: features as FeaturesConfig } : {}) };
-  const store = new Store(teamDir, config);
-  store.registerWorkSource(new FixtureSource({ dir: folder, label: "Fixture Tracker", syncEveryMs: null }));
-  const app = buildApp(store, config, teamDir);
-  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ } };
-  return { store, config, teamDir, folder, app, cleanup };
+  let folder = "";
+  const team = makeTeam(features ? { features: features as FeaturesConfig } : {}, {
+    beforeApp: (store, teamDir) => {
+      folder = path.join(teamDir, "external");
+      fs.mkdirSync(folder);
+      store.registerWorkSource(new FixtureSource({ dir: folder, label: "Fixture Tracker", syncEveryMs: null }));
+    },
+  });
+  return Object.assign(team, { folder });
 }
 
 function writeItem(folder: string, externalId: string, title: string): void {
@@ -183,7 +174,7 @@ test("switching an external source back on syncs it at once", async () => {
   const env = setup({ [FIXTURE_SOURCE_ID]: false });
   try {
     writeItem(env.folder, "T-1", "One");
-    const res = await env.app.request("/api/config", put(featuresBody(env.config, { [FIXTURE_SOURCE_ID]: true })));
+    const res = await env.app.request("/api/config", jsonInit("PUT", featuresBody(env.config, { [FIXTURE_SOURCE_ID]: true })));
     assertEquals(res.status, 200);
     await settle();
     assert(env.store.getWorkDef(mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1")), "mirrored by the immediate sync");
@@ -197,7 +188,7 @@ test("switching off an external source with mirrors is 409 without the opt-in, n
   try {
     writeItem(env.folder, "T-1", "One");
     await env.store.syncWorkSource(FIXTURE_SOURCE_ID);
-    const res = await env.app.request("/api/config", put(featuresBody(env.config, { [FIXTURE_SOURCE_ID]: false })));
+    const res = await env.app.request("/api/config", jsonInit("PUT", featuresBody(env.config, { [FIXTURE_SOURCE_ID]: false })));
     assertEquals(res.status, 409);
     const { error } = await res.json();
     assertStringIncludes(error, `Can't turn off ${FIXTURE_SOURCE_ID}: archive or delete 1 item first`);
@@ -205,7 +196,7 @@ test("switching off an external source with mirrors is 409 without the opt-in, n
     assertEquals(env.config.features?.[FIXTURE_SOURCE_ID as keyof FeaturesConfig], undefined);
     // A built-in's message is exactly as before.
     env.store.createStory("s1", "S", "");
-    const story = await env.app.request("/api/config", put(featuresBody(env.config, { stories: false })));
+    const story = await env.app.request("/api/config", jsonInit("PUT", featuresBody(env.config, { stories: false })));
     assertEquals(story.status, 409);
     assertEquals((await story.json()).error.includes("disconnect"), false);
   } finally { env.cleanup(); }
@@ -250,7 +241,7 @@ test("disconnect archives mirrors, cancels READY items, leaves IN_PROGRESS ones,
     assertEquals((await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq)).status, 200);
 
     // Switched back on: sync restores the mirrors; an unchanged revision doesn't re-run.
-    const on = await app.request("/api/config", put(featuresBody(config, { [FIXTURE_SOURCE_ID]: true })));
+    const on = await app.request("/api/config", jsonInit("PUT", featuresBody(config, { [FIXTURE_SOURCE_ID]: true })));
     assertEquals(on.status, 200);
     await settle(); // the immediate sync the re-enable fired
     assertEquals(store.getWorkDef(id1)!.status, "active");

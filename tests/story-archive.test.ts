@@ -18,8 +18,8 @@ import { existsSync } from "node:fs";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertExists } from "./_assert.ts";
+import { withTeam, jsonInit } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { migrateLegacyStoryFiles } from "../daemon/store/story-migration.ts";
 
@@ -38,10 +38,6 @@ function writeJson(teamDir: string, rel: string, data: Record<string, unknown>):
   fs.writeFileSync(path.join(teamDir, rel), JSON.stringify(data, null, 2) + "\n");
 }
 
-function req(method: string, body?: unknown): RequestInit {
-  return { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) };
-}
-
 /** Create a one-task story and finish it (moved to done) so it's archivable. */
 function doneStory(store: Store, id: string, dependsOn: string[] = []): void {
   store.createStory(id, `Story ${id}`, "desc", "open", dependsOn, [{ title: "T1", description: "d" }]);
@@ -49,9 +45,7 @@ function doneStory(store: Store, id: string, dependsOn: string[] = []): void {
 }
 
 test("archiveStory: archives in place (archivedAt + synopsis in stories/<id>.json)", () => {
-  const teamDir = tempTeamDir();
-  const store = new Store(teamDir, TEST_CONFIG);
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     doneStory(store, "arc");
     store.archiveStory("arc");
 
@@ -74,7 +68,7 @@ test("archiveStory: archives in place (archivedAt + synopsis in stories/<id>.jso
     store.createStory("live", "Live", "d", "open", [], [{ title: "T", description: "d" }]);
     assertEquals(store.getArchivedStoryContext("live"), null);
     assertEquals(store.getArchivedStories().map((s) => s.id), ["arc"]);
-  } finally { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); }
+  });
 });
 
 test("loadFromDisk: skips archived stories and their tasks; dependents treat them as done", () => {
@@ -103,9 +97,7 @@ test("loadFromDisk: skips archived stories and their tasks; dependents treat the
 });
 
 test("loadFromDisk: a stale cache row for an archived story is dropped", () => {
-  const teamDir = tempTeamDir();
-  const store = new Store(teamDir, TEST_CONFIG);
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     doneStory(store, "stale");
     // Flag it archived by hand while the cache still holds it.
     const data = readJson(teamDir, "stories/stale.json");
@@ -113,16 +105,13 @@ test("loadFromDisk: a stale cache row for an archived story is dropped", () => {
     store.loadFromDisk();
     assertEquals(store.getStory("stale"), null);
     assertEquals(store.getTask("stale-1"), null);
-  } finally { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); }
+  });
 });
 
 test("routes: archive + /api/archived keep their shapes; archived stories reject edits", async () => {
-  const teamDir = tempTeamDir();
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  try {
+  await withTeam({}, async ({ store, app, teamDir }) => {
     doneStory(store, "old");
-    const res = await app.request("/api/stories/old/archive", req("POST", {}));
+    const res = await app.request("/api/stories/old/archive", jsonInit("POST", {}));
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
@@ -136,15 +125,15 @@ test("routes: archive + /api/archived keep their shapes; archived stories reject
     assertEquals(list.stories[0].archivedAt, readJson(teamDir, "stories/old.json").archivedAt);
 
     // The regular story routes see no such (active) story.
-    assertEquals((await app.request("/api/stories/old", req("PUT", { title: "X" }))).status, 404);
-    assertEquals((await app.request("/api/stories/old/tasks", req("POST", { title: "T", description: "d" }))).status, 404);
-    assertEquals((await app.request("/api/stories/old/pending", req("POST"))).status, 404);
-    assertEquals((await app.request("/api/stories/old/archive", req("POST", {}))).status, 404);
-    assertEquals((await app.request("/api/stories/old", req("DELETE"))).status, 404);
+    assertEquals((await app.request("/api/stories/old", jsonInit("PUT", { title: "X" }))).status, 404);
+    assertEquals((await app.request("/api/stories/old/tasks", jsonInit("POST", { title: "T", description: "d" }))).status, 404);
+    assertEquals((await app.request("/api/stories/old/pending", jsonInit("POST"))).status, 404);
+    assertEquals((await app.request("/api/stories/old/archive", jsonInit("POST", {}))).status, 404);
+    assertEquals((await app.request("/api/stories/old", jsonInit("DELETE"))).status, 404);
     const stories = await (await app.request("/api/stories")).json();
     assertEquals(stories.stories.some((s: { id: string }) => s.id === "old"), false);
     // Its id can't be reused (would clobber the archived file and its tasks).
-    const create = await app.request("/api/stories", req("POST", { id: "old", title: "New", description: "d", workflow: "default" }));
+    const create = await app.request("/api/stories", jsonInit("POST", { id: "old", title: "New", description: "d", workflow: "default" }));
     assertEquals(create.status, 409);
     assertEquals(store.addTask("old", { title: "T", description: "d" }), null);
     assertEquals(store.updateStoryDetails("old", { title: "X" }), false);
@@ -152,7 +141,7 @@ test("routes: archive + /api/archived keep their shapes; archived stories reject
     const file = readJson(teamDir, "stories/old.json");
     assertEquals(file.title, "Story old");
     assertEquals((file.tasks as unknown[]).length, 1);
-  } finally { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); }
+  });
 });
 
 test("migration: archived/<id>.json moves into stories/ (still archived), idempotent", () => {

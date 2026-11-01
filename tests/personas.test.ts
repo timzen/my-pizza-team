@@ -8,31 +8,18 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { withTeam, jsonInit } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
-import { buildApp } from "../daemon/server.ts";
 import { listBuiltinPersonas } from "../daemon/personas/builtins.ts";
 import { validatePersonaMarkdown } from "../daemon/personas/lint.ts";
 import { personaRefOf, personaUsage, resolvePersona } from "../daemon/personas/resolve.ts";
 import { freeTeamPersonaId } from "../daemon/personas/library.ts";
 import { DEFAULT_ASSISTANT_PERSONA } from "../daemon/routes/assistant.ts";
 import { DEFAULT_TRIAGE_INSTRUCTIONS } from "../daemon/prompt.ts";
-import { parsePersonaId, type Persona, type TeamConfig } from "../shared/types.ts";
-
-function setup(configOverride?: Partial<TeamConfig>) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-personas-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...structuredClone(TEST_CONFIG), ...configOverride };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir, config, cleanup: () => { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); } };
-}
-
-const json = (method: string, body?: unknown) => ({ method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
+import { parsePersonaId, type Persona } from "../shared/types.ts";
 
 // ─── Ids, built-ins, resolution (pure) ───────────────────────────────
 
@@ -90,8 +77,7 @@ test("personaUsage finds every kind of reference", () => {
 // ─── The Store ───────────────────────────────────────────────────────
 
 test("Store: team personas round-trip through personas/<id>.md with frontmatter", () => {
-  const { store, teamDir, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     const res = store.createPersona({ title: "Code Reviewer", description: "Reads diffs", tags: ["review"], kinds: ["worker"], content: "Never edit code." });
     assertEquals(res.ok, true);
     const p = res.ok ? res.persona : null;
@@ -110,23 +96,21 @@ test("Store: team personas round-trip through personas/<id>.md with frontmatter"
     const ids = store.listPersonas().map((x) => x.id);
     assertEquals(ids.slice(0, 2), ["code-reviewer", "code-reviewer-2"]);
     assertEquals(ids.includes("builtin:worker"), true);
-  } finally { cleanup(); }
+  });
 });
 
 test("Store: a state persona that doesn't resolve falls back to builtin:worker", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const wf = store.getWorkflows()["default"]!;
     store.saveWorkflow("default", { states: wf.states.map((s) => s.type === "agent" ? { ...s, persona: "gone" } : s) });
     const agentState = wf.states.find((s) => s.type === "agent")!.name;
     const r = store.resolveStatePersona("default", agentState)!;
     assertEquals([r.id, r.fallbackFrom, r.via], ["builtin:worker", "gone", "workflow-state"]);
-  } finally { cleanup(); }
+  });
 });
 
 test("Store: package personas are read-only and namespaced by package name", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const result = store.packagePersonas.register({ name: "@acme/mpt-personas", identity: "npm:@acme/mpt-personas" }, [
       { name: "reviewer", raw: "---\ntitle: Acme reviewer\ndescription: \"\"\ntags: []\n---\n### Review\n\nCarefully." },
       { name: "broken", raw: "```\nunclosed" },
@@ -142,12 +126,11 @@ test("Store: package personas are read-only and namespaced by package name", () 
     const dup = store.packagePersonas.register({ name: "@acme/mpt-personas", identity: "git:github.com/x/y" }, [{ name: "other", raw: "x" }]);
     assertEquals(dup.personas, []);
     assertEquals(store.getPersona("@acme/mpt-personas/other"), null);
-  } finally { cleanup(); }
+  });
 });
 
 test("Store: recordWorkItemPersona snapshots the persona on the WorkItem (claim-time, never re-resolved)", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const created = store.createPersona({ title: "Solo worker", content: "Work alone." });
     const def = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "", persona: created.ok ? created.persona.id : undefined });
     assertEquals(def.persona, "solo-worker");
@@ -161,19 +144,18 @@ test("Store: recordWorkItemPersona snapshots the persona on the WorkItem (claim-
     store.updatePersona("solo-worker", { title: "Renamed" });
     store.deletePersona("solo-worker");
     assertEquals(store.getWorkItem(item.id)!.persona!.title, "Solo worker");
-  } finally { cleanup(); }
+  });
 });
 
 // ─── Routes ──────────────────────────────────────────────────────────
 
 test("routes: create/read/update/delete a team persona; saves are linted", async () => {
-  const { app, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     // A lint error refuses the save; warnings come back with it.
-    const bad = await app.request("/api/personas", json("POST", { title: "Bad", content: "```\nunclosed" }));
+    const bad = await app.request("/api/personas", jsonInit("POST", { title: "Bad", content: "```\nunclosed" }));
     assertEquals(bad.status, 400);
     assertEquals((await bad.json()).errors.length, 1);
-    const created = await app.request("/api/personas", json("POST", { title: "Reviewer", content: "# Review\n\nRead it.", kinds: ["worker", "nonsense"] }));
+    const created = await app.request("/api/personas", jsonInit("POST", { title: "Reviewer", content: "# Review\n\nRead it.", kinds: ["worker", "nonsense"] }));
     assertEquals(created.status, 201);
     const body = await created.json();
     assertEquals(body.persona.id, "reviewer");
@@ -183,110 +165,104 @@ test("routes: create/read/update/delete a team persona; saves are linted", async
     const got = await (await app.request("/api/personas/reviewer")).json();
     assertEquals([got.persona.title, got.persona.readOnly, got.usedBy], ["Reviewer", false, []]);
 
-    const upd = await app.request("/api/personas/reviewer", json("PUT", { content: "### Review\n\nRead it twice." }));
+    const upd = await app.request("/api/personas/reviewer", jsonInit("PUT", { content: "### Review\n\nRead it twice." }));
     assertEquals(upd.status, 200);
     assertEquals((await upd.json()).warnings, []);
-    assertEquals((await app.request("/api/personas/reviewer", json("PUT", { content: "~~~\nopen" }))).status, 400);
+    assertEquals((await app.request("/api/personas/reviewer", jsonInit("PUT", { content: "~~~\nopen" }))).status, 400);
 
-    assertEquals((await app.request("/api/personas/reviewer", json("DELETE"))).status, 200);
+    assertEquals((await app.request("/api/personas/reviewer", jsonInit("DELETE"))).status, 200);
     assertEquals((await app.request("/api/personas/reviewer")).status, 404);
-    assertEquals((await app.request("/api/personas", json("POST", { content: "x" }))).status, 400);
-  } finally { cleanup(); }
+    assertEquals((await app.request("/api/personas", jsonInit("POST", { content: "x" }))).status, 400);
+  });
 });
 
 test("routes: built-in and package personas are read-only; duplicate copies them into the team", async () => {
-  const { app, store, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.packagePersonas.register({ name: "acme", identity: "/tmp/acme" }, [{ name: "reviewer", raw: "Acme review." }]);
     for (const id of ["builtin:worker", "acme/reviewer"]) {
       const enc = encodeURIComponent(id);
-      assertEquals((await app.request(`/api/personas/${enc}`, json("PUT", { content: "x" }))).status, 409);
-      assertEquals((await app.request(`/api/personas/${enc}`, json("DELETE"))).status, 409);
+      assertEquals((await app.request(`/api/personas/${enc}`, jsonInit("PUT", { content: "x" }))).status, 409);
+      assertEquals((await app.request(`/api/personas/${enc}`, jsonInit("DELETE"))).status, 409);
     }
     // An unencoded package id reaches the same persona (`:id{.+}`).
     assertEquals((await (await app.request("/api/personas/acme/reviewer")).json()).persona.id, "acme/reviewer");
 
-    const dup = await app.request(`/api/personas/${encodeURIComponent("builtin:triage")}/duplicate`, json("POST", {}));
+    const dup = await app.request(`/api/personas/${encodeURIComponent("builtin:triage")}/duplicate`, jsonInit("POST", {}));
     assertEquals(dup.status, 201);
     const copy = (await dup.json()).persona;
     assertEquals([copy.id, copy.title, copy.duplicatedFrom, copy.readOnly], ["triage", "Triage", "builtin:triage", false]);
     assertEquals(copy.content, DEFAULT_TRIAGE_INSTRUCTIONS);
-    const pkgDup = await (await app.request("/api/personas/acme/reviewer/duplicate", json("POST", { title: "Our reviewer" }))).json();
+    const pkgDup = await (await app.request("/api/personas/acme/reviewer/duplicate", jsonInit("POST", { title: "Our reviewer" }))).json();
     assertEquals([pkgDup.persona.id, pkgDup.persona.duplicatedFrom], ["our-reviewer", "acme/reviewer"]);
-    assertEquals((await app.request("/api/personas/nope/duplicate", json("POST", {}))).status, 404);
-  } finally { cleanup(); }
+    assertEquals((await app.request("/api/personas/nope/duplicate", jsonInit("POST", {}))).status, 404);
+  });
 });
 
 test("routes: GET /api/personas?kind= lists hinted personas first", async () => {
-  const { app, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const all = (await (await app.request("/api/personas?kind=assistant")).json()).personas as Persona[];
     assertEquals(all[0]!.id, "builtin:assistant");
     const triage = (await (await app.request("/api/personas?kind=triage")).json()).personas as Persona[];
     assertEquals(triage[0]!.id, "builtin:triage");
-  } finally { cleanup(); }
+  });
 });
 
 test("routes: a persona in use can't be deleted (409 + usedBy); usage lists its users", async () => {
-  const { app, store, cleanup } = setup();
-  try {
-    await app.request("/api/personas", json("POST", { title: "Helper", content: "Help." }));
-    await app.request("/api/assistant/persona", json("PUT", { personaId: "helper" }));
+  await withTeam({}, async ({ app, store }) => {
+    await app.request("/api/personas", jsonInit("POST", { title: "Helper", content: "Help." }));
+    await app.request("/api/assistant/persona", jsonInit("PUT", { personaId: "helper" }));
     const agentState = store.getWorkflows()["default"]!.states.find((s) => s.type === "agent")!.name;
-    assertEquals((await app.request(`/api/workflows/default/states/${agentState}`, json("PUT", { persona: "helper" }))).status, 200);
-    const del = await app.request("/api/personas/helper", json("DELETE"));
+    assertEquals((await app.request(`/api/workflows/default/states/${agentState}`, jsonInit("PUT", { persona: "helper" }))).status, 200);
+    const del = await app.request("/api/personas/helper", jsonInit("DELETE"));
     assertEquals(del.status, 409);
     const usedBy = (await del.json()).usedBy;
     assertEquals(usedBy, [{ kind: "workflow-state", workflow: "default", state: agentState }, { kind: "assistant" }]);
     assertEquals((await (await app.request("/api/personas/helper/usage")).json()).usedBy, usedBy);
     assertEquals((await app.request("/api/personas/nope/usage")).status, 404);
-  } finally { cleanup(); }
+  });
 });
 
 test("routes: the context library is gone — 410 naming personas, and attachments are refused", async () => {
-  const { app, store, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     for (const [method, url] of [["GET", "/api/context"], ["POST", "/api/context"], ["GET", "/api/context/x"], ["PUT", "/api/context/x"], ["DELETE", "/api/context/x"]] as const) {
-      const res = await app.request(url, json(method, method === "GET" || method === "DELETE" ? undefined : {}));
+      const res = await app.request(url, jsonInit(method, method === "GET" || method === "DELETE" ? undefined : {}));
       assertEquals(res.status, 410);
       assertStringIncludes((await res.json()).error, "/api/personas");
     }
-    const wd = await app.request("/api/work-defs", json("POST", { title: "T", goal: "g", contextRefs: ["x"] }));
+    const wd = await app.request("/api/work-defs", jsonInit("POST", { title: "T", goal: "g", contextRefs: ["x"] }));
     assertEquals(wd.status, 400);
     store.createStory("s1", "S", "d", "open", []);
-    assertEquals((await app.request("/api/stories/s1/tasks", json("POST", { title: "T", description: "d", context: ["x"] }))).status, 400);
-    assertEquals((await app.request("/api/stories/s1", json("PUT", { context: ["x"] }))).status, 400);
-  } finally { cleanup(); }
+    assertEquals((await app.request("/api/stories/s1/tasks", jsonInit("POST", { title: "T", description: "d", context: ["x"] }))).status, 400);
+    assertEquals((await app.request("/api/stories/s1", jsonInit("PUT", { context: ["x"] }))).status, 400);
+  });
 });
 
 test("routes: Solitary/Scheduled WorkDefs take an optional persona; board tasks refuse one", async () => {
-  const { app, store, cleanup } = setup();
-  try {
-    await app.request("/api/personas", json("POST", { title: "Night owl", content: "Work quietly." }));
-    assertEquals((await app.request("/api/work-defs", json("POST", { title: "T", goal: "g", persona: "nope" }))).status, 400);
-    const solo = (await (await app.request("/api/work-defs", json("POST", { title: "Solo", goal: "g", persona: "night-owl", enqueue: false }))).json()).workDef;
+  await withTeam({}, async ({ app, store }) => {
+    await app.request("/api/personas", jsonInit("POST", { title: "Night owl", content: "Work quietly." }));
+    assertEquals((await app.request("/api/work-defs", jsonInit("POST", { title: "T", goal: "g", persona: "nope" }))).status, 400);
+    const solo = (await (await app.request("/api/work-defs", jsonInit("POST", { title: "Solo", goal: "g", persona: "night-owl", enqueue: false }))).json()).workDef;
     assertEquals(solo.persona, "night-owl");
-    const sched = (await (await app.request("/api/work-defs", json("POST", { title: "Nightly", goal: "g", type: "Scheduled", cron: "0 3 * * *", persona: "builtin:worker" }))).json()).workDef;
+    const sched = (await (await app.request("/api/work-defs", jsonInit("POST", { title: "Nightly", goal: "g", type: "Scheduled", cron: "0 3 * * *", persona: "builtin:worker" }))).json()).workDef;
     assertEquals(sched.persona, "builtin:worker");
     // Not part of the locked definition: an active def's persona can change, and be cleared.
-    assertEquals((await app.request(`/api/work-defs/${sched.id}`, json("PUT", { persona: "night-owl" }))).status, 200);
+    assertEquals((await app.request(`/api/work-defs/${sched.id}`, jsonInit("PUT", { persona: "night-owl" }))).status, 200);
     assertEquals(store.getWorkDef(sched.id)!.persona, "night-owl");
-    assertEquals((await app.request(`/api/work-defs/${sched.id}`, json("PUT", { persona: null }))).status, 200);
+    assertEquals((await app.request(`/api/work-defs/${sched.id}`, jsonInit("PUT", { persona: null }))).status, 200);
     assertEquals(store.getWorkDef(sched.id)!.persona, undefined);
     // The persona shows up in "Used by".
     assertEquals(store.getPersonaUsage("night-owl"), [{ kind: "workdef", workDefId: solo.id, title: "Solo" }]);
 
     store.createStory("s1", "S", "d", "open", [], [{ title: "Board", description: "g" }], undefined, true);
     const boardId = store.getTasksForStory("s1")[0]!.id;
-    const refused = await app.request(`/api/work-defs/${boardId}`, json("PUT", { persona: "night-owl" }));
+    const refused = await app.request(`/api/work-defs/${boardId}`, jsonInit("PUT", { persona: "night-owl" }));
     assertEquals(refused.status, 400);
     assertStringIncludes((await refused.json()).error, "workflow state");
-  } finally { cleanup(); }
+  });
 });
 
 test("routes: the work-item and agent views carry the persona snapshot", async () => {
-  const { app, store, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const def = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" });
     const item = store.getWorkItems({ states: ["READY"] }).items.find((wi) => wi.ref.workDefId === def.id)!;
     store.registerMember("a1", "swift-neo", "/tmp");
@@ -296,5 +272,5 @@ test("routes: the work-item and agent views carry the persona snapshot", async (
     const agents = (await (await app.request("/api/agents")).json()).agents;
     assertEquals(agents[0].persona.id, "builtin:worker");
     assertEquals(agents[0].workItemId, item.id);
-  } finally { cleanup(); }
+  });
 });

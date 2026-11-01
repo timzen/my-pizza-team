@@ -12,42 +12,19 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
+import { makeTeam, withTeam, post, put } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import {
   ASSISTANT_CHAT_FRAMING, ASSISTANT_TERMINAL_FRAMING, assistantFraming, composeSystemPrompt,
 } from "../daemon/routes/assistant.ts";
-import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR, type TeamConfig } from "../shared/types.ts";
+import { ASSISTANT_DIR, ASSISTANT_SESSIONS_DIR } from "../shared/types.ts";
 import * as path from "node:path";
-
-function setup(configOverride?: Partial<TeamConfig>) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-asst-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...TEST_CONFIG, ...configOverride };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-}
-
-function post(app: ReturnType<typeof buildApp>, url: string, body?: unknown) {
-  return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body ?? {}) });
-}
-
-function put(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
-  return app.request(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-}
 
 // ─── Sending ─────────────────────────────────────────────────────────
 
 test("POST /api/assistant/messages appends a queued user message and opens a session", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const res = await post(app, "/api/assistant/messages", { content: "Hi there" });
     assertEquals(res.status, 201);
     const body = await res.json();
@@ -61,19 +38,17 @@ test("POST /api/assistant/messages appends a queued user message and opens a ses
     assertEquals(session.status, "active");
     assertEquals(session.title, "Hi there");
     assertEquals(store.getAssistantMessages().length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("POST requires content", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     assertEquals((await post(app, "/api/assistant/messages", {})).status, 400);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("sending never blocks: many messages queue up while the agent works", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     // No turn, no lock: three sends in a row all land, in order.
     for (const text of ["one", "two", "three"]) {
       assertEquals((await post(app, "/api/assistant/messages", { content: text })).status, 201);
@@ -85,12 +60,11 @@ test("sending never blocks: many messages queue up while the agent works", async
     store.ackAssistantInbox([inbox[0]!.id], "delivered");
     assertEquals((await post(app, "/api/assistant/messages", { content: "four" })).status, 201);
     assertEquals(store.getAssistantInbox().length, 3); // two, three, four
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("replyTo quotes the original for the UI and for the agent", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const first = await (await post(app, "/api/assistant/messages", { content: "which stories are blocked?" })).json();
     await post(app, "/api/assistant/bubbles", { content: "auth-refresh and billing-sync." });
     const bubble = store.getAssistantMessages().find((m) => m.role === "assistant")!;
@@ -103,14 +77,13 @@ test("replyTo quotes the original for the UI and for the agent", async () => {
     const item = store.getAssistantInbox().find((m) => m.id === reply.userMessage.id)!;
     assertEquals(item.quoted, "auth-refresh and billing-sync.");
     assertExists(first.userMessage.id);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Inbox + receipts ────────────────────────────────────────────────
 
 test("receipts advance queued → delivered → read and never go backwards", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     // The inbox is only served to the designated chat agent (the leader).
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     const sent = await (await post(app, "/api/assistant/messages", { content: "status?" })).json();
@@ -131,12 +104,11 @@ test("receipts advance queued → delivered → read and never go backwards", as
     // Regression: a late 'delivered' ack can't un-read a message.
     await post(app, "/api/assistant/inbox/ack", { ids: [id], state: "delivered" });
     assertEquals(store.getAssistantMessage(id)!.delivery, "read");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("terminal-origin messages are mirrored in as already-read", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     // Typed in the agent's tmux pane: it is already in the agent's context, so
     // it must never be replayed to Pi via the inbox.
     const res = await post(app, "/api/assistant/messages", { content: "hey from tmux", origin: "tui" });
@@ -144,14 +116,13 @@ test("terminal-origin messages are mirrored in as already-read", async () => {
     assertEquals(body.userMessage.origin, "tui");
     assertEquals(body.userMessage.delivery, "read");
     assertEquals(store.getAssistantInbox().length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Mirroring out ───────────────────────────────────────────────────
 
 test("bubbles mirror the agent's reply; failures render as failed bubbles", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     await post(app, "/api/assistant/messages", { content: "hi" });
     assertEquals((await post(app, "/api/assistant/bubbles", { content: "Hey!" })).status, 201);
     await post(app, "/api/assistant/bubbles", { content: "Two stories are blocked." });
@@ -162,12 +133,11 @@ test("bubbles mirror the agent's reply; failures render as failed bubbles", asyn
     assertEquals(bubbles.map((b) => b.state), ["ok", "ok", "failed"]);
     assertEquals(bubbles[0]!.origin, "agent");
     assertEquals((await post(app, "/api/assistant/bubbles", {})).status, 400);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("thoughts are ephemeral, capped, and drive the thinking indicator", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     await post(app, "/api/assistant/messages", { content: "hi" });
     await post(app, "/api/assistant/thoughts", { clear: true, thinking: true });
     await post(app, "/api/assistant/thoughts", { chunk: "let me check " });
@@ -191,14 +161,13 @@ test("thoughts are ephemeral, capped, and drive the thinking indicator", async (
 
     // Reasoning is never persisted as conversation.
     assertEquals(store.getAssistantMessages().filter((m) => m.role !== "user").length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── SSE stream ──────────────────────────────────────────────────────
 
 test("SSE stream pushes a hello frame and then new messages", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await app.request("/api/assistant/stream");
     assertEquals(res.headers.get("Content-Type"), "text/event-stream");
     const reader = res.body!.getReader();
@@ -216,14 +185,13 @@ test("SSE stream pushes a hello frame and then new messages", async () => {
     assertStringIncludes(frames, "streamed");
 
     await reader.cancel();
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Sessions ────────────────────────────────────────────────────────
 
 test("new chat ends + snapshots the session instead of deleting it", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     await post(app, "/api/assistant/messages", { content: "first conversation" });
     await post(app, "/api/assistant/bubbles", { content: "Reply in the first conversation." });
     const first = store.getActiveAssistantSession()!;
@@ -246,12 +214,11 @@ test("new chat ends + snapshots the session instead of deleting it", async () =>
     assertEquals(store.getAssistantMessages(active.id).map((m) => m.role), ["system"]);
     assertEquals(store.getAssistantMessages(first.id).length, 2);
     assertEquals(store.listAssistantSessions().length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET messages?sessionId= reads an earlier session; snapshot is downloadable", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     await post(app, "/api/assistant/messages", { content: "old talk" });
     const old = store.getActiveAssistantSession()!;
     await post(app, "/api/assistant/sessions/new");
@@ -265,12 +232,11 @@ test("GET messages?sessionId= reads an earlier session; snapshot is downloadable
     assertEquals((await app.request("/api/assistant/messages?sessionId=nope")).status, 404);
     const md = await (await app.request(`/api/assistant/sessions/${encodeURIComponent(old.id)}/snapshot`)).text();
     assertStringIncludes(md, "old talk");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("resume reopens a session and asks the agent to switch its Pi session", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     // An online leader is needed for the directive to be routable (it is the chat agent).
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     await post(app, "/api/assistant/messages", { content: "the first chat" });
@@ -293,12 +259,11 @@ test("resume reopens a session and asks the agent to switch its Pi session", asy
     assertEquals(store.getLeaderDirectives().some((d) => d.action === "resume-session"), false);
 
     assertEquals((await post(app, "/api/assistant/sessions/nope/resume")).status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("resume without a recorded Pi session reports degraded context", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     await post(app, "/api/assistant/messages", { content: "no pi session recorded" });
     const first = store.getActiveAssistantSession()!;
     await post(app, "/api/assistant/sessions/new");
@@ -306,24 +271,22 @@ test("resume without a recorded Pi session reports degraded context", async () =
     const body = await (await post(app, `/api/assistant/sessions/${encodeURIComponent(first.id)}/resume`)).json();
     assertEquals(body.success, true);
     assertEquals(body.contextRestored, false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("DELETE a message removes it from the transcript", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const sent = await (await post(app, "/api/assistant/messages", { content: "oops" })).json();
     assertEquals((await app.request(`/api/assistant/messages/${sent.userMessage.id}`, { method: "DELETE" })).status, 200);
     assertEquals(store.getAssistantMessages().length, 0);
     assertEquals((await app.request("/api/assistant/messages/nope", { method: "DELETE" })).status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Persona ─────────────────────────────────────────────────────────
 
 test("persona: defaults to none, can be set and cleared", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     let body = await (await app.request("/api/assistant/persona")).json();
     assertEquals(body.personaId, null);
     // Framing is always vended, with the default persona behind it.
@@ -349,19 +312,19 @@ test("persona: defaults to none, can be set and cleared", async () => {
     body = await (await put(app, "/api/assistant/persona", { personaId: null })).json();
     assertEquals(body.personaId, null);
     assertEquals((await put(app, "/api/assistant/persona", { personaId: "missing" })).status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("persona: the framing follows assistant.chatMode (chat default, terminal on request)", async () => {
   // Default (no `assistant` block): the iMessage-style chat framing.
-  let env = setup();
+  let env = makeTeam();
   try {
     const body = await (await env.app.request("/api/assistant/persona")).json();
     assertStringIncludes(body.systemPrompt, "You are in a live chat");
-  } finally { cleanup(env.teamDir, env.store); }
+  } finally { env.cleanup(); }
 
   // Terminal mode: no bubble instructions, the terminal framing instead.
-  env = setup({ assistant: { chatMode: "terminal" } });
+  env = makeTeam({ assistant: { chatMode: "terminal" } });
   try {
     let body = await (await env.app.request("/api/assistant/persona")).json();
     assertStringIncludes(body.systemPrompt, "live terminal session");
@@ -374,25 +337,24 @@ test("persona: the framing follows assistant.chatMode (chat default, terminal on
     body = await (await put(env.app, "/api/assistant/persona", { personaId: id })).json();
     assertStringIncludes(body.systemPrompt, "live terminal session");
     assertStringIncludes(body.systemPrompt, "gruff pizzaiolo");
-  } finally { cleanup(env.teamDir, env.store); }
+  } finally { env.cleanup(); }
 
   // An invalid hand-edited mode falls back to chat.
-  env = setup({ assistant: { chatMode: "bogus" as never } });
+  env = makeTeam({ assistant: { chatMode: "bogus" as never } });
   try {
     const body = await (await env.app.request("/api/assistant/persona")).json();
     assertStringIncludes(body.systemPrompt, "You are in a live chat");
-  } finally { cleanup(env.teamDir, env.store); }
+  } finally { env.cleanup(); }
 });
 
 test("persona: a chatMode change via PUT /api/config applies to the next fetch (no restart)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const current = await (await app.request("/api/config")).json();
     const res = await put(app, "/api/config", { ...current, assistant: { chatMode: "terminal" } });
     assertEquals((await res.json()).success, true);
     const body = await (await app.request("/api/assistant/persona")).json();
     assertStringIncludes(body.systemPrompt, "live terminal session");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("assistantFraming selects the framing by mode", () => {
@@ -403,8 +365,7 @@ test("assistantFraming selects the framing by mode", () => {
 });
 
 test("persona swap ends the session (snapshotted) instead of wiping the chat", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     await post(app, "/api/assistant/messages", { content: "talking to the default" });
     const before = store.getActiveAssistantSession()!;
@@ -422,7 +383,7 @@ test("persona swap ends the session (snapshotted) instead of wiping the chat", a
 
     // The agent is asked to roll its Pi session so its context matches.
     assertEquals(store.getMemberDirectives("leader").some((d) => d.action === "new-session"), true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Migration ───────────────────────────────────────────────────────
@@ -470,8 +431,7 @@ test("vestiges of the v1 turn model are dropped, not carried", async () => {
 });
 
 test("the leader is the chat agent; the inbox is gated on designation", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     // No leader online: the message still queues, and waits for one.
     const queued = await (await post(app, "/api/assistant/messages", { content: "anyone?" })).json();
     assertEquals(queued.chatAgent, null);
@@ -490,7 +450,7 @@ test("the leader is the chat agent; the inbox is gated on designation", async ()
     assertEquals(other.messages.length, 0);
     // A missing agentId must not leak the inbox either.
     assertEquals((await (await app.request("/api/assistant/inbox")).json()).messages.length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("two sessions minted in the same millisecond both survive", async () => {
@@ -499,8 +459,7 @@ test("two sessions minted in the same millisecond both survive", async () => {
   // in one millisecond the insert threw, surfacing as a 500 from
   // /api/assistant/sessions/new and no new session at all — intermittent, and more
   // likely under load, which is how the suite caught it.
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
 
     // Pin the clock so every session lands in the same millisecond.
@@ -521,12 +480,11 @@ test("two sessions minted in the same millisecond both survive", async () => {
     assertEquals(sessions.length, 4, "each roll should have produced a distinct session");
     assertEquals(new Set(sessions.map((s) => s.id)).size, 4, "session ids must be unique");
     assertEquals(sessions.filter((s) => s.status === "active").length, 1, "exactly one stays active");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("session directives are addressed to the leader", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store, teamDir }) => {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     await post(app, "/api/assistant/messages", { content: "first chat" });
     await post(app, "/api/assistant/sessions/new");
@@ -535,13 +493,12 @@ test("session directives are addressed to the leader", async () => {
     // on its self-directive queue and not in the tmux-driven leader queue.
     assertEquals(store.getMemberDirectives("leader").some((d) => d.action === "new-session"), true);
     assertEquals(store.getLeaderDirectives().some((d) => d.action === "new-session"), false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("spawning always mints a teammate name (no reserved assistant identity)", async () => {
   // Pool pinned to 0 so registering the leader doesn't auto-queue pool spawns.
-  const { app, store, teamDir } = setup({ minTeammates: 0 });
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store, teamDir }) => {
     await post(app, "/api/agents/register", { id: "leader", name: "leader", directory: teamDir });
     // `reason: "assistant"` used to mint the singleton name; now it's just a spawn.
     await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "assistant" } });
@@ -550,5 +507,5 @@ test("spawning always mints a teammate name (no reserved assistant identity)", a
     assertEquals(names.length, 2);
     assertEquals(names.includes("assistant"), false);
     assertEquals(new Set(names).size, 2, "spawn names must be unique");
-  } finally { cleanup(teamDir, store); }
+  });
 });

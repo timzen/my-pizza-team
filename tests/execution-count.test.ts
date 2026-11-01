@@ -8,26 +8,11 @@
  * routes agreeing with the store.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import * as path from "node:path";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
+import { withTeam } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
 
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-exec-count-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { app, store, teamDir };
-}
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
 const def = (store: Store, title: string) =>
   store.createWorkDef({ title, goal: "g", acceptanceCriteria: "a" }, false);
 
@@ -40,17 +25,15 @@ function runOnce(store: Store, id: string, outcome: "COMPLETE" | "FAILED" = "COM
 }
 
 test("execution count: 0 for a WorkDef that never ran", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const d = def(store, "Never");
     assertEquals(store.getExecutionStatsFor(d.id), { executionCount: 0, lastRunAt: null });
     assertEquals(store.getExecutionStats().has(d.id), false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("execution count: 1, then many; lastRunAt is the latest enqueue", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const d = def(store, "Busy");
     const first = runOnce(store, d.id);
     assertEquals(store.getExecutionStatsFor(d.id).executionCount, 1);
@@ -62,12 +45,11 @@ test("execution count: 1, then many; lastRunAt is the latest enqueue", () => {
     assertEquals(stats.executionCount, 3);
     assertEquals(stats.lastRunAt, store.getWorkItem(last)!.enqueuedAt);
     assertEquals(store.getExecutionStats().get(d.id), stats);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("execution count: CANCELED items are excluded; READY and in-flight count", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const d = def(store, "Policy");
     const canceled = store.enqueueWorkDef(d.id)!;
     store.cancelWorkItem(canceled.id);
@@ -77,12 +59,11 @@ test("execution count: CANCELED items are excluded; READY and in-flight count", 
     assertEquals(store.getExecutionStatsFor(d.id).executionCount, 1);
     store.claimWorkItem(ready.id, "agent-1"); // in flight: still one
     assertEquals(store.getExecutionStatsFor(d.id).executionCount, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("execution count: stats are per WorkDef", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = def(store, "A");
     const b = def(store, "B");
     runOnce(store, a.id);
@@ -91,12 +72,11 @@ test("execution count: stats are per WorkDef", () => {
     const stats = store.getExecutionStats();
     assertEquals(stats.get(a.id)?.executionCount, 2);
     assertEquals(stats.get(b.id)?.executionCount, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("execution count: list and detail APIs expose it, archived defs included", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const never = def(store, "Never");
     const twice = def(store, "Twice");
     runOnce(store, twice.id);
@@ -116,5 +96,5 @@ test("execution count: list and detail APIs expose it, archived defs included", 
     store.archiveWorkDef(twice.id);
     const archived = await (await app.request("/api/work-defs?status=archived")).json();
     assertEquals(archived.workDefs.find((d: { id: string }) => d.id === twice.id).executionCount, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });

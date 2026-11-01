@@ -11,32 +11,12 @@
  * still work for one release.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assert, assertEquals } from "./_assert.ts";
-import * as path from "node:path";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
+import { withTeam, post, put } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
 import { parseWorkDef, serializeWorkDef } from "../daemon/store/workdefs.ts";
 
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-pending-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { app, store, teamDir };
-}
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-const JSON_HEADERS = { "Content-Type": "application/json" };
-const post = (app: ReturnType<typeof buildApp>, url: string, body: unknown = {}) =>
-  app.request(url, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) });
-const put = (app: ReturnType<typeof buildApp>, url: string, body: unknown) =>
-  app.request(url, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body) });
 const readyCount = (store: Store) => store.getWorkItems({ states: ["READY"] }).total;
 
 test("pending frontmatter round-trips; absent means active", () => {
@@ -57,8 +37,7 @@ test("legacy draft: true frontmatter loads as pending and is rewritten as pendin
 });
 
 test("a Solitary pending task is not enqueued, can't be Run, and stays editable", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const res = await post(app, "/api/work-defs", { title: "Pending job", goal: "g", acceptanceCriteria: "a", pending: true });
     assertEquals(res.status, 201);
     const { workDef } = await res.json();
@@ -74,12 +53,11 @@ test("a Solitary pending task is not enqueued, can't be Run, and stays editable"
     assertEquals(edit.status, 200);
     assertEquals((await edit.json()).workDef.goal, "better goal");
     assertEquals(readyCount(store), 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("activating a Solitary pending task enqueues it and locks its definition", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Pending job", goal: "g", acceptanceCriteria: "a", pending: true })).json();
     const pub = await post(app, `/api/work-defs/${workDef.id}/activate`);
     assertEquals(pub.status, 200);
@@ -96,34 +74,31 @@ test("activating a Solitary pending task enqueues it and locks its definition", 
     // Activating twice is a 409; an unknown id is a 404.
     assertEquals((await post(app, `/api/work-defs/${workDef.id}/activate`)).status, 409);
     assertEquals((await post(app, "/api/work-defs/nope/activate")).status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("activate with enqueue:false activates a Solitary pending task without running it", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Later", goal: "g", pending: true })).json();
     const body = await (await post(app, `/api/work-defs/${workDef.id}/activate`, { enqueue: false })).json();
     assertEquals(body.success, true);
     assertEquals(body.workItemId, null);
     assertEquals(readyCount(store), 0);
     assertEquals(store.isPending(workDef.id), false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("existing (non-pending) WorkDefs are active: PUT refused, Run works", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Live", goal: "g", enqueue: false })).json();
     assertEquals(workDef.pending, false);
     assertEquals((await put(app, `/api/work-defs/${workDef.id}`, { title: "Renamed" })).status, 409);
     assertEquals((await post(app, `/api/work-defs/${workDef.id}/enqueue`)).status, 200);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a Scheduled pending job never fires; once activated, a cron-only edit is still allowed", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const { workDef } = await (await post(app, "/api/work-defs", { type: "Scheduled", cron: "* * * * *", title: "Minutely", goal: "g", pending: true })).json();
     store.runScheduler(new Date());
     assertEquals(readyCount(store), 0);
@@ -136,12 +111,11 @@ test("a Scheduled pending job never fires; once activated, a cron-only edit is s
 
     assertEquals((await put(app, `/api/work-defs/${workDef.id}`, { cron: "0 9 * * *" })).status, 200);
     assertEquals((await put(app, `/api/work-defs/${workDef.id}`, { cron: "0 9 * * *", goal: "x" })).status, 409);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a pending board task holds its story's slot until activated", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     // First task is pending: nothing is admitted, and the second task waits behind it.
     store.createStory("s", "S", "d", "open", [], [
       { title: "Step one", description: "d1", pending: true },
@@ -161,12 +135,11 @@ test("a pending board task holds its story's slot until activated", async () => 
     assertEquals(store.getTask("s-1")?.status, "in_progress");
     assertEquals(readyCount(store), 1);
     assertEquals((await put(app, "/api/work-defs/s-1", { goal: "late edit" })).status, 409);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a pending board task moved into an agent state gets no WorkItem until activated", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("m", "M", "d", "open", [], []);
     const added = await (await post(app, "/api/stories/m/tasks", { title: "T", description: "d", pending: true })).json();
     assertEquals(added.task.pending, true);
@@ -177,12 +150,11 @@ test("a pending board task moved into an agent state gets no WorkItem until acti
 
     await post(app, `/api/work-defs/${added.task.id}/activate`);
     assertEquals(readyCount(store), 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("deprecated aliases: draft:true creates pending, POST …/publish activates", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const { workDef } = await (await post(app, "/api/work-defs", { title: "Old client", goal: "g", draft: true })).json();
     assertEquals(workDef.pending, true);
     assertEquals(readyCount(store), 0);
@@ -197,5 +169,5 @@ test("deprecated aliases: draft:true creates pending, POST …/publish activates
     assertEquals(added.task.pending, true);
     const created = await (await post(app, "/api/stories", { id: "b", title: "B", description: "d", workflow: "default", tasks: [{ title: "T", description: "d", draft: true }] })).json();
     assertEquals(created.story.tasks[0].pending, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });

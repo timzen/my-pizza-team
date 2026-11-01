@@ -13,10 +13,10 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assert, assertEquals, assertThrows } from "./_assert.ts";
+import { makeTeam, withTeam, JSON_HEADERS } from "./_team.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { buildApp } from "../daemon/server.ts";
 import { SourceRegistry, sourceIdForWorkDef, TASK_SOURCE_ID } from "../daemon/sources/registry.ts";
 import { SCHEDULE_SOURCE_ID } from "../daemon/sources/schedule.ts";
 import { THOUGHT_SOURCE_ID } from "../daemon/sources/thought.ts";
@@ -25,17 +25,6 @@ import { enqueueRevision, kvRevisionCursor, revisionKey } from "../daemon/source
 import { fileSourceKv, SOURCES_DIR } from "../daemon/store/source-kv.ts";
 import type { SourceContext, SourceKv, WorkSource } from "../daemon/sources/types.ts";
 import type { WorkDef, WorkItem } from "../shared/types.ts";
-
-function setup(): { store: Store; teamDir: string } {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-sources-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  return { store: new Store(teamDir, TEST_CONFIG), teamDir };
-}
-
-function cleanup(teamDir: string, store: Store): void {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
 
 /** An in-memory `SourceKv`. */
 function memoryKv(): SourceKv & { data: Map<string, string> } {
@@ -52,8 +41,6 @@ function stubContext(sourceId: string, logs: string[] = []): SourceContext {
     readiness: { canEnqueueNow: () => true },
   };
 }
-
-const JSON_HEADERS = { "Content-Type": "application/json" };
 
 test("sourceIdForWorkDef: parent.kind, or 'task' with no parent", () => {
   assertEquals(sourceIdForWorkDef({}), TASK_SOURCE_ID);
@@ -93,8 +80,7 @@ test("SourceRegistry: tickAll ticks every source and isolates one that throws", 
 });
 
 test("Store: the Task, Story, Schedule, and Thought sources are registered as built-ins", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     assertEquals(store.getWorkSourceFor({ parent: { kind: "schedule", id: "s" } })?.source.id, SCHEDULE_SOURCE_ID);
     assertEquals(store.getWorkSourceFor({})?.source.id, TASK_SOURCE_ID);
     assertEquals(store.getWorkSourceFor({ parent: { kind: "thought", id: "n" } })?.source.id, THOUGHT_SOURCE_ID);
@@ -102,24 +88,22 @@ test("Store: the Task, Story, Schedule, and Thought sources are registered as bu
     assertThrows(() => store.registerWorkSource({ id: STORY_SOURCE_ID, apiVersion: 1 }), Error, "already registered");
     assertThrows(() => store.registerWorkSource({ id: SCHEDULE_SOURCE_ID, apiVersion: 1 }), Error, "already registered");
     assertThrows(() => store.registerWorkSource({ id: THOUGHT_SOURCE_ID, apiVersion: 1 }), Error, "already registered");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Store: tickWorkSources fires the Schedule source (due cron enqueues once)", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const sched = store.createSchedule({ title: "Every minute", cron: "* * * * *" });
     store.createWorkDef({ title: "Job", goal: "g", acceptanceCriteria: "a", parent: { kind: "schedule", id: sched.id } }, false);
     const now = new Date();
     store.tickWorkSources(now);
     store.tickWorkSources(now);
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Store: a registered source's hooks are called (resolveItem, isEligible, buildPrompt, onItemTerminal, tick)", async () => {
-  const { store, teamDir } = setup();
-  const app = buildApp(store, TEST_CONFIG, teamDir);
+  const { store, app, cleanup } = makeTeam();
   try {
     let eligible = false;
     const terminal: Array<{ def: string; state: WorkItem["state"] }> = [];
@@ -167,26 +151,24 @@ test("Store: a registered source's hooks are called (resolveItem, isEligible, bu
     // tick: driven by the daemon.
     store.tickWorkSources();
     assertEquals(ticks, 1);
-  } finally { cleanup(teamDir, store); }
+  } finally { cleanup(); }
 });
 
 test("Store: a source still can't enqueue a pending WorkDef (the single enqueueFor refuses)", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     let ctx: SourceContext | null = null;
     store.unregisterWorkSource(TASK_SOURCE_ID);
     store.registerWorkSource({ id: TASK_SOURCE_ID, apiVersion: 1, init: (c) => { ctx = c; } });
     const def = store.createWorkDef({ title: "Held", goal: "g", acceptanceCriteria: "a", pending: true });
     assertEquals(ctx!.enqueue(def.id), null);
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── The built-in Story source: board policy through the hooks ──────
 
 test("Store: board tasks go through the Story source (directory fallback, eligibility, advance outcome)", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("s1", "S", "d", "open", [], [{ title: "T1", description: "g" }], undefined, false, "/repo/story");
     const task = store.getTasksForStory("s1")[0]!;
     const def = store.getWorkDef(task.id)!;
@@ -208,7 +190,7 @@ test("Store: board tasks go through the Story source (directory fallback, eligib
     assert(res.ok && typeof res.newStatus === "string");
     assertEquals(store.getAssignment(task.id), null);
     assertEquals(store.getTask(task.id)?.status, res.newStatus);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── tickSchedule (per-source timers) ───────────────────────────────
@@ -315,8 +297,7 @@ test("fileSourceKv: persists per source under sources/<id>.json", () => {
 });
 
 test("Store: ctx.enqueueRevision goes through enqueueFor and the source's kv", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     let ctx: SourceContext | null = null;
     store.unregisterWorkSource(TASK_SOURCE_ID);
     store.registerWorkSource({ id: TASK_SOURCE_ID, apiVersion: 1, init: (c) => { ctx = c; } });
@@ -334,14 +315,13 @@ test("Store: ctx.enqueueRevision goes through enqueueFor and the source's kv", (
     // Pending defs still never enqueue.
     const held = store.createWorkDef({ title: "Held", goal: "g", acceptanceCriteria: "a", pending: true });
     assertEquals(ctx!.enqueueRevision(held.id, "r"), null);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── The built-in Task source: Run and activate ─────────────────────
 
 test("Store: runWorkDef / activateWorkDef follow the Solitary rules through the Task source", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const def = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "a" }, false);
     const run = store.runWorkDef(def.id);
     assert(run.ok);
@@ -357,5 +337,5 @@ test("Store: runWorkDef / activateWorkDef follow the Solitary rules through the 
     const quiet = store.createWorkDef({ title: "Q", goal: "g", acceptanceCriteria: "a", pending: true });
     const actQuiet = store.activateWorkDef(quiet.id, { enqueue: false });
     assert(actQuiet && !("error" in actQuiet) && actQuiet.workItem === null);
-  } finally { cleanup(teamDir, store); }
+  });
 });

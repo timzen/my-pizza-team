@@ -15,20 +15,12 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assert, assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
+import { makeTeam, withTeam } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
-import { directoriesOverlap, type TeamConfig, type WorkItem } from "../shared/types.ts";
+import { directoriesOverlap, type WorkItem } from "../shared/types.ts";
 import * as path from "node:path";
-
-function setup(overrides: Partial<TeamConfig> = {}) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-lease-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
-  const store = new Store(teamDir, config);
-  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ } };
-  return { store, config, teamDir, cleanup };
-}
 
 /** Create a standalone WorkDef in `directory` and return its READY WorkItem. */
 function enqueue(store: Store, title: string, directory?: string): WorkItem {
@@ -60,8 +52,7 @@ test("directoriesOverlap compares path segments, not string prefixes", () => {
 });
 
 test("lease: two items in one directory run one at a time; COMPLETE frees it", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = enqueue(store, "A", "/ws/repo");
     const b = enqueue(store, "B", "/ws/repo");
     assertEquals(next(store)!.id, a.id);
@@ -74,12 +65,11 @@ test("lease: two items in one directory run one at a time; COMPLETE frees it", (
     assert(store.setWorkItemState(a.id, "COMPLETE").ok);
     assertEquals(store.getDirectoryBlocker(b), null);
     assertEquals(next(store)!.id, b.id);
-  } finally { cleanup(); }
+  });
 });
 
 test("lease: FAILED and CANCELED free it too", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = enqueue(store, "A", "/ws/repo");
     const b = enqueue(store, "B", "/ws/repo");
     const c = enqueue(store, "C", "/ws/repo");
@@ -92,11 +82,11 @@ test("lease: FAILED and CANCELED free it too", () => {
     store.deleteWorkDef(b.ref.workDefId);
     assertEquals(store.getWorkItem(b.id)!.state, "CANCELED");
     assertEquals(next(store)!.id, c.id);
-  } finally { cleanup(); }
+  });
 });
 
 test("lease: parent/child directories conflict; unrelated (incl. shared prefixes) run in parallel", () => {
-  const { store, cleanup } = setup();
+  const { store, cleanup } = makeTeam();
   try {
     enqueue(store, "parent", "/ws/mpt-dev");
     enqueue(store, "child", "/ws/mpt-dev/my-pizza-team");
@@ -106,7 +96,7 @@ test("lease: parent/child directories conflict; unrelated (incl. shared prefixes
     assertEquals(drain(store), ["parent", "foo", "foobar"]);
   } finally { cleanup(); }
 
-  const second = setup();
+  const second = makeTeam();
   try {
     // And the other way round: a child in flight blocks its parent.
     const child = enqueue(second.store, "child", "/ws/mpt-dev/my-pizza-team");
@@ -118,7 +108,7 @@ test("lease: parent/child directories conflict; unrelated (incl. shared prefixes
 });
 
 test("lease: overlap is found across a symlink (normalizeDirectory on both sides)", () => {
-  const { store, cleanup } = setup();
+  const { store, cleanup } = makeTeam();
   const root = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "mpt-lease-link-")));
   try {
     const real = path.join(root, "repo");
@@ -136,8 +126,7 @@ test("lease: overlap is found across a symlink (normalizeDirectory on both sides
 });
 
 test("lease: a teammate's registered directory neither takes nor blocks a lease", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     // Teammates are online in /ws/repo and its parent, idle.
     store.registerMember("home", "home", "/ws/repo");
     store.registerMember("up", "up", "/ws");
@@ -146,12 +135,11 @@ test("lease: a teammate's registered directory neither takes nor blocks a lease"
     assertEquals(store.getNextWorkItem({ id: "home", directory: "/ws/repo" })!.id, a.id);
     assertEquals(store.getDirectoryBlocker(a), null);
     assert(store.claimWorkItem(a.id, "home"));
-  } finally { cleanup(); }
+  });
 });
 
 test("lease: items with no directory are exempt both ways", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const free1 = enqueue(store, "free1");
     const dir = enqueue(store, "dir", "/ws/repo");
     const free2 = enqueue(store, "free2");
@@ -163,7 +151,7 @@ test("lease: items with no directory are exempt both ways", () => {
     assert(store.claimWorkItem(free2.id, "ag"));
     const other = enqueue(store, "other", "/ws/other");
     assertEquals(next(store)!.id, other.id);
-  } finally { cleanup(); }
+  });
 });
 
 test("lease: a MORIBUND item keeps its directory until resolved (force-fail frees it)", () => {
@@ -191,8 +179,7 @@ test("lease: a MORIBUND item keeps its directory until resolved (force-fail free
 });
 
 test("lease: two agents polling at once can't both claim for one directory", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = enqueue(store, "A", "/ws/repo");
     const b = enqueue(store, "B", "/ws/repo/sub");
     // Both agents were offered work before either claimed (stale offers).
@@ -202,22 +189,20 @@ test("lease: two agents polling at once can't both claim for one directory", () 
     assertEquals(store.claimWorkItem(b.id, "ag-2"), false);
     assertEquals(store.getWorkItem(b.id)!.state, "READY");
     assertEquals(store.getWorkItem(b.id)!.memberId, undefined);
-  } finally { cleanup(); }
+  });
 });
 
 test("lease: exclusiveDirectories false restores unrestricted parallelism", () => {
-  const { store, cleanup } = setup({ exclusiveDirectories: false });
-  try {
+  return withTeam({ exclusiveDirectories: false }, ({ store }) => {
     enqueue(store, "A", "/ws/repo");
     enqueue(store, "B", "/ws/repo");
     enqueue(store, "C", "/ws/repo/sub");
     assertEquals(drain(store), ["A", "B", "C"]);
-  } finally { cleanup(); }
+  });
 });
 
 test("GET /api/work-items reports why a READY item is waiting", async () => {
-  const { store, config, teamDir, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ store, config, teamDir }) => {
     const app = buildApp(store, config, teamDir);
     store.registerMember("m1", "swift-ripley", "/elsewhere");
     const a = enqueue(store, "Holder", "/ws/repo");
@@ -239,12 +224,11 @@ test("GET /api/work-items reports why a READY item is waiting", async () => {
     });
     assertEquals(res.status, 409);
     assertStringIncludes((await res.json()).error, "directory busy (swift-ripley, Holder)");
-  } finally { cleanup(); }
+  });
 });
 
 test("PUT /api/config edits exclusiveDirectories (default on, persisted, live)", async () => {
-  const { store, config, teamDir, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ store, config, teamDir }) => {
     const app = buildApp(store, config, teamDir);
     const put = async (patch: Record<string, unknown>) => {
       const current = await (await app.request("/api/config")).json();
@@ -269,5 +253,5 @@ test("PUT /api/config edits exclusiveDirectories (default on, persisted, live)",
     assertEquals((await (await put({ exclusiveDirectories: true })).json()).success, true);
     assertEquals(onDisk().exclusiveDirectories, true);
     assertExists(store.getDirectoryBlocker(b));
-  } finally { cleanup(); }
+  });
 });

@@ -10,31 +10,15 @@
  * MORIBUND the same way, since the reaper never sees a member once it's gone.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { Store } from "../daemon/store.ts";
-import { type TeamConfig } from "../shared/types.ts";
-import * as path from "node:path";
+import { withTeam, type TeamOptions } from "./_team.ts";
 
-function createTempTeamDir(): string {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-heartbeat-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  return teamDir;
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-}
+/** Leaves `agentTimeoutSeconds` unset, as a config.json without it would. */
+const NO_TIMEOUT: TeamOptions = { beforeStore: (_teamDir, config) => { delete config.agentTimeoutSeconds; } };
 
 test("reapOfflineAgents marks timed-out agents as offline", () => {
-  const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
-  const store = new Store(teamDir, config);
-  try {
+  return withTeam({ agentTimeoutSeconds: 5 }, ({ store }) => {
     // Register agent with a heartbeat in the past (6 seconds ago > 5s timeout)
     store.registerMember("a1", "neo", "/tmp");
     // Manually backdate the heartbeat
@@ -45,27 +29,21 @@ test("reapOfflineAgents marks timed-out agents as offline", () => {
     const reaped = store.reapOfflineAgents();
     assertEquals(reaped, ["a1"]);
     assertEquals(store.getMember("a1")?.status, "offline");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reapOfflineAgents does not reap agents within timeout", () => {
-  const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 60 };
-  const store = new Store(teamDir, config);
-  try {
+  return withTeam({ agentTimeoutSeconds: 60 }, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     // Heartbeat is fresh (just registered)
     const reaped = store.reapOfflineAgents();
     assertEquals(reaped, []);
     assertEquals(store.getMember("a1")?.status, "idle");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
-  const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
-  const store = new Store(teamDir, config);
-  try {
+  return withTeam({ agentTimeoutSeconds: 5 }, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
     const item = store.getNextWorkItem({ id: "a1" })!;
@@ -83,14 +61,11 @@ test("reapOfflineAgents moves in-flight WorkItems to MORIBUND", () => {
     assertEquals(store.getWorkItem(item.id)!.state, "MORIBUND");
     assertEquals(store.getAssignment("s1-1")?.memberId, "a1");
     assertEquals(store.getMember("a1")?.status, "offline");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reapOfflineAgents skips already-offline agents", () => {
-  const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
-  const store = new Store(teamDir, config);
-  try {
+  return withTeam({ agentTimeoutSeconds: 5 }, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     // Mark offline first
     store.updateMemberStatus("a1", "offline");
@@ -101,14 +76,11 @@ test("reapOfflineAgents skips already-offline agents", () => {
 
     const reaped = store.reapOfflineAgents();
     assertEquals(reaped, []); // Should not reap again
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("agent comes back online after being reaped", () => {
-  const teamDir = createTempTeamDir();
-  const config: TeamConfig = { ...TEST_CONFIG, agentTimeoutSeconds: 5 };
-  const store = new Store(teamDir, config);
-  try {
+  return withTeam({ agentTimeoutSeconds: 5 }, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     // Backdate and reap
     (store as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } })
@@ -124,16 +96,12 @@ test("agent comes back online after being reaped", () => {
     // Should not be reaped now
     const reaped = store.reapOfflineAgents();
     assertEquals(reaped, []);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reapOfflineAgents uses default timeout when not configured", () => {
-  const teamDir = createTempTeamDir();
   // Don't set agentTimeoutSeconds — should default to 90
-  const config: TeamConfig = { ...TEST_CONFIG };
-  delete config.agentTimeoutSeconds;
-  const store = new Store(teamDir, config);
-  try {
+  return withTeam({}, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     // Backdate by 60s — should NOT be reaped (default is 90s)
     (store as unknown as { db: { prepare: (s: string) => { run: (...a: unknown[]) => void } } })
@@ -150,13 +118,11 @@ test("reapOfflineAgents uses default timeout when not configured", () => {
 
     const reaped2 = store.reapOfflineAgents();
     assertEquals(reaped2, ["a1"]);
-  } finally { cleanup(teamDir, store); }
+  }, NO_TIMEOUT);
 });
 
 test("removeMember moves a deregistered member's in-flight WorkItem to MORIBUND", () => {
-  const teamDir = createTempTeamDir();
-  const store = new Store(teamDir, TEST_CONFIG);
-  try {
+  return withTeam({}, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
     const item = store.getNextWorkItem({ id: "a1" })!;
@@ -171,13 +137,11 @@ test("removeMember moves a deregistered member's in-flight WorkItem to MORIBUND"
     assertEquals(store.getWorkItems({ workDefId: "s1-1" }).total, 1);
     assertEquals(store.forceFailWorkItem(item.id).ok, true);
     assertEquals(store.getWorkItem(item.id)!.state, "FAILED");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("removeMember of an idle member leaves WorkItems unchanged", () => {
-  const teamDir = createTempTeamDir();
-  const store = new Store(teamDir, TEST_CONFIG);
-  try {
+  return withTeam({}, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     store.registerMember("a2", "trinity", "/tmp");
     store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
@@ -188,13 +152,11 @@ test("removeMember of an idle member leaves WorkItems unchanged", () => {
     const after = store.getWorkItem(item.id)!;
     assertEquals(after.state, "IN_PROGRESS");
     assertEquals(after.memberId, "a2");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("removeMember after failing the item (mpt agent's stop) leaves it FAILED", () => {
-  const teamDir = createTempTeamDir();
-  const store = new Store(teamDir, TEST_CONFIG);
-  try {
+  return withTeam({}, ({ store }) => {
     store.registerMember("a1", "neo", "/tmp");
     store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
     const item = store.getNextWorkItem({ id: "a1" })!;
@@ -207,5 +169,5 @@ test("removeMember after failing the item (mpt agent's stop) leaves it FAILED", 
     store.removeMember("a1");
     assertEquals(store.getWorkItem(item.id)!.state, "FAILED");
     assertEquals(states(), before);
-  } finally { cleanup(teamDir, store); }
+  });
 });

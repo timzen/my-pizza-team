@@ -6,31 +6,10 @@
  * re-registration (a fresh session) clears them.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { withTeam, post } from "./_team.ts";
 import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
-import * as path from "node:path";
-
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-session-stats-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { app, store, teamDir };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-}
-
-function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
-  return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-}
 
 /** The `session` field GET /api/agents reports for one agent. */
 async function sessionOf(app: ReturnType<typeof buildApp>, id: string) {
@@ -39,8 +18,7 @@ async function sessionOf(app: ReturnType<typeof buildApp>, id: string) {
 }
 
 test("session stats: reported stats come back on GET /api/agents", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo", directory: "/tmp/repo" });
     assertEquals(await sessionOf(app, "t1"), null); // nothing reported yet
 
@@ -53,12 +31,11 @@ test("session stats: reported stats come back on GET /api/agents", async () => {
     assertEquals([s.contextTokens, s.contextWindow, s.contextPercent, s.costUsd], [84_000, 200_000, 42, 1.25]);
     assertEquals(s.model, { id: "claude-opus-4-5", name: "Claude Opus 4.5", provider: "anthropic" });
     assertEquals(typeof s.at, "number");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("session stats: unknown numbers are null, never a fake 0%", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo" });
     // Just after compaction Pi knows the window but not the tokens.
     await post(app, "/api/agents/t1/session-stats", { contextTokens: null, contextWindow: 200_000, contextPercent: null, costUsd: 0.5 });
@@ -76,23 +53,21 @@ test("session stats: unknown numbers are null, never a fake 0%", async () => {
     assertEquals((await sessionOf(app, "t1")).model, { id: "local-llama", name: "local-llama", provider: "" });
     await post(app, "/api/agents/t1/session-stats", { model: { name: "no id", provider: 7 } });
     assertEquals((await sessionOf(app, "t1")).model, null);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("session stats: an unknown agent is a 404", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await post(app, "/api/agents/ghost/session-stats", { costUsd: 1 });
     assertEquals(res.status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("session stats: re-registering (a fresh session) clears them", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo" });
     await post(app, "/api/agents/t1/session-stats", { contextTokens: 1000, contextWindow: 200_000, contextPercent: 0.5, costUsd: 3 });
     await post(app, "/api/agents/register", { id: "t1", name: "swift-neo" });
     assertEquals(await sessionOf(app, "t1"), null);
-  } finally { cleanup(teamDir, store); }
+  });
 });

@@ -6,32 +6,12 @@
  * /api/work-defs listing (it lives under templates/, separate from work).
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
-
-import * as path from "node:path";
-
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-templates-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { app, store, teamDir };
-}
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-const JSON_HEADERS = { "Content-Type": "application/json" };
+import { withTeam, JSON_HEADERS } from "./_team.ts";
 
 test("POST /api/templates creates a template (no WorkItem enqueued)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const res = await app.request("/api/templates", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ title: "Investigate a ticket", goal: "Dig into the ticket", acceptanceCriteria: "MUST summarize findings", directory: "/tmp/repo" }),
@@ -46,12 +26,11 @@ test("POST /api/templates creates a template (no WorkItem enqueued)", async () =
     assertEquals(store.getWorkItems({}).items.length, 0);
     const wds = await (await app.request("/api/work-defs")).json();
     assertEquals(wds.workDefs.length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET/PUT/DELETE /api/templates round-trips", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     await app.request("/api/templates", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ title: "Research package", goal: "Study the code", acceptanceCriteria: "MUST note the entry points" }),
@@ -73,13 +52,12 @@ test("GET/PUT/DELETE /api/templates round-trips", async () => {
     const del = await app.request(`/api/templates/${id}`, { method: "DELETE" });
     assertEquals((await del.json()).success, true);
     assertEquals((await (await app.request("/api/templates")).json()).templates.length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET /api/templates/:id 404s for unknown", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await app.request("/api/templates/nope");
     assertEquals(res.status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });

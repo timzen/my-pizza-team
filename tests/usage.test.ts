@@ -9,30 +9,13 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assertAlmostEquals, assertEquals } from "./_assert.ts";
+import { makeTeam, withTeam, post } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
 
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir };
-}
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-const post = (app: ReturnType<typeof buildApp>, url: string, body: unknown) =>
-  app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-
 test("usage: a chat run (no ref) is recorded with cache tokens and its kind", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app }) => {
     const res = await post(app, "/api/agents/leader/usage", {
       inputTokens: 3, outputTokens: 500, cacheReadTokens: 40_000, cacheWriteTokens: 2_000,
       model: "claude-opus", costUsd: 0.25, kind: "chat",
@@ -49,12 +32,11 @@ test("usage: a chat run (no ref) is recorded with cache tokens and its kind", as
     assertEquals(runs[0].kind, "chat");
     assertEquals(runs[0].title, "Assistant chat");
     assertEquals(runs[0].memberId, "leader");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("usage: a work run is recorded on the item's ref, with a title snapshot", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     const wd = await (await post(app, "/api/work-defs", { title: "Audit deps", goal: "do it" })).json();
     const item = store.getWorkItems({ states: ["READY"] }).items[0]!;
     await post(app, "/api/agents/t1/usage", { inputTokens: 10, outputTokens: 20, model: "m", costUsd: 0.1, kind: "work", workItemId: item.id });
@@ -63,34 +45,31 @@ test("usage: a work run is recorded on the item's ref, with a title snapshot", a
     assertEquals(runs[0]!.title, "Audit deps");
     // The per-WorkDef rollup (Tasks page cost) still sees it.
     assertAlmostEquals(store.getTokenUsageSummary({ workDefId: wd.workDef.id })!.totalCostUsd, 0.1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("usage: unknown kinds become 'other'; model is required", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app }) => {
     assertEquals((await post(app, "/api/agents/t1/usage", { inputTokens: 1 })).status, 400);
     await post(app, "/api/agents/t1/usage", { inputTokens: 1, outputTokens: 1, model: "m", costUsd: 0, kind: "bogus" });
     const daily = await (await app.request("/api/usage/daily?tzOffset=0")).json();
     assertEquals(daily.days[0].byKind.other.runs, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("usage: days bucket by the client's local timezone", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({ minTeammates: 0 }, ({ store }) => {
     // 2026-01-02 03:00 UTC is still Jan 1 in PDT-ish (UTC-8 → offset +480).
     const at = Date.UTC(2026, 0, 2, 3, 0, 0);
     store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 0, kind: "chat", at });
     const since = at - 86_400_000;
     assertEquals(store.getDailyUsage({ sinceMs: since, tzOffsetMin: 0 })[0]!.date, "2026-01-02");
     assertEquals(store.getDailyUsage({ sinceMs: since, tzOffsetMin: 480 })[0]!.date, "2026-01-01");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("usage: the ledger survives removing a story's live data (archive/delete)", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({ minTeammates: 0 }, ({ store }) => {
     const { tasks } = store.createStory("s1", "S", "desc", "open", [], [{ title: "T", description: "t" }], "default");
     const storyId = "s1";
     const taskId = tasks[0]!.id;
@@ -99,14 +78,13 @@ test("usage: the ledger survives removing a story's live data (archive/delete)",
     const runs = store.getUsageRunsOnDay({ date: new Date().toISOString().slice(0, 10), tzOffsetMin: 0 });
     assertEquals(runs.length, 1);
     assertAlmostEquals(runs[0]!.costUsd, 0.5);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── The files are the source of truth ──────────────────────────────
 
 test("files: each run is appended to usage/YYYY-MM.jsonl (committable)", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({ minTeammates: 0 }, ({ store, teamDir }) => {
     const at = Date.UTC(2026, 8, 24, 12);
     store.recordRunUsage({ inputTokens: 1, outputTokens: 2, cacheReadTokens: 30, model: "m", costUsd: 0.5, kind: "chat", memberId: "leader", at });
     const lines = fs.readFileSync(path.join(teamDir, "usage", "2026-09.jsonl"), "utf8").trim().split("\n");
@@ -115,11 +93,11 @@ test("files: each run is appended to usage/YYYY-MM.jsonl (committable)", () => {
     assertEquals(line.kind, "chat");
     assertEquals(line.cacheReadTokens, 30);
     assertEquals(line.at, new Date(at).toISOString());
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("files: a lost state.db is rebuilt from the ledger files", () => {
-  const { store, teamDir } = setup();
+  const { store, teamDir } = makeTeam({ minTeammates: 0 });
   try {
     store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 1.25, kind: "work", at: Date.UTC(2026, 8, 1) });
     store.close();
@@ -185,7 +163,7 @@ test("files: a DB row and its task.json mirror dedupe to one entry", () => {
 });
 
 test("files: a malformed ledger line is skipped, not fatal", () => {
-  const { store, teamDir } = setup();
+  const { store, teamDir } = makeTeam({ minTeammates: 0 });
   try {
     store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 0.1, kind: "chat", at: Date.UTC(2026, 8, 2) });
     fs.appendFileSync(path.join(teamDir, "usage", "2026-09.jsonl"), "{not json\n");

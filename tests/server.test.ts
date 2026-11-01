@@ -4,52 +4,28 @@
  * contract, the WorkItem queue, and WorkDefs.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
-
-import * as path from "node:path";
-
-function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: string } {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-server-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { app, store, teamDir };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-
-const JSON_HEADERS = { "Content-Type": "application/json" };
+import { withTeam, JSON_HEADERS } from "./_team.ts";
 
 test("GET /health returns ok", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await app.request("/health");
     assertEquals(res.status, 200);
     assertEquals((await res.json()).status, "ok");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET /api/status returns dashboard data", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const body = await (await app.request("/api/status")).json();
     assertEquals(body.running, true);
     assertEquals(body.defaultWorkflow, "default");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("POST /api/stories creates a story", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await app.request("/api/stories", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ id: "s1", title: "Story 1", description: "Test", workflow: "default", tasks: [{ title: "T1", description: "D1" }] }),
@@ -58,24 +34,22 @@ test("POST /api/stories creates a story", async () => {
     const body = await res.json();
     assertEquals(body.success, true);
     assertEquals(body.story.tasks.length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("POST /api/stories rejects duplicate", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("s1", "S1", "D", "open", []);
     const res = await app.request("/api/stories", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ id: "s1", title: "Dup", description: "D", workflow: "default" }),
     });
     assertEquals(res.status, 409);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("agent contract: register -> next-work -> claim -> COMPLETE", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
 
     const reg = await app.request("/api/agents/register", {
@@ -101,22 +75,20 @@ test("agent contract: register -> next-work -> claim -> COMPLETE", async () => {
     })).json();
     assertEquals(done.success, true);
     assertEquals(store.getTask("s1-1")!.status, "review");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET /api/work-items filters by state", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
     const res = await (await app.request("/api/work-items?state=READY")).json();
     assertEquals(res.total, 1);
     assertEquals(res.items[0].ref.workDefId, "s1-1");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("WorkDef routes: create (solitary) enqueues; save-without-enqueue does not", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const created = await (await app.request("/api/work-defs", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ title: "One shot", goal: "do a thing", acceptanceCriteria: "- MUST work" }),
@@ -131,12 +103,11 @@ test("WorkDef routes: create (solitary) enqueues; save-without-enqueue does not"
     // Still just the one READY item (the second was saved without enqueueing).
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
     assertEquals(store.getWorkDefs().length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("WorkDef routes: scheduled requires a valid cron", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const bad = await app.request("/api/work-defs", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ title: "Sched", goal: "g", acceptanceCriteria: "a", type: "Scheduled", cron: "not a cron" }),
@@ -148,12 +119,11 @@ test("WorkDef routes: scheduled requires a valid cron", async () => {
       body: JSON.stringify({ title: "Sched", goal: "g", acceptanceCriteria: "a", type: "Scheduled", cron: "0 9 * * *" }),
     });
     assertEquals(ok.status, 201);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("WorkDef routes: ref-based attachments (upload, list, serve, delete) work for standalone work", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const created = await (await app.request("/api/work-defs", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ title: "Solo", goal: "g", acceptanceCriteria: "-", enqueue: false }),
@@ -185,12 +155,11 @@ test("WorkDef routes: ref-based attachments (upload, list, serve, delete) work f
     assertEquals(del.status, 200);
     const after = await (await app.request(`/api/work-defs/${id}/attachments`)).json();
     assertEquals(after.attachments.length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("WorkDef routes: comment carries attachment metadata; token-usage records cost", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const created = await (await app.request("/api/work-defs", {
       method: "POST", headers: JSON_HEADERS,
       body: JSON.stringify({ title: "Solo", goal: "g", acceptanceCriteria: "-", enqueue: false }),
@@ -224,12 +193,11 @@ test("WorkDef routes: comment carries attachment metadata; token-usage records c
     // land exactly, so the total exceeds 0.42.
     const summary = store.getTokenUsageSummary({ workDefId: id })!;
     assertEquals(summary.totalCostUsd >= 0.42, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("work-item cancel (READY) and re-enqueue by ref", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
     const wid = store.getWorkItems({ states: ["READY"] }).items[0]!.id;
 
@@ -243,12 +211,11 @@ test("work-item cancel (READY) and re-enqueue by ref", async () => {
     })).json();
     assertEquals(re.success, true);
     assertEquals(store.getWorkItems({ states: ["READY"] }).total, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("POST/GET agent comments roundtrip (by work item)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }]);
     const wid = store.getWorkItems({ states: ["READY"] }).items[0]!.id;
     await app.request(`/api/agents/comments/${wid}`, {
@@ -259,14 +226,13 @@ test("POST/GET agent comments roundtrip (by work item)", async () => {
     assertEquals(got.comments[0].body, "working on it");
     // The comment lives on the task ref.
     assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Thoughts board ──────────────────────────────────────────────────
 
 test("Thoughts API: create, list, patch, archive, delete", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     // Create
     const created = await (await app.request("/api/thoughts", {
       method: "POST", headers: JSON_HEADERS,
@@ -298,22 +264,20 @@ test("Thoughts API: create, list, patch, archive, delete", async () => {
     const del = await app.request(`/api/thoughts/${id}`, { method: "DELETE" });
     assertEquals(del.status, 200);
     assertEquals(store.getThought(id), null);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Thoughts API: x/y must be provided together", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await app.request("/api/thoughts", {
       method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "x", x: 10 }),
     });
     assertEquals(res.status, 400);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Thoughts API: batch positions + groups", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const a = (await (await app.request("/api/thoughts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "a" }) })).json()).thought;
     const b = (await (await app.request("/api/thoughts", { method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ content: "b" }) })).json()).thought;
 
@@ -341,14 +305,13 @@ test("Thoughts API: batch positions + groups", async () => {
     // Ungroup clears membership
     await app.request(`/api/thought-groups/${grp.group.id}`, { method: "DELETE" });
     assertEquals(store.getThought(a.id)!.groupId, null);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Agent dismiss vs. re-register (daemon restart safety) ───────────
 
 test("Heartbeat: unknown member is told to re-register (not dismissed)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     // Never-registered id → reregister, not dismissed (mirrors a restart wipe).
     const res = await (await app.request("/api/agents/heartbeat", {
       method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "ghost", status: "idle" }),
@@ -362,12 +325,11 @@ test("Heartbeat: unknown member is told to re-register (not dismissed)", async (
       method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "m1", status: "idle" }),
     })).json();
     assertEquals(ok.success, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Heartbeat: an explicitly dismissed member is told to shut down", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.registerMember("m1", "m1", "/tmp/repo");
     // UI dismiss (?dismiss=true) tombstones the id.
     await app.request("/api/agents/m1?dismiss=true", { method: "DELETE" });
@@ -383,12 +345,11 @@ test("Heartbeat: an explicitly dismissed member is told to shut down", async () 
       method: "POST", headers: JSON_HEADERS, body: JSON.stringify({ id: "m1", status: "idle" }),
     })).json();
     assertEquals(after.success, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Heartbeat: a plain deregister (no dismiss) → re-register, not dismissed", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.registerMember("m1", "m1", "/tmp/repo");
     await app.request("/api/agents/m1", { method: "DELETE" }); // clean self-deregister
     const res = await (await app.request("/api/agents/heartbeat", {
@@ -396,5 +357,5 @@ test("Heartbeat: a plain deregister (no dismiss) → re-register, not dismissed"
     })).json();
     assertEquals(res.reregister, true);
     assertEquals(res.dismissed, undefined);
-  } finally { cleanup(teamDir, store); }
+  });
 });

@@ -14,28 +14,18 @@
  * - a plain FAILED (the agent gave up) is never retried
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assert, assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { withTeam, type TeamOptions } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
-import { resolveRetry, retryBackoffMs, type TeamConfig, type WorkItem } from "../shared/types.ts";
-import * as path from "node:path";
+import { resolveRetry, retryBackoffMs, type WorkItem } from "../shared/types.ts";
+
+/** Every suite here has member m1 (firm-odo) registered. */
+const WITH_MEMBER: TeamOptions = { beforeApp: (store) => store.registerMember("m1", "firm-odo") };
 
 const ERR = "Service unavailable: Bedrock is unable to process your request.";
 const MIN = 60_000;
-
-function setup(overrides: Partial<TeamConfig> = {}) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-retry-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
-  const store = new Store(teamDir, config);
-  store.registerMember("m1", "firm-odo");
-  const cleanup = () => { store.close(); try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ } };
-  return { store, config, teamDir, cleanup };
-}
 
 /** A Solitary WorkDef, claimed by m1. */
 function claimedSolitary(store: Store): { defId: string; item: WorkItem } {
@@ -59,8 +49,7 @@ test("resolveRetry: defaults to 3 retries at 1m/5m/15m; the last backoff repeats
 });
 
 test("session error → [retry] comment, attempt FAILED+read, a held READY retry (not COMPLETE)", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const { defId, item } = claimedSolitary(store);
     const now = Date.now();
     const res = store.failWorkItemForSessionError(item.id, ERR, now);
@@ -90,12 +79,11 @@ test("session error → [retry] comment, attempt FAILED+read, a held READY retry
     // Held through its backoff, handed out after it.
     assertEquals(store.getNextWorkItem({ id: "m1" }, now + 30_000), null);
     assertEquals(store.getNextWorkItem({ id: "m1" }, now + 61_000)?.id, retry.id);
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });
 
 test("a due retry waits for the readiness probe to report ready", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const { item } = claimedSolitary(store);
     const now = Date.now();
     const res = store.failWorkItemForSessionError(item.id, "Could not load credentials from any providers", now);
@@ -103,12 +91,11 @@ test("a due retry waits for the readiness probe to report ready", () => {
     assertEquals(store.getNextWorkItem({ id: "m1" }, now + 2 * MIN), null);
     store.setTeamReadiness(true);
     assertEquals(store.getNextWorkItem({ id: "m1" }, now + 2 * MIN)?.id, res.retry!.workItemId);
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });
 
 test("success after a retry → COMPLETE and the board task advances", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("rs", "Retry story", "D", "open", [], [{ title: "T1", description: "D1" }]);
     const first = store.getNextWorkItem({ id: "m1" })!;
     store.claimWorkItem(first.id, "m1");
@@ -125,12 +112,11 @@ test("success after a retry → COMPLETE and the board task advances", () => {
     assertEquals(done.ok, true);
     assertEquals(store.getWorkItem(second.id)!.state, "COMPLETE");
     assertEquals(store.getTask("rs-1")!.status, "review");
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });
 
 test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment carrying the error", () => {
-  const { store, cleanup } = setup({ retry: { maxRetries: 2, backoffMinutes: [1] } });
-  try {
+  return withTeam({ retry: { maxRetries: 2, backoffMinutes: [1] } }, ({ store }) => {
     const { defId, item } = claimedSolitary(store);
     let current = item;
     let now = Date.now();
@@ -158,23 +144,21 @@ test("retries exhausted → FAILED, unread (Inbox), with a [failed] comment carr
     assertEquals(comments.filter((b) => b.startsWith("[retry]")).length, 2);
     assertStringIncludes(comments.at(-1)!, `[failed] ${ERR} after 3 attempts`);
     assert(!comments.some((b) => b.startsWith("[done]")));
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });
 
 test("maxRetries 0 fails on the first errored session", () => {
-  const { store, cleanup } = setup({ retry: { maxRetries: 0 } });
-  try {
+  return withTeam({ retry: { maxRetries: 0 } }, ({ store }) => {
     const { defId, item } = claimedSolitary(store);
     const res = store.failWorkItemForSessionError(item.id, ERR);
     assertEquals(res.retry, undefined);
     assertEquals(store.getWorkItem(item.id)!.state, "FAILED");
     assertStringIncludes(bodies(store, defId).at(-1)!, "after 1 attempt.");
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });
 
 test("a plain FAILED (the agent gave up) is not retried; a successful empty completion is unaffected", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = claimedSolitary(store);
     store.setWorkItemState(a.item.id, "FAILED");
     assertEquals(store.getActiveWorkItem(a.defId), null);
@@ -184,12 +168,11 @@ test("a plain FAILED (the agent gave up) is not retried; a successful empty comp
     assertEquals(store.getWorkItem(b.item.id)!.state, "COMPLETE");
     assertEquals(store.getWorkItem(b.item.id)!.attempt, 1);
     assertEquals(store.getActiveWorkItem(b.defId), null);
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });
 
 test("route: FAILED + sessionError retries and reports it; /api/work-items shows attempt/retryAt", async () => {
-  const { store, config, teamDir, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ store, config, teamDir }) => {
     const app = buildApp(store, config, teamDir);
     const { item } = claimedSolitary(store);
     const res = await app.request(`/api/agents/work-items/${item.id}/state`, {
@@ -207,5 +190,5 @@ test("route: FAILED + sessionError retries and reports it; /api/work-items shows
     assertExists(view.retryAt);
     const failed = await (await app.request(`/api/work-items/${item.id}`)).json();
     assertEquals(failed.item.error, ERR);
-  } finally { cleanup(); }
+  }, WITH_MEMBER);
 });

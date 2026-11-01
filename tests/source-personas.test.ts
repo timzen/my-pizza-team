@@ -19,11 +19,10 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { makeTeam, jsonInit } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
 import { FixtureSource, type FixtureSourceOptions } from "../daemon/sources/fixture.ts";
@@ -35,28 +34,24 @@ import type { TeamConfig } from "../shared/types.ts";
 import type { SourceView } from "../shared/protocol.ts";
 
 const SOURCE = "jira";
-const json = (method: string, body?: unknown) => ({ method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) });
-
 /** A team with the fixture source registered as `jira`; `source` adds its options (mode, personas). */
 function setup(source: Partial<FixtureSourceOptions> = {}, configOverride: Partial<TeamConfig> = {}) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-source-personas-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const folder = path.join(teamDir, "external");
-  fs.mkdirSync(folder);
-  // Cloned: the per-source setting is written into the Store's config object.
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...configOverride };
-  const store = new Store(teamDir, config);
   let inits = 0;
-  const fixture = new FixtureSource({ dir: folder, id: SOURCE, label: "Jira", syncEveryMs: null, ...source });
-  Object.assign(fixture, { init: () => { inits++; } });
-  store.registerWorkSource(fixture);
-  const app = buildApp(store, config, teamDir);
+  let folder = "";
+  // makeTeam clones the config: the per-source setting is written into the Store's config object.
+  const team = makeTeam(configOverride, {
+    beforeApp: (store, teamDir) => {
+      folder = path.join(teamDir, "external");
+      fs.mkdirSync(folder);
+      const fixture = new FixtureSource({ dir: folder, id: SOURCE, label: "Jira", syncEveryMs: null, ...source });
+      Object.assign(fixture, { init: () => { inits++; } });
+      store.registerWorkSource(fixture);
+    },
+  });
+  const { store } = team;
   store.registerMember("a1", "swift-neo", "/tmp");
   const persona = (id: string, title: string, content: string) => assertEquals(store.createPersona({ id, title, content }).ok, true);
-  return {
-    store, app, teamDir, folder, config, persona, inits: () => inits,
-    cleanup: () => { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); },
-  };
+  return Object.assign(team, { folder, persona, inits: () => inits });
 }
 
 function writeItem(folder: string, externalId: string, title: string, extra: { mode?: string; persona?: string; goal?: string } = {}): void {
@@ -72,7 +67,7 @@ type App = ReturnType<typeof buildApp>;
 async function claim(app: App, store: Store, defId: string) {
   const item = store.getWorkItems({ states: ["READY"] }).items.find((wi) => wi.ref.workDefId === defId);
   assert(item, `a READY item for ${defId}`);
-  const body = await (await app.request(`/api/agents/claim/${item.id}`, json("POST", { agentId: "a1" }))).json();
+  const body = await (await app.request(`/api/agents/claim/${item.id}`, jsonInit("POST", { agentId: "a1" }))).json();
   assertEquals(body.success, true);
   return { prompt: body.prompt as string, persona: store.getWorkItem(item.id)!.persona };
 }
@@ -149,7 +144,7 @@ test("work mode: each link of the chain leads the prompt and is recorded with ho
     finish(store, defId);
 
     // 2. The team's per-source setting wins over the declaration.
-    const put = await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { persona: "team-pick" }));
+    const put = await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { persona: "team-pick" }));
     assertEquals(put.status, 200);
     writeItem(folder, "J-1", "Chain", { goal: "rev 2" });
     await store.syncWorkSource(SOURCE);
@@ -168,7 +163,7 @@ test("work mode: each link of the chain leads the prompt and is recorded with ho
     finish(store, defId);
 
     // 4. A person's override wins over all of it — and survives a re-sync.
-    const over = await app.request(`/api/work-defs/${encodeURIComponent(defId)}/persona`, json("PUT", { persona: "mine" }));
+    const over = await app.request(`/api/work-defs/${encodeURIComponent(defId)}/persona`, jsonInit("PUT", { persona: "mine" }));
     assertEquals(over.status, 200);
     assertEquals((await over.json()).workDef.mirror.personaOverride, "mine");
     assertEquals(fileSourceKv(teamDir, SOURCE).get(mirrorPersonaKey(defId)), "mine");
@@ -180,7 +175,7 @@ test("work mode: each link of the chain leads the prompt and is recorded with ho
     finish(store, defId);
 
     // Clearing the override falls back to the suggestion.
-    assertEquals((await app.request(`/api/work-defs/${encodeURIComponent(defId)}/persona`, json("PUT", { persona: null }))).status, 200);
+    assertEquals((await app.request(`/api/work-defs/${encodeURIComponent(defId)}/persona`, jsonInit("PUT", { persona: null }))).status, 200);
     assertEquals(store.resolveMirrorPersona(store.getWorkDef(defId)!)?.id, "suggested");
   } finally { cleanup(); }
 });
@@ -201,11 +196,11 @@ test("PUT /api/work-defs/:id/persona: only mirrors, only ids that resolve", asyn
     writeItem(folder, "J-1", "One");
     await store.syncWorkSource(SOURCE);
     const defId = encodeURIComponent(mirroredWorkDefId(SOURCE, "J-1"));
-    assertEquals((await app.request(`/api/work-defs/${defId}/persona`, json("PUT", { persona: "nope" }))).status, 400);
-    assertEquals((await app.request(`/api/work-defs/${defId}/persona`, json("PUT", {}))).status, 400);
-    assertEquals((await app.request(`/api/work-defs/missing/persona`, json("PUT", { persona: null }))).status, 404);
+    assertEquals((await app.request(`/api/work-defs/${defId}/persona`, jsonInit("PUT", { persona: "nope" }))).status, 400);
+    assertEquals((await app.request(`/api/work-defs/${defId}/persona`, jsonInit("PUT", {}))).status, 400);
+    assertEquals((await app.request(`/api/work-defs/missing/persona`, jsonInit("PUT", { persona: null }))).status, 404);
     const solo = store.createWorkDef({ title: "Solo", goal: "g", acceptanceCriteria: "" }, false);
-    assertEquals((await app.request(`/api/work-defs/${solo.id}/persona`, json("PUT", { persona: "builtin:worker" }))).status, 409);
+    assertEquals((await app.request(`/api/work-defs/${solo.id}/persona`, jsonInit("PUT", { persona: "builtin:worker" }))).status, 409);
   } finally { cleanup(); }
 });
 
@@ -220,11 +215,11 @@ test("GET /api/sources shows the personas; PUT /persona validates, persists, and
     assertEquals(view.initError, undefined);
     const initsBefore = inits();
 
-    assertEquals((await app.request(`/api/sources/nope/persona`, json("PUT", { persona: "reviewer" }))).status, 404);
-    assertEquals((await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { persona: "ghost" }))).status, 400);
-    assertEquals((await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", {}))).status, 400);
+    assertEquals((await app.request(`/api/sources/nope/persona`, jsonInit("PUT", { persona: "reviewer" }))).status, 404);
+    assertEquals((await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { persona: "ghost" }))).status, 400);
+    assertEquals((await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", {}))).status, 400);
 
-    const res = await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { persona: "reviewer", triagePersona: "reviewer" }));
+    const res = await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { persona: "reviewer", triagePersona: "reviewer" }));
     assertEquals(res.status, 200);
     view = (await res.json()).source;
     assertEquals([view.persona, view.triagePersona], ["reviewer", "reviewer"]);
@@ -232,14 +227,14 @@ test("GET /api/sources shows the personas; PUT /persona validates, persists, and
     assertEquals(onDisk.sourcePersonas, { [SOURCE]: { persona: "reviewer", triagePersona: "reviewer" } });
 
     // Absent keeps a field; null clears it; the entry stays (even empty).
-    await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { triagePersona: null }));
+    await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { triagePersona: null }));
     assertEquals(config.sourcePersonas?.[SOURCE], { persona: "reviewer" });
-    await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { persona: "" }));
+    await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { persona: "" }));
     assertEquals(config.sourcePersonas?.[SOURCE], {});
     assertEquals(inits(), initsBefore);
 
     // "Used by" sees the setting, so the persona can't be deleted out from under it.
-    await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { persona: "reviewer" }));
+    await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { persona: "reviewer" }));
     assertEquals(store.getPersonaUsage("reviewer"), [{ kind: "source-setting", source: SOURCE, field: "persona" }]);
     assertEquals((await app.request("/api/personas/reviewer", { method: "DELETE" })).status, 409);
   } finally { cleanup(); }
@@ -270,7 +265,7 @@ test("triage mode: no triage persona → no sync (initError says how to fix); se
     assertStringIncludes((await store.syncWorkSource(SOURCE)).error!, `"gone" doesn't exist`);
 
     // Setting one (the route kicks a sync) enqueues the item; the claim uses it.
-    assertEquals((await app.request(`/api/sources/${SOURCE}/persona`, json("PUT", { triagePersona: "ticket-triage" }))).status, 200);
+    assertEquals((await app.request(`/api/sources/${SOURCE}/persona`, jsonInit("PUT", { triagePersona: "ticket-triage" }))).status, 200);
     await settled(store);
     assertEquals(store.getSyncStatus(SOURCE).last?.enqueued, 1);
     assertEquals((await sourceView(app)).initError, undefined);
@@ -291,7 +286,7 @@ test("triage mode: a declared triagePersona is enough; a per-item override appli
     const out = await store.syncWorkSource(SOURCE);
     assertEquals(out.enqueued.length, 1);
     const defId = mirroredWorkDefId(SOURCE, "T-1");
-    await app.request(`/api/work-defs/${encodeURIComponent(defId)}/persona`, json("PUT", { persona: "special" }));
+    await app.request(`/api/work-defs/${encodeURIComponent(defId)}/persona`, jsonInit("PUT", { persona: "special" }));
     const { prompt, persona: recorded } = await claim(app, store, defId);
     assertStringIncludes(prompt, "Special rules.");
     assertEquals(prompt.includes(DEFAULT_TRIAGE_INSTRUCTIONS.slice(0, 40)), false);

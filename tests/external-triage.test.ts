@@ -13,10 +13,10 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
+import { makeTeam, JSON_HEADERS } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
@@ -26,7 +26,6 @@ import { fileSourceKv } from "../daemon/store/source-kv.ts";
 import { buildExternalTriagePrompt, buildTriagePrompt } from "../daemon/prompt.ts";
 import type { TriageProposal } from "../shared/types.ts";
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
 const SOURCE = "simt";
 
 /**
@@ -35,19 +34,15 @@ const SOURCE = "simt";
  * Source personas"; the requirement itself is covered in source-personas.test.ts).
  */
 function setup(mode: "work" | "triage" = "triage", triagePersona: string | undefined = "builtin:triage") {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-triage-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const folder = path.join(teamDir, "external");
-  fs.mkdirSync(folder);
-  const store = new Store(teamDir, TEST_CONFIG);
-  store.registerWorkSource(new FixtureSource({ dir: folder, id: SOURCE, label: "SIM-T", syncEveryMs: null, mode, triagePersona }));
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { store, app, teamDir, folder };
-}
-
-function cleanup(store: Store, teamDir: string): void {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  let folder = "";
+  const team = makeTeam({}, {
+    beforeApp: (store, teamDir) => {
+      folder = path.join(teamDir, "external");
+      fs.mkdirSync(folder);
+      store.registerWorkSource(new FixtureSource({ dir: folder, id: SOURCE, label: "SIM-T", syncEveryMs: null, mode, triagePersona }));
+    },
+  });
+  return Object.assign(team, { folder });
 }
 
 function writeItem(folder: string, externalId: string, title: string, goal: string, extra: { mode?: string; directory?: string } = {}): void {
@@ -105,7 +100,7 @@ test("external triage prompt: the item is the subject; a note's prompt is unchan
 });
 
 test("triage mode: sync → triage item → propose_work → accept/reject → next revision is a new turn", async () => {
-  const { store, app, teamDir, folder } = setup();
+  const { store, app, teamDir, folder, cleanup } = setup();
   try {
     writeItem(folder, "T-1", "Webhooks flake", "Deliveries time out under load.");
     const first = await store.syncWorkSource(SOURCE);
@@ -200,11 +195,11 @@ test("triage mode: sync → triage item → propose_work → accept/reject → n
     const run = await app.request(`/api/work-defs/${defId}/enqueue`, { method: "POST" });
     assertEquals(run.status, 200);
     assertEquals(store.getWorkItem((await run.json()).workItemId)!.title, "Triage: Webhooks flake");
-  } finally { cleanup(store, teamDir); }
+  } finally { cleanup(); }
 });
 
 test("triage mode: runs in the mirror's directory, else the leader's", async () => {
-  const { store, teamDir, folder } = setup();
+  const { store, teamDir, folder, cleanup } = setup();
   try {
     store.registerMember("leader-1", "leader", "/Users/x/code/proj");
     store.heartbeat("leader-1", "idle");
@@ -214,11 +209,11 @@ test("triage mode: runs in the mirror's directory, else the leader's", async () 
     const items = out.enqueued.map((id) => store.getWorkItem(id)!);
     assertEquals(items.find((i) => i.title === "Triage: No directory")?.directory, "/Users/x/code/proj");
     assertEquals(items.find((i) => i.title === "Triage: Own directory")?.directory, "/repo/own");
-  } finally { cleanup(store, teamDir); }
+  } finally { cleanup(); }
 });
 
 test("per-item mode overrides the source's, and propose_work is refused for a work-mode item", async () => {
-  const { store, app, teamDir, folder } = setup("work");
+  const { store, app, teamDir, folder, cleanup } = setup("work");
   try {
     writeItem(folder, "W-1", "Just do it", "Plain work.");
     writeItem(folder, "T-1", "Triage me", "Look at this.", { mode: "triage" });
@@ -250,11 +245,11 @@ test("per-item mode overrides the source's, and propose_work is refused for a wo
     assertEquals("triageBadge" in badges.find((r) => r.externalId === "W-1")!, false);
     assertEquals((await (await app.request(`/api/work-items/${work.id}`)).json()).item.triage, undefined);
     assertEquals((await (await app.request(`/api/work-items/${triage.id}`)).json()).item.triage, true);
-  } finally { cleanup(store, teamDir); }
+  } finally { cleanup(); }
 });
 
 test("triage mode survives a restart, and an accepted proposal's origin reloads", async () => {
-  const { store, teamDir, folder } = setup();
+  const { store, teamDir, folder, cleanup } = setup();
   try {
     writeItem(folder, "T-1", "Webhooks flake", "g");
     const out = await store.syncWorkSource(SOURCE);
@@ -272,11 +267,11 @@ test("triage mode survives a restart, and an accepted proposal's origin reloads"
       assertEquals(store2.getWorkDef(res.decision.workDefId!)?.origin, { workDef: defId, proposal: "p1" });
       assertEquals(store2.getTriageThread(defId).proposals[0]?.decision?.action, "accepted");
     } finally { store2.close(); }
-  } finally { cleanup(store, teamDir); }
+  } finally { cleanup(); }
 });
 
 test("a source switching an item back to work mode takes effect on the next sync", async () => {
-  const { store, teamDir, folder } = setup("work");
+  const { store, teamDir, folder, cleanup } = setup("work");
   try {
     writeItem(folder, "T-1", "Flip", "g", { mode: "triage" });
     await store.syncWorkSource(SOURCE);
@@ -286,5 +281,5 @@ test("a source switching an item back to work mode takes effect on the next sync
     await store.syncWorkSource(SOURCE);
     assertEquals(store.isTriageModeMirror(store.getWorkDef(defId)!), false);
     assertEquals(store.triageSubjectOf(defId), null);
-  } finally { cleanup(store, teamDir); }
+  } finally { cleanup(); }
 });

@@ -9,33 +9,14 @@
  * A job fires only when both its Schedule and its WorkDef are active.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assert, assertEquals } from "./_assert.ts";
-import * as path from "node:path";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
+import { withTeam, post, put } from "./_team.ts";
 import { Store } from "../daemon/store.ts";
 import { scheduleCursor } from "../daemon/store/schedules.ts";
 
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-sched-pending-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...TEST_CONFIG, features: { stories: true, tasks: true, schedules: true } };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir };
-}
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-const JSON_HEADERS = { "Content-Type": "application/json" };
-const post = (app: ReturnType<typeof buildApp>, url: string, body: unknown = {}) =>
-  app.request(url, { method: "POST", headers: JSON_HEADERS, body: JSON.stringify(body) });
-const put = (app: ReturnType<typeof buildApp>, url: string, body: unknown) =>
-  app.request(url, { method: "PUT", headers: JSON_HEADERS, body: JSON.stringify(body) });
+/** Stories, tasks and schedules all switched on. */
+const SCHEDULES = { features: { stories: true, tasks: true, schedules: true } };
 const readyCount = (store: Store) => store.getWorkItems({ states: ["READY"] }).total;
 /** Finish every READY item so the next firing isn't skipped as "already in flight". */
 const drain = (store: Store) => {
@@ -53,20 +34,18 @@ function minutely(store: Store, pending?: boolean) {
 const at = (m: number, s = 0) => new Date(2030, 0, 7, 9, m, s);
 
 test("a pending Schedule never fires", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam(SCHEDULES, ({ store }) => {
     const sched = minutely(store, true);
     assertEquals(store.getSchedule(sched.id)?.pending, true);
     for (let m = 0; m < 5; m++) store.runScheduler(at(m));
     assertEquals(readyCount(store), 0);
     // No cursor advance while pending: lastEnqueuedAt is only for genuine firings.
     assertEquals(store.getSchedule(sched.id)?.lastEnqueuedAt, undefined);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reactivating resumes at the next occurrence with no catch-up burst", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam(SCHEDULES, ({ store }) => {
     const sched = minutely(store);
     store.runScheduler(at(0));
     assertEquals(readyCount(store), 1);
@@ -90,12 +69,11 @@ test("reactivating resumes at the next occurrence with no catch-up burst", () =>
     store.runScheduler(at(11, 5));
     store.runScheduler(at(11, 35));
     assertEquals(readyCount(store), 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a readiness-held occurrence is dropped when the Schedule goes pending, and a pending Schedule isn't held", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam(SCHEDULES, ({ store }) => {
     store.registerMember("ag-a", "ag-a", "/repo/a", {});
     const sched = minutely(store);
     store.setTeamReadiness(false, "creds expired");
@@ -113,12 +91,11 @@ test("a readiness-held occurrence is dropped when the Schedule goes pending, and
     store.setSchedulePending(sched.id, false);
     store.runScheduler(new Date());
     assertEquals(readyCount(store), 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("precedence: a job fires only when both its Schedule and its WorkDef are active", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam(SCHEDULES, ({ store }) => {
     const sched = store.createSchedule({ title: "Two", cron: "* * * * *" });
     const active = store.createWorkDef({ title: "Active", goal: "g", acceptanceCriteria: "a", parent: { kind: "schedule", id: sched.id } }, false);
     store.createWorkDef({ title: "Pending def", goal: "g", acceptanceCriteria: "a", parent: { kind: "schedule", id: sched.id }, pending: true }, false);
@@ -134,22 +111,20 @@ test("precedence: a job fires only when both its Schedule and its WorkDef are ac
     store.setSchedulePending(sched.id, true);
     store.runScheduler(at(1));
     assertEquals(readyCount(store), 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("toggling to the same value is a no-op (no new resume cursor)", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam(SCHEDULES, ({ store }) => {
     const sched = minutely(store);
     store.setSchedulePending(sched.id, false);
     assertEquals(store.getSchedule(sched.id)?.resumedAt, undefined);
     assertEquals(store.setSchedulePending("nope", true), null);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("API: pending/activate verbs, PUT { pending }, and the view's pending flag", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam(SCHEDULES, async ({ app, store }) => {
     const sched = minutely(store);
     let list = await (await app.request("/api/schedules")).json();
     assertEquals(list.schedules[0].pending, false);
@@ -168,5 +143,5 @@ test("API: pending/activate verbs, PUT { pending }, and the view's pending flag"
     assertEquals(body.schedule.pending, true);
     assertEquals((await put(app, `/api/schedules/${sched.id}`, { pending: "yes" })).status, 400);
     assertEquals((await post(app, "/api/schedules/missing/activate")).status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });

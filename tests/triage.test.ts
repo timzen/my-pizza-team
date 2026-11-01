@@ -8,11 +8,10 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals, assertNotEquals, assertStringIncludes } from "./_assert.ts";
+import { withTeam } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_TRIAGE_INSTRUCTIONS, buildTriagePrompt } from "../daemon/prompt.ts";
 import {
@@ -23,7 +22,7 @@ import {
   triageWorkDefId,
   triageWorkItemTitle,
 } from "../daemon/triage.ts";
-import { resolveTriage, type TeamConfig } from "../shared/types.ts";
+import { resolveTriage } from "../shared/types.ts";
 import * as path from "node:path";
 
 // ─── The pure rules ──────────────────────────────────────────────────
@@ -114,20 +113,6 @@ test("triage prompt: a team's triage persona replaces the built-in instructions"
 
 // ─── The Store ───────────────────────────────────────────────────────
 
-function setup(configOverride?: Partial<TeamConfig>) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-triage-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...TEST_CONFIG, ...configOverride };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir, config };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-}
-
 /**
  * A note plus a clock the sweep will accept it from. `createThought` stamps
  * `updatedAt = now`, which is inside the quiet period, so tests sweep from
@@ -148,8 +133,7 @@ function runItem(store: Store, itemId: string, state: "COMPLETE" | "FAILED", age
 }
 
 test("sweep: enqueues one item per changed note, creating its WorkDef lazily", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = note_(store, "# Webhooks flake\nretries?");
     note_(store, ""); // empty: never triaged
     assertEquals(store.getWorkDef(triageWorkDefId(a.id)), null); // nothing yet
@@ -164,31 +148,28 @@ test("sweep: enqueues one item per changed note, creating its WorkDef lazily", (
 
     // Second sweep: nothing changed, so nothing is enqueued.
     assertEquals(store.runTriageSweep(LATER()).length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("sweep: the quiet period holds a just-edited note until the next sweep", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = store.createThought({ content: "half-written thoug" });
     assertEquals(store.runTriageSweep(Date.now()).length, 0);
     assertEquals(store.triageStatusFor(t.id), "too-fresh");
     // An hour later it's fair game.
     assertEquals(store.runTriageSweep(LATER()).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("sweep: disabled means no runs at all", () => {
-  const { store, teamDir } = setup({ triage: { enabled: false } });
-  try {
+  return withTeam({ triage: { enabled: false } }, ({ store }) => {
     note_(store, "something worth doing");
     assertEquals(store.runTriageSweep(LATER()).length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("turns: an edit while the run is in flight is picked up by the next sweep", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "first version");
     const [item] = store.runTriageSweep(LATER());
     const stamped = store.getThought(t.id)!.triagedVersion;
@@ -203,12 +184,11 @@ test("turns: an edit while the run is in flight is picked up by the next sweep",
     // handed over, not the time of the teammate's comment.
     runItem(store, item!.id, "COMPLETE");
     assertEquals(store.runTriageSweep(LATER()).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("turns: a failed run counts as analyzed; Triage now retries it", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "something");
     const [item] = store.runTriageSweep(LATER());
     runItem(store, item!.id, "FAILED");
@@ -219,12 +199,11 @@ test("turns: a failed run counts as analyzed; Triage now retries it", () => {
 
     const res = store.triageNow(t.id);
     assertEquals(res.ok, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("Triage now: overrides quiet/unchanged, refuses in-flight, archived, empty", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const fresh = store.createThought({ content: "just typed" });
     assertEquals(store.triageNow(fresh.id).ok, true); // quiet period overridden
     const again = store.triageNow(fresh.id);
@@ -239,12 +218,11 @@ test("Triage now: overrides quiet/unchanged, refuses in-flight, archived, empty"
     assertStringIncludes((store.triageNow(archived.id) as { error: string }).error, "archived");
 
     assertStringIncludes((store.triageNow("th-nope") as { error: string }).error, "not found");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("lifecycle: archiving a note cancels its run and archives its WorkDef; restore brings it back", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "an idea");
     const [item] = store.runTriageSweep(LATER());
     store.archiveThought(t.id);
@@ -253,36 +231,33 @@ test("lifecycle: archiving a note cancels its run and archives its WorkDef; rest
 
     store.restoreThought(t.id);
     assertEquals(store.getWorkDef(triageWorkDefId(t.id))?.status, "active");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("lifecycle: deleting a note deletes its triage WorkDef and thread", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "an idea");
     const [item] = store.runTriageSweep(LATER());
     store.addCommentForRef({ workDefId: triageWorkDefId(t.id) }, "swift-neo", "Two tasks here.");
     store.deleteThought(t.id);
     assertEquals(store.getWorkDef(triageWorkDefId(t.id)), null);
     assertEquals(store.getWorkItem(item!.id)?.state, "CANCELED");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("an archived note's queued triage item is never handed to an agent", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "an idea");
     store.registerMember("a1", "swift-neo", "/tmp/repo");
     store.runTriageSweep(LATER());
     assertNotEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp/repo" }), null);
     store.archiveThought(t.id);
     assertEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp/repo" }), null);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a triage item runs in the leader's directory, or anywhere with no leader", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const a = note_(store, "no leader yet");
     assertEquals(store.runTriageSweep(LATER())[0]!.directory, undefined);
 
@@ -292,12 +267,11 @@ test("a triage item runs in the leader's directory, or anywhere with no leader",
     const item = store.runTriageSweep(LATER()).find((wi) => wi.title.includes("leader is up"));
     assertEquals(item?.directory, "/Users/x/code/proj");
     assertEquals([a.id, b.id].length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("the triage persona: unset is the built-in default; triage.persona selects a team persona", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     assertEquals(store.getTriageInstructions(), undefined);
     const res = store.createPersona({ title: "Chores only", content: "# Only propose chores" });
     assertEquals(res.ok, true);
@@ -307,14 +281,13 @@ test("the triage persona: unset is the built-in default; triage.persona selects 
     store.getConfig().triage = { persona: "gone" };
     assertEquals(store.getTriageInstructions(), DEFAULT_TRIAGE_INSTRUCTIONS);
     assertEquals(fs.existsSync(path.join(teamDir, "triage.md")), false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── The routes ──────────────────────────────────────────────────────
 
 test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the note", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const t = store.createThought({ content: "# Webhooks flake\nretries?" });
     const res = await app.request(`/api/thoughts/${t.id}/triage`, { method: "POST" });
     assertEquals(res.status, 200);
@@ -338,12 +311,11 @@ test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the note
     // Second request while it's in flight is a 409.
     assertEquals((await app.request(`/api/thoughts/${t.id}/triage`, { method: "POST" })).status, 409);
     assertEquals((await app.request("/api/thoughts/th-nope/triage", { method: "POST" })).status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("/api/triage/instructions is gone (410); PUT /api/config selects triage.persona", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const gone = await app.request("/api/triage/instructions");
     assertEquals(gone.status, 410);
     assertStringIncludes((await gone.json()).error, "triage.persona");
@@ -363,12 +335,11 @@ test("/api/triage/instructions is gone (410); PUT /api/config selects triage.per
     assertEquals(store.getConfig().triage?.persona, id);
     assertEquals((await put({ enabled: true, persona: null })).status, 200);
     assertEquals(store.getTriageInstructions(), undefined);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a triage note version survives a round-trip through the note file", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     const t = note_(store, "an idea");
     const [item] = store.runTriageSweep(LATER());
     runItem(store, item!.id, "COMPLETE");
@@ -383,12 +354,11 @@ test("a triage note version survives a round-trip through the note file", () => 
       assertEquals(store2.getThought(t.id)!.triagedVersion, stamped);
       assertEquals(store2.triageStatusFor(t.id, LATER()), "unchanged");
     } finally { store2.close(); }
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a triage WorkDef is owned by its note: no direct edit, delete, or Run", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const t = note_(store, "an idea");
     store.runTriageSweep(LATER());
     const defId = triageWorkDefId(t.id);
@@ -409,7 +379,7 @@ test("a triage WorkDef is owned by its note: no direct edit, delete, or Run", as
     const run = await app.request(`/api/work-defs/${defId}/enqueue`, { method: "POST" });
     assertEquals(run.status, 409);
     assertStringIncludes((await run.json()).error, "already being triaged");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 // ─── Stage 2: proposals and decisions ────────────────────────────────
@@ -532,8 +502,7 @@ function postAnalysis(store: Store, thoughtId: string, proposals: TriageProposal
 }
 
 test("an analysis lands in the thread; a bad one is refused with a fixable reason", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "webhooks flake");
     store.runTriageSweep(LATER());
 
@@ -549,12 +518,11 @@ test("an analysis lands in the thread; a bad one is refused with a fixable reaso
     assertEquals(thread.pending.length, 1);
     // The analysis is a comment, so the existing thread UI and prompt see it.
     assertEquals(store.getCommentsForRef({ workDefId: thread.workDefId }).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("accept a task proposal: creates the WorkDef, doesn't run it, links both ways", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "webhooks flake");
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task()]);
@@ -571,12 +539,11 @@ test("accept a task proposal: creates the WorkDef, doesn't run it, links both wa
     // …and the decision is in the thread, so the badge clears.
     assertEquals(store.getTriageThread(triageWorkDefId(t.id)).badge, "none");
     assertEquals(store.getTriageBadges()[t.id], undefined);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("accept: story-task, story, and schedule proposals create the right shapes", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("payments", "Payments hardening", "Make payments boring.");
     const t = note_(store, "several things");
     store.runTriageSweep(LATER());
@@ -601,12 +568,11 @@ test("accept: story-task, story, and schedule proposals create the right shapes"
     const sched = store.getWorkDef(c.decision.workDefId!)!;
     assertEquals(sched.parent?.kind, "schedule");
     assertEquals(store.getSchedules().find((s) => s.id === sched.parent!.id)?.cron, "0 9 * * 1-5");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("accept creates but never starts: a task waits for Run; a story task follows board rules", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("payments", "Payments hardening", "Boring payments.");
     const t = note_(store, "two things");
     store.runTriageSweep(LATER());
@@ -624,12 +590,11 @@ test("accept creates but never starts: a task waits for Run; a story task follow
     store.createStory("other", "Other", "d");
     const byHand = store.addTask("other", { title: "By hand", description: "g" })!;
     assertEquals(store.getWorkItems({ states: ["READY"] }).items.some((wi) => wi.ref.workDefId === byHand.id), true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("accept with overrides (the Edit path), or recording work created elsewhere", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "webhooks flake");
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task(), task({ id: "p2", title: "Alert" })]);
@@ -644,12 +609,11 @@ test("accept with overrides (the Edit path), or recording work created elsewhere
     const rec = store.acceptProposal(triageWorkDefId(t.id), "p2", { existingWorkDefId: own.id }) as { ok: true; decision: { workDefId?: string } };
     assertEquals(rec.decision.workDefId, own.id);
     assertEquals(store.getWorkDefs().filter((d) => d.title === "Alert").length, 0); // nothing duplicated
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reject is one line and not a turn; a decided proposal can't be decided twice", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     const t = note_(store, "webhooks flake");
     const [item] = store.runTriageSweep(LATER());
     runItem(store, item!.id, "COMPLETE");
@@ -667,12 +631,11 @@ test("reject is one line and not a turn; a decided proposal can't be decided twi
     assertStringIncludes((twice as { error: string }).error, "already rejected");
     assertStringIncludes((store.acceptProposal(triageWorkDefId(t.id), "p1") as { error: string }).error, "already rejected");
     assertStringIncludes((store.rejectProposal(triageWorkDefId(t.id), "nope") as { error: string }).error, 'No proposal "nope"');
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("the next run's prompt carries what the author decided", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const t = note_(store, "webhooks flake");
     const [first] = store.runTriageSweep(LATER());
     runItem(store, first!.id, "COMPLETE");
@@ -695,12 +658,11 @@ test("the next run's prompt carries what the author decided", async () => {
     assertStringIncludes(prompt, "Alert on failure — REJECTED");
     assertStringIncludes(prompt, "Don't re-propose something they rejected");
     assertStringIncludes(prompt, "propose_work");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("POST /api/agents/work-items/:id/proposals is for the holder of a triage item only", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const t = note_(store, "webhooks flake");
     const [item] = store.runTriageSweep(LATER());
     store.registerMember("a1", "swift-neo", "/tmp/repo");
@@ -731,12 +693,11 @@ test("POST /api/agents/work-items/:id/proposals is for the holder of a triage it
     });
     assertEquals(wrong.status, 400);
     assertStringIncludes((await wrong.json()).error, "only for a triage work item");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET /api/thoughts/:id/triage and the accept/reject routes", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     const t = note_(store, "webhooks flake");
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task(), task({ id: "p2", title: "Alert" })]);
@@ -767,12 +728,11 @@ test("GET /api/thoughts/:id/triage and the accept/reject routes", async () => {
     const badges = await (await app.request("/api/triage/badges")).json();
     assertEquals(badges.badges[t.id], undefined); // all decided
     assertEquals((await (await app.request(`/api/thoughts/${t.id}/triage`)).json()).badge, "none");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("an accepted proposal's WorkDef keeps its origin across a reload", () => {
-  const { store, teamDir } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     const t = note_(store, "webhooks flake");
     store.runTriageSweep(LATER());
     postAnalysis(store, t.id, [task()]);
@@ -781,5 +741,5 @@ test("an accepted proposal's WorkDef keeps its origin across a reload", () => {
     try {
       assertEquals(store2.getWorkDef(res.decision.workDefId!)?.origin, { thought: t.id, proposal: "p1" });
     } finally { store2.close(); }
-  } finally { cleanup(teamDir, store); }
+  });
 });

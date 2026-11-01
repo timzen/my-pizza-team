@@ -11,12 +11,11 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
+import { makeTeam, JSON_HEADERS } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
-import { Store } from "../daemon/store.ts";
 import { buildApp } from "../daemon/server.ts";
 import { FIXTURE_SOURCE_ID, FIXTURE_WRITEBACK_CHANNEL, FixtureSource, fixtureCommentsFile } from "../daemon/sources/fixture.ts";
 import { invalidExternalComment, mergeExternalComments, wroteBackKey } from "../daemon/sources/comments.ts";
@@ -25,19 +24,6 @@ import { fileSourceKv } from "../daemon/store/source-kv.ts";
 import type { CommentWriteBack, ExternalComment, ExternalDef, WorkSource } from "../daemon/sources/types.ts";
 import type { Comment } from "../shared/types.ts";
 import { externalCommentLabel, newestFirst } from "../ui/src/lib/external-sources.ts";
-
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
-function tempTeam(): { store: Store; teamDir: string } {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-comments-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  return { store: new Store(teamDir, TEST_CONFIG), teamDir };
-}
-
-function cleanup(store: Store, teamDir: string): void {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
 
 const c = (externalId: string, createdAt: string, extra: Partial<ExternalComment> = {}): ExternalComment =>
   ({ externalId, author: "alice", createdAt, body: `body ${externalId}`, ...extra });
@@ -88,7 +74,7 @@ test("mergeExternalComments: skips what the thread has, what MPT wrote back, rep
 // ─── The fixture round trip ─────────────────────────────────────────
 
 test("sync pulls an item's comments into the mirror's thread, marked external; new ones never re-run it or write back", async () => {
-  const { store, teamDir } = tempTeam();
+  const { store, teamDir, cleanup } = makeTeam();
   try {
     const folder = path.join(teamDir, "external");
     fs.mkdirSync(folder);
@@ -136,12 +122,12 @@ test("sync pulls an item's comments into the mirror's thread, marked external; n
     assertEquals(final.map((t) => t.body), ["body k1", "body w1", "body k2", "on it"]);
     assertEquals(final.at(-1)!.external, undefined);
   } finally {
-    cleanup(store, teamDir);
+    cleanup();
   }
 });
 
 test("an item that omits comments leaves the thread alone", async () => {
-  const { store, teamDir } = tempTeam();
+  const { store, teamDir, cleanup } = makeTeam();
   try {
     let comments: ExternalComment[] | undefined = [c("1", "2025-01-01T00:00:00Z")];
     store.registerWorkSource({
@@ -153,12 +139,12 @@ test("an item that omits comments leaves the thread alone", async () => {
     await store.syncWorkSource("src");
     assertEquals(store.getCommentsForRef({ workDefId: mirroredWorkDefId("src", "A") }).length, 1);
   } finally {
-    cleanup(store, teamDir);
+    cleanup();
   }
 });
 
 test("an async write-back in flight defers that item's new comments; its returned id is recognised afterwards", async () => {
-  const { store, teamDir } = tempTeam();
+  const { store, teamDir, cleanup } = makeTeam();
   try {
     const upstream: ExternalComment[] = [];
     let release!: (r: CommentWriteBack) => void;
@@ -186,7 +172,7 @@ test("an async write-back in flight defers that item's new comments; its returne
     assertEquals((await store.syncWorkSource("slow")).commented, [id]);
     assertEquals(store.getCommentsForRef({ workDefId: id }).map((t) => t.body), ["hello", "body other"]);
   } finally {
-    cleanup(store, teamDir);
+    cleanup();
   }
 });
 

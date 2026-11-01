@@ -5,41 +5,24 @@
  * Pizza Team badges (`queuedCount`, `unreadInboxCount`).
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
-import { type TeamConfig } from "../shared/types.ts";
-import * as path from "node:path";
+import { makeTeam } from "./_team.ts";
 import { badgeLabel } from "../ui/src/lib/inbox.ts";
 
 test("status: `paused` follows control/pause and control/resume", async () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-status-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
+  const { store, app, cleanup } = makeTeam({ minTeammates: 0 });
   try {
     assertEquals((await (await app.request("/api/status")).json()).paused, false);
     await app.request("/api/control/pause", { method: "POST" });
     assertEquals((await (await app.request("/api/status")).json()).paused, true);
     await app.request("/api/control/resume", { method: "POST" });
     assertEquals((await (await app.request("/api/status")).json()).paused, false);
-  } finally {
-    store.close();
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
+  } finally { cleanup(); }
 });
 
 test("status: queuedCount and unreadInboxCount track READY and unread finished WorkItems", async () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-status-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
+  const { store, app, cleanup } = makeTeam({ minTeammates: 0 });
   const counts = async () => {
     const body = await (await app.request("/api/status")).json();
     return { queued: body.queuedCount, unread: body.unreadInboxCount };
@@ -75,10 +58,7 @@ test("status: queuedCount and unreadInboxCount track READY and unread finished W
     const [third] = store.getWorkItems({ states: ["READY"] }).items;
     assertEquals(store.cancelWorkItem(third!.id), true);
     assertEquals(await counts(), { queued: 0, unread: 2 });
-  } finally {
-    store.close();
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
+  } finally { cleanup(); }
 });
 
 test("status: badgeLabel hides zero/unknown and caps at 99+", () => {

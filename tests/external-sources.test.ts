@@ -12,9 +12,9 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assert, assertEquals, assertNotEquals, assertStringIncludes, assertThrows } from "./_assert.ts";
+import { makeTeam, JSON_HEADERS, type Team } from "./_team.ts";
 import * as path from "node:path";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
@@ -28,30 +28,19 @@ import { fileSourceKv } from "../daemon/store/source-kv.ts";
 import type { ExternalDef, SourceContext, WorkSource } from "../daemon/sources/types.ts";
 import { isMirroredWorkDef, workDefType } from "../shared/types.ts";
 
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
-interface Env {
-  store: Store;
-  teamDir: string;
+interface Env extends Team {
   folder: string;
   fixture: FixtureSource;
 }
 
 /** A Store with the fixture source registered on demand-only sync (no timers). */
 function setup(): Env {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const folder = path.join(teamDir, "external");
+  const team = makeTeam();
+  const folder = path.join(team.teamDir, "external");
   fs.mkdirSync(folder);
-  const store = new Store(teamDir, TEST_CONFIG);
   const fixture = new FixtureSource({ dir: folder, label: "Fixture Tracker", syncEveryMs: null });
-  store.registerWorkSource(fixture);
-  return { store, teamDir, folder, fixture };
-}
-
-function cleanup({ store, teamDir }: Pick<Env, "store" | "teamDir">): void {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  team.store.registerWorkSource(fixture);
+  return Object.assign(team, { folder, fixture });
 }
 
 /** Write one fixture item file. */
@@ -167,7 +156,7 @@ test("sync: mirrors each item read-only and enqueues once per revision", async (
     assertEquals(store.getWorkDef(id1)!.title, "First thing (v2)");
     assertEquals((await store.syncWorkSource(FIXTURE_SOURCE_ID)).enqueued, []);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -189,7 +178,7 @@ test("sync: a revision landing while an item is in flight runs once that item en
     store.setWorkItemState(item.id, "COMPLETE");
     assertEquals((await store.syncWorkSource(FIXTURE_SOURCE_ID)).enqueued.length, 1);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -209,7 +198,7 @@ test("sync: readiness gating holds a new revision, and the next ready sync enque
     const ready = await store.syncWorkSource(FIXTURE_SOURCE_ID);
     assertEquals(ready.enqueued.length, 1);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -243,7 +232,7 @@ test("sync: a vanished item's mirror is archived (not deleted), and comes back i
     assertEquals(store.getWorkDef(gone)!.status, "active");
     assertEquals(fileSourceKv(teamDir, FIXTURE_SOURCE_ID).get(vanishedKey(gone)), undefined);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -263,7 +252,7 @@ test("sync: a mirror a person archived stays archived (content kept current) and
     assertEquals(store.getWorkDef(id)!.status, "archived");
     assertEquals(store.getWorkDef(id)!.goal, "v2");
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -280,7 +269,7 @@ test("ctx.upsertDef mirrors without enqueueing; an unchanged revision is a no-op
     assertEquals(ctx.upsertDef({ ...ext, revision: "r2", title: "Updated" })!.title, "Updated");
     assertEquals(ctx.upsertDef({ externalId: "", revision: "r", title: "t", goal: "" }), null);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -321,14 +310,12 @@ test("write-back: onComment for thread comments; onItemTerminal on COMPLETE, FAI
     const lines = fs.readFileSync(path.join(folder, FIXTURE_WRITEBACK_FILE), "utf8").trim().split("\n");
     assertEquals(lines.length, fixture.writeBacks.length);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
 test("write-back: a throwing or rejecting hook is logged and never breaks the comment or the state change", async () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
+  const { store, teamDir, cleanup } = makeTeam();
   const logs: string[] = [];
   const origWarn = console.warn;
   console.warn = (m: string) => { logs.push(String(m)); };
@@ -356,7 +343,7 @@ test("write-back: a throwing or rejecting hook is logged and never breaks the co
     assert(logs.some((l) => l.includes("[source:broken] onItemTerminal failed: tracker still down")), logs.join("\n"));
   } finally {
     console.warn = origWarn;
-    cleanup({ store, teamDir });
+    cleanup();
   }
 });
 
@@ -397,7 +384,7 @@ test("routes: a mirrored def can't be edited, deleted, or created — its thread
     assert(view.mirror.revision);
     assertEquals(view.mirror.vanished, false);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -437,20 +424,18 @@ test("routes: /api/work-sources lists external sources and their mirrored defs; 
 
     assertEquals((await app.request("/api/work-sources/nope/defs")).status, 404);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
 test("routes: with no external source registered, none is reported", async () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
+  const { store, teamDir, cleanup } = makeTeam();
   try {
     const app = buildApp(store, TEST_CONFIG, teamDir);
     assertEquals((await (await app.request("/api/status")).json()).externalSources, []);
     assertEquals((await (await app.request("/api/work-sources")).json()).sources, []);
   } finally {
-    cleanup({ store, teamDir });
+    cleanup();
   }
 });
 
@@ -492,7 +477,7 @@ test("isolation: a throwing and a hanging source fail alone, back off, and never
     assertEquals(store.syncFailures(FIXTURE_SOURCE_ID), 0);
   } finally {
     console.warn = origWarn;
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -528,9 +513,7 @@ test("isolation: backoff doubles per consecutive failure, capped, and resets on 
 // ─── Dev config ─────────────────────────────────────────────────────
 
 test("registerDevSources: the fixture source is registered only when config.dev.fixtureSource names a folder", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-ext-sources-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
+  const { store, teamDir, cleanup } = makeTeam();
   try {
     registerDevSources(store, TEST_CONFIG, teamDir);
     assertEquals(store.listExternalSources().length, 0);
@@ -538,6 +521,6 @@ test("registerDevSources: the fixture source is registered only when config.dev.
     const entry = store.listExternalSources()[0]!;
     assertEquals([entry.source.id, entry.source.label], ["dev-fixture", "Dev"]);
   } finally {
-    cleanup({ store, teamDir });
+    cleanup();
   }
 });

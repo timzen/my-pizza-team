@@ -13,7 +13,7 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { makeTeam } from "./_team.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { DEFAULT_CONFIG, resolveAssistantChatMode, type TeamConfig } from "../shared/types.ts";
@@ -41,18 +41,13 @@ const FULL: Partial<TeamConfig> = {
 };
 
 function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-config-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...structuredClone(FULL) };
-  const store = new Store(teamDir, config);
-  const built = buildApp(store, config, teamDir);
+  const { app: built, store, teamDir, cleanup } = makeTeam(structuredClone(FULL));
   // FULL sets an apiToken, so the routes require it.
   const app = {
     request: (url: string, init: RequestInit = {}) =>
       built.request(url, { ...init, headers: { ...init.headers as Record<string, string>, Authorization: `Bearer ${FULL.apiToken}` } }),
   };
   const onDisk = () => JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as Partial<TeamConfig>;
-  const cleanup = () => { store.close(); fs.rmSync(teamDir, { recursive: true, force: true }); };
   return { app, store, onDisk, cleanup };
 }
 

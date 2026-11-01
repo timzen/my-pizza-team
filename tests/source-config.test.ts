@@ -13,12 +13,10 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
 import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { Store } from "../daemon/store.ts";
+import { makeTeam, type Team } from "./_team.ts";
 import { loadPlugins } from "../daemon/plugins/loader.ts";
 import {
   checkConfigSchema,
@@ -94,21 +92,12 @@ test("the settings block follows configScope: the whole config, or config[<id>]"
   assertEquals(withSourceConfigBlock(ns, entry, { maxItems: 5 }), { "sim-t": { maxItems: 5 }, taskei: { maxItems: 9 } });
 });
 
-interface Env {
-  teamDir: string;
-  store: Store;
+interface Env extends Team {
   logs: string[];
 }
 
 function setup(): Env {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-source-config-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  return { teamDir, store: new Store(teamDir, TEST_CONFIG), logs: [] };
-}
-
-function cleanup({ store, teamDir }: Env): void {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  return Object.assign(makeTeam(), { logs: [] as string[] });
 }
 
 const item = (externalId: string, extra: Partial<ExternalDef> = {}): ExternalDef =>
@@ -159,7 +148,7 @@ test("default preview runs sync on a restricted ctx: the draft as options, and n
     assertEquals(entry.ctx.kv.get("token"), "keep");
     assertEquals(entry.ctx.options(), { project: "OLD" });
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -195,7 +184,7 @@ test("a source's own preview is used, gets the draft in place per configScope, a
     const notObject = await previewSource(entry, "nope");
     assert(!notObject.ok);
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -227,7 +216,7 @@ test("a preview is bounded by syncTimeoutMs; throws and bad results are errors, 
     assert(!none.ok);
     assertStringIncludes(none.error, "nothing to preview");
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });
 
@@ -253,6 +242,6 @@ test("settings that don't match the schema are a load-time warning, not a refusa
     assert(warnings.some((w) => w.includes("config.tokenEnv: must be the name of an environment variable")), JSON.stringify(warnings));
     assert(env.logs.some((l) => l.includes("warning:") && l.includes("config.project")), JSON.stringify(env.logs));
   } finally {
-    cleanup(env);
+    env.cleanup();
   }
 });

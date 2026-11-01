@@ -7,16 +7,10 @@
  * the agent-facing routes.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
+import { withTeam } from "./_team.ts";
 import { TeammateTranscripts, WATCH_GRACE_MS, type TranscriptEntry } from "../daemon/store/transcripts.ts";
-import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
-import { type TeamConfig } from "../shared/types.ts";
-import * as path from "node:path";
 
 /** A transcript store with a controllable clock. */
 function clocked() {
@@ -124,18 +118,8 @@ test("forget drops an unwatched member's transcript but not a watched one's", ()
 
 // ─── Routes ─────────────────────────────────────────────────────────
 
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-transcript-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), minTeammates: 0 };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir };
-}
-
 test("routes: watch bit, POST batch (carries watched), GET buffer", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     const watch0 = await (await app.request("/api/agents/t1/transcript/watch")).json();
     assertEquals(watch0.watched, false);
 
@@ -160,15 +144,11 @@ test("routes: watch bit, POST batch (carries watched), GET buffer", async () => 
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}),
     });
     assertEquals(bad.status, 400);
-  } finally {
-    store.close();
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
+  });
 });
 
 test("routes: the SSE stream primes with hello and registers a viewer", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     const res = await app.request("/api/agents/t1/transcript/stream");
     assertEquals(res.headers.get("Content-Type"), "text/event-stream");
     const reader = res.body!.getReader();
@@ -180,17 +160,13 @@ test("routes: the SSE stream primes with hello and registers a viewer", async ()
     assertEquals(store.transcripts.isWatched("t1"), true);
     assertEquals(text.includes('"kind":"watch"'), true);
     await reader.cancel();
-  } finally {
-    store.close();
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
+  });
 });
 
 test("routes: the leader's transcript is the same pipeline as any teammate's (terminal mode)", async () => {
   // assistant.chatMode "terminal" watches the leader through these very routes;
   // there's no leader-specific branch, so the same batch must land identically.
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     await app.request("/api/agents/register", {
       method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ id: "leader", name: "leader" }),
     });
@@ -223,8 +199,5 @@ test("routes: the leader's transcript is the same pipeline as any teammate's (te
       stop();
     }
     assertEquals(results.leader, results.t1);
-  } finally {
-    store.close();
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
+  });
 });

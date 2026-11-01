@@ -38,7 +38,7 @@ Instructions for AI coding agents working on this project.
 
 2. **Don't skip this step.** Documentation rot is worse than no documentation. If you add a feature, add its docs in the same commit.
 
-3. **Write or update tests.** New functionality should have tests in `tests/`. Follow the existing pattern (see `tests/templates.test.ts` for a good example; slow tests that need real git/tmux go in `tests/e2e/`).
+3. **Write or update tests.** New functionality should have tests in `tests/`. Follow the existing pattern (see `tests/templates.test.ts` for a good example — get a throwaway team from `tests/_team.ts`'s `withTeam`/`makeTeam` rather than writing your own setup; slow tests that need real git/tmux go in `tests/e2e/`).
 
 ## Project Structure Reference
 

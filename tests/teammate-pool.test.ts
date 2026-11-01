@@ -9,42 +9,14 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
+import { makeTeam, withTeam, post, put } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { resolveMinTeammates, type TeamConfig } from "../shared/types.ts";
 import * as path from "node:path";
-
-/**
- * Fresh store + app with an isolated config (routes mutate it, so never share).
- * Pins `minTeammates: 0` unless overridden so each test starts from an empty
- * pool; the default-size tests pass `minTeammates: undefined` explicitly.
- */
-function setup(overrides: Partial<TeamConfig> = {}) {
-  overrides = { minTeammates: 0, ...overrides };
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-pool-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...structuredClone(TEST_CONFIG), ...overrides };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir, config };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-
-function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
-  return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-}
-
-function put(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
-  return app.request(url, { method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-}
 
 /** Register an online leader (only a leader can realize spawn directives). */
 function registerLeader(app: ReturnType<typeof buildApp>, hostId = "h1") {
@@ -57,14 +29,13 @@ async function pendingSpawns(app: ReturnType<typeof buildApp>): Promise<unknown[
 }
 
 test("unset: the default is half of maxTeammates (rounded down)", async () => {
-  const { app, store, teamDir } = setup({ minTeammates: undefined, maxTeammates: 4 });
-  try {
+  await withTeam({ minTeammates: undefined, maxTeammates: 4 }, async ({ app, store }) => {
     await registerLeader(app);
     const pool = store.getTeammatePool();
     assertEquals(pool.minTeammates, 2);
     assertEquals(pool.isDefault, true);
     assertEquals((await pendingSpawns(app)).length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("the default tracks maxTeammates and rounds down", () => {
@@ -76,39 +47,35 @@ test("the default tracks maxTeammates and rounds down", () => {
 });
 
 test("the derived default is not written to config.json", () => {
-  const { store, teamDir } = setup({ minTeammates: undefined });
-  try {
+  return withTeam({ minTeammates: undefined }, ({ store, teamDir }) => {
     store.saveConfig();
     const onDisk = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"));
     assertEquals("minTeammates" in onDisk, false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("PUT null clears the declaration back to the default", async () => {
-  const { app, store, teamDir } = setup({ maxTeammates: 4 });
-  try {
+  await withTeam({ minTeammates: 0, maxTeammates: 4 }, async ({ app, store }) => {
     assertEquals(store.getTeammatePool().minTeammates, 0);
     const body = await (await put(app, "/api/teammate-pool", { minTeammates: null })).json();
     assertEquals(body.success, true);
     assertEquals(body.minTeammates, 2);
     assertEquals(body.isDefault, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("explicit zero: the daemon spawns nothing on its own", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     await registerLeader(app);
     assertEquals(store.getTeammatePool().minTeammates, 0);
     assertEquals(store.getTeammatePool().isDefault, false);
     assertEquals(store.reconcileTeammatePool(), 0);
     assertEquals((await pendingSpawns(app)).length, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("setting the minimum queues spawns for the shortfall", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app }) => {
     await registerLeader(app);
     const res = await put(app, "/api/teammate-pool", { minTeammates: 2 });
     assertEquals(res.status, 200);
@@ -117,23 +84,21 @@ test("setting the minimum queues spawns for the shortfall", async () => {
     assertEquals(body.minTeammates, 2);
     assertEquals(body.pending, 2);
     assertEquals((await pendingSpawns(app)).length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("pending spawns count toward the minimum (no duplicate batches)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     await registerLeader(app);
     store.setMinTeammates(2);
     // Nothing has been realized yet — reconciling again must not double up.
     assertEquals(store.reconcileTeammatePool(), 0);
     assertEquals((await pendingSpawns(app)).length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("online teammates count toward the minimum; the leader does not", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     await registerLeader(app);
     await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley" });
     await post(app, "/api/agents/register", { id: "t2", name: "calm-hopper" });
@@ -144,21 +109,19 @@ test("online teammates count toward the minimum; the leader does not", async () 
     store.setMinTeammates(3);
     // 2 online + 1 spawned = 3.
     assertEquals((await pendingSpawns(app)).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("the target is capped by maxTeammates", async () => {
-  const { app, store, teamDir } = setup({ maxTeammates: 2 });
-  try {
+  await withTeam({ minTeammates: 0, maxTeammates: 2 }, async ({ app, store }) => {
     await registerLeader(app);
     assertEquals(store.setMinTeammates(5), 2); // clamped on the way in
     assertEquals((await pendingSpawns(app)).length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("no leader online: the pool waits — even when the daemon could spawn", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     assertEquals(store.getTeammatePool().leaderPresent, false);
     // Deliberate: the team starts when its leader does (reconcileTeammatePool),
     // so a daemon launched at login doesn't open agent windows on its own.
@@ -170,12 +133,11 @@ test("no leader online: the pool waits — even when the daemon could spawn", as
     // A leader arriving fills the pool immediately (no waiting for the tick).
     await registerLeader(app);
     assertEquals((await pendingSpawns(app)).length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a teammate that goes offline is replaced on the next reconcile", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     await registerLeader(app);
     await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley" });
     store.setMinTeammates(1);
@@ -185,32 +147,29 @@ test("a teammate that goes offline is replaced on the next reconcile", async () 
     await app.request("/api/agents/t1?dismiss=true", { method: "DELETE" });
     assertEquals(store.reconcileTeammatePool(), 1);
     assertEquals((await pendingSpawns(app)).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("the minimum is persisted to config.json (applied at startup)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, teamDir }) => {
     await registerLeader(app);
     await put(app, "/api/teammate-pool", { minTeammates: 3 });
     const onDisk = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8"));
     assertEquals(onDisk.minTeammates, 3);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("PUT rejects non-integer / negative sizes", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, store }) => {
     assertEquals((await put(app, "/api/teammate-pool", { minTeammates: -1 })).status, 400);
     assertEquals((await put(app, "/api/teammate-pool", { minTeammates: 1.5 })).status, 400);
     assertEquals((await put(app, "/api/teammate-pool", {})).status, 400);
     assertEquals(store.getTeammatePool().minTeammates, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET /api/teammate-pool reports the live pool", async () => {
-  const { app, store, teamDir } = setup({ maxTeammates: 4 });
-  try {
+  await withTeam({ minTeammates: 0, maxTeammates: 4 }, async ({ app, store }) => {
     await registerLeader(app);
     await post(app, "/api/agents/register", { id: "t1", name: "swift-ripley" });
     store.setMinTeammates(2);
@@ -221,12 +180,11 @@ test("GET /api/teammate-pool reports the live pool", async () => {
     assertEquals(body.online, 1);
     assertEquals(body.pending, 1);
     assertEquals(body.leaderPresent, true);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", async () => {
-  const { app, store, teamDir, config } = setup();
-  try {
+  await withTeam({ minTeammates: 0 }, async ({ app, config }) => {
     await registerLeader(app);
     const workflows = { default: { states: [{ name: "in_progress", type: "agent" }] } };
     const res = await put(app, "/api/config", { defaultWorkflow: "default", workflows, minTeammates: 2 });
@@ -237,13 +195,13 @@ test("PUT /api/config also carries minTeammates (and keeps 0 meaningful)", async
     // Back to zero: `0` must not be swallowed as "unset".
     await put(app, "/api/config", { defaultWorkflow: "default", workflows, minTeammates: 0 });
     assertEquals(config.minTeammates, 0);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a pending spawn for the retired assistant role is cancelled at boot", async () => {
   // A database from before the leader became the chat agent can hold one. It must
   // not count toward the team size, be listed as pending, or be realized.
-  const first = setup();
+  const first = makeTeam({ minTeammates: 0 });
   first.store.createLeaderDirective("spawn", { params: { reason: "assistant", name: "assistant" } });
   first.store.createLeaderDirective("spawn", { params: { reason: "teammate" } });
   first.store.close();
@@ -256,5 +214,8 @@ test("a pending spawn for the retired assistant role is cancelled at boot", asyn
     const pending = await pendingSpawns(app) as Array<{ name?: string }>;
     assertEquals(pending.length, 1, "only the teammate spawn is still pending");
     assertEquals(store.getTeammatePool().pending, 1);
-  } finally { cleanup(first.teamDir, store); }
+  } finally {
+    store.close();
+    try { fs.rmSync(first.teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
+  }
 });

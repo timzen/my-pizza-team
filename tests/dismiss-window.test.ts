@@ -8,32 +8,14 @@
  * fake tmux, end to end, and pin the exits that must *keep* their window.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import * as path from "node:path";
+import { withTeam, JSON_HEADERS } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
 import { realizePending, type SpawnerStore } from "../daemon/spawner.ts";
 import type { ExecResult, TmuxExec } from "../daemon/tmux.ts";
-
-const JSON_HEADERS = { "Content-Type": "application/json" };
-
-function setup() {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-dismiss-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config = { ...TEST_CONFIG, tmuxSession: "team" };
-  const store = new Store(teamDir, config);
-  const app = buildApp(store, config, teamDir);
-  return { app, store, teamDir, config };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-}
 
 /** A fake tmux server holding `windows` in every session; kill-window removes one. */
 function fakeTmux(windows: string[]) {
@@ -77,8 +59,7 @@ function passes(store: SpawnerStore, exec: TmuxExec, n: number, start = Date.now
 const dismissDirectives = (store: Store) => store.getLeaderDirectives().filter((d) => d.action === "dismiss");
 
 test("UI dismiss of an `mpt agent` teammate closes its window once it deregisters", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     await register(app, "a1", "swift-ripley", { tmuxSession: "team", tmuxWindow: "swift-ripley" });
     const tmux = fakeTmux(["leader", "swift-ripley"]);
 
@@ -101,12 +82,11 @@ test("UI dismiss of an `mpt agent` teammate closes its window once it deregister
     assertEquals(tmux.live.has("swift-ripley"), false);
     assertEquals(tmux.live.has("leader"), true);
     assertEquals(dismissDirectives(store), []);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("UI dismiss of a Pi teammate closes its window soon after it hears `dismissed`", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     // No metadata: falls back to its name and the configured session.
     await register(app, "p1", "brave-hicks");
     const tmux = fakeTmux(["brave-hicks"]);
@@ -125,12 +105,11 @@ test("UI dismiss of a Pi teammate closes its window soon after it hears `dismiss
     };
     passes(exitedNow, tmux.exec, 2);
     assertEquals(tmux.calls.find((c) => c[0] === "kill-window"), ["kill-window", "-t", "team:brave-hicks"]);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("dismissing an already-offline teammate closes its window without waiting", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     await register(app, "a1", "swift-ripley");
     store.updateMemberStatus("a1", "offline");
     await app.request("/api/agents/a1?dismiss=true", { method: "DELETE" });
@@ -138,12 +117,11 @@ test("dismissing an already-offline teammate closes its window without waiting",
     const tmux = fakeTmux(["swift-ripley"]);
     passes(store, tmux.exec, 2);
     assertEquals(tmux.live.has("swift-ripley"), false);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("a plain self-deregister keeps its window (a quit or crash stays visible)", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     await register(app, "a1", "swift-ripley");
     await app.request("/api/agents/a1", { method: "DELETE" });
     assertEquals(dismissDirectives(store), []);
@@ -156,21 +134,19 @@ test("a plain self-deregister keeps its window (a quit or crash stays visible)",
     const tmux = fakeTmux(["swift-ripley", "brave-hicks"]);
     passes(store, tmux.exec, 5);
     assertEquals(tmux.calls.filter((c) => c[0] === "send-keys" || c[0] === "kill-window"), []);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("dismissing the leader never queues a window close", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     await register(app, "l1", "leader", { tmuxSession: "team", tmuxWindow: "leader" });
     await app.request("/api/agents/l1?dismiss=true", { method: "DELETE" });
     assertEquals(dismissDirectives(store), []);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("the leader sees a dismiss only when the daemon can't drive tmux, and only once it's ready", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({ tmuxSession: "team" }, async ({ app, store }) => {
     await register(app, "a1", "swift-ripley");
     await app.request("/api/agents/a1?dismiss=true", { method: "DELETE" });
     const forLeader = async () =>
@@ -186,5 +162,5 @@ test("the leader sees a dismiss only when the daemon can't drive tmux, and only 
     await heartbeat(app, "a1");
     await app.request("/api/agents/a1", { method: "DELETE" }); // deregisters on its way out
     assertEquals((await forLeader()).length, 1);
-  } finally { cleanup(teamDir, store); }
+  });
 });

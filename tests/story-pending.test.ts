@@ -16,37 +16,25 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals, assertExists } from "./_assert.ts";
+import { withTeam, jsonInit, type TeamOptions } from "./_team.ts";
 import { existsSync } from "node:fs";
 import * as path from "node:path";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
 import { migrateLegacyStoryFiles } from "../daemon/store/story-migration.ts";
-import type { TeamConfig, WorkflowConfig } from "../shared/types.ts";
+import type { WorkflowConfig } from "../shared/types.ts";
 
 /** One agent state: completing it finishes the task (done), admitting the next. */
 const SOLO: WorkflowConfig = { states: [{ name: "work", type: "agent" }] };
 /** Two agent states: completing `build` enqueues a fresh READY item in `check`. */
 const TWO: WorkflowConfig = { states: [{ name: "build", type: "agent" }, { name: "check", type: "agent" }] };
 
-function setup(workflows: Record<string, WorkflowConfig> = { default: SOLO, two: TWO }) {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-story-pending-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const config: TeamConfig = { ...TEST_CONFIG };
-  const store = new Store(teamDir, config);
-  for (const [name, wf] of Object.entries(workflows)) store.saveWorkflow(name, wf);
-  store.registerMember("a1", "neo", "/tmp");
-  const app = buildApp(store, config, teamDir);
-  const cleanup = () => {
-    store.close();
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-  };
-  return { app, store, teamDir, cleanup };
-}
-
-function req(method: string, body?: unknown): RequestInit {
-  return { method, headers: { "Content-Type": "application/json" }, body: body === undefined ? undefined : JSON.stringify(body) };
-}
+/** Workflows `default` (SOLO) and `two` (TWO), and agent a1 online in /tmp. */
+const SOLO_TEAM: TeamOptions = {
+  beforeApp: (store) => {
+    store.saveWorkflow("default", SOLO);
+    store.saveWorkflow("two", TWO);
+    store.registerMember("a1", "neo", "/tmp");
+  },
+};
 
 function readStoryFile(teamDir: string, id: string, dir = "stories"): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(teamDir, dir, `${id}.json`), "utf8"));
@@ -60,8 +48,7 @@ function writeStoryFile(teamDir: string, dir: string, data: Record<string, unkno
 // ─── Dispatch ───────────────────────────────────────────────────────
 
 test("pending story: READY work is not handed out; activating resumes it", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default");
     const wi = store.getActiveWorkItem("s1-1");
     assertExists(wi);
@@ -74,24 +61,22 @@ test("pending story: READY work is not handed out; activating resumes it", () =>
     store.setStoryPending("s1", false);
     assertEquals(store.getStory("s1")!.pending, undefined);
     assertEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp" })?.id, wi.id);
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("pending story created pending: nothing admitted until activated", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", true);
     assertEquals(store.getTask("s1-1")!.status, "todo");
     assertEquals(store.getActiveWorkItem("s1-1"), null);
     store.setStoryPending("s1", false);
     assertEquals(store.getTask("s1-1")!.status, "work");
     assertExists(store.getActiveWorkItem("s1-1"));
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("pending mid-flight: the in-progress task finishes; the next task is not admitted", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("s1", "S1", "d", "open", [], [
       { title: "T1", description: "d" }, { title: "T2", description: "d" },
     ], "default");
@@ -111,12 +96,11 @@ test("pending mid-flight: the in-progress task finishes; the next task is not ad
     store.setStoryPending("s1", false);
     assertEquals(store.getTask("s1-2")!.status, "work");
     assertEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp" })?.ref.workDefId, "s1-2");
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("pending mid-flight: advancing into the next agent state is not handed out", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "two");
     const wi = store.getActiveWorkItem("s1-1")!;
     assertEquals(store.claimWorkItem(wi.id, "a1"), true);
@@ -130,12 +114,11 @@ test("pending mid-flight: advancing into the next agent state is not handed out"
     assertEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp" }), null);
     store.setStoryPending("s1", false);
     assertEquals(store.getNextWorkItem({ id: "a1", directory: "/tmp" })?.id, next.id);
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("a story depending on a pending story waits; it stays on the board", () => {
-  const { store, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store }) => {
     store.createStory("a", "A", "d", "open", [], [{ title: "A1", description: "d" }], "default", true);
     store.createStory("b", "B", "d", "open", ["a"], [{ title: "B1", description: "d" }], "default");
     assertEquals(store.isStoryReady("b"), false);
@@ -150,26 +133,24 @@ test("a story depending on a pending story waits; it stays on the board", () => 
     store.setWorkItemState(wi.id, "COMPLETE");
     assertEquals(store.getStory("a")!.status, "done");
     assertEquals(store.getTask("b-1")!.status, "work");
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("pending survives a restart (stories/<id>.json carries it)", () => {
-  const { store, teamDir, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     store.createStory("s1", "S1", "d", "open", [], [{ title: "T1", description: "d" }], "default", true);
     assertEquals(readStoryFile(teamDir, "s1").pending, true);
     store.loadFromDisk();
     assertEquals(store.getStory("s1")!.pending, true);
     assertEquals(store.getActiveWorkItem("s1-1"), null);
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 // ─── API ────────────────────────────────────────────────────────────
 
 test("API: create/PUT take pending; POST /pending and /activate toggle it", async () => {
-  const { app, store, cleanup } = setup();
-  try {
-    let res = await app.request("/api/stories", req("POST", { id: "s1", title: "S", description: "d", workflow: "default", pending: true, tasks: [{ title: "T", description: "d" }] }));
+  await withTeam({}, async ({ app, store }) => {
+    let res = await app.request("/api/stories", jsonInit("POST", { id: "s1", title: "S", description: "d", workflow: "default", pending: true, tasks: [{ title: "T", description: "d" }] }));
     assertEquals(res.status, 201);
     assertEquals((await res.json()).story.pending, true);
     assertEquals(store.getTask("s1-1")!.status, "todo");
@@ -177,57 +158,54 @@ test("API: create/PUT take pending; POST /pending and /activate toggle it", asyn
     const listed = (await (await app.request("/api/stories")).json()).stories;
     assertEquals(listed[0].pending, true);
 
-    res = await app.request("/api/stories/s1/activate", req("POST"));
+    res = await app.request("/api/stories/s1/activate", jsonInit("POST"));
     assertEquals(await res.json(), { success: true, pending: false });
     assertEquals(store.getStory("s1")!.pending, undefined);
     assertEquals(store.getTask("s1-1")!.status, "work");
 
-    res = await app.request("/api/stories/s1/pending", req("POST"));
+    res = await app.request("/api/stories/s1/pending", jsonInit("POST"));
     assertEquals(await res.json(), { success: true, pending: true });
     assertEquals(store.getStory("s1")!.pending, true);
 
-    res = await app.request("/api/stories/s1", req("PUT", { pending: false }));
+    res = await app.request("/api/stories/s1", jsonInit("PUT", { pending: false }));
     assertEquals((await res.json()).success, true);
     assertEquals(store.getStory("s1")!.pending, undefined);
 
     // A PUT without pending leaves the state alone.
     store.setStoryPending("s1", true);
-    await app.request("/api/stories/s1", req("PUT", { title: "Renamed" }));
+    await app.request("/api/stories/s1", jsonInit("PUT", { title: "Renamed" }));
     assertEquals(store.getStory("s1")!.pending, true);
 
-    assertEquals((await app.request("/api/stories/nope/pending", req("POST"))).status, 404);
-    assertEquals((await app.request("/api/stories/nope/activate", req("POST"))).status, 404);
-  } finally { cleanup(); }
+    assertEquals((await app.request("/api/stories/nope/pending", jsonInit("POST"))).status, 404);
+    assertEquals((await app.request("/api/stories/nope/activate", jsonInit("POST"))).status, 404);
+  }, SOLO_TEAM);
 });
 
 test("API: the deprecated `paused` field is accepted as an alias of pending", async () => {
-  const { app, store, cleanup } = setup();
-  try {
-    await app.request("/api/stories", req("POST", { id: "s1", title: "S", description: "d", workflow: "default", paused: true }));
+  await withTeam({}, async ({ app, store }) => {
+    await app.request("/api/stories", jsonInit("POST", { id: "s1", title: "S", description: "d", workflow: "default", paused: true }));
     assertEquals(store.getStory("s1")!.pending, true);
-    await app.request("/api/stories/s1", req("PUT", { paused: false }));
+    await app.request("/api/stories/s1", jsonInit("PUT", { paused: false }));
     assertEquals(store.getStory("s1")!.pending, undefined);
     // Responses only carry `pending`.
     const listed = (await (await app.request("/api/stories")).json()).stories;
     assertEquals("paused" in listed[0], false);
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("API: the backlog routes are gone", async () => {
-  const { app, store, cleanup } = setup();
-  try {
+  await withTeam({}, async ({ app, store }) => {
     store.createStory("s1", "S", "d", "open", [], [], "default");
     assertEquals((await app.request("/api/backlog")).status, 404);
-    assertEquals((await app.request("/api/stories/s1/backlog", req("POST"))).status, 404);
-    assertEquals((await app.request("/api/backlog/s1/restore", req("POST"))).status, 404);
-  } finally { cleanup(); }
+    assertEquals((await app.request("/api/stories/s1/backlog", jsonInit("POST"))).status, 404);
+    assertEquals((await app.request("/api/backlog/s1/restore", jsonInit("POST"))).status, 404);
+  }, SOLO_TEAM);
 });
 
 // ─── Migration ──────────────────────────────────────────────────────
 
 test("migration: paused stories and backlog/ stories load as pending; old fields dropped", () => {
-  const { store, teamDir, cleanup } = setup();
-  try {
+  return withTeam({}, ({ store, teamDir }) => {
     // A board task for the backlogged story: its WorkDef lives in tasks/ (never moved).
     store.createStory("shelved", "Shelved", "d", "open", [], [{ title: "T", description: "d" }], "default");
     const shelved = readStoryFile(teamDir, "shelved");
@@ -253,7 +231,7 @@ test("migration: paused stories and backlog/ stories load as pending; old fields
     assertEquals(moved.pending, true);
     assertEquals("backloggedAt" in moved, false);
     assertEquals(existsSync(path.join(teamDir, "backlog")), false);
-  } finally { cleanup(); }
+  }, SOLO_TEAM);
 });
 
 test("migration: idempotent, and never clobbers an active story with a backlog copy", () => {

@@ -432,7 +432,13 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 
 `npm test` runs `tests/*.test.ts` with `node --test`, one file at a time (daemon, CLI, and pure UI helpers such as
 `thought-geometry`, `thought-list`, `mobile`, `acp` (against the fake agent), `usage-grid`, `wheel-gesture`, `harness-skew`) using
-`tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
+`tests/_config.ts`'s `TEST_CONFIG` (autosave off). Suites that need a team get it from
+`tests/_team.ts`: `makeTeam(cfg?, opts?)` (a temp team directory with `stories/`, a Store on
+a clone of `TEST_CONFIG` + `cfg`, the app, and `cleanup()`; `opts` sets the temp-dir prefix
+and hooks that run before the Store opens / before the app is built, e.g. to register a
+source), `withTeam(cfg, fn)` (the same, always cleaned up), and the `post`/`put`/`del`/`get`
+and `jsonInit` JSON request helpers. Suites that reopen a team directory or need a
+different layout (migrations, plugin package roots) still build their own. `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
 probe, entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
 `protocol-version.test.ts`, `schema-migrate.test.ts` (the SQLite migrations: old shapes reach the fresh schema, the latest version is untouched), `http.test.ts` (malformed JSON → 400 on every route, a throw → JSON 500), `runtime-purity.test.ts`, `build-embeds.test.ts`,

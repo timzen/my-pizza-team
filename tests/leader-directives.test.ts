@@ -8,36 +8,12 @@
  * (docs/DESIGN.md "One Host, One Leader"), so there is nothing to route between.
  */
 
-import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { buildApp } from "../daemon/server.ts";
-import { Store } from "../daemon/store.ts";
-
-import * as path from "node:path";
-
-function setup(): { app: ReturnType<typeof buildApp>; store: Store; teamDir: string } {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-directives-test-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  const store = new Store(teamDir, TEST_CONFIG);
-  const app = buildApp(store, TEST_CONFIG, teamDir);
-  return { app, store, teamDir };
-}
-
-function cleanup(teamDir: string, store: Store) {
-  store.close();
-  try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-}
-
-function post(app: ReturnType<typeof buildApp>, url: string, body: unknown) {
-  return app.request(url, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-}
+import { withTeam, post } from "./_team.ts";
 
 test("POST spawn directive generates a unique agent name in params", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await post(app, "/api/leader/directives", { action: "spawn", params: { cwd: "/tmp/project" } });
     assertEquals(res.status, 201);
     const body = await res.json();
@@ -46,12 +22,11 @@ test("POST spawn directive generates a unique agent name in params", async () =>
     assertEquals(body.directive.params.cwd, "/tmp/project");
     assertEquals(typeof body.directive.params.name, "string"); // daemon-generated
     assertEquals(body.directive.status, "pending");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("every spawn is a teammate: no reserved assistant identity", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     // The chat is answered by the leader (DESIGN.md "One agent to talk to"), so
     // `reason: "assistant"` no longer mints a reserved singleton name — it is
     // just an ordinary spawn, and repeats do not coalesce onto each other.
@@ -63,23 +38,21 @@ test("every spawn is a teammate: no reserved assistant identity", async () => {
 
     const list = await (await app.request("/api/leader/directives")).json();
     assertEquals(list.directives.length, 2);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("POST requires an action", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const res = await post(app, "/api/leader/directives", { params: {} });
     assertEquals(res.status, 400);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET returns every pending directive, oldest first", async () => {
   // This used to assert per-host isolation (directives for leader-1 excluded
   // leader-2's). With one leader there is nothing to isolate, so what's left to
   // guarantee is FIFO order — the leader must realize asks in the order made.
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "first" } });
     await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "second" } });
     await post(app, "/api/leader/directives", { action: "spawn", params: { reason: "third" } });
@@ -88,12 +61,11 @@ test("GET returns every pending directive, oldest first", async () => {
     const body = await res.json();
     assertEquals(body.directives.length, 3);
     assertEquals(body.directives.map((d: { params: { reason: string } }) => d.params.reason), ["first", "second", "third"]);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("reset-session directive resolves target member metadata", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     // Register an agent with opaque metadata (leader's tmux window).
     await post(app, "/api/agents/register", { id: "a1", name: "neo", metadata: { tmuxWindow: "win1" } });
     // Create a reset directive targeting that member.
@@ -105,12 +77,11 @@ test("reset-session directive resolves target member metadata", async () => {
     assertEquals(list.directives[0].action, "reset-session");
     assertEquals(list.directives[0].memberId, "a1");
     assertEquals(list.directives[0].metadata.tmuxWindow, "win1"); // resolved, opaque
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("PUT status=done removes a directive from the pending list", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const created = await (await post(app, "/api/leader/directives", { action: "spawn" })).json();
     const id = created.directive.id;
 
@@ -127,12 +98,11 @@ test("PUT status=done removes a directive from the pending list", async () => {
       method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }),
     });
     assertEquals(missing.status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("GET /api/spawn-requests lists pending spawns with name and cwd", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     await post(app, "/api/leader/directives", { action: "spawn", params: { name: "cool-chekov", cwd: "/Volumes" } });
     await post(app, "/api/leader/directives", { action: "spawn", params: { name: "bold-riker", cwd: "/tmp/x" } });
     // A non-spawn directive must not appear.
@@ -149,12 +119,11 @@ test("GET /api/spawn-requests lists pending spawns with name and cwd", async () 
     assertEquals(first.cwd, "/Volumes");
     assertEquals(typeof first.id, "string");
     assertEquals(typeof first.createdAt, "string");
-  } finally { cleanup(teamDir, store); }
+  });
 });
 
 test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
-  const { app, store, teamDir } = setup();
-  try {
+  await withTeam({}, async ({ app }) => {
     const created = await (await post(app, "/api/leader/directives", { action: "spawn", params: { name: "spock" } })).json();
     const id = created.directive.id;
 
@@ -170,5 +139,5 @@ test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
     // Cancelling an unknown request → 404.
     const missing = await app.request("/api/spawn-requests/nope", { method: "DELETE" });
     assertEquals(missing.status, 404);
-  } finally { cleanup(teamDir, store); }
+  });
 });
