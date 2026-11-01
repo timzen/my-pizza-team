@@ -16,6 +16,7 @@ import type { TeamConfig } from "../shared/types.ts";
 import { loadTeamConfig } from "../shared/team-config.ts";
 import * as path from "node:path";
 import { existsSync } from "node:fs";
+import { errorMessage } from "../shared/util.ts";
 
 export interface AppContext {
   app: Hono;
@@ -90,6 +91,6 @@ export function registerDevSources(store: Store, config: TeamConfig, teamDir: st
     }));
   } catch (e) {
     // A bad dev config must not stop the daemon.
-    console.warn(`[sources] fixture source not registered: ${e instanceof Error ? e.message : String(e)}`);
+    console.warn(`[sources] fixture source not registered: ${errorMessage(e)}`);
   }
 }

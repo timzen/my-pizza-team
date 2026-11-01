@@ -60,16 +60,13 @@ import {
 import { previewSource } from "../sources/preview.ts";
 import { restoreRedacted, setPackageEntryConfig, viewSettings } from "../sources/settings.ts";
 import { parsePackageEntries } from "../plugins/spec.ts";
+import { isPlainObject } from "../../shared/util.ts";
 
 /** The sources the Store registers itself (daemon/store.ts constructor). */
 const BUILT_IN_SOURCE_IDS: ReadonlySet<string> = new Set([TASK_SOURCE_ID, STORY_SOURCE_ID, SCHEDULE_SOURCE_ID, THOUGHT_SOURCE_ID]);
 
 /** After a preview finishes, the next one for the same source waits this long (429 until then). */
 export const PREVIEW_COOLDOWN_MS = 1_000;
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 /** The plugin package a source came from (its load status), if any. */
 function packageOf(store: Store, sourceId: string): PluginLoadStatus | undefined {

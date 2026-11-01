@@ -58,6 +58,7 @@ import { sourceConfigWarnings } from "../sources/config-schema.ts";
 import { type PackageSpec, type ParsedPackageEntry, parsePackageEntries } from "./spec.ts";
 import { registerHostResolution } from "./host-resolve.ts";
 import type { PackagePersonaFile, PackagePersonaResult } from "../personas/packages.ts";
+import { errorMessage, isPlainObject } from "../../shared/util.ts";
 
 /** The team-dir folder `mpt plugins` installs npm and git packages into. */
 export const PLUGIN_PACKAGES_DIR = "packages";
@@ -230,7 +231,7 @@ async function loadPackage(host: PluginHost, { spec, config }: ParsedPackageEntr
       status.sources.push(source.id);
       warn(sourceConfigWarnings(source, config).map((w) => `source "${source.id}": ${w}`));
     } catch (e) {
-      errors.push(`${entry}: ${e instanceof Error ? e.message : String(e)}`);
+      errors.push(`${entry}: ${errorMessage(e)}`);
     }
   }
   return errors.length ? { ...status, state: "error", error: errors.join("; ") } : status;
@@ -273,11 +274,11 @@ export function readPluginManifest(dir: string): PluginManifest | { error: strin
   try {
     pkg = JSON.parse(fs.readFileSync(file, "utf8"));
   } catch (e) {
-    return { error: `cannot read ${file}: ${e instanceof Error ? e.message : String(e)}` };
+    return { error: `cannot read ${file}: ${errorMessage(e)}` };
   }
   const expected = `(expected "mpt": { "sources": ["./dist/index.js"] } and/or "mpt": { "personas": ["personas/*.md"] })`;
-  const mpt = isObject(pkg) ? pkg.mpt : undefined;
-  if (!isObject(mpt)) return { error: `${file} has no "mpt" manifest ${expected}` };
+  const mpt = isPlainObject(pkg) ? pkg.mpt : undefined;
+  if (!isPlainObject(mpt)) return { error: `${file} has no "mpt" manifest ${expected}` };
   const list = (key: "sources" | "personas", what: string): string[] | { error: string } => {
     const v = mpt[key];
     if (v === undefined) return [];
@@ -289,7 +290,7 @@ export function readPluginManifest(dir: string): PluginManifest | { error: strin
   const personas = list("personas", "persona file paths or globs");
   if (!Array.isArray(personas)) return personas;
   if (mpt.sources === undefined && mpt.personas === undefined) return { error: `${file}: the "mpt" manifest lists neither sources nor personas ${expected}` };
-  const name = isObject(pkg) && typeof pkg.name === "string" && pkg.name.trim() ? pkg.name.trim() : undefined;
+  const name = isPlainObject(pkg) && typeof pkg.name === "string" && pkg.name.trim() ? pkg.name.trim() : undefined;
   return { ...(name ? { name } : {}), sources, personas };
 }
 
@@ -318,7 +319,7 @@ export function readPackagePersonaFiles(dir: string, patterns: string[]): Packag
   try {
     root = fs.realpathSync(dir);
   } catch (e) {
-    out.errors.push(`cannot read ${dir}: ${e instanceof Error ? e.message : String(e)}`);
+    out.errors.push(`cannot read ${dir}: ${errorMessage(e)}`);
     return out;
   }
   const inside = (p: string) => {
@@ -448,7 +449,7 @@ export async function instantiateSource(
   const source = isPluginFactory(exported)
     ? await withTimeout(Promise.resolve(exported(Object.freeze({ ...options }), context)), timeoutMs, "factory")
     : exported;
-  if (!isObject(source) || typeof source.id !== "string" || !source.id) {
+  if (!isPlainObject(source) || typeof source.id !== "string" || !source.id) {
     throw new Error("the default export is not a WorkSource (an object with a string id and apiVersion)");
   }
   return source as unknown as WorkSource;
@@ -462,8 +463,4 @@ export function withTimeout<T>(p: Promise<T>, ms: number, what: string): Promise
     timer.unref?.();
   });
   return Promise.race([p, timeout]).finally(() => clearTimeout(timer));
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }

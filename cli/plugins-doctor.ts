@@ -69,6 +69,7 @@ import { getBuiltinPersona } from "../daemon/personas/builtins.ts";
 import { readTeamPersona } from "../daemon/personas/library.ts";
 import { sourcePersonaPick } from "../daemon/sources/persona.ts";
 import { PackagePersonas, type PackagePersonaResult } from "../daemon/personas/packages.ts";
+import { errorMessage, isPlainObject } from "../shared/util.ts";
 
 /** What the doctor needs from `mpt plugins` (a subset of `PluginsDeps`). */
 export interface PluginsDoctorDeps {
@@ -224,7 +225,7 @@ function parseConfigJson(json: string): Record<string, unknown> {
   } catch (e) {
     throw new DoctorUsageError(`--config is not valid JSON (or "team"): ${(e as Error).message}`);
   }
-  if (!isObject(v)) throw new DoctorUsageError("--config must be a JSON object, e.g. '{\"tokenEnv\":\"JIRA_TOKEN\"}', or \"team\"");
+  if (!isPlainObject(v)) throw new DoctorUsageError("--config must be a JSON object, e.g. '{\"tokenEnv\":\"JIRA_TOKEN\"}', or \"team\"");
   return v;
 }
 
@@ -246,7 +247,7 @@ function personaCheckContext(teamDir: string, packages: PackagePersonas): Person
   let settings: Record<string, SourcePersonaSetting> = {};
   try {
     const raw = readTeamConfigFile(teamDir);
-    if (raw && isObject(raw.sourcePersonas)) settings = raw.sourcePersonas as Record<string, SourcePersonaSetting>;
+    if (raw && isPlainObject(raw.sourcePersonas)) settings = raw.sourcePersonas as Record<string, SourcePersonaSetting>;
   } catch {
     // No (or an unreadable) config.json: no per-source settings.
   }
@@ -258,7 +259,7 @@ function personaCheckContext(teamDir: string, packages: PackagePersonas): Person
       if (kind === "team") return fs.existsSync(teamDir) && readTeamPersona(teamDir, id) !== null;
       return false;
     },
-    setting: (sourceId) => (isObject(settings[sourceId]) ? settings[sourceId] : undefined),
+    setting: (sourceId) => (isPlainObject(settings[sourceId]) ? settings[sourceId] : undefined),
   };
 }
 
@@ -657,7 +658,7 @@ async function runSync(source: WorkSource, ctx: SourceContext, timeoutMs: number
 
 /** The fields printed for an item (whatever it has, even an invalid one). */
 function itemSummary(sourceId: string, def: unknown): DoctorItem {
-  const d = isObject(def) ? def : {};
+  const d = isPlainObject(def) ? def : {};
   const str = (v: unknown) => (typeof v === "string" ? v : v === undefined ? undefined : JSON.stringify(v));
   const externalId = str(d.externalId) ?? "";
   return {
@@ -828,7 +829,7 @@ function throwawayContext(sourceId: string, teamDir: string, options: Record<str
       return null;
     },
     upsertDef: (def) => {
-      calls.upsertDef.push(isObject(def) && typeof def.externalId === "string" ? def.externalId : "?");
+      calls.upsertDef.push(isPlainObject(def) && typeof def.externalId === "string" ? def.externalId : "?");
       return invalidExternalDef(def) ? null : stubWorkDef(sourceId, def);
     },
     kv: {
@@ -906,12 +907,4 @@ function redirectConsoleToStderr(): () => void {
   const saved = { log: console.log, info: console.info, debug: console.debug };
   console.log = console.info = console.debug = (...a: unknown[]) => console.error(...a);
   return () => Object.assign(console, saved);
-}
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }

@@ -120,6 +120,7 @@ import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { writeFileAtomic } from "../shared/atomic-write.ts";
+import { errorMessage } from "../shared/util.ts";
 
 /**
  * Directive actions an agent realizes itself rather than via its host leader.
@@ -1660,7 +1661,7 @@ export class Store {
     if (!item || !def) return {};
     const src = this.sources.forWorkDef(def);
     if (!src?.source.onItemTerminal) return {};
-    const fail = (e: unknown) => src.ctx.log(`onItemTerminal failed: ${e instanceof Error ? e.message : String(e)}`);
+    const fail = (e: unknown) => src.ctx.log(`onItemTerminal failed: ${errorMessage(e)}`);
     try {
       const r = src.source.onItemTerminal(def, item, src.ctx);
       if (r instanceof Promise) r.catch(fail);
@@ -3902,7 +3903,7 @@ export class Store {
     const def = this.getWorkDef(ref.workDefId);
     const src = def ? this.sources.forWorkDef(def) : undefined;
     if (!def || !src?.source.onComment) return;
-    const fail = (e: unknown) => src.ctx.log(`onComment failed: ${e instanceof Error ? e.message : String(e)}`);
+    const fail = (e: unknown) => src.ctx.log(`onComment failed: ${errorMessage(e)}`);
     // The id the source gave the posted comment: recorded so sync recognises it
     // when it comes back (docs/DESIGN.md "A mirrored thread").
     const record = (r: unknown) => {

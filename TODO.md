@@ -11,6 +11,18 @@ number. Delete an item when it's done.
   mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
   move the member's in-flight items to MORIBUND in `removeMember`.
 
+## Code health
+
+- **Helper copies outside `shared/`:** `ui/src/lib/structural.ts` and
+  `ui/src/lib/source-settings.ts` define their own `isPlainObject` (the
+  structural one also rejects non-plain prototypes), and `harnesses/pi/src/leader.ts`
+  writes `err instanceof Error ? err.message : String(err)` inline, because neither
+  the UI nor the Pi extension can import `shared/` yet. Fold them into
+  `shared/util.ts` with the wire-protocol work that gives them access.
+- **`(e as Error).message`** in `catch` blocks across `cli/`, `agent/` and `daemon/`
+  prints `undefined` for a non-`Error` throw; `errorMessage` (`shared/util.ts`) would
+  stringify it instead. Left as is because switching changes that (edge-case) output.
+
 ## Work Sources as plugins — package loading — built
 
 Third-party Work Sources load from plugin packages declared per team in

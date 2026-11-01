@@ -19,6 +19,7 @@
 
 import type { SourceEntry } from "./registry.ts";
 import type { ExternalDef, SyncOutcome } from "./types.ts";
+import { errorMessage } from "../../shared/util.ts";
 
 /** Default `syncEveryMs`: once a minute. */
 export const DEFAULT_SYNC_EVERY_MS = 60_000;
@@ -183,7 +184,7 @@ export class SyncRunner {
       st.last = { at: Date.now(), outcome };
       return outcome;
     } catch (e) {
-      const error = e instanceof Error ? e.message : String(e);
+      const error = errorMessage(e);
       st.failures++;
       const wait = Math.min(this.backoff.baseMs * 2 ** (st.failures - 1), this.backoff.maxMs);
       st.notBefore = now + wait;

@@ -26,6 +26,7 @@ import type { PackageEntry } from "../../shared/types.ts";
 import { ENV_VAR_NAME_PATTERN } from "./config-schema.ts";
 import type { SourceConfigField, SourceConfigSchema } from "./types.ts";
 import { parsePackageEntries } from "../plugins/spec.ts";
+import { isPlainObject } from "../../shared/util.ts";
 
 /** Keys whose string value is treated as a secret and never shown (unless declared `format: "env-var"`). */
 const SECRET_KEY = /(secret|passw(or)?d|token|api[-_]?key|credential|private[-_]?key)/i;
@@ -40,10 +41,6 @@ export interface SettingsView {
   redacted: string[];
   /** Every env-var reference, by name, and whether the daemon's environment has it. */
   envVars: SourceEnvVarRef[];
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }
 
 /** The schema's field for `key` within `props`, if declared. */

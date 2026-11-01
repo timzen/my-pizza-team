@@ -41,6 +41,7 @@ import {
 import { parseWorkDef, serializeWorkDef } from "../store/workdefs.ts";
 import { normalizeInstructionMarkdown } from "../prompt.ts";
 import { freeTeamPersonaId, readTeamPersona, writeTeamPersona } from "./library.ts";
+import { errorMessage } from "../../shared/util.ts";
 
 /** The settings key the notice is kept under (dismissed = deleted). */
 export const CONTEXT_NOTICE_KEY = "notice:context-library-removed";
@@ -104,7 +105,7 @@ export function migrateToPersonas(env: MigrationEnv): MigrationReport {
   };
 
   const step = (name: string, fn: () => void) => {
-    try { fn(); } catch (e) { log(`migration step "${name}" failed: ${e instanceof Error ? e.message : String(e)}`); }
+    try { fn(); } catch (e) { log(`migration step "${name}" failed: ${errorMessage(e)}`); }
   };
 
   // 1. Workflow state files.

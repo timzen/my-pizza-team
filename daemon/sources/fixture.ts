@@ -42,6 +42,7 @@ import { existsSync } from "node:fs";
 import type { Comment, WorkDef, WorkItem } from "../../shared/types.ts";
 import { parseWorkDef } from "../store/workdefs.ts";
 import type { CommentWriteBack, ExternalComment, ExternalDef, SourceContext, WorkSource, WorkSourceMode } from "./types.ts";
+import { errorMessage } from "../../shared/util.ts";
 
 /** The fixture source's default id and label. */
 export const FIXTURE_SOURCE_ID = "fixture";
@@ -179,7 +180,7 @@ export class FixtureSource implements WorkSource {
     try {
       fs.appendFileSync(fixtureCommentsFile(this.opts.dir, externalId), JSON.stringify(posted) + "\n");
     } catch (e) {
-      ctx.log(`could not post the comment: ${e instanceof Error ? e.message : String(e)}`);
+      ctx.log(`could not post the comment: ${errorMessage(e)}`);
       return;
     }
     return { externalId: posted.externalId };
@@ -198,7 +199,7 @@ export class FixtureSource implements WorkSource {
       if (!existsSync(this.opts.dir)) return;
       fs.appendFileSync(path.join(this.opts.dir, FIXTURE_WRITEBACK_FILE), JSON.stringify({ at: new Date().toISOString(), ...call }) + "\n");
     } catch (e) {
-      ctx.log(`could not record write-back: ${e instanceof Error ? e.message : String(e)}`);
+      ctx.log(`could not record write-back: ${errorMessage(e)}`);
     }
   }
 }

@@ -35,6 +35,7 @@ import type { TeamConfig } from "../../shared/types.ts";
 import { npmPluginPrefix, packageInstallDir, readPackagePersonaFiles, readPluginManifest } from "./loader.ts";
 import { PackagePersonas } from "../personas/packages.ts";
 import { type GitPackageSpec, type NpmPackageSpec, type PackageSpec, parsePackageEntries } from "./spec.ts";
+import { errorMessage, isPlainObject } from "../../shared/util.ts";
 
 /** A child process's outcome. */
 export interface PluginRunResult {
@@ -205,7 +206,7 @@ function hasKeys(v: unknown): boolean {
 function readPackageJson(dir: string): Record<string, unknown> | null {
   try {
     const v: unknown = JSON.parse(fs.readFileSync(path.join(dir, "package.json"), "utf8"));
-    return typeof v === "object" && v !== null && !Array.isArray(v) ? v as Record<string, unknown> : null;
+    return isPlainObject(v) ? v : null;
   } catch {
     return null;
   }
@@ -298,7 +299,7 @@ export function installMissingPackages(config: Pick<TeamConfig, "packages">, d: 
       installPackage(spec, d);
       d.log(`${spec.raw}: installed`);
     } catch (e) {
-      const message = e instanceof Error ? e.message : String(e);
+      const message = errorMessage(e);
       d.log(`${spec.raw}: install failed: ${message}`);
       failures.set(spec.identity, message);
       try {

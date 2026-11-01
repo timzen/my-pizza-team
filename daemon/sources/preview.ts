@@ -26,6 +26,7 @@ import { invalidExternalDef } from "./mirror.ts";
 import { DEFAULT_SYNC_TIMEOUT_MS } from "./sync.ts";
 import type { ExternalDef, SourceContext, SourceKv, SourcePreview } from "./types.ts";
 import { withTimeout } from "../plugins/loader.ts";
+import { errorMessage } from "../../shared/util.ts";
 
 /** The result of `previewSource`. `via` says which hook produced it. */
 export type PreviewOutcome =
@@ -111,7 +112,7 @@ export async function previewSource(entry: SourceEntry, draftBlock: unknown, opt
     warnings.push(...shaped.warnings);
     return { ok: true, via, preview: { items, ...(warnings.length ? { warnings } : {}), ...(shaped.note ? { note: shaped.note } : {}) } };
   } catch (e) {
-    return { ok: false, error: e instanceof Error ? e.message : String(e) };
+    return { ok: false, error: errorMessage(e) };
   }
 }
 

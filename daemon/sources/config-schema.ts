@@ -22,6 +22,7 @@ import type {
   SourceConfigScope,
   WorkSource,
 } from "./types.ts";
+import { isPlainObject } from "../../shared/util.ts";
 
 /** One problem with one settings field. `path` is `""` for the block itself, else `key`, `group.key`, or `list[2]`. */
 export interface ConfigFieldError {
@@ -33,10 +34,6 @@ export interface ConfigFieldError {
 export const ENV_VAR_NAME_PATTERN = /^[A-Za-z_][A-Za-z0-9_]*$/;
 
 const LEAF_TYPES = new Set(["string", "number", "integer", "boolean", "array"]);
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
-}
 
 /** A source's effective `configScope` (default `"package"`). */
 export function configScopeOf(source: Pick<WorkSource, "configScope">): SourceConfigScope {

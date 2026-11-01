@@ -13,6 +13,7 @@
 
 import * as os from "node:os";
 import * as path from "node:path";
+import { isPlainObject } from "../../shared/util.ts";
 
 /** `npm:<name>[@version]`. */
 export interface NpmPackageSpec {
@@ -228,8 +229,4 @@ function parseEntry(entry: unknown, teamDir: string): ParsedPackageEntry | { err
   const r = parsePackageSpec(entry.source, teamDir);
   if (!r.ok) return { error: r.error };
   return { spec: r.spec, config: entry.config ?? {} };
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return typeof v === "object" && v !== null && !Array.isArray(v);
 }

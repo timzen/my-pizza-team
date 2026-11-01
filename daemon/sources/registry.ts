@@ -15,6 +15,7 @@
 
 import type { WorkDef } from "../../shared/types.ts";
 import { type SourceContext, type SourceToggle, WORK_SOURCE_API_VERSION, type WorkSource } from "./types.ts";
+import { errorMessage } from "../../shared/util.ts";
 
 /** The source id of a parent-less (Solitary) WorkDef. */
 export const TASK_SOURCE_ID = "task";
@@ -76,10 +77,6 @@ export function sourceIdForWorkDef(def: Pick<WorkDef, "parent">): string {
 export const SOURCE_ID_PATTERN = /^[a-z][a-z0-9-]*$/;
 
 const EMPTY_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
-
-function errorMessage(e: unknown): string {
-  return e instanceof Error ? e.message : String(e);
-}
 
 /** Options for `SourceRegistry.register` / `Store.registerWorkSource`. */
 export interface RegisterSourceOptions {
@@ -246,7 +243,7 @@ export class SourceRegistry {
     try {
       entry.source.tick(entry.ctx, now);
     } catch (e) {
-      entry.ctx.log(`tick failed: ${e instanceof Error ? e.message : String(e)}`);
+      entry.ctx.log(`tick failed: ${errorMessage(e)}`);
     }
   }
 
@@ -260,7 +257,7 @@ export class SourceRegistry {
       try {
         source.reconcile(ctx);
       } catch (e) {
-        ctx.log(`reconcile failed: ${e instanceof Error ? e.message : String(e)}`);
+        ctx.log(`reconcile failed: ${errorMessage(e)}`);
       }
     }
   }
