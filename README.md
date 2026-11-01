@@ -291,7 +291,7 @@ most of it is editable on the **Config** page. Minimal:
 
   // ─── Autosave ──────────────────────────────────────────────────
   "autosave": {
-    "flushIntervalMinutes": 30,
+    "flushIntervalMinutes": 30,          // Checkpoint commit cadence (minutes) when autoCommit is on
     "commitIntervalHours": 24,
     "commitMessage": "my-pizza-team: checkpoint {timestamp}",
     "autoCommit": true                   // Commit the team dir (only) into your git repo

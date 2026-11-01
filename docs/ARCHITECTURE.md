@@ -59,8 +59,11 @@ committed by autosave.
 **Runtime-only state** (SQLite or memory, never committed): the WorkItem queue,
 members and assignments (cleared on boot), leader directives, chat messages and
 receipts, transcripts (memory), pairing intent (memory), readiness (memory), spawn
-capability (memory). Stories and board tasks are flushed to disk on a timer via a
-`dirty` flag; comments and usage are appended immediately.
+capability (memory). Stories, WorkDefs, comments and usage are written to their
+files as they change; autosave only commits them (every
+`autosave.flushIntervalMinutes`, when `autoCommit` is on). Older teams may still
+have a `tasks/<id>/task.json` per board task — a mirror the daemon no longer
+writes; only the one-time usage-ledger migration (daemon/store/usage.ts) reads it.
 
 **WorkItem lifecycle:**
 

@@ -4,7 +4,7 @@
  * Handles:
  * - PID file creation and cleanup
  * - Signal handling (SIGTERM, SIGINT) for graceful shutdown
- * - State flushing (Store.flushToDisk + Store.close) on exit
+ * - Clean store shutdown (Store.close: timers, chat snapshot, checkpoint) on exit
  * - Logging to <teamDir>/daemon.log when running in the background
  *
  * The PID file is written to <teamDir>/daemon.pid on start and removed on stop.
@@ -77,9 +77,8 @@ export function isAlreadyRunning(teamDir: string): { running: boolean; pid?: num
 /**
  * Perform graceful shutdown:
  * 1. Stop the HTTP server
- * 2. Flush dirty tasks to disk
- * 3. Close the database
- * 4. Remove the PID file
+ * 2. Close the store (stops timers, snapshots the chat, checkpoints, closes the DB)
+ * 3. Remove the PID file
  */
 export function shutdown(ctx: DaemonContext): void {
   console.log("\n🛑 Shutting down...");
@@ -97,7 +96,7 @@ export function shutdown(ctx: DaemonContext): void {
 
   try {
     if (ctx.store) {
-      ctx.store.close(); // flushes + stops timers + closes DB
+      ctx.store.close(); // stops timers + snapshots chat + closes DB
     }
   } catch (e) {
     console.error("Error during store close:", e);

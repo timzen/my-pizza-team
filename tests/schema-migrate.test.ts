@@ -18,7 +18,7 @@ import * as path from "node:path";
 
 const RETIRED: Record<string, string[]> = {
   stories: ["requirements", "categories"],
-  tasks: ["substatus", "last_read_at"],
+  tasks: ["substatus", "last_read_at", "dirty"],
   members: ["capabilities", "work_mode", "assigned_story_id"],
   work_items: ["ref_kind", "story_id", "task_id"],
 };

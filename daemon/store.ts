@@ -11,7 +11,6 @@
  * - SQLite is the runtime engine for fast atomic reads/writes
  * - Comments are always appended to JSONL immediately (never lost)
  * - Assignments and members are ephemeral (never written to JSON)
- * - The `dirty` flag on tasks tracks what needs flushing to disk
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -328,7 +327,8 @@ export class Store {
   private teamDir: string;
   private config: TeamConfig;
   private workflows: Record<string, WorkflowConfig> = {};
-  private flushTimer: ReturnType<typeof setInterval> | null = null;
+  /** Autosave commit every `autosave.flushIntervalMinutes` (only when autoCommit is on). */
+  private autosaveTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
   private heartbeatCheckTimer: ReturnType<typeof setInterval> | null = null;
   /** One interval per ticking Work Source (Schedule every 30s, Thought every triage interval). */
@@ -900,8 +900,7 @@ export class Store {
         description TEXT,
         status TEXT DEFAULT 'todo',
         result TEXT,
-        dir_path TEXT,
-        dirty INTEGER DEFAULT 0
+        dir_path TEXT
       );
 
       CREATE TABLE IF NOT EXISTS assignments (
@@ -1139,7 +1138,8 @@ export class Store {
    * modes (`work_mode`, `assigned_story_id`), task substatus and read tracking
    * (`substatus`, `last_read_at`), story `categories` (replaced by context), story
    * `paused` (replaced by `pending`; the cache is rebuilt from files), story and
-   * task `context` (the context library, removed for personas), and the
+   * task `context` (the context library, removed for personas), task `dirty`
+   * (it flagged rows for a `task.json` mirror nothing read), and the
    * old task|workdef WorkItem ref (`ref_kind`, `story_id`, `task_id`). Nothing reads
    * or writes them, but a column that still exists invites someone to.
    *
@@ -1155,7 +1155,7 @@ export class Store {
     }
     const retired: Array<[string, string]> = [
       ["stories", "requirements"], ["stories", "categories"], ["stories", "paused"], ["stories", "context"],
-      ["tasks", "substatus"], ["tasks", "last_read_at"], ["tasks", "context"],
+      ["tasks", "substatus"], ["tasks", "last_read_at"], ["tasks", "context"], ["tasks", "dirty"],
       ["members", "capabilities"], ["members", "work_mode"], ["members", "assigned_story_id"],
       ["work_items", "ref_kind"], ["work_items", "story_id"], ["work_items", "task_id"],
     ];
@@ -1264,8 +1264,8 @@ export class Store {
   /** Cache a board WorkDef (+ its story-owned status) into the tasks index. */
   private upsertTask(def: WorkDef, storyId: string, status: string, seq: number): void {
     this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, dir_path, dirty)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0)`
+      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, dir_path)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(
       def.id, storyId, seq, slugify(def.title), def.title, def.goal,
       def.acceptanceCriteria || "", def.additionalContext || null,
@@ -1578,7 +1578,7 @@ export class Store {
    * through it.
    */
   private writeTaskPosition(taskId: string, status: string): void {
-    this.db.prepare("UPDATE tasks SET status = ?, dirty = 1 WHERE id = ?").run(status, taskId);
+    this.db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, taskId);
     const task = this.getTask(taskId);
     const story = task ? this.getStory(task.storyId) : null;
     if (story) this.writeStory(story);
@@ -2184,14 +2184,13 @@ export class Store {
   /**
    * Record a run's usage against a ref (a board task / WorkDef id). `extra`
    * carries the ledger's newer fields — cache tokens, kind, member, title
-   * (store/usage.ts). Board tasks also flip `dirty` so task.json picks it up.
+   * (store/usage.ts).
    */
   addTokenUsage(
     taskId: string, inputTokens: number, outputTokens: number, model: string, costUsd: number,
     extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd"> = {},
   ): void {
     recordUsage(this.db, { ...extra, refId: taskId, inputTokens, outputTokens, model, costUsd }, this.teamDir);
-    this.db.prepare("UPDATE tasks SET dirty = 1 WHERE id = ?").run(taskId);
   }
 
   /** Record a run's usage that isn't for any ref (the leader's chat, a teammate between items). */
@@ -2421,52 +2420,15 @@ export class Store {
     return reaped;
   }
 
-  // --- Flush to disk ---
-
-  flushToDisk(): void {
-    const dirtyTasks = this.db.prepare("SELECT * FROM tasks WHERE dirty = 1").all() as Array<Record<string, unknown>>;
-    for (const row of dirtyTasks) {
-      const taskFile = path.join(row.dir_path as string, "task.json");
-      try {
-        // Ensure task directory exists before writing
-        const taskDir = path.dirname(taskFile);
-        if (!existsSync(taskDir)) {
-          fs.mkdirSync(taskDir, { recursive: true });
-        }
-        const tokenUsage = this.getTokenUsage(row.id as string);
-        const taskData: Record<string, unknown> = {
-          id: row.id,
-          title: row.title,
-          description: row.description,
-          status: row.status,
-          result: row.result,
-        };
-        if (tokenUsage.length > 0) {
-          taskData.tokenUsage = tokenUsage;
-        }
-        fs.writeFileSync(taskFile, JSON.stringify(taskData, null, 2) + "\n");
-      } catch {
-        // Task directory may have been removed externally; skip
-      }
-    }
-    if (dirtyTasks.length > 0) {
-      this.db.prepare("UPDATE tasks SET dirty = 0 WHERE dirty = 1").run();
-    }
-  }
-
   // --- Autosave timers ---
 
   startTimers(): void {
-    const flushMs = this.config.autosave.flushIntervalMinutes * 60 * 1000;
-    this.flushTimer = setInterval(() => {
-      this.flushToDisk();
-      // Commit after each flush if autoCommit is enabled
-      if (this.config.autosave.autoCommit) {
-        this.commitToGit();
-      }
-    }, flushMs);
-
     if (this.config.autosave.autoCommit) {
+      // Checkpoint the team dir every `flushIntervalMinutes`. Every file it
+      // commits (stories, WorkDefs, notes, usage) is written as it changes, so
+      // there is nothing to flush first.
+      const autosaveMs = this.config.autosave.flushIntervalMinutes * 60 * 1000;
+      this.autosaveTimer = setInterval(() => this.commitToGit(), autosaveMs);
       // Also run a commit on a longer interval as a safety net
       const commitMs = this.config.autosave.commitIntervalHours * 60 * 60 * 1000;
       this.commitTimer = setInterval(() => this.commitToGit(), commitMs);
@@ -2507,7 +2469,7 @@ export class Store {
   }
 
   stopTimers(): void {
-    if (this.flushTimer) clearInterval(this.flushTimer);
+    if (this.autosaveTimer) clearInterval(this.autosaveTimer);
     if (this.commitTimer) clearInterval(this.commitTimer);
     if (this.heartbeatCheckTimer) clearInterval(this.heartbeatCheckTimer);
     for (const t of this.sourceTimers) clearInterval(t);
@@ -3936,7 +3898,7 @@ export class Store {
     // (what /api/stories reads). Keep that cache in sync so an edit through the
     // WorkDef path is reflected on the board without waiting for a reload.
     if (def && this.getTask(id)) {
-      this.db.prepare("UPDATE tasks SET title = ?, description = ?, dirty = 1 WHERE id = ?")
+      this.db.prepare("UPDATE tasks SET title = ?, description = ? WHERE id = ?")
         .run(def.title, def.goal, id);
     }
     return def;
@@ -4336,7 +4298,7 @@ export class Store {
   }
 
   // Token usage on the ref (works for any WorkDef; token_usage is keyed by the
-  // WorkDef id). Board tasks also flip the tasks `dirty` flag for git sync.
+  // WorkDef id).
   addTokenUsageForRef(
     ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number,
     extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd" | "title"> = {},
@@ -4484,7 +4446,6 @@ export class Store {
     this.stopTimers();
     // A sync still in flight must not write to a closed DB when it resolves.
     this.syncRunner.stop();
-    this.flushToDisk();
     // Snapshot the live chat on the way out so the transcript is on disk.
     this.refreshAssistantSnapshot(true);
     if (this.config.autosave.autoCommit) {
