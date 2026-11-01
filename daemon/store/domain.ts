@@ -2,7 +2,8 @@
  * daemon/store/domain.ts — What every Store domain module is built from.
  *
  * The Store is a thin facade over domain classes (daemon/store/members.ts,
- * queue.ts, threads.ts, and in time board, triage, personas — docs/ARCHITECTURE.md "daemon/").
+ * queue.ts, threads.ts, board.ts, triage.ts, personas.ts, thoughts.ts —
+ * docs/ARCHITECTURE.md "daemon/").
  * Each one gets this context plus a narrow dependency interface of its own for
  * whatever it needs from another domain (the pattern daemon/sources/story.ts's
  * `StorySourceDeps` uses) — never the whole Store.

@@ -1,10 +1,16 @@
 /**
- * daemon/store.ts — SQLite store + JSON file sync.
+ * daemon/store.ts — The Store: a thin facade over the daemon's domain modules.
  *
- * Core data layer for the team lead. Uses Node's built-in node:sqlite
- * (DatabaseSync) — no external FFI .so required. Maintains the same schema,
- * CRUD operations, migrations, workflow loading, and JSON file sync as the
- * original.
+ * Core data layer for the team lead. Opens `state.db` (Node's built-in
+ * node:sqlite `DatabaseSync`), brings its schema up to date
+ * (store/schema.ts), and wires the domain classes in daemon/store/ — board,
+ * queue, threads, members, triage, personas, thoughts, the assistant chat —
+ * to each other and to the Work Sources. What it owns itself: that wiring, the
+ * Work Source registry and the external-source sync (ingest, mirrors), the
+ * timers, readiness, WorkDef/Schedule/Template CRUD that crosses domains, and
+ * config persistence. Every other public method is a one-line delegation, so
+ * routes and tests call the Store and never a domain class
+ * (docs/ARCHITECTURE.md "daemon/" — "The split").
  *
  * Key invariants:
  * - JSON files are the source of truth for story/task definitions
@@ -15,67 +21,46 @@
 
 import { DatabaseSync } from "node:sqlite";
 import {
-  slugify,
-  DEFAULT_CONFIG,
-  TODO_STATE,
-  DONE_STATE,
-  STORIES_DIR,
-  WORKDEFS_DIR,
+  type Assignment,
+  type BuiltinPersonaId,
   type Comment,
-  type Story,
-  type StoryTaskRef,
-  type TeamConfig,
-  type WorkflowConfig,
-  type WorkItem,
-  type WorkItemState,
-  type WorkItemRef,
-  type WorkDef,
-  type WorkDefParent,
-  type Schedule,
-  type Template,
-  type Thought,
-  type ThoughtStatus,
-  type ThoughtGroup,
-  DEFAULT_THOUGHT_COLOR,
-  DEFAULT_GROUP_SIZE,
   type Member,
   type MemberSessionStats,
-  type WorkDefOrigin,
-  type ThreadEntry,
-  type TriageBadge,
-  type TriageDecision,
-  type TriageOutcome,
-  type TriageProposal,
-  type TriageProposalState,
-  type TeamReadiness,
-  type BuiltinPersonaId,
   type Persona,
   type PersonaRef,
   type PersonaUsage,
-  type ResolvedPersona,
-  type SourcePersonaSetting,
   type PersonaVia,
-  parsePersonaId,
-  type Assignment,
+  type ResolvedPersona,
+  type Schedule,
+  type SourcePersonaSetting,
+  type Story,
+  type TeamConfig,
+  type TeamReadiness,
+  type Template,
+  type ThreadEntry,
+  type Thought,
+  type ThoughtGroup,
+  type TriageBadge,
+  type TriageOutcome,
+  type TriageProposal,
+  type WorkDef,
+  type WorkDefOrigin,
+  type WorkDefParent,
+  type WorkflowConfig,
+  type WorkItem,
+  type WorkItemRef,
+  type WorkItemState,
 } from "../shared/types.ts";
 import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
-import { validateWorkflow } from "./workflow-engine.ts";
-import { listBuiltinPersonas, getBuiltinPersona } from "./personas/builtins.ts";
-import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona, writeTeamPersona, type TeamPersonaInput } from "./personas/library.ts";
-import { type PackagePersonaFile, type PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
-import { personaUsage, resolvePersona } from "./personas/resolve.ts";
-import { listMirrorPersonaOverrides } from "./personas/usage-disk.ts";
+import type { PluginLoadStatus } from "../shared/protocol.ts";
+import type { TeamPersonaInput } from "./personas/library.ts";
+import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { CONTEXT_NOTICE_KEY, migrateToPersonas } from "./personas/migrate.ts";
-import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef, writeWorkDef, workDefDir } from "./store/workdefs.ts";
+import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
+import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
-import { listThoughts, getThought as ioGetThought, writeThought, deleteThoughtFile, listThoughtGroups, writeThoughtGroups } from "./store/thoughts.ts";
-import {
-  decisionSummary, foldProposals, latestAnalysis, pendingProposals, triageBadge,
-  triageWorkDefId, validateAnalysis,
-  type TriageSkipReason,
-} from "./triage.ts";
 import {
   AssistantChat,
   type AssistantDelivery,
@@ -86,15 +71,13 @@ import {
   type AssistantSession,
   type InboxMessage,
 } from "./store/assistant-chat.ts";
-import { isValidCron } from "./cron.ts";
-import type { PluginLoadStatus } from "../shared/protocol.ts";
 import { type RegisterSourceOptions, type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
 import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource, WorkSourceMode } from "./sources/types.ts";
 import { disconnectedKey, mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
 import { mergeExternalComments } from "./sources/comments.ts";
 import { isSourceSwitchedOff } from "./sources/toggle.ts";
-import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
-import { heldTriageItemsMessage, mirrorPersonaKey, mirrorPersonaPick, type PersonaPick, triagePersonaProblem } from "./sources/persona.ts";
+import { ExternalTriage } from "./sources/external-triage.ts";
+import { heldTriageItemsMessage, mirrorPersonaKey } from "./sources/persona.ts";
 import { DEFAULT_SYNC_EVERY_MS, DEFAULT_SYNC_TIMEOUT_MS, SyncRunner, type SyncStatus } from "./sources/sync.ts";
 import { SCHEDULE_SOURCE_ID, scheduleSource } from "./sources/schedule.ts";
 import { runSolitary, taskSource } from "./sources/task.ts";
@@ -105,125 +88,31 @@ import { fileSourceKv } from "./store/source-kv.ts";
 import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
-import { migrateLegacyStoryFiles } from "./store/story-migration.ts";
 import { migrateSchema, cleanRetiredData } from "./store/schema.ts";
 import { DISMISS_EXIT_GRACE_MS, MemberStore, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
 import { QueueStore, type WorkDefExecutionStats } from "./store/queue.ts";
 import { ThreadStore, type AttachmentInfo } from "./store/threads.ts";
+import { BoardStore, type TaskWithMeta } from "./store/board.ts";
+import { TriageStore, type AcceptProposalOptions, type ProposalResult, type TriageThread } from "./store/triage.ts";
+import { PersonaStore } from "./store/personas.ts";
+import { ThoughtStore } from "./store/thoughts.ts";
 import { recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "node:path";
-import * as fs from "node:fs";
-import { existsSync } from "node:fs";
-import { writeFileAtomic } from "../shared/atomic-write.ts";
 
 // Domain constants and types live with their domain stores; re-exported so importers
 // of the Store keep their imports.
 export { DISMISS_EXIT_GRACE_MS, SELF_HANDLED_ACTIONS, LEADER_MEMBER_NAME, isPoolTeammate, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
 export type { WorkDefExecutionStats } from "./store/queue.ts";
+export type { Task, TaskWithMeta } from "./store/board.ts";
+export type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides, TriageThread } from "./store/triage.ts";
 
 /** `ctx.options()` of a source registered without settings (the built-ins). */
 const EMPTY_SOURCE_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
-
-/**
- * Internal board-task view: a WorkDef whose parent is a story, joined with its
- * workflow position (from the story's `tasks` list). This is a runtime cache
- * shape only — the persisted model is the WorkDef (`tasks/<id>/workdef.md`) plus
- * the story's `tasks: [{id, status}]` (see docs/DESIGN.md "WorkDefs & Parents"). The
- * WorkDef body's Goal is surfaced as `description` for the (pre-unification) API.
- */
-export interface Task {
-  id: string;
-  title: string;
-  /** The WorkDef's Goal (kept as `description` for API back-compat). */
-  description: string;
-  acceptanceCriteria?: string;
-  additionalContext?: string;
-  status: string;
-}
-
-export interface TaskWithMeta extends Task {
-  storyId: string;
-  seq: number;
-  slug: string;
-  /** The WorkDef directory (`tasks/<id>/`) — comments/attachments live here. */
-  dirPath: string;
-}
-
-/** Serialize a Story to the on-disk story.json shape (omitting empty fields). */
-/** True for a story file's data that carries the archived flag (`archivedAt`). */
-function isArchivedStoryData(data: unknown): data is Record<string, unknown> {
-  return !!data && typeof data === "object" && typeof (data as Record<string, unknown>).archivedAt === "string"
-    && (data as Record<string, unknown>).archivedAt !== "";
-}
-
-function serializeStory(story: Story): Story {
-  const data: Story = {
-    id: story.id,
-    title: story.title,
-    description: story.description,
-    status: story.status,
-    dependsOn: story.dependsOn,
-    tasks: story.tasks || [],
-  };
-  if (story.directory) data.directory = story.directory;
-  if (story.pending) data.pending = true;
-  if (story.workflow) data.workflow = story.workflow;
-  if (story.archivedAt) data.archivedAt = story.archivedAt;
-  return data;
-}
-
-/**
- * Derive a task's creation counter (`seq`) from its stable id. Task IDs are
- * `${storyId}-${seq}`; strip the story-id prefix and parse the numeric suffix.
- * Returns null for hand-authored non-numeric ids (caller falls back to order).
- */
-function taskSeqFromId(storyId: string, taskId: string): number | null {
-  const prefix = `${storyId}-`;
-  if (!taskId.startsWith(prefix)) return null;
-  const suffix = taskId.slice(prefix.length);
-  const n = parseInt(suffix, 10);
-  return String(n) === suffix ? n : null;
-}
-
-/**
- * The outcome of accepting or rejecting a triage proposal. The failure carries a
- * `code` so routes map it to a status without reading the message (a missing
- * proposal is a 404; one already decided is a 409).
- */
-export type ProposalResult =
-  | { ok: true; decision: TriageDecision }
-  | { ok: false; code: "not-found" | "conflict"; error: string };
-
-/** Options for accepting a proposal (`Store.acceptProposal`). */
-export interface AcceptProposalOptions {
-  from?: string;
-  /** Record work the author already created through the normal form (the "Edit" path). */
-  existingWorkDefId?: string;
-  /** The "Edit" path's changes, applied over the proposal. */
-  overrides?: TriageProposalOverrides;
-}
-
-/** The fields the "Edit" path may change before accepting. */
-export type TriageProposalOverrides = Partial<
-  Pick<TriageProposal, "title" | "goal" | "acceptanceCriteria" | "additionalContext" | "directory" | "cron" | "storyId">
->;
-
-/** A triage subject's whole triage state (`Store.getTriageThread`). */
-export interface TriageThread {
-  workDefId: string;
-  exists: boolean;
-  entries: ThreadEntry[];
-  proposals: TriageProposalState[];
-  pending: TriageProposalState[];
-  badge: TriageBadge;
-  latestOutcome: TriageOutcome | null;
-}
 
 export class Store {
   private db: DatabaseSync;
   private teamDir: string;
   private config: TeamConfig;
-  private workflows: Record<string, WorkflowConfig> = {};
   /** Autosave commit every `autosave.flushIntervalMinutes` (only when autoCommit is on). */
   private autosaveTimer: ReturnType<typeof setInterval> | null = null;
   private commitTimer: ReturnType<typeof setInterval> | null = null;
@@ -258,6 +147,23 @@ export class Store {
    * constructor, once the db is open.
    */
   private threads!: ThreadStore;
+  /**
+   * Stories, board tasks, ordering, assignments, archive, and workflows
+   * (daemon/store/board.ts). Built in the constructor, once the db is open.
+   */
+  private board!: BoardStore;
+  /**
+   * Triage subjects, analyses, proposals, badges, and the triage persona
+   * (daemon/store/triage.ts). Built in the constructor.
+   */
+  private triage!: TriageStore;
+  /**
+   * The persona library and every persona resolution — states, runs, mirrors,
+   * sources, the assistant (daemon/store/personas.ts). Built in the constructor.
+   */
+  private personas!: PersonaStore;
+  /** Thought notes and groups (daemon/store/thoughts.ts `ThoughtStore`). Built in the constructor. */
+  private notes!: ThoughtStore;
 
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
@@ -296,7 +202,7 @@ export class Store {
   );
   /**
    * The built-in Thought (auto-triage) source, kept by reference because the
-   * Store's triage methods (sweep, Triage now, status) delegate to it.
+   * triage domain's sweep, Triage now, and status delegate to it.
    */
   private thoughtSource = new ThoughtSource({
     getThought: (id) => this.getThought(id),
@@ -323,9 +229,9 @@ export class Store {
   });
 
   /**
-   * The built-in Story (board) source, kept by reference because the Store's
-   * board methods (move, admission, position changes) delegate to its policy.
-   * Story persistence stays here; these deps are how the source reaches it.
+   * The built-in Story (board) source, kept by reference because the board
+   * domain's moves, admission, and position changes delegate to its policy.
+   * Story persistence is the board domain's; these deps are how the source reaches it.
    */
   private storySource = new StorySource({
     getStory: (id) => this.getStory(id),
@@ -335,14 +241,11 @@ export class Store {
     getTasksForStory: (id) => this.getTasksForStory(id),
     getWorkflowForStory: (id) => this.getWorkflowForStory(id),
     isPending: (id) => this.isPending(id),
-    writeTaskPosition: (taskId, status) => this.writeTaskPosition(taskId, status),
+    writeTaskPosition: (taskId, status) => this.board.writeTaskPosition(taskId, status),
     setStoryStatus: (id, status) => this.updateStoryStatus(id, status),
     getActiveItem: (defId) => this.getActiveWorkItem(defId),
     cancelActiveItem: (defId) => this.abandonActiveWorkItem(defId),
-    recordAssignment: (taskId, memberId) => {
-      this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
-      this.db.prepare("INSERT INTO assignments (task_id, member_id, claimed_at) VALUES (?, ?, ?)").run(taskId, memberId, Date.now());
-    },
+    recordAssignment: (taskId, memberId) => this.board.recordAssignment(taskId, memberId),
     releaseAssignment: (taskId) => this.releaseTask(taskId),
     getStatePersona: (workflow, state) => this.getStatePersona(workflow, state),
     getComments: (defId) => this.commentsForWorkDef(defId),
@@ -391,6 +294,36 @@ export class Store {
       forgetLiveState: (id) => { this.transcripts.forget(id); this.pairing.forget(id); },
       saveConfig: () => this.saveConfig(),
     });
+    this.board = new BoardStore(domain, {
+      policy: this.storySource,
+      abandonActiveWorkItem: (taskId) => this.queue.abandonActiveWorkItem(taskId),
+      reconcileSources: () => this.sources.reconcileAll(),
+    });
+    this.personas = new PersonaStore(domain, {
+      getWorkflows: () => this.board.getWorkflows(),
+      saveWorkflow: (name, wf) => this.board.saveWorkflow(name, wf),
+      getTask: (id) => this.board.getTask(id),
+      getStory: (id) => this.board.getStory(id),
+      resolveTriagePersona: () => this.triage.resolveTriagePersona(),
+      isTriageModeMirror: (def) => this.triage.isTriageModeMirror(def),
+      getSourceEntry: (id) => this.sources.get(id),
+      listSourceEntries: () => this.sources.all(),
+      forceSync: (entry) => void this.syncRunner.run(entry, { force: true }),
+      getPluginStatuses: () => this.pluginStatuses,
+      saveConfig: () => this.saveConfig(),
+      commitToGit: (message) => this.commitToGit(message),
+    });
+    this.triage = new TriageStore(domain, {
+      notes: this.thoughtSource,
+      threads: this.threads,
+      board: this.board,
+      createWorkDef: (input, enqueue) => this.createWorkDef(input, enqueue),
+      resolvePersona: (ref, opts, where) => this.personas.resolvePersona(ref, opts, where),
+    });
+    this.notes = new ThoughtStore(domain, {
+      getActiveWorkItem: (id) => this.queue.getActiveWorkItem(id),
+      setWorkItemStateRow: (id, state) => this.queue.setWorkItemStateRow(id, state),
+    });
     // Before workflows load: legacy state files, triage.md, and the context
     // library become personas (docs/DESIGN.md "Migration"). A no-op once done.
     migrateToPersonas({
@@ -398,13 +331,13 @@ export class Store {
       saveConfig: () => this.saveConfig(),
       commit: (message) => { if (config.autosave?.autoCommit) this.commitToGit(message); },
     });
-    // Session persona titles come from the persona library, which the Store owns.
+    // Session persona titles come from the persona library (the persona domain).
     this.chat = new AssistantChat(this.db, teamDir, (id) => this.getPersona(id)?.title ?? null);
     // Usage: the `usage/*.jsonl` files are the source of truth; rebuild the
     // SQLite cache from them (migrating the pre-files ledger on first boot).
     syncUsageLedger(this.db, teamDir);
     this.resetConnectionsForBoot();
-    this.loadWorkflows();
+    this.board.reloadWorkflows();
     // The built-in kinds. Thought is always on — it declares no toggle — so
     // it's always registered; the toggleable ones are too (a toggle gates
     // routes, not the queue: docs/DESIGN.md "Feature Toggles").
@@ -452,16 +385,6 @@ export class Store {
   /** A registered source's declared `mode` (undefined = "work"). */
   private sourceMode(sourceId: string): WorkSourceMode | undefined {
     return this.sources.get(sourceId)?.source.mode;
-  }
-
-  /**
-   * Is this a mirrored WorkDef in **triage mode** (its recorded mode, from the
-   * last sync — docs/DESIGN.md "External sources" — "Triage mode")? Read from
-   * the source's kv on disk, so it answers across restarts and even when the
-   * source isn't registered any more.
-   */
-  isTriageModeMirror(def: Pick<WorkDef, "id" | "parent">): boolean {
-    return def.parent?.kind === "external" && isTriageModeMirror(def, fileSourceKv(this.teamDir, sourceIdForWorkDef(def)));
   }
 
   /**
@@ -634,7 +557,7 @@ export class Store {
       if (handedOver || ctx.hasActiveItem(def.id)) continue;
       // A triage item with no triage persona is mirrored but not enqueued —
       // nothing stamped, so it runs on the first sync after one is set.
-      if (mirrorMode(ctx.kv, def.id) === "triage" && !this.mirrorHasTriagePersona(def)) {
+      if (mirrorMode(ctx.kv, def.id) === "triage" && !this.personas.mirrorHasTriagePersona(def)) {
         out.needsPersona!.push(def.id);
         continue;
       }
@@ -655,7 +578,7 @@ export class Store {
       ctx.kv.set(vanishedKey(def.id), new Date().toISOString());
       out.archived.push(def.id);
     }
-    this.personaHeld.set(source.id, new Set(out.needsPersona));
+    this.personas.setPersonaHeld(source.id, out.needsPersona!);
     return out;
   }
 
@@ -723,537 +646,106 @@ export class Store {
     this.db.exec("DELETE FROM members");
   }
 
-  /** Load workflows from the workflows/ directory (falls back to the built-in default). */
-  private loadWorkflows(): void {
-    const workflowsDir = path.join(this.teamDir, "workflows");
-    this.workflows = {};
+  // --- The board: stories, tasks, workflows, archive (daemon/store/board.ts) ---
 
-    if (existsSync(workflowsDir)) {
-      for (const entry of fs.readdirSync(workflowsDir, { withFileTypes: true })) {
-        if (!entry.isDirectory()) continue;
-        const wfDir = path.join(workflowsDir, entry.name);
-        const wfFile = path.join(wfDir, "workflow.json");
-        if (!existsSync(wfFile)) continue;
-        try {
-          const wf: WorkflowConfig = JSON.parse(fs.readFileSync(wfFile, "utf8"));
-          // Only accept the ordered-states shape (see docs/DESIGN.md "The Work Model");
-          // malformed or legacy transition-matrix files are skipped.
-          if (validateWorkflow(wf) === null) {
-            this.workflows[entry.name] = wf;
-            // A manual state has no WorkItem, so a persona there does nothing.
-            for (const st of wf.states) {
-              if (st.type === "manual" && st.persona) console.warn(`[personas] workflow '${entry.name}' manual state '${st.name}' names persona '${st.persona}', which is ignored (manual states have no teammate)`);
-            }
-          }
-        } catch {
-          // Skip malformed workflow files
-        }
-      }
-    }
+  /** Every loaded workflow, by name. */
+  getWorkflows(): Record<string, WorkflowConfig> { return this.board.getWorkflows(); }
 
-    // Fall back to the built-in default workflow when none are defined on disk.
-    if (Object.keys(this.workflows).length === 0) {
-      this.workflows = { ...DEFAULT_CONFIG.workflows };
-    }
-  }
+  /** Reload workflows from disk (called after config changes). */
+  reloadWorkflows(): void { this.board.reloadWorkflows(); }
 
-  /** Get all loaded workflows */
-  getWorkflows(): Record<string, WorkflowConfig> {
-    return this.workflows;
-  }
+  /** Save a workflow to its directory. */
+  saveWorkflow(name: string, wf: WorkflowConfig): void { this.board.saveWorkflow(name, wf); }
 
-  /** Reload workflows from disk (called after config changes) */
-  reloadWorkflows(): void {
-    this.loadWorkflows();
-  }
+  /** Delete a workflow directory; false when it doesn't exist. */
+  deleteWorkflow(name: string): boolean { return this.board.deleteWorkflow(name); }
 
-  /** Save a workflow to its directory */
-  saveWorkflow(name: string, wf: WorkflowConfig): void {
-    const workflowsDir = path.join(this.teamDir, "workflows");
-    const wfDir = path.join(workflowsDir, name);
-    fs.mkdirSync(wfDir, { recursive: true });
-    writeFileAtomic(path.join(wfDir, "workflow.json"), JSON.stringify(wf, null, 2) + "\n");
-    this.workflows[name] = wf;
-  }
+  /** The effective workflow for a story (its override → `defaultWorkflow`). */
+  getWorkflowForStory(storyId: string): WorkflowConfig { return this.board.getWorkflowForStory(storyId); }
 
-  /** Delete a workflow directory */
-  deleteWorkflow(name: string): boolean {
-    const wfDir = path.join(this.teamDir, "workflows", name);
-    if (!existsSync(wfDir)) return false;
-    fs.rmSync(wfDir, { recursive: true });
-    delete this.workflows[name];
-    return true;
-  }
+  /** The effective workflow for a task (via its story). */
+  getWorkflowForTask(taskId: string): WorkflowConfig { return this.board.getWorkflowForTask(taskId); }
 
-  // --- Load from filesystem ---
+  /** Rebuild the stories/tasks cache from disk, then let every source reconcile; see `BoardStore.loadFromDisk`. */
+  loadFromDisk(): void { this.board.loadFromDisk(); }
 
-  loadFromDisk(): void {
-    const storiesDir = path.join(this.teamDir, STORIES_DIR);
+  /** Every active story, by id. */
+  getStories(): (Story & { dirPath: string })[] { return this.board.getStories(); }
 
-    // Old story files first: `paused` and `backlog/` become pending (idempotent).
-    const migrated = migrateLegacyStoryFiles(this.teamDir);
-    if (migrated.conflicts.length > 0) {
-      console.warn(`[store] backlog/ or archived/ stories not migrated (stories/ already has that id): ${migrated.conflicts.join(", ")}`);
-    }
+  /** True when the id is an active story. */
+  hasStory(id: string): boolean { return this.board.hasStory(id); }
 
-    // Read flat story files (stories/<id>.json).
-    const stories: Story[] = [];
-    if (existsSync(storiesDir)) {
-      for (const entry of fs.readdirSync(storiesDir, { withFileTypes: true })) {
-        if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-        try { stories.push(JSON.parse(fs.readFileSync(path.join(storiesDir, entry.name), "utf8")) as Story); }
-        catch { /* skip malformed */ }
-      }
-    }
+  /** True when the id is taken by an active or an archived story (check before creating one). */
+  isStoryIdTaken(id: string): boolean { return this.board.isStoryIdTaken(id); }
 
-    // Index board WorkDefs (parent.kind === "story") by their story.
-    const boardByStory = new Map<string, WorkDef[]>();
-    for (const def of listWorkDefs(this.teamDir)) {
-      if (def.parent?.kind === "story") {
-        const arr = boardByStory.get(def.parent.id) || [];
-        arr.push(def);
-        boardByStory.set(def.parent.id, arr);
-      }
-    }
+  /** Create a story and its tasks, then run admission; see `BoardStore.createStory`. */
+  createStory(...args: Parameters<BoardStore["createStory"]>): { story: Story; tasks: TaskWithMeta[] } { return this.board.createStory(...args); }
 
-    for (const story of stories) {
-      // Archived stories stay in stories/ but never enter the active cache, so
-      // the board, admission and reconcile don't see them (nor their tasks).
-      if (isArchivedStoryData(story)) {
-        if (this.hasStory(story.id)) this.removeStoryFromDb(story.id);
-        continue;
-      }
-      // Reconcile story.tasks against the board WorkDefs actually on disk:
-      // keep listed ones that still exist (in order), append orphans as todo.
-      const defs = boardByStory.get(story.id) || [];
-      const defById = new Map(defs.map((d) => [d.id, d]));
-      const listed = (story.tasks || []).filter((t) => defById.has(t.id));
-      const listedIds = new Set(listed.map((t) => t.id));
-      const orphans = defs.filter((d) => !listedIds.has(d.id)).map((d) => ({ id: d.id, status: TODO_STATE }));
-      story.tasks = [...listed, ...orphans];
-      this.upsertStory(story);
+  /** Append a board task in `todo` (optionally pending), then run admission. */
+  addTask(storyId: string, input: { title: string; description: string; pending?: boolean }): TaskWithMeta | null { return this.board.addTask(storyId, input); }
 
-      let seq = 0;
-      for (const t of story.tasks) {
-        seq += 1;
-        this.upsertTask(defById.get(t.id)!, story.id, t.status, seq);
-      }
-    }
+  /** One active story, or null. */
+  getStory(id: string): (Story & { dirPath: string }) | null { return this.board.getStory(id); }
 
-    // Let each source bring the queue in line with its own state (hook:
-    // reconcile). Story: admission so every ready story has its one in-flight
-    // task (CONWIP), then an active WorkItem for every task in an agent state.
-    this.sources.reconcileAll();
-  }
+  /** Not done, and every dependency done (or no longer active). */
+  isStoryReady(storyId: string): boolean { return this.board.isStoryReady(storyId); }
 
-  /** Absolute path of a story's flat json file (`stories/<id>.json`). */
-  private storyFile(id: string): string {
-    return path.join(this.teamDir, STORIES_DIR, `${id}.json`);
-  }
+  /** Edit a story's fields, then re-run admission (and unblock dependents on done); see `BoardStore.updateStoryDetails`. */
+  updateStoryDetails(storyId: string, updates: Parameters<BoardStore["updateStoryDetails"]>[1]): boolean { return this.board.updateStoryDetails(storyId, updates); }
 
-  /** Write a story to its flat json file. */
-  private writeStory(story: Story): void {
-    fs.mkdirSync(path.join(this.teamDir, STORIES_DIR), { recursive: true });
-    writeFileAtomic(this.storyFile(story.id), JSON.stringify(serializeStory(story), null, 2) + "\n");
-  }
+  /** Move a story active ⇄ pending (docs/DESIGN.md "Pending: Write, Review, Activate"); false when missing. */
+  setStoryPending(storyId: string, pending: boolean): boolean { return this.board.setStoryPending(storyId, pending); }
 
-  private upsertStory(story: Story): void {
-    this.db.prepare(
-      `INSERT OR REPLACE INTO stories (id, title, description, status, depends_on, pending, workflow, task_order, directory, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      story.id, story.title, story.description, story.status,
-      JSON.stringify(story.dependsOn),
-      story.pending ? 1 : 0,
-      story.workflow || null,
-      JSON.stringify((story.tasks || []).map((t) => t.id)), story.directory || null,
-      path.join(this.teamDir, STORIES_DIR),
-    );
-  }
+  /** Set a story open/done; done unblocks its dependents. */
+  updateStoryStatus(storyId: string, status: "open" | "done"): void { this.board.updateStoryStatus(storyId, status); }
 
-  /** Cache a board WorkDef (+ its story-owned status) into the tasks index. */
-  private upsertTask(def: WorkDef, storyId: string, status: string, seq: number): void {
-    this.db.prepare(
-      `INSERT OR REPLACE INTO tasks (id, story_id, seq, slug, title, description, acceptance_criteria, additional_context, status, dir_path)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(
-      def.id, storyId, seq, slugify(def.title), def.title, def.goal,
-      def.acceptanceCriteria || "", def.additionalContext || null,
-      status, workDefDir(this.teamDir, def.id),
-    );
-  }
+  /** A story's tasks in the story-owned order. */
+  getTasksForStory(storyId: string): TaskWithMeta[] { return this.board.getTasksForStory(storyId); }
 
-  // --- Stories ---
+  /** One board task, or null. */
+  getTask(taskId: string): TaskWithMeta | null { return this.board.getTask(taskId); }
 
-  /** Map a raw SQLite row to a Story object (tasks[] joined from the task index). */
-  private rowToStory(row: Record<string, unknown>): Story & { dirPath: string } {
-    const order: string[] = row.task_order && (row.task_order as string) !== "[]" ? JSON.parse(row.task_order as string) : [];
-    const taskRows = this.db.prepare("SELECT id, status, seq FROM tasks WHERE story_id = ?").all(row.id as string) as Array<Record<string, unknown>>;
-    const statusById = new Map(taskRows.map((t) => [t.id as string, t.status as string]));
-    const ids = order.filter((id) => statusById.has(id));
-    for (const t of [...taskRows].sort((a, b) => (a.seq as number) - (b.seq as number))) {
-      if (!ids.includes(t.id as string)) ids.push(t.id as string);
-    }
-    return {
-      id: row.id as string,
-      title: row.title as string,
-      description: row.description as string,
-      status: row.status as "open" | "done",
-      dependsOn: JSON.parse(row.depends_on as string),
-      pending: row.pending ? true : undefined,
-      workflow: (row.workflow as string) || undefined,
-      directory: (row.directory as string) || undefined,
-      tasks: ids.map((id) => ({ id, status: statusById.get(id) ?? TODO_STATE })),
-      dirPath: path.join(this.teamDir, STORIES_DIR),
-    };
-  }
+  /** Set a task's status (compatibility wrapper; judgment moves use `moveTask`). */
+  updateTaskStatus(taskId: string, status: string): void { this.board.updateTaskStatus(taskId, status); }
 
-  /** Map a raw SQLite row to a TaskWithMeta object */
-  private rowToTask(row: Record<string, unknown>): TaskWithMeta {
-    return {
-      id: row.id as string,
-      storyId: row.story_id as string,
-      seq: row.seq as number,
-      slug: row.slug as string,
-      title: row.title as string,
-      description: row.description as string,
-      acceptanceCriteria: (row.acceptance_criteria as string) || undefined,
-      additionalContext: (row.additional_context as string) || undefined,
-      status: row.status as string,
-      dirPath: row.dir_path as string,
-    };
-  }
+  /** Judgment move (human or leader) to any workflow position; see daemon/sources/story.ts. */
+  moveTask(taskId: string, newStatus: string): { ok: boolean; error?: string } { return this.board.moveTask(taskId, newStatus); }
 
-  getStories(): (Story & { dirPath: string })[] {
-    const rows = this.db.prepare("SELECT * FROM stories ORDER BY id").all() as Array<Record<string, unknown>>;
-    return rows.map((row) => this.rowToStory(row));
-  }
+  /** Delete a board task (its WorkItem, cache rows, WorkDef dir), then run admission. */
+  deleteTask(taskId: string): boolean { return this.board.deleteTask(taskId); }
 
-  /** True when the id is an active story (in the SQLite cache). */
-  hasStory(id: string): boolean {
-    const row = this.db.prepare("SELECT 1 FROM stories WHERE id = ?").get(id);
-    return !!row;
-  }
+  /** Reorder a story's tasks (`orderedIds` must be a permutation of its task ids). */
+  reorderTasks(storyId: string, orderedIds: string[]): boolean { return this.board.reorderTasks(storyId, orderedIds); }
 
-  /**
-   * True when the id is taken by an active or an archived story. Use it before
-   * creating a story: an archived story still owns stories/<id>.json and its
-   * `<id>-<n>` task WorkDefs, so reusing the id would clobber them.
-   */
-  isStoryIdTaken(id: string): boolean {
-    return this.hasStory(id) || existsSync(this.storyFile(id));
-  }
+  /** CONWIP admission (WIP = 1 per story); `excludeTaskId` keeps a just-shelved task out. */
+  runAdmission(storyId: string, excludeTaskId?: string): void { this.board.runAdmission(storyId, excludeTaskId); }
 
-  createStory(
-    id: string,
-    title: string,
-    description: string,
-    status: "open" | "done" = "open",
-    dependsOn: string[] = [],
-    tasks?: Array<{ title: string; description: string; pending?: boolean }>,
-    workflow?: string,
-    pending?: boolean,
-    directory?: string
-  ): { story: Story; tasks: TaskWithMeta[] } {
-    // Never overwrite an archived story's file (or its task WorkDefs) in place.
-    if (this.isStoryArchived(id)) throw new Error(`Story "${id}" is archived; pick another id`);
-    const storyData: Story = { id, title, description, status, dependsOn, tasks: [] };
-    if (directory) storyData.directory = normalizeDirectory(directory);
-    if (pending) storyData.pending = true;
-    if (workflow) storyData.workflow = workflow;
+  /** Release a WorkDef's assignment row (a no-op for anything but a board task). */
+  releaseTask(taskId: string): void { this.board.releaseTask(taskId); }
 
-    // Insert the story row first so task rows can satisfy the story_id FK.
-    this.upsertStory(storyData);
+  /** A board task's assignment, or null. */
+  getAssignment(taskId: string): Assignment | null { return this.board.getAssignment(taskId); }
 
-    const createdTasks: TaskWithMeta[] = [];
-    // Every task starts in the implicit `todo` bucket; admission (CONWIP) pulls
-    // the first one into the workflow's first active state below.
-    if (tasks && tasks.length > 0) {
-      for (let i = 0; i < tasks.length; i++) {
-        const taskDef = tasks[i]!;
-        const seq = i + 1;
-        const taskId = `${id}-${seq}`;
-        // A board task is a WorkDef whose parent is this story. Its Goal is the
-        // task's description (goal/acceptance-criteria authoring lands in the UI).
-        const def = saveWorkDef(this.teamDir, {
-          id: taskId,
-          title: taskDef.title,
-          parent: { kind: "story", id },
-          goal: taskDef.description,
-          acceptanceCriteria: "",
-          pending: taskDef.pending,
-        });
-        storyData.tasks.push({ id: taskId, status: TODO_STATE });
-        this.upsertTask(def, id, TODO_STATE, seq);
-        createdTasks.push({
-          id: taskId, title: def.title, description: def.goal,
-          acceptanceCriteria: def.acceptanceCriteria, status: TODO_STATE,
-          storyId: id, seq, slug: slugify(def.title),
-          dirPath: workDefDir(this.teamDir, taskId),
-        });
-      }
-    }
+  /** A member's assignment with its task, or null. */
+  getAssignmentForMember(memberId: string): (Assignment & { task: TaskWithMeta }) | null { return this.board.getAssignmentForMember(memberId); }
 
-    this.writeStory(storyData);
-    this.upsertStory(storyData);
+  /** Delete a story, its task WorkDefs and its file (throws while a task is assigned). */
+  deleteStory(storyId: string): boolean { return this.board.deleteStory(storyId); }
 
-    // Admit the first task into the pipeline (no-op for pending/dependent stories).
-    this.runAdmission(id);
+  /** True when the story has tasks and every one is done. */
+  isStoryArchivable(storyId: string): boolean { return this.board.isStoryArchivable(storyId); }
 
-    return { story: storyData, tasks: createdTasks };
-  }
+  /** Archive a finished story in place (`archivedAt` + synopsis); throws unless archivable. */
+  archiveStory(storyId: string): void { this.board.archiveStory(storyId); }
 
-  /**
-   * Append a board task (a WorkDef parented to the story) in the `todo` bucket.
-   * `pending` creates it as pending, which holds its place in the story until it
-   * is activated (docs/DESIGN.md "Pending: Write, Review, Activate").
-   */
-  addTask(storyId: string, input: { title: string; description: string; pending?: boolean }): TaskWithMeta | null {
-    const story = this.getStory(storyId);
-    if (!story) return null;
-    const existing = this.getTasksForStory(storyId);
-    const nextSeq = existing.length > 0 ? Math.max(...existing.map((t) => t.seq)) + 1 : 1;
-    const taskId = `${storyId}-${nextSeq}`;
-    const def = saveWorkDef(this.teamDir, {
-      id: taskId, title: input.title, parent: { kind: "story", id: storyId },
-      goal: input.description, acceptanceCriteria: "",
-      pending: input.pending,
-    });
-    const tasks = [...story.tasks, { id: taskId, status: TODO_STATE }];
-    this.writeStory({ ...story, tasks });
-    this.upsertStory({ ...story, tasks });
-    this.upsertTask(def, storyId, TODO_STATE, nextSeq);
-    this.runAdmission(storyId);
-    return {
-      id: taskId, title: def.title, description: def.goal, acceptanceCriteria: def.acceptanceCriteria,
-      status: TODO_STATE, storyId, seq: nextSeq,
-      slug: slugify(def.title), dirPath: workDefDir(this.teamDir, taskId),
-    };
-  }
+  /** True when `storyId` names an archived story. */
+  isStoryArchived(storyId: string): boolean { return this.board.isStoryArchived(storyId); }
 
-  getStory(id: string): (Story & { dirPath: string }) | null {
-    const row = this.db.prepare("SELECT * FROM stories WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return this.rowToStory(row);
-  }
+  /** Every archived story (id, title, synopsis). */
+  getArchivedStories(): Array<{ id: string; title: string; synopsis: string }> { return this.board.getArchivedStories(); }
 
-  isStoryReady(storyId: string): boolean {
-    const story = this.getStory(storyId);
-    if (!story || story.status === "done") return false;
-    if (story.dependsOn.length === 0) return true;
-
-    for (const depId of story.dependsOn) {
-      const dep = this.getStory(depId);
-      // Missing from the active cache: archived (= done) or deleted — either
-      // way it no longer blocks (archived stories never load into the cache).
-      if (!dep) continue;
-      if (dep.status !== "done") return false;
-    }
-    return true;
-  }
-
-  updateStoryDetails(storyId: string, updates: {
-    title?: string;
-    description?: string;
-    status?: "open" | "done";
-    dependsOn?: string[];
-    pending?: boolean;
-    workflow?: string | null;
-    directory?: string | null;
-  }): boolean {
-    const story = this.getStory(storyId);
-    if (!story) return false;
-
-    const newTitle = updates.title ?? story.title;
-    const newDescription = updates.description ?? story.description;
-    const newStatus = updates.status ?? story.status;
-    const newDependsOn = updates.dependsOn ?? story.dependsOn;
-    const newPending = updates.pending !== undefined ? updates.pending : (story.pending || false);
-    const newWorkflow = updates.workflow !== undefined ? (updates.workflow || null) : (story.workflow || null);
-    const newDirectory = updates.directory !== undefined
-      ? (updates.directory ? normalizeDirectory(updates.directory) : null)
-      : (story.directory || null);
-
-    this.db.prepare(
-      `UPDATE stories SET title = ?, description = ?, status = ?, depends_on = ?, pending = ?, workflow = ?, directory = ? WHERE id = ?`
-    ).run(newTitle, newDescription, newStatus, JSON.stringify(newDependsOn), newPending ? 1 : 0, newWorkflow, newDirectory, storyId);
-
-    // Write back to disk
-    this.writeStory({
-      id: storyId,
-      title: newTitle,
-      description: newDescription,
-      status: newStatus,
-      dependsOn: newDependsOn,
-      directory: newDirectory || undefined,
-      pending: newPending,
-      workflow: newWorkflow || undefined,
-      tasks: story.tasks,
-    });
-
-    // Activating (or dependency edits) may make the story admissible. Going
-    // pending needs nothing here: admission and getNextWorkItem both skip a
-    // pending story, so an in-flight task finishes and nothing new starts.
-    this.runAdmission(storyId);
-    // Marking it done (by edit) unblocks its dependents.
-    if (newStatus === "done" && story.status !== "done") this.admitDependents(storyId);
-
-    return true;
-  }
-
-  /**
-   * Move a story active ⇄ pending (docs/DESIGN.md "Pending: Write, Review,
-   * Activate"). Pending stops new work only: a task already IN_PROGRESS
-   * finishes, but nothing further is admitted or handed out, and stories that
-   * depend on it wait. Activating re-runs admission, and READY items the story
-   * already had become eligible again. Returns false when the story is missing.
-   */
-  setStoryPending(storyId: string, pending: boolean): boolean {
-    return this.updateStoryDetails(storyId, { pending });
-  }
-
-  updateStoryStatus(storyId: string, status: "open" | "done"): void {
-    this.db.prepare("UPDATE stories SET status = ? WHERE id = ?").run(status, storyId);
-    const story = this.getStory(storyId);
-    if (story) this.writeStory({ ...story, status });
-    if (status === "done") this.admitDependents(storyId);
-  }
-
-  /**
-   * Re-run admission for every active story that `dependsOn` the given one.
-   * Called whenever a story stops blocking its dependents in `isStoryReady`'s
-   * eyes: it reaches `done`, or it leaves the active set (archive/delete — a
-   * missing dependency counts as satisfied). Without this, a dependent sat
-   * `ready` with no WorkItem until a restart or a story edit. Safe to call
-   * repeatedly: `runAdmission` is idempotent (it returns once the CONWIP token
-   * is taken) and gates on pending/done/ready itself, and admitting a task never
-   * marks its story done, so this can't recurse. See docs/DESIGN.md "Admission
-   * (CONWIP, WIP = 1 per story)".
-   */
-  private admitDependents(storyId: string): void {
-    this.storySource.admitDependents(storyId);
-  }
-
-  // --- Tasks ---
-
-  /**
-   * Reconcile a task list against a story-owned order (array of task IDs):
-   * listed tasks first (in order, skipping danglers), then any orphan tasks not
-   * in the list, appended by their stable creation `seq`. This tolerates
-   * hand-edits to story.json and task dirs.
-   */
-  private orderTasks(taskOrder: string[] | undefined, tasks: TaskWithMeta[]): TaskWithMeta[] {
-    const bySeq = (a: TaskWithMeta, b: TaskWithMeta) => a.seq - b.seq;
-    if (!taskOrder || taskOrder.length === 0) return [...tasks].sort(bySeq);
-    const byId = new Map(tasks.map(t => [t.id, t]));
-    const ordered: TaskWithMeta[] = [];
-    const used = new Set<string>();
-    for (const id of taskOrder) {
-      const t = byId.get(id);
-      if (t && !used.has(id)) { ordered.push(t); used.add(id); }
-    }
-    const orphans = tasks.filter(t => !used.has(t.id)).sort(bySeq);
-    return [...ordered, ...orphans];
-  }
-
-  /** Persist a story's task order (reorders `story.tasks` by the given ids). */
-  private persistTaskOrder(storyId: string, ids: string[]): void {
-    const story = this.getStory(storyId);
-    if (!story) return;
-    this.db.prepare("UPDATE stories SET task_order = ? WHERE id = ?").run(JSON.stringify(ids), storyId);
-    const byId = new Map(story.tasks.map((t) => [t.id, t]));
-    const reordered: StoryTaskRef[] = [];
-    for (const id of ids) { const t = byId.get(id); if (t) reordered.push(t); }
-    for (const t of story.tasks) if (!ids.includes(t.id)) reordered.push(t);
-    this.writeStory({ ...story, tasks: reordered });
-  }
-
-  getTasksForStory(storyId: string): TaskWithMeta[] {
-    const rows = this.db.prepare("SELECT * FROM tasks WHERE story_id = ? ORDER BY seq").all(storyId) as Array<Record<string, unknown>>;
-    const tasks = rows.map((row) => this.rowToTask(row));
-    const story = this.getStory(storyId);
-    return this.orderTasks(story?.tasks.map((t) => t.id), tasks);
-  }
-
-  getTask(taskId: string): TaskWithMeta | null {
-    const row = this.db.prepare("SELECT * FROM tasks WHERE id = ?").get(taskId) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return this.rowToTask(row);
-  }
-
-  /**
-   * Persist a task's workflow position: the task cache row and the story's
-   * owned `tasks[]` on disk. No queue side effects — the board policy (the
-   * Story source's `setPosition`) owns those, and every position change flows
-   * through it.
-   */
-  private writeTaskPosition(taskId: string, status: string): void {
-    this.db.prepare("UPDATE tasks SET status = ? WHERE id = ?").run(status, taskId);
-    const task = this.getTask(taskId);
-    const story = task ? this.getStory(task.storyId) : null;
-    if (story) this.writeStory(story);
-  }
-
-  /**
-   * Set a task's status. (Compatibility wrapper; judgment moves should use
-   * `moveTask`.) Queue effects as for any position change (daemon/sources/story.ts).
-   */
-  updateTaskStatus(taskId: string, status: string): void {
-    if (!this.getTask(taskId)) return;
-    this.storySource.setPosition(taskId, status);
-  }
-
-  /**
-   * Judgment move (human or leader agent): put a task anywhere in its
-   * workflow's positions. Re-entry ≡ first entry: any active WorkItem is
-   * abandoned and entering an agent state enqueues a fresh one (the board
-   * policy lives in daemon/sources/story.ts).
-   */
-  moveTask(taskId: string, newStatus: string): { ok: boolean; error?: string } {
-    return this.storySource.moveTask(taskId, newStatus);
-  }
-
-  deleteTask(taskId: string): boolean {
-    const task = this.getTask(taskId);
-    if (!task) return false;
-
-    const storyId = task.storyId;
-    // Cancel any active WorkItem for this task before removing it.
-    this.abandonActiveWorkItem(taskId);
-    this.removeTaskData(taskId);
-
-    // Remove the WorkDef directory (workdef.md + comments + attachments).
-    deleteWorkDef(this.teamDir, taskId);
-
-    // Drop the task from the story's owned tasks[] (keeps story.json clean).
-    const story = this.getStory(storyId);
-    if (story?.tasks.some((t) => t.id === taskId)) {
-      this.writeStory({ ...story, tasks: story.tasks.filter((t) => t.id !== taskId) });
-    }
-
-    // Deleting the in-flight task frees the CONWIP token.
-    this.runAdmission(storyId);
-
-    return true;
-  }
-
-  /**
-   * Reorder a story's tasks. `orderedIds` must be a permutation of the story's
-   * current task IDs. Order is owned by the story (persisted as `taskOrder` in
-   * story.json + the DB) — task IDs, titles, and on-disk directories are left
-   * untouched, so comments/attachments and stable IDs are unaffected.
-   */
-  reorderTasks(storyId: string, orderedIds: string[]): boolean {
-    const tasks = this.getTasksForStory(storyId);
-    if (tasks.length === 0) return false;
-
-    // Require a strict permutation of the existing task IDs.
-    const existing = new Set(tasks.map(t => t.id));
-    if (orderedIds.length !== tasks.length || !orderedIds.every(id => existing.has(id))) return false;
-
-    this.persistTaskOrder(storyId, orderedIds);
-    return true;
-  }
+  /** An archived story's file plus its tasks' WorkDefs and comments, or null. */
+  getArchivedStoryContext(storyId: string): ReturnType<BoardStore["getArchivedStoryContext"]> { return this.board.getArchivedStoryContext(storyId); }
 
   // --- WorkItem queue (daemon/store/queue.ts) ---
   //
@@ -1327,43 +819,6 @@ export class Store {
 
   /** Mark a WorkItem read/unread (Inbox). */
   markWorkItemRead(id: string, read = true): boolean { return this.queue.markWorkItemRead(id, read); }
-
-  // --- Mechanical rules: admission (CONWIP) + advance ---
-  //
-  // The board policy lives in the Story source (daemon/sources/story.ts); these
-  // are the Store's entry points into it.
-
-  /**
-   * CONWIP admission (WIP = 1 per story): pull the story's next `todo` task into
-   * its workflow's first active state if nothing is in flight. `excludeTaskId`
-   * keeps a just-shelved task from being re-admitted by its own move.
-   */
-  runAdmission(storyId: string, excludeTaskId?: string): void {
-    this.storySource.runAdmission(storyId, excludeTaskId);
-  }
-
-  /**
-   * Release a WorkDef's assignment row (does not change its position). Only
-   * board tasks have one (the Story source records it at claim); for any other
-   * WorkDef this is a no-op, so the queue releases it unconditionally.
-   */
-  releaseTask(taskId: string): void {
-    this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
-  }
-
-  getAssignment(taskId: string): Assignment | null {
-    const row = this.db.prepare("SELECT * FROM assignments WHERE task_id = ?").get(taskId) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    return { taskId: row.task_id as string, memberId: row.member_id as string, claimedAt: row.claimed_at as number };
-  }
-
-  getAssignmentForMember(memberId: string): (Assignment & { task: TaskWithMeta }) | null {
-    const row = this.db.prepare("SELECT * FROM assignments WHERE member_id = ?").get(memberId) as Record<string, unknown> | undefined;
-    if (!row) return null;
-    const task = this.getTask(row.task_id as string);
-    if (!task) return null;
-    return { taskId: row.task_id as string, memberId: row.member_id as string, claimedAt: row.claimed_at as number, task };
-  }
 
   // --- Token Usage ---
 
@@ -1584,735 +1039,175 @@ export class Store {
     entry?.source.tick?.(entry.ctx, now);
   }
 
-  // --- Auto triage (TODO.md "Auto Triage") ---
-  //
-  // A note is a WorkDef parent: its triage WorkDef is an empty container that owns
-  // the thread, and the prompt is built from the note's *current* text at claim
-  // time. The turn rule (only a content edit is the author's turn) is in
-  // daemon/triage.ts; the note's frontmatter holds the version last handed over.
+  // --- Auto triage (daemon/store/triage.ts; TODO.md "Auto Triage") ---
 
-  // The sweep, Triage now, and the due rule live in the Thought Work Source
-  // (daemon/sources/thought.ts); these are the Store's entry points into it.
+  /** One triage pass over the notes; returns the items enqueued. */
+  runTriageSweep(now: number = Date.now()): WorkItem[] { return this.triage.runTriageSweep(now); }
 
-  /**
-   * One triage pass over the notes: enqueue a WorkItem for every note whose text
-   * has moved on since its last analysis. Returns the items enqueued. (The
-   * Thought source's timer calls the same sweep.)
-   */
-  runTriageSweep(now: number = Date.now()): WorkItem[] {
-    return this.thoughtSource.sweep(now);
-  }
-
-  /**
-   * Enqueue a triage run for one note now, skipping the quiet period and the
-   * "unchanged" rule — the **Triage now** button. Refuses only when a run is
-   * already in flight, or the note can't be triaged.
-   */
-  triageNow(thoughtId: string): { ok: true; workItem: WorkItem } | { ok: false; error: string } {
-    return this.thoughtSource.triageNow(thoughtId);
-  }
+  /** **Triage now** for one note (skips the quiet period and "unchanged" rule). */
+  triageNow(thoughtId: string): { ok: true; workItem: WorkItem } | { ok: false; error: string } { return this.triage.triageNow(thoughtId); }
 
   /** Why the sweep would skip this note right now (null = it's due). */
-  triageStatusFor(thoughtId: string, now: number = Date.now()): TriageSkipReason | null {
-    return this.thoughtSource.statusFor(thoughtId, now);
+  triageStatusFor(thoughtId: string, now: number = Date.now()): TriageSkipReason | null { return this.triage.triageStatusFor(thoughtId, now); }
+
+  /** A note's triage WorkDef, created on first use. */
+  ensureTriageWorkDef(thoughtId: string): WorkDef | null { return this.triage.ensureTriageWorkDef(thoughtId); }
+
+  /** The note-triage persona's body, or undefined when the team selected none. */
+  getTriageInstructions(): string | undefined { return this.triage.getTriageInstructions(); }
+
+  /** What a WorkDef is the triage subject of (a note's container or a triage-mode mirror), or null. */
+  triageSubjectOf(workDefId: string): { kind: "thought"; thoughtId: string } | { kind: "mirror" } | null { return this.triage.triageSubjectOf(workDefId); }
+
+  /** Is this a mirrored WorkDef in triage mode (from its source's kv on disk)? */
+  isTriageModeMirror(def: Pick<WorkDef, "id" | "parent">): boolean { return this.triage.isTriageModeMirror(def); }
+
+  /** Post one analysis on a note's triage thread (validated). */
+  addTriageAnalysis(thoughtId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]): { ok: true } | { ok: false; error: string } {
+    return this.triage.addTriageAnalysis(thoughtId, from, body, outcome, proposals);
   }
 
-  /** A note's triage WorkDef, created on first use (never for a note that's never analysed). */
-  ensureTriageWorkDef(thoughtId: string): WorkDef | null {
-    return this.thoughtSource.ensureWorkDef(thoughtId);
+  /** Post one analysis on any triage subject's thread (the `propose_work` route). */
+  addTriageAnalysisForWorkDef(workDefId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]): { ok: true } | { ok: false; error: string } {
+    return this.triage.addTriageAnalysisForWorkDef(workDefId, from, body, outcome, proposals);
   }
 
-  /**
-   * The note-triage persona's body, or undefined when the team selected none —
-   * the prompt builder then uses `builtin:triage` (DEFAULT_TRIAGE_INSTRUCTIONS).
-   * One `triage.persona` for the team, so changing how triage works is one edit
-   * rather than one per note. A selection that doesn't resolve falls back to
-   * `builtin:triage` with a warning (docs/DESIGN.md "Resolution").
-   */
-  getTriageInstructions(): string | undefined {
-    if (!this.config.triage?.persona) return undefined;
-    return this.resolveTriagePersona().body;
-  }
+  /** A triage subject's whole triage state (thread, proposals, badge). */
+  getTriageThread(workDefId: string): TriageThread { return this.triage.getTriageThread(workDefId); }
 
-  /**
-   * What a WorkDef is the triage *subject* of, or null when it isn't one: a
-   * note's triage container (`parent.kind: "thought"`), or a triage-mode
-   * mirrored WorkDef (docs/DESIGN.md "External sources" — "Triage mode"). Its
-   * thread holds the analyses, proposals, and decisions either way.
-   */
-  triageSubjectOf(workDefId: string): { kind: "thought"; thoughtId: string } | { kind: "mirror" } | null {
-    const def = this.getWorkDef(workDefId);
-    if (!def) return null;
-    if (def.parent?.kind === "thought") return { kind: "thought", thoughtId: def.parent.id };
-    return this.isTriageModeMirror(def) ? { kind: "mirror" } : null;
-  }
+  /** The badge for every note that has one, keyed by note id. */
+  getTriageBadges(): Record<string, TriageBadge> { return this.triage.getTriageBadges(); }
 
-  /**
-   * Post one analysis (a teammate's reply to a triage run): its prose plus the
-   * structured outcome and any proposals. Validated here, so a bad proposal is a
-   * fixable error the agent sees instead of a broken thread line.
-   */
-  addTriageAnalysis(thoughtId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]):
-    { ok: true } | { ok: false; error: string } {
-    const workDefId = triageWorkDefId(thoughtId);
-    if (!this.getWorkDef(workDefId)) return { ok: false, error: `No triage thread for note "${thoughtId}"` };
-    return this.addTriageAnalysisForWorkDef(workDefId, from, body, outcome, proposals);
-  }
-
-  /**
-   * Post one analysis on any triage subject's thread (a note's container or a
-   * triage-mode mirror) — the `propose_work` route. Same validation and the
-   * same structured comment as a note's.
-   */
-  addTriageAnalysisForWorkDef(workDefId: string, from: string, body: string, outcome: TriageOutcome, proposals?: TriageProposal[]):
-    { ok: true } | { ok: false; error: string } {
-    if (!this.triageSubjectOf(workDefId)) return { ok: false, error: `WorkDef "${workDefId}" isn't a triage subject` };
-    const invalid = validateAnalysis({ outcome, proposals }, { storyExists: (id) => this.getStory(id) !== null });
-    if (invalid) return { ok: false, error: invalid };
-    const entry: Comment = { from, body, at: new Date().toISOString(), outcome };
-    if (outcome === "proposals" && proposals) entry.proposals = proposals;
-    return this.appendThreadEntry({ workDefId }, entry) ? { ok: true } : { ok: false, error: "Could not write the thread" };
-  }
-
-  /**
-   * A triage subject's whole triage state — the thread, its proposals with
-   * decisions, the badge — by its WorkDef id (a note's container,
-   * `triageWorkDefId(noteId)`, or a triage-mode mirror). `exists` is false when
-   * there's no such def.
-   */
-  getTriageThread(workDefId: string): TriageThread {
-    const exists = this.getWorkDef(workDefId) !== null;
-    const entries = exists ? this.getThreadEntries({ workDefId }) : [];
-    return {
-      workDefId,
-      exists,
-      entries,
-      proposals: foldProposals(entries),
-      pending: pendingProposals(entries),
-      badge: triageBadge(entries),
-      latestOutcome: latestAnalysis(entries)?.outcome ?? null,
-    };
-  }
-
-  /** The badge for every note that has one, keyed by note id (the Thoughts list). */
-  getTriageBadges(): Record<string, TriageBadge> {
-    const out: Record<string, TriageBadge> = {};
-    for (const def of listWorkDefs(this.teamDir)) {
-      if (def.parent?.kind !== "thought") continue;
-      const badge = triageBadge(this.getThreadEntries({ workDefId: def.id }));
-      if (badge !== "none") out[def.parent.id] = badge;
-    }
-    return out;
-  }
-
-  /**
-   * Accept a proposal on a triage subject (a note's container,
-   * `triageWorkDefId(noteId)`, or a triage-mode mirror), by its WorkDef id:
-   * create the work it describes and append the decision.
-   *
-   * **Accepting creates; it never starts anything itself.** What happens next is
-   * whatever that kind of work does when you create it by hand: a `task` waits for
-   * **Run**, a `schedule` waits for its cron, and a `story-task`/`story` enters its
-   * story's workflow — which, exactly as when you add a task to a story yourself,
-   * may admit it (CONWIP) and enqueue it immediately. Triage-created work is not a
-   * special case of the board (docs/DESIGN.md "Auto Triage").
-   *
-   * `existingWorkDefId` records an acceptance the author already completed through
-   * the normal create form (the "Edit" path), instead of creating it here.
-   * `overrides` lets that form's edits land without re-authoring the proposal.
-   * The created work's `origin` names the subject: `{ thought }` for a note,
-   * `{ workDef }` for a mirror. `where` names the subject in a "No proposal"
-   * error (the note routes pass `note <id>`; they check the note exists first).
-   */
+  /** Accept a proposal: create the work it describes (never start it) and append the decision. */
   acceptProposal(workDefId: string, proposalId: string, opts: AcceptProposalOptions = {}, where = workDefId): ProposalResult {
-    const found = this.findProposal(workDefId, proposalId, where);
-    if (!found.ok) return found;
-    const { state, subject } = found;
-    if (state.decision) {
-      return { ok: false, code: "conflict", error: `Proposal "${proposalId}" was already ${state.decision.action}` };
-    }
-
-    const p = { ...state.proposal, ...opts.overrides };
-    const from = opts.from || "you";
-    const origin: WorkDefOrigin = subject.kind === "thought"
-      ? { thought: subject.thoughtId, proposal: proposalId }
-      : { workDef: workDefId, proposal: proposalId };
-    let createdId: string | undefined = opts.existingWorkDefId;
-    let storyId: string | undefined;
-
-    if (!createdId) {
-      switch (p.kind) {
-        case "task": {
-          const def = this.createWorkDef({
-            title: p.title, goal: p.goal ?? "", acceptanceCriteria: p.acceptanceCriteria ?? "",
-            additionalContext: p.additionalContext, directory: p.directory, origin,
-          }, false); // no WorkItem: a Solitary task waits for the author to press Run
-          createdId = def.id;
-          break;
-        }
-        case "story-task": {
-          if (!p.storyId || !this.getStory(p.storyId)) {
-            return { ok: false, code: "conflict", error: `No story "${p.storyId}"` };
-          }
-          // Board rules apply from here (admission may pull it straight in), the
-          // same as adding a task to that story by hand.
-          const task = this.addTask(p.storyId, { title: p.title, description: p.goal ?? "" });
-          if (!task) return { ok: false, code: "conflict", error: "Could not add the task to that story" };
-          createdId = task.id;
-          storyId = p.storyId;
-          updateWorkDef(this.teamDir, task.id, { origin });
-          break;
-        }
-        case "story": {
-          const id = this.uniqueStoryId(p.title);
-          const created = this.createStory(
-            id, p.title, p.description ?? p.goal ?? "", "open", [],
-            (p.tasks ?? []).map((t) => ({ title: t.title, description: t.goal })),
-            undefined, undefined, p.directory,
-          );
-          storyId = created.story.id;
-          for (const t of created.tasks) updateWorkDef(this.teamDir, t.id, { origin });
-          break;
-        }
-        case "schedule": {
-          if (!isValidCron(p.cron ?? "")) return { ok: false, code: "conflict", error: "That proposal has no valid cron" };
-          const schedule = this.createSchedule({ title: p.title, cron: p.cron! });
-          const def = this.createWorkDef({
-            title: p.title, goal: p.goal ?? "", acceptanceCriteria: p.acceptanceCriteria ?? "",
-            additionalContext: p.additionalContext, directory: p.directory,
-            parent: { kind: "schedule", id: schedule.id }, origin,
-          }, false); // the cron enqueues it, not us
-          createdId = def.id;
-          break;
-        }
-      }
-    }
-
-    const decision: TriageDecision = {
-      kind: "decision", proposalId, action: "accepted", from, at: new Date().toISOString(),
-      ...(createdId ? { workDefId: createdId } : {}),
-      ...(storyId ? { storyId } : {}),
-    };
-    this.appendThreadEntry({ workDefId }, decision);
-    return { ok: true, decision };
+    return this.triage.acceptProposal(workDefId, proposalId, opts, where);
   }
 
-  /**
-   * Reject a proposal on a triage subject, by its WorkDef id (`where` as for
-   * `acceptProposal`): one appended line, no reason. Not a turn.
-   */
+  /** Reject a proposal: one appended decision line. */
   rejectProposal(workDefId: string, proposalId: string, from = "you", where = workDefId): ProposalResult {
-    const found = this.findProposal(workDefId, proposalId, where);
-    if (!found.ok) return found;
-    if (found.state.decision) {
-      return { ok: false, code: "conflict", error: `Proposal "${proposalId}" was already ${found.state.decision.action}` };
-    }
-    const decision: TriageDecision = {
-      kind: "decision", proposalId, action: "rejected", from, at: new Date().toISOString(),
-    };
-    this.appendThreadEntry({ workDefId }, decision);
-    return { ok: true, decision };
+    return this.triage.rejectProposal(workDefId, proposalId, from, where);
   }
 
-  /** Locate one proposal in a triage subject's thread (`where` names it in the error). */
-  private findProposal(workDefId: string, proposalId: string, where: string):
-    | { ok: true; state: TriageProposalState; subject: NonNullable<ReturnType<Store["triageSubjectOf"]>> }
-    | { ok: false; code: "not-found"; error: string } {
-    const subject = this.triageSubjectOf(workDefId);
-    if (!subject) return { ok: false, code: "not-found", error: `WorkDef "${workDefId}" isn't a triage subject` };
-    const thread = this.getTriageThread(workDefId);
-    // Latest wins if an id was reused across analyses (foldProposals keeps order).
-    const state = [...thread.proposals].reverse().find((s) => s.proposal.id === proposalId);
-    return state
-      ? { ok: true, state, subject }
-      : { ok: false, code: "not-found", error: `No proposal "${proposalId}" on ${where}` };
-  }
+  /** Earlier proposals and what the author decided, for the next run's prompt. */
+  triageDecisionSummary(workDefId: string): string[] { return this.triage.triageDecisionSummary(workDefId); }
 
-  /** A free story id derived from a title (stories are keyed by a human-ish slug). */
-  private uniqueStoryId(title: string): string {
-    const base = slugify(title) || "story";
-    let id = base;
-    let n = 2;
-    while (this.isStoryIdTaken(id)) { id = `${base}-${n}`; n++; }
-    return id;
-  }
-
-  /**
-   * Earlier proposals and what the author decided, for the next run's prompt —
-   * any triage subject, by its WorkDef id (a note's container or a triage-mode mirror).
-   */
-  triageDecisionSummary(workDefId: string): string[] {
-    return decisionSummary(this.getTriageThread(workDefId).entries);
-  }
+  /** The team's triage persona: `triage.persona`, else `builtin:triage`. */
+  resolveTriagePersona(): ResolvedPersona { return this.triage.resolveTriagePersona(); }
 
   commitToGit(message?: string): void {
     commitTeamDir(this.teamDir, this.config.autosave, message);
   }
 
-  // --- State personas ---
+  // --- Personas (daemon/store/personas.ts; docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
 
-  /**
-   * The persona body for an agent state: the persona its `workflow.json` state
-   * names (docs/DESIGN.md "References: select, don't embed"), or undefined when
-   * it names none (the prompt then uses the one-line state framing). A name that
-   * doesn't resolve falls back to `builtin:worker` with a warning.
-   */
-  getStatePersona(workflowName: string | undefined, state: string): string | undefined {
-    return this.resolveStatePersona(workflowName, state)?.body;
+  /** Personas shipped by plugin packages (fed by daemon/plugins/loader.ts at startup). */
+  get packagePersonas(): PackagePersonas { return this.personas.packagePersonas; }
+
+  /** Register a plugin package's personas, read-only, as `<name>/<id>` (the loader's seam). */
+  registerPackagePersonas(pkg: { name: string; identity: string }, files: PackagePersonaFile[]): PackagePersonaResult {
+    return this.personas.registerPackagePersonas(pkg, files);
   }
+
+  /** The whole library: team personas, then built-ins, then package personas. */
+  listPersonas(): Persona[] { return this.personas.listPersonas(); }
+
+  /** One persona by id, whatever its origin, or null. */
+  getPersona(id: string): Persona | null { return this.personas.getPersona(id); }
+
+  /** Resolve a persona reference (a missing one logged once per id, then `opts.fallback`). */
+  resolvePersona(ref: string | undefined | null, opts: { via: PersonaVia; fallback: BuiltinPersonaId | null }, where: string = opts.via): ResolvedPersona | null {
+    return this.personas.resolvePersona(ref, opts, where);
+  }
+
+  /** Everything that references persona `id` (the "Used by" list). */
+  getPersonaUsage(id: string): PersonaUsage[] { return this.personas.getPersonaUsage(id); }
+
+  /** Create a team persona (`input.id`, else derived from the title). */
+  createPersona(input: TeamPersonaInput & { id?: string }): { ok: true; persona: Persona } | { ok: false; status: 400 | 409; error: string } {
+    return this.personas.createPersona(input);
+  }
+
+  /** Update a team persona in place; null when it doesn't exist. */
+  updatePersona(id: string, updates: Partial<TeamPersonaInput>): Persona | null { return this.personas.updatePersona(id, updates); }
+
+  /** Delete a team persona file (the route refuses one in use first). */
+  deletePersona(id: string): boolean { return this.personas.deletePersona(id); }
+
+  /** Copy any persona into the team library (`duplicatedFrom` records the source). */
+  duplicatePersona(id: string, overrides: { id?: string; title?: string } = {}): { ok: true; persona: Persona } | { ok: false; status: 400 | 404 | 409; error: string } {
+    return this.personas.duplicatePersona(id, overrides);
+  }
+
+  /** The persona body for an agent state, or undefined when it names none. */
+  getStatePersona(workflowName: string | undefined, state: string): string | undefined { return this.personas.getStatePersona(workflowName, state); }
 
   /** The resolved persona for an agent state, or null when it names none. */
-  resolveStatePersona(workflowName: string | undefined, state: string): ResolvedPersona | null {
-    const wfName = workflowName || this.config.defaultWorkflow;
-    const st = this.workflows[wfName]?.states.find((s) => s.name === state);
-    if (!st || st.type !== "agent" || !st.persona) return null;
-    return this.resolvePersona(st.persona, { via: "workflow-state", fallback: "builtin:worker" }, `workflow '${wfName}' state '${state}'`);
+  resolveStatePersona(workflowName: string | undefined, state: string): ResolvedPersona | null { return this.personas.resolveStatePersona(workflowName, state); }
+
+  /** Point a workflow agent state at a persona (`null` clears it). */
+  setStatePersona(workflowName: string, state: string, persona: string | null): { ok: true; workflow: WorkflowConfig } | { ok: false; status: 400 | 404; error: string } {
+    return this.personas.setStatePersona(workflowName, state, persona);
   }
 
-  /**
-   * The persona a run of `def` works with, resolved at claim — the one the
-   * prompt carries and the WorkItem snapshot records (docs/DESIGN.md "The
-   * in-flight persona"). Each kind walks its own chain:
-   *   - board task: its workflow state's `persona` (none = the one-line state framing);
-   *   - note triage: the triage persona (`triage.persona`, else `builtin:triage`);
-   *   - Solitary / Scheduled: the WorkDef's own `persona` (unset = none);
-   *   - mirrors (work or triage mode): the Work Source chain — the person's
-   *     override, the item's suggestion, the per-source setting, the source's
-   *     declaration (`resolveMirrorPersona`; docs/DESIGN.md "Work Source personas").
-   * A reference that doesn't resolve falls back to the consumer's built-in
-   * (`resolvePersona`), so this never fails a claim.
-   */
-  resolveWorkPersona(def: WorkDef): ResolvedPersona | null {
-    if (def.parent?.kind === "thought") return this.resolveTriagePersona();
-    if (def.parent?.kind === "external") return this.resolveMirrorPersona(def);
-    if (!def.parent) return this.resolvePersona(def.persona, { via: "task", fallback: "builtin:worker" }, `task '${def.id}'`);
-    if (def.parent.kind === "schedule") return this.resolvePersona(def.persona, { via: "schedule", fallback: "builtin:worker" }, `schedule '${def.id}'`);
-    if (def.parent.kind === "story") {
-      const task = this.getTask(def.id);
-      if (!task) return null;
-      return this.resolveStatePersona(this.getStory(task.storyId)?.workflow, task.status);
-    }
-    return null;
-  }
+  /** The persona a run of `def` works with, resolved at claim; see `PersonaStore.resolveWorkPersona`. */
+  resolveWorkPersona(def: WorkDef): ResolvedPersona | null { return this.personas.resolveWorkPersona(def); }
 
-  /**
-   * A mirrored WorkDef's persona (docs/DESIGN.md "Work Source personas"), by
-   * its chain (daemon/sources/persona.ts). Work mode: none when nothing names
-   * one; a stale id falls back to `builtin:worker`. Triage mode: always one — a
-   * stale id, or (only for an item enqueued before its source lost its triage
-   * persona) none at all, stands in as `builtin:triage`, so a claim never fails.
-   */
-  resolveMirrorPersona(def: WorkDef): ResolvedPersona | null {
-    const triage = this.isTriageModeMirror(def);
-    const pick = this.mirrorPersonaPickFor(def);
-    const where = `${triage ? "triage-mode " : ""}mirror '${def.id}'`;
-    if (!triage) return pick ? this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:worker" }, where) : null;
-    if (!pick) return this.resolvePersona("builtin:triage", { via: "source-default", fallback: "builtin:triage" }, where);
-    return this.resolvePersona(pick.ref, { via: pick.via, fallback: "builtin:triage" }, where);
-  }
+  /** A mirrored WorkDef's persona, by the Work Source chain. */
+  resolveMirrorPersona(def: WorkDef): ResolvedPersona | null { return this.personas.resolveMirrorPersona(def); }
 
-  /** The persona id a mirror's chain picks (and how), or null when nothing names one. */
-  private mirrorPersonaPickFor(def: WorkDef): PersonaPick | null {
-    const sourceId = sourceIdForWorkDef(def);
-    const kv = fileSourceKv(this.teamDir, sourceId);
-    return mirrorPersonaPick({
-      mode: mirrorMode(kv, def.id),
-      override: kv.get(mirrorPersonaKey(def.id)),
-      suggestion: def.persona,
-      setting: this.config.sourcePersonas?.[sourceId],
-      source: this.sources.get(sourceId)?.source,
-    });
-  }
+  /** Why this source is refused a sync (a triage-mode source without a triage persona), or null. */
+  sourcePersonaProblem(sourceId: string): string | null { return this.personas.sourcePersonaProblem(sourceId); }
 
-  /**
-   * Does a triage-mode mirror have a triage persona that resolves? Checked
-   * before it is enqueued (and on Run), so a run never starts without one.
-   */
-  private mirrorHasTriagePersona(def: WorkDef): boolean {
-    const pick = this.mirrorPersonaPickFor(def);
-    return pick !== null && this.getPersona(pick.ref) !== null;
-  }
+  /** A source's persona problem for its status (`GET /api/sources` `initError`), or null. */
+  sourcePersonaStatus(sourceId: string): string | null { return this.personas.sourcePersonaStatus(sourceId); }
 
-  /**
-   * Why this source is refused a sync, or null: a **triage-mode** source (its
-   * declared `mode`) whose source-level triage persona — per-source setting,
-   * else declared — is missing or doesn't resolve. Computed on demand, so a
-   * per-source save, a persona created or deleted, or a package's personas
-   * changing at startup all count at once (docs/DESIGN.md "Work Source personas").
-   */
-  sourcePersonaProblem(sourceId: string): string | null {
-    const source = this.sources.get(sourceId)?.source;
-    if (!source || source.mode !== "triage") return null;
-    return triagePersonaProblem(sourceId, this.config.sourcePersonas?.[sourceId], source, (id) => this.getPersona(id) !== null);
-  }
-
-  /**
-   * A source's persona problem for its status (`GET /api/sources` `initError`):
-   * the triage-mode requirement, else — for a work-mode source — its
-   * triage-mode items the last sync couldn't enqueue for want of one.
-   */
-  sourcePersonaStatus(sourceId: string): string | null {
-    const problem = this.sourcePersonaProblem(sourceId);
-    if (problem) return problem;
-    const held = this.personaHeld.get(sourceId);
-    return held && held.size > 0 ? heldTriageItemsMessage(sourceId, held.size) : null;
-  }
-
-  /** Triage-mode mirrors the last sync of each source held for want of a triage persona. */
-  private personaHeld = new Map<string, Set<string>>();
-
-  /**
-   * Set a source's persona settings (`PUT /api/sources/:id/persona`):
-   * `persona` for its work-mode items, `triagePersona` for its triage-mode
-   * ones. Absent keeps a field, null/"" clears it; an id must resolve. Written
-   * to config.json `sourcePersonas` — never the package's `config`, so the
-   * source isn't re-initialized. The entry is kept (even empty) once set, so
-   * the startup seed for triage plugins never refills a field a person cleared.
-   * A changed triage persona on an enabled external source syncs it now (a
-   * source that was refused for want of one picks up at once).
-   */
+  /** Set a source's persona settings (`PUT /api/sources/:id/persona`). */
   setSourcePersona(sourceId: string, update: { persona?: string | null; triagePersona?: string | null }):
     { ok: true; setting: SourcePersonaSetting } | { ok: false; status: 400 | 404; error: string } {
-    const entry = this.sources.get(sourceId);
-    if (!entry) return { ok: false, status: 404, error: `No work source "${sourceId}"` };
-    for (const field of ["persona", "triagePersona"] as const) {
-      const v = update[field];
-      if (v === undefined || v === null || v === "") continue;
-      if (typeof v !== "string") return { ok: false, status: 400, error: `Field '${field}' must be a persona id or null` };
-      if (!this.getPersona(v)) return { ok: false, status: 400, error: `Persona "${v}" doesn't exist` };
-    }
-    const current = this.config.sourcePersonas?.[sourceId] ?? {};
-    const next: SourcePersonaSetting = { ...current };
-    for (const field of ["persona", "triagePersona"] as const) {
-      const v = update[field];
-      if (v === undefined) continue;
-      if (v) next[field] = v;
-      else delete next[field];
-    }
-    this.config.sourcePersonas = { ...this.config.sourcePersonas, [sourceId]: next };
-    this.saveConfig();
-    if (update.triagePersona !== undefined && next.triagePersona !== current.triagePersona
-      && entry.source.sync && !isSourceSwitchedOff(this.config, entry.toggle)) {
-      void this.syncRunner.run(entry, { force: true });
-    }
-    return { ok: true, setting: next };
+    return this.personas.setSourcePersona(sourceId, update);
   }
 
-  /** A person's persona override for a mirror (kv `persona:<defId>`), if any. */
-  getMirrorPersonaOverride(def: Pick<WorkDef, "id" | "parent">): string | undefined {
-    if (def.parent?.kind !== "external") return undefined;
-    return fileSourceKv(this.teamDir, sourceIdForWorkDef(def)).get(mirrorPersonaKey(def.id)) || undefined;
-  }
+  /** A person's persona override for a mirror, if any. */
+  getMirrorPersonaOverride(def: Pick<WorkDef, "id" | "parent">): string | undefined { return this.personas.getMirrorPersonaOverride(def); }
 
-  /**
-   * Set (or, with null, clear) a person's persona override on a mirror
-   * (`PUT /api/work-defs/:id/persona`): in the source's kv, since only sync
-   * writes a mirror's file — so it survives every re-sync. Refuses a def that
-   * isn't a mirror (Solitary/Scheduled set `persona` through the ordinary
-   * update) and an id that doesn't resolve.
-   */
+  /** Set (or, with null, clear) a person's persona override on a mirror (`PUT /api/work-defs/:id/persona`). */
   setMirrorPersona(defId: string, persona: string | null): { ok: true } | { ok: false; status: 400 | 404 | 409; error: string } {
-    const def = this.getWorkDef(defId);
-    if (!def) return { ok: false, status: 404, error: "WorkDef not found" };
-    if (def.parent?.kind !== "external") {
-      return { ok: false, status: 409, error: "Only a mirrored WorkDef has a persona override; set a task's or schedule's persona with PUT /api/work-defs/:id" };
-    }
-    if (persona !== null && !this.getPersona(persona)) return { ok: false, status: 400, error: `Persona "${persona}" doesn't exist` };
-    const kv = fileSourceKv(this.teamDir, sourceIdForWorkDef(def));
-    if (persona) kv.set(mirrorPersonaKey(def.id), persona);
-    else kv.delete(mirrorPersonaKey(def.id));
-    return { ok: true };
+    return this.personas.setMirrorPersona(defId, persona);
   }
 
-  /**
-   * Startup, after the plugins load (docs/DESIGN.md "Migration", step 3): for
-   * every plugin-package source that declares `mode: "triage"` but no
-   * `triagePersona`, and has no `sourcePersonas` entry yet, seed
-   * `sourcePersonas.<id>.triagePersona` with what it ran with before the
-   * requirement — the team's triage persona, else `builtin:triage` — so nothing
-   * that worked stops. Guarded by "no entry", so it runs once per source (a
-   * person clearing it later keeps the empty entry). Returns the seeded ids.
-   */
-  seedSourceTriagePersonas(): string[] {
-    const fromPackages = new Set(this.pluginStatuses.flatMap((p) => p.sources));
-    const seeded: string[] = [];
-    for (const { source } of this.sources.all()) {
-      if (!fromPackages.has(source.id) || source.mode !== "triage" || source.triagePersona) continue;
-      if (this.config.sourcePersonas?.[source.id] !== undefined) continue;
-      const ref = this.config.triage?.persona && this.getPersona(this.config.triage.persona) ? this.config.triage.persona : "builtin:triage";
-      this.config.sourcePersonas = { ...this.config.sourcePersonas, [source.id]: { triagePersona: ref } };
-      console.warn(`[personas] triage-mode source "${source.id}" declares no triagePersona: set its triage persona to ${ref} (what it ran with before)`);
-      seeded.push(source.id);
-    }
-    if (seeded.length) {
-      this.saveConfig();
-      if (this.config.autosave?.autoCommit) this.commitToGit("mpt: migrate to personas (source triage personas)");
-    }
-    return seeded;
-  }
+  /** Startup: seed `sourcePersonas.<id>.triagePersona` for triage-mode plugin sources declaring none; returns the ids. */
+  seedSourceTriagePersonas(): string[] { return this.personas.seedSourceTriagePersonas(); }
 
-  /**
-   * Warnings about the personas plugin sources declare (`defaultPersona`,
-   * `triagePersona`) that don't resolve — added to their package's load status
-   * at startup, after the plugins (and their personas) loaded. Not an error: a
-   * stale work persona falls back to `builtin:worker`, and a triage one is
-   * reported by the source's own status.
-   */
-  checkDeclaredSourcePersonas(): void {
-    this.pluginStatuses = this.pluginStatuses.map((status) => {
-      const warnings: string[] = [];
-      for (const sid of status.sources) {
-        const source = this.sources.get(sid)?.source;
-        if (!source) continue;
-        for (const field of ["defaultPersona", "triagePersona"] as const) {
-          const ref = source[field];
-          if (ref && !this.getPersona(ref)) warnings.push(`source "${sid}": ${field} "${ref}" doesn't exist (no such team, built-in, or package persona)`);
-        }
-      }
-      if (!warnings.length) return status;
-      for (const w of warnings) console.warn(`[plugins] ${status.spec}: warning: ${w}`);
-      return { ...status, warnings: [...(status.warnings ?? []), ...warnings] };
-    });
-  }
+  /** Startup: warn (in their package's load status) about declared source personas that don't resolve. */
+  checkDeclaredSourcePersonas(): void { this.pluginStatuses = this.personas.checkDeclaredSourcePersonas(this.pluginStatuses); }
 
-  /** The team's triage persona: `triage.persona`, else (or when it doesn't resolve) `builtin:triage`. */
-  resolveTriagePersona(): ResolvedPersona {
-    const ref = this.config.triage?.persona || "builtin:triage";
-    return this.resolvePersona(ref, { via: "triage", fallback: "builtin:triage" }, "triage.persona")!;
-  }
+  /** The assistant's selected persona id, or null for `builtin:assistant`. */
+  getAssistantPersonaId(): string | null { return this.personas.getAssistantPersonaId(); }
 
-  /**
-   * Point a workflow agent state at a persona (`null` clears it). Errors name
-   * why: unknown workflow/state, a manual state, or a persona that doesn't exist.
-   */
-  setStatePersona(workflowName: string, state: string, persona: string | null): { ok: true; workflow: WorkflowConfig } | { ok: false; status: 400 | 404; error: string } {
-    const wf = this.workflows[workflowName];
-    if (!wf) return { ok: false, status: 404, error: `Workflow "${workflowName}" not found` };
-    const st = wf.states.find((s) => s.name === state);
-    if (!st) return { ok: false, status: 404, error: `Workflow "${workflowName}" has no state "${state}"` };
-    if (persona !== null) {
-      if (st.type !== "agent") return { ok: false, status: 400, error: `State "${state}" is manual; only agent states have a persona` };
-      if (!this.getPersona(persona)) return { ok: false, status: 400, error: `Persona "${persona}" doesn't exist` };
-    }
-    const next: WorkflowConfig = {
-      ...wf,
-      states: wf.states.map((s) => {
-        if (s.name !== state) return s;
-        const { persona: _old, ...rest } = s;
-        return persona ? { ...rest, persona } : rest;
-      }),
-    };
-    this.saveWorkflow(workflowName, next);
-    return { ok: true, workflow: next };
-  }
+  /** Select (or clear) the assistant's persona, persisted to config.json. */
+  setAssistantPersonaId(id: string | null): void { this.personas.setAssistantPersonaId(id); }
 
-  // --- Archive ---
+  /** The assistant's resolved persona: its selection, or `builtin:assistant`. */
+  resolveAssistantPersona(): ResolvedPersona { return this.personas.resolveAssistantPersona(); }
 
-  /** Build the archive SYNOPSIS markdown for a story (stored inline in the
-   * flat archived json). */
-  private buildSynopsis(story: Story, tasks: TaskWithMeta[], archivedAt: string): string {
-    const date = archivedAt.split("T")[0];
-    const lines: string[] = [
-      `# ${story.title}`,
-      "",
-      `**Archived**: ${date}`,
-      `**ID**: ${story.id}`,
-      "",
-      "## Description",
-      "",
-      story.description,
-      "",
-      "## Tasks",
-      "",
-    ];
-    for (const task of tasks) lines.push(`- ${task.title}`);
-    lines.push("");
-    return lines.join("\n");
-  }
-
-  /**
-   * Remove a task's live data from SQLite (assignments, task row).
-   * Token usage is deliberately kept: it's a ledger of spend that happened, and
-   * archiving/backlogging a story used to erase it from all history
-   * (store/usage.ts).
-   */
-  private removeTaskData(taskId: string): void {
-    this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
-  }
-
-  /** Remove a story and all its tasks from SQLite (does not touch disk) */
-  private removeStoryFromDb(storyId: string): void {
-    this.db.exec("PRAGMA foreign_keys = OFF");
-    try {
-      const tasks = this.getTasksForStory(storyId);
-      for (const task of tasks) {
-        this.removeTaskData(task.id);
-      }
-      this.db.prepare("DELETE FROM stories WHERE id = ?").run(storyId);
-    } finally {
-      this.db.exec("PRAGMA foreign_keys = ON");
-    }
-  }
-
-  /** Delete a story and all its tasks, removing from SQLite and disk */
-  deleteStory(storyId: string): boolean {
-    const story = this.getStory(storyId);
-    if (!story) return false;
-
-    const tasks = this.getTasksForStory(storyId);
-    const activeTasks = tasks.filter((t) => !!this.getAssignment(t.id));
-    if (activeTasks.length > 0) {
-      throw new Error(`Cannot delete story "${storyId}": ${activeTasks.length} task(s) are currently assigned`);
-    }
-
-    // Delete the story's child task WorkDefs (tasks/<id>/), then the flat story
-    // file (stories/<id>.json), then its SQLite rows.
-    for (const t of tasks) deleteWorkDef(this.teamDir, t.id);
-    this.removeStoryFromDb(storyId);
-    const file = this.storyFile(storyId);
-    if (existsSync(file)) fs.rmSync(file);
-    // A missing dependency counts as satisfied (isStoryReady).
-    this.admitDependents(storyId);
-
-    return true;
-  }
-
-  isStoryArchivable(storyId: string): boolean {
-    const tasks = this.getTasksForStory(storyId);
-    if (tasks.length === 0) return false;
-    return tasks.every((t) => t.status === DONE_STATE);
-  }
-
-  /**
-   * Archive a finished story in place: stories/<id>.json gains `archivedAt`
-   * (ISO, the archived flag) and an inline `synopsis`, and the story leaves the
-   * active SQLite cache (board, admission, reconcile). Its child task WorkDefs
-   * stay in tasks/. See docs/ARCHITECTURE.md "Team directory".
-   */
-  archiveStory(storyId: string): void {
-    if (!this.isStoryArchivable(storyId)) {
-      throw new Error(`Cannot archive story "${storyId}": not all tasks are done`);
-    }
-
-    const story = this.getStory(storyId);
-    if (!story) throw new Error(`Story "${storyId}" not found`);
-
-    const archivedAt = new Date().toISOString();
-    const tasks = this.getTasksForStory(storyId);
-
-    // Start from the file on disk (keeps any fields the cache doesn't carry).
-    const file = this.storyFile(storyId);
-    const data = existsSync(file)
-      ? JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>
-      : serializeStory(story) as unknown as Record<string, unknown>;
-    data.archivedAt = archivedAt;
-    data.synopsis = this.buildSynopsis(story, tasks, archivedAt);
-    fs.mkdirSync(path.dirname(file), { recursive: true });
-    writeFileAtomic(file, JSON.stringify(data, null, 2) + "\n");
-
-    this.removeStoryFromDb(storyId);
-    // Archived = done for its dependents (isStoryReady); normally they were
-    // admitted when it reached done, but this covers stories that never did.
-    this.admitDependents(storyId);
-  }
-
-  /**
-   * Read an archived story's file (stories/<id>.json carrying `archivedAt`), or
-   * null when there's no such file, it's malformed, or the story is active.
-   */
-  private readArchivedStory(storyId: string): Record<string, unknown> | null {
-    const file = this.storyFile(storyId);
-    if (!existsSync(file)) return null;
-    try {
-      const data = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
-      return isArchivedStoryData(data) ? data : null;
-    } catch { return null; }
-  }
-
-  /** True when `storyId` names an archived story (stories/<id>.json with `archivedAt`). */
-  isStoryArchived(storyId: string): boolean {
-    return this.readArchivedStory(storyId) !== null;
-  }
-
-  /** Every archived story (id, title, synopsis), read from stories/ by its `archivedAt` flag. */
-  getArchivedStories(): Array<{ id: string; title: string; synopsis: string }> {
-    const storiesDir = path.join(this.teamDir, STORIES_DIR);
-    if (!existsSync(storiesDir)) return [];
-
-    const results: Array<{ id: string; title: string; synopsis: string }> = [];
-    for (const entry of fs.readdirSync(storiesDir, { withFileTypes: true })) {
-      if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-      try {
-        const data = JSON.parse(fs.readFileSync(path.join(storiesDir, entry.name), "utf8"));
-        if (!isArchivedStoryData(data)) continue;
-        results.push({ id: data.id as string, title: data.title as string, synopsis: (data.synopsis as string) || (data.description as string) || "" });
-      } catch { /* skip malformed */ }
-    }
-    return results;
-  }
-
-  /** An archived story's file plus its tasks' WorkDefs and comments, or null if it isn't archived. */
-  getArchivedStoryContext(storyId: string): { story: Record<string, unknown>; tasks: Record<string, unknown>[]; comments: Record<string, Comment[]> } | null {
-    const story = this.readArchivedStory(storyId);
-    if (!story) return null;
-    const tasks: Record<string, unknown>[] = [];
-    const comments: Record<string, Comment[]> = {};
-
-    // The archived story lists its task ids; their WorkDefs + comments still
-    // live under tasks/<id>/ (archiving doesn't move them).
-    for (const t of (story.tasks as Array<{ id: string; status: string }> | undefined) ?? []) {
-      const def = getWorkDef(this.teamDir, t.id);
-      if (def) tasks.push({ id: def.id, title: def.title, goal: def.goal, acceptanceCriteria: def.acceptanceCriteria, status: t.status });
-      const commentsFile = path.join(workDefDir(this.teamDir, t.id), "comments.jsonl");
-      if (existsSync(commentsFile)) {
-        const lines = fs.readFileSync(commentsFile, "utf8").split("\n").filter(Boolean);
-        comments[t.id] = lines.map((line: string) => JSON.parse(line) as Comment);
-      }
-    }
-
-    return { story, tasks, comments };
-  }
-
-  /** Resolve the effective workflow for a story (story override → defaultWorkflow) */
-  getWorkflowForStory(storyId: string): WorkflowConfig {
-    const story = this.getStory(storyId);
-    const workflowName = story?.workflow || this.config.defaultWorkflow;
-    return this.workflows[workflowName] || this.workflows[this.config.defaultWorkflow]!;
-  }
-
-  /** Resolve the effective workflow for a task (via its parent story) */
-  getWorkflowForTask(taskId: string): WorkflowConfig {
-    const task = this.getTask(taskId);
-    if (!task) return this.workflows[this.config.defaultWorkflow]!;
-    return this.getWorkflowForStory(task.storyId);
-  }
-
-  // --- Assistant Conversation (chat v2) ---
+  // --- Assistant conversation (daemon/store/assistant-chat.ts) ---
   //
-  // Delegated to store/assistant-chat.ts. The daemon mirrors the agent's Pi
-  // session: user messages are queued for the extension to hand to Pi, and the
-  // agent's own prose is mirrored back as bubbles. There are no response turns
-  // and the composer never locks. See docs/DESIGN.md "Assistant Chat Model".
+  // The daemon mirrors the agent's Pi session: user messages are queued for the
+  // extension to hand to Pi, and the agent's own prose is mirrored back as
+  // bubbles. There are no response turns and the composer never locks. See
+  // docs/DESIGN.md "Assistant Chat Model". Messages are tagged with the
+  // assistant's current persona (`getAssistantPersonaId`).
 
   /** Subscribe to chat events for the SSE stream. Returns an unsubscribe fn. */
-  subscribeAssistantEvents(fn: (event: AssistantEvent) => void): () => void {
-    return this.chat.subscribe(fn);
-  }
+  subscribeAssistantEvents(fn: (event: AssistantEvent) => void): () => void { return this.chat.subscribe(fn); }
 
   /** Messages for one session (defaults to the active session), oldest first. */
-  getAssistantMessages(sessionId?: string): AssistantMessage[] {
-    return this.chat.getMessages(sessionId);
-  }
+  getAssistantMessages(sessionId?: string): AssistantMessage[] { return this.chat.getMessages(sessionId); }
 
-  getAssistantMessage(id: string): AssistantMessage | null {
-    return this.chat.getMessage(id);
-  }
+  /** One chat message, or null. */
+  getAssistantMessage(id: string): AssistantMessage | null { return this.chat.getMessage(id); }
 
-  /**
-   * Append a user message. Always succeeds (the composer never blocks) and
-   * creates the active session on demand under the current persona.
-   */
+  /** Append a user message (always succeeds; creates the active session on demand). */
   appendUserMessage(
     content: string,
     opts: { replyTo?: string | null; origin?: AssistantOrigin; mode?: AssistantSendMode | null } = {},
@@ -2330,66 +1225,44 @@ export class Store {
     return this.chat.appendAssistantBubble(content, { personaId: this.getAssistantPersonaId(), failed });
   }
 
-  deleteAssistantMessage(id: string): boolean {
-    return this.chat.deleteMessage(id);
-  }
+  /** Delete one chat message; false when it doesn't exist. */
+  deleteAssistantMessage(id: string): boolean { return this.chat.deleteMessage(id); }
 
-  // --- Assistant inbox (agent-facing) ---
-
-  /** User messages not yet handed to Pi, oldest first. */
-  getAssistantInbox(): InboxMessage[] {
-    return this.chat.getInbox();
-  }
+  /** User messages not yet handed to Pi, oldest first (agent-facing). */
+  getAssistantInbox(): InboxMessage[] { return this.chat.getInbox(); }
 
   /** Advance delivery receipts (queued -> delivered -> read). */
-  ackAssistantInbox(ids: string[], state: AssistantDelivery): number {
-    return this.chat.ackInbox(ids, state);
-  }
+  ackAssistantInbox(ids: string[], state: AssistantDelivery): number { return this.chat.ackInbox(ids, state); }
 
   /** Mark everything already handed to Pi as read (a run just started). */
-  markAssistantDeliveredAsRead(): number {
-    return this.chat.markDeliveredAsRead();
-  }
+  markAssistantDeliveredAsRead(): number { return this.chat.markDeliveredAsRead(); }
 
-  // --- Assistant thoughts (ephemeral peek buffer) ---
+  /** Set the ephemeral "thinking" flag (the reasoning peek buffer). */
+  setAssistantThinking(active: boolean): void { this.chat.setThinking(active); }
 
-  setAssistantThinking(active: boolean): void {
-    this.chat.setThinking(active);
-  }
+  /** Append a reasoning chunk to the ephemeral peek buffer. */
+  appendAssistantThought(chunk: string): void { this.chat.appendThought(chunk); }
 
-  appendAssistantThought(chunk: string): void {
-    this.chat.appendThought(chunk);
-  }
+  /** Clear the reasoning peek buffer. */
+  clearAssistantThoughts(): void { this.chat.clearThoughts(); }
 
-  clearAssistantThoughts(): void {
-    this.chat.clearThoughts();
-  }
+  /** The reasoning peek buffer and whether the assistant is thinking. */
+  getAssistantThoughts(): { chunks: string[]; updatedAt: string | null; thinking: boolean } { return this.chat.getThoughts(); }
 
-  getAssistantThoughts(): { chunks: string[]; updatedAt: string | null; thinking: boolean } {
-    return this.chat.getThoughts();
-  }
+  /** Is the assistant thinking right now? */
+  isAssistantThinking(): boolean { return this.chat.isThinking(); }
 
-  isAssistantThinking(): boolean {
-    return this.chat.isThinking();
-  }
+  /** The active chat session, or null. */
+  getActiveAssistantSession(): AssistantSession | null { return this.chat.getActiveSession(); }
 
-  // --- Assistant sessions ---
+  /** One chat session, or null. */
+  getAssistantSession(id: string): AssistantSession | null { return this.chat.getSession(id); }
 
-  getActiveAssistantSession(): AssistantSession | null {
-    return this.chat.getActiveSession();
-  }
+  /** Every chat session. */
+  listAssistantSessions(): AssistantSession[] { return this.chat.listSessions(); }
 
-  getAssistantSession(id: string): AssistantSession | null {
-    return this.chat.getSession(id);
-  }
-
-  listAssistantSessions(): AssistantSession[] {
-    return this.chat.listSessions();
-  }
-
-  getAssistantSessionSnapshot(id: string): string | null {
-    return this.chat.getSnapshot(id);
-  }
+  /** A session's markdown transcript, or null. */
+  getAssistantSessionSnapshot(id: string): string | null { return this.chat.getSnapshot(id); }
 
   /** Record the Pi session file backing the active chat (enables resume). */
   reportAssistantPiSession(piSessionPath: string): AssistantSession {
@@ -2419,49 +1292,7 @@ export class Store {
   }
 
   /** Refresh the active session's snapshot when stale (periodic safety net). */
-  refreshAssistantSnapshot(force = false): void {
-    this.chat.refreshActiveSnapshot(force);
-  }
-
-  // --- Settings (simple daemon-wide key/value) ---
-
-  getSetting(key: string): string | null {
-    const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
-    return row ? row.value : null;
-  }
-
-  setSetting(key: string, value: string | null): void {
-    if (value === null) {
-      this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
-      return;
-    }
-    this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
-  }
-
-  // --- Assistant persona ---
-  //
-  // The assistant's persona is a persona id in config.json `assistant.persona`
-  // (team configuration, committed with the team — docs/DESIGN.md "References");
-  // its body follows the chat framing in the system prompt. Null means
-  // `builtin:assistant`.
-
-  getAssistantPersonaId(): string | null {
-    return this.config.assistant?.persona || null;
-  }
-
-  setAssistantPersonaId(id: string | null): void {
-    const { persona: _old, ...rest } = this.config.assistant ?? {};
-    const next = id ? { ...rest, persona: id } : rest;
-    if (Object.keys(next).length > 0) this.config.assistant = next;
-    else delete this.config.assistant;
-    this.saveConfig();
-  }
-
-  /** The assistant's resolved persona: its selection, or `builtin:assistant`. */
-  resolveAssistantPersona(): ResolvedPersona {
-    const ref = this.getAssistantPersonaId() ?? "builtin:assistant";
-    return this.resolvePersona(ref, { via: "assistant", fallback: "builtin:assistant" }, "assistant.persona")!;
-  }
+  refreshAssistantSnapshot(force = false): void { this.chat.refreshActiveSnapshot(force); }
 
   /**
    * Ask any online assistant to act on its Pi session. The daemon expresses
@@ -2473,6 +1304,23 @@ export class Store {
   private directAssistantSession(action: string, params: Record<string, unknown>): void {
     const agent = this.getLeader();
     if (agent) this.createLeaderDirectiveForMember(agent.id, action, params);
+  }
+
+  // --- Settings (simple daemon-wide key/value) ---
+
+  /** A daemon-wide setting's value, or null. */
+  getSetting(key: string): string | null {
+    const row = this.db.prepare("SELECT value FROM settings WHERE key = ?").get(key) as { value: string } | undefined;
+    return row ? row.value : null;
+  }
+
+  /** Set (or, with null, delete) a daemon-wide setting. */
+  setSetting(key: string, value: string | null): void {
+    if (value === null) {
+      this.db.prepare("DELETE FROM settings WHERE key = ?").run(key);
+      return;
+    }
+    this.db.prepare("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)").run(key, value);
   }
 
   // --- The leader, leader directives, the teammate pool (daemon/store/members.ts) ---
@@ -2683,7 +1531,7 @@ export class Store {
     // A triage-mode mirror: Run = Triage now (force the current revision).
     if (this.isTriageModeMirror(def)) {
       // No triage persona, no triage run (docs/DESIGN.md "Work Source personas").
-      if (!this.mirrorHasTriagePersona(def)) {
+      if (!this.personas.mirrorHasTriagePersona(def)) {
         return { ok: false, conflict: true, error: this.sourcePersonaProblem(sourceIdForWorkDef(def)) ?? heldTriageItemsMessage(sourceIdForWorkDef(def), 1) };
       }
       return this.externalTriage.run(def, src?.ctx ?? this.makeSourceContext(sourceIdForWorkDef(def)));
@@ -2703,10 +1551,7 @@ export class Store {
     // A board task is a WorkDef whose fields are cached in the `tasks` table
     // (what /api/stories reads). Keep that cache in sync so an edit through the
     // WorkDef path is reflected on the board without waiting for a reload.
-    if (def && this.getTask(id)) {
-      this.db.prepare("UPDATE tasks SET title = ?, description = ? WHERE id = ?")
-        .run(def.title, def.goal, id);
-    }
+    if (def) this.board.refreshTaskCache(def);
     return def;
   }
 
@@ -2786,200 +1631,49 @@ export class Store {
   }
   deleteTemplate(id: string): boolean { return deleteTemplate(this.teamDir, id); }
 
-  // ─── Thoughts (markdown sticky notes; personal workspace/outbox) ────
+  // --- Thoughts (markdown sticky notes; daemon/store/thoughts.ts `ThoughtStore`) ---
   //
-  // Files are the source of truth (thoughts/<id>.md + groups.json), read and
-  // written directly like Schedules/standalone WorkDefs — no SQLite index.
-  // Two-state lifecycle (active⇄archived), pinning is an orthogonal flag, and
-  // there are no auto-sweeps: nothing moves a note without an explicit action.
-  // See docs/ARCHITECTURE.md "Thoughts".
+  // Files are the source of truth (thoughts/<id>.md + groups.json) — no SQLite
+  // index. See docs/ARCHITECTURE.md "Thoughts".
 
   /** All thoughts, optionally filtered by status; sorted by zIndex then id. */
-  getThoughts(status?: string): Thought[] {
-    let all = listThoughts(this.teamDir);
-    if (status === "active" || status === "archived") all = all.filter((t) => t.status === status);
-    return all.sort((a, b) => a.zIndex - b.zIndex || a.id.localeCompare(b.id));
-  }
+  getThoughts(status?: string): Thought[] { return this.notes.getThoughts(status); }
 
-  getThought(id: string): Thought | null { return ioGetThought(this.teamDir, id); }
+  /** One note, or null. */
+  getThought(id: string): Thought | null { return this.notes.getThought(id); }
 
-  getThoughtGroups(): ThoughtGroup[] { return listThoughtGroups(this.teamDir); }
-  getThoughtGroup(id: string): ThoughtGroup | null {
-    return this.getThoughtGroups().find((g) => g.id === id) ?? null;
-  }
+  /** Every group. */
+  getThoughtGroups(): ThoughtGroup[] { return this.notes.getThoughtGroups(); }
 
-  /** Mint a collision-free id with the given prefix (`th-`/`grp-`). */
-  private mintId(prefix: string, exists: (id: string) => boolean): string {
-    let id = `${prefix}${Date.now()}`;
-    while (exists(id)) id = `${prefix}${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
-    return id;
-  }
+  /** One group, or null. */
+  getThoughtGroup(id: string): ThoughtGroup | null { return this.notes.getThoughtGroup(id); }
 
-  /**
-   * Auto-place a new note in free space below existing active content, so an
-   * agent (or a coordinate-less create) never stacks notes at the origin.
-   */
-  private findFreePosition(): { x: number; y: number } {
-    const notes = this.getThoughts("active");
-    if (notes.length === 0) return { x: 0, y: 0 };
-    let maxBottom = 0;
-    for (const n of notes) maxBottom = Math.max(maxBottom, n.y + (n.h ?? 120));
-    return { x: 0, y: maxBottom + 24 };
-  }
+  /** Create a note (auto-placed when no x/y). */
+  createThought(input: Parameters<ThoughtStore["createThought"]>[0]): Thought { return this.notes.createThought(input); }
 
-  /** Highest zIndex among active notes (new notes land on top). */
-  private topZIndex(): number {
-    return this.getThoughts("active").reduce((max, t) => Math.max(max, t.zIndex), 0);
-  }
+  /** Partial update; only a content change bumps `updatedAt`. */
+  updateThought(id: string, updates: Parameters<ThoughtStore["updateThought"]>[1]): Thought | null { return this.notes.updateThought(id, updates); }
 
-  createThought(input: {
-    content?: string; color?: string; x?: number; y?: number; w?: number | null; h?: number | null;
-    zIndex?: number; pinned?: boolean; createdBy?: string; groupId?: string;
-  }): Thought {
-    const now = new Date().toISOString();
-    const pos = (input.x !== undefined && input.y !== undefined)
-      ? { x: input.x, y: input.y }
-      : this.findFreePosition();
-    const t: Thought = {
-      id: this.mintId("th-", (id) => ioGetThought(this.teamDir, id) !== null),
-      content: input.content ?? "",
-      color: input.color || DEFAULT_THOUGHT_COLOR,
-      status: "active",
-      x: pos.x,
-      y: pos.y,
-      w: input.w ?? null,
-      h: input.h ?? null,
-      zIndex: input.zIndex ?? this.topZIndex() + 1,
-      pinned: input.pinned ?? false,
-      groupId: input.groupId && this.getThoughtGroup(input.groupId) ? input.groupId : null,
-      createdBy: input.createdBy || "human",
-      createdAt: now,
-      updatedAt: now,
-    };
-    writeThought(this.teamDir, t);
-    return t;
-  }
+  /** Batch position/size update (one drag gesture). */
+  updateThoughtPositions(moves: Parameters<ThoughtStore["updateThoughtPositions"]>[0]): Thought[] { return this.notes.updateThoughtPositions(moves); }
 
-  /** Partial update; only provided fields are written. A groupId that doesn't
-   * resolve is ignored (null clears membership).
-   *
-   * `updatedAt` means "last edited": only a change to the note's *content* bumps
-   * it. The list view orders notes by it, so moving a note on the canvas,
-   * recoloring, pinning, or filing it in a group must not make it jump to the top. */
-  updateThought(id: string, updates: {
-    content?: string; color?: string; status?: ThoughtStatus; pinned?: boolean;
-    groupId?: string | null; x?: number; y?: number; w?: number | null; h?: number | null; zIndex?: number;
-  }): Thought | null {
-    const t = ioGetThought(this.teamDir, id);
-    if (!t) return null;
-    const edited = updates.content !== undefined && updates.content !== t.content;
-    if (updates.content !== undefined) t.content = updates.content;
-    if (updates.color !== undefined) t.color = updates.color;
-    if (updates.status !== undefined) t.status = updates.status;
-    if (updates.pinned !== undefined) t.pinned = updates.pinned;
-    if (updates.groupId !== undefined) {
-      t.groupId = updates.groupId && this.getThoughtGroup(updates.groupId) ? updates.groupId : null;
-    }
-    if (updates.x !== undefined) t.x = updates.x;
-    if (updates.y !== undefined) t.y = updates.y;
-    if (updates.w !== undefined) t.w = updates.w;
-    if (updates.h !== undefined) t.h = updates.h;
-    if (updates.zIndex !== undefined) t.zIndex = updates.zIndex;
-    if (edited) t.updatedAt = new Date().toISOString();
-    writeThought(this.teamDir, t);
-    return t;
-  }
+  /** Archive a note; its triage WorkDef follows, and a queued run is canceled. */
+  archiveThought(id: string): Thought | null { return this.notes.archiveThought(id); }
 
-  /** Batch position/size update (one drag gesture). Missing ids are skipped. */
-  updateThoughtPositions(moves: Array<{ id: string; x: number; y: number; w?: number | null; h?: number | null; zIndex?: number }>): Thought[] {
-    const updated: Thought[] = [];
-    for (const m of moves) {
-      const t = this.updateThought(m.id, { x: m.x, y: m.y, w: m.w, h: m.h, zIndex: m.zIndex });
-      if (t) updated.push(t);
-    }
-    return updated;
-  }
+  /** Restore a note; its triage WorkDef comes back with it. */
+  restoreThought(id: string): Thought | null { return this.notes.restoreThought(id); }
 
-  /** Archive a note; its triage WorkDef (if any) follows, and a queued run is canceled. */
-  archiveThought(id: string): Thought | null {
-    const t = this.updateThought(id, { status: "archived" });
-    if (t) {
-      const item = this.getActiveWorkItem(triageWorkDefId(id));
-      if (item) this.setWorkItemStateRow(item.id, "CANCELED");
-      if (getWorkDef(this.teamDir, triageWorkDefId(id))) {
-        updateWorkDef(this.teamDir, triageWorkDefId(id), { status: "archived" });
-      }
-    }
-    return t;
-  }
+  /** Hard delete, taking the note's triage WorkDef (thread included) with it. */
+  deleteThought(id: string): boolean { return this.notes.deleteThought(id); }
 
-  /** Restore a note; its triage WorkDef comes back with it (the thread is kept). */
-  restoreThought(id: string): Thought | null {
-    const t = this.updateThought(id, { status: "active" });
-    if (t && getWorkDef(this.teamDir, triageWorkDefId(id))) {
-      updateWorkDef(this.teamDir, triageWorkDefId(id), { status: "active" });
-    }
-    return t;
-  }
+  /** Create a group (stamping membership on `memberIds`). */
+  createThoughtGroup(input: Parameters<ThoughtStore["createThoughtGroup"]>[0]): ThoughtGroup { return this.notes.createThoughtGroup(input); }
 
-  /**
-   * Hard delete (direct — no archive-first guard; it's a personal workspace).
-   * Takes the note's triage WorkDef — thread included — with it: the thread is
-   * about a note that no longer exists.
-   */
-  deleteThought(id: string): boolean {
-    const defId = triageWorkDefId(id);
-    const item = this.getActiveWorkItem(defId);
-    if (item) this.setWorkItemStateRow(item.id, "CANCELED");
-    if (getWorkDef(this.teamDir, defId)) deleteWorkDef(this.teamDir, defId);
-    return deleteThoughtFile(this.teamDir, id);
-  }
+  /** Partial update of a group. */
+  updateThoughtGroup(id: string, updates: Parameters<ThoughtStore["updateThoughtGroup"]>[1]): ThoughtGroup | null { return this.notes.updateThoughtGroup(id, updates); }
 
-  createThoughtGroup(input: { title?: string; x?: number; y?: number; w?: number; h?: number; memberIds?: string[] }): ThoughtGroup {
-    const groups = this.getThoughtGroups();
-    const group: ThoughtGroup = {
-      id: this.mintId("grp-", (id) => groups.some((g) => g.id === id)),
-      title: (input.title || "").trim() || "New Group",
-      x: input.x ?? 0,
-      y: input.y ?? 0,
-      w: input.w ?? DEFAULT_GROUP_SIZE.w,
-      h: input.h ?? DEFAULT_GROUP_SIZE.h,
-      groupColor: null,
-      plateOpacity: "medium",
-    };
-    writeThoughtGroups(this.teamDir, [...groups, group]);
-    // Stamp membership on any provided notes (exclusive: switches groups).
-    for (const memberId of input.memberIds ?? []) {
-      this.updateThought(memberId, { groupId: group.id });
-    }
-    return group;
-  }
-
-  updateThoughtGroup(id: string, updates: { title?: string; x?: number; y?: number; w?: number; h?: number; groupColor?: string | null; plateOpacity?: "subtle" | "medium" | "solid" }): ThoughtGroup | null {
-    const groups = this.getThoughtGroups();
-    const group = groups.find((g) => g.id === id);
-    if (!group) return null;
-    if (updates.title !== undefined) group.title = updates.title.trim() || "New Group";
-    if (updates.x !== undefined) group.x = updates.x;
-    if (updates.y !== undefined) group.y = updates.y;
-    if (updates.w !== undefined) group.w = updates.w;
-    if (updates.h !== undefined) group.h = updates.h;
-    if (updates.groupColor !== undefined) group.groupColor = updates.groupColor;
-    if (updates.plateOpacity !== undefined) group.plateOpacity = updates.plateOpacity;
-    writeThoughtGroups(this.teamDir, groups);
-    return group;
-  }
-
-  /** Ungroup: remove the group and clear its members' groupId (notes stay put). */
-  deleteThoughtGroup(id: string): boolean {
-    const groups = this.getThoughtGroups();
-    if (!groups.some((g) => g.id === id)) return false;
-    for (const t of listThoughts(this.teamDir)) {
-      if (t.groupId === id) this.updateThought(t.id, { groupId: null });
-    }
-    writeThoughtGroups(this.teamDir, groups.filter((g) => g.id !== id));
-    return true;
-  }
+  /** Ungroup: remove the group and clear its members' groupId. */
+  deleteThoughtGroup(id: string): boolean { return this.notes.deleteThoughtGroup(id); }
 
   // --- Ref-based comments/attachments (daemon/store/threads.ts) ---
   //
@@ -3014,118 +1708,6 @@ export class Store {
 
   /** Delete a ref attachment. Returns false if it doesn't exist. */
   deleteAttachmentForRef(ref: WorkItemRef, storedName: string): boolean { return this.threads.deleteAttachmentForRef(ref, storedName); }
-
-  // --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
-  //
-  // One library, three origins: team files (`personas/<id>.md`, daemon/personas/
-  // library.ts), read-only built-ins (`builtin:*`), and read-only package personas
-  // (`<package>/<id>`, registered by the plugin loader). Consumers store an id;
-  // `resolvePersona` turns it into a body.
-
-  /** Personas shipped by plugin packages (fed by daemon/plugins/loader.ts at startup). */
-  readonly packagePersonas = new PackagePersonas();
-
-  /**
-   * Register a plugin package's personas, read-only, as `<name>/<id>` — the
-   * loader's seam (daemon/plugins/loader.ts `PluginHost`). Loaded once at
-   * startup, like sources.
-   */
-  registerPackagePersonas(pkg: { name: string; identity: string }, files: PackagePersonaFile[]): PackagePersonaResult {
-    return this.packagePersonas.register(pkg, files);
-  }
-  /** Missing references already warned about this run ("logged once per id"). */
-  private warnedPersonaRefs = new Set<string>();
-
-  /** The whole library: team personas, then built-ins, then package personas. */
-  listPersonas(): Persona[] {
-    return [...listTeamPersonas(this.teamDir), ...listBuiltinPersonas(), ...this.packagePersonas.list()];
-  }
-
-  /** One persona by id, whatever its origin, or null when it doesn't resolve. */
-  getPersona(id: string): Persona | null {
-    const kind = parsePersonaId(id).kind;
-    if (kind === "builtin") return getBuiltinPersona(id);
-    if (kind === "package") return this.packagePersonas.get(id);
-    if (kind === "team") return readTeamPersona(this.teamDir, id);
-    return null;
-  }
-
-  /**
-   * Resolve a persona reference for a prompt (daemon/personas/resolve.ts). A
-   * reference that doesn't resolve is logged once per id per run — `where` names
-   * the referrer — and resolves to `opts.fallback`.
-   */
-  resolvePersona(ref: string | undefined | null, opts: { via: PersonaVia; fallback: BuiltinPersonaId | null }, where: string = opts.via): ResolvedPersona | null {
-    const resolved = resolvePersona((id) => this.getPersona(id), ref, opts);
-    if (ref && (!resolved || resolved.fallbackFrom) && !this.warnedPersonaRefs.has(`${where}\0${ref}`)) {
-      this.warnedPersonaRefs.add(`${where}\0${ref}`);
-      console.warn(`[personas] ${where} names persona '${ref}', which doesn't exist — ${resolved ? `using ${resolved.id}` : "using no persona"}`);
-    }
-    return resolved;
-  }
-
-  /** Everything that references persona `id` (the "Used by" list; computed on demand). */
-  getPersonaUsage(id: string): PersonaUsage[] {
-    return personaUsage(id, {
-      workflows: this.workflows,
-      config: this.config,
-      workDefs: listWorkDefs(this.teamDir),
-      mirrorOverrides: this.listMirrorPersonaOverrides(),
-    });
-  }
-
-  /** Per-mirror persona overrides: every source kv's `persona:<defId>` key (`sources/<id>.json`). */
-  private listMirrorPersonaOverrides(): Array<{ workDefId: string; source: string; persona: string }> {
-    return listMirrorPersonaOverrides(this.teamDir);
-  }
-
-  /**
-   * Create a team persona. The id is `input.id` when given (must be a free,
-   * valid team id), else derived from the title with `-2`… on collision.
-   */
-  createPersona(input: TeamPersonaInput & { id?: string }): { ok: true; persona: Persona } | { ok: false; status: 400 | 409; error: string } {
-    let id = input.id;
-    if (id !== undefined) {
-      if (parsePersonaId(id).kind !== "team") return { ok: false, status: 400, error: `Invalid persona id "${id}" (lowercase letters, digits and "-", at most 64)` };
-      if (readTeamPersona(this.teamDir, id)) return { ok: false, status: 409, error: `Persona "${id}" already exists` };
-    } else {
-      id = freeTeamPersonaId(input.title, (candidate) => readTeamPersona(this.teamDir, candidate) !== null);
-    }
-    const { id: _id, ...fields } = input;
-    writeTeamPersona(this.teamDir, id, fields);
-    return { ok: true, persona: readTeamPersona(this.teamDir, id)! };
-  }
-
-  /** Update a team persona in place (its id is kept). Null when it doesn't exist. */
-  updatePersona(id: string, updates: Partial<TeamPersonaInput>): Persona | null {
-    const existing = readTeamPersona(this.teamDir, id);
-    if (!existing) return null;
-    writeTeamPersona(this.teamDir, id, {
-      title: updates.title ?? existing.title,
-      description: updates.description ?? existing.description,
-      tags: updates.tags ?? existing.tags,
-      kinds: updates.kinds ?? existing.kinds,
-      duplicatedFrom: existing.duplicatedFrom,
-      content: updates.content ?? existing.content,
-    });
-    return readTeamPersona(this.teamDir, id);
-  }
-
-  /** Delete a team persona file. The route refuses one in use first (`getPersonaUsage`). */
-  deletePersona(id: string): boolean {
-    return deleteTeamPersona(this.teamDir, id);
-  }
-
-  /** Copy any persona into the team library (`duplicatedFrom` records the source; no inheritance). */
-  duplicatePersona(id: string, overrides: { id?: string; title?: string } = {}): { ok: true; persona: Persona } | { ok: false; status: 400 | 404 | 409; error: string } {
-    const src = this.getPersona(id);
-    if (!src) return { ok: false, status: 404, error: `Persona "${id}" not found` };
-    const title = overrides.title ?? src.title.replace(/ \(built-in\)$/, "");
-    return this.createPersona({
-      id: overrides.id, title, description: src.description,
-      tags: src.tags.filter((t) => t !== "built-in"), kinds: src.kinds, duplicatedFrom: src.id, content: src.content,
-    });
-  }
 
   // --- Notices (one-line, dismissable; carried by /api/status) ---
 
