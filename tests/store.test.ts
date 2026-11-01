@@ -516,9 +516,9 @@ test("Store: comments append to JSONL (task ref)", () => {
   try {
     const store = new Store(teamDir, TEST_CONFIG);
     store.createStory("msg-test", "MT", "Comments", "open", [], [{ title: "T1", description: "D1" }]);
-    store.addComment("msg-test-1", "teammate-1", "Hello, lead!");
-    store.addComment("msg-test-1", "lead", "Hi there!");
-    const comments = store.getComments("msg-test-1");
+    store.addCommentForRef({ workDefId: "msg-test-1" }, "teammate-1", "Hello, lead!");
+    store.addCommentForRef({ workDefId: "msg-test-1" }, "lead", "Hi there!");
+    const comments = store.getCommentsForRef({ workDefId: "msg-test-1" });
     assertEquals(comments.length, 2);
     assertEquals(comments[0]!.from, "teammate-1");
     store.close();
@@ -706,7 +706,7 @@ test("Store: setWorkItemState does NOT post a comment (agent owns its comments)"
     store.claimWorkItem(item.id, "a1");
     // Passing no result — the daemon posts nothing; the agent owns its comments.
     store.setWorkItemState(item.id, "COMPLETE");
-    assertEquals(store.getComments("nc-1").length, 0);
+    assertEquals(store.getCommentsForRef({ workDefId: "nc-1" }).length, 0);
     store.close();
   } finally { cleanupDir(teamDir); }
 });

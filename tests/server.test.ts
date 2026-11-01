@@ -258,7 +258,7 @@ test("POST/GET agent comments roundtrip (by work item)", async () => {
     assertEquals(got.comments.length, 1);
     assertEquals(got.comments[0].body, "working on it");
     // The comment lives on the task ref.
-    assertEquals(store.getComments("s1-1").length, 1);
+    assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).length, 1);
   } finally { cleanup(teamDir, store); }
 });
 

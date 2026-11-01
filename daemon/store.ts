@@ -910,19 +910,6 @@ export class Store {
         claimed_at INTEGER
       );
 
-      CREATE TABLE IF NOT EXISTS comments (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT REFERENCES tasks(id),
-        from_id TEXT,
-        body TEXT,
-        created_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS comments_loaded (
-        task_id TEXT PRIMARY KEY REFERENCES tasks(id),
-        loaded_at INTEGER
-      );
-
       CREATE TABLE IF NOT EXISTS members (
         id TEXT PRIMARY KEY,
         name TEXT,
@@ -1124,6 +1111,7 @@ export class Store {
     }
 
     this.dropRetiredColumns();
+    this.dropRetiredTables();
     this.cancelRetiredDirectives();
     // After the column migrations, so `work_def_id` is guaranteed to exist. Serves
     // the per-WorkDef execution-count aggregate (getExecutionStats) and the
@@ -1174,6 +1162,17 @@ export class Store {
     for (const [table, col] of retired) {
       if (has(table, col)) this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${col}`);
     }
+  }
+
+  /**
+   * Drop tables the daemon no longer has, from databases created before they
+   * went: `comments` / `comments_loaded`, a write-only SQLite copy of each task's
+   * thread. Comments live only in the ref's `comments.jsonl` (getCommentsForRef);
+   * nothing ever read the copy.
+   */
+  private dropRetiredTables(): void {
+    this.db.exec("DROP TABLE IF EXISTS comments_loaded");
+    this.db.exec("DROP TABLE IF EXISTS comments");
   }
 
   // --- Load from filesystem ---
@@ -2138,98 +2137,13 @@ export class Store {
     return { taskId: row.task_id as string, memberId: row.member_id as string, claimedAt: row.claimed_at as number, task };
   }
 
-  // --- Comments ---
-
-  private ensureCommentsLoaded(taskId: string): void {
-    const loaded = this.db.prepare("SELECT * FROM comments_loaded WHERE task_id = ?").get(taskId);
-    if (loaded) return;
-
-    const task = this.getTask(taskId);
-    if (!task) return;
-
-    const commentsFile = path.join(task.dirPath, "comments.jsonl");
-    if (existsSync(commentsFile)) {
-      const content = fs.readFileSync(commentsFile, "utf8");
-      const lines = content.split("\n").filter(Boolean);
-      const insert = this.db.prepare(
-        "INSERT INTO comments (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)"
-      );
-      for (const line of lines) {
-        const comment: Comment = JSON.parse(line);
-        insert.run(taskId, comment.from, comment.body, new Date(comment.at).getTime());
-      }
-    }
-
-    this.db.prepare("INSERT INTO comments_loaded (task_id, loaded_at) VALUES (?, ?)").run(taskId, Date.now());
-  }
-
-  getComments(taskId: string): Comment[] {
-    // Read directly from JSONL for full fidelity (includes attachments)
-    const task = this.getTask(taskId);
-    if (!task) return [];
-    const commentsFile = path.join(task.dirPath, "comments.jsonl");
-    if (!existsSync(commentsFile)) return [];
-    const content = fs.readFileSync(commentsFile, "utf8");
-    const lines = content.split("\n").filter(Boolean);
-    return lines.map((line) => JSON.parse(line) as Comment);
-  }
-
-  addComment(taskId: string, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
-    const now = Date.now();
-    this.ensureCommentsLoaded(taskId);
-    this.db.prepare("INSERT INTO comments (task_id, from_id, body, created_at) VALUES (?, ?, ?, ?)").run(taskId, from, body, now);
-
-    // Immediately append to JSONL file
-    const task = this.getTask(taskId);
-    if (task) {
-      const commentsFile = path.join(task.dirPath, "comments.jsonl");
-      const comment: Comment = { from, body, at: new Date(now).toISOString() };
-      if (attachments && attachments.length > 0) comment.attachments = attachments;
-      fs.appendFileSync(commentsFile, JSON.stringify(comment) + "\n");
-    }
-  }
-
-  /** Save an attachment file for a task */
-  saveAttachment(taskId: string, filename: string, data: Uint8Array | string): string | null {
-    const task = this.getTask(taskId);
-    if (!task) return null;
-    return this.saveAttachmentInDir(path.join(task.dirPath, "attachments"), filename, data);
-  }
-
-  /** Get an attachment file path */
-  getAttachmentPath(taskId: string, filename: string): string | null {
-    const task = this.getTask(taskId);
-    if (!task) return null;
-    return this.resolveAttachmentInDir(path.join(task.dirPath, "attachments"), filename);
-  }
-
-  /**
-   * List attachments for a task, newest first. Uploads are stored as
-   * `<epoch-ms>-<name>` (see saveAttachment), so the upload time is recovered
-   * from the stored name; files placed by other means fall back to mtime.
-   * Teammates often upload the same display name repeatedly — addedAt is how
-   * the UI tells them apart.
-   */
-  getAttachments(taskId: string): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
-    const task = this.getTask(taskId);
-    if (!task) return [];
-    return this.listAttachmentsInDir(path.join(task.dirPath, "attachments"));
-  }
-
-  /** Delete an attachment file from a task */
-  deleteAttachment(taskId: string, storedName: string): boolean {
-    const filePath = this.getAttachmentPath(taskId, storedName);
-    if (!filePath) return false;
-    try {
-      fs.rmSync(filePath);
-      return true;
-    } catch {
-      return false;
-    }
-  }
-
-  // Shared attachment-directory primitives (used by both the task-scoped and
-  // ref-scoped helpers — a board task's dir IS its WorkDef ref dir).
+  // --- Attachment-directory primitives ---
+  //
+  // Shared by the ref-scoped attachment helpers (saveAttachmentForRef and
+  // friends). Uploads are stored as `<epoch-ms>-<name>`, so the upload time is
+  // recovered from the stored name; files placed by other means fall back to
+  // mtime. Teammates often upload the same display name repeatedly — addedAt is
+  // how the UI tells them apart.
   private saveAttachmentInDir(attachDir: string, filename: string, data: Uint8Array | string): string {
     fs.mkdirSync(attachDir, { recursive: true });
     const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
@@ -3234,15 +3148,13 @@ export class Store {
   }
 
   /**
-   * Remove a task's live data from SQLite (assignments, comments, task row).
+   * Remove a task's live data from SQLite (assignments, task row).
    * Token usage is deliberately kept: it's a ledger of spend that happened, and
    * archiving/backlogging a story used to erase it from all history
    * (store/usage.ts).
    */
   private removeTaskData(taskId: string): void {
     this.db.prepare("DELETE FROM assignments WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM comments WHERE task_id = ?").run(taskId);
-    this.db.prepare("DELETE FROM comments_loaded WHERE task_id = ?").run(taskId);
     this.db.prepare("DELETE FROM tasks WHERE id = ?").run(taskId);
   }
 

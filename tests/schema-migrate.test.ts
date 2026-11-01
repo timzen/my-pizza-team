@@ -1,6 +1,7 @@
 /**
  * tests/schema-migrate.test.ts — opening an older state.db drops the columns of
- * retired models (Store.dropRetiredColumns), and keeps the data that matters.
+ * retired models (Store.dropRetiredColumns) and the retired tables
+ * (Store.dropRetiredTables), and keeps the data that matters.
  *
  * Builds the old shape by hand — the columns as the daemon used to create them —
  * then opens it with the current Store.
@@ -73,6 +74,31 @@ test("a fresh database never has the retired columns", () => {
       assert(cols.length > 0, `${table} exists`);
       for (const col of retired) assert(!cols.includes(col), `${table}.${col} is not created`);
     }
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
+});
+
+function tables(dbPath: string): string[] {
+  const db = new DatabaseSync(dbPath);
+  try {
+    return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name);
+  } finally { db.close(); }
+}
+
+test("an old database loses the retired comments tables; a fresh one never has them", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
+  const dbPath = path.join(teamDir, "state.db");
+  try {
+    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
+    for (const t of ["comments", "comments_loaded"]) assert(!tables(dbPath).includes(t), `${t} is not created`);
+    // The old shape: the write-only SQLite copy of task threads, as older daemons created it.
+    const old = new DatabaseSync(dbPath);
+    old.exec(`
+      CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id), from_id TEXT, body TEXT, created_at INTEGER);
+      CREATE TABLE comments_loaded (task_id TEXT PRIMARY KEY REFERENCES tasks(id), loaded_at INTEGER);
+    `);
+    old.close();
+    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
+    for (const t of ["comments", "comments_loaded"]) assert(!tables(dbPath).includes(t), `${t} should be dropped`);
   } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });
 

@@ -182,7 +182,7 @@ test("claim prompt includes state role, lead comments, and completion guidance",
   try {
     store.registerMember("a1", "neo", "/tmp");
     store.createStory("s1", "S1", "D", "open", [], [{ title: "T1", description: "D1" }], "default");
-    store.addComment("s1-1", "lead", "Please check the edge cases");
+    store.addCommentForRef({ workDefId: "s1-1" }, "lead", "Please check the edge cases");
     const body = await (await post(app, `/api/agents/claim/${workItemFor(store, "s1-1")}`, { agentId: "a1" })).json();
     assertStringIncludes(body.prompt, "Your Role: in_progress");
     assertStringIncludes(body.prompt, "Comments from Team Lead");
@@ -269,7 +269,7 @@ test("state=FAILED leaves the task stuck with no active WorkItem", async () => {
     assertEquals(store.getWorkItem(wid)!.state, "FAILED");
     assertEquals(store.getTask("s1-1")!.status, "in_progress");
     assertEquals(store.getActiveWorkItemForTask("s1-1"), null);
-    assertEquals(store.getComments("s1-1").some(c => c.body.includes("Need the API key")), true);
+    assertEquals(store.getCommentsForRef({ workDefId: "s1-1" }).some(c => c.body.includes("Need the API key")), true);
   } finally { cleanup(teamDir, store); }
 });
 
@@ -313,7 +313,7 @@ test("Rework: human sends the task back; re-entry ≡ first entry (fresh WorkIte
     await post(app, `/api/agents/work-items/${wid}/state`, { agentId: "a1", state: "COMPLETE", result: "First attempt" });
     assertEquals(store.getTask("s1-1")?.status, "review");
 
-    store.addComment("s1-1", "lead", "Please fix the edge case in parser.ts");
+    store.addCommentForRef({ workDefId: "s1-1" }, "lead", "Please fix the edge case in parser.ts");
     await post(app, "/api/tasks/s1-1/move", { status: "in_progress" });
     // Fresh READY WorkItem for the re-entry.
     const wid2 = store.getActiveWorkItemForTask("s1-1")!.id;
