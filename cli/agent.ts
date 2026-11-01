@@ -17,7 +17,7 @@ import * as fs from "node:fs";
 import { spawnSync } from "node:child_process";
 import * as path from "node:path";
 import { AgentSupervisor } from "../agent/supervisor.ts";
-import { DaemonClient } from "../harnesses/pi/src/runtime/client.ts";
+import { DaemonClient } from "../runtime/client.ts";
 import { mptInvocation } from "../daemon/self.ts";
 import { shellQuote } from "../daemon/tmux.ts";
 import { DEFAULT_DAEMON_URL } from "../shared/types.ts";

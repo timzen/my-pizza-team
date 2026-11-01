@@ -5,7 +5,9 @@
  * The extension can't import `shared/` (it is a self-contained package that
  * `mpt setup` writes outside this repo), so `npm run sync-shared` copies
  * shared/agent-protocol.ts — PROTOCOL_VERSION included — into
- * harnesses/pi/src/shared/agent-protocol.ts, and client.ts imports it from there.
+ * harnesses/pi/src/shared/agent-protocol.ts, and runtime/client.ts imports it by
+ * `../shared/agent-protocol.ts` — the root original at the root, and the copy in
+ * the extension's generated runtime/client.ts.
  * That leaves two things to enforce rather than trust (docs/DESIGN.md "One
  * Protocol, One Version"): the copy holds the same value, and client.ts uses the
  * copy instead of declaring its own. (tests/version.test.ts checks the whole
@@ -18,7 +20,7 @@ import { assertEquals, assertMatch } from "./_assert.ts";
 import { PROTOCOL_VERSION } from "../shared/protocol.ts";
 import { PROTOCOL_VERSION as EXT_PROTOCOL_VERSION } from "../harnesses/pi/src/shared/agent-protocol.ts";
 
-const EXT_CLIENT = new URL("../harnesses/pi/src/runtime/client.ts", import.meta.url);
+const EXT_CLIENT = new URL("../runtime/client.ts", import.meta.url);
 
 test("the extension's generated agent protocol carries shared/'s PROTOCOL_VERSION", () => {
   assertEquals(

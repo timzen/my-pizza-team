@@ -1,5 +1,5 @@
 /**
- * tests/runtime-purity.test.ts — harnesses/pi/src/runtime/ stays harness-agnostic.
+ * tests/runtime-purity.test.ts — runtime/ stays harness-agnostic.
  *
  * `runtime/` holds the modules that implement the daemon *protocol* rather than
  * anything about Pi: the HTTP client, the transcript mirror, bubble splitting,
@@ -17,24 +17,26 @@
  *      type-only import is erased; a value import is not. That is how adding one
  *      import to client.ts broke the behavioural suite during P1b, and why
  *      tests/../client-behavior.test.mjs can exercise real HTTP at all. The one
- *      exception is the generated, import-free `../shared/*.ts` (npm run
- *      sync-shared), imported by its `.ts` name, which Node resolves as written.
+ *      exception is the import-free `../shared/*.ts` (at the root, shared/ itself;
+ *      in the extension, the copy `npm run sync-shared` generates), imported by
+ *      its `.ts` name, which Node resolves as written.
  *
- * P1c-9. Note this is narrower than the plan first described: there is no
- * top-level `agent-runtime/` shared between harnesses, because no second harness
- * would import it — DESIGN.md "The Daemon Is the Supervisor" moves the supervisor into the daemon precisely so a
- * non-Pi teammate needs no in-process code.
+ * P1c-9. The modules live in the repo root's runtime/ — agent/supervisor.ts and
+ * cli/agent.ts import them for non-Pi teammates — and `npm run sync-shared`
+ * copies them verbatim into harnesses/pi/src/runtime/ for the self-contained
+ * extension (tests/version.test.ts checks the copy is in step), so checking the
+ * root sources covers both.
  */
 
 import * as fs from "node:fs";
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 
-const RUNTIME_DIR = new URL("../harnesses/pi/src/runtime/", import.meta.url);
+const RUNTIME_DIR = new URL("../runtime/", import.meta.url);
 
 /**
- * The value imports runtime/ may make: the extension's generated shared files
- * (scripts/sync-shared.ts), by their `.ts` name. They have no imports themselves,
+ * The value imports runtime/ may make: ../shared/*.ts by its `.ts` name — the
+ * root shared/ here, the generated copies (scripts/sync-shared.ts) in the extension. They have no imports themselves,
  * so loading them under plain Node needs nothing else (checked below).
  */
 const GENERATED_SHARED = /^\.\.\/shared\/[\w-]+\.ts$/;

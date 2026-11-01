@@ -57,6 +57,7 @@ my-pizza-team/
 │   └── routes/               # Route modules
 ├── ui/                       # React frontend
 ├── shared/                   # Types, protocol, utilities
+├── runtime/                  # Harness-agnostic daemon client (agent/, cli/, and — copied — the extension)
 ├── harnesses/
 │   └── pi/                   # The Pi extension (its own package.json; npm test)
 ├── scripts/                  # publish, macOS app packaging, sync-version
@@ -94,8 +95,9 @@ The extension under `harnesses/pi/` is its own npm package, with its own
 `tsconfig.json`, `package.json`, and suites (run from the root as above). The root
 `package.json` owns the version; the extension's version and the lockfile's are
 generated from it — never edit them by hand (`npm run sync-version`). Its shared
-constants and agent-protocol definitions are generated from `shared/types.ts` and
-`shared/agent-protocol.ts` (`npm run sync-shared`).
+constants, agent-protocol definitions and `src/runtime/` are generated from
+`shared/types.ts`, `shared/agent-protocol.ts` and the root `runtime/`
+(`npm run sync-shared`) — edit the root originals, never the copies.
 
 ## Reference
 

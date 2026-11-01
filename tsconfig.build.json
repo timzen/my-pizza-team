@@ -1,12 +1,12 @@
-// Compiles the npm package: daemon/, cli/, agent/, shared/ and main.ts → dist/.
+// Compiles the npm package: daemon/, cli/, agent/, runtime/, shared/ and main.ts → dist/.
 //
 // Node won't strip types from files under node_modules, so the published
 // package must be plain JS. `rewriteRelativeImportExtensions` (inherited) turns
 // the sources' `./x.ts` imports into `./x.js`. rootDir is the repo root so the
-// layout is mirrored (dist/main.js, dist/cli/main.js, …) — including the few
-// harnesses/pi/src/runtime/ modules the CLI and agent import, which tsc pulls in
-// and emits as dist/harnesses/pi/src/runtime/*.js. Tests and scripts are not
-// built. Run via `npm run build` (which builds the UI first).
+// layout is mirrored (dist/main.js, dist/cli/main.js, dist/runtime/client.js, …).
+// The Pi extension is not compiled: it ships as TypeScript under
+// harnesses/pi/src/ (its runtime/ is a generated copy of the root one). Tests and
+// scripts are not built. Run via `npm run build` (which builds the UI first).
 {
   "extends": "./tsconfig.json",
   "compilerOptions": {
@@ -24,6 +24,7 @@
     "agent/**/*.ts",
     "cli/**/*.ts",
     "daemon/**/*.ts",
+    "runtime/**/*.ts",
     "shared/**/*.ts"
   ]
 }

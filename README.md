@@ -755,6 +755,7 @@ my-pizza-team/
 ├── cli/               # The mpt command (start, setup, doctor, lead, upgrade, service)
 ├── ui/                # Web UI (React + Vite + shadcn/ui)
 ├── shared/            # Types, protocol contracts, constants
+├── runtime/           # Harness-agnostic daemon client (DaemonClient, transcript mirror, …); copied into the extension
 ├── harnesses/pi/      # The Pi extension (its own package.json; embedded in mpt)
 ├── agent/             # mpt agent: the ACP supervisor for experimental harnesses
 ├── desktop/           # Tray/menu-bar apps (macOS, Windows)
@@ -780,7 +781,7 @@ There is no build step in development: Node runs the `.ts` sources directly
 Gates — all must pass before a commit:
 
 ```bash
-npm run check            # type-check daemon/, cli/, shared/, scripts/, tests/ + generated files in step
+npm run check            # type-check daemon/, cli/, runtime/, shared/, scripts/, tests/ + generated files in step
 npm test                 # fast suite (seconds; node:test, Node >=24)
 npm run test:e2e         # real git, tmux, and shell — run before pushing
 npm run typecheck:ext    # the Pi extension
@@ -789,7 +790,7 @@ npm run test:ext         # the Pi extension's suites
 ```
 
 The root `package.json` owns the version; the extension's `package.json` and the lockfile
-are generated from it (`npm run sync-version`), and its shared constants and agent-protocol definitions from `shared/types.ts` and `shared/agent-protocol.ts` (`npm run sync-shared`); CI fails
+are generated from it (`npm run sync-version`), and its shared constants, agent-protocol definitions and `src/runtime/` from `shared/types.ts`, `shared/agent-protocol.ts` and the root `runtime/` (`npm run sync-shared`); CI fails
 if either is out of step.
 
 ## Building

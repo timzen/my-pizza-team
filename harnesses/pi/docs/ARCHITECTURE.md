@@ -518,7 +518,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 ### Adding a new tool
 1. Add to `src/tools.ts` inside `registerTools()`
 2. Use the `client` parameter for all daemon API calls
-3. Add the response type: an agent-protocol route's to the repo root's `shared/agent-protocol.ts` (then `npm run sync-shared`), any other route's fields to `src/runtime/client.ts`
+3. Add the response type: an agent-protocol route's to the repo root's `shared/agent-protocol.ts` (then `npm run sync-shared`), any other route's fields to the repo root's `runtime/client.ts` (then `npm run sync-shared`; `src/runtime/` is a generated copy)
 
 ### Adding a new slash command (leader)
 1. Add to `src/leader.ts` inside `setupLeader()`

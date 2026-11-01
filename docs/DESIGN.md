@@ -2017,16 +2017,21 @@ supervisor, which then drifted a protocol generation behind. The supervisor now
 lives in `mpt`, once, for every harness; an MCP or CLI tool surface only makes sense
 as the reporting half of a loop the daemon already runs.
 
-The extension's own seam mirrors this: `harnesses/pi/src/runtime/` implements the
+The extension's own seam mirrors this: the repo root's `runtime/` implements the
 daemon *protocol* with no external imports, no relative *value* imports, and no
-mention of Pi (enforced by `tests/runtime-purity.test.ts`); everything beside it is
-Pi-specific. The no-value-imports rule is what keeps those modules loadable — and
+mention of Pi (enforced by `tests/runtime-purity.test.ts`); everything else in the
+extension is Pi-specific. The no-value-imports rule is what keeps those modules loadable — and
 so testable — under plain Node, whose resolver doesn't remap `./x.js` to `./x.ts`
-the way Pi's loader does. Its one exception is the generated, import-free
-`../shared/*.ts` (the protocol definitions above), imported by its `.ts` name, which
-Node resolves as written. It is deliberately not a top-level shared package: the
-tiers leave no second in-process consumer, and hoisting it would break the
-self-containment the embedded extension needs.
+the way Pi's loader does. Its one exception is the import-free
+`../shared/agent-protocol.ts` (the protocol definitions above), imported by its `.ts`
+name, which Node resolves as written. It lives at the root, not inside the extension,
+because `mpt agent` (`agent/`, `cli/`) is a second consumer and core code shouldn't
+import from inside a harness. The extension still has to be self-contained for
+`mpt setup`, so `npm run sync-shared` copies each module verbatim into
+`harnesses/pi/src/runtime/` — the same generate-and-check-for-drift approach as its
+`shared/` copies ("One Protocol, One Version"). The one cross-directory import,
+`../shared/agent-protocol.ts`, resolves to the original at the root and to the
+generated copy in the extension, so the copy needs no rewriting.
 
 ## One Host, One Leader
 

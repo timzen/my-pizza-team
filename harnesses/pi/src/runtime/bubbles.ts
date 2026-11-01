@@ -1,3 +1,13 @@
+// GENERATED FILE — do not edit.
+//
+// Copied verbatim by scripts/sync-shared.ts from the repo root's runtime/bubbles.ts,
+// the single definition of this harness-agnostic module (agent/ and cli/ import
+// it from there). Edit it there and run `npm run sync-shared`; `npm run check`
+// and the test suites fail if the two drift.
+//
+// Copied rather than imported because the extension is a self-contained package:
+// `mpt setup` writes it to a managed directory outside this repo.
+
 // Bubble splitting: turn one assistant message into iMessage-style chat bubbles
 //
 // Chat v2 mirrors the assistant's *own prose* into the daemon chat instead of

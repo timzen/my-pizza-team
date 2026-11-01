@@ -1,10 +1,20 @@
+// GENERATED FILE — do not edit.
+//
+// Copied verbatim by scripts/sync-shared.ts from the repo root's runtime/session-stats.ts,
+// the single definition of this harness-agnostic module (agent/ and cli/ import
+// it from there). Edit it there and run `npm run sync-shared`; `npm run check`
+// and the test suites fail if the two drift.
+//
+// Copied rather than imported because the extension is a self-contained package:
+// `mpt setup` writes it to a managed directory outside this repo.
+
 // Session stats: the model this agent is running, how full its context window
 // is, and what its session has cost so far — what Pi's own footer shows — for
 // the web UI's Team tab. Reported after every turn via POST /api/agents/:id/session-stats
 // (my-pizza-team daemon/routes/agents.ts; shared/types.ts MemberSessionStats).
 //
 // This module only does the arithmetic, so it's unit-tested
-// (tests/session-stats.test.mjs). The cost walk mirrors Pi's footer
+// (harnesses/pi/tests/session-stats.test.mjs). The cost walk mirrors Pi's footer
 // (modes/interactive/components/footer.js): the *whole* session's entries, not
 // just the post-compaction context, so compacting never makes the cost go down.
 

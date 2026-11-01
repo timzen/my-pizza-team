@@ -21,7 +21,7 @@ number. Delete an item when it's done.
   (`author`, `trimBody`, `sendOnCmdEnter`). A board task's thread also keeps the
   stored order reversed rather than `newestFirst`. Unify when a behavior change
   is acceptable.
-- **Extension views of non-agent routes:** `harnesses/pi/src/runtime/client.ts` still
+- **Extension views of non-agent routes:** `runtime/client.ts` still
   declares the fields its tools read from stories, thoughts, personas, workflows and
   WorkDefs (`PersonaSummary`, `Thought`, `WorkDefSummary`, `CreateStoryResponse`, …)
   by hand. The agent protocol itself comes from `shared/agent-protocol.ts`

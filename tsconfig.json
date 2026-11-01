@@ -10,8 +10,8 @@
 // config. This config only checks.
 //
 // Modules are checked as ESM with bundler-style resolution rather than `nodenext`.
-// Every file here is ESM, but harnesses/pi/ (imported by agent/, cli/ and the
-// tests) deliberately has no package.json "type" field — Pi supplies its own loader,
+// Every file here is ESM, but harnesses/pi/ (imported by the tests)
+// deliberately has no package.json "type" field — Pi supplies its own loader,
 // and Node detects its ESM syntax at runtime. `nodenext` would decide from that
 // missing field that those files are CommonJS and reject their `export`s.
 {
@@ -46,6 +46,7 @@
     "agent/**/*.ts",
     "cli/**/*.ts",
     "daemon/**/*.ts",
+    "runtime/**/*.ts",
     "shared/**/*.ts",
     "scripts/**/*.ts",
     "tests/**/*.ts"

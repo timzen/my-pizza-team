@@ -5,7 +5,7 @@
  * extension, so this does it from outside: it runs in the teammate's tmux window,
  * starts the agent as a child speaking ACP (agent/acp.ts), and speaks the daemon's
  * agent protocol through the same harness-agnostic client the Pi extension uses
- * (harnesses/pi/src/runtime/). Living in the tmux window rather than in the daemon
+ * (runtime/, copied into the extension by `npm run sync-shared`). Living in the tmux window rather than in the daemon
  * keeps the property Pi teammates have: a daemon restart or upgrade doesn't kill
  * them — they re-register.
  *
@@ -24,8 +24,8 @@
  */
 
 import { AcpConnection, AcpError, permissionOutcome, type AcpIncoming, type PromptResult } from "./acp.ts";
-import { DaemonError, type DaemonClient } from "../harnesses/pi/src/runtime/client.ts";
-import { TranscriptMirror } from "../harnesses/pi/src/runtime/transcript.ts";
+import { DaemonError, type DaemonClient } from "../runtime/client.ts";
+import { TranscriptMirror } from "../runtime/transcript.ts";
 
 export interface SupervisorOptions {
   client: DaemonClient;

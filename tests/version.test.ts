@@ -38,13 +38,15 @@ test("the root lockfile matches package.json's version", async () => {
 
 test("the extension's generated shared files are in step", async () => {
   // harnesses/pi/src/shared/types.ts is generated from shared/types.ts, and
-  // harnesses/pi/src/shared/agent-protocol.ts is a copy of shared/agent-protocol.ts.
+  // harnesses/pi/src/shared/agent-protocol.ts is a copy of shared/agent-protocol.ts,
+  // and harnesses/pi/src/runtime/*.ts are copies of the root runtime/ modules.
   // Using the generator's own `generatedFiles()` rather than reimplementing it here
   // is the point: a test that rendered independently could disagree with the
   // generator, which is the drift this task exists to remove.
-  const { generatedFiles } = await import("../scripts/sync-shared.ts");
+  const { generatedFiles, staleFiles } = await import("../scripts/sync-shared.ts");
   const files = await generatedFiles();
-  assertEquals(files.length, 2);
+  assertEquals(files.length >= 7, true, `expected the shared files and the runtime/ modules, found ${files.length}`);
+  assertEquals(staleFiles().map((u) => u.pathname), [], "the extension's runtime/ has files with no root source — run `npm run sync-shared`");
   for (const { target, content } of files) {
     assertEquals(
       await fs.promises.readFile(target, "utf8"),
@@ -63,6 +65,18 @@ test("the agent-protocol generator refuses a source with imports", async () => {
     assertEquals(threw, true, `should refuse: ${bad}`);
   }
   assertEquals(renderAgentProtocol("export const A = 1;\n").endsWith("export const A = 1;\n"), true);
+});
+
+test("the runtime/ copier refuses imports that would not resolve in the extension", async () => {
+  // Only siblings and ../shared/agent-protocol.ts resolve the same in both places.
+  const { renderRuntimeModule } = await import("../scripts/sync-shared.ts");
+  for (const bad of ['import * as fs from "node:fs";', 'import type { X } from "../shared/types.ts";', "const z = await import('../daemon/x.ts');"]) {
+    let threw = false;
+    try { renderRuntimeModule("x.ts", `// ok\n${bad}\n`); } catch { threw = true; }
+    assertEquals(threw, true, `should refuse: ${bad}`);
+  }
+  const ok = 'import type { A } from "./client.js";\nimport { B } from "../shared/agent-protocol.ts";\n';
+  assertEquals(renderRuntimeModule("x.ts", ok).endsWith(ok), true);
 });
 
 test("the extension declares no runtime dependencies", async () => {

@@ -32,8 +32,8 @@ import { readSessionStats, sameStats, type SessionStats } from "./runtime/sessio
  * root's package.json by `npm run sync-version`, so it matches the daemon's when
  * both halves are current.
  *
- * Read here rather than in client.ts: that module moves to agent-runtime/ in
- * P1c-8 and must stay free of node: imports.
+ * Read here rather than in client.ts: that module is the harness-agnostic root
+ * runtime/ (copied here by `npm run sync-shared`) and must stay free of node: imports.
  */
 function readHarnessVersion(): string | undefined {
   try {

@@ -1,9 +1,19 @@
+// GENERATED FILE — do not edit.
+//
+// Copied verbatim by scripts/sync-shared.ts from the repo root's runtime/usage.ts,
+// the single definition of this harness-agnostic module (agent/ and cli/ import
+// it from there). Edit it there and run `npm run sync-shared`; `npm run check`
+// and the test suites fail if the two drift.
+//
+// Copied rather than imported because the extension is a self-contained package:
+// `mpt setup` writes it to a managed directory outside this repo.
+
 // Run usage: what one Pi agent run cost, for the daemon's token-usage ledger
 //
 // Every run (a teammate's work item, a pairing exchange, the leader answering
 // the chat) is reported once, on agent_end, via POST /api/agents/:id/usage
 // (my-pizza-team daemon/routes/usage.ts), labelled with its kind. This module
-// only does the arithmetic, so it's unit-tested (tests/usage.test.mjs).
+// only does the arithmetic, so it's unit-tested (harnesses/pi/tests/usage.test.mjs).
 //
 // **Cache tokens count.** Pi's `usage.input` is only the *uncached* input; with
 // prompt caching most input is `cacheRead`/`cacheWrite`. Reporting input+output

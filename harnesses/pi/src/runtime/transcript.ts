@@ -1,3 +1,13 @@
+// GENERATED FILE — do not edit.
+//
+// Copied verbatim by scripts/sync-shared.ts from the repo root's runtime/transcript.ts,
+// the single definition of this harness-agnostic module (agent/ and cli/ import
+// it from there). Edit it there and run `npm run sync-shared`; `npm run check`
+// and the test suites fail if the two drift.
+//
+// Copied rather than imported because the extension is a self-contained package:
+// `mpt setup` writes it to a managed directory outside this repo.
+
 // Transcript mirror: stream an agent's Pi session to the daemon — only while watched
 //
 // Backs the web UI's teammate view (/teammates/:id; my-pizza-team

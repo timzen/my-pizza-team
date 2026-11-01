@@ -1,9 +1,19 @@
+// GENERATED FILE — do not edit.
+//
+// Copied verbatim by scripts/sync-shared.ts from the repo root's runtime/pairing.ts,
+// the single definition of this harness-agnostic module (agent/ and cli/ import
+// it from there). Edit it there and run `npm run sync-shared`; `npm run check`
+// and the test suites fail if the two drift.
+//
+// Copied rather than imported because the extension is a self-contained package:
+// `mpt setup` writes it to a managed directory outside this repo.
+
 // Web pairing: talk to this teammate from the browser
 //
 // Phase C of my-pizza-team docs/DESIGN.md "Watching and Pairing with a Teammate". Watching (transcript.ts) is
 // read-only; *pairing* is how the web UI talks to a teammate. The daemon holds
 // the intent, and this class polls it (GET /api/agents/:id/pairing, which
-// drains) and hands each change to the handlers index.ts wires up:
+// drains) and hands each change to the handlers the Pi extension's index.ts wires up:
 //
 //   paired: true (was false)  → onPair       pause the work loop; nothing new is claimed,
 //                                             and a held item isn't COMPLETEd behind your back
