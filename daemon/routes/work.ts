@@ -8,6 +8,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type { WorkItem, WorkItemState, WorkItemRef } from "../../shared/types.ts";
 import type { WorkItemView, WorkItemsResponse, WorkItemMutationResponse, ForceFailWorkItemRequest, ReEnqueueRequest } from "../../shared/protocol.ts";
 
@@ -65,22 +66,22 @@ export function registerWorkRoutes(ctx: RouteContext): void {
 
   app.get("/api/work-items/:id", (c) => {
     const item = store.getWorkItem(c.req.param("id"));
-    if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
+    if (!item) return fail(c, 404, "WorkItem not found");
     return c.json({ item: view(item) });
   });
 
   // Cancel a READY item (human).
   app.post("/api/work-items/:id/cancel", (c) => {
     const ok = store.cancelWorkItem(c.req.param("id"));
-    if (!ok) return c.json({ success: false, error: "WorkItem is not READY" } satisfies WorkItemMutationResponse, 400);
+    if (!ok) return fail(c, 400, "WorkItem is not READY");
     return c.json({ success: true } satisfies WorkItemMutationResponse);
   });
 
   // Force a MORIBUND item to FAILED, optionally re-enqueuing a fresh attempt.
   app.post("/api/work-items/:id/force-fail", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as ForceFailWorkItemRequest;
+    const body = await readBody(c) as ForceFailWorkItemRequest;
     const res = store.forceFailWorkItem(c.req.param("id"), !!body.reEnqueue);
-    if (!res.ok) return c.json({ success: false, error: res.error } satisfies WorkItemMutationResponse, 400);
+    if (!res.ok) return fail(c, 400, res.error);
     return c.json({ success: true } satisfies WorkItemMutationResponse);
   });
 
@@ -88,16 +89,16 @@ export function registerWorkRoutes(ctx: RouteContext): void {
   app.post("/api/work-items/:id/read", (c) => {
     const read = c.req.query("read") !== "false";
     const ok = store.markWorkItemRead(c.req.param("id"), read);
-    if (!ok) return c.json({ success: false, error: "WorkItem not found" } satisfies WorkItemMutationResponse, 404);
+    if (!ok) return fail(c, 404, "WorkItem not found");
     return c.json({ success: true } satisfies WorkItemMutationResponse);
   });
 
   // Re-enqueue a ref that has no active WorkItem (recovery for stuck/failed work).
   app.post("/api/work-items/re-enqueue", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as ReEnqueueRequest;
-    if (!body.ref) return c.json({ success: false, error: "Field 'ref' is required" } satisfies WorkItemMutationResponse, 400);
+    const body = await readBody(c) as ReEnqueueRequest;
+    if (!body.ref) return fail(c, 400, "Field 'ref' is required");
     const item = store.reEnqueueRef(body.ref as WorkItemRef);
-    if (!item) return c.json({ success: false, error: "Ref has an active WorkItem, or is unknown" } satisfies WorkItemMutationResponse, 400);
+    if (!item) return fail(c, 400, "Ref has an active WorkItem, or is unknown");
     return c.json({ success: true } satisfies WorkItemMutationResponse);
   });
 }

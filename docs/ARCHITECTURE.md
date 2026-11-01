@@ -123,7 +123,7 @@ Activating re-runs admission; its waiting READY items become eligible again.
 - `start.ts` — `startDaemonInProcess`: **the one startup routine**, used by `mpt start` (foreground and the `--daemon` child, and so the service), and `main.ts`. Creates the app, validates bind safety, writes the PID file, registers signal handlers, serves, then probes tmux once (and, if reachable, every 2s re-checks the config's default harness with `harnessCapability` — so a Config-page fix needs no restart — and runs `realizePending`) and starts the readiness loop. Also `resolveTeamDir` (TEAM_DIR as the dir or its parent; else `./.my-pizza-team`), shared with the CLI.
 - `main.ts` — Entry point for `npm run dev`/`start`: a thin call into `start.ts`, so the dev daemon is the real daemon.
 - `app.ts` — `createApp(teamDir, { pluginRunner?, pluginInstallTimeoutMs? })` (async): loads `config.json` over `DEFAULT_CONFIG` (`loadTeamConfig`), constructs the Store, registers dev sources, installs configured-but-missing npm/git plugin packages (`plugins/install.ts` `installMissingPackages`) and loads plugin packages (`plugins/loader.ts`), loads from disk, starts timers, builds the app. Without a team dir, a health-only app.
-- `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, the feature gates (`registerFeatureGates`, ahead of every route), and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
+- `server.ts` — `buildApp()`: auth middleware (when a token is configured), static UI serving, the feature gates (`registerFeatureGates`, ahead of every route), `app.onError` (see "Request parsing and error replies" under API Routes), and registration of every route module with a shared `RouteContext` (store, config, teamDir, pause flag).
 - `features.ts` — Feature toggles (see "Feature toggles"), driven by the Work Source registry (each source's `toggle`): `registerFeatureGates` (one `requireFeature` middleware per toggleable source's `routes`, plus the WorkDef and proposal resolvers; 403 `feature '<name>' is disabled`), `featureNames` / `enabledFeatures` (the resolved toggles `/api/status` and `/api/config` report), `featureForWorkDef` / `featureForProposalKind` / `isWorkDefVisible`, and the turn-off guard — `activeFeatureItems` (the source's `toggle.activeItems`, default its non-archived WorkDefs; `featureUsage` for all of them) and `resolveFeaturesUpdate` (validates a `PUT /api/config` `features` value; 409 while items remain).
 - `auth.ts` — Optional API-token auth: Bearer, Basic (for the browser), and a query-param fallback. `validateBindSafety` refuses a non-localhost bind without a token. `MPT_API_TOKEN` overrides `config.apiToken`.
 - `static.ts` — Serves the UI with SPA fallback to `index.html`: `UI_DIST` if set, else the package's own `ui/dist/` (`shared/paths.ts`), else `<cwd>/ui/dist`.
@@ -182,6 +182,7 @@ Activating re-runs admission; its waiting READY items become eligible again.
 - `spawner.ts` — `probeTmuxCapability` (once at startup), `harnessCapability` (the config half, re-checked each pass; `probeSpawnCapability` is both) and `realizePending`: turns pending `spawn`/`dismiss` directives into tmux windows using the harness templates (built-ins overridden per harness by config); an unrealizable directive — including an experimental harness on a team that hasn't opted in — is marked `failed` with its reason. Other actions are left for the leader. A `dismiss` is realized over several 2s passes (`realizeDismiss`), staying `pending` between them: wait until its agent has exited (`dismissReady` — deregistered, told `dismissed` ≥3s ago, already offline, or past `params.deadline`, `DISMISS_WAIT_MS` = 25s after the dismiss), then send C-c, then — on a later pass at least `DISMISS_KILL_DELAY_MS` on, never the same one — kill the window. The leader's window (`LEADER_WINDOW`) is never killed (the directive fails instead), and a window already gone (or tmux no longer answering) is simply `done`. `dismissParams` builds a UI dismiss's params from the member's `tmuxSession`/`tmuxWindow` metadata, falling back to its name and `config.tmuxSession`.
 - `readiness.ts` — `runProbe` (timeout-bounded `sh -c`, which also survives a hung child on Linux) and `startReadinessLoop` (every 30s; nothing configured → never reports → ready).
 - `routes/types.ts` — `RouteContext`.
+- `routes/http.ts` — What every route shares for requests and replies: `readBody` (the JSON body; empty → `{}`, malformed → a thrown 400) and `fail` (the `{ success: false, error, ...extra }` reply). See "Request parsing and error replies" under API Routes.
 - `routes/shared.ts` — Health, status, pause/resume, config (GET/PUT; PUT also saves workflows and takes `features` through `resolveFeaturesUpdate`), the teammate pool, readiness, and workflows.
 - `routes/stories.ts` — Story CRUD (`pending` on create/PUT; `requestsStoryPending` also reads the deprecated `paused` field), `POST /:id/pending` and `/:id/activate`, archive.
 - `routes/tasks.ts` — Story-parent task operations: create-in-story, reorder, move, delete.
@@ -403,7 +404,7 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 `tests/_config.ts`'s `TEST_CONFIG` (autosave off). `tests/e2e/` holds the slow suites
 on the `_sandbox.ts` harness: CLI lifecycle, tmux lifecycle, git sync, readiness
 probe, entry points (every way of starting the daemon gets the same daemon), and `agent` (`mpt agent` end to end against `tests/fixtures/fake-acp-agent.ts`: the gate, completion, fresh sessions, permissions, usage, `mpt agent fail`, a crash). Guard tests worth knowing: `version.test.ts` (extension version in step),
-`protocol-version.test.ts`, `schema-migrate.test.ts` (the SQLite migrations: old shapes reach the fresh schema, the latest version is untouched), `runtime-purity.test.ts`, `build-embeds.test.ts`,
+`protocol-version.test.ts`, `schema-migrate.test.ts` (the SQLite migrations: old shapes reach the fresh schema, the latest version is untouched), `http.test.ts` (malformed JSON → 400 on every route, a throw → JSON 500), `runtime-purity.test.ts`, `build-embeds.test.ts`,
 `doctor-coherence.test.ts`. Assertions come from `tests/_assert.ts` (the `@std/assert`
 names the suites were written with, on `node:assert/strict`; `assertEquals` treats
 `node:sqlite`'s null-prototype rows like plain objects), and `tests/_globals.d.ts` gives
@@ -753,6 +754,25 @@ entries in the module map).
 
 When a token is configured, every path except `/health` requires it. A route of a
 switched-off kind answers 403 (see "Feature toggles").
+
+### Request parsing and error replies
+
+Every route reads its JSON body with `readBody` and answers errors with `fail`
+(`daemon/routes/http.ts`), so they all behave alike:
+
+- An empty (or whitespace-only) body reads as `{}`, and the route's own field
+  checks say what's missing.
+- Malformed JSON is a **400** `{ "success": false, "error": "Invalid JSON body" }`
+  on every route. `readBody` throws it as an `HTTPException`; `app.onError`
+  (`daemon/server.ts`) returns its response. `readBody` parses `c.req.text()`,
+  which Hono caches, so a feature gate that read the body first doesn't stop the
+  route reading it again.
+- An error reply is `{ "success": false, "error": "…", …extra }` with the route's
+  status; extra fields (`fieldErrors`, `usedBy`, `protocolVersion`, …) are
+  per route, as documented below.
+- Anything else a handler throws is logged (`[api] METHOD path failed:`) and
+  answered with a JSON **500** `{ "success": false, "error": "Internal server error" }`,
+  not Hono's plain-text default.
 
 ### System
 

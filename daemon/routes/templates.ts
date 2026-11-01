@@ -9,6 +9,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { contextFieldRefusal } from "./personas.ts";
 import type { Template } from "../../shared/types.ts";
 import type {
@@ -31,15 +32,15 @@ export function registerTemplateRoutes(ctx: RouteContext): void {
 
   app.get("/api/templates/:id", (c) => {
     const tpl = store.getTemplate(c.req.param("id"));
-    if (!tpl) return c.json({ success: false, error: "Template not found" } satisfies TemplateResponse, 404);
+    if (!tpl) return fail(c, 404, "Template not found");
     return c.json({ template: view(tpl) } satisfies TemplateResponse);
   });
 
   app.post("/api/templates", async (c) => {
-    const body = (await c.req.json()) as SaveTemplateRequest;
-    if (!body.title) return c.json({ success: false, error: "Field 'title' is required" } satisfies SaveTemplateResponse, 400);
+    const body = (await readBody(c)) as SaveTemplateRequest;
+    if (!body.title) return fail(c, 400, "Field 'title' is required");
     const refused = contextFieldRefusal(body);
-    if (refused) return c.json({ success: false, error: refused } satisfies SaveTemplateResponse, 400);
+    if (refused) return fail(c, 400, refused);
     const tpl = store.createTemplate({
       title: body.title, goal: body.goal || "", acceptanceCriteria: body.acceptanceCriteria || "",
       additionalContext: body.additionalContext, directory: body.directory,
@@ -49,21 +50,21 @@ export function registerTemplateRoutes(ctx: RouteContext): void {
 
   app.put("/api/templates/:id", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as UpdateTemplateRequest;
-    if (!store.getTemplate(id)) return c.json({ success: false, error: "Template not found" } satisfies SaveTemplateResponse, 404);
+    const body = (await readBody(c)) as UpdateTemplateRequest;
+    if (!store.getTemplate(id)) return fail(c, 404, "Template not found");
     const refused = contextFieldRefusal(body);
-    if (refused) return c.json({ success: false, error: refused } satisfies SaveTemplateResponse, 400);
+    if (refused) return fail(c, 400, refused);
     const tpl = store.updateTemplateDetails(id, {
       title: body.title, goal: body.goal, acceptanceCriteria: body.acceptanceCriteria,
       additionalContext: body.additionalContext, directory: body.directory,
     });
-    if (!tpl) return c.json({ success: false, error: "Update failed" } satisfies SaveTemplateResponse, 400);
+    if (!tpl) return fail(c, 400, "Update failed");
     return c.json({ success: true, template: view(tpl) } satisfies SaveTemplateResponse);
   });
 
   app.delete("/api/templates/:id", (c) => {
     const ok = store.deleteTemplate(c.req.param("id"));
-    if (!ok) return c.json({ success: false, error: "Template not found" }, 404);
+    if (!ok) return fail(c, 404, "Template not found");
     return c.json({ success: true });
   });
 }

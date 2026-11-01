@@ -26,14 +26,18 @@
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  *   - pairing: pair with / message / release a teammate from the web UI
  *   - usage: token-usage reports for any run + the Usage dashboard's rollups
+ * Every route reads its body with `readBody` and writes errors with `fail`
+ * (routes/http.ts); `app.onError` turns what a handler throws into JSON.
  */
 
 import { Hono } from "hono";
+import { HTTPException } from "hono/http-exception";
 import { Store } from "./store.ts";
 import { type TeamConfig } from "../shared/types.ts";
 import { createAuthMiddleware, resolveToken } from "./auth.ts";
 import { resolveDistDir, staticMiddleware } from "./static.ts";
 import type { RouteContext } from "./routes/types.ts";
+import { fail } from "./routes/http.ts";
 import { registerFeatureGates } from "./features.ts";
 import { registerSharedRoutes } from "./routes/shared.ts";
 import { registerDirectoryRoutes } from "./routes/directories.ts";
@@ -59,6 +63,15 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   const app = new Hono();
   let paused = false;
   const startedAt = Date.now();
+
+  // A thrown HTTPException (readBody's 400 for malformed JSON) carries its own
+  // reply; anything else is a bug, logged and answered as a JSON 500 instead of
+  // Hono's plain-text default (docs/ARCHITECTURE.md "Request parsing and error replies").
+  app.onError((err, c) => {
+    if (err instanceof HTTPException) return err.getResponse();
+    console.error(`[api] ${c.req.method} ${c.req.path} failed:`, err);
+    return fail(c, 500, "Internal server error");
+  });
 
   // Apply auth middleware if a token is configured
   const token = resolveToken(config.apiToken);

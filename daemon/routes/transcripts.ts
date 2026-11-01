@@ -14,6 +14,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 
 export function registerTranscriptRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
@@ -30,9 +31,9 @@ export function registerTranscriptRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/:id/transcript", async (c) => {
     const id = c.req.param("id");
-    const body = await c.req.json().catch(() => ({})) as { entries?: unknown };
+    const body = await readBody(c) as { entries?: unknown };
     if (!Array.isArray(body.entries)) {
-      return c.json({ success: false, error: "Field 'entries' must be an array" }, 400);
+      return fail(c, 400, "Field 'entries' must be an array");
     }
     const recorded = transcripts.record(id, body.entries);
     return c.json({ success: true, recorded, watched: transcripts.isWatched(id) });

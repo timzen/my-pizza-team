@@ -8,6 +8,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
 import {
   ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, isAssistantChatMode, isExperimentalHarness, resolveAssistantChatMode,
@@ -106,7 +107,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   });
 
   app.delete("/api/notices/:id", (c) => {
-    if (!store.dismissNotice(c.req.param("id"))) return c.json({ success: false, error: "Notice not found" }, 404);
+    if (!store.dismissNotice(c.req.param("id"))) return fail(c, 404, "Notice not found");
     return c.json({ success: true });
   });
 
@@ -129,38 +130,40 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   }));
 
   app.put("/api/config", async (c) => {
+    // Read before the try below, so malformed JSON gets readBody's 400 rather
+    // than the catch-all. The body is checked field by field, hence untyped.
+    const body = await readBody<any>(c);
     try {
-      const body = await c.req.json();
       if (!body.workflows || typeof body.workflows !== "object" || Object.keys(body.workflows).length === 0) {
-        return c.json({ success: false, error: "At least one workflow is required" }, 400);
+        return fail(c, 400, "At least one workflow is required");
       }
       if (!body.defaultWorkflow || !body.workflows[body.defaultWorkflow]) {
-        return c.json({ success: false, error: "defaultWorkflow must reference an existing workflow" }, 400);
+        return fail(c, 400, "defaultWorkflow must reference an existing workflow");
       }
       // Harness settings are validated before anything is mutated, so a refused
       // save leaves the live config (which the spawner reads) untouched.
       const harnessSettings = resolveHarnessSettings(config, body);
-      if ("error" in harnessSettings) return c.json({ success: false, error: harnessSettings.error }, 400);
+      if ("error" in harnessSettings) return fail(c, 400, harnessSettings.error);
       if (body.exclusiveDirectories != null && typeof body.exclusiveDirectories !== "boolean") {
-        return c.json({ success: false, error: "exclusiveDirectories must be a boolean" }, 400);
+        return fail(c, 400, "exclusiveDirectories must be a boolean");
       }
       // Assistant chat mode: `null` (or `assistant: null`) clears back to the default.
       const chatMode = body.assistant === null ? null : body.assistant?.chatMode;
       if (body.assistant != null && typeof body.assistant !== "object") {
-        return c.json({ success: false, error: "assistant must be an object" }, 400);
+        return fail(c, 400, "assistant must be an object");
       }
       if (chatMode != null && !isAssistantChatMode(chatMode)) {
-        return c.json({ success: false, error: `assistant.chatMode must be one of: ${ASSISTANT_CHAT_MODES.join(", ")}` }, 400);
+        return fail(c, 400, `assistant.chatMode must be one of: ${ASSISTANT_CHAT_MODES.join(", ")}`);
       }
       // Feature toggles: validated (and the turn-off guard checked) up front too.
       const featureSettings = resolveFeaturesUpdate(config, body, store);
-      if ("error" in featureSettings) return c.json({ success: false, error: featureSettings.error }, featureSettings.status);
+      if ("error" in featureSettings) return fail(c, featureSettings.status, featureSettings.error);
 
       // Workflows (structure and each agent state's `persona`) are validated up
       // front too, so a refused save writes nothing.
       for (const [name, wf] of Object.entries(body.workflows)) {
         const invalid = validateWorkflow(wf as WorkflowConfig) ?? statePersonaError(store, name, wf as WorkflowConfig);
-        if (invalid) return c.json({ success: false, error: `Workflow "${name}": ${invalid}` }, 400);
+        if (invalid) return fail(c, 400, `Workflow "${name}": ${invalid}`);
       }
 
       config.port = body.port || config.port;
@@ -173,7 +176,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       } else if (body.minTeammates !== undefined) {
         const min = Number(body.minTeammates);
         if (!Number.isInteger(min) || min < 0) {
-          return c.json({ success: false, error: "minTeammates must be a non-negative integer" }, 400);
+          return fail(c, 400, "minTeammates must be a non-negative integer");
         }
         const max = config.maxTeammates ?? 0;
         config.minTeammates = max > 0 ? Math.min(min, max) : min;
@@ -218,15 +221,15 @@ export function registerSharedRoutes(ctx: RouteContext): void {
         const minutes = (v: unknown, min: number) =>
           typeof v === "number" && Number.isInteger(v) && v >= min ? v : undefined;
         if (t.intervalMinutes !== undefined && minutes(t.intervalMinutes, 1) === undefined) {
-          return c.json({ success: false, error: "triage.intervalMinutes must be an integer >= 1" }, 400);
+          return fail(c, 400, "triage.intervalMinutes must be an integer >= 1");
         }
         if (t.quietMinutes !== undefined && minutes(t.quietMinutes, 0) === undefined) {
-          return c.json({ success: false, error: "triage.quietMinutes must be an integer >= 0" }, 400);
+          return fail(c, 400, "triage.quietMinutes must be an integer >= 0");
         }
         // The note-triage persona: absent keeps the current one, null/"" clears it
         // (back to builtin:triage), an id must resolve.
         if (t.persona !== undefined && t.persona !== null && t.persona !== "" && (typeof t.persona !== "string" || !store.getPersona(t.persona))) {
-          return c.json({ success: false, error: `triage.persona: persona "${String(t.persona)}" doesn't exist` }, 400);
+          return fail(c, 400, `triage.persona: persona "${String(t.persona)}" doesn't exist`);
         }
         const triagePersona = t.persona === undefined ? config.triage?.persona : (t.persona as string | null) || undefined;
         config.triage = {
@@ -262,7 +265,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
 
       return c.json({ success: true });
     } catch (e: unknown) {
-      return c.json({ success: false, error: (e as Error).message }, 400);
+      return fail(c, 400, (e as Error).message);
     }
   });
 
@@ -279,7 +282,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // `{ minTeammates: null }` clears the declaration → back to the default
   // (half of maxTeammates).
   app.put("/api/teammate-pool", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { minTeammates?: unknown };
+    const body = await readBody(c) as { minTeammates?: unknown };
     let stored: number | null;
     if (body.minTeammates === null) {
       stored = store.setMinTeammates(null);
@@ -288,7 +291,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       stored = body.minTeammates !== undefined && Number.isFinite(min) ? store.setMinTeammates(min) : null;
     }
     if (stored === null) {
-      return c.json({ success: false, error: "Field 'minTeammates' must be a non-negative integer" }, 400);
+      return fail(c, 400, "Field 'minTeammates' must be a non-negative integer");
     }
     return c.json({ success: true, ...store.getTeammatePool() });
   });
@@ -303,9 +306,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
   // "Scheduler readiness gating".
 
   app.post("/api/readiness", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { ready?: boolean; reason?: string };
+    const body = await readBody(c) as { ready?: boolean; reason?: string };
     if (typeof body.ready !== "boolean") {
-      return c.json({ success: false, error: "Field 'ready' (boolean) is required" }, 400);
+      return fail(c, 400, "Field 'ready' (boolean) is required");
     }
     store.setTeamReadiness(body.ready, body.reason);
     return c.json({ success: true });

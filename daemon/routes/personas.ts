@@ -23,6 +23,7 @@
 
 import type { Context } from "hono";
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type { Persona, PersonaKind } from "../../shared/types.ts";
 import type {
   DeletePersonaResponse, DuplicatePersonaRequest, PersonaResponse, PersonasResponse, PersonaUsageResponse,
@@ -65,10 +66,10 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
 
   // ─── Removed APIs (410 Gone) ───────────────────────────────────────
-  app.all("/api/context", (c) => c.json({ success: false, error: GONE.context }, 410));
-  app.all("/api/context/*", (c) => c.json({ success: false, error: GONE.context }, 410));
-  app.all("/api/workflows/:name/instructions/:state", (c) => c.json({ success: false, error: GONE.stateInstructions }, 410));
-  app.all("/api/triage/instructions", (c) => c.json({ success: false, error: GONE.triageInstructions }, 410));
+  app.all("/api/context", (c) => fail(c, 410, GONE.context));
+  app.all("/api/context/*", (c) => fail(c, 410, GONE.context));
+  app.all("/api/workflows/:name/instructions/:state", (c) => fail(c, 410, GONE.stateInstructions));
+  app.all("/api/triage/instructions", (c) => fail(c, 410, GONE.triageInstructions));
 
   // ─── Library ───────────────────────────────────────────────────────
 
@@ -78,10 +79,10 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
   });
 
   app.post("/api/personas", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as Partial<SavePersonaRequest>;
-    if (!body.title || typeof body.title !== "string") return c.json({ success: false, error: "Field 'title' is required" } satisfies SavePersonaResponse, 400);
-    if (typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required and must be a string" } satisfies SavePersonaResponse, 400);
-    if (body.id !== undefined && typeof body.id !== "string") return c.json({ success: false, error: "Field 'id' must be a string" } satisfies SavePersonaResponse, 400);
+    const body = await readBody(c) as Partial<SavePersonaRequest>;
+    if (!body.title || typeof body.title !== "string") return fail(c, 400, "Field 'title' is required");
+    if (typeof body.content !== "string") return fail(c, 400, "Field 'content' is required and must be a string");
+    if (body.id !== undefined && typeof body.id !== "string") return fail(c, 400, "Field 'id' must be a string");
     const lint = validatePersonaMarkdown(body.content);
     if (lint.errors.length > 0) return lintRefusal(c, lint);
     const res = store.createPersona({
@@ -89,42 +90,42 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
       description: typeof body.description === "string" ? body.description : "",
       tags: stringList(body.tags), kinds: normalizeKinds(body.kinds),
     });
-    if (!res.ok) return c.json({ success: false, error: res.error } satisfies SavePersonaResponse, res.status);
+    if (!res.ok) return fail(c, res.status, res.error);
     return c.json({ success: true, persona: res.persona, warnings: lint.warnings } satisfies SavePersonaResponse, 201);
   });
 
   // The suffixed routes come before the bare `:id{.+}` ones, which would otherwise swallow them.
   app.get("/api/personas/:id{.+}/usage", (c) => {
     const id = c.req.param("id");
-    if (!store.getPersona(id)) return c.json({ success: false, error: `Persona "${id}" not found` }, 404);
+    if (!store.getPersona(id)) return fail(c, 404, `Persona "${id}" not found`);
     return c.json({ usedBy: store.getPersonaUsage(id) } satisfies PersonaUsageResponse);
   });
 
   app.post("/api/personas/:id{.+}/duplicate", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as DuplicatePersonaRequest;
+    const body = await readBody(c) as DuplicatePersonaRequest;
     const res = store.duplicatePersona(c.req.param("id"), {
       id: typeof body.id === "string" ? body.id : undefined,
       title: typeof body.title === "string" && body.title ? body.title : undefined,
     });
-    if (!res.ok) return c.json({ success: false, error: res.error } satisfies SavePersonaResponse, res.status);
+    if (!res.ok) return fail(c, res.status, res.error);
     return c.json({ success: true, persona: res.persona, warnings: validatePersonaMarkdown(res.persona.content).warnings } satisfies SavePersonaResponse, 201);
   });
 
   app.get("/api/personas/:id{.+}", (c) => {
     const id = c.req.param("id");
     const persona = store.getPersona(id);
-    if (!persona) return c.json({ success: false, error: `Persona "${id}" not found` } satisfies PersonaResponse, 404);
+    if (!persona) return fail(c, 404, `Persona "${id}" not found`);
     return c.json({ persona, usedBy: store.getPersonaUsage(id) } satisfies PersonaResponse);
   });
 
   app.put("/api/personas/:id{.+}", async (c) => {
     const id = c.req.param("id");
     const existing = store.getPersona(id);
-    if (!existing) return c.json({ success: false, error: `Persona "${id}" not found` } satisfies SavePersonaResponse, 404);
-    if (existing.readOnly) return c.json({ success: false, error: READ_ONLY_ERROR(id) } satisfies SavePersonaResponse, 409);
-    const body = await c.req.json().catch(() => ({})) as UpdatePersonaRequest;
-    if (body.title !== undefined && (typeof body.title !== "string" || !body.title)) return c.json({ success: false, error: "Field 'title' must be a non-empty string" } satisfies SavePersonaResponse, 400);
-    if (body.content !== undefined && typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' must be a string" } satisfies SavePersonaResponse, 400);
+    if (!existing) return fail(c, 404, `Persona "${id}" not found`);
+    if (existing.readOnly) return fail(c, 409, READ_ONLY_ERROR(id));
+    const body = await readBody(c) as UpdatePersonaRequest;
+    if (body.title !== undefined && (typeof body.title !== "string" || !body.title)) return fail(c, 400, "Field 'title' must be a non-empty string");
+    if (body.content !== undefined && typeof body.content !== "string") return fail(c, 400, "Field 'content' must be a string");
     const lint = validatePersonaMarkdown(body.content ?? existing.content);
     if (lint.errors.length > 0) return lintRefusal(c, lint);
     const persona = store.updatePersona(id, {
@@ -134,19 +135,19 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
       kinds: body.kinds !== undefined ? normalizeKinds(body.kinds) : undefined,
       content: body.content,
     });
-    if (!persona) return c.json({ success: false, error: `Persona "${id}" not found` } satisfies SavePersonaResponse, 404);
+    if (!persona) return fail(c, 404, `Persona "${id}" not found`);
     return c.json({ success: true, persona, warnings: lint.warnings } satisfies SavePersonaResponse);
   });
 
   app.delete("/api/personas/:id{.+}", (c) => {
     const id = c.req.param("id");
     const existing = store.getPersona(id);
-    if (!existing) return c.json({ success: false, error: `Persona "${id}" not found` } satisfies DeletePersonaResponse, 404);
-    if (existing.readOnly) return c.json({ success: false, error: READ_ONLY_ERROR(id) } satisfies DeletePersonaResponse, 409);
+    if (!existing) return fail(c, 404, `Persona "${id}" not found`);
+    if (existing.readOnly) return fail(c, 409, READ_ONLY_ERROR(id));
     // No force flag: re-point the users first (docs/DESIGN.md "'Used by' and delete protection").
     const usedBy = store.getPersonaUsage(id);
     if (usedBy.length > 0) {
-      return c.json({ success: false, error: `Persona "${id}" is in use (${usedBy.length}) — re-point its users first.`, usedBy } satisfies DeletePersonaResponse, 409);
+      return fail(c, 409, `Persona "${id}" is in use (${usedBy.length}) — re-point its users first.`, { usedBy });
     }
     store.deletePersona(id);
     return c.json({ success: true } satisfies DeletePersonaResponse);
@@ -155,19 +156,19 @@ export function registerPersonaRoutes(ctx: RouteContext): void {
   // ─── Workflow state selection ──────────────────────────────────────
 
   app.put("/api/workflows/:name/states/:state", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as Partial<SetStatePersonaRequest>;
+    const body = await readBody(c) as Partial<SetStatePersonaRequest>;
     if (body.persona !== null && typeof body.persona !== "string") {
-      return c.json({ success: false, error: "Field 'persona' must be a persona id or null" } satisfies SetStatePersonaResponse, 400);
+      return fail(c, 400, "Field 'persona' must be a persona id or null");
     }
     const res = store.setStatePersona(c.req.param("name"), c.req.param("state"), body.persona || null);
-    if (!res.ok) return c.json({ success: false, error: res.error } satisfies SetStatePersonaResponse, res.status);
+    if (!res.ok) return fail(c, res.status, res.error);
     return c.json({ success: true, workflow: res.workflow } satisfies SetStatePersonaResponse);
   });
 }
 
 /** The 400 for a persona whose lint has errors (it would mangle the prompt). */
 function lintRefusal(c: Context, lint: { errors: string[]; warnings: string[] }) {
-  return c.json({ success: false, error: lint.errors.join(" "), errors: lint.errors, warnings: lint.warnings } satisfies SavePersonaResponse, 400);
+  return fail(c, 400, lint.errors.join(" "), { errors: lint.errors, warnings: lint.warnings });
 }
 
 function stringList(v: unknown): string[] {

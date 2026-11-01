@@ -7,6 +7,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { TODO_STATE } from "../../shared/types.ts";
 import { requestsPending } from "./work-defs.ts";
 import { contextFieldRefusal } from "./personas.ts";
@@ -23,25 +24,25 @@ export function registerTaskRoutes(ctx: RouteContext): void {
 
   app.post("/api/stories/:storyId/tasks", async (c) => {
     const storyId = c.req.param("storyId");
-    const body = (await c.req.json()) as CreateTaskRequest;
-    if (!body.title) return c.json({ success: false, error: "Field 'title' is required" } satisfies CreateTaskResponse, 400);
-    if (!body.description) return c.json({ success: false, error: "Field 'description' is required" } satisfies CreateTaskResponse, 400);
+    const body = (await readBody(c)) as CreateTaskRequest;
+    if (!body.title) return fail(c, 400, "Field 'title' is required");
+    if (!body.description) return fail(c, 400, "Field 'description' is required");
     const story = store.getStory(storyId);
-    if (!story) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies CreateTaskResponse, 404);
+    if (!story) return fail(c, 404, `Story "${storyId}" not found`);
 
     const refused = contextFieldRefusal(body);
-    if (refused) return c.json({ success: false, error: refused } satisfies CreateTaskResponse, 400);
+    if (refused) return fail(c, 400, refused);
 
     const pending = requestsPending(body);
     const task = store.addTask(storyId, { title: body.title, description: body.description, pending });
-    if (!task) return c.json({ success: false, error: "Failed to add task" } satisfies CreateTaskResponse, 400);
+    if (!task) return fail(c, 400, "Failed to add task");
 
     return c.json({ success: true, task: { id: task.id, seq: task.seq, title: task.title, description: task.description, status: task.status, pending } } satisfies CreateTaskResponse, 201);
   });
 
   app.delete("/api/tasks/:taskId", (c) => {
     const taskId = c.req.param("taskId");
-    if (!store.getTask(taskId)) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies DeleteTaskResponse, 404);
+    if (!store.getTask(taskId)) return fail(c, 404, `Task "${taskId}" not found`);
     store.deleteTask(taskId);
     return c.json({ success: true } satisfies DeleteTaskResponse);
   });
@@ -50,11 +51,11 @@ export function registerTaskRoutes(ctx: RouteContext): void {
   // permutation of the story's current task IDs. Persists the new sequence.
   app.post("/api/stories/:storyId/tasks/reorder", async (c) => {
     const storyId = c.req.param("storyId");
-    const body = (await c.req.json()) as ReorderTasksRequest;
-    if (!Array.isArray(body.order)) return c.json({ success: false, error: "Field 'order' (array of task IDs) is required" } satisfies ReorderTasksResponse, 400);
-    if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies ReorderTasksResponse, 404);
+    const body = (await readBody(c)) as ReorderTasksRequest;
+    if (!Array.isArray(body.order)) return fail(c, 400, "Field 'order' (array of task IDs) is required");
+    if (!store.getStory(storyId)) return fail(c, 404, `Story "${storyId}" not found`);
     const ok = store.reorderTasks(storyId, body.order);
-    if (!ok) return c.json({ success: false, error: "Invalid order: must be a permutation of the story's task IDs" } satisfies ReorderTasksResponse, 400);
+    if (!ok) return fail(c, 400, "Invalid order: must be a permutation of the story's task IDs");
     return c.json({ success: true } satisfies ReorderTasksResponse);
   });
 
@@ -62,15 +63,15 @@ export function registerTaskRoutes(ctx: RouteContext): void {
 
   app.post("/api/tasks/:taskId/move", async (c) => {
     const taskId = c.req.param("taskId");
-    const body = (await c.req.json()) as MoveTaskRequest;
-    if (!body.status) return c.json({ success: false, error: "Field 'status' is required" } satisfies MoveTaskResponse, 400);
+    const body = (await readBody(c)) as MoveTaskRequest;
+    if (!body.status) return fail(c, 400, "Field 'status' is required");
     const task = store.getTask(taskId);
-    if (!task) return c.json({ success: false, error: `Task "${taskId}" not found` } satisfies MoveTaskResponse, 404);
+    if (!task) return fail(c, 404, `Task "${taskId}" not found`);
     // Judgment moves are unrestricted: a human (or the leader agent) may put a
     // task anywhere in its workflow. Entering an agent state resets substatus
     // to `ready` and clears the lease (rework path; see docs/DESIGN.md "The Work Model").
     const moved = store.moveTask(taskId, body.status);
-    if (!moved.ok) return c.json({ success: false, error: moved.error } satisfies MoveTaskResponse, 400);
+    if (!moved.ok) return fail(c, 400, moved.error);
     return c.json({ success: true } satisfies MoveTaskResponse);
   });
 

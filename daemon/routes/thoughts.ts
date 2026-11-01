@@ -12,6 +12,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { type ThoughtStatus, THOUGHT_COLORS, PLATE_OPACITIES } from "../../shared/types.ts";
 import { proposalResponse, readAcceptOptions, readRejectFrom } from "./triage.ts";
 import { triageWorkDefId } from "../triage.ts";
@@ -43,7 +44,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
 
   app.get("/api/thoughts/:id", (c) => {
     const thought = store.getThought(c.req.param("id"));
-    if (!thought) return c.json({ success: false, error: "Thought not found" }, 404);
+    if (!thought) return fail(c, 404, "Thought not found");
     return c.json({ success: true, thought });
   });
 
@@ -53,19 +54,19 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // PAIR (both present → placed there; both absent → auto-placed; one → 400).
   // Unknown groupId → 400.
   app.post("/api/thoughts", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = await readBody(c) as {
       content?: string; color?: string; x?: number; y?: number; w?: number | null; h?: number | null;
       zIndex?: number; pinned?: boolean; createdBy?: string; groupId?: string;
     };
     const hasX = body.x !== undefined, hasY = body.y !== undefined;
     if (hasX !== hasY) {
-      return c.json({ success: false, error: "Fields 'x' and 'y' must be provided together (or both omitted for auto-placement)" }, 400);
+      return fail(c, 400, "Fields 'x' and 'y' must be provided together (or both omitted for auto-placement)");
     }
     if (hasX && (!validCoord(body.x) || !validCoord(body.y))) {
-      return c.json({ success: false, error: `Fields 'x' and 'y' must be finite numbers within ±${COORD_LIMIT}` }, 400);
+      return fail(c, 400, `Fields 'x' and 'y' must be finite numbers within ±${COORD_LIMIT}`);
     }
     if (body.groupId !== undefined && !store.getThoughtGroup(body.groupId)) {
-      return c.json({ success: false, error: "Field 'groupId': group not found" }, 400);
+      return fail(c, 400, "Field 'groupId': group not found");
     }
     const thought = store.createThought(body);
     return c.json({ success: true, thought }, 201);
@@ -75,18 +76,18 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // Registered before the parameterized routes so "positions" is never taken
   // as an :id. One drag gesture → one call; missing ids are skipped.
   app.post("/api/thoughts/positions", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = await readBody(c) as {
       moves?: Array<{ id: string; x: number; y: number; w?: number | null; h?: number | null; zIndex?: number }>;
     };
     if (!Array.isArray(body.moves)) {
-      return c.json({ success: false, updated: [], error: "Field 'moves' (array) is required" }, 400);
+      return fail(c, 400, "Field 'moves' (array) is required", { updated: [] });
     }
     for (const m of body.moves) {
       if (!m || typeof m.id !== "string" || !validCoord(m.x) || !validCoord(m.y)) {
-        return c.json({ success: false, updated: [], error: "Each move needs {id, x, y}" }, 400);
+        return fail(c, 400, "Each move needs {id, x, y}", { updated: [] });
       }
       if ((m.w != null && typeof m.w !== "number") || (m.h != null && typeof m.h !== "number")) {
-        return c.json({ success: false, updated: [], error: "Move 'w'/'h' must be a number or null" }, 400);
+        return fail(c, 400, "Move 'w'/'h' must be a number or null", { updated: [] });
       }
     }
     return c.json({ success: true, updated: store.updateThoughtPositions(body.moves) });
@@ -96,19 +97,19 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
 
   app.patch("/api/thoughts/:id", async (c) => {
     const id = c.req.param("id");
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = await readBody(c) as {
       content?: string; color?: string; status?: ThoughtStatus; pinned?: boolean;
       groupId?: string | null; x?: number; y?: number; w?: number | null; h?: number | null; zIndex?: number;
     };
-    if (!store.getThought(id)) return c.json({ success: false, error: "Thought not found" }, 404);
+    if (!store.getThought(id)) return fail(c, 404, "Thought not found");
     if (body.status !== undefined && body.status !== "active" && body.status !== "archived") {
-      return c.json({ success: false, error: "Field 'status' must be active|archived" }, 400);
+      return fail(c, 400, "Field 'status' must be active|archived");
     }
     if ((body.x === undefined) !== (body.y === undefined)) {
-      return c.json({ success: false, error: "Fields 'x' and 'y' must be provided together" }, 400);
+      return fail(c, 400, "Fields 'x' and 'y' must be provided together");
     }
     if (body.groupId !== undefined && body.groupId !== null && !store.getThoughtGroup(body.groupId)) {
-      return c.json({ success: false, error: "Group not found" }, 400);
+      return fail(c, 400, "Group not found");
     }
     const updated = store.updateThought(id, body);
     return c.json({ success: true, thought: updated });
@@ -118,13 +119,13 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
 
   app.post("/api/thoughts/:id/archive", (c) => {
     const updated = store.archiveThought(c.req.param("id"));
-    if (!updated) return c.json({ success: false, error: "Thought not found" }, 404);
+    if (!updated) return fail(c, 404, "Thought not found");
     return c.json({ success: true, thought: updated });
   });
 
   app.post("/api/thoughts/:id/restore", (c) => {
     const updated = store.restoreThought(c.req.param("id"));
-    if (!updated) return c.json({ success: false, error: "Thought not found" }, 404);
+    if (!updated) return fail(c, 404, "Thought not found");
     return c.json({ success: true, thought: updated });
   });
 
@@ -132,7 +133,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
 
   app.delete("/api/thoughts/:id", (c) => {
     if (!store.deleteThought(c.req.param("id"))) {
-      return c.json({ success: false, error: "Thought not found" }, 404);
+      return fail(c, 404, "Thought not found");
     }
     return c.json({ success: true });
   });
@@ -145,7 +146,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   app.get("/api/thoughts/:id/triage", (c) => {
     const id = c.req.param("id");
     const note = store.getThought(id);
-    if (!note) return c.json({ success: false, error: "Thought not found" }, 404);
+    if (!note) return fail(c, 404, "Thought not found");
     const thread = store.getTriageThread(triageWorkDefId(id));
     return c.json({
       note,
@@ -191,7 +192,7 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // quiet period and the unchanged rule (the only way to retry a failed run).
   app.post("/api/thoughts/:id/triage", (c) => {
     const res = store.triageNow(c.req.param("id"));
-    if (!res.ok) return c.json({ success: false, error: res.error }, res.error.includes("not found") ? 404 : 409);
+    if (!res.ok) return fail(c, res.error.includes("not found") ? 404 : 409, res.error);
     return c.json({ success: true, workItem: { id: res.workItem.id, title: res.workItem.title } });
   });
 
@@ -200,14 +201,14 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   // POST /api/thought-groups — create a group. memberIds optional (omitted =
   // empty group as a drop target); x/y/w/h optional (client places the plate).
   app.post("/api/thought-groups", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { title?: string; memberIds?: string[]; x?: number; y?: number; w?: number; h?: number };
+    const body = await readBody(c) as { title?: string; memberIds?: string[]; x?: number; y?: number; w?: number; h?: number };
     if (body.memberIds !== undefined &&
       (!Array.isArray(body.memberIds) || body.memberIds.some((m) => typeof m !== "string"))) {
-      return c.json({ success: false, error: "Field 'memberIds' must be a string array when present" }, 400);
+      return fail(c, 400, "Field 'memberIds' must be a string array when present");
     }
     for (const k of ["x", "y", "w", "h"] as const) {
       if (body[k] !== undefined && (typeof body[k] !== "number" || !Number.isFinite(body[k]))) {
-        return c.json({ success: false, error: `Field '${k}' must be a finite number` }, 400);
+        return fail(c, 400, `Field '${k}' must be a finite number`);
       }
     }
     const group = store.createThoughtGroup(body);
@@ -215,30 +216,30 @@ export function registerThoughtRoutes(ctx: RouteContext): void {
   });
 
   app.patch("/api/thought-groups/:id", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { title?: string; x?: number; y?: number; w?: number; h?: number; groupColor?: string | null; plateOpacity?: string };
+    const body = await readBody(c) as { title?: string; x?: number; y?: number; w?: number; h?: number; groupColor?: string | null; plateOpacity?: string };
     if (body.title !== undefined && typeof body.title !== "string") {
-      return c.json({ success: false, error: "Field 'title' must be a string" }, 400);
+      return fail(c, 400, "Field 'title' must be a string");
     }
     for (const k of ["x", "y", "w", "h"] as const) {
       if (body[k] !== undefined && (typeof body[k] !== "number" || !Number.isFinite(body[k]))) {
-        return c.json({ success: false, error: `Field '${k}' must be a finite number` }, 400);
+        return fail(c, 400, `Field '${k}' must be a finite number`);
       }
     }
     if (body.groupColor !== undefined && body.groupColor !== null && !(THOUGHT_COLORS as readonly string[]).includes(body.groupColor)) {
-      return c.json({ success: false, error: "Field 'groupColor' must be a palette color or null" }, 400);
+      return fail(c, 400, "Field 'groupColor' must be a palette color or null");
     }
     if (body.plateOpacity !== undefined && !(PLATE_OPACITIES as readonly string[]).includes(body.plateOpacity)) {
-      return c.json({ success: false, error: "Field 'plateOpacity' must be subtle|medium|solid" }, 400);
+      return fail(c, 400, "Field 'plateOpacity' must be subtle|medium|solid");
     }
     const group = store.updateThoughtGroup(c.req.param("id"), body as { plateOpacity?: "subtle" | "medium" | "solid" });
-    if (!group) return c.json({ success: false, error: "Group not found" }, 404);
+    if (!group) return fail(c, 404, "Group not found");
     return c.json({ success: true, group });
   });
 
   // DELETE /api/thought-groups/:id — ungroup: clears members' groupId, notes stay.
   app.delete("/api/thought-groups/:id", (c) => {
     if (!store.deleteThoughtGroup(c.req.param("id"))) {
-      return c.json({ success: false, error: "Group not found" }, 404);
+      return fail(c, 404, "Group not found");
     }
     return c.json({ success: true });
   });

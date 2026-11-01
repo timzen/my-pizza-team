@@ -9,6 +9,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { DONE_STATE } from "../../shared/types.ts";
 import { requestsPending } from "./work-defs.ts";
 import { contextFieldRefusal } from "./personas.ts";
@@ -62,17 +63,17 @@ export function registerStoryRoutes(ctx: RouteContext): void {
   });
 
   app.post("/api/stories", async (c) => {
-    const body = (await c.req.json()) as CreateStoryRequest;
-    if (!body.id || typeof body.id !== "string") return c.json({ success: false, error: "Field 'id' is required" } satisfies CreateStoryResponse, 400);
-    if (!isSafeId(body.id)) return c.json({ success: false, error: "Invalid story ID" } satisfies CreateStoryResponse, 400);
-    if (!body.title || typeof body.title !== "string") return c.json({ success: false, error: "Field 'title' is required" } satisfies CreateStoryResponse, 400);
-    if (!body.description || typeof body.description !== "string") return c.json({ success: false, error: "Field 'description' is required" } satisfies CreateStoryResponse, 400);
-    if (!body.workflow || typeof body.workflow !== "string") return c.json({ success: false, error: "Field 'workflow' is required" } satisfies CreateStoryResponse, 400);
-    if (!store.getWorkflows()[body.workflow]) return c.json({ success: false, error: `Workflow '${body.workflow}' not found` } satisfies CreateStoryResponse, 400);
-    if (store.hasStory(body.id)) return c.json({ success: false, error: `Story '${body.id}' already exists` } satisfies CreateStoryResponse, 409);
-    if (store.isStoryIdTaken(body.id)) return c.json({ success: false, error: `Story '${body.id}' is archived; pick another id` } satisfies CreateStoryResponse, 409);
+    const body = (await readBody(c)) as CreateStoryRequest;
+    if (!body.id || typeof body.id !== "string") return fail(c, 400, "Field 'id' is required");
+    if (!isSafeId(body.id)) return fail(c, 400, "Invalid story ID");
+    if (!body.title || typeof body.title !== "string") return fail(c, 400, "Field 'title' is required");
+    if (!body.description || typeof body.description !== "string") return fail(c, 400, "Field 'description' is required");
+    if (!body.workflow || typeof body.workflow !== "string") return fail(c, 400, "Field 'workflow' is required");
+    if (!store.getWorkflows()[body.workflow]) return fail(c, 400, `Workflow '${body.workflow}' not found`);
+    if (store.hasStory(body.id)) return fail(c, 409, `Story '${body.id}' already exists`);
+    if (store.isStoryIdTaken(body.id)) return fail(c, 409, `Story '${body.id}' is archived; pick another id`);
     const refused = contextFieldRefusal(body) ?? (Array.isArray(body.tasks) ? body.tasks.map((t) => contextFieldRefusal(t)).find(Boolean) : null);
-    if (refused) return c.json({ success: false, error: refused } satisfies CreateStoryResponse, 400);
+    if (refused) return fail(c, 400, refused);
 
     const { story, tasks } = store.createStory(body.id, body.title, body.description, body.status || "open", body.dependsOn || [], Array.isArray(body.tasks) ? body.tasks.map((t) => ({ title: t.title, description: t.description, pending: requestsPending(t) })) : undefined, body.workflow, requestsStoryPending(body), body.directory);
     return c.json({ success: true, story: { id: story.id, title: story.title, description: story.description, status: story.status, dependsOn: story.dependsOn, ready: store.isStoryReady(story.id), directory: story.directory, pending: story.pending, workflow: story.workflow, tasks: tasks.map(t => ({ id: t.id, seq: t.seq, title: t.title, status: t.status, pending: store.isPending(t.id), assignee: null })) } } satisfies CreateStoryResponse, 201);
@@ -80,28 +81,28 @@ export function registerStoryRoutes(ctx: RouteContext): void {
 
   app.put("/api/stories/:id", async (c) => {
     const storyId = c.req.param("id");
-    const body = (await c.req.json()) as UpdateStoryRequest;
-    if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies UpdateStoryResponse, 404);
+    const body = (await readBody(c)) as UpdateStoryRequest;
+    if (!store.getStory(storyId)) return fail(c, 404, `Story "${storyId}" not found`);
     const refused = contextFieldRefusal(body);
-    if (refused) return c.json({ success: false, error: refused } satisfies UpdateStoryResponse, 400);
+    if (refused) return fail(c, 400, refused);
     store.updateStoryDetails(storyId, { title: body.title, description: body.description, status: body.status, dependsOn: body.dependsOn, pending: requestsStoryPending(body), workflow: body.workflow, directory: body.directory });
     return c.json({ success: true } satisfies UpdateStoryResponse);
   });
 
   app.delete("/api/stories/:id", (c) => {
     const storyId = c.req.param("id");
-    if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies DeleteStoryResponse, 404);
+    if (!store.getStory(storyId)) return fail(c, 404, `Story "${storyId}" not found`);
     try { store.deleteStory(storyId); return c.json({ success: true } satisfies DeleteStoryResponse); }
-    catch (e) { return c.json({ success: false, error: (e as Error).message } satisfies DeleteStoryResponse, 400); }
+    catch (e) { return fail(c, 400, (e as Error).message); }
   });
 
   // ─── Archive ───────────────────────────────────────────────────────
 
   app.post("/api/stories/:id/archive", async (c) => {
     const storyId = c.req.param("id");
-    if (!store.getStory(storyId)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies ArchiveStoryResponse, 404);
-    const body = await c.req.json().catch(() => ({})) as { force?: boolean };
-    if (!body.force && !store.isStoryArchivable(storyId)) return c.json({ success: false, error: "Not all tasks are done. Use force:true to archive anyway." } satisfies ArchiveStoryResponse, 400);
+    if (!store.getStory(storyId)) return fail(c, 404, `Story "${storyId}" not found`);
+    const body = await readBody(c) as { force?: boolean };
+    if (!body.force && !store.isStoryArchivable(storyId)) return fail(c, 400, "Not all tasks are done. Use force:true to archive anyway.");
     try {
       if (body.force && !store.isStoryArchivable(storyId)) {
         const tasks = store.getTasksForStory(storyId);
@@ -112,7 +113,7 @@ export function registerStoryRoutes(ctx: RouteContext): void {
       store.archiveStory(storyId);
       const archived = store.getArchivedStories().find(s => s.id === storyId);
       return c.json({ success: true, synopsis: archived?.synopsis || "" } satisfies ArchiveStoryResponse);
-    } catch (e) { return c.json({ success: false, error: (e as Error).message } satisfies ArchiveStoryResponse, 400); }
+    } catch (e) { return fail(c, 400, (e as Error).message); }
   });
 
   app.get("/api/archived", (c) => {
@@ -127,13 +128,13 @@ export function registerStoryRoutes(ctx: RouteContext): void {
 
   app.post("/api/stories/:id/pending", (c) => {
     const storyId = c.req.param("id");
-    if (!store.setStoryPending(storyId, true)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies SetStoryPendingResponse, 404);
+    if (!store.setStoryPending(storyId, true)) return fail(c, 404, `Story "${storyId}" not found`);
     return c.json({ success: true, pending: true } satisfies SetStoryPendingResponse);
   });
 
   app.post("/api/stories/:id/activate", (c) => {
     const storyId = c.req.param("id");
-    if (!store.setStoryPending(storyId, false)) return c.json({ success: false, error: `Story "${storyId}" not found` } satisfies SetStoryPendingResponse, 404);
+    if (!store.setStoryPending(storyId, false)) return fail(c, 404, `Story "${storyId}" not found`);
     return c.json({ success: true, pending: false } satisfies SetStoryPendingResponse);
   });
 }

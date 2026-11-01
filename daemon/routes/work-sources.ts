@@ -24,6 +24,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { fail } from "./http.ts";
 import type { WorkDef } from "../../shared/types.ts";
 import type { DisconnectSourceResponse, ExternalSourceView, MirroredDefRow, MirroredDefsResponse, MirrorView, WorkSourcesResponse } from "../../shared/protocol.ts";
 import type { Store } from "../store.ts";
@@ -70,7 +71,7 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
   app.get("/api/work-sources/:id/defs", (c) => {
     const id = c.req.param("id");
     const source = externalSourceViews(store).find((s) => s.id === id);
-    if (!source) return c.json({ success: false, error: `No external source "${id}"` }, 404);
+    if (!source) return fail(c, 404, `No external source "${id}"`);
     const status = c.req.query("status");
     const stats = store.getExecutionStats();
     const defs: MirroredDefRow[] = store.getWorkDefs(status === "all" ? undefined : status === "archived" ? "archived" : "active")
@@ -92,7 +93,7 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
 
   app.post("/api/work-sources/:id/sync", async (c) => {
     const id = c.req.param("id");
-    if (!externalSourceViews(store).some((s) => s.id === id)) return c.json({ success: false, error: `No external source "${id}"` }, 404);
+    if (!externalSourceViews(store).some((s) => s.id === id)) return fail(c, 404, `No external source "${id}"`);
     const outcome = await store.syncWorkSource(id, { force: true });
     return c.json({ success: outcome.ok, ...outcome }, outcome.ok ? 200 : outcome.skipped ? 409 : 502);
   });
@@ -102,7 +103,7 @@ export function registerWorkSourceRoutes(ctx: RouteContext): void {
   // in-flight ones finish. Saved to config.json like a Config-page save.
   app.post("/api/work-sources/:id/disconnect", (c) => {
     const result = disconnectSource(config, store, c.req.param("id"));
-    if ("error" in result) return c.json({ success: false, error: result.error } satisfies DisconnectSourceResponse, result.status);
+    if ("error" in result) return fail(c, result.status, result.error);
     store.saveConfig();
     return c.json({ success: true, ...result } satisfies DisconnectSourceResponse);
   });

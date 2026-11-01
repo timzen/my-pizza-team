@@ -22,12 +22,13 @@
 
 import type { Context } from "hono";
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides } from "../store.ts";
 import { mirrorView } from "./work-sources.ts";
 
 /** Read an accept request's body: `workDefId` (the "Edit" path's already-created work), `overrides`, `from`. */
 export async function readAcceptOptions(c: Context): Promise<AcceptProposalOptions> {
-  const body = await c.req.json().catch(() => ({})) as {
+  const body = await readBody(c) as {
     workDefId?: unknown; overrides?: Record<string, unknown>; from?: unknown;
   };
   return {
@@ -39,13 +40,13 @@ export async function readAcceptOptions(c: Context): Promise<AcceptProposalOptio
 
 /** Read a reject request's `from`, if any. */
 export async function readRejectFrom(c: Context): Promise<string | undefined> {
-  const body = await c.req.json().catch(() => ({})) as { from?: unknown };
+  const body = await readBody(c) as { from?: unknown };
   return typeof body.from === "string" ? body.from : undefined;
 }
 
 /** An accept/reject result as a response: 404 for a missing proposal, 409 for one already decided. */
 export function proposalResponse(c: Context, res: ProposalResult) {
-  if (!res.ok) return c.json({ success: false, error: res.error }, res.code === "not-found" ? 404 : 409);
+  if (!res.ok) return fail(c, res.code === "not-found" ? 404 : 409, res.error);
   return c.json({ success: true, decision: res.decision });
 }
 
@@ -58,9 +59,9 @@ export function registerTriageRoutes(ctx: RouteContext): void {
   app.get("/api/work-defs/:id/triage", (c) => {
     const id = c.req.param("id");
     const def = store.getWorkDef(id);
-    if (!def) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    if (!def) return fail(c, 404, "WorkDef not found");
     const subject = store.triageSubjectOf(id);
-    if (!subject) return c.json({ success: false, error: `WorkDef "${id}" isn't triaged (not a note's triage, nor an external item in triage mode)` }, 409);
+    if (!subject) return fail(c, 409, `WorkDef "${id}" isn't triaged (not a note's triage, nor an external item in triage mode)`);
     const thread = store.getTriageThread(id);
     return c.json({
       workDefId: id,

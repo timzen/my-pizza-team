@@ -45,6 +45,7 @@
 
 import * as fs from "node:fs";
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { workDefType, type WorkDef } from "../../shared/types.ts";
 import type { WorkDefsResponse, WorkDefResponse, SaveWorkDefRequest, UpdateWorkDefRequest, SaveWorkDefResponse, ActivateWorkDefRequest, ActivateWorkDefResponse, MirrorPersonaRequest } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
@@ -138,24 +139,24 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.get("/api/work-defs/:id", (c) => {
     const def = store.getWorkDef(c.req.param("id"));
-    if (!def) return c.json({ success: false, error: "WorkDef not found" } satisfies WorkDefResponse, 404);
+    if (!def) return fail(c, 404, "WorkDef not found");
     return c.json({ workDef: view(def, store) } satisfies WorkDefResponse);
   });
 
   app.post("/api/work-defs", async (c) => {
-    const body = (await c.req.json()) as SaveWorkDefRequest;
-    if (!body.title) return c.json({ success: false, error: "Field 'title' is required" } satisfies SaveWorkDefResponse, 400);
-    if (!body.goal) return c.json({ success: false, error: "Field 'goal' is required" } satisfies SaveWorkDefResponse, 400);
+    const body = (await readBody(c)) as SaveWorkDefRequest;
+    if (!body.title) return fail(c, 400, "Field 'title' is required");
+    if (!body.goal) return fail(c, 400, "Field 'goal' is required");
     // External work arrives by sync only (pull only): MPT never creates it.
     if ((body.type as string) === "External") {
-      return c.json({ success: false, error: "External work is mirrored from its source by sync (pull only); MPT never creates it." } satisfies SaveWorkDefResponse, 409);
+      return fail(c, 409, "External work is mirrored from its source by sync (pull only); MPT never creates it.");
     }
     const refused = contextFieldRefusal(body) ?? personaRefusal(store, body.persona);
-    if (refused) return c.json({ success: false, error: refused } satisfies SaveWorkDefResponse, 400);
+    if (refused) return fail(c, 400, refused);
     const scheduled = body.type === "Scheduled";
     let parent;
     if (scheduled) {
-      if (!body.cron || !isValidCron(body.cron)) return c.json({ success: false, error: "Scheduled work needs a valid 5-field 'cron'" } satisfies SaveWorkDefResponse, 400);
+      if (!body.cron || !isValidCron(body.cron)) return fail(c, 400, "Scheduled work needs a valid 5-field 'cron'");
       // Scheduled work: create a cron Schedule parent, then point the WorkDef at it.
       const sched = store.createSchedule({ title: body.title, cron: body.cron });
       parent = { kind: "schedule" as const, id: sched.id };
@@ -171,21 +172,21 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.put("/api/work-defs/:id", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as UpdateWorkDefRequest;
+    const body = (await readBody(c)) as UpdateWorkDefRequest;
     const existing = store.getWorkDef(id);
-    if (!existing) return c.json({ success: false, error: "WorkDef not found" } satisfies SaveWorkDefResponse, 404);
+    if (!existing) return fail(c, 404, "WorkDef not found");
     const owned = triageOwned(store, id);
-    if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) } satisfies SaveWorkDefResponse, 409);
+    if (owned) return fail(c, 409, TRIAGE_OWNED_ERROR(owned.id));
     const mirrored = mirroredRefusal(store, existing);
-    if (mirrored) return c.json({ success: false, error: mirrored } satisfies SaveWorkDefResponse, 409);
+    if (mirrored) return fail(c, 409, mirrored);
     const refused = contextFieldRefusal(body) ?? personaRefusal(store, body.persona, existing);
-    if (refused) return c.json({ success: false, error: refused } satisfies SaveWorkDefResponse, 400);
+    if (refused) return fail(c, 400, refused);
     // Active ⇒ locked: only a pending WorkDef's definition may change.
     const touchesDefinition = DEFINITION_FIELDS.some((f) => body[f] !== undefined);
     if (touchesDefinition && !existing.pending) {
-      return c.json({ success: false, error: ACTIVE_LOCKED_ERROR } satisfies SaveWorkDefResponse, 409);
+      return fail(c, 409, ACTIVE_LOCKED_ERROR);
     }
-    if (body.cron !== undefined && body.cron !== null && !isValidCron(body.cron)) return c.json({ success: false, error: "Invalid 'cron' expression" } satisfies SaveWorkDefResponse, 400);
+    if (body.cron !== undefined && body.cron !== null && !isValidCron(body.cron)) return fail(c, 400, "Invalid 'cron' expression");
     // A cron edit updates the WorkDef's parent Schedule, not the WorkDef itself.
     if (body.cron && existing.parent?.kind === "schedule") {
       store.updateScheduleDetails(existing.parent.id, { cron: body.cron });
@@ -195,18 +196,18 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
       additionalContext: body.additionalContext, directory: body.directory,
       persona: body.persona === "" ? null : body.persona,
     });
-    if (!def) return c.json({ success: false, error: "Update failed" } satisfies SaveWorkDefResponse, 400);
+    if (!def) return fail(c, 400, "Update failed");
     return c.json({ success: true, workDef: view(def, store) } satisfies SaveWorkDefResponse);
   });
 
   app.delete("/api/work-defs/:id", (c) => {
     const owned = triageOwned(store, c.req.param("id"));
-    if (owned) return c.json({ success: false, error: TRIAGE_OWNED_ERROR(owned.id) }, 409);
+    if (owned) return fail(c, 409, TRIAGE_OWNED_ERROR(owned.id));
     // Archived, never deleted: the mirror (and its thread) is how MPT remembers the item.
     const mirrored = mirroredRefusal(store, store.getWorkDef(c.req.param("id")));
-    if (mirrored) return c.json({ success: false, error: mirrored }, 409);
+    if (mirrored) return fail(c, 409, mirrored);
     const ok = store.deleteWorkDef(c.req.param("id"));
-    if (!ok) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    if (!ok) return fail(c, 404, "WorkDef not found");
     return c.json({ success: true });
   });
 
@@ -214,13 +215,13 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.post("/api/work-defs/:id/archive", (c) => {
     const updated = store.archiveWorkDef(c.req.param("id"));
-    if (!updated) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    if (!updated) return fail(c, 404, "WorkDef not found");
     return c.json({ success: true, workDef: view(updated, store) });
   });
 
   app.post("/api/work-defs/:id/restore", (c) => {
     const updated = store.restoreWorkDef(c.req.param("id"));
-    if (!updated) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    if (!updated) return fail(c, 404, "WorkDef not found");
     return c.json({ success: true, workDef: view(updated, store) });
   });
 
@@ -230,10 +231,10 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   for (const action of ["activate", "publish"]) {
     app.post(`/api/work-defs/:id/${action}`, async (c) => {
       const id = c.req.param("id");
-      const body = (await c.req.json().catch(() => ({}))) as ActivateWorkDefRequest;
+      const body = (await readBody(c)) as ActivateWorkDefRequest;
       const res = store.activateWorkDef(id, { enqueue: body.enqueue });
-      if (!res) return c.json({ success: false, error: "WorkDef not found" } satisfies ActivateWorkDefResponse, 404);
-      if ("error" in res) return c.json({ success: false, error: res.error } satisfies ActivateWorkDefResponse, 409);
+      if (!res) return fail(c, 404, "WorkDef not found");
+      if ("error" in res) return fail(c, 409, res.error);
       return c.json({ success: true, workDef: view(res.def, store), workItemId: res.workItem?.id ?? null } satisfies ActivateWorkDefResponse);
     });
   }
@@ -241,13 +242,13 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   // A mirror's persona override (docs/DESIGN.md "Work Source personas"): the one
   // edit a mirror accepts, since it lives in the source's kv, not the synced file.
   app.put("/api/work-defs/:id/persona", async (c) => {
-    const body = (await c.req.json().catch(() => null)) as MirrorPersonaRequest | null;
+    const body = (await readBody(c)) as MirrorPersonaRequest | null;
     const persona = body?.persona;
     if (!body || (persona !== null && persona !== "" && typeof persona !== "string")) {
-      return c.json({ success: false, error: 'Body must be { "persona": id | null }' }, 400);
+      return fail(c, 400, 'Body must be { "persona": id | null }');
     }
     const res = store.setMirrorPersona(c.req.param("id"), persona || null);
-    if (!res.ok) return c.json({ success: false, error: res.error }, res.status);
+    if (!res.ok) return fail(c, res.status, res.error);
     return c.json({ success: true, workDef: view(store.getWorkDef(c.req.param("id"))!, store) });
   });
 
@@ -256,7 +257,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
     // The WorkDef's source decides what Run means (Solitary: refuse pending or
     // in-flight, else enqueue; Triage: Triage now, which knows the note's rules).
     const res = store.runWorkDef(c.req.param("id"));
-    if (!res.ok) return c.json({ success: false, error: res.error }, res.conflict ? 409 : 400);
+    if (!res.ok) return fail(c, res.conflict ? 409 : 400, res.error);
     return c.json({ success: true, workItemId: res.workItem.id });
   });
 
@@ -269,9 +270,9 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.post("/api/work-defs/:id/comment", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as { from?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
-    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
-    if (!body.from || !body.body) return c.json({ success: false, error: "Fields 'from' and 'body' are required" }, 400);
+    const body = (await readBody(c)) as { from?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
+    if (!store.getWorkDef(id)) return fail(c, 404, "WorkDef not found");
+    if (!body.from || !body.body) return fail(c, 400, "Fields 'from' and 'body' are required");
     store.addCommentForRef({ workDefId: id }, body.from, body.body, body.attachments);
     return c.json({ success: true });
   });
@@ -290,9 +291,9 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.post("/api/work-defs/:id/attachments", async (c) => {
     const id = c.req.param("id");
-    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
-    const body = await c.req.json() as { name?: string; content?: string; encoding?: string };
-    if (!body.name || !body.content) return c.json({ success: false, error: "Fields 'name' and 'content' are required" }, 400);
+    if (!store.getWorkDef(id)) return fail(c, 404, "WorkDef not found");
+    const body = await readBody(c) as { name?: string; content?: string; encoding?: string };
+    if (!body.name || !body.content) return fail(c, 400, "Fields 'name' and 'content' are required");
 
     let data: string | Uint8Array = body.content;
     if (body.encoding === "base64") {
@@ -302,7 +303,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
       data = bytes;
     }
     const storedName = store.saveAttachmentForRef({ workDefId: id }, body.name, data);
-    if (!storedName) return c.json({ success: false, error: "Failed to save attachment" }, 500);
+    if (!storedName) return fail(c, 500, "Failed to save attachment");
     const ext = body.name.split(".").pop()?.toLowerCase() || "";
     const typeMap: Record<string, string> = { diff: "diff", patch: "diff", md: "markdown", txt: "text", json: "json", png: "image", jpg: "image", jpeg: "image" };
     return c.json({ success: true, storedName, type: typeMap[ext] || "other", size: body.content.length });
@@ -310,7 +311,7 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
 
   app.get("/api/work-defs/:id/attachments", (c) => {
     const id = c.req.param("id");
-    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    if (!store.getWorkDef(id)) return fail(c, 404, "WorkDef not found");
     return c.json({ attachments: store.getAttachmentsForRef({ workDefId: id }) });
   });
 
@@ -328,18 +329,18 @@ export function registerWorkDefRoutes(ctx: RouteContext): void {
   app.delete("/api/work-defs/:id/attachments/:filename", (c) => {
     const id = c.req.param("id");
     const deleted = store.deleteAttachmentForRef({ workDefId: id }, c.req.param("filename"));
-    if (!deleted) return c.json({ success: false, error: "Attachment not found" }, 404);
+    if (!deleted) return fail(c, 404, "Attachment not found");
     return c.json({ success: true });
   });
 
   // ── Token usage (on the ref) ─────────────────────────────────────────
   app.post("/api/work-defs/:id/token-usage", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as { inputTokens?: number; outputTokens?: number; model?: string; costUsd?: number };
+    const body = (await readBody(c)) as { inputTokens?: number; outputTokens?: number; model?: string; costUsd?: number };
     if (typeof body.inputTokens !== "number" || typeof body.outputTokens !== "number" || !body.model) {
-      return c.json({ success: false, error: "Fields inputTokens, outputTokens, model required" }, 400);
+      return fail(c, 400, "Fields inputTokens, outputTokens, model required");
     }
-    if (!store.getWorkDef(id)) return c.json({ success: false, error: "WorkDef not found" }, 404);
+    if (!store.getWorkDef(id)) return fail(c, 404, "WorkDef not found");
     // Prefer the harness-reported cost; estimate only as a fallback.
     const costUsd = typeof body.costUsd === "number" ? body.costUsd : estimateTokenCost(body.model, body.inputTokens, body.outputTokens);
     store.addTokenUsage({ workDefId: id }, body.inputTokens, body.outputTokens, body.model, costUsd);

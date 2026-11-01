@@ -24,6 +24,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { isPoolTeammate } from "../store.ts";
 import { RELEASE_ACTIONS, type ReleaseAction, type SendMode } from "../store/pairing.ts";
 
@@ -52,7 +53,7 @@ export function registerPairingRoutes(ctx: RouteContext): void {
   app.post("/api/agents/:id/pair", (c) => {
     const id = c.req.param("id");
     const bad = checkTeammate(id);
-    if (bad) return c.json({ success: false, error: bad.error }, bad.status);
+    if (bad) return fail(c, bad.status, bad.error);
     pairing.pair(id);
     return c.json({ success: true, ...pairing.getState(id) });
   });
@@ -68,11 +69,11 @@ export function registerPairingRoutes(ctx: RouteContext): void {
     const id = c.req.param("id");
     const leader = isLeaderId(id);
     const bad = leader ? null : checkTeammate(id);
-    if (bad) return c.json({ success: false, error: bad.error }, bad.status);
-    const body = await c.req.json().catch(() => ({})) as { text?: unknown; mode?: unknown };
+    if (bad) return fail(c, bad.status, bad.error);
+    const body = await readBody(c) as { text?: unknown; mode?: unknown };
     const text = typeof body.text === "string" ? body.text.trim() : "";
-    if (!text) return c.json({ success: false, error: "Field 'text' is required" }, 400);
-    if (text.length > MAX_MESSAGE_CHARS) return c.json({ success: false, error: `Message too long (max ${MAX_MESSAGE_CHARS} chars)` }, 400);
+    if (!text) return fail(c, 400, "Field 'text' is required");
+    if (text.length > MAX_MESSAGE_CHARS) return fail(c, 400, `Message too long (max ${MAX_MESSAGE_CHARS} chars)`);
     const mode: SendMode = body.mode === "steer" ? "steer" : "queue";
     if (leader) {
       // Terminal mode: the leader's inbox is the assistant chat (see the header).
@@ -80,18 +81,18 @@ export function registerPairingRoutes(ctx: RouteContext): void {
       return c.json({ success: true, message }, 201);
     }
     const message = pairing.send(id, text, mode);
-    if (!message) return c.json({ success: false, error: "Pair with the teammate before messaging it" }, 409);
+    if (!message) return fail(c, 409, "Pair with the teammate before messaging it");
     return c.json({ success: true, message }, 201);
   });
 
   app.post("/api/agents/:id/release", async (c) => {
     const id = c.req.param("id");
     const bad = checkTeammate(id);
-    if (bad) return c.json({ success: false, error: bad.error }, bad.status);
-    const body = await c.req.json().catch(() => ({})) as { action?: unknown };
+    if (bad) return fail(c, bad.status, bad.error);
+    const body = await readBody(c) as { action?: unknown };
     const action = (body.action ?? "resume") as ReleaseAction;
     if (!RELEASE_ACTIONS.includes(action)) {
-      return c.json({ success: false, error: `Field 'action' must be one of: ${RELEASE_ACTIONS.join(", ")}` }, 400);
+      return fail(c, 400, `Field 'action' must be one of: ${RELEASE_ACTIONS.join(", ")}`);
     }
     pairing.release(id, action);
     return c.json({ success: true, ...pairing.getState(id) });

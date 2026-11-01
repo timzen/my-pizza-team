@@ -15,6 +15,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import { sumDays, USAGE_KINDS, type UsageDay, type UsageKind } from "../store/usage.ts";
 
@@ -39,9 +40,9 @@ export function registerUsageRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/:id/usage", async (c) => {
     const memberId = c.req.param("id");
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    const body = await readBody(c) as Record<string, unknown>;
     if (typeof body.model !== "string" || !body.model) {
-      return c.json({ success: false, error: "Field 'model' is required" }, 400);
+      return fail(c, 400, "Field 'model' is required");
     }
     const kind = (USAGE_KINDS as readonly string[]).includes(String(body.kind)) ? (body.kind as UsageKind) : "other";
     const inputTokens = tokens(body.inputTokens), outputTokens = tokens(body.outputTokens);
@@ -92,7 +93,7 @@ export function registerUsageRoutes(ctx: RouteContext): void {
 
   app.get("/api/usage/day", (c) => {
     const date = c.req.query("date") || "";
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return c.json({ success: false, error: "Query 'date' must be YYYY-MM-DD" }, 400);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return fail(c, 400, "Query 'date' must be YYYY-MM-DD");
     return c.json({ date, runs: store.getUsageRunsOnDay({ date, tzOffsetMin: tzOffsetOf(c.req.query("tzOffset")) }) });
   });
 }

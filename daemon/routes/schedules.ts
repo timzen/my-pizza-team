@@ -8,6 +8,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type { Schedule } from "../../shared/types.ts";
 import type { ScheduleView, SchedulesResponse, SetSchedulePendingResponse, UpdateScheduleRequest } from "../../shared/protocol.ts";
 import { isValidCron } from "../cron.ts";
@@ -25,17 +26,17 @@ export function registerScheduleRoutes(ctx: RouteContext): void {
 
   app.get("/api/schedules/:id", (c) => {
     const sched = store.getSchedule(c.req.param("id"));
-    if (!sched) return c.json({ success: false, error: "Schedule not found" }, 404);
+    if (!sched) return fail(c, 404, "Schedule not found");
     return c.json({ schedule: view(sched) });
   });
 
   app.put("/api/schedules/:id", async (c) => {
     const id = c.req.param("id");
-    const body = (await c.req.json()) as UpdateScheduleRequest;
-    if (body.cron !== undefined && !isValidCron(body.cron)) return c.json({ success: false, error: "Invalid 'cron' expression" }, 400);
-    if (body.pending !== undefined && typeof body.pending !== "boolean") return c.json({ success: false, error: "'pending' must be a boolean" }, 400);
+    const body = (await readBody(c)) as UpdateScheduleRequest;
+    if (body.cron !== undefined && !isValidCron(body.cron)) return fail(c, 400, "Invalid 'cron' expression");
+    if (body.pending !== undefined && typeof body.pending !== "boolean") return fail(c, 400, "'pending' must be a boolean");
     const sched = store.updateScheduleDetails(id, body);
-    if (!sched) return c.json({ success: false, error: "Schedule not found" }, 404);
+    if (!sched) return fail(c, 404, "Schedule not found");
     return c.json({ success: true, schedule: view(sched) });
   });
 
@@ -46,20 +47,20 @@ export function registerScheduleRoutes(ctx: RouteContext): void {
   app.post("/api/schedules/:id/pending", (c) => {
     const id = c.req.param("id");
     const sched = store.setSchedulePending(id, true);
-    if (!sched) return c.json({ success: false, error: `Schedule "${id}" not found` } satisfies SetSchedulePendingResponse, 404);
+    if (!sched) return fail(c, 404, `Schedule "${id}" not found`);
     return c.json({ success: true, schedule: view(sched) } satisfies SetSchedulePendingResponse);
   });
 
   app.post("/api/schedules/:id/activate", (c) => {
     const id = c.req.param("id");
     const sched = store.setSchedulePending(id, false);
-    if (!sched) return c.json({ success: false, error: `Schedule "${id}" not found` } satisfies SetSchedulePendingResponse, 404);
+    if (!sched) return fail(c, 404, `Schedule "${id}" not found`);
     return c.json({ success: true, schedule: view(sched) } satisfies SetSchedulePendingResponse);
   });
 
   app.delete("/api/schedules/:id", (c) => {
     const ok = store.deleteSchedule(c.req.param("id"));
-    if (!ok) return c.json({ success: false, error: "Schedule not found" }, 404);
+    if (!ok) return fail(c, 404, "Schedule not found");
     return c.json({ success: true });
   });
 }

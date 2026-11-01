@@ -42,6 +42,7 @@
 
 import type { Context } from "hono";
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type {
   PluginLoadStatus, SourceConfigResponse, SourcePersonaRequest, SourcePersonaResponse, SourcePreviewResponse, SourcesResponse, SourceView,
 } from "../../shared/protocol.ts";
@@ -137,10 +138,10 @@ export function registerSourceRoutes(ctx: RouteContext): void {
   const previewDoneAt = new Map<string, number>();
 
   const find = (id: string) => store.listWorkSources().find((e) => e.source.id === id);
-  const notFound = (c: Context, id: string) => c.json({ success: false, error: `No work source "${id}"` }, 404);
+  const notFound = (c: Context, id: string) => fail(c, 404, `No work source "${id}"`);
   /** The `options` of a `{ options }` body, or null when it isn't an object. */
   const readOptions = async (c: Context): Promise<Record<string, unknown> | null> => {
-    const body = await c.req.json().catch(() => null) as unknown;
+    const body = await readBody(c) as unknown;
     return isPlainObject(body) && isPlainObject(body.options) ? body.options : null;
   };
 
@@ -151,23 +152,23 @@ export function registerSourceRoutes(ctx: RouteContext): void {
     const entry = find(id);
     if (!entry) return notFound(c, id);
     if (typeof entry.source.preview !== "function" && typeof entry.source.sync !== "function") {
-      return c.json({ success: false, error: `Source "${id}" has nothing to preview (no preview or sync)` } satisfies SourcePreviewResponse, 400);
+      return fail(c, 400, `Source "${id}" has nothing to preview (no preview or sync)`);
     }
     const draft = await readOptions(c);
-    if (!draft) return c.json({ success: false, error: 'Body must be { "options": { ... } }' } satisfies SourcePreviewResponse, 400);
+    if (!draft) return fail(c, 400, 'Body must be { "options": { ... } }');
     const block = restoreRedacted(draft, sourceConfigBlock(entry.source, entry.ctx.options()));
     // Invalid settings never reach the source, so they don't count against the gate below.
     const fieldErrors = schemaErrors(entry, block);
-    if (fieldErrors.length) return c.json({ success: false, error: "the settings are invalid", fieldErrors } satisfies SourcePreviewResponse, 400);
+    if (fieldErrors.length) return fail(c, 400, "the settings are invalid", { fieldErrors });
 
     if (previewing.has(id)) {
       c.header("Retry-After", "1");
-      return c.json({ success: false, error: `A preview of "${id}" is already running` } satisfies SourcePreviewResponse, 429);
+      return fail(c, 429, `A preview of "${id}" is already running`);
     }
     const wait = (previewDoneAt.get(id) ?? 0) + PREVIEW_COOLDOWN_MS - Date.now();
     if (wait > 0) {
       c.header("Retry-After", String(Math.ceil(wait / 1000)));
-      return c.json({ success: false, error: `Previewed "${id}" a moment ago; try again in ${Math.ceil(wait / 1000)}s` } satisfies SourcePreviewResponse, 429);
+      return fail(c, 429, `Previewed "${id}" a moment ago; try again in ${Math.ceil(wait / 1000)}s`);
     }
 
     previewing.add(id);
@@ -175,8 +176,8 @@ export function registerSourceRoutes(ctx: RouteContext): void {
       const outcome = await previewSource(entry, block);
       if (!outcome.ok) {
         return outcome.fieldErrors
-          ? c.json({ success: false, error: outcome.error, fieldErrors: outcome.fieldErrors } satisfies SourcePreviewResponse, 400)
-          : c.json({ success: false, error: outcome.error } satisfies SourcePreviewResponse, 502);
+          ? fail(c, 400, outcome.error, { fieldErrors: outcome.fieldErrors })
+          : fail(c, 502, outcome.error);
       }
       return c.json({ success: true, via: outcome.via, ...outcome.preview } satisfies SourcePreviewResponse);
     } finally {
@@ -189,13 +190,13 @@ export function registerSourceRoutes(ctx: RouteContext): void {
     const id = c.req.param("id");
     const entry = find(id);
     if (!entry) return notFound(c, id);
-    const body = await c.req.json().catch(() => null) as unknown;
+    const body = await readBody(c) as unknown;
     if (!isPlainObject(body) || (body.persona === undefined && body.triagePersona === undefined)) {
-      return c.json({ success: false, error: 'Body must be { "persona"?: id | null, "triagePersona"?: id | null }' } satisfies SourcePersonaResponse, 400);
+      return fail(c, 400, 'Body must be { "persona"?: id | null, "triagePersona"?: id | null }');
     }
     const update = body as SourcePersonaRequest;
     const res = store.setSourcePersona(id, { persona: update.persona, triagePersona: update.triagePersona });
-    if (!res.ok) return c.json({ success: false, error: res.error } satisfies SourcePersonaResponse, res.status);
+    if (!res.ok) return fail(c, res.status, res.error);
     return c.json({ success: true, source: sourceView(store, config, entry) } satisfies SourcePersonaResponse);
   });
 
@@ -205,17 +206,15 @@ export function registerSourceRoutes(ctx: RouteContext): void {
     if (!entry) return notFound(c, id);
     const pkg = packageOf(store, id);
     if (!pkg?.identity) {
-      return c.json({
-        success: false, error: `Source "${id}" isn't from a plugin package, so it has no config.json settings to save`,
-      } satisfies SourceConfigResponse, 409);
+      return fail(c, 409, `Source "${id}" isn't from a plugin package, so it has no config.json settings to save`);
     }
     const draft = await readOptions(c);
-    if (!draft) return c.json({ success: false, error: 'Body must be { "options": { ... } }' } satisfies SourceConfigResponse, 400);
+    if (!draft) return fail(c, 400, 'Body must be { "options": { ... } }');
 
     const { source } = entry;
     const block = restoreRedacted(draft, sourceConfigBlock(source, entry.ctx.options()));
     const fieldErrors = schemaErrors(entry, block);
-    if (fieldErrors.length) return c.json({ success: false, error: "the settings are invalid", fieldErrors } satisfies SourceConfigResponse, 400);
+    if (fieldErrors.length) return fail(c, 400, "the settings are invalid", { fieldErrors });
 
     // Merge into the entry's config as it is on disk now (another source's block
     // in a "source"-scoped package; a hand edit), else as the daemon loaded it.
@@ -223,7 +222,7 @@ export function registerSourceRoutes(ctx: RouteContext): void {
     const diskEntry = parsePackageEntries(onDisk, teamDir).packages.find((p) => p.spec.identity === pkg.identity);
     const entryConfig = withSourceConfigBlock(source, diskEntry?.config ?? entry.ctx.options(), block);
     const updated = setPackageEntryConfig(onDisk, pkg.identity, entryConfig, teamDir);
-    if ("error" in updated) return c.json({ success: false, error: updated.error } satisfies SourceConfigResponse, 409);
+    if ("error" in updated) return fail(c, 409, updated.error);
     config.packages = updated.packages;
     // Store is the single config writer (saveTeamConfig keeps `packages`).
     store.saveConfig();

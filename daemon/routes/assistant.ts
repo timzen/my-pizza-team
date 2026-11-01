@@ -16,6 +16,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import type { AssistantDelivery } from "../store/assistant-chat.ts";
 import { resolveAssistantChatMode, type AssistantChatMode } from "../../shared/types.ts";
 import { DEFAULT_ASSISTANT_PERSONA } from "../personas/builtins.ts";
@@ -88,7 +89,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
   app.get("/api/assistant/messages", (c) => {
     const sessionId = c.req.query("sessionId") || undefined;
     const session = sessionId ? store.getAssistantSession(sessionId) : store.getActiveAssistantSession();
-    if (sessionId && !session) return c.json({ success: false, error: "Session not found" }, 404);
+    if (sessionId && !session) return fail(c, 404, "Session not found");
     const leader = store.getLeader();
     return c.json({
       session,
@@ -105,8 +106,8 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
    * messages typed in the agent's terminal.
    */
   app.post("/api/assistant/messages", async (c) => {
-    const body = await c.req.json();
-    if (!body.content || typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required" }, 400);
+    const body = await readBody(c);
+    if (!body.content || typeof body.content !== "string") return fail(c, 400, "Field 'content' is required");
     const userMessage = store.appendUserMessage(body.content, {
       replyTo: typeof body.replyTo === "string" ? body.replyTo : null,
       origin: body.origin === "tui" ? "tui" : "web",
@@ -118,7 +119,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
 
   app.delete("/api/assistant/messages/:id", (c) => {
     const success = store.deleteAssistantMessage(c.req.param("id"));
-    if (!success) return c.json({ success: false, error: "Message not found" }, 404);
+    if (!success) return fail(c, 404, "Message not found");
     return c.json({ success: true });
   });
 
@@ -188,13 +189,13 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
 
   /** Advance receipts: 'delivered' (handed to Pi) or 'read' (a run sees them). */
   app.post("/api/assistant/inbox/ack", async (c) => {
-    const body = await c.req.json();
+    const body = await readBody(c);
     const state = body.state === "read" ? "read" : "delivered";
     // No ids + state 'read' = "everything already delivered is now read", which
     // is what the extension sends on agent_start.
     if (!Array.isArray(body.ids) || body.ids.length === 0) {
       if (state === "read") return c.json({ success: true, updated: store.markAssistantDeliveredAsRead() });
-      return c.json({ success: false, error: "Field 'ids' is required" }, 400);
+      return fail(c, 400, "Field 'ids' is required");
     }
     const ids = (body.ids as unknown[]).filter((id): id is string => typeof id === "string");
     return c.json({ success: true, updated: store.ackAssistantInbox(ids, state as AssistantDelivery) });
@@ -202,8 +203,8 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
 
   /** Mirror one bubble of the agent's reply (one paragraph of its prose). */
   app.post("/api/assistant/bubbles", async (c) => {
-    const body = await c.req.json();
-    if (!body.content || typeof body.content !== "string") return c.json({ success: false, error: "Field 'content' is required" }, 400);
+    const body = await readBody(c);
+    if (!body.content || typeof body.content !== "string") return fail(c, 400, "Field 'content' is required");
     const message = store.appendAssistantMessage(body.content, body.failed === true);
     return c.json({ success: true, message }, 201);
   });
@@ -213,7 +214,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
    * buffer (a new run started), `{ thinking }` toggles the `…` indicator.
    */
   app.post("/api/assistant/thoughts", async (c) => {
-    const body = await c.req.json();
+    const body = await readBody(c);
     if (body.clear === true) store.clearAssistantThoughts();
     if (typeof body.thinking === "boolean") store.setAssistantThinking(body.thinking);
     if (typeof body.chunk === "string" && body.chunk) store.appendAssistantThought(body.chunk);
@@ -225,9 +226,9 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
 
   /** The extension reports the Pi session file backing the chat (enables resume). */
   app.post("/api/assistant/session", async (c) => {
-    const body = await c.req.json();
+    const body = await readBody(c);
     if (!body.piSessionPath || typeof body.piSessionPath !== "string") {
-      return c.json({ success: false, error: "Field 'piSessionPath' is required" }, 400);
+      return fail(c, 400, "Field 'piSessionPath' is required");
     }
     return c.json({ success: true, session: store.reportAssistantPiSession(body.piSessionPath) });
   });
@@ -245,7 +246,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
   /** Resume an earlier session (switches the agent's Pi session to match). */
   app.post("/api/assistant/sessions/:id/resume", (c) => {
     const session = store.resumeAssistantSession(c.req.param("id"));
-    if (!session) return c.json({ success: false, error: "Session not found" }, 404);
+    if (!session) return fail(c, 404, "Session not found");
     // Without a recorded Pi session file the agent can't restore in-agent
     // context; the UI shows the transcript and warns.
     return c.json({ success: true, session, contextRestored: !!session.piSessionPath });
@@ -253,7 +254,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
 
   app.get("/api/assistant/sessions/:id/snapshot", (c) => {
     const markdown = store.getAssistantSessionSnapshot(c.req.param("id"));
-    if (markdown === null) return c.json({ success: false, error: "Session not found" }, 404);
+    if (markdown === null) return fail(c, 404, "Session not found");
     return c.text(markdown);
   });
 
@@ -278,10 +279,10 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
   app.get("/api/assistant/persona", (c) => c.json(current()));
 
   app.put("/api/assistant/persona", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { personaId?: unknown };
+    const body = await readBody(c) as { personaId?: unknown };
     const personaId: string | null = typeof body.personaId === "string" && body.personaId ? body.personaId : null;
     if (personaId && !store.getPersona(personaId)) {
-      return c.json({ success: false, error: `Persona "${personaId}" not found` }, 404);
+      return fail(c, 404, `Persona "${personaId}" not found`);
     }
     store.setAssistantPersonaId(personaId);
     const now = current();

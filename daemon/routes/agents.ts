@@ -12,6 +12,7 @@
  */
 
 import type { RouteContext } from "./types.ts";
+import { readBody, fail } from "./http.ts";
 import { buildWorkDefPrompt } from "../prompt.ts";
 import { personaRefOf } from "../personas/resolve.ts";
 import { DEFAULT_HARNESS, isExperimentalHarness, type ResolvedPersona, type TeamConfig, type TriageOutcome, type TriageProposal, type WorkDef, type WorkItemRef } from "../../shared/types.ts";
@@ -25,7 +26,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // ─── Register / Heartbeat ──────────────────────────────────────────
 
   app.post("/api/agents/register", async (c) => {
-    const body = await c.req.json() as {
+    const body = await readBody(c) as {
       id?: string; name?: string;
       directory?: string;
       metadata?: Record<string, unknown>;
@@ -34,7 +35,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       harnessVersion?: string;
     };
     if (!body.id || !body.name) {
-      return c.json({ success: false, error: "Fields 'id' and 'name' are required" }, 400);
+      return fail(c, 400, "Fields 'id' and 'name' are required");
     }
 
     // ── Version handshake (P1b) ──────────────────────────────────────
@@ -52,24 +53,14 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     // strand a running team.
     if (typeof body.protocolVersion === "number") {
       if (body.protocolVersion > PROTOCOL_VERSION) {
-        return c.json({
-          success: false,
-          error:
-            `This agent speaks protocol v${body.protocolVersion} but the daemon serves up to ` +
-            `v${PROTOCOL_VERSION}. The daemon is older than the harness — upgrade it with \`mpt upgrade\`.`,
-          protocolVersion: PROTOCOL_VERSION,
-          daemonVersion: packageVersion(),
-        }, 409);
+        return fail(c, 409, `This agent speaks protocol v${body.protocolVersion} but the daemon serves up to ` +
+          `v${PROTOCOL_VERSION}. The daemon is older than the harness — upgrade it with \`mpt upgrade\`.`,
+          { protocolVersion: PROTOCOL_VERSION, daemonVersion: packageVersion() });
       }
       if (body.protocolVersion < MIN_PROTOCOL_VERSION) {
-        return c.json({
-          success: false,
-          error:
-            `This agent speaks protocol v${body.protocolVersion} but the daemon needs at least ` +
-            `v${MIN_PROTOCOL_VERSION}. Restart the agent so it picks up the current extension.`,
-          protocolVersion: PROTOCOL_VERSION,
-          daemonVersion: packageVersion(),
-        }, 409);
+        return fail(c, 409, `This agent speaks protocol v${body.protocolVersion} but the daemon needs at least ` +
+          `v${MIN_PROTOCOL_VERSION}. Restart the agent so it picks up the current extension.`,
+          { protocolVersion: PROTOCOL_VERSION, daemonVersion: packageVersion() });
       }
     }
 
@@ -77,7 +68,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     // Non-Pi teammates (`mpt agent`) are opt-in until they're better vetted. Refused
     // here, with the fix, so a hand-started one fails as loudly as a spawned one.
     const gate = experimentalGate(config, body.harness);
-    if (gate) return c.json({ success: false, error: gate }, 409);
+    if (gate) return fail(c, 409, gate);
 
     // The harness may attach opaque metadata (e.g. its tmux window) it later
     // uses to realize control intents. The daemon stores it verbatim.
@@ -96,8 +87,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 
   app.post("/api/agents/heartbeat", async (c) => {
-    const body = await c.req.json() as { id?: string; status?: string };
-    if (!body.id || !body.status) return c.json({ success: false, error: "Fields 'id' and 'status' are required" }, 400);
+    const body = await readBody(c) as { id?: string; status?: string };
+    if (!body.id || !body.status) return fail(c, 400, "Fields 'id' and 'status' are required");
     const member = store.getMember(body.id);
     if (!member) {
       // Distinguish an explicit dismissal (shut down) from a merely-unknown
@@ -123,8 +114,8 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/:id/session-stats", async (c) => {
     const id = c.req.param("id");
-    if (!store.getMember(id)) return c.json({ success: false, error: `Agent "${id}" not found` }, 404);
-    const body = await c.req.json().catch(() => ({})) as Record<string, unknown>;
+    if (!store.getMember(id)) return fail(c, 404, `Agent "${id}" not found`);
+    const body = await readBody(c) as Record<string, unknown>;
     // Unknown or nonsense numbers become null (never a fake 0%), except cost,
     // which is a running total that starts at 0.
     const count = (v: unknown) => (typeof v === "number" && Number.isFinite(v) && v >= 0 ? v : null);
@@ -163,11 +154,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/claim/:workItemId", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await c.req.json() as { agentId?: string };
-    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+    const body = await readBody(c) as { agentId?: string };
+    if (!body.agentId) return fail(c, 400, "Field 'agentId' is required");
 
     const item = store.getWorkItem(workItemId);
-    if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
+    if (!item) return fail(c, 404, `WorkItem "${workItemId}" not found`);
 
     // Resolve the persona once: the prompt carries it and the claim records it
     // (the WorkItem snapshot — docs/DESIGN.md "The in-flight persona").
@@ -182,7 +173,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       const error = blocker
         ? `WorkItem not claimable: directory busy (${holder}, ${blocker.title})`
         : "WorkItem not claimable (already claimed, or not ready)";
-      return c.json({ success: false, error }, 409);
+      return fail(c, 409, error);
     }
 
     store.updateMemberStatus(body.agentId, "working");
@@ -205,28 +196,28 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/work-items/:workItemId/state", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await c.req.json() as { agentId?: string; state?: string; sessionError?: unknown };
-    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+    const body = await readBody(c) as { agentId?: string; state?: string; sessionError?: unknown };
+    if (!body.agentId) return fail(c, 400, "Field 'agentId' is required");
     if (body.state !== "COMPLETE" && body.state !== "FAILED") {
-      return c.json({ success: false, error: "Field 'state' must be 'COMPLETE' or 'FAILED'" }, 400);
+      return fail(c, 400, "Field 'state' must be 'COMPLETE' or 'FAILED'");
     }
 
     const item = store.getWorkItem(workItemId);
-    if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
+    if (!item) return fail(c, 404, `WorkItem "${workItemId}" not found`);
     if (item.memberId && item.memberId !== body.agentId) {
-      return c.json({ success: false, error: "WorkItem not held by this agent" }, 403);
+      return fail(c, 403, "WorkItem not held by this agent");
     }
 
     if (body.state === "FAILED" && typeof body.sessionError === "string") {
       const res = store.failWorkItemForSessionError(workItemId, body.sessionError);
       store.updateMemberStatus(body.agentId, "idle");
-      if (!res.ok) return c.json({ success: false, error: res.error }, 400);
+      if (!res.ok) return fail(c, 400, res.error);
       return c.json({ success: true, ...(res.retry ? { retry: res.retry } : {}) });
     }
 
     const res = store.setWorkItemState(workItemId, body.state);
     store.updateMemberStatus(body.agentId, "idle");
-    if (!res.ok) return c.json({ success: false, error: res.error }, 400);
+    if (!res.ok) return fail(c, 400, res.error);
     return c.json({ success: true, newStatus: res.newStatus, completed: res.completed });
   });
 
@@ -239,28 +230,25 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/work-items/:workItemId/proposals", async (c) => {
     const workItemId = c.req.param("workItemId");
-    const body = await c.req.json().catch(() => ({})) as {
+    const body = await readBody(c) as {
       agentId?: string; body?: string; outcome?: string; proposals?: unknown[];
     };
-    if (!body.agentId) return c.json({ success: false, error: "Field 'agentId' is required" }, 400);
+    if (!body.agentId) return fail(c, 400, "Field 'agentId' is required");
     if (typeof body.body !== "string" || !body.body.trim()) {
-      return c.json({ success: false, error: "Field 'body' (your written analysis) is required" }, 400);
+      return fail(c, 400, "Field 'body' (your written analysis) is required");
     }
 
     const item = store.getWorkItem(workItemId);
-    if (!item) return c.json({ success: false, error: `WorkItem "${workItemId}" not found` }, 404);
+    if (!item) return fail(c, 404, `WorkItem "${workItemId}" not found`);
     if (item.memberId && item.memberId !== body.agentId) {
-      return c.json({ success: false, error: "WorkItem not held by this agent" }, 403);
+      return fail(c, 403, "WorkItem not held by this agent");
     }
     // The triage subject is the item's WorkDef: a note's triage container, or a
     // triage-mode mirror of an external item (docs/DESIGN.md "External sources").
     const workDefId = item.ref.workDefId;
     const subject = store.triageSubjectOf(workDefId);
     if (!subject) {
-      return c.json({
-        success: false,
-        error: "propose_work is only for a triage work item (a note's triage, or an item from an external source in triage mode)",
-      }, 400);
+      return fail(c, 400, "propose_work is only for a triage work item (a note's triage, or an item from an external source in triage mode)");
     }
 
     const res = store.addTriageAnalysisForWorkDef(
@@ -270,7 +258,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       body.outcome as TriageOutcome,
       body.proposals as TriageProposal[] | undefined,
     );
-    if (!res.ok) return c.json({ success: false, error: res.error }, 400);
+    if (!res.ok) return fail(c, 400, res.error);
     return c.json({ success: true, workDefId, ...(subject.kind === "thought" ? { thoughtId: subject.thoughtId } : {}) });
   });
 
@@ -278,9 +266,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/work-items/:workItemId/attachments", async (c) => {
     const item = store.getWorkItem(c.req.param("workItemId"));
-    if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
-    const body = await c.req.json() as { name?: string; content?: string; encoding?: string };
-    if (!body.name || !body.content) return c.json({ success: false, error: "Fields 'name' and 'content' are required" }, 400);
+    if (!item) return fail(c, 404, "WorkItem not found");
+    const body = await readBody(c) as { name?: string; content?: string; encoding?: string };
+    if (!body.name || !body.content) return fail(c, 400, "Fields 'name' and 'content' are required");
 
     let data: string | Uint8Array = body.content;
     if (body.encoding === "base64") {
@@ -290,7 +278,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       data = bytes;
     }
     const storedName = store.saveAttachmentForRef(item.ref, body.name, data);
-    if (!storedName) return c.json({ success: false, error: "Failed to save attachment" }, 500);
+    if (!storedName) return fail(c, 500, "Failed to save attachment");
     return c.json({ success: true, storedName });
   });
 
@@ -304,9 +292,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.post("/api/agents/comments/:workItemId", async (c) => {
     const item = store.getWorkItem(c.req.param("workItemId"));
-    const body = await c.req.json() as { agentId?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
-    if (!body.agentId || !body.body) return c.json({ success: false, error: "Fields 'agentId' and 'body' are required" }, 400);
-    if (!item) return c.json({ success: false, error: "WorkItem not found" }, 404);
+    const body = await readBody(c) as { agentId?: string; body?: string; attachments?: Array<{ name: string; size: number; type: string }> };
+    if (!body.agentId || !body.body) return fail(c, 400, "Fields 'agentId' and 'body' are required");
+    if (!item) return fail(c, 404, "WorkItem not found");
     store.addCommentForRef(item.ref, body.agentId, body.body, body.attachments);
     return c.json({ success: true });
   });
@@ -350,7 +338,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
         store.noteDismissedDeregistered(agentId);
         return c.json({ success: true });
       }
-      return c.json({ success: false, error: `Agent "${agentId}" not found` }, 404);
+      return fail(c, 404, `Agent "${agentId}" not found`);
     }
     // `?dismiss=true` (a human clicking "dismiss") tombstones the id so its next
     // heartbeat shuts the agent down, and queues a `dismiss` directive that closes
@@ -376,12 +364,12 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // spawning anyone.
 
   app.post("/api/leader/directives", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { action?: string; memberId?: string; params?: Record<string, unknown> };
-    if (!body.action || typeof body.action !== "string") return c.json({ success: false, error: "Field 'action' is required" }, 400);
+    const body = await readBody(c) as { action?: string; memberId?: string; params?: Record<string, unknown> };
+    if (!body.action || typeof body.action !== "string") return fail(c, 400, "Field 'action' is required");
     if (body.action === "spawn") {
       const harness = typeof body.params?.harness === "string" && body.params.harness ? body.params.harness : config.defaultHarness ?? DEFAULT_HARNESS;
       const gate = experimentalGate(config, harness);
-      if (gate) return c.json({ success: false, error: gate }, 400);
+      if (gate) return fail(c, 400, gate);
     }
     const directive = store.createLeaderDirective(body.action, { memberId: body.memberId, params: body.params });
     return c.json({ success: true, directive }, 201);
@@ -399,10 +387,10 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 
   app.put("/api/leader/directives/:id", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { status?: string };
-    if (!body.status || typeof body.status !== "string") return c.json({ success: false, error: "Field 'status' is required" }, 400);
+    const body = await readBody(c) as { status?: string };
+    if (!body.status || typeof body.status !== "string") return fail(c, 400, "Field 'status' is required");
     const ok = store.updateLeaderDirective(c.req.param("id"), body.status);
-    if (!ok) return c.json({ success: false, error: "Directive not found" }, 404);
+    if (!ok) return fail(c, 404, "Directive not found");
     return c.json({ success: true });
   });
 
@@ -417,9 +405,9 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   });
 
   app.put("/api/agents/:id/directives/:directiveId", async (c) => {
-    const body = await c.req.json().catch(() => ({})) as { status?: string };
+    const body = await readBody(c) as { status?: string };
     const ok = store.updateLeaderDirective(c.req.param("directiveId"), body.status || "done");
-    if (!ok) return c.json({ success: false, error: "Directive not found" }, 404);
+    if (!ok) return fail(c, 404, "Directive not found");
     return c.json({ success: true });
   });
 
@@ -436,7 +424,7 @@ export function registerAgentRoutes(ctx: RouteContext): void {
 
   app.delete("/api/spawn-requests/:id", (c) => {
     const ok = store.updateLeaderDirective(c.req.param("id"), "cancelled");
-    if (!ok) return c.json({ success: false, error: "Spawn request not found" }, 404);
+    if (!ok) return fail(c, 404, "Spawn request not found");
     return c.json({ success: true });
   });
 }
