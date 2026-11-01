@@ -1,0 +1,5 @@
+{
+  "id": "nightly-test-run",
+  "title": "Nightly test run",
+  "cron": "0 2 * * *"
+}

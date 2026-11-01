@@ -60,6 +60,7 @@ export function MirrorTriagePanel({ item, view, decisions, blocked }: {
             <div className="flex items-center justify-between gap-2 border-b border-border px-4 py-2">
               <h2 className="truncate text-sm font-medium">{mirror ? `${label} ${mirror.externalId}` : "The item"}</h2>
               {mirror?.url && (
+                // eslint-disable-next-line jsx-a11y/anchor-has-content -- the <a> is Base UI's render target: it gets the Button's children as its content.
                 <Button variant="ghost" size="sm" render={<a href={mirror.url} target="_blank" rel="noreferrer" />}>
                   <ExternalLink className="mr-1 h-3.5 w-3.5" />{openInLabel(label)}
                 </Button>

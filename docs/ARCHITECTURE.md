@@ -15,7 +15,7 @@ my-pizza-team is one repository producing one npm package, `my-pizza-team`, whos
 - **agent/** — `mpt agent`, the supervisor that runs an experimental non-Pi teammate (Kiro, Claude Code) over the Agent Client Protocol.
 - **desktop/** — optional tray/menu-bar apps (macOS SwiftUI, Windows PowerShell).
 - **scripts/** — build, packaging, release, and code generation.
-- **tests/** — the fast suite (`npm test`) and `tests/e2e/` (`npm run test:e2e`), both on `node:test`.
+- **tests/** — the fast suite (`npm test`), `tests/e2e/` (`npm run test:e2e`) and the UI's accessibility scan `tests/a11y/` (`npm run test:a11y`), all on `node:test`.
 
 ```
             ┌──────────── mpt (one package) ────────────┐
@@ -286,6 +286,13 @@ since the tests run those `lib/` modules under Node, which can't resolve the ali
 import) and `shared/util.ts` may be imported, and they stay free of `node:` imports. When the UI needs a shape the daemon sends but
 `shared/protocol.ts` lacks, add it there (and `satisfies` it in the route).
 
+**Accessibility.** The UI targets WCAG 2.2 AA; [ACCESSIBILITY.md](ACCESSIBILITY.md) has the
+rules for new UI code and the current status. `ui/eslint.config.js` adds
+`eslint-plugin-jsx-a11y`'s recommended rules (a rule a later task still has to fix is
+`"warn"` with a TODO naming it; `ui/package.json` `overrides` lets it use the UI's ESLint
+10, past its declared peer range), and `npm run test:a11y` scans the routes with axe
+(see tests/ below).
+
 **Shell.** `App.tsx` is the router and the two-column shell (`h-dvh`, so each region
 scrolls itself): the `SideDock` on the left and the center (NavBar + scrollable
 `<main>`), with aligned `h-14` headers. The center is a Tailwind `@container`, so the
@@ -451,7 +458,7 @@ The extension's own detail is in `harnesses/pi/README.md` and `harnesses/pi/docs
 - `scripts/package-macos-menubar.sh`, `generate-icns.swift`, `publish.sh` (bump version, sync generated copies, tag — the tag triggers the release workflow, which publishes to npm), `sync-version.ts`, `sync-shared.ts`, `ci-annotate.py` (failed tests → GitHub annotations).
 - Root `package.json` / `package-lock.json` / `tsconfig.json` — mpt runs on Node.js (>=24) only. `package.json` owns the version and the npm scripts (`dev`, `start`, `mpt`, `check`, `test`, …); in a checkout Node runs the `.ts` sources directly by type stripping. `tsconfig.json` (`npm run typecheck`) checks the daemon/CLI/shared/scripts/tests with `erasableSyntaxOnly`, so the code stays runnable under Node's type stripping (no enums, namespaces, or constructor parameter properties), and as ESM with bundler-style resolution, since `harnesses/pi/` has no package.json `"type"` and `nodenext` would misread it as CommonJS. `harnesses/pi/package.json`'s and the lockfile's versions are `sync-version` copies of `package.json`'s.
 - npm packaging — `npm run build` builds the UI (`ui:ci-build`) and compiles `main.ts`, `agent/`, `cli/`, `daemon/`, `runtime/`, `shared/` (and `plugin/`) to JS in `dist/` with `tsconfig.build.json`, then the `.d.ts` files for the `./plugin` export with `tsconfig.plugin-types.json` (declarations for `plugin/index.ts` and the modules its types come from only); Node won't strip types under `node_modules`, so the package must ship JS. `prepack` runs the build. The package's `bin` is `mpt` → `dist/main.js`; `exports` maps `./plugin` to `dist/plugin/index.js` (`types`: `index.d.ts`), and keeps `./package.json` and every other path (`./*`) reachable as before; `files` ships `dist/`, `ui/dist/` (`ui/.npmignore` stops npm applying `ui/.gitignore`, which excludes it), `harnesses/pi/package.json` + `src/` (what `cli/extension.ts` writes out), README and LICENSE. Runtime asset lookups go through `shared/paths.ts`, so the same code works from the checkout and from `<prefix>/lib/node_modules/my-pizza-team/`.
-- `.github/workflows/ci.yml` runs every gate on Node 24 (`npm ci`): typecheck + fast tests + generated-files check, e2e (with real tmux), the extension's typecheck + tests, and the UI's `tsc -b` + lint. `release.yml` runs on `v*` tags: checks the tag matches `package.json`, runs `npm run check` + `npm test`, installs the `npm pack` tarball into a scratch prefix and checks `mpt setup --dry-run` finds the bundled Pi extension, then `npm publish --provenance` via npm Trusted Publishing (OIDC, no token; skipped when the version is already on npm); a best-effort job builds, signs and notarizes the menu-bar DMG; the GitHub Release carries generated notes, the npm tarball and the DMG — no binaries or checksums.
+- `.github/workflows/ci.yml` runs every gate on Node 24 (`npm ci`): typecheck + fast tests + generated-files check, e2e (with real tmux), the extension's typecheck + tests, and the UI's `tsc -b` + lint (the axe scan, `npm run test:a11y`, isn't in CI yet: it needs a Playwright Chromium). `release.yml` runs on `v*` tags: checks the tag matches `package.json`, runs `npm run check` + `npm test`, installs the `npm pack` tarball into a scratch prefix and checks `mpt setup --dry-run` finds the bundled Pi extension, then `npm publish --provenance` via npm Trusted Publishing (OIDC, no token; skipped when the version is already on npm); a best-effort job builds, signs and notarizes the menu-bar DMG; the GitHub Release carries generated notes, the npm tarball and the DMG — no binaries or checksums.
 
 ### tests/
 
@@ -472,6 +479,14 @@ names the suites were written with, on `node:assert/strict`; `assertEquals` trea
 `node:sqlite`'s null-prototype rows like plain objects), and `tests/_globals.d.ts` gives
 tests `Response.json(): Promise<any>`. The extension's suites are in `harnesses/pi/tests/`
 (`npm run test:ext`).
+
+`tests/a11y/` is the UI's accessibility scan (`npm run test:a11y`, which builds the UI
+first; [ACCESSIBILITY.md](ACCESSIBILITY.md)): `routes.test.ts` starts a sandboxed daemon
+(`tests/e2e/_sandbox.ts`) on a copy of `tests/fixtures/a11y-team`, loads each main route
+— desktop, and `/m` with iPhone emulation — in `playwright-core`'s Chromium and runs
+`@axe-core/playwright` (WCAG 2.0–2.2 A/AA). `_gate.ts` decides what fails: a serious or
+critical violation not in `allowlist.json`, or an allowlist entry that's been fixed
+(unit-tested by `tests/a11y-gate.test.ts` in the fast suite). Both are root devDependencies.
 
 ## Agent Lifecycle
 

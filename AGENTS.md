@@ -50,6 +50,7 @@ my-pizza-team/
 ├── TODO.md                   # Known code issues and deferred work
 ├── docs/
 │   ├── ARCHITECTURE.md       # Internal technical docs (keep updated!)
+│   ├── ACCESSIBILITY.md      # The UI's a11y target, checks, rules and status (keep updated!)
 │   └── DESIGN.md             # Design philosophy (keep updated!)
 ├── daemon/
 │   ├── server.ts             # Route orchestrator
@@ -62,7 +63,8 @@ my-pizza-team/
 │   └── pi/                   # The Pi extension (its own package.json; npm test)
 ├── scripts/                  # publish, macOS app packaging, sync-version
 └── tests/                    # Fast tests (npm test, node:test); tests/e2e/ is the slow suite
-                              #   (npm run test:e2e) — real git, tmux, and shell
+                              #   (npm run test:e2e) — real git, tmux, and shell; tests/a11y/
+                              #   the UI's axe scan (npm run test:a11y)
 ```
 
 ## Development Workflow
@@ -87,9 +89,14 @@ npm test                 # fast suite (node:test)
 npm run test:e2e         # slow suite: real git, tmux, shell
 npm run typecheck:ext    # the Pi extension
 npm run test:ext         # the Pi extension's suites
-(cd ui && npx tsc -b)    # the web UI
+(cd ui && npx tsc -b && npx eslint .)   # the web UI: types, lint (incl. jsx-a11y)
+npm run test:a11y        # axe-core scan of the UI's routes, desktop + phone (builds the UI first)
 npm pack                 # when touching packaging: builds dist/ and the tarball
 ```
+
+UI changes also follow [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md) (WCAG 2.2 AA):
+its rules for new UI code, the a11y allowlist, and a keyboard-only pass over the
+screens you changed.
 
 The extension under `harnesses/pi/` is its own npm package, with its own
 `tsconfig.json`, `package.json`, and suites (run from the root as above). The root

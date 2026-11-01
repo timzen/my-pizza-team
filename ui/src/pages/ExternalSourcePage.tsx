@@ -143,6 +143,7 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
                     {latestStateLabel(def.latestState)}
                   </Badge>
                   {def.url && (
+                    // eslint-disable-next-line jsx-a11y/anchor-has-content -- the <a> is Base UI's render target: it gets the Button's children as its content.
                     <Button variant="ghost" size="sm" render={<a href={def.url} target="_blank" rel="noreferrer" />} title={openInLabel(label)}>
                       <ExternalLink className="h-3.5 w-3.5 mr-1" />{openInLabel(label)}
                     </Button>

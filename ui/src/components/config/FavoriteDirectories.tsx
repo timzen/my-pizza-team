@@ -62,10 +62,11 @@ export function FavoriteDirectories() {
           ))}
         </ul>
         <div className="flex gap-2 items-start">
-          <div className="flex-1" onKeyDown={(e) => e.key === "Enter" && add()}>
+          {/* Catches Enter bubbling up from the input inside; the wrapper itself isn't interactive. */}
+          <div className="flex-1" role="presentation" onKeyDown={(e) => e.key === "Enter" && add()}>
             <DirectoryInput id="favorite-directory" value={draft} onChange={setDraft} placeholder="Add a directory..." />
           </div>
-          <Button variant="outline" size="sm" onClick={add}><Plus className="h-3.5 w-3.5" /></Button>
+          <Button variant="outline" size="sm" onClick={add} aria-label="Add directory"><Plus className="h-3.5 w-3.5" /></Button>
         </div>
         {error && <p className="text-xs text-destructive">{error}</p>}
       </CardContent>

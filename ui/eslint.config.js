@@ -1,7 +1,13 @@
+// eslint.config.js — the web UI's lint rules: JS/TS recommended, React hooks,
+// react-refresh, and jsx-a11y's recommended accessibility rules
+// (docs/ACCESSIBILITY.md). A jsx-a11y rule whose remaining violations need a
+// later task of the accessibility story is downgraded to "warn" — never
+// switched off — with a TODO naming that task, which turns it back to "error".
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import jsxA11y from 'eslint-plugin-jsx-a11y'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
@@ -14,9 +20,21 @@ export default defineConfig([
       tseslint.configs.recommended,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
+      jsxA11y.flatConfigs.recommended,
     ],
     languageOptions: {
       globals: globals.browser,
+    },
+    rules: {
+      // TODO(ui-a11y-foundations-3 "Page structure: titles, landmarks, skip link,
+      // focus, motion"): inline editors and dialogs autofocus their field on open;
+      // decide per case as part of focus management, then back to "error".
+      'jsx-a11y/no-autofocus': 'warn',
+      // TODO(ui-a11y-foundations-3): click-to-edit surfaces (title/markdown fields,
+      // a note's "tap to write", a diff line's comment, a folder's rename) need a
+      // keyboard path of their own; then back to "error".
+      'jsx-a11y/click-events-have-key-events': 'warn',
+      'jsx-a11y/no-static-element-interactions': 'warn',
     },
   },
   {

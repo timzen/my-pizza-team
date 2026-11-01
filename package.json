@@ -40,6 +40,7 @@
     "prepack": "npm run build",
     "test": "node --test --test-concurrency=1 'tests/*.test.ts'",
     "test:e2e": "node --test --test-concurrency=1 'tests/e2e/*.test.ts'",
+    "test:a11y": "npm run ui:build && node --test --test-concurrency=1 'tests/a11y/*.test.ts'",
     "typecheck": "tsc -p tsconfig.json",
     "check": "npm run typecheck && npm run sync-version -- --check && npm run sync-shared -- --check",
     "sync-version": "node scripts/sync-version.ts",
@@ -55,7 +56,9 @@
     "hono": "^4.13.13"
   },
   "devDependencies": {
+    "@axe-core/playwright": "^4.14.0",
     "@types/node": "^24.19.2",
+    "playwright-core": "^1.64.1",
     "typescript": "^6.0.3"
   }
 }

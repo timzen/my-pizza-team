@@ -1,9 +1,14 @@
+/**
+ * label.tsx — the shadcn Label primitive: a styled <label>. Callers associate it
+ * with its control (htmlFor, or by wrapping it).
+ */
 import * as React from "react"
 
 import { cn } from "@/lib/utils"
 
 function Label({ className, ...props }: React.ComponentProps<"label">) {
   return (
+    // eslint-disable-next-line jsx-a11y/label-has-associated-control -- a primitive: the caller passes htmlFor or the wrapped control.
     <label
       data-slot="label"
       className={cn(

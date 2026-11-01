@@ -172,6 +172,7 @@ export function WorkDefDetailPage() {
           {mirror ? mirror.sourceLabel : def.type}
         </Badge>
         {mirror?.url && (
+          // eslint-disable-next-line jsx-a11y/anchor-has-content -- the <a> is Base UI's render target: it gets the Button's children as its content.
           <Button variant="outline" size="sm" render={<a href={mirror.url} target="_blank" rel="noreferrer" />} title={`${mirror.sourceLabel} ${mirror.externalId}`}>
             <ExternalLink className="h-3.5 w-3.5 mr-1" />{openInLabel(mirror.sourceLabel)}
           </Button>

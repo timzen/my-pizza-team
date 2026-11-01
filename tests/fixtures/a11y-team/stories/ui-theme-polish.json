@@ -1,0 +1,13 @@
+{
+  "id": "ui-theme-polish",
+  "title": "Polish the UI Theme",
+  "description": "Refine the todo app's visual theme: color palette, spacing, and typography. This work is gated on a design review, so the story starts pending until a human activates it.",
+  "status": "open",
+  "dependsOn": [],
+  "directory": "__DEMO_PROJECT__",
+  "pending": true,
+  "workflow": "default",
+  "tasks": [
+    { "id": "ui-theme-polish-1", "status": "todo" }
+  ]
+}

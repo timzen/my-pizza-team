@@ -1,0 +1,15 @@
+{
+  "defaultWorkflow": "default",
+  "tmuxSession": "mpt-a11y",
+  "maxTeammates": 2,
+  "agentTimeoutSeconds": 90,
+  "autosave": {
+    "flushIntervalMinutes": 30,
+    "commitIntervalHours": 24,
+    "commitMessage": "mpt-a11y: checkpoint {timestamp}",
+    "autoCommit": false
+  },
+  "teammates": {
+    "nouns": ["ripley", "deckard"]
+  }
+}
