@@ -86,8 +86,12 @@ export function NavBar() {
     }`;
 
   return (
-    <header className="shrink-0 border-b border-border bg-muted">
-      <div className="flex h-14 items-center gap-2 px-3 @2xl:px-4">
+    // The bottom border sits on the h-14 row itself (border-box), so the row is
+    // 56px including it — the same as the SideDock header, so the two borders
+    // line up. Notices below each carry their own bottom border, so the header's
+    // last line is still a border, and the header grows to fit them.
+    <header className="shrink-0 bg-muted">
+      <div className="flex h-14 items-center gap-2 border-b border-border px-3 @2xl:px-4">
         <Link to="/" className="flex shrink-0 items-center gap-3 font-semibold mr-3 @2xl:mr-4" title="Pizza Team">
           <span className="relative">
             <Pizza className="h-5 w-5" />
@@ -145,7 +149,7 @@ export function NavBar() {
         </div>
       </div>
       {(status?.notices ?? []).map((n) => (
-        <div key={n.id} className="flex items-start gap-2 border-t border-border bg-sky-500/5 px-4 py-1.5 text-xs" role="status">
+        <div key={n.id} className="flex items-start gap-2 border-b border-border bg-sky-500/5 px-4 py-1.5 text-xs" role="status">
           <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
           <span className="flex-1">
             {n.message}{" "}
