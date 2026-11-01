@@ -9,8 +9,8 @@ number. Delete an item when it's done.
   `err instanceof Error ? err.message : String(err)` inline, because the Pi
   extension can't import `shared/`. (`ui/src/lib/structural.ts` keeps its own
   `isPlainObject` on purpose: it also rejects non-plain prototypes.)
-- **UI shapes with no protocol type yet:** `GET /api/config` (ConfigPage,
-  WorkflowsPage, WorkflowDetailPage's `ConfigData`), `/api/workflows`, `/api/usage`,
+- **UI shapes with no protocol type yet:** `GET /api/config` (the `ConfigData` in `lib/config-draft.ts`
+  for ConfigPage, and WorkflowsPage's and WorkflowDetailPage's own), `/api/workflows`, `/api/usage`,
   and `/api/spawn-requests` are still typed by local slices in `ui/src/`; add them
   to `shared/protocol.ts`. TaskDetailPage reads a `transitions` map on
   `/api/status` `workflows` that the daemon never sends, so its Move buttons never
