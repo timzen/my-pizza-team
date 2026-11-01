@@ -16,7 +16,8 @@
  * occurrence, with no catch-up (docs/DESIGN.md "Pending schedules: reversible,
  * no catch-up"). "Run now" enqueues a fresh WorkItem (not while the definition is
  * pending; a pending Schedule only stops the cron). Comments live on the ref, not on any
- * individual WorkItem (see docs/DESIGN.md "Comments"). Thread attachments are
+ * individual WorkItem (see docs/DESIGN.md "Comments"). The Thread tab is the
+ * shared `components/RunThread` (also on TaskDetailPage). Thread attachments are
  * clickable (open the diff/file viewer with line-level review) and the composer
  * has an **Attach** button — uploads go to the ref (`/api/work-defs/:id/
  * attachments`), so they work for Solitary and Scheduled work just like board
@@ -37,10 +38,9 @@
  * (docs/DESIGN.md "External sources" — "Triage mode").
  */
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { FeatureOffNotice } from "@/components/FeatureGate";
-import { keyLookup, threadEntryKey } from "@/lib/list-keys";
 import { useApi, apiPut, apiPost, apiDelete } from "@/hooks/useApi";
 import { useProposalDecisions } from "@/hooks/useProposalDecisions";
 import { MirrorTriagePanel } from "@/components/triage/MirrorTriagePanel";
@@ -48,33 +48,28 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
-import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { RunHistory } from "@/components/RunHistory";
+import { RunThread } from "@/components/RunThread";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
-import { FileViewer } from "@/components/viewer/FileViewer";
-import { Save, Trash2, Play, Pause, CalendarClock, Zap, Upload, ExternalLink, FolderSync } from "lucide-react";
+import { Save, Trash2, Play, Pause, CalendarClock, Zap, ExternalLink, FolderSync } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { runCountLabel } from "@/lib/run-count";
-import { commentToneClass } from "@/lib/retry";
-import { externalCommentLabel, isTriageMode, mirroredDefHomePath, newestFirst, openInLabel, readOnlyHint } from "@/lib/external-sources";
+import { isTriageMode, mirroredDefHomePath, openInLabel, readOnlyHint } from "@/lib/external-sources";
 import { mirrorTriageNowBlocked, type WorkDefTriageView } from "@/lib/triage";
 import type { Comment } from "@shared/types";
-import type { AttachmentView, ScheduleView, WorkDefView } from "@shared/protocol";
+import type { ScheduleView, WorkDefView } from "@shared/protocol";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
-type Attachment = AttachmentView;
 
 export function WorkDefDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, refetch, error: loadError } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/work-defs/${id}/comments`, [id], { pollInterval: 10_000 });
-  const { data: attachData, refetch: refetchAttachments } = useApi<{ attachments: Attachment[] }>(`/api/work-defs/${id}/attachments`, [id]);
   const def = data?.workDef;
   // Cron lives on the parent Schedule, not the WorkDef.
   const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
@@ -82,7 +77,6 @@ export function WorkDefDetailPage() {
 
   const [cron, setCron] = useState("");
   const [error, setError] = useState("");
-  const [newComment, setNewComment] = useState("");
   // A triage-mode mirror's page leads with (and defaults to) its Triage tab.
   const triageMode = isTriageMode(def?.mirror);
   const [tab, setTab] = useDetailTab(triageMode ? "triage" : "details", triageMode);
@@ -93,9 +87,6 @@ export function WorkDefDetailPage() {
     (proposalId, action) => `/api/work-defs/${encodeURIComponent(id ?? "")}/triage/proposals/${encodeURIComponent(proposalId)}/${action}`,
     () => { refetchTriage(); refetchComments(); },
   );
-  const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
-  const [uploading, setUploading] = useState(false);
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Seed cron once its parent Schedule loads.
   const [seededCron, setSeededCron] = useState<string | null>(null);
@@ -160,57 +151,7 @@ export function WorkDefDetailPage() {
     navigate(backTo, { replace: true });
   };
 
-  const addComment = async () => {
-    const b = newComment.trim();
-    if (!b) return;
-    await apiPost(`/api/work-defs/${def.id}/comment`, { from: "you", body: b });
-    setNewComment("");
-    refetchComments();
-  };
-
-  const attachments = attachData?.attachments || [];
-  const openFileByName = (displayName: string) => {
-    const att = attachments.find(a => a.name === displayName);
-    if (att) setViewerFile({ storedName: att.storedName, displayName: att.name });
-  };
-  const handleReviewSubmitted = () => {
-    refetchComments();
-    refetchAttachments();
-  };
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-    setUploading(true);
-    try {
-      const isBinary = file.type.startsWith("image/") || file.type === "application/octet-stream";
-      let content: string;
-      let encoding: string | undefined;
-      if (isBinary) {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-        content = btoa(binary);
-        encoding = "base64";
-      } else {
-        content = await file.text();
-      }
-      await apiPost(`/api/work-defs/${def.id}/attachments`, { name: file.name, content, encoding });
-      refetchAttachments();
-    } catch {
-      // silently fail
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
-  };
-
   const comments = commentsData?.comments || [];
-  // Newest first: the run thread's most recent outcome should be at the top.
-  // By each comment's own time, not file order: a comment pulled from the
-  // source is appended at sync time but dated when it was written there.
-  const threadComments = newestFirst(comments);
-  const commentKey = keyLookup(comments, threadEntryKey);
 
   return (
     // Fixed header (DetailPageLayout): its width depends only on whether the
@@ -285,66 +226,17 @@ export function WorkDefDetailPage() {
       </div>
       )}
 
-      {/* Run thread — completion summaries and human notes, newest first. */}
-      {tab === "thread" && (
-      <div className="space-y-3">
-        <div className="flex items-center justify-end">
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <Upload className="h-3.5 w-3.5 mr-1" />{uploading ? "Uploading…" : "Attach"}
-          </Button>
-        </div>
-        {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
-        {/* Newest first, so an index key would shift every row when a comment
-            lands; key by author + time instead (lib/list-keys.ts). */}
-        {threadComments.map((c) => (
-          <div key={commentKey(c)} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="flex items-center gap-1.5">
-                <span className="text-xs font-medium">{c.from}</span>
-                {c.external && (
-                  <Badge variant="outline" className="text-[10px]" title={`From ${mirror?.sourceLabel ?? c.external.source}${c.external.channel ? ` (${c.external.channel})` : ""} — not sent back`}>
-                    {externalCommentLabel(c.external, mirror?.sourceLabel)}
-                  </Badge>
-                )}
-              </span>
-              <span className="text-xs text-muted-foreground">{new Date(c.at).toLocaleString()}</span>
-            </div>
-            <MarkdownView content={c.body} />
-            {c.attachments && c.attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {c.attachments.map(a => (
-                  <Badge
-                    key={a.name}
-                    variant="secondary"
-                    className="text-[10px] font-mono cursor-pointer hover:bg-accent"
-                    onClick={() => openFileByName(a.name)}
-                  >
-                    📎 {a.name}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-        <div className="flex gap-2">
-          <Textarea value={newComment} onChange={e => setNewComment(e.target.value)} rows={2} placeholder="Add a note…" className="flex-1 resize-none" />
-          <Button className="self-end" onClick={addComment} disabled={!newComment.trim()}>Post</Button>
-        </div>
-      </div>
-      )}
-
-      {/* File Viewer Modal (diff review with line comments) */}
-      {viewerFile && (
-        <FileViewer
-          open={!!viewerFile}
-          onClose={() => setViewerFile(null)}
-          workDefId={def.id}
-          storedName={viewerFile.storedName}
-          displayName={viewerFile.displayName}
-          onReviewSubmitted={handleReviewSubmitted}
-        />
-      )}
+      {/* Run thread — completion summaries and human notes, newest first;
+          sorted by each comment's own time, with pulled comments badged. */}
+      <RunThread
+        workDefId={def.id}
+        comments={comments}
+        onCommentsChanged={refetchComments}
+        visible={tab === "thread"}
+        author="you"
+        trimBody
+        external={{ sourceLabel: mirror?.sourceLabel }}
+      />
     </DetailPageLayout>
   );
 }

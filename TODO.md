@@ -15,6 +15,12 @@ number. Delete an item when it's done.
   to `shared/protocol.ts`. TaskDetailPage reads a `transitions` map on
   `/api/status` `workflows` that the daemon never sends, so its Move buttons never
   render — remove or implement them.
+- **RunThread composer differences:** `components/RunThread.tsx` keeps each
+  page's historical composer: a board task posts as `lead`, untrimmed, with
+  ⌘+Enter; a WorkDef page posts as `you`, trimmed, without the shortcut
+  (`author`, `trimBody`, `sendOnCmdEnter`). A board task's thread also keeps the
+  stored order reversed rather than `newestFirst`. Unify when a behavior change
+  is acceptable.
 - **Extension views of non-agent routes:** `harnesses/pi/src/runtime/client.ts` still
   declares the fields its tools read from stories, thoughts, personas, workflows and
   WorkDefs (`PersonaSummary`, `Thought`, `WorkDefSummary`, `CreateStoryResponse`, …)

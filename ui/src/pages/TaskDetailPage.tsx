@@ -17,34 +17,30 @@
  * (docs/DESIGN.md "Pending: Write, Review, Activate").
  *
  * Comments live on the WorkDef's ref (same comments.jsonl the agents append
- * completion summaries to). Attachments remain clickable — opening the diff/
- * file viewer with line-level review. The header's run-count badge
+ * completion summaries to). The Thread tab is the shared `components/RunThread`
+ * (attachments stay clickable — opening the diff/file viewer with line-level
+ * review). The header's run-count badge
  * (`executionCount`) counts this task's WorkItems, rework runs included
  * (docs/DESIGN.md "Execution Count: Derived, not Counted").
  */
 
-import { useState, useRef } from "react";
+import { useState } from "react";
 import { useParams, Link, useNavigate } from "react-router-dom";
-import { keyLookup, threadEntryKey } from "@/lib/list-keys";
 import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { Textarea } from "@/components/ui/textarea";
-import { MarkdownView } from "@/components/ui/markdown-view";
 import { WorkDefDefinition, PendingBadge } from "@/components/WorkDefDefinition";
 import { RunHistory } from "@/components/RunHistory";
+import { RunThread } from "@/components/RunThread";
 import { runCountLabel } from "@/lib/run-count";
 import { DetailTabBar, useDetailTab } from "@/components/ui/detail-tabs";
 import { DetailPageLayout, DetailPageMessage } from "@/components/TabbedPageLayout";
-import { Trash2, Upload } from "lucide-react";
+import { Trash2 } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
-import { FileViewer } from "@/components/viewer/FileViewer";
-import { commentToneClass } from "@/lib/retry";
 import type { Comment } from "@shared/types";
-import type { AttachmentView, StoryView, WorkDefView } from "@shared/protocol";
+import type { StoryView, WorkDefView } from "@shared/protocol";
 
 type WorkDef = WorkDefView;
-type Attachment = AttachmentView;
 
 interface StatusData {
   defaultWorkflow: string;
@@ -60,25 +56,13 @@ export function TaskDetailPage() {
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(
     `/api/work-defs/${encodeURIComponent(taskId || "")}/comments`, [], { pollInterval: 5000 }
   );
-  const { data: attachData, refetch: refetchAttachments } = useApi<{ attachments: Attachment[] }>(
-    `/api/work-defs/${encodeURIComponent(taskId || "")}/attachments`
-  );
 
   const def = defData?.workDef;
   const story = storiesData?.stories.find(s => s.id === storyId);
   const task = story?.tasks.find(t => t.id === taskId);
   const comments = commentsData?.comments || [];
-  // Newest first: the run thread's most recent outcome should be at the top
-  // (comments are stored oldest-first).
-  const threadComments = [...comments].reverse();
-  const commentKey = keyLookup(comments, threadEntryKey);
-  const attachments = attachData?.attachments || [];
 
-  const [newComment, setNewComment] = useState("");
-  const [viewerFile, setViewerFile] = useState<{ storedName: string; displayName: string } | null>(null);
-  const [uploading, setUploading] = useState(false);
   const [tab, setTab] = useDetailTab();
-  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [editError, setEditError] = useState("");
 
@@ -110,51 +94,6 @@ export function TaskDetailPage() {
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
     if (res.success) navigate("/work/board", { replace: true });
     else setEditError(res.error || "Failed to delete");
-  };
-
-  const sendComment = async () => {
-    if (!newComment.trim() || !taskId) return;
-    await apiPost(`/api/work-defs/${encodeURIComponent(taskId)}/comment`, { from: "lead", body: newComment });
-    setNewComment("");
-    refetchComments();
-  };
-
-  const openFileByName = (displayName: string) => {
-    const att = attachments.find(a => a.name === displayName);
-    if (att) setViewerFile({ storedName: att.storedName, displayName: att.name });
-  };
-
-  const handleReviewSubmitted = () => {
-    refetchComments();
-    refetchAttachments();
-  };
-
-  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (!file || !taskId) return;
-    setUploading(true);
-    try {
-      const isBinary = file.type.startsWith("image/") || file.type === "application/octet-stream";
-      let content: string;
-      let encoding: string | undefined;
-      if (isBinary) {
-        const buffer = await file.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = "";
-        for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]!);
-        content = btoa(binary);
-        encoding = "base64";
-      } else {
-        content = await file.text();
-      }
-      await apiPost(`/api/work-defs/${encodeURIComponent(taskId)}/attachments`, { name: file.name, content, encoding });
-      refetchAttachments();
-    } catch {
-      // silently fail
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = "";
-    }
   };
 
   if (!def || !task) {
@@ -223,65 +162,14 @@ export function TaskDetailPage() {
 
       {/* Run thread — human notes, agent completion summaries, and attachments,
           newest first. */}
-      {tab === "thread" && (
-      <div className="space-y-3">
-        <div className="flex items-center justify-end">
-          <input ref={fileInputRef} type="file" className="hidden" onChange={handleFileUpload} />
-          <Button variant="outline" size="sm" onClick={() => fileInputRef.current?.click()} disabled={uploading}>
-            <Upload className="h-3.5 w-3.5 mr-1" />{uploading ? "Uploading…" : "Attach"}
-          </Button>
-        </div>
-        {threadComments.length === 0 && <p className="text-sm text-muted-foreground">No comments yet. Completion summaries appear here after each run.</p>}
-        {/* Newest first, so an index key would shift every row when a comment
-            lands; key by author + time instead (lib/list-keys.ts). */}
-        {threadComments.map((c) => (
-          <div key={commentKey(c)} className={`rounded-md border p-3 ${commentToneClass(c.body)}`}>
-            <div className="flex items-center justify-between mb-1">
-              <span className="text-xs font-medium">{c.from}</span>
-              <span className="text-xs text-muted-foreground">{new Date(c.at).toLocaleString()}</span>
-            </div>
-            <MarkdownView content={c.body} />
-            {c.attachments && c.attachments.length > 0 && (
-              <div className="flex flex-wrap gap-1 mt-2">
-                {c.attachments.map(a => (
-                  <Badge
-                    key={a.name}
-                    variant="secondary"
-                    className="text-[10px] font-mono cursor-pointer hover:bg-accent"
-                    onClick={() => openFileByName(a.name)}
-                  >
-                    📎 {a.name}
-                  </Badge>
-                ))}
-              </div>
-            )}
-          </div>
-        ))}
-        <div className="flex gap-2">
-          <Textarea
-            value={newComment}
-            onChange={e => setNewComment(e.target.value)}
-            rows={2}
-            placeholder="Add a note… (⌘+Enter to send)"
-            className="flex-1 resize-none"
-            onKeyDown={e => { if (e.key === "Enter" && e.metaKey) sendComment(); }}
-          />
-          <Button className="self-end" onClick={sendComment} disabled={!newComment.trim()}>Post</Button>
-        </div>
-      </div>
-      )}
-
-      {/* File Viewer Modal (diff review with line comments) */}
-      {viewerFile && taskId && (
-        <FileViewer
-          open={!!viewerFile}
-          onClose={() => setViewerFile(null)}
-          workDefId={taskId}
-          storedName={viewerFile.storedName}
-          displayName={viewerFile.displayName}
-          onReviewSubmitted={handleReviewSubmitted}
-        />
-      )}
+      <RunThread
+        workDefId={def.id}
+        comments={comments}
+        onCommentsChanged={refetchComments}
+        visible={tab === "thread"}
+        author="lead"
+        sendOnCmdEnter
+      />
     </DetailPageLayout>
   );
 }
