@@ -42,7 +42,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
-import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
+import type { PluginLoadStatus, SourcesResponse } from "../shared/protocol.ts";
 import type { PackageEntry } from "../shared/types.ts";
 import { readTeamConfigFile, saveTeamConfig, teamConfigPath } from "../shared/team-config.ts";
 import { packageInstallDir, readPackagePersonaFiles, readPluginManifest } from "../daemon/plugins/loader.ts";
@@ -510,15 +510,15 @@ function fallbackOf(u: PersonaUsage): string {
 
 // --- the real side effects ---
 
-/** `GET /api/work-sources` `plugins` from the daemon at `daemonUrl`, or null when it can't be reached. */
+/** `GET /api/sources` `plugins` from the daemon at `daemonUrl`, or null when it can't be reached. */
 export async function fetchPluginStatuses(daemonUrl: string, token: string | null): Promise<PluginLoadStatus[] | null> {
   try {
-    const res = await fetch(`${daemonUrl}/api/work-sources`, {
+    const res = await fetch(`${daemonUrl}/api/sources`, {
       signal: AbortSignal.timeout(1500),
       headers: token ? { Authorization: `Bearer ${token}` } : {},
     });
     if (!res.ok) return null;
-    return (await res.json() as Partial<WorkSourcesResponse>).plugins ?? null;
+    return (await res.json() as Partial<SourcesResponse>).plugins ?? null;
   } catch {
     return null;
   }

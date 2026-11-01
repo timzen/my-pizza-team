@@ -48,11 +48,19 @@ const BUILTIN_FEATURE_OWNERS: Readonly<Record<string, string>> = { stories: "sto
 
 /**
  * The toggle an external source gets when it declares none: its id as the
- * feature name (`features.<id>`), gating its read-only routes. The default
+ * feature name (`features.<id>`), gating its read-only routes
+ * (`/api/sources/<id>/defs` and `/sync`, and their deprecated
+ * `/api/work-sources/...` aliases; daemon/routes/sources.ts). The default
  * `activeItems` (its non-archived mirrors) applies.
  */
 export function defaultExternalToggle(sourceId: string): SourceToggle {
-  return { feature: sourceId, routes: [`/api/work-sources/${sourceId}/defs`, `/api/work-sources/${sourceId}/sync`] };
+  return {
+    feature: sourceId,
+    routes: [
+      `/api/sources/${sourceId}/defs`, `/api/sources/${sourceId}/sync`,
+      `/api/work-sources/${sourceId}/defs`, `/api/work-sources/${sourceId}/sync`,
+    ],
+  };
 }
 
 /** A source's effective toggle: its own; else the default for an external source; `null` opts out. */

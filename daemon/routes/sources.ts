@@ -1,7 +1,10 @@
 /**
- * daemon/routes/sources.ts — Manage each Work Source's settings live: the
- * Config page's **Sources** tab. See docs/DESIGN.md "Plugin settings:
- * configSchema and preview" and docs/ARCHITECTURE.md "Plugin packages".
+ * daemon/routes/sources.ts — The Work Source resource: every source's
+ * settings, personas and sync status (the Config page's **Sources** tab), the
+ * plugin packages' load status, and the generic read-only view of what each
+ * external (pull-only) source mirrors. See docs/DESIGN.md "Plugin settings:
+ * configSchema and preview", "Work Sources: WorkDef Kinds as Plugins"
+ * (external sources) and docs/ARCHITECTURE.md "Plugin packages".
  *
  *   GET  /api/sources              — every registered source: id, label, kind
  *                                    (built-in / plugin / external), package, mode,
@@ -9,7 +12,9 @@
  *                                    redacted; env-var refs by name + whether set),
  *                                    init error (or persona problem), personas (the
  *                                    team's setting + the source's declaration),
- *                                    sync health, active mirror count
+ *                                    sync health, active mirror count; and `plugins`:
+ *                                    each plugin package's load status
+ *                                    (daemon/plugins/loader.ts)
  *   POST /api/sources/:id/preview  — `{ options }`: validate (400 + fieldErrors),
  *                                    then what a sync with them would report —
  *                                    nothing mirrored, enqueued, or persisted.
@@ -26,10 +31,33 @@
  *                                    personas"). Validated against the library; never
  *                                    re-inits the source (it isn't the plugin's setting)
  *                                    — a changed triage persona just syncs it now
+ *   GET  /api/sources/:id/defs     — an external source's mirrored defs: title,
+ *                                    external link, last revision, latest WorkItem
+ *                                    state, run count, mode ("triage" for a triage-mode
+ *                                    item) and, for those, `triageBadge` (the latest
+ *                                    analysis's badge)
+ *   POST /api/sources/:id/sync     — sync an external source now (ignores a failure
+ *                                    backoff; 409 `skipped: "disabled"` while it's off)
+ *   POST /api/sources/:id/disconnect — switch an external source off *and* archive
+ *                                    its mirrors (daemon/features.ts `disconnectSource`)
  *
- * The same admin surface as `PUT /api/config`: behind the daemon's API token
- * when one is set (daemon/auth.ts), and not feature-gated — a switched-off
- * source can still be configured and previewed before it's switched on.
+ * **Deprecated alias.** `/api/work-sources` (the old external-source list,
+ * `{ sources: ExternalSourceView[], plugins }`) and `/api/work-sources/:id/defs
+ * | sync | disconnect` still answer, with the same handlers, so an older CLI or
+ * script keeps working for a release; remove them with the other legacy compat
+ * (TODO.md "Code health").
+ *
+ * A mirrored def's detail and thread are the ordinary `/api/work-defs/:id`
+ * routes (edit/delete refused there). `/defs` and `/sync` are feature-gated: an
+ * external source gets a toggle by default (`features.<id>`;
+ * daemon/sources/registry.ts `defaultExternalToggle`), which 403s them while
+ * it's off. The list and `disconnect` stay open, so the UI can still name it
+ * and finish a disconnect.
+ *
+ * The settings routes (preview / config / persona) are the same admin surface
+ * as `PUT /api/config`: behind the daemon's API token when one is set
+ * (daemon/auth.ts), and not feature-gated — a switched-off source can still be
+ * configured and previewed before it's switched on.
  *
  * **Where a Save goes.** Always the team's own config.json — the file the
  * daemon read at startup. The daemon reads nothing else: a demo team's
@@ -44,9 +72,10 @@ import type { Context } from "hono";
 import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type {
-  PluginLoadStatus, SourceConfigResponse, SourcePersonaRequest, SourcePersonaResponse, SourcePreviewResponse, SourcesResponse, SourceView,
+  DisconnectSourceResponse, ExternalSourceView, MirroredDefRow, MirroredDefsResponse, MirrorView, PluginLoadStatus, SourceConfigResponse,
+  SourcePersonaRequest, SourcePersonaResponse, SourcePreviewResponse, SourcesResponse, SourceView, WorkSourcesResponse,
 } from "../../shared/protocol.ts";
-import type { PackageEntry, TeamConfig } from "../../shared/types.ts";
+import type { PackageEntry, TeamConfig, WorkDef } from "../../shared/types.ts";
 import { readTeamConfigFile } from "../../shared/team-config.ts";
 import type { Store } from "../store.ts";
 import { type SourceEntry, sourceIdForWorkDef, TASK_SOURCE_ID } from "../sources/registry.ts";
@@ -60,6 +89,7 @@ import {
 import { previewSource } from "../sources/preview.ts";
 import { restoreRedacted, setPackageEntryConfig, viewSettings } from "../sources/settings.ts";
 import { parsePackageEntries } from "../plugins/spec.ts";
+import { disconnectSource } from "../features.ts";
 import { isPlainObject } from "../../shared/util.ts";
 
 /** The sources the Store registers itself (daemon/store.ts constructor). */
@@ -67,6 +97,38 @@ const BUILT_IN_SOURCE_IDS: ReadonlySet<string> = new Set([TASK_SOURCE_ID, STORY_
 
 /** After a preview finishes, the next one for the same source waits this long (429 until then). */
 export const PREVIEW_COOLDOWN_MS = 1_000;
+
+/** A source's display name: its `label`, else its id (also for one no longer registered). */
+export function sourceLabel(store: Store, sourceId: string): string {
+  return store.listExternalSources().find((e) => e.source.id === sourceId)?.source.label ?? sourceId;
+}
+
+/** The registered external sources, for `/api/status` and the UI's tabs. */
+export function externalSourceViews(store: Store): ExternalSourceView[] {
+  return store.listExternalSources().map(({ source, toggle }) => ({
+    id: source.id, label: source.label ?? source.id, ...(toggle ? { feature: toggle.feature } : {}),
+  }));
+}
+
+/** A mirrored def's provenance (WorkDefView.mirror), or undefined for any other def. */
+export function mirrorView(store: Store, def: WorkDef): MirrorView | undefined {
+  if (def.parent?.kind !== "external") return undefined;
+  const sourceId = sourceIdForWorkDef(def);
+  const { revision, vanished, mode, personaOverride } = store.getMirrorState(def);
+  return {
+    sourceId, sourceLabel: sourceLabel(store, sourceId), externalId: def.parent.id, url: def.url, revision, vanished, mode,
+    ...(personaOverride ? { personaOverride } : {}),
+  };
+}
+
+/**
+ * Why MPT refuses to edit/delete/create a mirrored def: it's pull only, so the
+ * change belongs in the external system (and the next sync brings it here).
+ */
+export function mirroredReadOnlyError(label: string): string {
+  return `This WorkDef is mirrored from ${label}, which is pull only: MPT never edits, deletes, or creates it. ` +
+    `Change it in ${label} and the next sync updates it here. Comments and attachments on its thread still work.`;
+}
 
 /** The plugin package a source came from (its load status), if any. */
 function packageOf(store: Store, sourceId: string): PluginLoadStatus | undefined {
@@ -127,6 +189,10 @@ function packagesOnDisk(teamDir: string, config: TeamConfig): PackageEntry[] | u
   return config.packages;
 }
 
+/**
+ * Register the Work Source resource (`/api/sources`, see the header) and its
+ * deprecated `/api/work-sources` alias.
+ */
 export function registerSourceRoutes(ctx: RouteContext): void {
   const { app, store, config, teamDir } = ctx;
 
@@ -142,7 +208,62 @@ export function registerSourceRoutes(ctx: RouteContext): void {
     return isPlainObject(body) && isPlainObject(body.options) ? body.options : null;
   };
 
-  app.get("/api/sources", (c) => c.json({ sources: store.listWorkSources().map((e) => sourceView(store, config, e)) } satisfies SourcesResponse));
+  app.get("/api/sources", (c) => c.json({
+    sources: store.listWorkSources().map((e) => sourceView(store, config, e)),
+    plugins: store.getPluginStatuses(),
+  } satisfies SourcesResponse));
+
+  // ─── External sources: mirrored defs, sync, disconnect ───────────
+
+  const listMirroredDefs = (c: Context) => {
+    const id = c.req.param("id")!;
+    const source = externalSourceViews(store).find((s) => s.id === id);
+    if (!source) return fail(c, 404, `No external source "${id}"`);
+    const status = c.req.query("status");
+    const stats = store.getExecutionStats();
+    const defs: MirroredDefRow[] = store.getWorkDefs(status === "all" ? undefined : status === "archived" ? "archived" : "active")
+      .filter((d) => d.parent?.kind === "external" && sourceIdForWorkDef(d) === id)
+      .map((d) => {
+        const exec = stats.get(d.id) ?? { executionCount: 0, lastRunAt: null };
+        const mirror = store.getMirrorState(d);
+        return {
+          id: d.id, title: d.title, externalId: d.parent!.id, url: d.url,
+          revision: mirror.revision, mode: mirror.mode,
+          status: d.status === "archived" ? "archived" : "active",
+          latestState: store.getLatestWorkItemState(d.id),
+          runCount: exec.executionCount, lastRunAt: exec.lastRunAt,
+          ...(mirror.mode === "triage" ? { triageBadge: store.getTriageThread(d.id).badge } : {}),
+        };
+      });
+    return c.json({ source, defs } satisfies MirroredDefsResponse);
+  };
+
+  const syncNow = async (c: Context) => {
+    const id = c.req.param("id")!;
+    if (!externalSourceViews(store).some((s) => s.id === id)) return fail(c, 404, `No external source "${id}"`);
+    const outcome = await store.syncWorkSource(id, { force: true });
+    return c.json({ success: outcome.ok, ...outcome }, outcome.ok ? 200 : outcome.skipped ? 409 : 502);
+  };
+
+  // Disconnect: the explicit opt-in past the turn-off guard's 409 — switch the
+  // source off, archive (never delete) its mirrors, cancel their READY items;
+  // in-flight ones finish. Saved to config.json like a Config-page save.
+  const disconnect = (c: Context) => {
+    const result = disconnectSource(config, store, c.req.param("id")!);
+    if ("error" in result) return fail(c, result.status, result.error);
+    store.saveConfig();
+    return c.json({ success: true, ...result } satisfies DisconnectSourceResponse);
+  };
+
+  for (const base of ["/api/sources", "/api/work-sources"]) {
+    app.get(`${base}/:id/defs`, listMirroredDefs);
+    app.post(`${base}/:id/sync`, syncNow);
+    app.post(`${base}/:id/disconnect`, disconnect);
+  }
+  // Deprecated alias (see the header): the old list shape, external sources only.
+  app.get("/api/work-sources", (c) => c.json({ sources: externalSourceViews(store), plugins: store.getPluginStatuses() } satisfies WorkSourcesResponse));
+
+  // ─── Settings: preview, persona, config ──────────────────────────
 
   app.post("/api/sources/:id/preview", async (c) => {
     const id = c.req.param("id");

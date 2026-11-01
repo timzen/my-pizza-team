@@ -27,6 +27,7 @@ import { SyncRunner } from "../daemon/sources/sync.ts";
 import { fileSourceKv } from "../daemon/store/source-kv.ts";
 import type { ExternalDef, SourceContext, WorkSource } from "../daemon/sources/types.ts";
 import { isMirroredWorkDef, workDefType } from "../shared/types.ts";
+import type { SourcesResponse, WorkSourcesResponse } from "../shared/protocol.ts";
 
 interface Env extends Team {
   folder: string;
@@ -388,7 +389,7 @@ test("routes: a mirrored def can't be edited, deleted, or created — its thread
   }
 });
 
-test("routes: /api/work-sources lists external sources and their mirrored defs; /api/status reports them", async () => {
+test("routes: /api/sources lists external sources and their mirrored defs; /api/status reports them", async () => {
   const env = setup();
   try {
     const { store, folder } = env;
@@ -397,7 +398,7 @@ test("routes: /api/work-sources lists external sources and their mirrored defs; 
     const app = buildApp(store, TEST_CONFIG, env.teamDir);
 
     // Manual sync route.
-    const synced = await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/sync`, { method: "POST" });
+    const synced = await app.request(`/api/sources/${FIXTURE_SOURCE_ID}/sync`, { method: "POST" });
     assertEquals(synced.status, 200);
     assertEquals((await synced.json()).enqueued.length, 2);
     const id1 = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1");
@@ -406,12 +407,13 @@ test("routes: /api/work-sources lists external sources and their mirrored defs; 
     store.claimWorkItem(item.id, "a1");
     store.setWorkItemState(item.id, "COMPLETE");
 
-    const list = await (await app.request("/api/work-sources")).json();
-    assertEquals(list.sources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker", feature: FIXTURE_SOURCE_ID }]);
+    const list = await (await app.request("/api/sources")).json() as SourcesResponse;
+    assertEquals(list.sources.filter((v) => v.syncs).map((v) => [v.id, v.label, v.kind, v.toggle?.feature]),
+      [[FIXTURE_SOURCE_ID, "Fixture Tracker", "external", FIXTURE_SOURCE_ID]]);
     const status = await (await app.request("/api/status")).json();
     assertEquals(status.externalSources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker", feature: FIXTURE_SOURCE_ID }]);
 
-    const defs = await (await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/defs`)).json();
+    const defs = await (await app.request(`/api/sources/${FIXTURE_SOURCE_ID}/defs`)).json();
     assertEquals(defs.source.label, "Fixture Tracker");
     const row = defs.defs.find((d: { id: string }) => d.id === id1);
     assertEquals(row.title, "Thing one");
@@ -422,7 +424,7 @@ test("routes: /api/work-sources lists external sources and their mirrored defs; 
     assert(row.revision);
     assertEquals(defs.defs.find((d: { id: string }) => d.id !== id1).latestState, "READY");
 
-    assertEquals((await app.request("/api/work-sources/nope/defs")).status, 404);
+    assertEquals((await app.request("/api/sources/nope/defs")).status, 404);
   } finally {
     env.cleanup();
   }
@@ -433,9 +435,29 @@ test("routes: with no external source registered, none is reported", async () =>
   try {
     const app = buildApp(store, TEST_CONFIG, teamDir);
     assertEquals((await (await app.request("/api/status")).json()).externalSources, []);
-    assertEquals((await (await app.request("/api/work-sources")).json()).sources, []);
+    assertEquals(((await (await app.request("/api/sources")).json()) as SourcesResponse).sources.filter((v) => v.syncs), []);
   } finally {
     cleanup();
+  }
+});
+
+test("routes: the deprecated /api/work-sources alias keeps its old shape and sub-routes", async () => {
+  const env = setup();
+  try {
+    const { store, folder } = env;
+    writeItem(folder, "T-1", "Thing one", "a");
+    // A copy: disconnect switches the source off in the config it's given.
+    const app = buildApp(store, structuredClone(TEST_CONFIG), env.teamDir);
+    assertEquals((await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/sync`, { method: "POST" })).status, 200);
+    const list = await (await app.request("/api/work-sources")).json() as WorkSourcesResponse;
+    assertEquals(list.sources, [{ id: FIXTURE_SOURCE_ID, label: "Fixture Tracker", feature: FIXTURE_SOURCE_ID }]);
+    assert(Array.isArray(list.plugins));
+    const defs = await (await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/defs`)).json();
+    assertEquals(defs.defs.map((d: { externalId: string }) => d.externalId), ["T-1"]);
+    assertEquals((await app.request("/api/work-sources/nope/defs")).status, 404);
+    assertEquals((await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/disconnect`, { method: "POST" })).status, 200);
+  } finally {
+    env.cleanup();
   }
 });
 

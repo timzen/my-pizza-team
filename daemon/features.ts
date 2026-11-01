@@ -19,7 +19,7 @@
  *   - `resolveFeaturesUpdate` validates a `PUT /api/config` `features` value and
  *     refuses to switch a kind off while it still has active (non-archived) items.
  *   - `disconnectSource` is the one exception, for external sources only
- *     (`POST /api/work-sources/:id/disconnect`): switch it off *and* archive its
+ *     (`POST /api/sources/:id/disconnect`): switch it off *and* archive its
  *     mirrors, as one explicit step.
  *
  * Deliberately **not** gated: the WorkItem queue and Inbox (`/api/work-items`),
@@ -304,7 +304,7 @@ export function resolveFeaturesUpdate(
       // owns them), so name the explicit opt-in that archives them for you.
       const t = toggleableSources(store).find((x) => x.toggle.feature === name)!;
       const hint = typeof t.entry.source.sync === "function"
-        ? ` (or disconnect it: POST /api/work-sources/${t.entry.source.id}/disconnect switches it off and archives them)`
+        ? ` (or disconnect it: POST /api/sources/${t.entry.source.id}/disconnect switches it off and archives them)`
         : "";
       return { error: `Can't turn off ${name}: archive or delete ${active.description} first${hint}`, status: 409 };
     }

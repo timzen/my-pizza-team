@@ -422,7 +422,7 @@ export class Store {
 
   /**
    * How each plugin package fared at startup (daemon/plugins/loader.ts records
-   * it once, after loading; `GET /api/work-sources` and `mpt doctor` read it).
+   * it once, after loading; `GET /api/sources` and `mpt doctor` read it).
    */
   private pluginStatuses: PluginLoadStatus[] = [];
 

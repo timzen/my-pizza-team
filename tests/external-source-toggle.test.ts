@@ -7,7 +7,7 @@
  * sync loop, ticks, and `ctx.upsertDef`/`enqueue` doing nothing while a source
  * is off (and an in-flight sync's result dropped); switching it back on syncing
  * at once; the 409 guard without the opt-in; and `POST
- * /api/work-sources/:id/disconnect` archiving mirrors, canceling READY items,
+ * /api/sources/:id/disconnect` archiving mirrors, canceling READY items,
  * leaving IN_PROGRESS ones, and restoring the mirrors when switched back on.
  */
 
@@ -122,10 +122,13 @@ test("a switched-off external source isn't synced (even forced), and its routes 
     assertEquals(outcome.ok, false);
     assertEquals(outcome.skipped, "disabled");
     assertEquals(env.store.getWorkDef(mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1")), null);
+    assertEquals((await env.app.request(`/api/sources/${FIXTURE_SOURCE_ID}/sync`, postReq)).status, 403);
+    assertEquals((await env.app.request(`/api/sources/${FIXTURE_SOURCE_ID}/defs`)).status, 403);
+    // The list still names it, so the UI can explain it's off.
+    assertEquals((await (await env.app.request("/api/sources")).json()).sources.filter((v: { syncs: boolean }) => v.syncs).length, 1);
+    // ...and the deprecated /api/work-sources aliases are gated the same way.
     assertEquals((await env.app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/sync`, postReq)).status, 403);
     assertEquals((await env.app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/defs`)).status, 403);
-    // The list still names it, so the UI can explain it's off.
-    assertEquals((await (await env.app.request("/api/work-sources")).json()).sources.length, 1);
   } finally { env.cleanup(); }
 });
 
@@ -192,7 +195,7 @@ test("switching off an external source with mirrors is 409 without the opt-in, n
     assertEquals(res.status, 409);
     const { error } = await res.json();
     assertStringIncludes(error, `Can't turn off ${FIXTURE_SOURCE_ID}: archive or delete 1 item first`);
-    assertStringIncludes(error, `POST /api/work-sources/${FIXTURE_SOURCE_ID}/disconnect`);
+    assertStringIncludes(error, `POST /api/sources/${FIXTURE_SOURCE_ID}/disconnect`);
     assertEquals(env.config.features?.[FIXTURE_SOURCE_ID as keyof FeaturesConfig], undefined);
     // A built-in's message is exactly as before.
     env.store.createStory("s1", "S", "");
@@ -217,7 +220,7 @@ test("disconnect archives mirrors, cancels READY items, leaves IN_PROGRESS ones,
     store.registerMember("a1", "a1", "/x", {});
     store.claimWorkItem(running.id, "a1");
 
-    const res = await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq);
+    const res = await app.request(`/api/sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq);
     assertEquals(res.status, 200);
     const body = await res.json();
     assertEquals(body.success, true);
@@ -238,7 +241,7 @@ test("disconnect archives mirrors, cancels READY items, leaves IN_PROGRESS ones,
     // The in-flight item still completes.
     assertEquals(store.setWorkItemState(running.id, "COMPLETE").ok !== false, true);
     // Idempotent.
-    assertEquals((await app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq)).status, 200);
+    assertEquals((await app.request(`/api/sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq)).status, 200);
 
     // Switched back on: sync restores the mirrors; an unchanged revision doesn't re-run.
     const on = await app.request("/api/config", jsonInit("PUT", featuresBody(config, { [FIXTURE_SOURCE_ID]: true })));
@@ -257,7 +260,7 @@ test("a mirror a person archived stays archived after a disconnect and reconnect
     await env.store.syncWorkSource(FIXTURE_SOURCE_ID);
     const id1 = mirroredWorkDefId(FIXTURE_SOURCE_ID, "T-1");
     env.store.archiveWorkDef(id1);
-    const res = await env.app.request(`/api/work-sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq);
+    const res = await env.app.request(`/api/sources/${FIXTURE_SOURCE_ID}/disconnect`, postReq);
     assertEquals((await res.json()).archived, []);
     env.config.features = { ...env.config.features, [FIXTURE_SOURCE_ID]: true } as FeaturesConfig;
     await env.store.syncWorkSource(FIXTURE_SOURCE_ID, { force: true });
@@ -269,9 +272,9 @@ test("disconnect is only for external sources with a toggle", async () => {
   const env = setup();
   try {
     env.store.registerWorkSource(externalSource("always-on", { toggle: null }));
-    assertEquals((await env.app.request("/api/work-sources/story/disconnect", postReq)).status, 404);
-    assertEquals((await env.app.request("/api/work-sources/nope/disconnect", postReq)).status, 404);
-    const res = await env.app.request("/api/work-sources/always-on/disconnect", postReq);
+    assertEquals((await env.app.request("/api/sources/story/disconnect", postReq)).status, 404);
+    assertEquals((await env.app.request("/api/sources/nope/disconnect", postReq)).status, 404);
+    const res = await env.app.request("/api/sources/always-on/disconnect", postReq);
     assertEquals(res.status, 400);
     assertStringIncludes((await res.json()).error, "toggle: null");
   } finally { env.cleanup(); }

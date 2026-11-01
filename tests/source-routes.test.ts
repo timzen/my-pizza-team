@@ -129,6 +129,8 @@ test("GET /api/sources lists every source: kind, package, toggle, schema, redact
     assertEquals(res.status, 200);
     const body = await res.json() as SourcesResponse;
     assertEquals(body.sources.find((s) => s.id === "story")?.kind, "built-in");
+    // Each plugin package's load status rides along (formerly only on GET /api/work-sources).
+    assertEquals(body.plugins.map((p) => [p.spec.endsWith("list-pkg"), p.state, p.sources]), [[true, "loaded", ["list-a"]]]);
     assertEquals(body.sources.find((s) => s.id === "story")?.toggle, { feature: "stories", enabled: true });
     assertEquals(body.sources.find((s) => s.id === "thought")?.toggle, null);
     const v = body.sources.find((s) => s.id === "list-a")!;

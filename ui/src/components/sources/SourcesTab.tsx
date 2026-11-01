@@ -8,7 +8,7 @@
  *   source — label, package, status pill (on/off, init error, last sync ok or
  *   failed and when, backoff), mirrored-item count — with its **on/off
  *   switch**, a link to its Work tab, and any package that failed to load
- *   (`GET /api/work-sources` `plugins`). The switch applies at once (`PUT
+ *   (the same response's `plugins`). The switch applies at once (`PUT
  *   /api/config` with just that feature, built from the daemon's current
  *   config, so other tabs' unsaved edits aren't saved with it). Switching off
  *   a source that still holds mirrors opens the **Turn off and archive N
@@ -85,12 +85,11 @@ export function SourcesTab({ selectedId, onFeatureApplied }: {
   /** A source's toggle was saved by the daemon: keep the page's config draft in step. */
   onFeatureApplied: (feature: string, on: boolean) => void;
 }) {
-  const { data, error, refetch } = useApi<{ sources: SourceView[] }>("/api/sources", [], { pollInterval: 10_000 });
-  const { data: workSources } = useApi<{ plugins?: PluginLoadStatus[] }>("/api/work-sources");
+  const { data, error, refetch } = useApi<{ sources: SourceView[]; plugins?: PluginLoadStatus[] }>("/api/sources", [], { pollInterval: 10_000 });
   const now = useNow();
   const sources = managedSources(data?.sources);
   // Packages that loaded no source at all; a partly failed one shows on its sources' status.
-  const failed = (workSources?.plugins ?? []).filter((p) => p.state === "error" && p.sources.length === 0);
+  const failed = (data?.plugins ?? []).filter((p) => p.state === "error" && p.sources.length === 0);
   const selected = sources.find((s) => s.id === selectedId) ?? null;
 
   const [toggling, setToggling] = useState<string | null>(null);

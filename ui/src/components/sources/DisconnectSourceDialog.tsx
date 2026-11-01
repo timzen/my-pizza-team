@@ -2,7 +2,7 @@
  * DisconnectSourceDialog — "Turn off <source> and archive its N items?": the
  * confirm for switching off an external Work Source that still holds mirrored
  * items (docs/DESIGN.md "Feature Toggles" — disconnect). Confirming calls
- * `POST /api/work-sources/:id/disconnect`, which archives (never deletes) the
+ * `POST /api/sources/:id/disconnect`, which archives (never deletes) the
  * mirrors, cancels their queued runs, lets in-progress work finish, and
  * switches the source off — at once, not on a Save.
  *
@@ -38,7 +38,7 @@ export function DisconnectSourceDialog({ target, onClose, onDisconnected }: {
     setBusy(true);
     setError(null);
     try {
-      const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-sources/${encodeURIComponent(target.sourceId)}/disconnect`, {});
+      const res = await apiPost<{ success: boolean; error?: string }>(`/api/sources/${encodeURIComponent(target.sourceId)}/disconnect`, {});
       if (res.success) onDisconnected(target);
       else setError(res.error || "Disconnect failed");
     } catch (e) {

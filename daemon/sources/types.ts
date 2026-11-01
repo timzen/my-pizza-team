@@ -471,7 +471,7 @@ export interface WorkSource {
    * On/off switch (feature toggle; docs/DESIGN.md "Feature Toggles"). Absent on
    * an in-daemon source = always on, not switchable. An **external** source
    * (one that declares `sync`) that leaves it absent gets a default toggle from
-   * the registry: `{ feature: <id> }`, gating its `/api/work-sources/<id>/defs`
+   * the registry: `{ feature: <id> }`, gating its `/api/sources/<id>/defs`
    * and `/sync` routes — so every plugin source can be switched off (and
    * disconnected) from the Config page. `null` opts out explicitly: always on.
    * A feature name must be unique and can't be a built-in's ("stories",

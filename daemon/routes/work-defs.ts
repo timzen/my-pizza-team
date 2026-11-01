@@ -52,7 +52,7 @@ import { isValidCron } from "../cron.ts";
 import { estimateTokenCost } from "../token-cost.ts";
 import type { WorkDefExecutionStats } from "../store.ts";
 import { isWorkDefVisible } from "../features.ts";
-import { mirroredReadOnlyError, mirrorView } from "./work-sources.ts";
+import { mirroredReadOnlyError, mirrorView } from "./sources.ts";
 import { contextFieldRefusal } from "./personas.ts";
 
 /**

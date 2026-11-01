@@ -537,7 +537,7 @@ export interface ExternalSourceView {
  * One toggleable feature as the Config page lists it (`GET /api/config`
  * `featureSources`, in display order): the source that owns it, the source's
  * label, and whether it's external — an external source with active mirrors
- * can be *disconnected* (`POST /api/work-sources/:id/disconnect`).
+ * can be *disconnected* (`POST /api/sources/:id/disconnect`).
  */
 export interface FeatureSourceView {
   feature: string;
@@ -546,7 +546,7 @@ export interface FeatureSourceView {
   external: boolean;
 }
 
-/** `POST /api/work-sources/:id/disconnect`: the feature switched off and the mirrors archived. */
+/** `POST /api/sources/:id/disconnect`: the feature switched off and the mirrors archived. */
 export interface DisconnectSourceResponse {
   success: boolean;
   error?: string;
@@ -556,7 +556,7 @@ export interface DisconnectSourceResponse {
 
 /**
  * How one `TeamConfig.packages` entry fared at daemon startup
- * (daemon/plugins/loader.ts): `GET /api/work-sources` `plugins`, and `mpt doctor`.
+ * (daemon/plugins/loader.ts): `GET /api/sources` `plugins`, and `mpt doctor`.
  */
 export interface PluginLoadStatus {
   /** The package's dedupe identity (daemon/plugins/spec.ts), or null for an entry that didn't parse. */
@@ -585,7 +585,10 @@ export interface PluginLoadStatus {
   warnings?: string[];
 }
 
-/** `GET /api/work-sources`: the registered external sources and each plugin package's load status. */
+/**
+ * The deprecated `GET /api/work-sources` alias: the registered external sources
+ * and each plugin package's load status. Use `GET /api/sources` (SourcesResponse).
+ */
 export interface WorkSourcesResponse {
   sources: ExternalSourceView[];
   plugins: PluginLoadStatus[];
@@ -683,9 +686,10 @@ export interface SourceView {
   activeMirrors: number | null;
 }
 
-/** `GET /api/sources`. */
+/** `GET /api/sources`: every registered source, and each plugin package's load status. */
 export interface SourcesResponse {
   sources: SourceView[];
+  plugins: PluginLoadStatus[];
 }
 
 /** `POST /api/sources/:id/preview` body, and `PUT /api/sources/:id/config` body: the settings block. */
@@ -747,7 +751,7 @@ export interface MirrorPersonaRequest {
   persona: string | null;
 }
 
-/** One row of `GET /api/work-sources/:id/defs`: a mirrored def and how its runs went. */
+/** One row of `GET /api/sources/:id/defs`: a mirrored def and how its runs went. */
 export interface MirroredDefRow {
   id: string;
   title: string;
@@ -805,7 +809,7 @@ export interface WorkDefTriageResponse extends TriageThreadView {
   latestState: WorkItemState | null;
 }
 
-// GET /api/work-sources/:id/defs
+// GET /api/sources/:id/defs
 export interface MirroredDefsResponse { source: ExternalSourceView; defs: MirroredDefRow[] }
 export interface WorkDefsResponse { workDefs: WorkDefView[] }
 // GET /api/work-defs/:id/comments — the thread, oldest first (an unknown id answers an empty list).

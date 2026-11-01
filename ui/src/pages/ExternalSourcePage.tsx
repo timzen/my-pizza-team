@@ -3,7 +3,7 @@
  * the generic, read-only view of one external (pull-only) Work Source.
  * See docs/DESIGN.md "Work Sources: WorkDef Kinds as Plugins" (external sources).
  *
- * Lists the defs the source mirrors (`GET /api/work-sources/:id/defs`): title
+ * Lists the defs the source mirrors (`GET /api/sources/:id/defs`): title
  * (linking to the WorkDef detail page, which is read-only for these), the
  * "Open in <source>" link, the revision last mirrored, the latest WorkItem's
  * state, and the run count. MPT never authors these, so there's no New, Edit,
@@ -64,7 +64,7 @@ export function ExternalSourcePage() {
 function ExternalSourceView({ sourceId }: { sourceId: string }) {
   const [showArchived, setShowArchived] = useState(false);
   const { data, error, refetch } = useApi<{ source: { id: string; label: string }; defs: MirroredDefRow[] }>(
-    `/api/work-sources/${encodeURIComponent(sourceId)}/defs${showArchived ? "?status=all" : ""}`, [sourceId, showArchived], { pollInterval: 10_000 },
+    `/api/sources/${encodeURIComponent(sourceId)}/defs${showArchived ? "?status=all" : ""}`, [sourceId, showArchived], { pollInterval: 10_000 },
   );
   const [syncing, setSyncing] = useState(false);
   const [syncError, setSyncError] = useState("");
@@ -75,7 +75,7 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
     setSyncing(true);
     setSyncError("");
     try {
-      const res = await apiPost<{ success: boolean; error?: string; skipped?: string }>(`/api/work-sources/${encodeURIComponent(sourceId)}/sync`, {});
+      const res = await apiPost<{ success: boolean; error?: string; skipped?: string }>(`/api/sources/${encodeURIComponent(sourceId)}/sync`, {});
       if (!res.success) setSyncError(res.skipped === "in-flight" ? "A sync is already running." : res.error || "Sync failed");
       refetch();
     } finally {

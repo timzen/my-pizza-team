@@ -12,7 +12,7 @@ import type { CommentExternal } from "@shared/types";
 import type { MirroredDefRow, MirrorView } from "@shared/protocol";
 import { externalSourcePath } from "./work-items.ts";
 
-/** One row of `GET /api/work-sources/:id/defs`. */
+/** One row of `GET /api/sources/:id/defs`. */
 export type { MirroredDefRow };
 
 /** A mirrored WorkDef's provenance (`WorkDefView.mirror`). */

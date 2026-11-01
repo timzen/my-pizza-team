@@ -795,7 +795,7 @@ before.
 
 **Checked at load.** When the daemon starts it checks each source's settings
 against its schema. A mismatch is logged (`[plugins] … warning: config.project:
-is required`) and reported with the package's status (`GET /api/work-sources`,
+is required`) and reported with the package's status (`GET /api/sources`,
 `plugins[].warnings`) — the source still loads.
 
 **Preview has no side effects.** Preview (and the `sync` it falls back to) gets

@@ -15,7 +15,7 @@ import {
 } from "../../shared/types.ts";
 import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
-import { externalSourceViews } from "./work-sources.ts";
+import { externalSourceViews } from "./sources.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";

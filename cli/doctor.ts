@@ -49,7 +49,7 @@ import {
 import { cliEntryScript } from "../shared/paths.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
 import type { ServiceProgram } from "./service.ts";
-import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
+import type { PluginLoadStatus, SourcesResponse } from "../shared/protocol.ts";
 import { checkLines, checksExitCode, type CheckStatus, countChecks, EMOJI_GLYPHS } from "./checks.ts";
 
 /** The Pi release this build was tested against. See DESIGN.md "One Protocol, One Version" — advisory, not a gate. */
@@ -102,7 +102,7 @@ export interface DoctorFacts {
   experimentalHarnesses?: Record<string, { ready: boolean; missing?: string; fix?: string }>;
   /**
    * How the team's plugin packages loaded, as reported by the running daemon
-   * (`GET /api/work-sources` `plugins`; daemon/plugins/loader.ts). Absent/null =
+   * (`GET /api/sources` `plugins`; daemon/plugins/loader.ts). Absent/null =
    * not known (daemon down, or an older daemon).
    */
   plugins?: PluginLoadStatus[] | null;
@@ -657,8 +657,8 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   let plugins: PluginLoadStatus[] | null = null;
   if (daemonRunning) {
     try {
-      const res = await fetch(`${opts.daemonUrl}/api/work-sources`, { signal: AbortSignal.timeout(1500) });
-      if (res.ok) plugins = (await res.json() as Partial<WorkSourcesResponse>).plugins ?? null;
+      const res = await fetch(`${opts.daemonUrl}/api/sources`, { signal: AbortSignal.timeout(1500) });
+      if (res.ok) plugins = (await res.json() as Partial<SourcesResponse>).plugins ?? null;
     } catch { /* an older or unreachable daemon: the check is skipped */ }
   }
 

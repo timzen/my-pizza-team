@@ -322,7 +322,7 @@ Inbox are always on, so every kind can be off at once.
 - **External sources (plugins) are switchable too**, as `features.<source id>` (a
   plugin may name its own flag, or opt out with `toggle: null`). Off stops its sync —
   nothing new is mirrored or queued — and hides its Work tab. While it still has
-  mirrors the 409 applies; `POST /api/work-sources/<id>/disconnect` switches it off
+  mirrors the 409 applies; `POST /api/sources/<id>/disconnect` switches it off
   *and* archives (never deletes) its mirrors, canceling their queued runs (the
   Config page's **Turn off and archive N items**). Switching it back on syncs at once
   and restores the mirrors it still reports.

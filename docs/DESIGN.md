@@ -427,7 +427,7 @@ tests or by `config.dev.fixtureSource` (development only). The contract:
 - **Isolation.** Each sync runs under `syncTimeoutMs` (default 30s) in
   `SyncRunner` (`daemon/sources/sync.ts`): a source that throws, rejects, times
   out, or returns garbage is logged and backed off (30s, doubling, capped at
-  30 min; **Sync now** — `POST /api/work-sources/:id/sync` — ignores the
+  30 min; **Sync now** — `POST /api/sources/:id/sync` — ignores the
   backoff); a sync still running is never started twice; each source has its
   own timer and state, so one failing or slow source never stalls the daemon or
   another. (This is in-process isolation; running a plugin in a Worker or
@@ -702,7 +702,7 @@ through the same registry checks (apiVersion, duplicate id, file-safe external
 id), so a plugin can't shadow `task` or another plugin. **One bad plugin never
 stops the daemon:** every failure — bad spec, missing install or manifest, a
 throwing or hanging import or factory, a refused registration — is logged with
-`[plugins]`, recorded in that package's status (`GET /api/work-sources`
+`[plugins]`, recorded in that package's status (`GET /api/sources`
 `plugins`, `mpt doctor`), and skipped. Isolation is by error handling, not by
 process: a plugin runs in the daemon with its permissions (TODO.md "Isolation").
 
@@ -1095,7 +1095,7 @@ always on, so "everything off" is still a working team: notes in, triage out.
 - **Every external source is switchable by default.** A source that declares
   `sync` and no `toggle` gets `{ feature: <its id> }` from the registry
   (daemon/sources/registry.ts `effectiveToggle`), gating its
-  `/api/work-sources/<id>/defs` and `/sync` routes — so a team can stop a
+  `/api/sources/<id>/defs` and `/sync` routes — so a team can stop a
   plugin without uninstalling it. The effective toggle lives on the registry
   *entry*, never written onto the plugin's (possibly frozen) object; `toggle:
   null` opts out (always on). Additive, so `WORK_SOURCE_API_VERSION` stays 1.
@@ -1114,7 +1114,7 @@ always on, so "everything off" is still a working team: notes in, triage out.
 - **Disconnecting is the one opt-in past the guard, for external sources only.**
   A mirror isn't yours to archive one by one — sync owns it — so the 409
   would leave an external source with live mirrors stuck on. `POST
-  /api/work-sources/:id/disconnect` (rather than a flag on `PUT /api/config`:
+  /api/sources/:id/disconnect` (rather than a flag on `PUT /api/config`:
   it's one explicit action with its own confirm, it needs none of the config
   body, and the CLI or a script can call it alone) switches the feature off
   *first* — so an in-flight sync can't re-mirror — then archives, never

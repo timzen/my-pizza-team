@@ -53,7 +53,6 @@ import { registerThoughtRoutes } from "./routes/thoughts.ts";
 import { registerTranscriptRoutes } from "./routes/transcripts.ts";
 import { registerPairingRoutes } from "./routes/pairing.ts";
 import { registerUsageRoutes } from "./routes/usage.ts";
-import { registerWorkSourceRoutes } from "./routes/work-sources.ts";
 import { registerTriageRoutes } from "./routes/triage.ts";
 import { registerSourceRoutes } from "./routes/sources.ts";
 
@@ -107,7 +106,6 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerAgentRoutes(ctx);
   registerWorkRoutes(ctx);
   registerWorkDefRoutes(ctx);
-  registerWorkSourceRoutes(ctx);
   registerSourceRoutes(ctx);
   registerTriageRoutes(ctx);
   registerScheduleRoutes(ctx);

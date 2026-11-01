@@ -29,6 +29,12 @@ number. Delete an item when it's done.
 - **`(e as Error).message`** in `catch` blocks across `cli/`, `agent/` and `daemon/`
   prints `undefined` for a non-`Error` throw; `errorMessage` (`shared/util.ts`) would
   stringify it instead. Left as is because switching changes that (edge-case) output.
+- **`/api/work-sources` alias:** the external-source routes merged into `/api/sources`
+  (`GET /api/sources` carries `plugins`; `/api/sources/:id/defs|sync|disconnect`).
+  `daemon/routes/sources.ts` still answers the old `/api/work-sources` list (its old
+  shape, `WorkSourcesResponse`) and sub-routes, and `defaultExternalToggle` gates
+  both, so an older CLI or script keeps working. Remove the alias, the
+  `WorkSourcesResponse` type and the extra toggle routes after a release.
 
 ## Work Sources as plugins — package loading — built
 

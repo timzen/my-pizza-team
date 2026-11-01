@@ -10,7 +10,7 @@
  * outside the package, a hanging import — logged and skipped while the rest
  * load; `my-pizza-team/plugin` resolving to the host's copy (even over a
  * plugin's own); the install layout; the daemon starting with a broken plugin and
- * reporting it on `GET /api/work-sources`; and install-on-start (a missing npm
+ * reporting it on `GET /api/sources`; and install-on-start (a missing npm
  * package installed through a fake runner, a failing one isolated and reported).
  */
 
@@ -27,7 +27,7 @@ import { SOURCE_ID_PATTERN } from "../daemon/sources/registry.ts";
 import { WORK_SOURCE_API_VERSION } from "../daemon/sources/types.ts";
 import { parsePackageSpec, type PackageSpec } from "../daemon/plugins/spec.ts";
 import type { PackageEntry } from "../shared/types.ts";
-import type { WorkSourcesResponse } from "../shared/protocol.ts";
+import type { SourcesResponse } from "../shared/protocol.ts";
 
 /** A plugin source module whose default export is an external source object with this id. */
 const objectSource = (id: string, apiVersion = 1) => `
@@ -254,7 +254,7 @@ test("packageInstallDir: local in place; npm under packages/npm/node_modules; gi
   assert(crafted.startsWith("/teams/alpha/packages/git/"), crafted);
 });
 
-test("the daemon starts with a broken plugin, and GET /api/work-sources reports every package", async () => {
+test("the daemon starts with a broken plugin, and GET /api/sources reports every package", async () => {
   const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-plugin-loader-test-"));
   writePlugin(teamDir, "good", { sources: ["./index.js"] }, { "index.js": objectSource("app-good") });
   writePlugin(teamDir, "broken", { sources: ["./index.js"] }, { "index.js": `throw new Error("broken plugin");` });
@@ -262,10 +262,10 @@ test("the daemon starts with a broken plugin, and GET /api/work-sources reports 
   const { app, store } = await createApp(teamDir);
   try {
     assert(store);
-    const res = await app.request("/api/work-sources");
+    const res = await app.request("/api/sources");
     assertEquals(res.status, 200);
-    const body = await res.json() as WorkSourcesResponse;
-    assertEquals(body.sources.map((s) => s.id), ["app-good"]);
+    const body = await res.json() as SourcesResponse;
+    assertEquals(body.sources.filter((s) => s.kind !== "built-in").map((s) => s.id), ["app-good"]);
     assertEquals(body.plugins.map((p) => [p.spec, p.state]), [["./broken", "error"], ["./good", "loaded"]]);
     assertStringIncludes(body.plugins[0]?.error ?? "", "broken plugin");
   } finally {
@@ -292,8 +292,8 @@ test("install-on-start: a configured npm package that isn't installed is install
   const { app, store } = await createApp(teamDir, { pluginRunner });
   try {
     assert(store);
-    const body = await (await app.request("/api/work-sources")).json() as WorkSourcesResponse;
-    assertEquals(body.sources.map((s) => s.id), ["auto-good"]);
+    const body = await (await app.request("/api/sources")).json() as SourcesResponse;
+    assertEquals(body.sources.filter((s) => s.kind !== "built-in").map((s) => s.id), ["auto-good"]);
     assertEquals(body.plugins.map((p) => [p.spec, p.state]), [["npm:mpt-auto-good", "loaded"], ["npm:mpt-auto-bad", "error"], ["./local-missing", "error"]]);
     assertStringIncludes(body.plugins[1]?.error ?? "", "install failed");
     assertStringIncludes(body.plugins[1]?.error ?? "", "npm error 404 Not Found");

@@ -149,7 +149,7 @@ test("triage mode: sync → triage item → propose_work → accept/reject → n
     assertEquals(view.latestOutcome, "proposals");
 
     // The UI's surfaces: the source's list carries the badge; the item's runs say they're triage.
-    const rows = (await (await app.request(`/api/work-sources/${SOURCE}/defs`)).json()).defs as Array<{ id: string; mode: string; triageBadge?: string }>;
+    const rows = (await (await app.request(`/api/sources/${SOURCE}/defs`)).json()).defs as Array<{ id: string; mode: string; triageBadge?: string }>;
     assertEquals(rows.find((r) => r.id === defId)?.triageBadge, "proposal");
     assertEquals((await (await app.request(`/api/work-items/${item.id}`)).json()).item.triage, true);
 
@@ -169,7 +169,7 @@ test("triage mode: sync → triage item → propose_work → accept/reject → n
     assertEquals((await app.request(`/api/work-defs/${defId}/triage/proposals/nope/accept`, { method: "POST" })).status, 404);
     const after = await (await app.request(`/api/work-defs/${defId}/triage`)).json();
     assertEquals(after.badge, "none");
-    const rowsAfter = (await (await app.request(`/api/work-sources/${SOURCE}/defs`)).json()).defs as Array<{ id: string; triageBadge?: string }>;
+    const rowsAfter = (await (await app.request(`/api/sources/${SOURCE}/defs`)).json()).defs as Array<{ id: string; triageBadge?: string }>;
     assertEquals(rowsAfter.find((r) => r.id === defId)?.triageBadge, "none");
     assertEquals(after.pending.length, 0);
     // The decisions are lines in the mirror's own thread, not comments.
@@ -236,7 +236,7 @@ test("per-item mode overrides the source's, and propose_work is refused for a wo
     assertEquals((await app.request(`/api/work-defs/${mirroredWorkDefId(SOURCE, "W-1")}/triage/proposals/p1/accept`, { method: "POST" })).status, 404);
 
     // The rows say which is which.
-    const rows = (await (await app.request(`/api/work-sources/${SOURCE}/defs`)).json()).defs as Array<{ externalId: string; mode: string }>;
+    const rows = (await (await app.request(`/api/sources/${SOURCE}/defs`)).json()).defs as Array<{ externalId: string; mode: string }>;
     assertEquals(rows.find((r) => r.externalId === "T-1")?.mode, "triage");
     assertEquals(rows.find((r) => r.externalId === "W-1")?.mode, "work");
     // Only a triage-mode row has a badge, and only its runs are flagged triage.
