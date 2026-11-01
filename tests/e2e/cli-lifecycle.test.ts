@@ -9,6 +9,10 @@
  * Every case asserts the **resulting state** — the settings file and the directories —
  * not merely the exit code. An exit code of 0 is exactly what a command that did the
  * wrong thing quietly also returns.
+ *
+ * The last case starts the daemon on a legacy team layout (an archived/ story) and
+ * checks story archiving end to end: the migration into stories/, archiving in
+ * place, and that a restart changes nothing (docs/DESIGN.md "Archived stories").
  */
 
 import * as fs from "node:fs";
@@ -251,4 +255,88 @@ test("uninstall with nothing to undo is a no-op, not an error", async () => {
   assertEquals(result.code, 0);
   assertStringIncludes(result.output, "Nothing to undo");
   assertEquals(fs.readFileSync(path.join(sb.piAgentDir, "settings.json"), "utf8"), before);
+});
+
+// ─── story archive (in place) ────────────────────────────────────────
+
+/** Write a team file under the sandbox's team dir (JSON for objects). */
+function writeTeamFile(sb: Sandbox, rel: string, data: string | Record<string, unknown>): void {
+  const file = path.join(sb.teamDir, rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, typeof data === "string" ? data : JSON.stringify(data, null, 2) + "\n");
+}
+
+/** A board task's WorkDef, in the on-disk format (daemon/store/workdefs.ts). */
+function boardWorkDef(storyId: string, title: string): string {
+  return `---\ntitle: "${title}"\nparentKind: story\nparentId: "${storyId}"\n---\n## Goal\n\n${title} goal\n\n## Acceptance Criteria\n\nDone.\n\n## Additional Context\n\n`;
+}
+
+test("mpt start: a legacy archived/ story migrates in place; archiving keeps it in stories/; restart changes nothing", async () => {
+  await using sb = await sandbox("story-archive");
+  // No teammates or autosave commits: this is about the files, not agents.
+  sb.writeTeamConfig({ minTeammates: 0, autosave: { autoCommit: false } });
+  // The legacy layout: a live story `a` (depends on `b`, its task waiting in
+  // the manual review state) and an archived `b` still in archived/.
+  writeTeamFile(sb, "stories/a.json", {
+    id: "a", title: "Story A", description: "live", status: "open", dependsOn: ["b"],
+    tasks: [{ id: "a-1", status: "review" }],
+  });
+  writeTeamFile(sb, "tasks/a-1/workdef.md", boardWorkDef("a", "A one"));
+  writeTeamFile(sb, "archived/b.json", {
+    id: "b", title: "Story B", description: "old", status: "done", dependsOn: [],
+    tasks: [{ id: "b-1", status: "done" }], archivedAt: "2025-06-01T00:00:00.000Z", synopsis: "# Story B synopsis",
+  });
+  writeTeamFile(sb, "tasks/b-1/workdef.md", boardWorkDef("b", "B one"));
+
+  const api = async (p: string, init?: RequestInit) =>
+    await (await fetch(`http://127.0.0.1:${sb.port}${p}`, init)).json();
+  const readStory = (id: string) => JSON.parse(fs.readFileSync(path.join(sb.teamDir, "stories", `${id}.json`), "utf8"));
+  const board = async () => (await api("/api/stories")).stories as Array<{ id: string; ready: boolean; tasks: Array<{ id: string }> }>;
+  const archivedList = async () => (await api("/api/archived")).stories as Array<{ id: string; title: string; archivedAt: string; synopsis: string }>;
+
+  // 1. First start: b is migrated into stories/, still archived with its context.
+  let started = await sb.mpt("start", "--daemon");
+  try {
+    assertEquals(started.code, 0, started.output);
+    assertEquals(existsSync(path.join(sb.teamDir, "archived")), false, "archived/ is removed once empty");
+    const b = readStory("b");
+    assertEquals(b.archivedAt, "2025-06-01T00:00:00.000Z");
+    assertEquals(b.synopsis, "# Story B synopsis");
+    assertEquals(b.tasks, [{ id: "b-1", status: "done" }]);
+    assertEquals(existsSync(path.join(sb.teamDir, "tasks", "b-1", "workdef.md")), true, "b's task WorkDef stays put");
+    assertEquals(await archivedList(), [{ id: "b", title: "Story B", archivedAt: "2025-06-01T00:00:00.000Z", synopsis: "# Story B synopsis" }]);
+
+    // a is on the board, b isn't, and a's dependency on the archived b counts as done.
+    const stories = await board();
+    assertEquals(stories.map((s) => s.id), ["a"]);
+    assertEquals(stories[0]!.ready, true, "an archived dependency is done");
+    assertEquals(stories[0]!.tasks.map((t) => t.id), ["a-1"]);
+
+    // 2. Archive a: it stays in stories/, flagged, and leaves the board.
+    const res = await api("/api/stories/a/archive", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ force: true }) });
+    assertEquals(res.success, true, JSON.stringify(res));
+    const a = readStory("a");
+    assertEquals(typeof a.archivedAt, "string");
+    assertStringIncludes(String(a.synopsis), "Story A");
+    assertEquals(existsSync(path.join(sb.teamDir, "archived")), false, "archiving writes no archived/ dir");
+    assertEquals(await board(), []);
+    assertEquals((await archivedList()).map((s) => s.id).sort(), ["a", "b"]);
+  } finally {
+    await sb.mpt("stop");
+  }
+
+  // 3. Restart: idempotent — the files and both views are unchanged.
+  const before = { a: readStory("a"), b: readStory("b") };
+  const listBefore = [...fs.readdirSync(path.join(sb.teamDir, "stories"))].sort();
+  started = await sb.mpt("start", "--daemon");
+  try {
+    assertEquals(started.code, 0, started.output);
+    assertEquals({ a: readStory("a"), b: readStory("b") }, before);
+    assertEquals([...fs.readdirSync(path.join(sb.teamDir, "stories"))].sort(), listBefore);
+    assertEquals(existsSync(path.join(sb.teamDir, "archived")), false);
+    assertEquals(await board(), []);
+    assertEquals((await archivedList()).map((s) => s.id).sort(), ["a", "b"]);
+  } finally {
+    await sb.mpt("stop");
+  }
 });

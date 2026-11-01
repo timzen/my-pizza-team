@@ -135,7 +135,7 @@ The board is for glancing and light triage; editing happens on the task page.
 - **Open a task** — the `details →` link opens the task page (read it — or **Edit**/**Activate** it while it's [pending](#pending--write-first-activate-when-its-right) — move, delete, read comments, upload/review files)
 - **Edit a story** — click the story title to open its page (title, description, directory; **Make pending** / **Activate**)
 - **Hold a story** — the ⌛ on its swimlane makes it [pending](#pending--write-first-activate-when-its-right) (it moves to **Work → Pending**); ▶ there activates it again
-- **Retire a story** — the archive button on its swimlane; archived stories (with their synopses) are on **Work → Archived**
+- **Retire a story** — the archive button on its swimlane; archived stories (with their synopses) are on **Work → Archived** (on disk an archived story stays in the team's `stories/` folder, flagged as archived; stories archived before this lived in `archived/` and are moved back on startup)
 
 ### Expanding and collapsing stories
 

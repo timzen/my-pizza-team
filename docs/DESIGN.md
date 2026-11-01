@@ -810,6 +810,30 @@ transitively depended on it — was moved into).
   already a live story is left alone and warned about — never clobber live work.
   For one release the API also accepts `paused` as an alias of `pending`.
 
+### Archived stories: a flag in place, too
+
+Archiving a story used to move `stories/<id>.json` to `archived/<id>.json` — the
+last lifecycle state still stored as a directory once `backlog/` became the
+`pending` flag. Now an archived story stays in `stories/<id>.json` with
+`archivedAt` (the flag) and its `synopsis` written in, the way an archived WorkDef
+keeps `status: archived` and an archived thought keeps its status.
+
+- **One place per story, whatever its state.** Its file never moves, so nothing
+  that names it by path (its tasks' WorkDefs, comments, attachments, usage rows)
+  has to follow it, and archiving is a field write, not a move.
+- **Still off the board.** `loadFromDisk` skips an archived story and its tasks,
+  so the board, CONWIP admission, and reconcile never see it; a story that
+  `dependsOn` it treats it as done (it's missing from the active cache). The
+  story routes treat it as not found, and create refuses its id, so it can't be
+  clobbered or edited. `GET /api/archived` and Work → **Archived** read it by the
+  flag; their shape is unchanged, and archiving is still one-way.
+- **Migrated on load, once.** `store/story-migration.ts` moves each legacy
+  `archived/<id>.json` into `stories/` as is (stamping `archivedAt` from the file's
+  mtime if it had none) and removes `archived/` once empty, so a second run
+  changes nothing. An id already in `stories/` is left in both places and warned
+  about. After that, `archived/` is only ever read by the migration (and the
+  persona migration, which still accepts the old layout).
+
 ### Pending schedules: reversible, no catch-up
 
 A **Schedule** (the cron parent of a Scheduled job) is pending the way a story
