@@ -70,6 +70,7 @@ import { readTeamPersona } from "../daemon/personas/library.ts";
 import { sourcePersonaPick } from "../daemon/sources/persona.ts";
 import { PackagePersonas, type PackagePersonaResult } from "../daemon/personas/packages.ts";
 import { errorMessage, isPlainObject } from "../shared/util.ts";
+import { checkLines, checksExitCode, type CheckStatus, countChecks, PLAIN_GLYPHS } from "./checks.ts";
 
 /** What the doctor needs from `mpt plugins` (a subset of `PluginsDeps`). */
 export interface PluginsDoctorDeps {
@@ -82,11 +83,9 @@ export interface PluginsDoctorDeps {
   run?: PluginRunner;
 }
 
-/** One check's outcome. */
-export type DoctorStatus = "ok" | "warn" | "fail";
-
+/** One check's outcome, as printed and as `--json` reports it (the shared model is cli/checks.ts). */
 export interface DoctorCheck {
-  status: DoctorStatus;
+  status: CheckStatus;
   /** What was checked / found. One line. */
   message: string;
   /** What to do about it, when it isn't ok. */
@@ -335,7 +334,7 @@ export async function runPluginsDoctor(args: string[], d: PluginsDoctorDeps): Pr
   }
   if (opts.json) d.log(JSON.stringify(report, null, 2));
   else for (const line of renderReport(report)) d.log(line);
-  return report.ok ? 0 : 1;
+  return checksExitCode(report.summary);
 }
 
 /**
@@ -391,10 +390,7 @@ async function checkPlugins(targets: Target[], teamDir: string, opts: CheckOptio
   } finally {
     if (scratch) fs.rmSync(scratch, { recursive: true, force: true });
   }
-  const summary = { ok: 0, warn: 0, fail: 0 };
-  for (const p of packages) {
-    for (const c of [...p.checks, ...p.sources.flatMap((s) => s.checks)]) summary[c.status]++;
-  }
+  const summary = countChecks(packages.flatMap((p) => [...p.checks, ...p.sources.flatMap((s) => s.checks)]));
   return { ok: summary.fail === 0, live: opts.liveConfig !== undefined, packages, summary };
 }
 
@@ -457,7 +453,7 @@ async function checkPackage(
   personaResult?: PackagePersonaCheck,
 ): Promise<DoctorPackageReport> {
   const report: DoctorPackageReport = { spec: t.raw, configured: t.configured, checks: [], sources: [] };
-  const check = (status: DoctorStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
+  const check = (status: CheckStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
   if (!t.spec) {
     check("fail", t.error ?? "invalid package entry", "fix the entry in config.json \"packages\"");
     return report;
@@ -511,7 +507,7 @@ async function checkEntry(
   dir: string, entry: string, seenIds: Map<string, string>, personas: PersonaCheckContext, opts: CheckOptions, spec: string, scratch?: string,
 ): Promise<DoctorSourceReport> {
   const report: DoctorSourceReport = { entry, checks: [] };
-  const check = (status: DoctorStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
+  const check = (status: CheckStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
 
   let exported: unknown;
   try {
@@ -604,7 +600,7 @@ function personaChecks(source: WorkSource, personas: PersonaCheckContext): Docto
 
 /** The live part: init, sync twice (stability), optionally the write-back hooks — all on a throwaway context. */
 async function liveCheck(source: WorkSource, opts: CheckOptions, report: DoctorSourceReport, scratch: string): Promise<void> {
-  const check = (status: DoctorStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
+  const check = (status: CheckStatus, message: string, hint?: string) => report.checks.push({ status, message, ...(hint ? { hint } : {}) });
   const logs: string[] = [];
   const calls: DoctorCalls = { enqueue: [], enqueueRevision: [], upsertDef: [] };
   report.logs = logs;
@@ -750,7 +746,7 @@ function stabilityChecks(first: unknown[], second: unknown[]): DoctorCheck[] {
 
 /** `--hooks`: call `onComment` and `onItemTerminal` (a fake COMPLETE item) on the first valid item. */
 async function hookChecks(source: WorkSource, ctx: SourceContext, defs: unknown[], report: DoctorSourceReport): Promise<void> {
-  const check = (status: DoctorStatus, message: string) => report.checks.push({ status, message });
+  const check = (status: CheckStatus, message: string) => report.checks.push({ status, message });
   if (!source.onComment && !source.onItemTerminal) {
     check("ok", "--hooks: the source has no onComment / onItemTerminal");
     return;
@@ -869,14 +865,12 @@ export function describeImportError(e: unknown, dir: string): { message: string;
 
 /** Render the report: a line per check, grouped by package then source, then the summary. */
 export function renderReport(r: DoctorReport): string[] {
-  const glyph: Record<DoctorStatus, string> = { ok: "✓", warn: "⚠", fail: "✗" };
   const lines: string[] = [];
   lines.push(r.live
     ? "mpt plugins doctor — install check + live run (init, sync ×2) on a throwaway context"
     : "mpt plugins doctor — install check only (add --config '<json>' or --config team to run init + sync)");
   const push = (indent: string, c: DoctorCheck) => {
-    lines.push(`${indent}${glyph[c.status]} ${c.message}`);
-    if (c.hint && c.status !== "ok") lines.push(`${indent}  → ${c.hint}`);
+    lines.push(...checkLines(c.status, c.message, c.hint, { glyphs: PLAIN_GLYPHS, indent, hintIndent: `${indent}  ` }));
   };
   for (const p of r.packages) {
     lines.push("");
@@ -898,7 +892,7 @@ export function renderReport(r: DoctorReport): string[] {
   }
   lines.push("");
   const n = r.packages.length;
-  lines.push(`${r.ok ? "✓" : "✗"} ${n} package${n === 1 ? "" : "s"}: ${r.summary.ok} ok, ${r.summary.warn} warning(s), ${r.summary.fail} failed`);
+  lines.push(`${r.ok ? PLAIN_GLYPHS.ok : PLAIN_GLYPHS.fail} ${n} package${n === 1 ? "" : "s"}: ${r.summary.ok} ok, ${r.summary.warn} warning(s), ${r.summary.fail} failed`);
   return lines;
 }
 

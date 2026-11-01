@@ -50,6 +50,7 @@ import { cliEntryScript } from "../shared/paths.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
 import type { ServiceProgram } from "./service.ts";
 import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
+import { checkLines, checksExitCode, type CheckStatus, countChecks, EMOJI_GLYPHS } from "./checks.ts";
 
 /** The Pi release this build was tested against. See DESIGN.md "One Protocol, One Version" — advisory, not a gate. */
 export const TESTED_PI_VERSION = "0.87.1";
@@ -57,8 +58,9 @@ export const TESTED_PI_VERSION = "0.87.1";
 /** The npm package that makes autonomous teammates possible. */
 export const PERMISSION_SYSTEM_PACKAGE = "npm:@gotgenes/pi-permission-system";
 
-export type CheckStatus = "ok" | "warn" | "fail";
+export type { CheckStatus } from "./checks.ts";
 
+/** One `mpt doctor` check (the shared model is cli/checks.ts). */
 export interface Check {
   name: string;
   status: CheckStatus;
@@ -707,22 +709,19 @@ function experimentalHarnessFacts(teamDir: string): DoctorFacts["experimentalHar
 
 // ─── Rendering ───────────────────────────────────────────────────────
 
-const GLYPH: Record<CheckStatus, string> = { ok: "✅", warn: "⚠️ ", fail: "❌" };
-
 /** Print the checklist. Returns the process exit code: non-zero when anything failed. */
 export function report(checks: Check[]): number {
   const width = Math.max(...checks.map((c) => c.name.length));
+  const hintIndent = " ".repeat(width + 4);
   for (const c of checks) {
-    console.log(`${GLYPH[c.status]} ${c.name.padEnd(width)}  ${c.detail}`);
-    // A fix on an ok check is an optional next step, not a problem to solve.
-    if (c.fix && c.status !== "ok") console.log(`${" ".repeat(width + 4)}→ ${c.fix}`);
-    else if (c.fix) console.log(`${" ".repeat(width + 4)}  (optional: ${c.fix})`);
+    for (const line of checkLines(c.status, `${c.name.padEnd(width)}  ${c.detail}`, c.fix, { glyphs: EMOJI_GLYPHS, hintIndent, optionalOkHint: true })) {
+      console.log(line);
+    }
   }
 
-  const failed = checks.filter((c) => c.status === "fail").length;
-  const warned = checks.filter((c) => c.status === "warn").length;
+  const counts = countChecks(checks);
   console.log();
-  if (failed === 0 && warned === 0) console.log("Everything checks out.");
-  else console.log(`${failed} problem(s), ${warned} warning(s).`);
-  return failed > 0 ? 1 : 0;
+  if (counts.fail === 0 && counts.warn === 0) console.log("Everything checks out.");
+  else console.log(`${counts.fail} problem(s), ${counts.warn} warning(s).`);
+  return checksExitCode(counts);
 }
