@@ -13,6 +13,7 @@ import { PersonaChip } from "@/components/personas/PersonaChip";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import type { PersonaRef } from "@/lib/personas";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The slice of `WorkItemView` a run row reads. */
 interface RunItem {
@@ -49,7 +50,9 @@ export function RunHistory({ workDefId }: { workDefId: string }) {
         {items.map((wi) => (
           <li key={wi.id} className="flex flex-wrap items-center gap-2 text-xs">
             <Badge variant="outline" className={`text-[10px] ${STATE_TONE[wi.state] ?? "text-muted-foreground"}`}>{wi.state.toLowerCase().replace("_", " ")}</Badge>
-            <span className="text-muted-foreground" title={`Enqueued ${new Date(wi.enqueuedAt).toLocaleString()}`}>{new Date(wi.lastStateChangeAt).toLocaleString()}</span>
+            <Tooltip content={`Enqueued ${new Date(wi.enqueuedAt).toLocaleString()}`} describe={false}>
+              <span className="text-muted-foreground">{new Date(wi.lastStateChangeAt).toLocaleString()}</span>
+            </Tooltip>
             {wi.attempt > 1 && <span className="text-muted-foreground">attempt {wi.attempt}</span>}
             {wi.memberId && <Link to={`/teammates/${encodeURIComponent(wi.memberId)}`} className="text-primary hover:underline">{wi.memberId}</Link>}
             <PersonaChip persona={wi.persona} />

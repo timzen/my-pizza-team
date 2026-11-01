@@ -290,7 +290,8 @@ import) and `shared/util.ts` may be imported, and they stay free of `node:` impo
 rules for new UI code and the current status. `ui/eslint.config.js` adds
 `eslint-plugin-jsx-a11y`'s recommended rules (a rule a later task still has to fix is
 `"warn"` with a TODO naming it; `ui/package.json` `overrides` lets it use the UI's ESLint
-10, past its declared peer range), and `npm run test:a11y` scans the routes with axe
+10, past its declared peer range) plus a `no-restricted-syntax` rule that rejects
+`<Button size="icon…">` in favor of `IconButton`, and `npm run test:a11y` scans the routes with axe
 (see tests/ below).
 
 **Shell.** `App.tsx` is the router and the two-column shell (`h-dvh`, so each region
@@ -375,7 +376,11 @@ the desktop's parts; no daemon routes of its own.
 
 **Shared UI.** `viewer/FileViewer.tsx` (attachment lightbox) and `viewer/DiffViewer.tsx`
 (line-comment review); `components/ui/*` (shadcn primitives plus markdown, title,
-directory, and back-button fields — `ui/directory-input.tsx` is the one directory
+directory, and back-button fields; `ui/tooltip.tsx` — the one hint component, on Base
+UI's Tooltip: hover *and* focus, Esc, `aria-describedby` via a hidden copy portalled to
+`<body>`, one `TooltipProvider` in `main.tsx` — and `ui/icon-button.tsx`'s
+`IconButton` / `IconLink`, whose required `label` is both the accessible name and the
+tooltip; `title=` is kept only for truncated text — `ui/directory-input.tsx` is the one directory
 picker: favorites then recent from `GET /api/directories`, a star per row, ordering in
 `lib/directories.ts`, and a window event that keeps every mounted picker in sync); the **big editor** — `ui/full-editor.tsx`
 (`useFullEditor` hook + full-screen overlay: preview, submit plumbing; and the

@@ -7,11 +7,12 @@
 import { useState } from "react";
 import { harnessOptions, normalizeNoun, type ConfigDraftProps } from "@/lib/config-draft";
 import { Card, CardContent } from "@/components/ui/card";
-import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The Teammates tab's cards over the draft. */
 export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
@@ -41,7 +42,9 @@ export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
             {nouns.map((n) => (
               <Badge key={n} variant="secondary" className="gap-1">
                 {n}
-                <button onClick={() => removeNoun(n)} className="hover:text-destructive"><X className="h-3 w-3" /></button>
+                <Tooltip content="Remove" describe={false}>
+                  <button onClick={() => removeNoun(n)} className="hover:text-destructive" aria-label={`Remove ${n}`}><X className="h-3 w-3" /></button>
+                </Tooltip>
               </Badge>
             ))}
             {nouns.length === 0 && (config.defaultNouns || []).map((n) => (
@@ -50,8 +53,8 @@ export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
           </div>
           {nouns.length === 0 && <p className="text-xs text-muted-foreground italic">Showing built-in defaults. Add a noun to use a custom list instead.</p>}
           <div className="flex gap-2">
-            <Input placeholder="Add a noun..." value={newNoun} onChange={(e) => setNewNoun(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addNoun()} className="max-w-[200px]" />
-            <Button variant="outline" size="sm" onClick={addNoun}><Plus className="h-3.5 w-3.5" /></Button>
+            <Input placeholder="Add a noun..." aria-label="New noun" value={newNoun} onChange={(e) => setNewNoun(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addNoun()} className="max-w-[200px]" />
+            <IconButton variant="outline" size="sm" onClick={addNoun} label="Add noun"><Plus className="h-3.5 w-3.5" /></IconButton>
           </div>
         </CardContent>
       </Card>

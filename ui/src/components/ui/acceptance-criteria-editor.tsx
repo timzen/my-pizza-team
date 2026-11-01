@@ -13,8 +13,9 @@
 
 import { useState } from "react";
 import { Input } from "@/components/ui/input";
-import { Button } from "@/components/ui/button";
 import { Plus, X } from "lucide-react";
+import { IconButton } from "@/components/ui/icon-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 // ─── RFC 2119 scoring ──────────────────────────────────────────────
 
@@ -109,21 +110,25 @@ export function AcceptanceCriteriaEditor({
                 value={item}
                 onChange={(e) => edit(i, e.target.value)}
                 className="flex-1"
+                aria-label={`Criterion ${i + 1}`}
               />
-              <span
-                className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${BADGE[score.level]}`}
-                title={score.hint ?? `Aligns with RFC 2119 (${score.label})`}
-              >
-                {score.label}
-              </span>
-              <button
-                type="button"
-                onClick={() => remove(i)}
-                className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                title="Remove"
-              >
-                <X className="h-4 w-4" />
-              </button>
+              <Tooltip content={score.hint ?? `Aligns with RFC 2119 (${score.label})`} focusable>
+                <span
+                  className={`shrink-0 rounded border px-1.5 py-0.5 text-[10px] font-medium ${BADGE[score.level]}`}
+                >
+                  {score.label}
+                </span>
+              </Tooltip>
+              <Tooltip content="Remove" describe={false}>
+                <button
+                  type="button"
+                  onClick={() => remove(i)}
+                  className="shrink-0 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 focus-visible:opacity-100 transition-opacity"
+                  aria-label={`Remove criterion ${i + 1}`}
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </Tooltip>
             </li>
           );
         })}
@@ -136,23 +141,25 @@ export function AcceptanceCriteriaEditor({
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
+            aria-label="New criterion"
             className={draft.trim() ? "pr-24" : undefined}
           />
           {draft.trim() && (() => {
             const score = scoreCriterion(draft);
             return (
-              <span
-                className={`absolute right-2 top-1/2 -translate-y-1/2 rounded border px-1.5 py-0.5 text-[10px] font-medium ${BADGE[score.level]}`}
-                title={score.hint ?? `Aligns with RFC 2119 (${score.label})`}
-              >
-                {score.label}
-              </span>
+              <Tooltip content={score.hint ?? `Aligns with RFC 2119 (${score.label})`} describe={false}>
+                <span
+                  className={`absolute right-2 top-1/2 -translate-y-1/2 rounded border px-1.5 py-0.5 text-[10px] font-medium ${BADGE[score.level]}`}
+                >
+                  {score.label}
+                </span>
+              </Tooltip>
             );
           })()}
         </div>
-        <Button type="button" size="icon" className="shrink-0" onClick={add} disabled={!draft.trim()} title="Add criterion">
+        <IconButton type="button" size="icon" className="shrink-0" onClick={add} disabled={!draft.trim()} label="Add criterion">
           <Plus className="h-4 w-4" />
-        </Button>
+        </IconButton>
       </div>
 
       <p className="text-[11px] text-muted-foreground">

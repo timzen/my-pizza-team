@@ -18,12 +18,12 @@
 
 import { useState } from "react";
 import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
 import { Link } from "react-router-dom";
 import { TaskCard } from "./TaskCard";
 import { taskDragType } from "./task-drag";
 import { Archive, ChevronDown, ChevronRight, Hourglass, Play, Plus, FoldHorizontal, UnfoldHorizontal } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
+import { IconButton } from "@/components/ui/icon-button";
 
 interface StoryData {
   id: string;
@@ -119,16 +119,16 @@ export function StorySwimlane({ story, states, onArchive, onTogglePending, onSta
     <div className="border border-border rounded-lg overflow-hidden">
       {/* Story header (distinct panel color; edit lives on the story page) */}
       <div className={`bg-muted pl-2 pr-4 py-2 flex items-center gap-2 ${collapsed ? "" : "border-b border-border"}`}>
-        <Button
+        <IconButton
           variant="ghost"
           size="icon"
           className="h-6 w-6"
           onClick={() => onToggleCollapsed?.(!collapsed)}
           aria-expanded={!collapsed}
-          title={collapsed ? "Expand story" : "Collapse story"}
+          label={collapsed ? "Expand story" : "Collapse story"}
         >
           {collapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronDown className="h-4 w-4" />}
-        </Button>
+        </IconButton>
         <Link
           to={`/story/${story.id}`}
           className="font-medium text-sm hover:underline"
@@ -151,32 +151,32 @@ export function StorySwimlane({ story, states, onArchive, onTogglePending, onSta
           )}
           {/* Column toggle only matters while the columns are shown. */}
           {!collapsed && (
-            <Button
+            <IconButton
               variant="ghost"
               size="icon"
               className="h-7 w-7"
               onClick={toggleBuckets}
-              title={showBuckets ? "Hide todo/done columns" : "Show todo/done columns"}
+              label={showBuckets ? "Hide todo/done columns" : "Show todo/done columns"}
             >
               {showBuckets ? <FoldHorizontal className="h-3.5 w-3.5" /> : <UnfoldHorizontal className="h-3.5 w-3.5" />}
-            </Button>
+            </IconButton>
           )}
-          <Button variant="ghost" size="icon" className="h-7 w-7" title="Add task" render={<Link to={`/story/${story.id}/tasks/new`} />}>
+          <IconButton variant="ghost" size="icon" className="h-7 w-7" label="Add task" render={<Link to={`/story/${story.id}/tasks/new`} />}>
             <Plus className="h-3.5 w-3.5" />
-          </Button>
+          </IconButton>
           {allDone && (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onArchive?.(story.id)} title="Archive">
+            <IconButton variant="ghost" size="icon" className="h-7 w-7" onClick={() => onArchive?.(story.id)} label="Archive story">
               <Archive className="h-3.5 w-3.5" />
-            </Button>
+            </IconButton>
           )}
           {story.pending ? (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onTogglePending?.(story.id, false)} title="Activate (hand out its tasks again)">
+            <IconButton variant="ghost" size="icon" className="h-7 w-7" onClick={() => onTogglePending?.(story.id, false)} label="Activate (hand out its tasks again)">
               <Play className="h-3.5 w-3.5" />
-            </Button>
+            </IconButton>
           ) : (
-            <Button variant="ghost" size="icon" className="h-7 w-7" onClick={() => onTogglePending?.(story.id, true)} title="Make pending (hold: nothing new is handed out)">
+            <IconButton variant="ghost" size="icon" className="h-7 w-7" onClick={() => onTogglePending?.(story.id, true)} label="Make pending (hold: nothing new is handed out)">
               <Hourglass className="h-3.5 w-3.5" />
-            </Button>
+            </IconButton>
           )}
         </div>
       </div>

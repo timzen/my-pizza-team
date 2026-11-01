@@ -11,6 +11,7 @@ import { dotClass } from "@/lib/thoughtColors";
 import { NOTE_W, NOTE_H, groupsByNoteCount } from "@/lib/thoughtGeometry";
 import { minimapFrame, type CanvasView } from "@/lib/thoughtLayout";
 import type { Thought, ThoughtGroup } from "@shared/types";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** Minimap size (px); the group-chip row starts just right of it. */
 const MINIMAP_W = 192, MINIMAP_H = 128;
@@ -36,19 +37,20 @@ export function Minimap({ notes, view, vpW, vpH, onRecenter }: {
   };
 
   return (
-    <div
-      className="absolute bottom-4 left-4 z-30 overflow-hidden rounded-md border border-border bg-card/90 shadow-sm"
-      style={{ width: MMW, height: MMH }}
-      onPointerDown={(e) => { e.preventDefault(); recenterFrom(e); }}
-      onPointerMove={(e) => { if (e.buttons === 1) recenterFrom(e); }}
-      title="Minimap — click to jump"
-    >
-      {notes.map((n) => (
-        <div key={n.id} className="absolute rounded-[1px] bg-muted-foreground/50" style={{ left: mx(n.x), top: my(n.y), width: Math.max(2, NOTE_W * s), height: Math.max(2, NOTE_H * s) }} />
-      ))}
-      {/* Viewport rectangle */}
-      <div className="absolute border border-primary bg-primary/10" style={{ left: mx(viewport.x0), top: my(viewport.y0), width: (viewport.x1 - viewport.x0) * s, height: (viewport.y1 - viewport.y0) * s }} />
-    </div>
+    <Tooltip content="Minimap — click to jump" describe={false}>
+      <div
+        className="absolute bottom-4 left-4 z-30 overflow-hidden rounded-md border border-border bg-card/90 shadow-sm"
+        style={{ width: MMW, height: MMH }}
+        onPointerDown={(e) => { e.preventDefault(); recenterFrom(e); }}
+        onPointerMove={(e) => { if (e.buttons === 1) recenterFrom(e); }}
+      >
+        {notes.map((n) => (
+          <div key={n.id} className="absolute rounded-[1px] bg-muted-foreground/50" style={{ left: mx(n.x), top: my(n.y), width: Math.max(2, NOTE_W * s), height: Math.max(2, NOTE_H * s) }} />
+        ))}
+        {/* Viewport rectangle */}
+        <div className="absolute border border-primary bg-primary/10" style={{ left: mx(viewport.x0), top: my(viewport.y0), width: (viewport.x1 - viewport.x0) * s, height: (viewport.y1 - viewport.y0) * s }} />
+      </div>
+    </Tooltip>
   );
 }
 
@@ -71,16 +73,16 @@ export function GroupChips({ groups, notes, onJump }: {
       style={{ left: 16 + MINIMAP_W + 8 }}
     >
       {groupsByNoteCount(groups, notes).map(({ plate: g, count }) => (
-        <button
-          key={g.id}
-          onClick={() => onJump(g)}
-          title={`Jump to ${g.title}`}
-          className="pointer-events-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card/90 px-2.5 py-1 text-xs shadow-sm hover:bg-accent"
-        >
-          <span className={`h-2 w-2 rounded-full ${g.groupColor ? dotClass(g.groupColor) : "bg-muted-foreground/40"}`} />
-          {g.title}
-          <span className="text-muted-foreground">{count}</span>
-        </button>
+        <Tooltip key={g.id} content={`Jump to ${g.title}`}>
+          <button
+            onClick={() => onJump(g)}
+            className="pointer-events-auto flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-border bg-card/90 px-2.5 py-1 text-xs shadow-sm hover:bg-accent"
+          >
+            <span className={`h-2 w-2 rounded-full ${g.groupColor ? dotClass(g.groupColor) : "bg-muted-foreground/40"}`} />
+            {g.title}
+            <span className="text-muted-foreground">{count}</span>
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

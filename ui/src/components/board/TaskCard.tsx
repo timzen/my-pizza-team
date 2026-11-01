@@ -16,6 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { User } from "lucide-react";
 import { taskDragType } from "./task-drag";
 import { PendingBadge } from "@/components/WorkDefDefinition";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface TaskCardProps {
   task: {
@@ -101,8 +102,10 @@ function WorkItemChip({ state }: { state: NonNullable<TaskCardProps["task"]["wor
   const m = meta[state];
   if (!m) return null;
   return (
-    <Badge variant="outline" className={`text-[10px] px-1 py-0 ${m.cls}`} title={m.title}>
-      {m.label}
-    </Badge>
+    <Tooltip content={m.title} describe={false}>
+      <Badge variant="outline" className={`text-[10px] px-1 py-0 ${m.cls}`}>
+        {m.label}
+      </Badge>
+    </Tooltip>
   );
 }

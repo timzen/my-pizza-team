@@ -7,6 +7,7 @@
 import { Trash2, ArchiveRestore, X } from "lucide-react";
 import { noteClass } from "@/lib/thoughtColors";
 import type { Thought } from "@shared/types";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The archived-notes drawer; `notes` is undefined while still loading. */
 export function ArchivedDrawer({ notes, onClose, onRestore, onDelete }: {
@@ -19,7 +20,9 @@ export function ArchivedDrawer({ notes, onClose, onRestore, onDelete }: {
     <div className="absolute right-0 top-0 z-30 flex h-full w-80 flex-col border-l border-border bg-card shadow-lg">
       <div className="flex items-center justify-between border-b border-border p-3">
         <span className="font-medium">Archived</span>
-        <button onClick={onClose} className="rounded p-1 hover:bg-accent/50"><X className="h-4 w-4" /></button>
+        <Tooltip content="Close archived notes" describe={false}>
+          <button onClick={onClose} className="rounded p-1 hover:bg-accent/50" aria-label="Close archived notes"><X className="h-4 w-4" /></button>
+        </Tooltip>
       </div>
       <div className="flex-1 overflow-y-auto p-3 space-y-2">
         {(notes ?? []).length === 0 && <p className="text-sm text-muted-foreground">Nothing archived.</p>}

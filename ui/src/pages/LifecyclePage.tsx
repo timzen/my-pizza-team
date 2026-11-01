@@ -39,6 +39,7 @@ import {
   type ActivateTarget, type ArchivedStoryLike, type LifecycleKind, type LifecycleRow, type LifecycleState, type ScheduleLike, type StoryLike, type WorkDefLike,
 } from "@/lib/lifecycle-list";
 import { Archive, ArchiveRestore, CalendarClock, ChevronDown, ChevronRight, FolderOpen, Search, Send, Trash2 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 const POLL_MS = 10_000;
 
@@ -109,16 +110,16 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
       <p className="text-sm text-muted-foreground">{INTRO[state]}</p>
       <div className="flex items-center gap-2 flex-wrap">
         {LIFECYCLE_KINDS.filter(k => enabled.includes(k.kind)).map(({ kind, label }) => (
-          <Button
-            key={kind}
-            size="sm"
-            variant={selected.includes(kind) ? "default" : "outline"}
-            aria-pressed={selected.includes(kind)}
-            onClick={() => setSelected(s => toggleKind(s, kind))}
-            title={`Show ${label.toLowerCase()}`}
-          >
-            {label} ({counts[kind]})
-          </Button>
+          <Tooltip key={kind} content={`Show ${label.toLowerCase()}`}>
+            <Button
+              size="sm"
+              variant={selected.includes(kind) ? "default" : "outline"}
+              aria-pressed={selected.includes(kind)}
+              onClick={() => setSelected(s => toggleKind(s, kind))}
+            >
+              {label} ({counts[kind]})
+            </Button>
+          </Tooltip>
         ))}
         <div className="relative ml-auto min-w-[200px]">
           <Search className="absolute left-2.5 top-2 h-4 w-4 text-muted-foreground" />
@@ -131,17 +132,25 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
           <LifecycleRowCard key={`${row.kind}:${row.id}`} row={row}>
             {state === "pending" ? (
               <>
-                <Button variant="ghost" size="sm" onClick={() => archive(row)} title="Archive"><Archive className="h-3.5 w-3.5" /></Button>
+                <Tooltip content="Archive" describe={false}>
+                  <Button variant="ghost" size="sm" onClick={() => archive(row)} aria-label="Archive"><Archive className="h-3.5 w-3.5" /></Button>
+                </Tooltip>
                 {row.activate && (
-                  <Button size="sm" onClick={() => activate(row.activate!)} title={activateTitle(row.activate)}>
-                    <Send className="h-3.5 w-3.5 mr-1" />Activate
-                  </Button>
+                  <Tooltip content={activateTitle(row.activate)}>
+                    <Button size="sm" onClick={() => activate(row.activate!)}>
+                      <Send className="h-3.5 w-3.5 mr-1" />Activate
+                    </Button>
+                  </Tooltip>
                 )}
               </>
             ) : row.kind !== "story" && (
               <>
-                <Button variant="outline" size="sm" onClick={() => restore(row.id)} title="Back to its tab"><ArchiveRestore className="h-3.5 w-3.5 mr-1" />Restore</Button>
-                <Button variant="ghost" size="sm" className="text-destructive" onClick={() => remove(row)} title="Delete for good"><Trash2 className="h-3.5 w-3.5" /></Button>
+                <Tooltip content="Back to its tab">
+                  <Button variant="outline" size="sm" onClick={() => restore(row.id)}><ArchiveRestore className="h-3.5 w-3.5 mr-1" />Restore</Button>
+                </Tooltip>
+                <Tooltip content="Delete for good" describe={false}>
+                  <Button variant="ghost" size="sm" className="text-destructive" onClick={() => remove(row)} aria-label="Delete for good"><Trash2 className="h-3.5 w-3.5" /></Button>
+                </Tooltip>
               </>
             )}
           </LifecycleRowCard>
@@ -179,7 +188,7 @@ function LifecycleRowCard({ row, children }: { row: LifecycleRow; children: Reac
         {row.directory && (
           <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{row.directory}</Badge>
         )}
-        {row.at && <span title={row.at}>{row.atLabel} {new Date(row.at).toLocaleString()}</span>}
+        {row.at && <Tooltip content={row.at} describe={false}><span>{row.atLabel} {new Date(row.at).toLocaleString()}</span></Tooltip>}
       </div>
     </>
   );

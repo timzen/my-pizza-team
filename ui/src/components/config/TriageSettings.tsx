@@ -46,9 +46,10 @@ export function TriageSettings({ config, setConfig }: ConfigDraftProps) {
             />
             Read changed notes and propose work
           </label>
-          <Label>Sweep Interval (min)</Label>
+          <Label htmlFor="triage-interval">Sweep Interval (min)</Label>
           <div className="space-y-1">
             <Input
+              id="triage-interval"
               type="number"
               min={1}
               value={t.intervalMinutes ?? 60}
@@ -57,9 +58,10 @@ export function TriageSettings({ config, setConfig }: ConfigDraftProps) {
             />
             <p className="text-xs text-muted-foreground">Takes effect when the daemon restarts.</p>
           </div>
-          <Label>Quiet Period (min)</Label>
+          <Label htmlFor="triage-quiet">Quiet Period (min)</Label>
           <div className="space-y-1">
             <Input
+              id="triage-quiet"
               type="number"
               min={0}
               value={t.quietMinutes ?? 10}

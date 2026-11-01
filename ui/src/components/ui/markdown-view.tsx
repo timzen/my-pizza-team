@@ -11,7 +11,8 @@
  * (docs/DESIGN.md "Polling Never Disturbs the Reader"). The only per-render
  * input, the task-list toggle, reaches the checkboxes through a context, and
  * each checkbox's ordinal is stamped onto the tree by a rehype plugin rather
- * than counted during render.
+ * than counted during render. The same plugin stamps each checkbox's item
+ * text, which becomes its accessible name (a bare checkbox says nothing).
  */
 
 import { createContext, useContext } from "react";
@@ -38,6 +39,20 @@ interface HastNode {
   tagName?: string;
   properties?: Record<string, unknown>;
   children?: HastNode[];
+  value?: string;
+}
+
+/** A task item's own checkbox: directly in the `li`, or in its first paragraph (a loose list). */
+function taskCheckbox(li: HastNode): HastNode | undefined {
+  const isBox = (c: HastNode) => c.type === "element" && c.tagName === "input" && c.properties?.type === "checkbox";
+  const first = li.children?.find((c) => c.type === "element");
+  return li.children?.find(isBox) ?? (first?.tagName === "p" ? first.children?.find(isBox) : undefined);
+}
+
+/** The text under a hast node (a task item's words, for its checkbox's name). */
+function hastText(node: HastNode): string {
+  if (node.type === "text") return node.value ?? "";
+  return (node.children ?? []).map(hastText).join("");
 }
 
 /**
@@ -51,6 +66,11 @@ function numberTaskCheckboxes() {
     const walk = (node: HastNode) => {
       if (node.type === "element" && node.tagName === "input" && node.properties?.type === "checkbox") {
         node.properties.dataTaskIndex = n++;
+      }
+      // A task item: name its checkbox by the item's own text.
+      if (node.type === "element" && node.tagName === "li") {
+        const box = taskCheckbox(node);
+        if (box?.properties) box.properties.dataTaskLabel = hastText(node).trim().split("\n")[0];
       }
       node.children?.forEach(walk);
     };
@@ -66,9 +86,11 @@ function TaskInput({ type, checked, node }: React.ComponentProps<"input"> & { no
   const onToggleTask = useContext(ToggleTaskContext);
   if (type !== "checkbox") return <input type={type} readOnly />;
   const idx = Number(node?.properties?.dataTaskIndex ?? -1);
+  const label = String(node?.properties?.dataTaskLabel ?? "") || `Task ${idx + 1}`;
   return (
     <input
       type="checkbox"
+      aria-label={label}
       checked={!!checked}
       disabled={!onToggleTask}
       readOnly={!onToggleTask}

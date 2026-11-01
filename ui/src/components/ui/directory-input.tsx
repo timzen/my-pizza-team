@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input";
 import { ChevronDown, Star } from "lucide-react";
 import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
 import { orderDirectorySuggestions, notifyFavoritesChanged, FAVORITES_CHANGED_EVENT } from "@/lib/directories";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface DirectoriesData {
   favorites: string[];
@@ -91,16 +92,17 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
         />
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">
           {typed && (
-            <button
-              type="button"
-              className="text-muted-foreground hover:text-foreground"
-              title={typedIsFavorite ? "Remove from favorite directories" : "Add to favorite directories"}
-              aria-label={typedIsFavorite ? "Remove from favorite directories" : "Add to favorite directories"}
-              onClick={() => onStar(typed, typedIsFavorite)}
-              tabIndex={-1}
-            >
-              <Star className={`h-4 w-4 ${typedIsFavorite ? "fill-yellow-400 text-yellow-500" : ""}`} />
-            </button>
+            <Tooltip content={typedIsFavorite ? "Remove from favorite directories" : "Add to favorite directories"} describe={false}>
+              <button
+                type="button"
+                className="text-muted-foreground hover:text-foreground"
+                aria-label={typedIsFavorite ? "Remove from favorite directories" : "Add to favorite directories"}
+                onClick={() => onStar(typed, typedIsFavorite)}
+                tabIndex={-1}
+              >
+                <Star className={`h-4 w-4 ${typedIsFavorite ? "fill-yellow-400 text-yellow-500" : ""}`} />
+              </button>
+            </Tooltip>
           )}
           {hasAny && (
             <button
@@ -129,15 +131,16 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
                 >
                   {dir}
                 </button>
-                <button
-                  type="button"
-                  className="px-2 text-muted-foreground hover:text-foreground"
-                  title={favorite ? "Remove from favorites" : "Add to favorites"}
-                  aria-label={favorite ? `Remove ${dir} from favorites` : `Add ${dir} to favorites`}
-                  onClick={() => onStar(dir, favorite)}
-                >
-                  <Star className={`h-3.5 w-3.5 ${favorite ? "fill-yellow-400 text-yellow-500" : ""}`} />
-                </button>
+                <Tooltip content={favorite ? "Remove from favorites" : "Add to favorites"} describe={false}>
+                  <button
+                    type="button"
+                    className="px-2 text-muted-foreground hover:text-foreground"
+                    aria-label={favorite ? `Remove ${dir} from favorites` : `Add ${dir} to favorites`}
+                    onClick={() => onStar(dir, favorite)}
+                  >
+                    <Star className={`h-3.5 w-3.5 ${favorite ? "fill-yellow-400 text-yellow-500" : ""}`} />
+                  </button>
+                </Tooltip>
               </div>
             </div>
           ))}

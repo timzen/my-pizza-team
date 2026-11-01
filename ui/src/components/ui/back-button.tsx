@@ -9,12 +9,15 @@
  * the key changes on any replace (e.g. switching Details/Thread), which made a
  * fresh-load Back leave the app instead of using the fallback.
  *
- * Two shapes: icon-only (default) or with a text `label`.
+ * Two shapes: icon-only (default) or with a text `label`. Icon-only, `title`
+ * (default "Back") is its accessible name and its Tooltip; with a label, a
+ * `title` is only the hint.
  */
 
 import { useNavigate } from "react-router-dom";
 import { ArrowLeft } from "lucide-react";
 import { canGoBackInApp } from "@/lib/nav-section";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function BackButton({
   fallback,
@@ -26,6 +29,7 @@ export function BackButton({
   fallback: string;
   /** Optional text beside the arrow (e.g. "Back to board"). */
   label?: string;
+  /** Icon-only: the name and tooltip (default "Back"). With a label: an extra hint. */
   title?: string;
   className?: string;
 }) {
@@ -43,9 +47,11 @@ export function BackButton({
     : "text-muted-foreground hover:text-foreground transition-colors";
 
   return (
-    <button type="button" onClick={goBack} className={className ?? base} title={title ?? "Back"}>
-      <ArrowLeft className={label ? "h-4 w-4" : "h-5 w-5"} />
-      {label}
-    </button>
+    <Tooltip content={label ? title : (title ?? "Back")} describe={!!label}>
+      <button type="button" onClick={goBack} className={className ?? base} aria-label={label ? undefined : (title ?? "Back")}>
+        <ArrowLeft className={label ? "h-4 w-4" : "h-5 w-5"} />
+        {label}
+      </button>
+    </Tooltip>
   );
 }

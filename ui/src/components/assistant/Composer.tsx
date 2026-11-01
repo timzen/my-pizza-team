@@ -13,7 +13,6 @@
  */
 
 import { useEffect, useRef } from "react";
-import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { useMediaQuery } from "@/hooks/useMediaQuery";
@@ -21,6 +20,7 @@ import { editorCommandSeed } from "@/lib/editorPrefs";
 import { QuotedMessage } from "./QuotedMessage";
 import { Eraser, Send } from "lucide-react";
 import type { AssistantMessage } from "@/lib/assistant-types";
+import { IconButton } from "@/components/ui/icon-button";
 
 interface ComposerProps {
   draft: string;
@@ -72,6 +72,7 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
         <Textarea
           ref={textareaRef}
           placeholder={placeholder}
+          aria-label="Message"
           value={draft}
           onChange={(e) => onDraftChange(e.target.value)}
           onKeyDown={handleKeyDown}
@@ -81,12 +82,12 @@ export function Composer({ draft, onDraftChange, onSend, replyTo, onClearReply, 
         />
         <div className="flex flex-col gap-2 self-end">
           <FullEditorButton onClick={() => editor.open()} disabled={!enabled} className="px-1.5" />
-          <Button variant="outline" size="icon" onClick={() => onDraftChange("")} disabled={!draft} title="Clear textbox">
+          <IconButton variant="outline" size="icon" onClick={() => onDraftChange("")} disabled={!draft} label="Clear textbox">
             <Eraser className="h-4 w-4" />
-          </Button>
-          <Button onClick={onSend} size="icon" disabled={!draft.trim() || !enabled} title="Send">
+          </IconButton>
+          <IconButton variant="default" onClick={onSend} size="icon" disabled={!draft.trim() || !enabled} label="Send">
             <Send className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </div>
       </div>
       {editor.overlay}

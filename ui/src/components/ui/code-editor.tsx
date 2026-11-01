@@ -51,6 +51,8 @@ export interface CodeEditorProps {
   onVimMode?: (mode: VimMode) => void;
   commands: EditorCommands;
   placeholder?: string;
+  /** The editing surface's accessible name (default "Markdown editor"); a placeholder isn't one. */
+  ariaLabel?: string;
   /** Font size in px (the big editor is 14, a note is 15). */
   fontSize?: number;
   /** Take focus on mount (default true). False for a form field that merely starts in edit mode. */
@@ -110,7 +112,7 @@ function appTheme(fontSize: number, minLines?: number) {
 }
 
 export default function CodeEditor({
-  initial, vim: vimOn, onChange, onVimMode, commands, placeholder: hint, fontSize = 14, autoFocus = true, minLines,
+  initial, vim: vimOn, onChange, onVimMode, commands, placeholder: hint, ariaLabel = "Markdown editor", fontSize = 14, autoFocus = true, minLines,
 }: CodeEditorProps) {
   const host = useRef<HTMLDivElement>(null);
   const view = useRef<EditorView | null>(null);
@@ -150,6 +152,7 @@ export default function CodeEditor({
           syntaxHighlighting(defaultHighlightStyle, { fallback: true }),
           EditorView.lineWrapping,
           placeholder(hint ?? "Write… (markdown)"),
+          EditorView.contentAttributes.of({ "aria-label": ariaLabel, "aria-multiline": "true" }),
           appTheme(fontSize, minLines),
           EditorView.updateListener.of((u) => { if (u.docChanged) cb.current.onChange(u.state.doc.toString()); }),
         ],

@@ -16,6 +16,7 @@ import { usePersonas } from "@/hooks/usePersonas";
 import { missingSelection, optionLabel, personaPath, pickerGroups, type PersonaKind } from "@/lib/personas";
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface Props {
   /** The selected persona id; null/"" = the "none" option. */
@@ -29,12 +30,14 @@ interface Props {
   exclude?: string[];
   disabled?: boolean;
   id?: string;
+  /** The select's accessible name, when no `<Label htmlFor={id}>` names it. */
+  label?: string;
   className?: string;
   /** Hide the edit/view link (when the host shows its own). */
   hideLink?: boolean;
 }
 
-export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disabled, id, className, hideLink }: Props) {
+export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disabled, id, label, className, hideLink }: Props) {
   const personas = usePersonas();
   const { hinted, rest } = pickerGroups(personas ?? [], kind, exclude);
   // A value shown another way (the default the "none" option stands for) selects "none".
@@ -46,6 +49,7 @@ export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disab
     <div className={cn("flex flex-wrap items-center gap-2", className)}>
       <select
         id={id}
+        aria-label={label}
         value={shown ?? ""}
         disabled={disabled || personas === null}
         onChange={(e) => onChange(e.target.value || null)}
@@ -64,14 +68,18 @@ export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disab
           : rest.map((p) => <option key={p.id} value={p.id}>{optionLabel(p)}</option>))}
       </select>
       {!hideLink && selected && (
-        <Link to={personaPath(selected.id)} className="text-xs text-primary hover:underline" title={selected.description || selected.title}>
-          {selected.readOnly ? "view" : "edit"}
-        </Link>
+        <Tooltip content={selected.description || selected.title}>
+          <Link to={personaPath(selected.id)} className="text-xs text-primary hover:underline">
+            {selected.readOnly ? "view" : "edit"}
+          </Link>
+        </Tooltip>
       )}
       {missing && (
-        <span className="flex items-center gap-1 text-xs text-amber-600" title="Runs fall back to a built-in until you pick another">
-          <AlertTriangle className="h-3 w-3" />“{missing}” doesn't exist
-        </span>
+        <Tooltip content="Runs fall back to a built-in until you pick another" focusable>
+          <span className="flex items-center gap-1 text-xs text-amber-600">
+            <AlertTriangle className="h-3 w-3" />“{missing}” doesn't exist
+          </span>
+        </Tooltip>
       )}
     </div>
   );

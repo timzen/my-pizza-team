@@ -21,11 +21,13 @@ import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { notifyPersonasChanged } from "@/hooks/usePersonas";
 import { PERSONAS_TAB_PATH } from "@/lib/personas";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { GitBranch, Pencil, ArrowRight, Trash2, ChevronUp, ChevronDown, Plus, Bot, User } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import type { WorkflowConfig, WorkflowState } from "@shared/types";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface ConfigData {
   port: number;
@@ -151,6 +153,7 @@ function StatePersonas({ name, states, onSaved }: { name: string; states: Workfl
           <span className="flex w-40 items-center gap-1.5 text-sm font-medium"><Bot className="h-3.5 w-3.5 text-muted-foreground" />{s.name.replace(/_/g, " ")}</span>
           <PersonaPicker
             id={`state-persona-${s.name}`}
+            label={`Persona for ${s.name.replace(/_/g, " ")}`}
             kind="worker"
             value={s.persona ?? null}
             onChange={(p) => pick(s.name, p)}
@@ -250,19 +253,21 @@ function StatesEditor({ name, workflow, config, onSaved }: {
       {states.map((s, idx) => (
         <div key={s.name} className="flex items-center gap-2">
           <div className="flex flex-col">
-            <Button variant="ghost" size="icon" className="h-5 w-5" disabled={idx === 0} onClick={() => move(idx, -1)}><ChevronUp className="h-3 w-3" /></Button>
-            <Button variant="ghost" size="icon" className="h-5 w-5" disabled={idx === states.length - 1} onClick={() => move(idx, 1)}><ChevronDown className="h-3 w-3" /></Button>
+            <IconButton className="h-5 w-5" disabled={idx === 0} onClick={() => move(idx, -1)} label={`Move ${s.name.replace(/_/g, " ")} up`}><ChevronUp className="h-3 w-3" /></IconButton>
+            <IconButton className="h-5 w-5" disabled={idx === states.length - 1} onClick={() => move(idx, 1)} label={`Move ${s.name.replace(/_/g, " ")} down`}><ChevronDown className="h-3 w-3" /></IconButton>
           </div>
           <span className="flex-1 text-sm font-medium">{s.name.replace(/_/g, " ")}</span>
-          <Button variant="outline" size="sm" onClick={() => toggleType(idx)} title="Toggle who works this state">
-            {s.type === "agent" ? <><Bot className="h-3.5 w-3.5 mr-1" />agent</> : <><User className="h-3.5 w-3.5 mr-1" />manual</>}
-          </Button>
-          <Button variant="ghost" size="icon" className="h-7 w-7 text-destructive" onClick={() => remove(idx)}><Trash2 className="h-3.5 w-3.5" /></Button>
+          <Tooltip content="Toggle who works this state">
+            <Button variant="outline" size="sm" onClick={() => toggleType(idx)}>
+              {s.type === "agent" ? <><Bot className="h-3.5 w-3.5 mr-1" />agent</> : <><User className="h-3.5 w-3.5 mr-1" />manual</>}
+            </Button>
+          </Tooltip>
+          <IconButton className="h-7 w-7 text-destructive" onClick={() => remove(idx)} label={`Remove ${s.name.replace(/_/g, " ")}`}><Trash2 className="h-3.5 w-3.5" /></IconButton>
         </div>
       ))}
       <div className="flex items-center gap-2 pt-2 border-t border-border">
         <Input
-          placeholder="New state name…"
+          aria-label="New state name" placeholder="New state name…"
           value={newState}
           onChange={e => setNewState(e.target.value)}
           onKeyDown={e => { if (e.key === "Enter") add(); }}

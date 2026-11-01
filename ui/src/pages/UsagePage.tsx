@@ -32,6 +32,7 @@ import {
   peakDay, readIncludeCached, tokensOf, writeIncludeCached,
   type GridCell, type UsageDay, type UsageKind, type UsageMetric, type UsageRun, type UsageTotals,
 } from "@/lib/usage";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface DailyResponse {
   today: string;
@@ -111,13 +112,14 @@ export function UsagePage() {
             {formatTokens(tokensOf(totals.range, includeCached))} tokens · {formatUsd(totals.range.costUsd)} in the past year
           </h2>
           <div className="flex items-center gap-3">
-            <label
-              className="flex items-center gap-1.5 text-xs text-muted-foreground"
-              title="Count cache-read tokens in every token figure (cost is unaffected)"
-            >
-              <input type="checkbox" checked={includeCached} onChange={(e) => setIncludeCached(e.target.checked)} />
-              Include cached
-            </label>
+            <Tooltip content="Count cache-read tokens in every token figure (cost is unaffected)">
+              <label
+                className="flex items-center gap-1.5 text-xs text-muted-foreground"
+              >
+                <input type="checkbox" checked={includeCached} onChange={(e) => setIncludeCached(e.target.checked)} />
+                Include cached
+              </label>
+            </Tooltip>
             <SegmentedTabs
               tabs={[{ key: "tokens", label: "Tokens", title: "Shade days by tokens" }, { key: "costUsd", label: "Cost", title: "Shade days by cost" }]}
               active={metric}
@@ -247,8 +249,8 @@ function KindSplit({ t, metric, includeCached }: { t: UsageDay[]; metric: UsageM
   return (
     <section className="rounded-lg border border-border p-4">
       <h2 className="mb-2 text-sm font-semibold">Where it went</h2>
-      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted">
-        {kinds.map((k) => <div key={k} className={KIND_BAR[k]} style={{ width: `${(byKind.get(k)! / total) * 100}%` }} title={KIND_LABEL[k]} />)}
+      <div className="flex h-2.5 overflow-hidden rounded-full bg-muted" aria-hidden>
+        {kinds.map((k) => <Tooltip key={k} content={KIND_LABEL[k]} describe={false}><div className={KIND_BAR[k]} style={{ width: `${(byKind.get(k)! / total) * 100}%` }} /></Tooltip>)}
       </div>
       <div className="mt-2 flex flex-wrap gap-x-4 gap-y-1 text-xs">
         {kinds.map((k) => (
@@ -278,7 +280,9 @@ function DayRuns({ date, includeCached, onClose }: { date: string; includeCached
       <div className="divide-y divide-border">
         {runs.map((r, i) => (
           <div key={runKeys[i]} className="flex items-center gap-3 py-1.5 text-sm">
-            <span className={`h-2 w-2 shrink-0 rounded-full ${KIND_BAR[r.kind]}`} title={KIND_LABEL[r.kind]} />
+            <Tooltip content={KIND_LABEL[r.kind]} describe={false}>
+              <span className={`h-2 w-2 shrink-0 rounded-full ${KIND_BAR[r.kind]}`} role="img" aria-label={KIND_LABEL[r.kind]} />
+            </Tooltip>
             <span className="min-w-0 flex-1 truncate">
               {r.refId ? <Link to={`/work-defs/${encodeURIComponent(r.refId)}`} className="hover:underline">{r.title ?? r.refId}</Link> : (r.title ?? KIND_LABEL[r.kind])}
               {r.memberId && <span className="ml-2 text-xs text-muted-foreground">{r.memberId}</span>}

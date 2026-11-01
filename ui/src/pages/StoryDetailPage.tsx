@@ -19,6 +19,8 @@ import { TitleField } from "@/components/ui/title-field";
 import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import type { StoryView } from "@shared/protocol";
+import { IconButton } from "@/components/ui/icon-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -124,21 +126,21 @@ export function StoryDetailPage() {
       <div className="flex items-center justify-between">
         <BackButton fallback="/work/board" label="Back to board" />
         <div className="flex items-center gap-1">
-          <Button variant="ghost" size="icon" onClick={handleSave} title="Save changes">
+          <IconButton variant="ghost" size="icon" onClick={handleSave} label="Save changes">
             <Save className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" onClick={handleArchive} title="Archive story">
+          </IconButton>
+          <IconButton variant="ghost" size="icon" onClick={handleArchive} label="Archive story">
             <Archive className="h-4 w-4" />
-          </Button>
-          <Button
+          </IconButton>
+          <IconButton
             variant="ghost"
             size="icon"
             className="text-destructive hover:text-destructive/80 hover:bg-destructive/10"
             onClick={handleDelete}
-            title="Delete story"
+            label="Delete story"
           >
             <Trash2 className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </div>
       </div>
 
@@ -150,15 +152,16 @@ export function StoryDetailPage() {
           <div className="flex items-center gap-2">
             {story.pending && <Badge variant="outline" className="border-amber-500/50 text-amber-700 dark:text-amber-400">pending</Badge>}
             <Badge variant="secondary">{story.status || "open"}</Badge>
-            <Button
-              type="button"
-              size="sm"
-              variant={story.pending ? "default" : "outline"}
-              onClick={togglePending}
-              title={story.pending ? "Hand out this story's tasks again" : "Hold this story: a running task finishes, nothing new starts"}
-            >
-              {story.pending ? <><Play className="h-3.5 w-3.5 mr-1" />Activate</> : <><Hourglass className="h-3.5 w-3.5 mr-1" />Make pending</>}
-            </Button>
+            <Tooltip content={story.pending ? "Hand out this story's tasks again" : "Hold this story: a running task finishes, nothing new starts"}>
+              <Button
+                type="button"
+                size="sm"
+                variant={story.pending ? "default" : "outline"}
+                onClick={togglePending}
+              >
+                {story.pending ? <><Play className="h-3.5 w-3.5 mr-1" />Activate</> : <><Hourglass className="h-3.5 w-3.5 mr-1" />Make pending</>}
+              </Button>
+            </Tooltip>
           </div>
         </div>
       </div>
@@ -191,18 +194,18 @@ export function StoryDetailPage() {
             className="flex items-center gap-2 p-2 border rounded-lg hover:border-primary transition-colors"
           >
             <div className="flex items-center">
-              <Button variant="ghost" size="icon" className="h-6 w-6" disabled={i === 0} onClick={() => moveTask(i, -1)} title="Move up">
+              <IconButton variant="ghost" size="icon" className="h-6 w-6" disabled={i === 0} onClick={() => moveTask(i, -1)} label="Move up">
                 <ChevronUp className="h-3.5 w-3.5" />
-              </Button>
-              <Button variant="ghost" size="icon" className="h-6 w-6" disabled={i === story.tasks.length - 1} onClick={() => moveTask(i, 1)} title="Move down">
+              </IconButton>
+              <IconButton variant="ghost" size="icon" className="h-6 w-6" disabled={i === story.tasks.length - 1} onClick={() => moveTask(i, 1)} label="Move down">
                 <ChevronDown className="h-3.5 w-3.5" />
-              </Button>
+              </IconButton>
             </div>
             <Link to={`/task/${story.id}/${t.id}`} className="text-sm flex-1 hover:underline">{t.title}</Link>
             <Badge variant="secondary" className="text-xs">{t.status.replace(/_/g, " ")}</Badge>
-            <Button variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive/80 hover:bg-destructive/10" onClick={() => deleteTaskById(t.id)} title="Delete task">
+            <IconButton variant="ghost" size="icon" className="h-6 w-6 text-destructive hover:text-destructive/80 hover:bg-destructive/10" onClick={() => deleteTaskById(t.id)} label="Delete task">
               <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            </IconButton>
           </div>
         ))}
         {story.tasks.length === 0 && <p className="text-sm text-muted-foreground">No tasks yet.</p>}

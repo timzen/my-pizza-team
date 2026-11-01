@@ -52,7 +52,8 @@
 
 import { useCallback, useState } from "react";
 import { Link, useMatch } from "react-router-dom";
-import { Button } from "@/components/ui/button";
+import { IconButton, IconLink } from "@/components/ui/icon-button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { AssistantPane } from "@/components/assistant/AssistantPane";
 import { TeamPanel } from "@/components/team/TeamPanel";
 import { TeammateAvatar, TeamButtons } from "@/components/team/TeamParts";
@@ -123,9 +124,9 @@ export function SideDock() {
       <NewWorkMenu />
       <div className="h-6 w-px shrink-0 bg-border" />
       <QueueSummary queue={queue} />
-      <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setDockOpen(false)} title={isDesktop ? "Collapse" : "Close"}>
+      <IconButton className="h-8 w-8 shrink-0" onClick={() => setDockOpen(false)} label={isDesktop ? "Collapse the dock" : "Close the dock"}>
         {isDesktop ? <PanelLeftClose className="h-4 w-4" /> : <X className="h-4 w-4" />}
-      </Button>
+      </IconButton>
     </div>
   );
 
@@ -173,15 +174,18 @@ export function SideDock() {
             {body}
           </div>
         )}
-        <button
-          type="button"
-          onClick={() => setDockOpen(!open)}
-          title={open ? "Close" : "Assistant and team"}
-          className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90"
-        >
-          {open ? <X className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
-          {!open && <UnreadBadge count={unread} />}
-        </button>
+        <Tooltip content={open ? "Close the assistant and team" : "Assistant and team"} describe={false} side="right">
+          <button
+            type="button"
+            onClick={() => setDockOpen(!open)}
+            aria-label={open ? "Close the assistant and team" : `Assistant and team${unreadSuffix(unread)}`}
+            aria-expanded={open}
+            className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90"
+          >
+            {open ? <X className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
+            {!open && <UnreadBadge count={unread} />}
+          </button>
+        </Tooltip>
       </div>
     );
   }
@@ -192,44 +196,50 @@ export function SideDock() {
       <aside className="flex w-14 shrink-0 flex-col items-center border-r border-border bg-muted/30">
         {dialogs}
         <div className="flex h-14 w-full shrink-0 items-center justify-center border-b border-border">
-          <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setDockOpen(true)} title="Expand">
+          <IconButton className="h-8 w-8" onClick={() => setDockOpen(true)} label="Expand the dock" side="right">
             <PanelLeftOpen className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </div>
         <div className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
-          <button
-            type="button"
-            onClick={() => openTab("assistant")}
-            title={unread > 0 ? `${unread} new message${unread === 1 ? "" : "s"}` : "Chat with the assistant"}
-            className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
-          >
-            <MessageSquare className="h-4 w-4" />
-            <UnreadBadge count={unread} />
-          </button>
+          <Tooltip content={`Chat with the assistant${unreadSuffix(unread)}`} describe={false} side="right">
+            <button
+              type="button"
+              onClick={() => openTab("assistant")}
+              aria-label={`Chat with the assistant${unreadSuffix(unread)}`}
+              className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:bg-muted hover:text-foreground"
+            >
+              <MessageSquare className="h-4 w-4" />
+              <UnreadBadge count={unread} />
+            </button>
+          </Tooltip>
           {startWork.map((item) => (
-            <Button key={item.to} variant="outline" size="icon" className="h-8 w-8 shrink-0" title={item.label} render={<Link to={item.to} />}>
+            <IconButton key={item.to} variant="outline" className="h-8 w-8 shrink-0" label={item.label} side="right" render={<Link to={item.to} />}>
               <item.icon className="h-4 w-4" />
-            </Button>
+            </IconButton>
           ))}
           <div className="my-1 h-px w-6 shrink-0 bg-border" />
-          <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} />
+          <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} tooltipSide="right" />
           {team.pendingSpawns.length > 0 && (
-            <div
-              className="relative flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground"
-              title={`${team.pendingSpawns.length} pending spawn request${team.pendingSpawns.length === 1 ? "" : "s"}`}
-            >
-              <Clock className="h-4 w-4 animate-pulse" />
-              <CountBadge count={team.pendingSpawns.length} className="bg-amber-500" />
-            </div>
+            <Tooltip content={`${team.pendingSpawns.length} pending spawn request${team.pendingSpawns.length === 1 ? "" : "s"}`} describe={false} focusable side="right">
+              <div
+                className="relative flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground"
+                role="img"
+                aria-label={`${team.pendingSpawns.length} pending spawn request${team.pendingSpawns.length === 1 ? "" : "s"}`}
+              >
+                <Clock className="h-4 w-4 animate-pulse" />
+                <CountBadge count={team.pendingSpawns.length} className="bg-amber-500" />
+              </div>
+            </Tooltip>
           )}
           {[...team.online, ...team.offline].map((t) => (
             <TeammateAvatar key={t.id} teammate={t} selected={t.id === viewingTeammate} />
           ))}
           {queue.counts.total > 0 && (
-            <Link
+            <IconLink
               to="/queue"
               className="relative mt-1 flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
-              title={`Queue: ${[
+              side="right"
+              label={`Queue: ${[
                 queue.counts.atRisk && `${queue.counts.atRisk} at risk`,
                 queue.counts.waiting && `${queue.counts.waiting} waiting`,
                 queue.counts.working && `${queue.counts.working} working`,
@@ -237,7 +247,7 @@ export function SideDock() {
             >
               <Clock className="h-4 w-4" />
               <CountBadge count={queue.counts.total} className={queue.counts.atRisk > 0 ? "bg-amber-500" : "bg-primary"} />
-            </Link>
+            </IconLink>
           )}
         </div>
       </aside>
@@ -251,12 +261,16 @@ export function SideDock() {
       {header}
       {tabRow}
       {body}
-      {/* Drag the inner edge to resize — a chat at 300px is cramped for code. */}
-      <div
-        onPointerDown={startResize}
-        title="Drag to resize"
-        className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-primary/20"
-      />
+      {/* Drag the inner edge to resize — a chat at 300px is cramped for code.
+          Pointer-only (the dock's width is a convenience, not a function), so
+          it's hidden from assistive tech; the hint is the cursor's tooltip. */}
+      <Tooltip content="Drag to resize" describe={false} side="right">
+        <div
+          onPointerDown={startResize}
+          aria-hidden
+          className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-primary/20"
+        />
+      </Tooltip>
     </aside>
   );
 }
@@ -279,40 +293,57 @@ function TabButton({
   dot?: string;
   dotTitle?: string;
 }) {
+  // The dot, count and badge say things in color and digits; the hint says
+  // them in words (the tab's tooltip and description).
+  const hint = [
+    dot && dotTitle,
+    count !== undefined && `${count} online`,
+    attention && "Needs attention",
+    badge > 0 && `${badge} new message${badge === 1 ? "" : "s"}`,
+  ].filter(Boolean).join(" · ");
   return (
-    <button
-      type="button"
-      role="tab"
-      aria-selected={active}
-      onClick={onClick}
-      className={`relative flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm transition-colors ${
-        active ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
-      }`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-      {label}
-      {dot && <span className={`h-1.5 w-1.5 rounded-full ${dot}`} title={dotTitle} />}
-      {count !== undefined && <span className="text-xs font-normal text-muted-foreground">{count}</span>}
-      {attention && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" title="Needs attention" />}
-      <UnreadBadge count={badge} />
-    </button>
+    <Tooltip content={hint}>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active}
+        onClick={onClick}
+        className={`relative flex items-center gap-1.5 rounded-md px-2.5 py-1 text-sm transition-colors ${
+          active ? "bg-background font-medium text-foreground shadow-sm" : "text-muted-foreground hover:text-foreground"
+        }`}
+      >
+        <Icon className="h-3.5 w-3.5" />
+        {label}
+        {dot && <span className={`h-1.5 w-1.5 rounded-full ${dot}`} aria-hidden />}
+        {count !== undefined && <span className="text-xs font-normal text-muted-foreground" aria-hidden>{count}</span>}
+        {attention && <span className="h-1.5 w-1.5 rounded-full bg-amber-500" aria-hidden />}
+        <UnreadBadge count={badge} />
+      </button>
+    </Tooltip>
   );
 }
 
 // ─── Bits ────────────────────────────────────────────────────────────
 
+/** " · 3 new messages" for an icon's name and tooltip; empty when nothing is unread. */
+function unreadSuffix(unread: number): string {
+  return unread > 0 ? ` · ${unread} new message${unread === 1 ? "" : "s"}` : "";
+}
+
+/** A count pinned to a rail icon. Digits only, so hidden: the icon's name says the count. */
 function CountBadge({ count, className }: { count: number; className: string }) {
   return (
-    <span className={`absolute -right-1 -top-1 h-3.5 min-w-3.5 rounded-full px-0.5 text-center text-[9px] leading-[14px] text-white ${className}`}>
+    <span aria-hidden className={`absolute -right-1 -top-1 h-3.5 min-w-3.5 rounded-full px-0.5 text-center text-[9px] leading-[14px] text-white ${className}`}>
       {count > 9 ? "9+" : count}
     </span>
   );
 }
 
+/** The unread count on the Assistant's icons. Hidden: their names carry it (unreadSuffix). */
 function UnreadBadge({ count }: { count: number }) {
   if (count <= 0) return null;
   return (
-    <span className="absolute -right-1 -top-1 min-w-3.5 rounded-full bg-primary px-0.5 text-center text-[9px] leading-[14px] text-white">
+    <span aria-hidden className="absolute -right-1 -top-1 min-w-3.5 rounded-full bg-primary px-0.5 text-center text-[9px] leading-[14px] text-white">
       {count > 9 ? "9+" : count}
     </span>
   );

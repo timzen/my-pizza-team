@@ -121,6 +121,7 @@ export function WorkflowsPage() {
           <h2 className="text-sm font-semibold">Create New Workflow</h2>
           <div className="flex gap-2">
             <Input
+              aria-label="New workflow name"
               placeholder="workflow-name"
               value={newName}
               onChange={(e) => { setNewName(e.target.value); setError(null); }}

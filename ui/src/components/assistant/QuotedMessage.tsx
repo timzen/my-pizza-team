@@ -6,6 +6,7 @@
  */
 
 import { X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface QuotedMessageProps {
   quoted: { id: string; role: string; content: string };
@@ -24,21 +25,24 @@ export function QuotedMessage({ quoted, onClick, onClear, tone = "plain" }: Quot
 
   return (
     <div className={`mb-1 flex items-start gap-2 border-l-2 pl-2 text-xs ${toneClasses}`}>
-      <button
-        type="button"
-        onClick={onClick}
-        disabled={!onClick}
-        className={`min-w-0 flex-1 text-left ${onClick ? "hover:underline" : "cursor-default"}`}
-        title={onClick ? "Jump to the original message" : undefined}
-      >
-        <span className="font-medium">{quoted.role === "user" ? "You" : "Assistant"}: </span>
-        {/* Two lines max: a quote is a pointer, not a re-read. */}
-        <span className="line-clamp-2 align-top">{quoted.content}</span>
-      </button>
-      {onClear && (
-        <button type="button" onClick={onClear} title="Remove quote" aria-label="Remove quote" className="shrink-0 hover:text-foreground">
-          <X className="h-3 w-3" />
+      <Tooltip content={onClick ? "Jump to the original message" : undefined}>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={!onClick}
+          className={`min-w-0 flex-1 text-left ${onClick ? "hover:underline" : "cursor-default"}`}
+        >
+          <span className="font-medium">{quoted.role === "user" ? "You" : "Assistant"}: </span>
+          {/* Two lines max: a quote is a pointer, not a re-read. */}
+          <span className="line-clamp-2 align-top">{quoted.content}</span>
         </button>
+      </Tooltip>
+      {onClear && (
+        <Tooltip content="Remove quote" describe={false}>
+          <button type="button" onClick={onClear} aria-label="Remove quote" className="shrink-0 hover:text-foreground">
+            <X className="h-3 w-3" />
+          </button>
+        </Tooltip>
       )}
     </div>
   );

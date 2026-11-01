@@ -8,7 +8,8 @@
  * the first enabled tab, and is hidden only while all three kinds (Stories,
  * Tasks, Schedules) are switched off in Config (hooks/useFeatures).
  * The right-hand icons: pause distribution, Usage (the token/cost dashboard),
- * help, config, theme.
+ * help, config, theme — each named and hinted by IconLink / Tooltip, never
+ * `title=` (docs/ACCESSIBILITY.md).
  *
  * Spans only the center column (between the assistant dock and the teammate
  * sidebar), because it only navigates the center (docs/DESIGN.md "Watching and Pairing with a Teammate").
@@ -38,12 +39,14 @@
 
 import { useEffect, useState } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { IconLink } from "@/components/ui/icon-button";
+import { Tooltip } from "@/components/ui/tooltip";
 import { ThemeToggle } from "./ThemeToggle";
 import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn, Info, X } from "lucide-react";
 import { apiDelete, apiPost, useApi } from "@/hooks/useApi";
 import { PERSONAS_TAB_PATH } from "@/lib/personas";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
-import { badgeLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
+import { badgeLabel, homeLinkCounts, homeLinkLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
 import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
 import type { StatusResponse } from "@shared/protocol";
@@ -88,13 +91,18 @@ export function NavBar() {
     // last line is still a border, and the header grows to fit them.
     <header className="shrink-0 bg-muted">
       <div className="flex h-14 items-center gap-2 border-b border-border px-3 @2xl:px-4">
-        <Link to="/" className="flex shrink-0 items-center gap-3 font-semibold mr-3 @2xl:mr-4" title="Pizza Team">
-          <span className="relative">
-            <Pizza className="h-5 w-5" />
-            <HomeBadges queued={status?.queuedCount} unread={status?.unreadInboxCount} />
-          </span>
-          <span className="hidden @2xl:inline whitespace-nowrap">Pizza Team</span>
-        </Link>
+        {/* Named by its text — "Pizza Team" (visually hidden when narrow) and
+            the badges' counts in words — so the name matches what's shown. */}
+        <Tooltip content={homeLinkLabel(status?.queuedCount, status?.unreadInboxCount)} describe={false} side="bottom">
+          <Link to="/" className="flex shrink-0 items-center gap-3 font-semibold mr-3 @2xl:mr-4">
+            <span className="relative">
+              <Pizza className="h-5 w-5" />
+              <HomeBadges queued={status?.queuedCount} unread={status?.unreadInboxCount} />
+            </span>
+            <span className="sr-only @2xl:not-sr-only whitespace-nowrap">Pizza Team</span>
+            {homeLinkCounts(status?.queuedCount, status?.unreadInboxCount).map((c) => <span key={c} className="sr-only"> · {c}</span>)}
+          </Link>
+        </Tooltip>
 
         <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
           {navItems.map((item) => (
@@ -108,39 +116,39 @@ export function NavBar() {
         <div className="flex shrink-0 items-center @2xl:gap-1">
           <PauseButton paused={!!status?.paused} onToggled={refetchStatus} />
           {/* Usage dashboard (tokens + cost per day). */}
-          <Link
+          <IconLink
             to="/usage"
             className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
               location.pathname === "/usage"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
-            title="Usage"
+            label="Usage"
           >
             <ChartColumn className="h-4 w-4" />
-          </Link>
-          <Link
+          </IconLink>
+          <IconLink
             to="/help"
             className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
               location.pathname === "/help"
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
-            title="Help"
+            label="Help"
           >
             <HelpCircle className="h-4 w-4" />
-          </Link>
-          <Link
+          </IconLink>
+          <IconLink
             to="/config"
             className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
               location.pathname.startsWith("/config")
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
-            title="Config"
+            label="Config"
           >
             <Settings className="h-4 w-4" />
-          </Link>
+          </IconLink>
           <ThemeToggle />
         </div>
       </div>
@@ -151,14 +159,15 @@ export function NavBar() {
             {n.message}{" "}
             <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link>
           </span>
+          <Tooltip content="Dismiss notice" describe={false}>
           <button
             onClick={async () => { await apiDelete(`/api/notices/${encodeURIComponent(n.id)}`); refetchStatus(); }}
             className="p-0.5 text-muted-foreground hover:text-foreground"
-            title="Dismiss"
             aria-label="Dismiss notice"
           >
             <X className="h-3.5 w-3.5" />
           </button>
+          </Tooltip>
         </div>
       ))}
     </header>
@@ -194,8 +203,9 @@ function useWorkDefTypeForPath(pathname: string): string | null {
 /**
  * The two count badges pinned to the pizza icon's corners: queued work
  * (neutral, bottom-right) and unread Inbox items (accent, top-right). Each is
- * hidden at zero; the counts' meaning is in title/aria-label since the badges
- * are only numbers.
+ * hidden at zero. They're only numbers, so they're hidden from screen readers:
+ * the home link's name says what they count (lib/inbox.ts homeLinkLabel), and
+ * so does its tooltip.
  */
 function HomeBadges({ queued, unread }: { queued?: number; unread?: number }) {
   const queuedLabel = badgeLabel(queued);
@@ -206,8 +216,7 @@ function HomeBadges({ queued, unread }: { queued?: number; unread?: number }) {
       {unreadLabel && (
         <span
           className={`${pill} -top-2 bg-primary text-primary-foreground`}
-          title={`${unread} unread in Inbox`}
-          aria-label={`${unread} unread in Inbox`}
+          aria-hidden
         >
           {unreadLabel}
         </span>
@@ -215,8 +224,7 @@ function HomeBadges({ queued, unread }: { queued?: number; unread?: number }) {
       {queuedLabel && (
         <span
           className={`${pill} -bottom-2 bg-secondary text-secondary-foreground border border-border`}
-          title={`${queued} queued`}
-          aria-label={`${queued} queued`}
+          aria-hidden
         >
           {queuedLabel}
         </span>
@@ -238,7 +246,9 @@ function PauseButton({ paused, onToggled }: { paused: boolean; onToggled: () => 
     onToggled();
   };
 
+  const label = paused ? "Resume task distribution" : "Pause task distribution";
   return (
+    <Tooltip content={label} describe={false}>
     <button
       onClick={toggle}
       className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
@@ -246,9 +256,10 @@ function PauseButton({ paused, onToggled }: { paused: boolean; onToggled: () => 
           ? "text-amber-500 hover:text-amber-600 hover:bg-accent/50"
           : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
       }`}
-      title={paused ? "Resume task distribution" : "Pause task distribution"}
+      aria-label={label}
     >
       {paused ? <Play className="h-4 w-4" /> : <Pause className="h-4 w-4" />}
     </button>
+    </Tooltip>
   );
 }

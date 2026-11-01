@@ -3,6 +3,8 @@
 // (docs/ACCESSIBILITY.md). A jsx-a11y rule whose remaining violations need a
 // later task of the accessibility story is downgraded to "warn" — never
 // switched off — with a TODO naming that task, which turns it back to "error".
+// One project rule on top: an icon-only <Button size="icon…"> must be an
+// IconButton, whose required `label` names it.
 import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
@@ -35,6 +37,12 @@ export default defineConfig([
       // keyboard path of their own; then back to "error".
       'jsx-a11y/click-events-have-key-events': 'warn',
       'jsx-a11y/no-static-element-interactions': 'warn',
+      // An icon-only Button must be an IconButton (components/ui/icon-button.tsx),
+      // which requires a `label` — so an unnamed icon control can't be written.
+      'no-restricted-syntax': ['error', {
+        selector: "JSXOpeningElement[name.name='Button']:has(JSXAttribute[name.name='size'][value.value=/^icon/])",
+        message: 'Icon-only buttons use <IconButton label="…"> (components/ui/icon-button.tsx): the label is the accessible name and the tooltip.',
+      }],
     },
   },
   {

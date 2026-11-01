@@ -36,6 +36,7 @@ import {
   type TriageDecision, type TriageProposal, type TriageProposalState, type TriageThreadEntry,
 } from "@/lib/triage";
 import { Check, Pencil, X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The thread parts both views read. */
 export interface TriageThreadData {
@@ -250,12 +251,16 @@ function ProposalCard({ state, busy, editing, onEdit, onAccept, onReject, offRea
         )}
 
         <div className="flex flex-wrap items-center gap-2 pt-1">
-          <Button size="sm" disabled={busy || !!offReason} title={offReason ?? undefined} onClick={() => onAccept(editing ? draft : undefined)}>
-            <Check className="mr-1 h-4 w-4" />{editing ? "Create it" : "Accept"}
-          </Button>
-          <Button size="sm" variant="outline" disabled={busy || !!offReason} title={offReason ?? undefined} onClick={onEdit}>
-            <Pencil className="mr-1 h-4 w-4" />{editing ? "Cancel edit" : "Edit"}
-          </Button>
+          <Tooltip content={offReason ?? undefined}>
+            <Button size="sm" disabled={busy || !!offReason} onClick={() => onAccept(editing ? draft : undefined)}>
+              <Check className="mr-1 h-4 w-4" />{editing ? "Create it" : "Accept"}
+            </Button>
+          </Tooltip>
+          <Tooltip content={offReason ?? undefined}>
+            <Button size="sm" variant="outline" disabled={busy || !!offReason} onClick={onEdit}>
+              <Pencil className="mr-1 h-4 w-4" />{editing ? "Cancel edit" : "Edit"}
+            </Button>
+          </Tooltip>
           <Button size="sm" variant="ghost" className="text-destructive" disabled={busy} onClick={onReject}>
             <X className="mr-1 h-4 w-4" />Reject
           </Button>

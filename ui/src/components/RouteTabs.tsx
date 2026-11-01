@@ -15,6 +15,7 @@
  */
 
 import { Link, useLocation } from "react-router-dom";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** Shared styles so both variants render identically. */
 const CONTAINER_CLASS = "inline-flex items-center gap-1 rounded-lg bg-muted p-1";
@@ -67,16 +68,16 @@ export function SegmentedTabs({ tabs, active, disabled, onSelect }: {
   return (
     <div className={CONTAINER_CLASS}>
       {tabs.map((tab) => (
-        <button
-          key={tab.key ?? ""}
-          type="button"
-          disabled={disabled}
-          title={tab.title}
-          onClick={() => onSelect(tab.key)}
-          className={`${itemClass(active === tab.key)} disabled:opacity-50`}
-        >
-          {tab.label}
-        </button>
+        <Tooltip key={tab.key ?? ""} content={tab.title}>
+          <button
+            type="button"
+            disabled={disabled}
+            onClick={() => onSelect(tab.key)}
+            className={`${itemClass(active === tab.key)} disabled:opacity-50`}
+          >
+            {tab.label}
+          </button>
+        </Tooltip>
       ))}
     </div>
   );

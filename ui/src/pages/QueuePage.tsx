@@ -36,6 +36,7 @@ import { PersonaChip } from "@/components/personas/PersonaChip";
 import { workItemPath } from "@/lib/work-item-link";
 import { dirName, roleOf, type Teammate } from "@/lib/team";
 import { AlertTriangle, Ban, FolderOpen, ListTodo, RotateCcw, X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** What each group is for, shown under its heading. */
 const GROUP_HINT: Record<QueueState, string> = {
@@ -145,13 +146,15 @@ function QueueRow({
           {item.state === "READY" && !item.blockedBy && <span>waiting {since(item.lastStateChangeAt)}</span>}
           {retryLabel(item) && <span className="text-amber-700 dark:text-amber-400">{retryLabel(item)}</span>}
           {item.state === "READY" && item.blockedBy && (
-            <span className="text-amber-700 dark:text-amber-400" title={`waiting ${since(item.lastStateChangeAt)}`}>
-              waiting — directory busy (
-              {item.blockedBy.memberId
-                ? <Link to={`/teammates/${encodeURIComponent(item.blockedBy.memberId)}`} className="hover:underline">{item.blockedBy.memberName ?? item.blockedBy.memberId}</Link>
-                : "no teammate"}
-              , {item.blockedBy.title})
-            </span>
+            <Tooltip content={`waiting ${since(item.lastStateChangeAt)}`} describe={false}>
+              <span className="text-amber-700 dark:text-amber-400">
+                waiting — directory busy (
+                {item.blockedBy.memberId
+                  ? <Link to={`/teammates/${encodeURIComponent(item.blockedBy.memberId)}`} className="hover:underline">{item.blockedBy.memberName ?? item.blockedBy.memberId}</Link>
+                  : "no teammate"}
+                , {item.blockedBy.title})
+              </span>
+            </Tooltip>
           )}
           {item.state !== "READY" && item.memberId && (
             <span>
@@ -163,26 +166,34 @@ function QueueRow({
           <PersonaChip persona={item.persona} />
           <span>{item.parent?.kind === "story" ? item.parent.id : "solitary/scheduled"}</span>
           {dir && (
-            <Badge variant="secondary" className="flex items-center gap-1 font-mono text-[10px]" title={item.directory ?? undefined}>
-              <FolderOpen className="h-2.5 w-2.5" />{dir}
-            </Badge>
+            <Tooltip content={item.directory ?? undefined} describe={false}>
+              <Badge variant="secondary" className="flex items-center gap-1 font-mono text-[10px]">
+                <FolderOpen className="h-2.5 w-2.5" />{dir}
+              </Badge>
+            </Tooltip>
           )}
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-1">
         {item.state === "READY" && (
-          <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onCancel(item.id)} title="Cancel this queued item">
-            <Ban className="mr-1 h-3 w-3" />Cancel
-          </Button>
+          <Tooltip content="Cancel this queued item">
+            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onCancel(item.id)} aria-label={`Cancel ${item.title}`}>
+              <Ban className="mr-1 h-3 w-3" />Cancel
+            </Button>
+          </Tooltip>
         )}
         {item.state === "MORIBUND" && (
           <>
-            <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onForceFail(item.id, false)} title="Force this abandoned item to FAILED">
-              <X className="mr-1 h-3 w-3" />Force-fail
-            </Button>
-            <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onForceFail(item.id, true)} title="Force-fail and enqueue a fresh attempt">
-              <RotateCcw className="mr-1 h-3 w-3" />Re-enqueue
-            </Button>
+            <Tooltip content="Force this abandoned item to FAILED">
+              <Button variant="ghost" size="sm" className="h-7 px-2 text-xs" onClick={() => onForceFail(item.id, false)} aria-label={`Force-fail ${item.title}`}>
+                <X className="mr-1 h-3 w-3" />Force-fail
+              </Button>
+            </Tooltip>
+            <Tooltip content="Force-fail and enqueue a fresh attempt">
+              <Button variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => onForceFail(item.id, true)} aria-label={`Re-enqueue ${item.title}`}>
+                <RotateCcw className="mr-1 h-3 w-3" />Re-enqueue
+              </Button>
+            </Tooltip>
           </>
         )}
       </div>

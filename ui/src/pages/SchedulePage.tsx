@@ -30,6 +30,7 @@ import { runCountLabel } from "@/lib/run-count";
 import { isActiveScheduledJob } from "@/lib/work-items";
 import { Plus, Play, Pause, CalendarClock, FolderOpen, Archive } from "lucide-react";
 import type { ScheduleView, WorkDefView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
@@ -104,14 +105,20 @@ export function SchedulePage() {
                   )}
                   <span>{runCountLabel(def.executionCount)}{lastRun && (def.executionCount ?? 0) > 0 ? ` · last ${new Date(lastRun).toLocaleString()}` : ""}</span>
                   {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
-                    <span className="font-mono" title="Total cost across all runs">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
+                    <Tooltip content="Total cost across all runs" describe={false}>
+                      <span className="font-mono">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
+                    </Tooltip>
                   )}
                 </div>
               </Link>
-              <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this job"><Archive className="h-3.5 w-3.5" /></Button>
+              <Tooltip content="Archive this job" describe={false}>
+                <Button variant="ghost" size="sm" onClick={() => archive(def.id)} aria-label="Archive this job"><Archive className="h-3.5 w-3.5" /></Button>
+              </Tooltip>
               {/* Reversible: the job moves to the Pending tab until it's activated. */}
-              {sched && <Button variant="ghost" size="sm" onClick={() => makePending(sched.id)} title="Stop firing this job until you activate it again (it moves to the Pending tab)"><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button>}
-              <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a run now"><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+              {sched && <Tooltip content="Stop firing this job until you activate it again (it moves to the Pending tab)"><Button variant="ghost" size="sm" onClick={() => makePending(sched.id)}><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button></Tooltip>}
+              <Tooltip content="Enqueue a run now">
+                <Button variant="outline" size="sm" onClick={() => run(def.id)}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>
+              </Tooltip>
             </CardContent>
           </Card>
           );

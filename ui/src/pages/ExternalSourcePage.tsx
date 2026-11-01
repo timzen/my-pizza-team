@@ -39,6 +39,7 @@ import { runCountLabel } from "@/lib/run-count";
 import { isTriageMode, latestStateLabel, latestStateTone, type MirroredDefRow, openInLabel, shortRevision } from "@/lib/external-sources";
 import { sourceSettingsPath } from "@/lib/source-settings";
 import { ExternalLink, FolderSync, RefreshCw, Settings } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** Badge classes per latest-state tone. */
 const TONE_CLASS: Record<ReturnType<typeof latestStateTone>, string> = {
@@ -93,21 +94,26 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
             <p className="mr-auto text-sm text-muted-foreground">
               Work mirrored from {label}. Read-only here — edit it in {label}; each new revision runs once.
             </p>
-            <Button
-              size="sm"
-              variant={showArchived ? "default" : "outline"}
-              aria-pressed={showArchived}
-              onClick={() => setShowArchived((v) => !v)}
-              title={`Also list items ${label} no longer reports (archived by sync)`}
-            >
-              Show archived
-            </Button>
-            <Button size="sm" variant="outline" onClick={syncNow} disabled={syncing} title={`Pull from ${label} now`}>
-              <RefreshCw className={`h-3.5 w-3.5 mr-1 ${syncing ? "animate-spin" : ""}`} />Sync now
-            </Button>
-            <Button size="sm" variant="outline" render={<Link to={sourceSettingsPath(sourceId)} />} title={`${label}'s settings, on/off, and Preview (Config → Sources)`}>
-              <Settings className="h-3.5 w-3.5 mr-1" />Configure
-            </Button>
+            <Tooltip content={`Also list items ${label} no longer reports (archived by sync)`}>
+              <Button
+                size="sm"
+                variant={showArchived ? "default" : "outline"}
+                aria-pressed={showArchived}
+                onClick={() => setShowArchived((v) => !v)}
+              >
+                Show archived
+              </Button>
+            </Tooltip>
+            <Tooltip content={`Pull from ${label} now`}>
+              <Button size="sm" variant="outline" onClick={syncNow} disabled={syncing}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${syncing ? "animate-spin" : ""}`} />Sync now
+              </Button>
+            </Tooltip>
+            <Tooltip content={`${label}'s settings, on/off, and Preview (Config → Sources)`}>
+              <Button size="sm" variant="outline" render={<Link to={sourceSettingsPath(sourceId)} />}>
+                <Settings className="h-3.5 w-3.5 mr-1" />Configure
+              </Button>
+            </Tooltip>
           </div>
           {syncError && <p className="text-sm text-destructive">{syncError}</p>}
 
@@ -126,25 +132,33 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
                     <p className="font-medium truncate">
                       {def.title}
                       {isTriageMode(def) && (
-                        <Badge variant="outline" className="ml-2 text-[10px]" title="Triaged into proposed work, not worked directly">Triage</Badge>
+                        <Tooltip content="Triaged into proposed work, not worked directly" describe={false}>
+                          <Badge variant="outline" className="ml-2 text-[10px]">Triage</Badge>
+                        </Tooltip>
                       )}
                       {def.status === "archived" && <Badge variant="secondary" className="ml-2 text-[10px]">Archived</Badge>}
                     </p>
                     <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground">
                       <span className="font-mono">{def.externalId}</span>
-                      <span className="font-mono" title={def.revision ? `Revision ${def.revision}` : "No revision recorded"}>rev {shortRevision(def.revision)}</span>
-                      <span title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
-                        {runCountLabel(def.runCount)}
-                      </span>
+                      <Tooltip content={def.revision ? `Revision ${def.revision}` : "No revision recorded"} describe={false}>
+                        <span className="font-mono">rev {shortRevision(def.revision)}</span>
+                      </Tooltip>
+                      <Tooltip content={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"} describe={false}>
+                        <span>
+                          {runCountLabel(def.runCount)}
+                        </span>
+                      </Tooltip>
                     </div>
                   </Link>
                   {isTriageMode(def) && <TriageBadge to={mirrorTriagePath(def.id)} subject="item" badge={def.triageBadge} />}
-                  <Badge variant="outline" className={TONE_CLASS[latestStateTone(def.latestState)]} title="State of its latest WorkItem">
-                    {latestStateLabel(def.latestState)}
-                  </Badge>
+                  <Tooltip content="State of its latest WorkItem" describe={false}>
+                    <Badge variant="outline" className={TONE_CLASS[latestStateTone(def.latestState)]}>
+                      {latestStateLabel(def.latestState)}
+                    </Badge>
+                  </Tooltip>
                   {def.url && (
                     // eslint-disable-next-line jsx-a11y/anchor-has-content -- the <a> is Base UI's render target: it gets the Button's children as its content.
-                    <Button variant="ghost" size="sm" render={<a href={def.url} target="_blank" rel="noreferrer" />} title={openInLabel(label)}>
+                    <Button variant="ghost" size="sm" render={<a href={def.url} target="_blank" rel="noreferrer" />}>
                       <ExternalLink className="h-3.5 w-3.5 mr-1" />{openInLabel(label)}
                     </Button>
                   )}

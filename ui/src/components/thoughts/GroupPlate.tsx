@@ -17,6 +17,7 @@ import { CopyId } from "@/components/thoughts/CopyId";
 import { THOUGHT_COLORS, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 import { plateRect, previewRect } from "@/lib/thoughtGeometry";
 import type { Thought, ThoughtGroup } from "@shared/types";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** One plate. `rename` is set while its title is being edited (the draft title and its handlers). */
 export function GroupPlate({
@@ -53,6 +54,7 @@ export function GroupPlate({
             <input
               autoFocus
               value={rename.title}
+              aria-label="Group name"
               onPointerDown={(e) => e.stopPropagation()}
               onChange={(e) => rename.onChange(e.target.value)}
               onBlur={rename.onSave}
@@ -60,23 +62,35 @@ export function GroupPlate({
               className="w-36 bg-transparent outline-none"
             />
           ) : (
-            <span className="cursor-text" onDoubleClick={onStartRename} title="Double-click to rename">{g.title}{memberCount ? ` (${memberCount})` : ""}</span>
+            <Tooltip content="Double-click to rename" describe={false}>
+              <span className="cursor-text" onDoubleClick={onStartRename}>{g.title}{memberCount ? ` (${memberCount})` : ""}</span>
+            </Tooltip>
           )}
         </div>
-        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/plate:opacity-100">
-          <button onPointerDown={(e) => e.stopPropagation()} onClick={onTogglePaint} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" title="Plate color"><Palette className="h-3 w-3" /></button>
+        <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/plate:opacity-100 focus-within:opacity-100">
+          <Tooltip content="Plate color" describe={false}>
+            <button onPointerDown={(e) => e.stopPropagation()} onClick={onTogglePaint} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" aria-label="Plate color"><Palette className="h-3 w-3" /></button>
+          </Tooltip>
           <CopyId id={g.id} />
-          <button onPointerDown={(e) => e.stopPropagation()} onClick={onDelete} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" title="Delete group (notes stay)"><X className="h-3 w-3" /></button>
+          <Tooltip content="Delete group (notes stay)" describe={false}>
+            <button onPointerDown={(e) => e.stopPropagation()} onClick={onDelete} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" aria-label="Delete group (notes stay)"><X className="h-3 w-3" /></button>
+          </Tooltip>
         </div>
       </div>
       {/* Plate color/opacity popover */}
       {paintOpen && (
         <div className="absolute -top-9 right-0 z-40 flex items-center gap-1 rounded-md border border-border bg-card p-1 shadow" onPointerDown={(e) => e.stopPropagation()}>
           {THOUGHT_COLORS.map((c) => (
-            <button key={c} onClick={() => onSetColor(c)} className={`h-4 w-4 rounded-full ${dotClass(c)} ${g.groupColor === c ? "ring-2 ring-foreground/50" : ""}`} title={c} />
+            <Tooltip key={c} content={c} describe={false}>
+              <button onClick={() => onSetColor(c)} className={`h-4 w-4 rounded-full ${dotClass(c)} ${g.groupColor === c ? "ring-2 ring-foreground/50" : ""}`} aria-label={c} />
+            </Tooltip>
           ))}
-          <button onClick={() => onSetColor(null)} className="rounded p-0.5 text-muted-foreground hover:bg-accent/60" title="No tint"><X className="h-3.5 w-3.5" /></button>
-          <button onClick={onCycleOpacity} className="ml-1 rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/60" title="Cycle plate opacity">{g.plateOpacity}</button>
+          <Tooltip content="No tint" describe={false}>
+            <button onClick={() => onSetColor(null)} className="rounded p-0.5 text-muted-foreground hover:bg-accent/60" aria-label="No tint"><X className="h-3.5 w-3.5" /></button>
+          </Tooltip>
+          <Tooltip content="Cycle plate opacity" describe={false}>
+            <button onClick={onCycleOpacity} aria-label={`Plate opacity ${g.plateOpacity}, cycle`} className="ml-1 rounded border border-border px-1 py-0.5 text-[10px] text-muted-foreground hover:bg-accent/60">{g.plateOpacity}</button>
+          </Tooltip>
         </div>
       )}
       {memberCount === 0 && (
@@ -85,17 +99,18 @@ export function GroupPlate({
       {/* Resize handle: a 28px hit box straddling the corner (easy to
           grab), with a visible grip that's always faintly there and
           firms up on hover. */}
-      <div
-        onPointerDown={onResizePointerDown}
-        className="group/grip absolute -bottom-3 -right-3 z-10 flex h-8 w-8 cursor-se-resize items-center justify-center"
-        title="Drag to resize the group"
-      >
-        <span className="flex h-5 w-5 items-center justify-center rounded-md border border-border bg-background text-muted-foreground shadow-sm transition-colors group-hover/plate:border-muted-foreground/50 group-hover/plate:text-foreground group-hover/grip:border-primary group-hover/grip:text-primary">
-          <svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden>
-            <path d="M10.5 3.5 3.5 10.5M10.5 7 7 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
-          </svg>
-        </span>
-      </div>
+      <Tooltip content="Drag to resize the group" describe={false}>
+        <div
+          onPointerDown={onResizePointerDown}
+          className="group/grip absolute -bottom-3 -right-3 z-10 flex h-8 w-8 cursor-se-resize items-center justify-center"
+        >
+          <span className="flex h-5 w-5 items-center justify-center rounded-md border border-border bg-background text-muted-foreground shadow-sm transition-colors group-hover/plate:border-muted-foreground/50 group-hover/plate:text-foreground group-hover/grip:border-primary group-hover/grip:text-primary">
+            <svg viewBox="0 0 12 12" className="h-3 w-3" aria-hidden>
+              <path d="M10.5 3.5 3.5 10.5M10.5 7 7 10.5" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" />
+            </svg>
+          </span>
+        </div>
+      </Tooltip>
     </div>
   );
 }

@@ -22,6 +22,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, Check, Save, X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface Props {
   /** The persona being edited; null creates a new team persona. */
@@ -109,10 +110,14 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
         <Label>Suggested for</Label>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {PERSONA_KINDS.map((k) => (
-            <label key={k} className="flex items-center gap-1.5" title={KIND_HINT[k]}>
-              <input type="checkbox" id={`persona-kind-${k}`} checked={kinds.includes(k)} onChange={() => toggleKind(k)} />
-              {k}
-            </label>
+            <Tooltip key={k} content={KIND_HINT[k]} describe={false}>
+              <label className="flex items-center gap-1.5">
+                <Tooltip content={KIND_HINT[k]}>
+                  <input type="checkbox" id={`persona-kind-${k}`} checked={kinds.includes(k)} onChange={() => toggleKind(k)} />
+                </Tooltip>
+                {k}
+              </label>
+            </Tooltip>
           ))}
         </div>
         <p className="text-xs text-muted-foreground">A hint for pickers only — any persona can be picked anywhere.</p>

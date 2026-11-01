@@ -31,6 +31,11 @@ the task — never `"off"`. Today that is:
 | `no-autofocus` | inline editors and dialogs focus their field on open; decided per case with focus management | task 3 |
 | `click-events-have-key-events`, `no-static-element-interactions` | click-to-edit surfaces (title and markdown fields, a note's "tap to write", a diff line's comment, a folder's rename) need their own keyboard path | task 3 |
 
+One project rule rides along: `no-restricted-syntax` rejects a `<Button size="icon…">`
+written directly — an icon-only button must be an `IconButton`, whose required `label`
+names it (the one exception, the dialog's close button, is named by an `sr-only` "Close"
+and carries a disable comment).
+
 A justified exception is an `eslint-disable-next-line <rule> -- <reason>` on the line, not
 a config change: e.g. `anchor-has-content` on a `<Button render={<a … />}>`, whose
 anchor gets the Button's children from Base UI at render time.
@@ -78,17 +83,33 @@ focus is.
 
 ## Rules for new UI code
 
-- **Every control has an accessible name.** Text content, an associated `<Label htmlFor>`,
-  or `aria-label`. An icon-only button or link is never just an icon: use the
-  `IconButton` / `IconLink` helpers (task 2), which require a `label`.
-- **Hints go in the Tooltip, not `title=`.** `components/ui/tooltip.tsx` (task 2) opens on
-  hover *and* keyboard focus, closes with Esc, and sets `aria-describedby`. `title` is
-  mouse-only; keep it only to reveal text cut off by truncation, and give that element a
-  name too.
-- **Icons:** decorative lucide icons get `aria-hidden`; a meaningful one (a status shape,
-  a badge) has a text alternative. Teammate status is announced as text (`statusLabel`)
-  — shape and color only reinforce it (docs/DESIGN.md "Teammate Status: Shape, not
-  Color").
+- **Every control has an accessible name.** Text content, an associated `<Label htmlFor>`
+  (`aria-labelledby` for a Base UI `SelectTrigger`), or `aria-label` — a `placeholder`
+  is not a name. An icon-only button or link is never just an icon: use
+  `IconButton` / `IconLink` (`components/ui/icon-button.tsx`), which require a `label`
+  — it becomes the `aria-label` *and* the tooltip; a longer `hint` becomes the tooltip
+  and the description instead. A name that differs from the visible text starts with
+  it (WCAG 2.5.3 Label in Name), and a repeated control says which item it acts on
+  ("Remove ripley", "Cancel Add GET /todos/:id").
+- **Hints go in the Tooltip, not `title=`.** `<Tooltip content={…}>` from
+  `components/ui/tooltip.tsx` wraps one trigger element: it opens on hover *and*
+  keyboard focus, stays open while hovered, closes with Esc, and sets
+  `aria-describedby` (a hidden copy of the hint, since the popup only exists while
+  open). Pass `describe={false}` when the hint only repeats the trigger's name, and
+  `focusable` on a non-interactive trigger whose hint carries information (it becomes a
+  tab stop — never inside a link, and sparingly in lists). A disabled `Button` whose
+  hint says *why* it's disabled takes `focusableWhenDisabled`, or the keyboard never
+  reaches it. `title` is mouse-only; keep it only to reveal text cut off by `truncate`
+  (the element's text is already its name).
+- **Icons:** lucide icons render `aria-hidden` by default, so a decorative one needs
+  nothing. A meaningful one (a status shape, a receipt, a warning) is `role="img"` with an
+  `aria-label`; a number-only badge on an icon is `aria-hidden` and its control's name
+  says the count in words. Teammate status is announced as text (`statusLabel` names
+  the icon; `teammateSummary` names the row's link and the rail avatar) — shape and
+  color only reinforce it (docs/DESIGN.md "Teammate Status: Shape, not Color").
+- **Hover-revealed controls appear on focus too** (`group-focus-within:` /
+  `focus-visible:opacity-100` beside `group-hover:`), so Tab never lands on something
+  invisible.
 - **Use native elements.** A `<button>` for actions, `<a>`/`<Link>` for navigation,
   real form controls. A clickable `<div>` needs a role, `tabIndex` and key handling — and
   usually should be a button instead.
@@ -126,6 +147,31 @@ Fixed in task 1: the favorite-directories "add" button got a name, its Enter-cat
 wrapper is `role="presentation"`, and the false positives (`anchor-has-content` on the
 three "Open in …" links, `label-has-associated-control` on the Label primitive) carry a
 justified disable comment.
+
+## Status after task 2: names, the Tooltip, text alternatives
+
+**28 serious/critical findings, all allowlisted** (`color-contrast` on the routes,
+`scrollable-region-focusable` on `/help`, `target-size` on `/usage` — task 3). The seven
+`button-name`, `label` and `select-name` entries are gone from the allowlist:
+
+- The board's sort and General's Select triggers are labelled (`aria-label` /
+  `aria-labelledby` the visible Label); General's and Triage's fields are tied to their
+  `<Label htmlFor>`; the workflow page's per-state persona `<select>` has a name
+  (`PersonaPicker`'s `label`); the teammate-noun "×" says which noun it removes; a
+  Markdown task checkbox is named by its item's text; the CodeMirror surface is named
+  ("Note", the big editor's title, else "Markdown editor").
+- Every icon-only control is an `IconButton` / `IconLink` or a `<button aria-label>` in a
+  `Tooltip`: the NavBar's pause / Usage / Help / Config / theme, the dock (collapse,
+  rail, team size, spawn), story swimlanes, the story page, the Thoughts toolbar,
+  zoom, group plates, note editors (desktop and `/m`), chat bubbles, queue rows and more.
+- `title=` is gone as a hint (about 230 → 6, all on `truncate` text whose content is
+  its name). Hints moved to the Tooltip, so they show on keyboard focus too.
+- Meaningful icons got text: teammate status icons and a teammate's skew warning
+  (`role="img"`), chat receipts and origin, queue-preview state dots, usage-run dots, a
+  source's "always on" and the required-field `*`; the NavBar's and rail's number-only
+  badges are hidden from assistive tech and their links say the counts.
+- A new axe rule surfaced and was fixed in the same pass: `label-content-name-mismatch`
+  on the home link (its name now starts with the visible "Pizza Team").
 
 Known gaps the scan doesn't cover: the dark theme, dialogs and menus in their open state,
 the assistant chat with messages, a teammate's live view, and keyboard operability

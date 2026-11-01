@@ -39,6 +39,7 @@ import { Trash2 } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import type { Comment } from "@shared/types";
 import type { StoryView, WorkDefView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type WorkDef = WorkDefView;
 
@@ -114,9 +115,11 @@ export function TaskDetailPage() {
         <BackButton fallback="/work/board" title="Back to board" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
         {def.pending && <PendingBadge />}
-        <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
-          {runCountLabel(def.executionCount)}
-        </Badge>
+        <Tooltip content={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"} focusable>
+          <Badge variant="outline">
+            {runCountLabel(def.executionCount)}
+          </Badge>
+        </Tooltip>
         <Badge variant="secondary">{task.status.replace(/_/g, " ")}</Badge>
       </div>
       <div className="flex items-center justify-between gap-2">

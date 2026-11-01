@@ -60,6 +60,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, Eye, ExternalLink, Plug, RotateCcw, Save } from "lucide-react";
 import type { PluginLoadStatus } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 
 const TONE_CLASS: Record<SourceStatus["tone"], string> = {
@@ -146,17 +147,18 @@ export function SourcesTab({ selectedId, onFeatureApplied }: {
               <CardContent className="p-3 space-y-1">
                 <div className="flex items-center gap-3">
                   {s.toggle ? (
-                    <input
-                      type="checkbox"
-                      id={`source-toggle-${s.id}`}
-                      aria-label={`${s.label} on`}
-                      title={on ? `Switch ${s.label} off` : `Switch ${s.label} on`}
-                      checked={on}
-                      disabled={toggling === s.id}
-                      onChange={(e) => toggle(s, e.target.checked)}
-                    />
+                    <Tooltip content={on ? `Switch ${s.label} off` : `Switch ${s.label} on`}>
+                      <input
+                        type="checkbox"
+                        id={`source-toggle-${s.id}`}
+                        aria-label={`${s.label} on`}
+                        checked={on}
+                        disabled={toggling === s.id}
+                        onChange={(e) => toggle(s, e.target.checked)}
+                      />
+                    </Tooltip>
                   ) : (
-                    <span className="w-[13px]" title="Always on (no toggle)" />
+                    <Tooltip content="Always on (no toggle)" describe={false}><span className="w-[13px]" role="img" aria-label="Always on (no toggle)" /></Tooltip>
                   )}
                   <Link to={sourceSettingsPath(s.id)} className="min-w-0 flex-1">
                     <p className="font-medium truncate">
@@ -168,11 +170,15 @@ export function SourcesTab({ selectedId, onFeatureApplied }: {
                     </p>
                   </Link>
                   {mirrors && <span className="text-xs text-muted-foreground whitespace-nowrap">{mirrors}</span>}
-                  <Badge variant="outline" className={TONE_CLASS[status.tone]} title={status.detail}>{status.label}</Badge>
+                  <Tooltip content={status.detail} focusable>
+                    <Badge variant="outline" className={TONE_CLASS[status.tone]}>{status.label}</Badge>
+                  </Tooltip>
                   {s.syncs && on && (
-                    <Button variant="ghost" size="sm" render={<Link to={externalSourcePath(s.id)} />} title={`${s.label}'s Work tab`}>
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </Button>
+                    <Tooltip content={`${s.label}'s Work tab`} describe={false}>
+                      <Button variant="ghost" size="sm" aria-label={`${s.label}'s Work tab`} render={<Link to={externalSourcePath(s.id)} />}>
+                        <ExternalLink className="h-3.5 w-3.5" />
+                      </Button>
+                    </Tooltip>
                   )}
                 </div>
                 {toggleError?.id === s.id && <p className="pl-6 text-xs text-destructive">{toggleError.message}</p>}
@@ -354,10 +360,12 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
         )}
 
         <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-          <Button variant="outline" size="sm" onClick={runPreview} disabled={!options || previewing || !source.previewable} className="gap-1"
-            title={source.previewable ? "What it would pull with these (unsaved) settings — nothing is created" : "This source has nothing to preview"}>
-            <Eye className="h-3.5 w-3.5" />{previewing ? "Previewing..." : "Preview"}
-          </Button>
+          <Tooltip content={source.previewable ? "What it would pull with these (unsaved) settings — nothing is created" : "This source has nothing to preview"}>
+            <Button variant="outline" size="sm" onClick={runPreview} disabled={!options || previewing || !source.previewable} focusableWhenDisabled className="gap-1"
+  >
+              <Eye className="h-3.5 w-3.5" />{previewing ? "Previewing..." : "Preview"}
+            </Button>
+          </Tooltip>
           <Button size="sm" onClick={save} disabled={!options || saving || (!dirty && !source.initError) || !source.configurable} className="gap-1">
             <Save className="h-3.5 w-3.5" />{saving ? "Saving..." : "Save"}
           </Button>
@@ -565,7 +573,7 @@ function FieldRow({ field, draft, source, errors, set }: {
 }
 
 function RequiredMark() {
-  return <span className="ml-0.5 text-destructive" title="Required">*</span>;
+  return <Tooltip content="Required" describe={false}><span className="ml-0.5 text-destructive" role="img" aria-label="required">*</span></Tooltip>;
 }
 
 /**
@@ -592,8 +600,8 @@ function EnvVarInput({ id, field, value, source, invalid, onChange }: {
           onChange={(e) => onChange(textValue(e.target.value.trim()))}
           className="max-w-[280px] font-mono text-xs" autoComplete="off" spellCheck={false} />
         {state === "set" && <Badge variant="outline" className={TONE_CLASS.ok}>set</Badge>}
-        {state === "not-set" && <Badge variant="outline" className={TONE_CLASS.bad} title="The daemon's environment doesn't have it — set it where the daemon runs, then restart">not set</Badge>}
-        {state === "unknown" && <Badge variant="outline" className={TONE_CLASS.neutral} title="Checked once saved">checked on save</Badge>}
+        {state === "not-set" && <Tooltip content="The daemon's environment doesn't have it — set it where the daemon runs, then restart" focusable><Badge variant="outline" className={TONE_CLASS.bad}>not set</Badge></Tooltip>}
+        {state === "unknown" && <Tooltip content="Checked once saved" focusable><Badge variant="outline" className={TONE_CLASS.neutral}>checked on save</Badge></Tooltip>}
       </div>
       <p className="text-xs text-muted-foreground">
         Environment variable <em>name</em> — the daemon reads the secret from its environment; it's never stored or shown here.

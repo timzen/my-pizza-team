@@ -12,6 +12,7 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { Button } from "@/components/ui/button";
+import { IconButton } from "@/components/ui/icon-button";
 import { Input } from "@/components/ui/input";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { Label } from "@/components/ui/label";
@@ -20,6 +21,7 @@ import { SegmentedTabs } from "@/components/RouteTabs";
 import { Plus, X } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface WorkflowSummary {
   name: string;
@@ -106,10 +108,10 @@ export function NewStoryPage() {
           {tasks.map((task, i) => (
             <div key={i} className="flex gap-2 mb-2 items-start">
               <div className="flex-1 space-y-1">
-                <Input placeholder="Task title" value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
-                <Input placeholder="Description" value={task.description} onChange={e => updateTask(i, "description", e.target.value)} />
+                <Input placeholder="Task title" aria-label={`Task ${i + 1} title`} value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
+                <Input placeholder="Description" aria-label={`Task ${i + 1} description`} value={task.description} onChange={e => updateTask(i, "description", e.target.value)} />
               </div>
-              <Button type="button" variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => removeTask(i)}><X className="h-3 w-3" /></Button>
+              <IconButton type="button" className="h-8 w-8 shrink-0" onClick={() => removeTask(i)} label={`Remove task ${i + 1}`}><X className="h-3 w-3" /></IconButton>
             </div>
           ))}
         </div>
@@ -118,7 +120,9 @@ export function NewStoryPage() {
         <div className="flex gap-2">
           <Button type="submit" value="create">Create Story</Button>
           {tasks.length > 0 && (
-            <Button type="submit" value="pending" variant="secondary" title="Create the story with its tasks pending: nothing runs until you activate them">Save tasks as pending</Button>
+            <Tooltip content="Create the story with its tasks pending: nothing runs until you activate them">
+              <Button type="submit" value="pending" variant="secondary">Save tasks as pending</Button>
+            </Tooltip>
           )}
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>

@@ -20,6 +20,7 @@
 import { Link } from "react-router-dom";
 import { Lightbulb, HelpCircle, Minus } from "lucide-react";
 import { badgeTitle, triagePath, type TriageBadge as Badge, type TriageSubject } from "@/lib/triage";
+import { Tooltip } from "@/components/ui/tooltip";
 
 const ICON = {
   proposal: Lightbulb,
@@ -44,15 +45,16 @@ export function TriageBadge({ noteId, to, subject = "note", badge, className, on
   const Icon = ICON[badge];
   const title = badgeTitle(badge, subject);
   return (
-    <Link
-      to={href}
-      title={title}
-      aria-label={title}
-      onPointerDown={onPointerDown}
-      onClick={(e) => e.stopPropagation()}
-      className={`inline-flex shrink-0 items-center rounded p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground ${className ?? ""}`}
-    >
-      <Icon className="h-3.5 w-3.5" />
-    </Link>
+    <Tooltip content={title} describe={false}>
+      <Link
+        to={href}
+        aria-label={title}
+        onPointerDown={onPointerDown}
+        onClick={(e) => e.stopPropagation()}
+        className={`inline-flex shrink-0 items-center rounded p-0.5 text-muted-foreground transition-colors hover:bg-background hover:text-foreground ${className ?? ""}`}
+      >
+        <Icon className="h-3.5 w-3.5" />
+      </Link>
+    </Tooltip>
   );
 }

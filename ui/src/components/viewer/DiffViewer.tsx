@@ -13,6 +13,7 @@ import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { X } from "lucide-react";
 import { apiPost } from "@/hooks/useApi";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface ReviewComment {
   line: number;
@@ -135,7 +136,7 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
                 <div className="pl-12 pr-4 py-2 bg-muted/30 border-b">
                   <Textarea
                     autoFocus
-                    placeholder="Add a comment on this line..."
+                    aria-label="Comment on this line" placeholder="Add a comment on this line..."
                     value={inputValue}
                     onChange={e => setInputValue(e.target.value)}
                     rows={2}
@@ -168,14 +169,16 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
                 <div>
                   <span className="font-semibold text-primary">Line {c.line + 1}:</span> {c.body}
                 </div>
-                <button onClick={() => removeComment(c.line)} className="text-destructive hover:text-destructive/80 shrink-0">
-                  <X className="h-3 w-3" />
-                </button>
+                <Tooltip content="Remove comment" describe={false}>
+                  <button onClick={() => removeComment(c.line)} className="text-destructive hover:text-destructive/80 shrink-0" aria-label={`Remove the comment on line ${c.line + 1}`}>
+                    <X className="h-3 w-3" />
+                  </button>
+                </Tooltip>
               </div>
             ))}
           </div>
           <Textarea
-            placeholder="Overall summary (optional)..."
+            aria-label="Overall summary" placeholder="Overall summary (optional)..."
             value={summary}
             onChange={e => setSummary(e.target.value)}
             rows={2}

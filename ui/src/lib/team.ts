@@ -115,6 +115,24 @@ export function modelTitle(m: { id: string; provider: string }): string {
   return `Model: ${m.provider ? `${m.provider}/` : ""}${m.id}`;
 }
 
+/**
+ * Everything a teammate's row or avatar shows, in words, for its accessible
+ * name and tooltip: "Worker-1 · Working · Claude Sonnet · ⚙️ Fix the build · as
+ * Reviewer · 42% context · $1.25". The status always comes first as text —
+ * the icon's shape only reinforces it (docs/DESIGN.md "Teammate Status:
+ * Shape, not Color").
+ */
+export function teammateSummary(t: Teammate): string {
+  const parts = [t.name, statusLabel(t.status)];
+  if (t.session?.model) parts.push(t.session.model.name);
+  if (t.currentWork) parts.push(`⚙️ ${t.currentWork}`);
+  if (t.persona) parts.push(`as ${t.persona.title}`);
+  const ctx = formatContext(t.session);
+  if (ctx) parts.push(`${ctx.label} context`);
+  if (t.session) parts.push(formatCost(t.session.costUsd));
+  return parts.join(" · ");
+}
+
 /** Session cost: $0.00, <$0.01, $1.25, $12.40. */
 export function formatCost(usd: number): string {
   if (usd > 0 && usd < 0.01) return "<$0.01";

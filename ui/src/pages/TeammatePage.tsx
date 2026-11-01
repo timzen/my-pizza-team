@@ -32,6 +32,7 @@ import { PersonaChip } from "@/components/personas/PersonaChip";
 import { statusLabel, type Teammate } from "@/lib/team";
 import { FolderOpen, Eye, WifiOff, MessageSquare, Play, CheckCircle2, XCircle } from "lucide-react";
 import type { WorkItemView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type Agent = Teammate;
 
@@ -84,9 +85,11 @@ export function TeammatePage() {
         )}
         <PersonaChip persona={current?.persona ?? agent?.persona} className="text-xs" />
         {agent?.directory && (
-          <Badge variant="secondary" className="flex items-center gap-1 font-mono text-[10px]" title={agent.directory}>
-            <FolderOpen className="h-2.5 w-2.5" />{agent.directory.split("/").filter(Boolean).pop()}
-          </Badge>
+          <Tooltip content={agent.directory}>
+            <Badge variant="secondary" className="flex items-center gap-1 font-mono text-[10px]">
+              <FolderOpen className="h-2.5 w-2.5" />{agent.directory.split("/").filter(Boolean).pop()}
+            </Badge>
+          </Tooltip>
         )}
         <div className="ml-auto flex items-center gap-2">
           {!connected && <span className="flex items-center gap-1 text-xs text-muted-foreground"><WifiOff className="h-3.5 w-3.5" /> reconnecting…</span>}
@@ -95,21 +98,25 @@ export function TeammatePage() {
           ) : (
             <>
               {connected && (
-                <span className="flex items-center gap-1 text-xs text-muted-foreground" title="Watch-only: nothing you do here reaches the teammate">
-                  <Eye className="h-3.5 w-3.5" />
-                  {pairing?.pendingRelease ? "releasing after this run…" : agent?.status === "pairing" ? "paused from its terminal" : "watching"}
-                </span>
+                <Tooltip content="Watch-only: nothing you do here reaches the teammate" focusable>
+                  <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                    <Eye className="h-3.5 w-3.5" />
+                    {pairing?.pendingRelease ? "releasing after this run…" : agent?.status === "pairing" ? "paused from its terminal" : "watching"}
+                  </span>
+                </Tooltip>
               )}
-              <Button
-                size="sm" variant="outline" className="h-7"
-                disabled={!agent || agent.status === "offline" || !pairable}
-                onClick={() => act("pair")}
-                title={pairable
+              <Tooltip content={pairable
                   ? "Pause its autonomous work and talk to it. Nothing is interrupted: it finishes its current step first."
-                  : `Pairing isn't supported for ${agent?.harness} teammates yet.`}
-              >
-                <MessageSquare className="mr-1 h-3.5 w-3.5" />Pair
-              </Button>
+                  : `Pairing isn't supported for ${agent?.harness} teammates yet.`}>
+                <Button
+                  size="sm" variant="outline" className="h-7"
+                  disabled={!agent || agent.status === "offline" || !pairable}
+                  focusableWhenDisabled
+                  onClick={() => act("pair")}
+                >
+                  <MessageSquare className="mr-1 h-3.5 w-3.5" />Pair
+                </Button>
+              </Tooltip>
             </>
           )}
         </div>
@@ -142,21 +149,29 @@ function PairedControls({
 }) {
   return (
     <div className="flex items-center gap-1">
-      <span className="mr-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400" title="Its autonomous work is paused while you talk">
-        paired
-      </span>
+      <Tooltip content="Its autonomous work is paused while you talk" focusable>
+        <span className="mr-1 rounded-full bg-blue-500/15 px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-400">
+          paired
+        </span>
+      </Tooltip>
       {releasing && <span className="text-xs text-muted-foreground">releasing after this run…</span>}
-      <Button size="sm" variant="outline" className="h-7" onClick={() => onRelease("resume")} title={hasWork ? "Hand it back: it carries on with its work item" : "Hand it back: it goes back to picking up work"}>
-        <Play className="mr-1 h-3.5 w-3.5" />Resume
-      </Button>
+      <Tooltip content={hasWork ? "Hand it back: it carries on with its work item" : "Hand it back: it goes back to picking up work"}>
+        <Button size="sm" variant="outline" className="h-7" onClick={() => onRelease("resume")}>
+          <Play className="mr-1 h-3.5 w-3.5" />Resume
+        </Button>
+      </Tooltip>
       {hasWork && (
         <>
-          <Button size="sm" variant="outline" className="h-7" onClick={() => onRelease("complete")} title="The work item is done — its last reply becomes the summary">
-            <CheckCircle2 className="mr-1 h-3.5 w-3.5" />Complete
-          </Button>
-          <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => onRelease("fail")} title="Mark the work item failed (the task is left for a human)">
-            <XCircle className="mr-1 h-3.5 w-3.5" />Fail
-          </Button>
+          <Tooltip content="The work item is done — its last reply becomes the summary">
+            <Button size="sm" variant="outline" className="h-7" onClick={() => onRelease("complete")}>
+              <CheckCircle2 className="mr-1 h-3.5 w-3.5" />Complete
+            </Button>
+          </Tooltip>
+          <Tooltip content="Mark the work item failed (the task is left for a human)">
+            <Button size="sm" variant="ghost" className="h-7 text-destructive" onClick={() => onRelease("fail")}>
+              <XCircle className="mr-1 h-3.5 w-3.5" />Fail
+            </Button>
+          </Tooltip>
         </>
       )}
     </div>

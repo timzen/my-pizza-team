@@ -28,6 +28,7 @@ import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { useStoryCollapse } from "@/hooks/useStoryCollapse";
 import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import type { StatusResponse, StoryView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type StatusData = Pick<StatusResponse, "defaultWorkflow" | "workflows">;
 
@@ -118,13 +119,14 @@ function StoryBoard() {
           <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search stories & tasks..."
+            aria-label="Search stories and tasks"
             value={search}
             onChange={e => setSearch(e.target.value)}
             className="pl-9"
           />
         </div>
         <Select value={sort} onValueChange={(v) => setSort(v as SortOption)}>
-          <SelectTrigger className="w-[140px]">
+          <SelectTrigger className="w-[140px]" aria-label="Sort stories">
             <SelectValue placeholder="Sort by" />
           </SelectTrigger>
           <SelectContent>
@@ -134,24 +136,26 @@ function StoryBoard() {
           </SelectContent>
         </Select>
         {/* Bulk expand/collapse applies to the stories currently shown (after search). */}
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAllCollapsed(sorted.map(s => s.id), false)}
-          disabled={sorted.length === 0}
-          title="Expand all visible stories"
-        >
-          <ChevronsUpDown className="h-4 w-4 mr-1" /> Expand all
-        </Button>
-        <Button
-          variant="outline"
-          size="sm"
-          onClick={() => setAllCollapsed(sorted.map(s => s.id), true)}
-          disabled={sorted.length === 0}
-          title="Collapse all visible stories"
-        >
-          <ChevronsDownUp className="h-4 w-4 mr-1" /> Collapse all
-        </Button>
+        <Tooltip content="Expand all visible stories">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAllCollapsed(sorted.map(s => s.id), false)}
+            disabled={sorted.length === 0}
+          >
+            <ChevronsUpDown className="h-4 w-4 mr-1" /> Expand all
+          </Button>
+        </Tooltip>
+        <Tooltip content="Collapse all visible stories">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={() => setAllCollapsed(sorted.map(s => s.id), true)}
+            disabled={sorted.length === 0}
+          >
+            <ChevronsDownUp className="h-4 w-4 mr-1" /> Collapse all
+          </Button>
+        </Tooltip>
         <AddStoryButton />
         <div className="ml-auto text-sm text-muted-foreground">
           {stories.length} {stories.length === 1 ? "story" : "stories"} · {taskCount} {taskCount === 1 ? "task" : "tasks"}

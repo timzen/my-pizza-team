@@ -18,6 +18,7 @@
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { AppendOnlyLines } from "@/components/ui/append-only-lines";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface ThoughtsPanelProps {
   /** Reasoning accumulated from the live stream. */
@@ -63,9 +64,11 @@ export function ThoughtsPanel({ thoughts, live, onClose }: ThoughtsPanelProps) {
         <span className="text-[10px] uppercase tracking-wide text-muted-foreground">
           {live ? "thinking · live · not saved" : "thinking · not saved"}
         </span>
-        <button type="button" onClick={onClose} title="Hide" aria-label="Hide thinking" className="text-muted-foreground hover:text-foreground">
-          <X className="h-3 w-3" />
-        </button>
+        <Tooltip content="Hide" describe={false}>
+          <button type="button" onClick={onClose} aria-label="Hide thinking" className="text-muted-foreground hover:text-foreground">
+            <X className="h-3 w-3" />
+          </button>
+        </Tooltip>
       </div>
       <pre ref={scrollRef} className="max-h-48 overflow-y-auto whitespace-pre-wrap break-words font-mono text-[11px] leading-relaxed text-muted-foreground">
         {text ? <AppendOnlyLines text={text} /> : (fetched === null

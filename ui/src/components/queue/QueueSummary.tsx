@@ -35,7 +35,6 @@ export function QueueSummary({ queue }: { queue: QueueData }) {
       <Link
         to="/queue"
         className={`flex h-8 min-w-0 items-center gap-2 rounded-md px-2 text-sm transition-colors hover:bg-background/70 ${onQueuePage ? "bg-background shadow-sm" : ""}`}
-        title="Open the Queue"
       >
         <ListTodo className="h-4 w-4 shrink-0 text-muted-foreground" />
         <span className="shrink-0 font-medium">Queue</span>
@@ -63,7 +62,7 @@ export function QueueSummary({ queue }: { queue: QueueData }) {
               const info = queueStateInfo(item.state);
               return (
                 <Link key={item.id} to={workItemPath(item)} className="flex items-center gap-2 rounded px-2 py-1.5 text-xs hover:bg-muted">
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${info.dot}`} title={info.label} />
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${info.dot}`} role="img" aria-label={info.label} />
                   <span className="min-w-0 flex-1 truncate" title={item.title}>{item.title}</span>
                   <span className="shrink-0 text-muted-foreground">
                     {item.state === "READY" ? `waiting ${since(item.lastStateChangeAt)}` : item.memberId ?? info.label.toLowerCase()}

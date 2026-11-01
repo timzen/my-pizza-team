@@ -16,6 +16,7 @@ import { BubbleDialog } from "./BubbleDialog";
 import { QuotedMessage } from "./QuotedMessage";
 import { Check, CheckCheck, Copy, Expand, Reply, Terminal, Clock } from "lucide-react";
 import type { AssistantMessage } from "@/lib/assistant-types";
+import { Tooltip } from "@/components/ui/tooltip";
 
 interface MessageBubbleProps {
   message: AssistantMessage;
@@ -49,7 +50,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onReply, onJ
       <div className={`flex items-end gap-1 max-w-[85%] ${isUser ? "flex-row" : "flex-row-reverse"}`}>
         {/* Actions sit outside the bubble so they never cover content. On a touch
             screen there is no hover to reveal them, so they're always (faintly) shown. */}
-        <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 pointer-coarse:opacity-50">
+        <div className="flex flex-col gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100 pointer-coarse:opacity-50">
           <IconButton title="Reply to this message" onClick={() => onReply(message)}><Reply className="h-3.5 w-3.5" /></IconButton>
           <IconButton title="Expand" onClick={() => setExpanded(true)}><Expand className="h-3.5 w-3.5" /></IconButton>
           <IconButton title="Copy" onClick={() => navigator.clipboard?.writeText(message.content)}><Copy className="h-3.5 w-3.5" /></IconButton>
@@ -82,7 +83,7 @@ export const MessageBubble = memo(function MessageBubble({ message, onReply, onJ
       {isUser && (
         <span className="mt-0.5 mr-1 flex items-center gap-1 text-muted-foreground">
           {message.origin === "tui" && (
-            <span title="Sent from the agent's terminal"><Terminal className="h-3 w-3" /></span>
+            <Glyph label="Sent from the agent's terminal"><Terminal className="h-3 w-3" /></Glyph>
           )}
           <DeliveryReceipt delivery={message.delivery} />
         </span>
@@ -96,25 +97,40 @@ export const MessageBubble = memo(function MessageBubble({ message, onReply, onJ
 /** ✓ states for a user message. Honest about the wait: delivered ≠ read. */
 function DeliveryReceipt({ delivery }: { delivery: AssistantMessage["delivery"] }) {
   if (delivery === "read") {
-    return <span title="Read"><CheckCheck className="h-3 w-3 text-primary" /></span>;
+    return <Glyph label="Read"><CheckCheck className="h-3 w-3 text-primary" /></Glyph>;
   }
   if (delivery === "delivered") {
-    return <span title="Delivered to the assistant"><Check className="h-3 w-3" /></span>;
+    return <Glyph label="Delivered to the assistant"><Check className="h-3 w-3" /></Glyph>;
   }
   // Queued: the assistant hasn't picked it up yet (offline, or busy mid-run).
-  return <span title="Queued"><Clock className="h-3 w-3 opacity-50" /></span>;
+  return <Glyph label="Queued"><Clock className="h-3 w-3 opacity-50" /></Glyph>;
 }
 
+/**
+ * A meaningful icon (a receipt, an origin): an image named `label`, with the
+ * same words as a hover tooltip. Not a tab stop — one per message would bury
+ * the composer; a screen reader reads the name in place.
+ */
+function Glyph({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <Tooltip content={label} describe={false}>
+      <span role="img" aria-label={label}>{children}</span>
+    </Tooltip>
+  );
+}
+
+/** A bubble action: icon-only, named and hinted by `title`. */
 function IconButton({ title, onClick, children }: { title: string; onClick: () => void; children: React.ReactNode }) {
   return (
-    <button
-      type="button"
-      title={title}
-      aria-label={title}
-      onClick={onClick}
-      className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
-    >
-      {children}
-    </button>
+    <Tooltip content={title} describe={false}>
+      <button
+        type="button"
+        aria-label={title}
+        onClick={onClick}
+        className="rounded p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+      >
+        {children}
+      </button>
+    </Tooltip>
   );
 }

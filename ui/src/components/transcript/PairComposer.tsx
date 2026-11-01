@@ -25,6 +25,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { editorCommandSeed } from "@/lib/editorPrefs";
 import { Send, Zap } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function PairComposer({ memberId, running, recipient = "the teammate" }: {
   memberId: string;
@@ -72,6 +73,7 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
           onChange={(e) => setText(e.target.value)}
           onKeyDown={onKeyDown}
           rows={2}
+          aria-label={`Message ${recipient}`}
           placeholder={running ? `Message ${recipient} — Enter queues it after this run, ⌘↵ steers now` : `Message ${recipient}…`}
           className="min-h-0 flex-1 resize-none font-mono text-[13px]"
           autoFocus
@@ -80,13 +82,17 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
             buttons never stack taller than the two-line box. */}
         <div className="grid grid-cols-2 gap-1">
           <FullEditorButton onClick={() => editor.open()} />
-          <Button size="sm" onClick={() => send("queue")} disabled={!text.trim() || sending} title={running ? "Queue — lands after the current run (Enter)" : "Send (Enter)"}>
-            <Send className="mr-1 h-3.5 w-3.5" />{running ? "Queue" : "Send"}
-          </Button>
-          {running && (
-            <Button size="sm" variant="outline" className="col-span-2" onClick={() => send("steer")} disabled={!text.trim() || sending} title="Steer — lands at its next tool step (⌘↵)">
-              <Zap className="mr-1 h-3.5 w-3.5" />Steer
+          <Tooltip content={running ? "Queue — lands after the current run (Enter)" : "Send (Enter)"}>
+            <Button size="sm" onClick={() => send("queue")} disabled={!text.trim() || sending}>
+              <Send className="mr-1 h-3.5 w-3.5" />{running ? "Queue" : "Send"}
             </Button>
+          </Tooltip>
+          {running && (
+            <Tooltip content="Steer — lands at its next tool step (⌘↵)">
+              <Button size="sm" variant="outline" className="col-span-2" onClick={() => send("steer")} disabled={!text.trim() || sending}>
+                <Zap className="mr-1 h-3.5 w-3.5" />Steer
+              </Button>
+            </Tooltip>
           )}
         </div>
       </div>

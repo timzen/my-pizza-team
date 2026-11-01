@@ -39,6 +39,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { readVimPref, writeVimPref } from "@/lib/editorPrefs";
 import type { CodeEditorProps, VimMode } from "./code-editor";
 import { Check, Columns2, Maximize2, X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 const CodeEditor = lazy(() => import("./code-editor"));
 
@@ -81,19 +82,20 @@ export function useVimPref(): [boolean, (on: boolean) => void] {
 /** The labelled, always-visible vim on/off switch. */
 export function VimSwitch({ on, onChange, className }: { on: boolean; onChange: (on: boolean) => void; className?: string }) {
   return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      onClick={() => onChange(!on)}
-      className={`flex shrink-0 items-center gap-2 rounded-full border border-border px-2.5 py-1 text-xs hover:bg-muted ${className ?? ""}`}
-      title={on ? "Vim keybindings are on — click for a plain editor" : "Turn on vim keybindings"}
-    >
-      <span className={`relative inline-block h-4 w-7 rounded-full transition-colors ${on ? "bg-primary" : "bg-muted-foreground/40"}`}>
-        <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-background transition-all ${on ? "left-3.5" : "left-0.5"}`} />
-      </span>
-      Vim: <strong>{on ? "On" : "Off"}</strong>
-    </button>
+    <Tooltip content={on ? "Vim keybindings are on — click for a plain editor" : "Turn on vim keybindings"}>
+      <button
+        type="button"
+        role="switch"
+        aria-checked={on}
+        onClick={() => onChange(!on)}
+        className={`flex shrink-0 items-center gap-2 rounded-full border border-border px-2.5 py-1 text-xs hover:bg-muted ${className ?? ""}`}
+      >
+        <span className={`relative inline-block h-4 w-7 rounded-full transition-colors ${on ? "bg-primary" : "bg-muted-foreground/40"}`}>
+          <span className={`absolute top-0.5 h-3 w-3 rounded-full bg-background transition-all ${on ? "left-3.5" : "left-0.5"}`} />
+        </span>
+        Vim: <strong>{on ? "On" : "Off"}</strong>
+      </button>
+    </Tooltip>
   );
 }
 
@@ -249,19 +251,27 @@ function FullEditor({ initial, title, submitLabel, onFinish, onDiscard }: FullEd
             <VimSwitch on={vimOn} onChange={setVimOn} className="ml-2" />
 
             <div className="ml-auto flex items-center gap-2">
-              <Button variant="ghost" size="sm" className="h-8" onClick={() => setPreview(!preview)} title="Show the rendered markdown beside the text">
-                <Columns2 className="mr-1 h-4 w-4" />{preview ? "Hide preview" : "Preview"}
-              </Button>
-              <Button variant="ghost" size="sm" className="h-8 text-destructive" onClick={() => discard(false)} title="Close without keeping changes">
-                <X className="mr-1 h-4 w-4" />Discard
-              </Button>
-              <Button size="sm" variant={submitLabel ? "outline" : "default"} className="h-8" onClick={() => onFinish(text, false)} title="Keep the text and close (⌘S)">
-                <Check className="mr-1 h-4 w-4" />Done
-              </Button>
-              {submitLabel && (
-                <Button size="sm" className="h-8" onClick={() => onFinish(text, true)} title={`${submitLabel} (⌘↵)`}>
-                  {submitLabel}
+              <Tooltip content="Show the rendered markdown beside the text">
+                <Button variant="ghost" size="sm" className="h-8" onClick={() => setPreview(!preview)}>
+                  <Columns2 className="mr-1 h-4 w-4" />{preview ? "Hide preview" : "Preview"}
                 </Button>
+              </Tooltip>
+              <Tooltip content="Close without keeping changes">
+                <Button variant="ghost" size="sm" className="h-8 text-destructive" onClick={() => discard(false)}>
+                  <X className="mr-1 h-4 w-4" />Discard
+                </Button>
+              </Tooltip>
+              <Tooltip content="Keep the text and close (⌘S)">
+                <Button size="sm" variant={submitLabel ? "outline" : "default"} className="h-8" onClick={() => onFinish(text, false)}>
+                  <Check className="mr-1 h-4 w-4" />Done
+                </Button>
+              </Tooltip>
+              {submitLabel && (
+                <Tooltip content={`${submitLabel} (⌘↵)`}>
+                  <Button size="sm" className="h-8" onClick={() => onFinish(text, true)}>
+                    {submitLabel}
+                  </Button>
+                </Tooltip>
               )}
             </div>
           </div>
@@ -270,6 +280,7 @@ function FullEditor({ initial, title, submitLabel, onFinish, onDiscard }: FullEd
             <div className={`min-h-0 flex-1 ${preview ? "border-r border-border" : ""}`}>
               <CodeEditorSurface
                 initial={initial}
+                ariaLabel={title ?? "Editor"}
                 vim={vimOn}
                 onChange={setText}
                 onVimMode={setMode}
@@ -310,8 +321,10 @@ function FullEditor({ initial, title, submitLabel, onFinish, onDiscard }: FullEd
 /** The "open the big editor" button hosts put beside a text box. */
 export function FullEditorButton({ onClick, disabled, className }: { onClick: () => void; disabled?: boolean; className?: string }) {
   return (
-    <Button type="button" variant="outline" size="sm" onClick={onClick} disabled={disabled} className={className} title="Open in the big editor (⌃G, or /editor)">
-      Edit
-    </Button>
+    <Tooltip content="Open in the big editor (⌃G, or /editor)">
+      <Button type="button" variant="outline" size="sm" onClick={onClick} disabled={disabled} className={className}>
+        Edit
+      </Button>
+    </Tooltip>
   );
 }

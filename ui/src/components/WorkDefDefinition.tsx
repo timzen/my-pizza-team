@@ -31,6 +31,7 @@ import { AcceptanceCriteriaEditor } from "@/components/ui/acceptance-criteria-ed
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { WorkDefPersona } from "@/components/personas/WorkDefPersona";
 import { Lock, Pencil, Save, Send, X } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The WorkDef fields this section shows/edits (a subset of the API's WorkDefView). */
 export interface WorkDefDefinitionData {
@@ -76,9 +77,11 @@ function lockedHint(type: WorkDefDefinitionData["type"]): string {
 /** Small "Pending" badge used on headers, list rows, and board cards. */
 export function PendingBadge({ className = "" }: { className?: string }) {
   return (
-    <Badge variant="outline" className={`border-amber-500/60 text-amber-600 ${className}`} title="Pending — not dispatched until activated">
-      Pending
-    </Badge>
+    <Tooltip content="Pending — not dispatched until activated" describe={false}>
+      <Badge variant="outline" className={`border-amber-500/60 text-amber-600 ${className}`}>
+        Pending
+      </Badge>
+    </Tooltip>
   );
 }
 
@@ -141,7 +144,9 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
             Teammates won't pick this up until you activate it. Once active, the definition is locked.
           </p>
           {!editing && <Button size="sm" variant="outline" onClick={startEdit}><Pencil className="h-3.5 w-3.5 mr-1" />Edit</Button>}
-          <Button size="sm" onClick={activate} disabled={busy} title={activateHint(def.type)}><Send className="h-3.5 w-3.5 mr-1" />Activate</Button>
+          <Tooltip content={activateHint(def.type)}>
+            <Button size="sm" onClick={activate} disabled={busy}><Send className="h-3.5 w-3.5 mr-1" />Activate</Button>
+          </Tooltip>
         </div>
       ) : (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">

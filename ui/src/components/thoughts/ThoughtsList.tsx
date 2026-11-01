@@ -29,6 +29,7 @@ import { TriageBadge } from "@/components/thoughts/TriageBadge";
 import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
 import { dotClass } from "@/lib/thoughtColors";
 import { buildThoughtTree, neighbourAfterRemoval, noteSnippet, noteTitle, visibleOrder } from "@/lib/thoughtList";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export interface ListThought {
   id: string; content: string; color: string; pinned: boolean; groupId: string | null;
@@ -229,12 +230,15 @@ export function ThoughtsList(props: ThoughtsListProps) {
               onChange={(e) => setQuery(e.target.value)}
               onKeyDown={(e) => { if (e.key === "Escape") setQuery(""); }}
               placeholder="Search"
+              aria-label="Search notes"
               className="h-8 w-full rounded-md border border-border bg-background pl-7 pr-6 text-sm outline-none focus:border-primary"
             />
             {searching && (
-              <button onClick={() => setQuery("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground" title="Clear search">
-                <X className="h-3.5 w-3.5" />
-              </button>
+              <Tooltip content="Clear search" describe={false}>
+                <button onClick={() => setQuery("")} className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label="Clear search">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </Tooltip>
             )}
           </div>
         </div>
@@ -245,14 +249,17 @@ export function ThoughtsList(props: ThoughtsListProps) {
             return (
               <div key={g.id} {...dropProps(g.id)} className={`mb-0.5 rounded-md ${dropOver === g.id ? "bg-primary/10 ring-1 ring-primary" : ""}`}>
                 <div className="group/folder flex items-center gap-1 rounded-md px-1 py-1 hover:bg-accent/40">
-                  <button onClick={() => toggleFolder(g.id)} className="rounded p-0.5 text-muted-foreground hover:text-foreground" title={open ? "Collapse" : "Expand"} disabled={searching}>
-                    {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-                  </button>
+                  <Tooltip content={open ? "Collapse" : "Expand"} describe={false}>
+                    <button onClick={() => toggleFolder(g.id)} className="rounded p-0.5 text-muted-foreground hover:text-foreground" aria-label={open ? "Collapse" : "Expand"} disabled={searching}>
+                      {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                    </button>
+                  </Tooltip>
                   <span className={`h-2 w-2 shrink-0 rounded-sm ${g.groupColor ? dotClass(g.groupColor) : "bg-muted-foreground/40"}`} />
                   {renaming?.id === g.id ? (
                     <input
                       autoFocus
                       value={renaming.title}
+                      aria-label="Folder name"
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setRenaming({ id: g.id, title: e.target.value })}
                       onBlur={commitRename}
@@ -260,23 +267,26 @@ export function ThoughtsList(props: ThoughtsListProps) {
                       className="min-w-0 flex-1 rounded border border-primary bg-background px-1 text-sm font-semibold outline-none"
                     />
                   ) : (
-                    <span
-                      className="min-w-0 flex-1 cursor-default truncate text-sm font-semibold"
-                      onClick={() => toggleFolder(g.id)}
-                      onDoubleClick={() => setRenaming({ id: g.id, title: g.title })}
-                      title="Double-click to rename"
-                    >
-                      {g.title}
-                    </span>
+                    <Tooltip content="Double-click to rename" describe={false}>
+                      <span
+                        className="min-w-0 flex-1 cursor-default truncate text-sm font-semibold"
+                        onClick={() => toggleFolder(g.id)}
+                        onDoubleClick={() => setRenaming({ id: g.id, title: g.title })}
+                      >
+                        {g.title}
+                      </span>
+                    </Tooltip>
                   )}
                   <span className="text-xs text-muted-foreground">{members.length}</span>
-                  <button
-                    onClick={() => props.onDeleteGroup(g.id)}
-                    className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-hover/folder:opacity-100"
-                    title="Delete folder (its notes stay, ungrouped)"
-                  >
-                    <X className="h-3.5 w-3.5" />
-                  </button>
+                  <Tooltip content="Delete folder (its notes stay, ungrouped)" describe={false}>
+                    <button
+                      onClick={() => props.onDeleteGroup(g.id)}
+                      className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-hover/folder:opacity-100 focus-visible:opacity-100"
+                      aria-label="Delete folder (its notes stay, ungrouped)"
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </Tooltip>
                 </div>
                 {open && (members.length
                   ? members.map((n) => row(n, true))

@@ -2,24 +2,6 @@
   "//": "Known serious/critical axe violations the accessibility story's later tasks fix (docs/ACCESSIBILITY.md). Each entry names its route, axe rule and the task that removes it. The scan fails on a violation not listed here, and on an entry that no longer matches — so this list only shrinks, to empty.",
   "entries": [
     {
-      "route": "/config",
-      "rule": "button-name",
-      "task": "ui-a11y-foundations-2",
-      "note": "an icon-only button with no accessible name"
-    },
-    {
-      "route": "/config/teammates",
-      "rule": "button-name",
-      "task": "ui-a11y-foundations-2",
-      "note": "an icon-only button with no accessible name"
-    },
-    {
-      "route": "/work/board",
-      "rule": "button-name",
-      "task": "ui-a11y-foundations-2",
-      "note": "an icon-only button with no accessible name"
-    },
-    {
       "route": "/",
       "rule": "color-contrast",
       "task": "ui-a11y-foundations-3",
@@ -176,34 +158,10 @@
       "note": "muted text / badges below 4.5:1 (light theme)"
     },
     {
-      "route": "/config",
-      "rule": "label",
-      "task": "ui-a11y-foundations-2",
-      "note": "a form field with no label"
-    },
-    {
-      "route": "/config/triage",
-      "rule": "label",
-      "task": "ui-a11y-foundations-2",
-      "note": "a form field with no label"
-    },
-    {
-      "route": "/thoughts",
-      "rule": "label",
-      "task": "ui-a11y-foundations-2",
-      "note": "a form field with no label"
-    },
-    {
       "route": "/help",
       "rule": "scrollable-region-focusable",
       "task": "ui-a11y-foundations-3",
       "note": "Help code blocks scroll but cannot take keyboard focus"
-    },
-    {
-      "route": "/config/workflows/default",
-      "rule": "select-name",
-      "task": "ui-a11y-foundations-2",
-      "note": "a select with no accessible name"
     },
     {
       "route": "/usage",

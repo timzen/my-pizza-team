@@ -29,7 +29,6 @@ import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useQueue } from "@/hooks/useQueue";
 import { useTeamData } from "@/hooks/useTeamData";
 import { ThemeToggle } from "@/components/ThemeToggle";
-import { Button } from "@/components/ui/button";
 import { MOBILE_TAB_PATHS, mobileTabOf, readViewPref, writeViewPref, type MobileTab } from "@/lib/mobile";
 import { countUnread } from "@/lib/unread";
 import { MobileTeam } from "./MobileTeam";
@@ -37,6 +36,8 @@ import { MobileChat } from "./MobileChat";
 import { MobileThoughts } from "./MobileThoughts";
 import { MobileInbox } from "./MobileInbox";
 import { Inbox, MessageSquare, Monitor, Pause, StickyNote, Users } from "lucide-react";
+import { IconButton } from "@/components/ui/icon-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function MobileShell() {
   const { pathname } = useLocation();
@@ -81,15 +82,17 @@ export function MobileShell() {
             <span aria-hidden>🍕</span><span className="truncate">Pizza Team</span>
           </Link>
           {paused && (
-            <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400" title="Task distribution is paused">
-              <Pause className="h-3 w-3" />paused
-            </span>
+            <Tooltip content="Task distribution is paused" describe={false}>
+              <span className="flex items-center gap-1 rounded-full bg-amber-500/15 px-2 py-0.5 text-xs font-medium text-amber-700 dark:text-amber-400">
+                <Pause className="h-3 w-3" />paused
+              </span>
+            </Tooltip>
           )}
           <div className="ml-auto flex items-center">
             <ThemeToggle />
-            <Button variant="ghost" size="icon" onClick={desktop} title="Desktop view" aria-label="Desktop view">
+            <IconButton variant="ghost" size="icon" onClick={desktop} label="Desktop view">
               <Monitor className="h-4 w-4" />
-            </Button>
+            </IconButton>
           </div>
         </div>
         <Link to={MOBILE_TAB_PATHS.team} className="flex h-8 items-center gap-1.5 border-t border-border/60 px-3 text-xs">

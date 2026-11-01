@@ -61,6 +61,7 @@ import { isTriageMode, mirroredDefHomePath, openInLabel, readOnlyHint } from "@/
 import { mirrorTriageNowBlocked, type WorkDefTriageView } from "@/lib/triage";
 import type { Comment } from "@shared/types";
 import type { ScheduleView, WorkDefView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
@@ -172,25 +173,31 @@ export function WorkDefDetailPage() {
           {mirror ? mirror.sourceLabel : def.type}
         </Badge>
         {mirror?.url && (
-          // eslint-disable-next-line jsx-a11y/anchor-has-content -- the <a> is Base UI's render target: it gets the Button's children as its content.
-          <Button variant="outline" size="sm" render={<a href={mirror.url} target="_blank" rel="noreferrer" />} title={`${mirror.sourceLabel} ${mirror.externalId}`}>
-            <ExternalLink className="h-3.5 w-3.5 mr-1" />{openInLabel(mirror.sourceLabel)}
-          </Button>
+          <Tooltip content={`${mirror.sourceLabel} ${mirror.externalId}`}>
+            {/* eslint-disable-next-line jsx-a11y/anchor-has-content -- the <a> is Base UI's render target: it gets the Button's children as its content. */}
+            <Button variant="outline" size="sm" render={<a href={mirror.url} target="_blank" rel="noreferrer" />}>
+              <ExternalLink className="h-3.5 w-3.5 mr-1" />{openInLabel(mirror.sourceLabel)}
+            </Button>
+          </Tooltip>
         )}
-        <Badge variant="outline" title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"}>
-          {runCountLabel(def.executionCount)}
-        </Badge>
-        {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
-          <Badge variant="secondary" className="font-mono" title={`${def.tokenUsage.totalInputTokens.toLocaleString()} in / ${def.tokenUsage.totalOutputTokens.toLocaleString()} out tokens across all runs`}>
-            ${def.tokenUsage.totalCostUsd.toFixed(3)}
+        <Tooltip content={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this yet"} focusable>
+          <Badge variant="outline">
+            {runCountLabel(def.executionCount)}
           </Badge>
+        </Tooltip>
+        {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
+          <Tooltip content={`${def.tokenUsage.totalInputTokens.toLocaleString()} in / ${def.tokenUsage.totalOutputTokens.toLocaleString()} out tokens across all runs`} focusable>
+            <Badge variant="secondary" className="font-mono">
+              ${def.tokenUsage.totalCostUsd.toFixed(3)}
+            </Badge>
+          </Tooltip>
         )}
         {schedule && !def.pending && (schedule.pending
-          ? <Button variant="outline" size="sm" onClick={() => setSchedulePending(false)} title="Resume the schedule at its next cron time (missed runs are not back-filled)"><Play className="h-3.5 w-3.5 mr-1" />Activate</Button>
-          : <Button variant="ghost" size="sm" onClick={() => setSchedulePending(true)} title="Stop firing this job until you activate it again"><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button>)}
+          ? <Tooltip content="Resume the schedule at its next cron time (missed runs are not back-filled)"><Button variant="outline" size="sm" onClick={() => setSchedulePending(false)}><Play className="h-3.5 w-3.5 mr-1" />Activate</Button></Tooltip>
+          : <Tooltip content="Stop firing this job until you activate it again"><Button variant="ghost" size="sm" onClick={() => setSchedulePending(true)}><Pause className="h-3.5 w-3.5 mr-1" />Make pending</Button></Tooltip>)}
         {triageMode
-          ? <Button size="sm" onClick={run} disabled={decisions.busy || triageBlocked !== null} title={triageBlocked ?? "Triage the item's current revision now"}><Play className="h-3.5 w-3.5 mr-1" />Triage now</Button>
-          : <Button variant="outline" size="sm" onClick={run} disabled={def.pending} title={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Play className="h-3.5 w-3.5 mr-1" />Run now</Button>}
+          ? <Tooltip content={triageBlocked ?? "Triage the item's current revision now"}><Button size="sm" onClick={run} disabled={decisions.busy || triageBlocked !== null} focusableWhenDisabled><Play className="h-3.5 w-3.5 mr-1" />Triage now</Button></Tooltip>
+          : <Tooltip content={def.pending ? "Activate it before running it" : "Enqueue a fresh run"}><Button variant="outline" size="sm" onClick={run} disabled={def.pending} focusableWhenDisabled><Play className="h-3.5 w-3.5 mr-1" />Run now</Button></Tooltip>}
       </div>
       }
     >
@@ -212,7 +219,7 @@ export function WorkDefDetailPage() {
           <div>
             <div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div>
             <div className="flex gap-2 mt-1">
-              <Input className="font-mono" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
+              <Input className="font-mono" aria-label="Schedule (cron)" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
               <Button variant="outline" onClick={saveCron}><Save className="h-4 w-4 mr-1" />Save schedule</Button>
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">

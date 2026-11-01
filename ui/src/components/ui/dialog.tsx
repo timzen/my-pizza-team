@@ -61,6 +61,7 @@ function DialogContent({
           <DialogPrimitive.Close
             data-slot="dialog-close"
             render={
+              // eslint-disable-next-line no-restricted-syntax -- named by the sr-only "Close" below
               <Button
                 variant="ghost"
                 className="absolute top-2 right-2"

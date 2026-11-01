@@ -33,6 +33,8 @@ import { MOBILE_TAB_PATHS } from "@/lib/mobile";
 import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
 import { Archive, ChevronDown, ChevronLeft, ChevronRight, Eye, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
 import type { Thought, ThoughtGroup } from "@shared/types";
+import { IconButton } from "@/components/ui/icon-button";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type Note = Thought;
 type Group = ThoughtGroup;
@@ -103,7 +105,7 @@ function NoteList({ notes, groups, badges, loaded, onCreated }: {
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="flex shrink-0 items-center gap-2 border-b border-border p-2">
-        <Input type="search" placeholder="Search notes" value={query} onChange={(e) => setQuery(e.target.value)} className="h-9 flex-1" />
+        <Input type="search" aria-label="Search notes" placeholder="Search notes" value={query} onChange={(e) => setQuery(e.target.value)} className="h-9 flex-1" />
         <Button size="sm" className="h-9" onClick={create}><Plus className="mr-1 h-4 w-4" />Note</Button>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
@@ -212,31 +214,32 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
         <BackToList />
         <div className="ml-auto flex items-center">
-          <Button variant="ghost" size="icon" onClick={() => { flush(); setMode(mode === "edit" ? "preview" : "edit"); }} title={mode === "edit" ? "Preview" : "Edit"}>
+          <IconButton variant="ghost" size="icon" onClick={() => { flush(); setMode(mode === "edit" ? "preview" : "edit"); }} label={mode === "edit" ? "Preview" : "Edit"}>
             {mode === "edit" ? <Eye className="h-4 w-4" /> : <Pencil className="h-4 w-4" />}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={() => patch({ pinned: !note.pinned })} title={note.pinned ? "Unpin" : "Pin"}>
+          </IconButton>
+          <IconButton variant="ghost" size="icon" onClick={() => patch({ pinned: !note.pinned })} label={note.pinned ? "Unpin" : "Pin"}>
             {note.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-          </Button>
-          <Button variant="ghost" size="icon" onClick={archive} title="Archive">
+          </IconButton>
+          <IconButton variant="ghost" size="icon" onClick={archive} label="Archive">
             <Archive className="h-4 w-4" />
-          </Button>
-          <Button variant="ghost" size="icon" className="text-destructive" onClick={remove} title="Delete">
+          </IconButton>
+          <IconButton variant="ghost" size="icon" className="text-destructive" onClick={remove} label="Delete">
             <Trash2 className="h-4 w-4" />
-          </Button>
+          </IconButton>
         </div>
       </div>
       <div className="flex shrink-0 items-center gap-2 border-b border-border px-3 py-2" role="radiogroup" aria-label="Color">
         {THOUGHT_COLORS.map((c) => (
-          <button
-            key={c}
-            type="button"
-            role="radio"
-            aria-checked={note.color === c}
-            onClick={() => patch({ color: c })}
-            className={`h-6 w-6 rounded-full ${dotClass(c)} ${note.color === c ? "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background" : ""}`}
-            title={c}
-          />
+          <Tooltip key={c} content={c} describe={false}>
+            <button
+              type="button"
+              role="radio"
+              aria-checked={note.color === c}
+              onClick={() => patch({ color: c })}
+              className={`h-6 w-6 rounded-full ${dotClass(c)} ${note.color === c ? "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background" : ""}`}
+              aria-label={c}
+            />
+          </Tooltip>
         ))}
       </div>
 
@@ -246,6 +249,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
             autoFocus
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
+            aria-label="Note"
             placeholder="Write a thought… (markdown)"
             className="h-full min-h-full resize-none rounded-none border-0 bg-transparent p-4 text-base focus-visible:ring-0 dark:bg-transparent"
           />

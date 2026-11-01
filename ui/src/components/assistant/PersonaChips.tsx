@@ -16,6 +16,7 @@
 import { Link } from "react-router-dom";
 import { SegmentedTabs } from "@/components/RouteTabs";
 import { optionLabel, personaPath, pickerGroups, type Persona } from "@/lib/personas";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The built-in the "Default" chip stands for. */
 export const DEFAULT_ASSISTANT_PERSONA_ID = "builtin:assistant";
@@ -58,9 +59,11 @@ export function PersonaChips({ personas, activePersonaId, disabled, onSelect }: 
           {others.map((p) => <option key={p.id} value={p.id}>{optionLabel(p)}</option>)}
         </select>
       )}
-      <Link to={personaPath(active ?? DEFAULT_ASSISTANT_PERSONA_ID)} className="text-xs text-primary hover:underline" title="Open the assistant's persona">
-        {active && personas.find((p) => p.id === active)?.readOnly === false ? "edit" : "view"}
-      </Link>
+      <Tooltip content="Open the assistant's persona">
+        <Link to={personaPath(active ?? DEFAULT_ASSISTANT_PERSONA_ID)} className="text-xs text-primary hover:underline">
+          {active && personas.find((p) => p.id === active)?.readOnly === false ? "edit" : "view"}
+        </Link>
+      </Tooltip>
     </div>
   );
 }

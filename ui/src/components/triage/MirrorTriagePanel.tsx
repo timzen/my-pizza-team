@@ -24,6 +24,7 @@ import type { ProposalDecisions } from "@/hooks/useProposalDecisions";
 import { latestStateLabel, openInLabel } from "@/lib/external-sources";
 import { outcomeLabel, type WorkDefTriageView } from "@/lib/triage";
 import { ExternalLink } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** The mirrored item's content, as the page already has it. */
 export interface MirroredItemContent {
@@ -48,7 +49,9 @@ export function MirrorTriagePanel({ item, view, decisions, blocked }: {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
         <Badge variant={view.latestOutcome === "proposals" ? "default" : "secondary"}>{outcomeLabel(view.latestOutcome)}</Badge>
-        <span title="State of its latest triage run">{latestStateLabel(view.latestState)}</span>
+        <Tooltip content="State of its latest triage run" describe={false}>
+          <span>{latestStateLabel(view.latestState)}</span>
+        </Tooltip>
         {blocked && <span>· {blocked}</span>}
       </div>
       {decisions.error && <p className="text-sm text-destructive">{decisions.error}</p>}

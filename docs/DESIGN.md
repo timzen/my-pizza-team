@@ -2443,6 +2443,11 @@ A teammate's status is shown by **which icon it has**, not by a colored dot:
 while reachable). A dot asked you to remember what green, blue, and red meant,
 said nothing to anyone who can't tell them apart, and sat next to a person icon
 that never changed. The shape *is* the meaning, and its tooltip says it in words.
+The words are there without a mouse too: the icon is an image named by its status
+(`statusLabel`), and the row's link and the rail's avatar are named by the whole row
+in words (`teammateSummary`: name · status · model · work · persona · context ·
+cost), so a keyboard or screen-reader user gets what hovering shows
+(docs/ACCESSIBILITY.md).
 
 Beside the name each row shows the **model** the teammate is running (its name;
 provider/id on hover), and beside the directory the two numbers Pi's own footer

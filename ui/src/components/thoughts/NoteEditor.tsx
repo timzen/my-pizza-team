@@ -30,6 +30,7 @@ import type { VimMode } from "@/components/ui/code-editor";
 import { THOUGHT_COLORS, dotClass, noteClass } from "@/lib/thoughtColors";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { Archive, Eye, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export interface EditorNote {
   id: string;
@@ -119,52 +120,63 @@ export function NoteEditor({
         {headerStart}
         <div className="flex items-center gap-1" role="radiogroup" aria-label="Color">
           {THOUGHT_COLORS.map((c) => (
-            <button
-              key={c}
-              type="button"
-              role="radio"
-              aria-checked={note.color === c}
-              onClick={() => onColor(note.id, c)}
-              className={`h-5 w-5 rounded-full ${dotClass(c)} ${note.color === c ? "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background" : ""}`}
-              title={c}
-            />
+            <Tooltip key={c} content={c} describe={false}>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={note.color === c}
+                onClick={() => onColor(note.id, c)}
+                className={`h-5 w-5 rounded-full ${dotClass(c)} ${note.color === c ? "ring-2 ring-foreground/60 ring-offset-2 ring-offset-background" : ""}`}
+                aria-label={c}
+              />
+            </Tooltip>
           ))}
         </div>
         <div className="h-5 w-px bg-border" />
-        <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => onPin(note.id, !note.pinned)} title={note.pinned ? "Unpin" : "Pin"}>
-          {note.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
-        </Button>
-        <select
-          value={note.groupId ?? ""}
-          onChange={(e) => onGroup(note.id, e.target.value || null)}
-          className="h-7 max-w-[12rem] rounded-md border border-border bg-background px-2 text-xs"
-          title={groupHint ? `Group (${groupHint})` : "Group"}
-        >
-          <option value="">No group</option>
-          {groups.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
-        </select>
+        <Tooltip content={note.pinned ? "Unpin" : "Pin"} describe={false}>
+          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => onPin(note.id, !note.pinned)} aria-label={note.pinned ? "Unpin" : "Pin"}>
+            {note.pinned ? <PinOff className="h-4 w-4" /> : <Pin className="h-4 w-4" />}
+          </Button>
+        </Tooltip>
+        <Tooltip content={groupHint ? `Group (${groupHint})` : "Group"} describe={!!groupHint}>
+          <select
+            value={note.groupId ?? ""}
+            onChange={(e) => onGroup(note.id, e.target.value || null)}
+            className="h-7 max-w-[12rem] rounded-md border border-border bg-background px-2 text-xs"
+            aria-label="Group"
+          >
+            <option value="">No group</option>
+            {groups.map((g) => <option key={g.id} value={g.id}>{g.title}</option>)}
+          </select>
+        </Tooltip>
         {idChip}
         <div className="ml-auto flex items-center gap-1">
           {mode === "edit" && <VimSwitch on={vimOn} onChange={setVimOn} className="mr-1" />}
-          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setMode(mode === "edit" ? "preview" : "edit")} title={mode === "edit" ? "Preview" : "Edit"}>
-            {mode === "edit" ? <><Eye className="mr-1 h-4 w-4" />Preview</> : <><Pencil className="mr-1 h-4 w-4" />Edit</>}
-          </Button>
-          <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { flush(); onArchive(note.id); onDone?.(); }} title="Archive">
-            <Archive className="h-4 w-4" />
-          </Button>
-          <Button
-            variant="ghost" size="sm" className="h-7 px-2 text-destructive"
-            onClick={() => {
-              if (!window.confirm("Delete this note? This can't be undone.")) return;
-              saved.current = latest.current.draft; // nothing left to flush
-              onDelete(note.id);
-              onDone?.();
-            }}
-            title="Delete"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
-          {inDialog && <Button size="sm" className="h-7" onClick={done} title="Save and close (⌘↵)">Done</Button>}
+          <Tooltip content={mode === "edit" ? "Preview" : "Edit"} describe={false}>
+            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => setMode(mode === "edit" ? "preview" : "edit")}>
+              {mode === "edit" ? <><Eye className="mr-1 h-4 w-4" />Preview</> : <><Pencil className="mr-1 h-4 w-4" />Edit</>}
+            </Button>
+          </Tooltip>
+          <Tooltip content="Archive" describe={false}>
+            <Button variant="ghost" size="sm" className="h-7 px-2" onClick={() => { flush(); onArchive(note.id); onDone?.(); }} aria-label="Archive">
+              <Archive className="h-4 w-4" />
+            </Button>
+          </Tooltip>
+          <Tooltip content="Delete" describe={false}>
+            <Button
+              variant="ghost" size="sm" className="h-7 px-2 text-destructive"
+              onClick={() => {
+                if (!window.confirm("Delete this note? This can't be undone.")) return;
+                saved.current = latest.current.draft; // nothing left to flush
+                onDelete(note.id);
+                onDone?.();
+              }}
+              aria-label="Delete"
+            >
+              <Trash2 className="h-4 w-4" />
+            </Button>
+          </Tooltip>
+          {inDialog && <Tooltip content="Save and close (⌘↵)"><Button size="sm" className="h-7" onClick={done}>Done</Button></Tooltip>}
         </div>
       </div>
 
@@ -180,6 +192,7 @@ export function NoteEditor({
                 onChange={setDraft}
                 onVimMode={setVimMode}
                 placeholder="Write a thought… (markdown)"
+                ariaLabel="Note"
                 commands={{
                   write: flush,
                   save: finish,
@@ -200,24 +213,26 @@ export function NoteEditor({
             </div>
           </div>
         ) : (
-          <div className="min-h-full cursor-text p-6" onDoubleClick={() => setMode("edit")} title="Double-click to edit">
-            {draft.trim() ? (
-              <MarkdownView
-                content={draft}
-                className="text-base"
-                onToggleTask={(i) => {
-                  // Toggle against the draft and persist that, so a checkbox
-                  // click never clobbers unsaved text (or vice versa).
-                  const next = toggleTaskMarker(draft, i);
-                  setDraft(next);
-                  saved.current = next;
-                  onToggleTask(note.id, next);
-                }}
-              />
-            ) : (
-              <p className="text-muted-foreground">Empty note — double-click to write.</p>
-            )}
-          </div>
+          <Tooltip content="Double-click to edit" describe={false}>
+            <div className="min-h-full cursor-text p-6" onDoubleClick={() => setMode("edit")}>
+              {draft.trim() ? (
+                <MarkdownView
+                  content={draft}
+                  className="text-base"
+                  onToggleTask={(i) => {
+                    // Toggle against the draft and persist that, so a checkbox
+                    // click never clobbers unsaved text (or vice versa).
+                    const next = toggleTaskMarker(draft, i);
+                    setDraft(next);
+                    saved.current = next;
+                    onToggleTask(note.id, next);
+                  }}
+                />
+              ) : (
+                <p className="text-muted-foreground">Empty note — double-click to write.</p>
+              )}
+            </div>
+          </Tooltip>
         )}
       </div>
     </div>

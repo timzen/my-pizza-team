@@ -33,6 +33,7 @@ import { EarlierAnalyses, LatestAnalysis } from "@/components/triage/TriageAnaly
 import { noteClass } from "@/lib/thoughtColors";
 import { outcomeLabel, triageNowBlocked, type TriageView } from "@/lib/triage";
 import { Lightbulb, Play, StickyNote } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function TriagePage() {
   const { id = "" } = useParams();
@@ -68,9 +69,11 @@ export function TriagePage() {
           <Button variant="outline" size="sm" render={<Link to={`/thoughts?note=${encodeURIComponent(note.id)}`} />}>
             <StickyNote className="mr-1 h-4 w-4" />Edit note
           </Button>
-          <Button size="sm" onClick={triageNow} disabled={busy || blocked !== null} title={blocked ?? "Run triage on this note now"}>
-            <Play className="mr-1 h-4 w-4" />Triage now
-          </Button>
+          <Tooltip content={blocked ?? "Run triage on this note now"}>
+            <Button size="sm" onClick={triageNow} disabled={busy || blocked !== null}>
+              <Play className="mr-1 h-4 w-4" />Triage now
+            </Button>
+          </Tooltip>
         </div>
       </div>
 

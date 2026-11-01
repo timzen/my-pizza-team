@@ -27,6 +27,7 @@ import { filterByPending } from "@/lib/pending";
 import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type RunFilter, type RunSort } from "@/lib/run-count";
 import { Plus, Play, Zap, FolderOpen, Archive } from "lucide-react";
 import type { WorkDefView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type WorkDef = WorkDefView;
 
@@ -53,24 +54,26 @@ export function TasksPage() {
     <WorkItemsLayout bodyClassName="max-w-3xl">
       <div className="flex items-center justify-between gap-2">
         <p className="mr-auto text-sm text-muted-foreground">Standalone one-shot work. Define once, run on demand.</p>
-        <Button
-          size="sm"
-          variant={runFilter === "never" ? "default" : "outline"}
-          aria-pressed={runFilter === "never"}
-          onClick={() => setRunFilter(f => f === "never" ? "all" : "never")}
-          title="Show only tasks that have never run"
-        >
-          Never run{neverRunCount > 0 ? ` (${neverRunCount})` : ""}
-        </Button>
-        <select
-          value={runSort}
-          onChange={(e) => setRunSort(e.target.value as RunSort)}
-          className="h-7 rounded-md border border-border bg-background px-2 text-xs"
-          aria-label="Sort tasks"
-          title="Sort by run count"
-        >
-          {RUN_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
-        </select>
+        <Tooltip content="Show only tasks that have never run">
+          <Button
+            size="sm"
+            variant={runFilter === "never" ? "default" : "outline"}
+            aria-pressed={runFilter === "never"}
+            onClick={() => setRunFilter(f => f === "never" ? "all" : "never")}
+          >
+            Never run{neverRunCount > 0 ? ` (${neverRunCount})` : ""}
+          </Button>
+        </Tooltip>
+        <Tooltip content="Sort by run count">
+          <select
+            value={runSort}
+            onChange={(e) => setRunSort(e.target.value as RunSort)}
+            className="h-7 rounded-md border border-border bg-background px-2 text-xs"
+            aria-label="Sort tasks"
+          >
+            {RUN_SORTS.map(s => <option key={s.value} value={s.value}>{s.label}</option>)}
+          </select>
+        </Tooltip>
         <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
       </div>
 
@@ -91,16 +94,24 @@ export function TasksPage() {
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>
                   )}
-                  <span title={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this task yet"}>
-                    {runCountLabel(def.executionCount)}
-                  </span>
+                  <Tooltip content={def.lastRunAt ? `Last run ${new Date(def.lastRunAt).toLocaleString()}` : "No WorkItem has been created for this task yet"} describe={false}>
+                    <span>
+                      {runCountLabel(def.executionCount)}
+                    </span>
+                  </Tooltip>
                   {def.tokenUsage && def.tokenUsage.totalCostUsd > 0 && (
-                    <span className="font-mono" title="Total cost across all runs">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
+                    <Tooltip content="Total cost across all runs" describe={false}>
+                      <span className="font-mono">${def.tokenUsage.totalCostUsd.toFixed(3)}</span>
+                    </Tooltip>
                   )}
                 </div>
               </Link>
-              <Button variant="ghost" size="sm" onClick={() => archive(def.id)} title="Archive this task"><Archive className="h-3.5 w-3.5" /></Button>
-              <Button variant="outline" size="sm" onClick={() => run(def.id)} title="Enqueue a fresh run"><Play className="h-3.5 w-3.5 mr-1" />Run</Button>
+              <Tooltip content="Archive this task" describe={false}>
+                <Button variant="ghost" size="sm" onClick={() => archive(def.id)} aria-label="Archive this task"><Archive className="h-3.5 w-3.5" /></Button>
+              </Tooltip>
+              <Tooltip content="Enqueue a fresh run">
+                <Button variant="outline" size="sm" onClick={() => run(def.id)}><Play className="h-3.5 w-3.5 mr-1" />Run</Button>
+              </Tooltip>
             </CardContent>
           </Card>
         ))}

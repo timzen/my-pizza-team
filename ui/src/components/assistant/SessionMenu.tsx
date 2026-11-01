@@ -19,6 +19,8 @@ import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from "@/components/ui/dialog";
 import { History, RotateCcw, SquarePen, Eye, FileText } from "lucide-react";
 import type { AssistantSession } from "@/lib/assistant-types";
+import { Tooltip } from "@/components/ui/tooltip";
+import { IconButton } from "@/components/ui/icon-button";
 
 interface SessionMenuProps {
   /** The session currently being viewed (null = the active one). */
@@ -67,25 +69,25 @@ export function SessionMenu({ viewingId, onView, onChanged, compact }: SessionMe
 
   return (
     <>
-      <Button
-        variant="ghost"
+      <IconButton
         size={compact ? "icon" : "sm"}
         className={compact ? "h-8 w-8" : undefined}
         onClick={newChat}
         disabled={busy}
-        title="New chat (snapshots the current one first)"
+        label="New chat"
+        hint="New chat (snapshots the current one first)"
       >
         <SquarePen className={compact ? "h-4 w-4" : "h-4 w-4 mr-1"} />{!compact && "New chat"}
-      </Button>
-      <Button
-        variant="ghost"
+      </IconButton>
+      <IconButton
         size={compact ? "icon" : "sm"}
         className={compact ? "h-8 w-8" : undefined}
         onClick={() => setOpen(true)}
-        title="Session history"
+        label="Session history"
+        aria-haspopup="dialog"
       >
         <History className={compact ? "h-4 w-4" : "h-4 w-4 mr-1"} />{!compact && "History"}
-      </Button>
+      </IconButton>
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl">
@@ -118,16 +120,22 @@ export function SessionMenu({ viewingId, onView, onChanged, compact }: SessionMe
                       </p>
                     </div>
                     <div className="flex shrink-0 gap-1">
-                      <Button variant="ghost" size="sm" title="View transcript" onClick={() => { onView(s.status === "active" ? null : s.id); setOpen(false); }}>
-                        <Eye className="h-4 w-4" />
-                      </Button>
-                      <Button variant="ghost" size="sm" title="Open markdown snapshot" onClick={() => window.open(`/api/assistant/sessions/${encodeURIComponent(s.id)}/snapshot`, "_blank")}>
-                        <FileText className="h-4 w-4" />
-                      </Button>
-                      {s.status !== "active" && (
-                        <Button variant="outline" size="sm" disabled={busy} title="Resume this session" onClick={() => resume(s)}>
-                          <RotateCcw className="h-4 w-4 mr-1" />Resume
+                      <Tooltip content="View transcript" describe={false}>
+                        <Button variant="ghost" size="sm" aria-label="View transcript" onClick={() => { onView(s.status === "active" ? null : s.id); setOpen(false); }}>
+                          <Eye className="h-4 w-4" />
                         </Button>
+                      </Tooltip>
+                      <Tooltip content="Open markdown snapshot" describe={false}>
+                        <Button variant="ghost" size="sm" aria-label="Open markdown snapshot" onClick={() => window.open(`/api/assistant/sessions/${encodeURIComponent(s.id)}/snapshot`, "_blank")}>
+                          <FileText className="h-4 w-4" />
+                        </Button>
+                      </Tooltip>
+                      {s.status !== "active" && (
+                        <Tooltip content="Resume this session">
+                          <Button variant="outline" size="sm" disabled={busy} onClick={() => resume(s)}>
+                            <RotateCcw className="h-4 w-4 mr-1" />Resume
+                          </Button>
+                        </Tooltip>
                       )}
                     </div>
                   </div>
@@ -149,6 +157,6 @@ function SessionPersona({ session, library, onOpen }: {
 }) {
   const id = session.personaId ?? "builtin:assistant";
   const title = session.personaId ? session.personaTitle ?? session.personaId : "default";
-  if (library && !library.some((p) => p.id === id)) return <span title="This persona has since been deleted">{title} (deleted)</span>;
+  if (library && !library.some((p) => p.id === id)) return <Tooltip content="This persona has since been deleted" describe={false}><span>{title} (deleted)</span></Tooltip>;
   return <Link to={personaPath(id)} onClick={onOpen} className="hover:underline">{title}</Link>;
 }

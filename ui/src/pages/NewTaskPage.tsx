@@ -15,6 +15,7 @@ import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { BackButton } from "@/components/ui/back-button";
 import { apiPost } from "@/hooks/useApi";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function NewTaskPage() {
   const { id: storyId } = useParams<{ id: string }>();
@@ -46,7 +47,9 @@ export function NewTaskPage() {
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button type="submit" value="add">Add Task</Button>
-          <Button type="submit" value="pending" variant="secondary" title="Hold its place in the story; nothing runs until you activate it">Save as pending</Button>
+          <Tooltip content="Hold its place in the story; nothing runs until you activate it">
+            <Button type="submit" value="pending" variant="secondary">Save as pending</Button>
+          </Tooltip>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>

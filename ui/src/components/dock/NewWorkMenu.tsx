@@ -15,6 +15,7 @@ import { START_WORK } from "@/lib/start-work";
 import { filterByFeatures } from "@/lib/features";
 import { useFeatures } from "@/hooks/useFeatures";
 import { Plus } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function NewWorkMenu() {
   const navigate = useNavigate();
@@ -22,13 +23,14 @@ export function NewWorkMenu() {
   if (items.length === 0) return null;
   return (
     <DropdownMenu>
-      <DropdownMenuTrigger
-        className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-accent"
-        title="Start work (adds to the queue)"
-        aria-label="Start work"
-      >
-        <Plus className="h-4 w-4" />
-      </DropdownMenuTrigger>
+      <Tooltip content="Start work (adds to the queue)" describe={false}>
+        <DropdownMenuTrigger
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-foreground hover:bg-accent"
+          aria-label="Start work"
+        >
+          <Plus className="h-4 w-4" />
+        </DropdownMenuTrigger>
+      </Tooltip>
       <DropdownMenuContent className="w-44">
         {items.map((item) => (
           <DropdownMenuItem key={item.to} onClick={() => navigate(item.to)}>

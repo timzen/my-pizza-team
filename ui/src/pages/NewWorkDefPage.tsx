@@ -29,6 +29,7 @@ import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
+import { Tooltip } from "@/components/ui/tooltip";
 
 type WorkDefType = "Solitary" | "Scheduled";
 
@@ -142,7 +143,9 @@ export function NewWorkDefPage() {
         {error && <p className="text-sm text-destructive">{error}</p>}
         <div className="flex gap-2">
           <Button type="submit" value="create" disabled={saving}>{saving ? "Creating…" : `Create ${submitLabel}`}</Button>
-          <Button type="submit" value="pending" variant="secondary" disabled={saving} title="Save it for review: nothing runs until you activate it">Save as pending</Button>
+          <Tooltip content="Save it for review: nothing runs until you activate it">
+            <Button type="submit" value="pending" variant="secondary" disabled={saving}>Save as pending</Button>
+          </Tooltip>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
       </form>

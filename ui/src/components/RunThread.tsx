@@ -35,6 +35,7 @@ import { attachmentUploadBody } from "@/lib/attachment-upload";
 import { externalCommentLabel, newestFirst } from "@/lib/external-sources";
 import type { Comment } from "@shared/types";
 import type { AttachmentView } from "@shared/protocol";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export interface RunThreadProps {
   /** The WorkDef whose ref holds the thread. */
@@ -130,9 +131,11 @@ export function RunThread({ workDefId, comments, onCommentsChanged, visible, aut
                 <span className="flex items-center gap-1.5">
                   <span className="text-xs font-medium">{c.from}</span>
                   {c.external && (
-                    <Badge variant="outline" className="text-[10px]" title={`From ${external.sourceLabel ?? c.external.source}${c.external.channel ? ` (${c.external.channel})` : ""} — not sent back`}>
-                      {externalCommentLabel(c.external, external.sourceLabel)}
-                    </Badge>
+                    <Tooltip content={`From ${external.sourceLabel ?? c.external.source}${c.external.channel ? ` (${c.external.channel})` : ""} — not sent back`} describe={false}>
+                      <Badge variant="outline" className="text-[10px]">
+                        {externalCommentLabel(c.external, external.sourceLabel)}
+                      </Badge>
+                    </Tooltip>
                   )}
                 </span>
               ) : (
@@ -162,6 +165,7 @@ export function RunThread({ workDefId, comments, onCommentsChanged, visible, aut
             value={newComment}
             onChange={e => setNewComment(e.target.value)}
             rows={2}
+            aria-label="Add a note"
             placeholder={sendOnCmdEnter ? "Add a note… (⌘+Enter to send)" : "Add a note…"}
             className="flex-1 resize-none"
             onKeyDown={sendOnCmdEnter ? (e => { if (e.key === "Enter" && e.metaKey) sendComment(); }) : undefined}

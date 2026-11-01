@@ -23,6 +23,7 @@ import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
 import { AlertTriangle } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 /** Live pool state from GET /api/teammate-pool. */
 export interface TeammatePool {
@@ -123,9 +124,11 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
 
         <DialogFooter>
           {pool && !pool.isDefault && (
-            <Button type="button" variant="ghost" disabled={saving} onClick={() => save(null)} title="Clear the declared size (half of max)">
-              Use default
-            </Button>
+            <Tooltip content="Clear the declared size (half of max)">
+              <Button type="button" variant="ghost" disabled={saving} onClick={() => save(null)}>
+                Use default
+              </Button>
+            </Tooltip>
           )}
           <Button type="submit" disabled={saving}>Save</Button>
         </DialogFooter>

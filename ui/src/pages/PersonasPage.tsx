@@ -38,6 +38,7 @@ import { uniqueKeys } from "@/lib/list-keys";
 import { MarkdownView } from "@/components/ui/markdown-view";
 import { BackButton } from "@/components/ui/back-button";
 import { AlertTriangle, Copy, Lock, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function PersonasPage({ personaId }: { personaId: string | null }) {
   return personaId ? <PersonaDetail key={personaId} id={personaId} /> : <PersonaList />;
@@ -47,7 +48,7 @@ export function PersonasPage({ personaId }: { personaId: string | null }) {
 export function OriginBadge({ persona }: { persona: Pick<Persona, "origin"> }) {
   const label = originLabel(persona.origin);
   const tone = persona.origin.kind === "team" ? "" : persona.origin.kind === "builtin" ? "border-sky-500/50 text-sky-700 dark:text-sky-300" : "border-violet-500/50 text-violet-700 dark:text-violet-300";
-  return <Badge variant="outline" className={`text-[10px] ${tone}`} title={persona.origin.kind === "package" ? `From the ${label} package` : undefined}>{label}</Badge>;
+  return <Tooltip content={persona.origin.kind === "package" ? `From the ${label} package` : undefined} describe={false}><Badge variant="outline" className={`text-[10px] ${tone}`}>{label}</Badge></Tooltip>;
 }
 
 // ─── The list ───────────────────────────────────────────────────────
@@ -87,7 +88,7 @@ function PersonaList() {
 
       <div className="relative">
         <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
-        <Input placeholder="Filter by title, id, description, tags, origin, or text…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />
+        <Input aria-label="Filter personas" placeholder="Filter by title, id, description, tags, origin, or text…" value={query} onChange={(e) => setQuery(e.target.value)} className="pl-9" />
       </div>
 
       {tagCounts.length > 0 && (
@@ -113,7 +114,7 @@ function PersonaList() {
                   <span className="font-mono text-xs text-muted-foreground">{p.id}</span>
                   <OriginBadge persona={p} />
                   {p.readOnly && <Lock className="h-3 w-3 text-muted-foreground" aria-label="read-only" />}
-                  {p.lintError && <span className="flex items-center gap-1 text-xs text-destructive" title={p.lintError}><AlertTriangle className="h-3 w-3" />lint error</span>}
+                  {p.lintError && <Tooltip content={p.lintError} describe={false}><span className="flex items-center gap-1 text-xs text-destructive"><AlertTriangle className="h-3 w-3" />lint error</span></Tooltip>}
                   <span className="ml-auto flex gap-1">
                     {(p.kinds ?? []).map((k) => <Badge key={k} variant="secondary" className="text-[10px]">{k}</Badge>)}
                   </span>
@@ -199,14 +200,18 @@ function PersonaDetail({ id }: { id: string }) {
           {!persona.readOnly && !editing && (
             <Button size="sm" variant="outline" onClick={() => { setEditing(true); setWarnings([]); }}><Pencil className="mr-1 h-3.5 w-3.5" />Edit</Button>
           )}
-          <Button size="sm" variant={persona.readOnly ? "default" : "outline"} onClick={duplicate} disabled={busy}
-            title="Copy it into your team's library as a new, editable persona (no link back: later changes to this one don't flow into the copy)">
-            <Copy className="mr-1 h-3.5 w-3.5" />{persona.readOnly ? "Duplicate to edit" : "Duplicate"}
-          </Button>
-          {!persona.readOnly && (
-            <Button size="sm" variant="ghost" className="text-destructive" onClick={remove} disabled={busy || blocked !== null} title={blocked ?? "Delete this persona"}>
-              <Trash2 className="mr-1 h-3.5 w-3.5" />Delete
+          <Tooltip content="Copy it into your team's library as a new, editable persona (no link back: later changes to this one don't flow into the copy)">
+            <Button size="sm" variant={persona.readOnly ? "default" : "outline"} onClick={duplicate} disabled={busy}
+  >
+              <Copy className="mr-1 h-3.5 w-3.5" />{persona.readOnly ? "Duplicate to edit" : "Duplicate"}
             </Button>
+          </Tooltip>
+          {!persona.readOnly && (
+            <Tooltip content={blocked ?? "Delete this persona"}>
+              <Button size="sm" variant="ghost" className="text-destructive" onClick={remove} disabled={busy || blocked !== null} focusableWhenDisabled>
+                <Trash2 className="mr-1 h-3.5 w-3.5" />Delete
+              </Button>
+            </Tooltip>
           )}
         </div>
       </div>
@@ -235,7 +240,7 @@ function PersonaDetail({ id }: { id: string }) {
                 {(persona.tags.length > 0 || (persona.kinds ?? []).length > 0) && (
                   <div className="flex flex-wrap gap-1">
                     {persona.tags.map((t) => <Badge key={t} variant="outline" className="text-[10px]">{t}</Badge>)}
-                    {(persona.kinds ?? []).map((k) => <Badge key={k} variant="secondary" className="text-[10px]" title="Suggested for">{k}</Badge>)}
+                    {(persona.kinds ?? []).map((k) => <Tooltip key={k} content="Suggested for" describe={false}><Badge variant="secondary" className="text-[10px]"><span className="sr-only">Suggested for </span>{k}</Badge></Tooltip>)}
                   </div>
                 )}
                 <LintWarnings warnings={warnings} />

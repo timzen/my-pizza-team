@@ -12,6 +12,7 @@ import { usePersonas } from "@/hooks/usePersonas";
 import { personaChip, type PersonaRef } from "@/lib/personas";
 import { cn } from "@/lib/utils";
 import { Sparkles } from "lucide-react";
+import { Tooltip } from "@/components/ui/tooltip";
 
 export function PersonaChip({ persona, className }: { persona: PersonaRef | null | undefined; className?: string }) {
   const library = usePersonas();
@@ -30,6 +31,6 @@ export function PersonaChip({ persona, className }: { persona: PersonaRef | null
     </>
   );
   return chip.href
-    ? <Link to={chip.href} className={cn(classes, "hover:bg-violet-500/10")} title={chip.title} data-persona-chip={persona.id}>{body}</Link>
-    : <span className={classes} title={chip.title} data-persona-chip={persona.id}>{body}</span>;
+    ? <Tooltip content={chip.title}><Link to={chip.href} className={cn(classes, "hover:bg-violet-500/10")} data-persona-chip={persona.id}>{body}</Link></Tooltip>
+    : <Tooltip content={chip.title} describe={false}><span className={classes} data-persona-chip={persona.id}>{body}</span></Tooltip>;
 }
