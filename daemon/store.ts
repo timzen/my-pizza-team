@@ -17,11 +17,8 @@ import { DatabaseSync } from "node:sqlite";
 import {
   slugify,
   DEFAULT_CONFIG,
-  directoriesOverlap,
-  exclusiveDirectoriesEnabled,
   TODO_STATE,
   DONE_STATE,
-  ACTIVE_WORK_ITEM_STATES,
   STORIES_DIR,
   WORKDEFS_DIR,
   type Comment,
@@ -44,9 +41,6 @@ import {
   type Member,
   type MemberSessionStats,
   type WorkDefOrigin,
-  isTriageDecision,
-  resolveRetry,
-  retryBackoffMs,
   type ThreadEntry,
   type TriageBadge,
   type TriageDecision,
@@ -97,7 +91,7 @@ import type { PluginLoadStatus } from "../shared/protocol.ts";
 import { type RegisterSourceOptions, type SourceEntry, sourceIdForWorkDef, SourceRegistry } from "./sources/registry.ts";
 import type { ExternalDef, ItemTerminalOutcome, RunResult, SourceContext, SyncOutcome, WorkSource, WorkSourceMode } from "./sources/types.ts";
 import { disconnectedKey, mirrorMode, mirrorRevisionKey, upsertMirror, vanishedKey } from "./sources/mirror.ts";
-import { mergeExternalComments, wroteBackKey } from "./sources/comments.ts";
+import { mergeExternalComments } from "./sources/comments.ts";
 import { isSourceSwitchedOff } from "./sources/toggle.ts";
 import { ExternalTriage, isTriageModeMirror } from "./sources/external-triage.ts";
 import { heldTriageItemsMessage, mirrorPersonaKey, mirrorPersonaPick, type PersonaPick, triagePersonaProblem } from "./sources/persona.ts";
@@ -114,26 +108,21 @@ import { TeammatePairing } from "./store/pairing.ts";
 import { migrateLegacyStoryFiles } from "./store/story-migration.ts";
 import { migrateSchema, cleanRetiredData } from "./store/schema.ts";
 import { DISMISS_EXIT_GRACE_MS, MemberStore, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
+import { QueueStore, type WorkDefExecutionStats } from "./store/queue.ts";
+import { ThreadStore, type AttachmentInfo } from "./store/threads.ts";
 import { recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 import { writeFileAtomic } from "../shared/atomic-write.ts";
-import { errorMessage } from "../shared/util.ts";
 
-// Member-domain constants live with the member store; re-exported so importers
+// Domain constants and types live with their domain stores; re-exported so importers
 // of the Store keep their imports.
 export { DISMISS_EXIT_GRACE_MS, SELF_HANDLED_ACTIONS, LEADER_MEMBER_NAME, isPoolTeammate, type LeaderDirective, type TeammatePoolState } from "./store/members.ts";
+export type { WorkDefExecutionStats } from "./store/queue.ts";
 
 /** `ctx.options()` of a source registered without settings (the built-ins). */
 const EMPTY_SOURCE_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
-
-/**
- * How long an in-flight `onComment` write-back defers a mirror's new inbound
- * comments (docs/DESIGN.md "A mirrored thread"); after this, a hung hook no
- * longer holds the thread back.
- */
-const WRITE_BACK_DEFER_MS = 120_000;
 
 /**
  * Internal board-task view: a WorkDef whose parent is a story, joined with its
@@ -142,17 +131,6 @@ const WRITE_BACK_DEFER_MS = 120_000;
  * the story's `tasks: [{id, status}]` (see docs/DESIGN.md "WorkDefs & Parents"). The
  * WorkDef body's Goal is surfaced as `description` for the (pre-unification) API.
  */
-/**
- * How often a WorkDef has run, derived from `work_items` (CANCELED excluded) —
- * see `Store.getExecutionStats` and docs/DESIGN.md "Execution Count: Derived, not Counted".
- */
-export interface WorkDefExecutionStats {
-  /** WorkItems created for the WorkDef, excluding CANCELED ones. */
-  executionCount: number;
-  /** When the latest counted WorkItem was enqueued (ISO), or null if never run. */
-  lastRunAt: string | null;
-}
-
 export interface Task {
   id: string;
   title: string;
@@ -205,15 +183,6 @@ function taskSeqFromId(storyId: string, taskId: string): number | null {
   const suffix = taskId.slice(prefix.length);
   const n = parseInt(suffix, 10);
   return String(n) === suffix ? n : null;
-}
-
-/** A backoff delay for a comment: "1m", "15m", "30s", "1h 30m". */
-function formatDelay(ms: number): string {
-  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
-  const totalMin = Math.round(ms / 60_000);
-  const h = Math.floor(totalMin / 60);
-  const m = totalMin % 60;
-  return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
 }
 
 /**
@@ -277,6 +246,18 @@ export class Store {
    * constructor, once the db is open.
    */
   private members!: MemberStore;
+  /**
+   * The WorkItem queue: enqueue, next-work, claim, transitions, retries,
+   * directory leases, execution stats (daemon/store/queue.ts). Built in the
+   * constructor, once the db is open.
+   */
+  private queue!: QueueStore;
+  /**
+   * A ref's thread (comments, triage decisions, write-back tracking),
+   * attachments and token usage (daemon/store/threads.ts). Built in the
+   * constructor, once the db is open.
+   */
+  private threads!: ThreadStore;
 
   /**
    * The assistant conversation (sessions, messages, receipts, inbox, thoughts,
@@ -387,7 +368,25 @@ export class Store {
     // Numbered migrations against PRAGMA user_version (store/schema.ts).
     migrateSchema(this.db);
     cleanRetiredData(this.db);
-    this.members = new MemberStore({ db: this.db, teamDir, config }, {
+    const domain = { db: this.db, teamDir, config };
+    this.threads = new ThreadStore(domain, {
+      sourceFor: (def) => this.sources.forWorkDef(def),
+    });
+    this.queue = new QueueStore(domain, {
+      sourceFor: (def) => this.sources.forWorkDef(def),
+      // A triage-mode mirror's title/directory are the daemon's (external-triage.ts);
+      // otherwise the source's own hook, if any.
+      resolveItem: (def) => {
+        if (this.isTriageModeMirror(def)) return this.externalTriage.resolveItem(def);
+        const src = this.sources.forWorkDef(def);
+        return src?.source.resolveItem?.(def, src.ctx);
+      },
+      isTeamReady: () => this.isTeamReady(),
+      getMembers: () => this.getMembers(),
+      releaseAssignment: (workDefId) => this.releaseTask(workDefId),
+      addComment: (ref, from, body) => this.addCommentForRef(ref, from, body),
+    });
+    this.members = new MemberStore(domain, {
       setWorkItemStateRow: (id, state) => this.setWorkItemStateRow(id, state),
       forgetLiveState: (id) => { this.transcripts.forget(id); this.pairing.forget(id); },
       saveConfig: () => this.saveConfig(),
@@ -598,11 +597,7 @@ export class Store {
   }
 
   /** The newest WorkItem's state for a WorkDef (CANCELED included), or null if it never had one. */
-  getLatestWorkItemState(defId: string): WorkItemState | null {
-    const row = this.db.prepare("SELECT state FROM work_items WHERE work_def_id = ? ORDER BY enqueued_at DESC, rowid DESC LIMIT 1")
-      .get(defId) as { state: WorkItemState } | undefined;
-    return row?.state ?? null;
-  }
+  getLatestWorkItemState(defId: string): WorkItemState | null { return this.queue.getLatestWorkItemState(defId); }
 
   /**
    * Apply one good sync result (docs/DESIGN.md "Work Sources" — external sources):
@@ -680,25 +675,9 @@ export class Store {
     const { added, invalid } = mergeExternalComments(source.id, defId, this.getThreadEntries(ref), ctx.kv, reported);
     for (const why of invalid) ctx.log(`skipped a comment on ${defId}: ${why}`);
     if (added.length === 0) return 0;
-    if (this.writeBackInFlight(defId)) return 0;
+    if (this.threads.writeBackInFlight(defId)) return 0;
     for (const c of added) this.appendThreadEntry(ref, c);
     return added.length;
-  }
-
-  /**
-   * `onComment` write-backs still running, per mirrored def: their start
-   * times. In memory only — after a restart nothing is in flight. An entry
-   * older than `WRITE_BACK_DEFER_MS` no longer defers anything (a hung hook
-   * mustn't freeze the thread).
-   */
-  private pendingWriteBacks = new Map<string, Set<{ startedAt: number }>>();
-
-  /** Is a write-back for this def in flight (started within `WRITE_BACK_DEFER_MS`)? */
-  private writeBackInFlight(defId: string): boolean {
-    const pending = this.pendingWriteBacks.get(defId);
-    if (!pending) return false;
-    const now = Date.now();
-    return [...pending].some((p) => now - p.startedAt < WRITE_BACK_DEFER_MS);
   }
 
   /**
@@ -739,7 +718,7 @@ export class Store {
    * so that path still authorizes.
    */
   private resetConnectionsForBoot(): void {
-    this.db.prepare("UPDATE work_items SET state = 'MORIBUND', last_state_change_at = ? WHERE state = 'IN_PROGRESS'").run(Date.now());
+    this.queue.markInFlightMoribundForBoot();
     this.db.exec("DELETE FROM assignments");
     this.db.exec("DELETE FROM members");
   }
@@ -1276,456 +1255,78 @@ export class Store {
     return true;
   }
 
-  // --- WorkItem queue ---
+  // --- WorkItem queue (daemon/store/queue.ts) ---
   //
   // A WorkItem is the unit of agent execution: a dumb, terminal-only attempt
-  // pointing at a story task or a WorkDef. It drives the task: a COMPLETE item
-  // advances its task, a FAILED/CANCELED one leaves the task stuck for a human.
-  // See docs/DESIGN.md "The WorkItem".
+  // pointing at a story task or a WorkDef. See docs/DESIGN.md "The WorkItem".
 
-  private rowToWorkItem(row: Record<string, unknown>): WorkItem {
-    const ref: WorkItemRef = { workDefId: row.work_def_id as string };
-    return {
-      id: row.id as string,
-      title: (row.title as string) || "",
-      ref,
-      directory: (row.directory as string) || undefined,
-      state: row.state as WorkItemState,
-      read: !!row.read,
-      memberId: (row.member_id as string) || undefined,
-      enqueuedAt: new Date(row.enqueued_at as number).toISOString(),
-      lastStateChangeAt: new Date(row.last_state_change_at as number).toISOString(),
-      attempt: (row.attempt as number) || 1,
-      retryAt: row.retry_at ? new Date(row.retry_at as number).toISOString() : undefined,
-      error: (row.error as string) || undefined,
-      persona: row.persona_id ? {
-        id: row.persona_id as string,
-        title: (row.persona_title as string) || (row.persona_id as string),
-        origin: (row.persona_origin as string) || "team",
-        via: row.persona_via as PersonaVia,
-        ...(row.persona_fallback_from ? { fallbackFrom: row.persona_fallback_from as string } : {}),
-      } : undefined,
-    };
-  }
+  /** Record a WorkItem's claim-time persona snapshot; see `QueueStore.recordWorkItemPersona`. */
+  recordWorkItemPersona(id: string, persona: PersonaRef | null): void { this.queue.recordWorkItemPersona(id, persona); }
 
-  /**
-   * Record the persona a WorkItem's run was given (the claim-time snapshot;
-   * docs/DESIGN.md "The in-flight persona"). `null` clears it — a run with no
-   * persona. Called by `claimWorkItem`; exposed for the prompt path that resolves it.
-   */
-  recordWorkItemPersona(id: string, persona: PersonaRef | null): void {
-    this.db.prepare(
-      "UPDATE work_items SET persona_id = ?, persona_title = ?, persona_origin = ?, persona_via = ?, persona_fallback_from = ? WHERE id = ?",
-    ).run(persona?.id ?? null, persona?.title ?? null, persona?.origin ?? null, persona?.via ?? null, persona?.fallbackFrom ?? null, id);
-  }
-
-  getWorkItem(id: string): WorkItem | null {
-    const row = this.db.prepare("SELECT * FROM work_items WHERE id = ?").get(id) as Record<string, unknown> | undefined;
-    return row ? this.rowToWorkItem(row) : null;
-  }
+  /** One WorkItem by id, or null. */
+  getWorkItem(id: string): WorkItem | null { return this.queue.getWorkItem(id); }
 
   /** List WorkItems, optionally filtered by state(s)/read, newest-first, paginated. */
   getWorkItems(opts?: { states?: WorkItemState[]; read?: boolean; workDefId?: string; limit?: number; offset?: number }): { items: WorkItem[]; total: number } {
-    const where: string[] = [];
-    const params: (string | number)[] = [];
-    if (opts?.states && opts.states.length > 0) {
-      where.push(`state IN (${opts.states.map(() => "?").join(",")})`);
-      params.push(...opts.states);
-    }
-    if (opts?.read !== undefined) { where.push("read = ?"); params.push(opts.read ? 1 : 0); }
-    // One WorkDef's runs (its detail page's run history, with each run's persona).
-    if (opts?.workDefId !== undefined) { where.push("work_def_id = ?"); params.push(opts.workDefId); }
-    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-    const total = (this.db.prepare(`SELECT COUNT(*) AS n FROM work_items ${clause}`).get(...params) as { n: number }).n;
-    let sql = `SELECT * FROM work_items ${clause} ORDER BY enqueued_at DESC`;
-    if (opts?.limit !== undefined) { sql += " LIMIT ?"; params.push(opts.limit); if (opts?.offset) { sql += " OFFSET ?"; params.push(opts.offset); } }
-    const rows = this.db.prepare(sql).all(...params) as Array<Record<string, unknown>>;
-    return { items: rows.map((r) => this.rowToWorkItem(r)), total };
+    return this.queue.getWorkItems(opts);
   }
 
-  /**
-   * Count WorkItems matching state(s)/read without loading any rows — a single
-   * `COUNT(*)`, cheap enough for the toolbar badges that poll /api/status.
-   */
-  countWorkItems(opts?: { states?: WorkItemState[]; read?: boolean }): number {
-    const where: string[] = [];
-    const params: (string | number)[] = [];
-    if (opts?.states && opts.states.length > 0) {
-      where.push(`state IN (${opts.states.map(() => "?").join(",")})`);
-      params.push(...opts.states);
-    }
-    if (opts?.read !== undefined) { where.push("read = ?"); params.push(opts.read ? 1 : 0); }
-    const clause = where.length > 0 ? `WHERE ${where.join(" AND ")}` : "";
-    return (this.db.prepare(`SELECT COUNT(*) AS n FROM work_items ${clause}`).get(...params) as { n: number }).n;
-  }
+  /** Count WorkItems matching state(s)/read without loading any rows (the toolbar badges). */
+  countWorkItems(opts?: { states?: WorkItemState[]; read?: boolean }): number { return this.queue.countWorkItems(opts); }
 
   /** The active (READY/IN_PROGRESS/MORIBUND) WorkItem for a WorkDef, if any. */
-  getActiveWorkItem(workDefId: string): WorkItem | null {
-    const row = this.db.prepare(
-      `SELECT * FROM work_items WHERE work_def_id = ? AND state IN (${ACTIVE_WORK_ITEM_STATES.map(() => "?").join(",")}) LIMIT 1`
-    ).get(workDefId, ...ACTIVE_WORK_ITEM_STATES) as Record<string, unknown> | undefined;
-    return row ? this.rowToWorkItem(row) : null;
-  }
+  getActiveWorkItem(workDefId: string): WorkItem | null { return this.queue.getActiveWorkItem(workDefId); }
 
-  /**
-   * Execution stats for every WorkDef that has any: how many WorkItems were
-   * created for it and when the latest was enqueued. One `GROUP BY` over
-   * `work_items`, so a list endpoint pays one query, not one per row.
-   *
-   * Derived, not stored (docs/DESIGN.md "Execution Count: Derived, not Counted"):
-   * every WorkItem already lands in `work_items` through `enqueueFor`, so a
-   * counter would be a second copy that could drift, and `workdef.md` must stay
-   * authored-only. **CANCELED items are excluded** — a cancel withdraws an
-   * attempt before (or instead of) it running, so it isn't a run. Every other
-   * state counts, READY and IN_PROGRESS included: queued or running work is not
-   * "never run". A WorkDef with no entry here has zero runs.
-   */
-  getExecutionStats(): Map<string, WorkDefExecutionStats> {
-    const rows = this.db.prepare(
-      `SELECT work_def_id AS id, COUNT(*) AS n, MAX(enqueued_at) AS last FROM work_items
-       WHERE work_def_id IS NOT NULL AND state != 'CANCELED' GROUP BY work_def_id`
-    ).all() as Array<{ id: string; n: number; last: number | null }>;
-    const out = new Map<string, WorkDefExecutionStats>();
-    for (const r of rows) {
-      out.set(r.id, { executionCount: r.n, lastRunAt: r.last ? new Date(r.last).toISOString() : null });
-    }
-    return out;
-  }
+  /** Per-WorkDef run count and last run, CANCELED excluded; see `QueueStore.getExecutionStats`. */
+  getExecutionStats(): Map<string, WorkDefExecutionStats> { return this.queue.getExecutionStats(); }
 
   /** Execution stats for one WorkDef (zero runs → `{ executionCount: 0, lastRunAt: null }`). */
-  getExecutionStatsFor(workDefId: string): WorkDefExecutionStats {
-    const r = this.db.prepare(
-      `SELECT COUNT(*) AS n, MAX(enqueued_at) AS last FROM work_items
-       WHERE work_def_id = ? AND state != 'CANCELED'`
-    ).get(workDefId) as { n: number; last: number | null };
-    return { executionCount: r.n, lastRunAt: r.last ? new Date(r.last).toISOString() : null };
-  }
+  getExecutionStatsFor(workDefId: string): WorkDefExecutionStats { return this.queue.getExecutionStatsFor(workDefId); }
 
-  /**
-   * The single WorkItem creator: enqueue a READY item for any WorkDef, of any
-   * kind. The item takes the def's title and directory unless its source
-   * overrides them (hook: resolveItem — a board task falls back to its story's
-   * directory). Caller ensures none is already active.
-   *
-   * A pending WorkDef never gets a WorkItem: refusing here, at the one creator,
-   * is what guarantees no path (Run, cron, admission, reconcile, re-enqueue)
-   * dispatches one (docs/DESIGN.md "Pending: Write, Review, Activate").
-   */
-  private enqueueFor(workDefId: string, retry?: { attempt: number; retryAt: number }): WorkItem | null {
-    const def = this.getWorkDef(workDefId);
-    if (!def || def.pending) return null;
-    let directory = def.directory;
-    let title = def.title;
-    // A registered source may override where/what the item is (hook: resolveItem;
-    // e.g. a triage item takes the note's title and the leader's directory).
-    // A triage-mode mirror's title/directory are the daemon's (external-triage.ts).
-    const src = this.sources.forWorkDef(def);
-    const resolved = this.isTriageModeMirror(def) ? this.externalTriage.resolveItem(def) : src?.source.resolveItem?.(def, src.ctx);
-    if (resolved?.title !== undefined) title = resolved.title;
-    if (resolved?.directory !== undefined) directory = resolved.directory;
-    const id = `wi-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`;
-    const now = Date.now();
-    this.db.prepare(
-      `INSERT INTO work_items (id, title, work_def_id, directory, state, read, member_id, enqueued_at, last_state_change_at, attempt, retry_at)
-       VALUES (?, ?, ?, ?, 'READY', 0, NULL, ?, ?, ?, ?)`
-    ).run(id, title, def.id, directory ? normalizeDirectory(directory) : null, now, now, retry?.attempt ?? 1, retry?.retryAt ?? null);
-    return this.getWorkItem(id)!;
-  }
+  /** The single WorkItem creator (refuses pending WorkDefs); see `QueueStore.enqueueFor`. */
+  private enqueueFor(workDefId: string, retry?: { attempt: number; retryAt: number }): WorkItem | null { return this.queue.enqueueFor(workDefId, retry); }
 
-  private setWorkItemStateRow(id: string, state: WorkItemState, memberId?: string | null): void {
-    if (memberId === undefined) {
-      this.db.prepare("UPDATE work_items SET state = ?, last_state_change_at = ? WHERE id = ?").run(state, Date.now(), id);
-    } else {
-      this.db.prepare("UPDATE work_items SET state = ?, member_id = ?, last_state_change_at = ? WHERE id = ?").run(state, memberId, Date.now(), id);
-    }
-  }
+  /** The queue's bare row transition (no assignment release, no source hook). */
+  private setWorkItemStateRow(id: string, state: WorkItemState, memberId?: string | null): void { this.queue.setWorkItemStateRow(id, state, memberId); }
 
   /** Cancel a task's active WorkItem (internal override on position changes). */
-  private abandonActiveWorkItem(taskId: string): void {
-    const item = this.getActiveWorkItem(taskId);
-    if (!item) return;
-    this.setWorkItemStateRow(item.id, "CANCELED");
-    this.notifyItemTerminal(item.id);
-  }
+  private abandonActiveWorkItem(taskId: string): void { this.queue.abandonActiveWorkItem(taskId); }
 
-  /**
-   * Pick the next READY WorkItem for a polling agent using directory affinity
-   * (docs/DESIGN.md "Work Matching: Directory Affinity"). Eligibility is the
-   * owning source's (`isWorkItemEligible`). Priority tiers:
-   *   1. item.directory == agent.directory  (my repo's work)
-   *   2. item has no directory              (anyone's)
-   *   3. item.directory != agent.directory AND no online agent has that dir
-   * Oldest-first within a tier. All directories are compared via
-   * `normalizeDirectory` (symlinks resolved), applied here at compare time.
-   *
-   * With `exclusiveDirectories` on (the default), a candidate whose directory
-   * overlaps an active (IN_PROGRESS/MORIBUND) item's directory is skipped — it
-   * stays READY until the lease frees (see `getDirectoryBlocker`).
-   *
-   * An automatic retry (docs/DESIGN.md "Errored Sessions Retry") stays READY
-   * until its backoff (`retryAt`) passes *and* the team's readiness probe says
-   * ready — retrying into expired credentials would just burn an attempt.
-   */
-  getNextWorkItem(agent: { id?: string; directory?: string }, now: number = Date.now()): WorkItem | null {
-    const rows = this.db.prepare("SELECT * FROM work_items WHERE state = 'READY' ORDER BY enqueued_at ASC").all() as Array<Record<string, unknown>>;
-    // Normalize at compare time too (not just at write time): rows written
-    // before symlink resolution, or before the path existed on this host, may
-    // hold an unresolved variant. Memoized per call — one realpath per distinct dir.
-    const norm = this.directoryNormalizer();
-    const leases = this.getDirectoryLeases(norm);
-    const candidates = rows.map((r) => this.rowToWorkItem(r))
-      .filter((wi) => this.isWorkItemEligible(wi) && this.isRetryDue(wi, now) && !this.findLeaseBlocker(wi, leases, norm));
-    if (candidates.length === 0) return null;
+  /** The next READY WorkItem for a polling agent (directory affinity, leases, retry backoff); see `QueueStore.getNextWorkItem`. */
+  getNextWorkItem(agent: { id?: string; directory?: string }, now: number = Date.now()): WorkItem | null { return this.queue.getNextWorkItem(agent, now); }
 
-    const agentDir = agent.directory ? norm(agent.directory) : undefined;
-    const onlineDirs = new Set(
-      this.getMembers()
-        .filter((m) => m.status !== "offline" && m.directory)
-        .map((m) => norm(m.directory!)),
-    );
+  /** Lease a READY WorkItem to a member (→ IN_PROGRESS); see `QueueStore.claimWorkItem`. */
+  claimWorkItem(id: string, memberId: string, persona?: PersonaRef | null): boolean { return this.queue.claimWorkItem(id, memberId, persona); }
 
-    const tier1 = candidates.filter((wi) => agentDir && wi.directory && norm(wi.directory) === agentDir);
-    if (tier1[0]) return tier1[0];
-    const tier2 = candidates.filter((wi) => !wi.directory);
-    if (tier2[0]) return tier2[0];
-    const tier3 = candidates.filter((wi) => wi.directory && norm(wi.directory) !== agentDir && !onlineDirs.has(norm(wi.directory)));
-    return tier3[0] ?? null;
-  }
+  /** The active WorkItem whose directory lease blocks `item`, or null; see `QueueStore.getDirectoryBlocker`. */
+  getDirectoryBlocker(item: WorkItem): WorkItem | null { return this.queue.getDirectoryBlocker(item); }
 
-  /**
-   * May this READY item be handed out yet? A first attempt always may; a retry
-   * waits out its backoff, then for the readiness probe (re-run every 30s by
-   * daemon/readiness.ts) to report ready.
-   */
-  private isRetryDue(wi: WorkItem, now: number): boolean {
-    if (wi.attempt <= 1) return true;
-    if (wi.retryAt && Date.parse(wi.retryAt) > now) return false;
-    return this.isTeamReady();
-  }
-
-  /** A READY WorkItem is eligible if its backing work still wants doing. */
-  private isWorkItemEligible(wi: WorkItem): boolean {
-    const def = this.getWorkDef(wi.ref.workDefId);
-    if (!def) return false;
-    // A registered source decides for its own defs (hook: isEligible; Story:
-    // its story active and ready, the task in an agent state).
-    const src = this.sources.forWorkDef(def);
-    if (src?.source.isEligible) return src.source.isEligible(def, src.ctx);
-    // No hook (e.g. Scheduled): eligible while it exists.
-    return true;
-  }
-
-  /**
-   * Lease a READY WorkItem to a member (→ IN_PROGRESS), then tell its source
-   * (hook: onItemClaimed — Story records the board's assignment row). Refused (false) if the item isn't READY or its directory is
-   * busy: the lease is re-checked here, inside one IMMEDIATE transaction, so two
-   * agents that were both offered items for one directory can't both claim
-   * (docs/DESIGN.md "Work Matching: Directory Affinity").
-   */
-  claimWorkItem(id: string, memberId: string, persona?: PersonaRef | null): boolean {
-    this.db.exec("BEGIN IMMEDIATE");
-    try {
-      const item = this.getWorkItem(id);
-      if (!item || item.state !== "READY" || this.getDirectoryBlocker(item)) {
-        this.db.exec("ROLLBACK");
-        return false;
-      }
-      this.setWorkItemStateRow(id, "IN_PROGRESS", memberId);
-      // The persona snapshot, inside the claim transaction (a retry is a new item).
-      if (persona !== undefined) this.recordWorkItemPersona(id, persona);
-      const def = this.getWorkDef(item.ref.workDefId);
-      const src = def ? this.sources.forWorkDef(def) : undefined;
-      if (def && src?.source.onItemClaimed) src.source.onItemClaimed(def, { ...item, state: "IN_PROGRESS", memberId }, memberId, src.ctx);
-      this.db.exec("COMMIT");
-      return true;
-    } catch (e) {
-      this.db.exec("ROLLBACK");
-      throw e;
-    }
-  }
-
-  /**
-   * The active WorkItem holding a directory lease that blocks `item`, or null.
-   * Only WorkItem directories take part — a teammate's registered directory
-   * only biases matching. Null when `exclusiveDirectories` is off, when `item`
-   * has no directory (exempt), or when nothing overlapping is in flight.
-   * Surfaced by `GET /api/work-items` as the reason a READY item is waiting.
-   */
-  getDirectoryBlocker(item: WorkItem): WorkItem | null {
-    const norm = this.directoryNormalizer();
-    return this.findLeaseBlocker(item, this.getDirectoryLeases(norm), norm);
-  }
-
-  /** A memoized `normalizeDirectory` (one realpath per distinct dir per call). */
-  private directoryNormalizer(): (d: string) => string {
-    const memo = new Map<string, string>();
-    return (d: string): string => {
-      let n = memo.get(d);
-      if (n === undefined) { n = normalizeDirectory(d); memo.set(d, n); }
-      return n;
-    };
-  }
-
-  /**
-   * Active directory leases: every IN_PROGRESS or MORIBUND WorkItem with a
-   * directory. MORIBUND keeps its lease so a teammate that reconnects doesn't
-   * collide with a newcomer; COMPLETE/FAILED/CANCELED free it. Empty when
-   * `exclusiveDirectories` is off.
-   */
-  private getDirectoryLeases(norm: (d: string) => string): Array<{ item: WorkItem; dir: string }> {
-    if (!exclusiveDirectoriesEnabled(this.config)) return [];
-    const rows = this.db.prepare(
-      "SELECT * FROM work_items WHERE state IN ('IN_PROGRESS', 'MORIBUND') AND directory IS NOT NULL AND directory != '' ORDER BY last_state_change_at ASC",
-    ).all() as Array<Record<string, unknown>>;
-    return rows.map((r) => this.rowToWorkItem(r)).map((item) => ({ item, dir: norm(item.directory!) }));
-  }
-
-  /** The first lease whose directory overlaps `item`'s (never `item` itself). */
-  private findLeaseBlocker(item: WorkItem, leases: Array<{ item: WorkItem; dir: string }>, norm: (d: string) => string): WorkItem | null {
-    if (!item.directory || leases.length === 0) return null;
-    const dir = norm(item.directory);
-    return leases.find((l) => l.item.id !== item.id && directoriesOverlap(l.dir, dir))?.item ?? null;
-  }
-
-  /**
-   * Agent-facing terminal transition (the single state-setter). The item's
-   * assignment row (if any) is released and its source is told (hook:
-   * onItemTerminal — COMPLETE on a board task advances it; FAILED leaves it
-   * stuck). The daemon posts NO comment — the agent composes its own
-   * completion/failure comment (via the comment routes) before setting state.
-   * Returns whatever the source reports back (a board task's new position).
-   */
+  /** Agent-facing terminal transition (COMPLETE/FAILED); see `QueueStore.setWorkItemState`. */
   setWorkItemState(id: string, state: "COMPLETE" | "FAILED"): { ok: boolean; error?: string; newStatus?: string; completed?: boolean } {
-    const item = this.getWorkItem(id);
-    if (!item) return { ok: false, error: "WorkItem not found" };
-    if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
-      return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
-    }
-    this.setWorkItemStateRow(id, state);
-    this.releaseTask(item.ref.workDefId);
-    // The daemon posts nothing: the agent composes its own completion/failure
-    // comment (see the teammate loop / fail tool) before calling this.
-    const outcome = this.notifyItemTerminal(id);
-    return { ok: true, ...outcome };
+    return this.queue.setWorkItemState(id, state);
   }
 
-  /**
-   * Tell the item's source it reached a terminal state (hook: onItemTerminal):
-   * COMPLETE/FAILED from the agent, and CANCELED / force-FAILED from a person
-   * or a board move. A synchronous hook's outcome (e.g. a board task's new position) is
-   * returned; an async one is fire-and-forget. A source's failure (sync or
-   * async) is logged, never allowed to undo the state change the agent just made.
-   */
-  private notifyItemTerminal(itemId: string): ItemTerminalOutcome {
-    const item = this.getWorkItem(itemId);
-    const def = item ? this.getWorkDef(item.ref.workDefId) : null;
-    if (!item || !def) return {};
-    const src = this.sources.forWorkDef(def);
-    if (!src?.source.onItemTerminal) return {};
-    const fail = (e: unknown) => src.ctx.log(`onItemTerminal failed: ${errorMessage(e)}`);
-    try {
-      const r = src.source.onItemTerminal(def, item, src.ctx);
-      if (r instanceof Promise) r.catch(fail);
-      else if (r) return r;
-    } catch (e) {
-      fail(e);
-    }
-    return {};
-  }
+  /** Tell the item's source it reached a terminal state (hook: onItemTerminal). */
+  private notifyItemTerminal(itemId: string): ItemTerminalOutcome { return this.queue.notifyItemTerminal(itemId); }
 
-  /**
-   * The agent's session *errored* (the model call failed — a Bedrock 503,
-   * missing credentials), so the attempt produced nothing. Unlike the agent
-   * giving up, this is retried automatically (docs/DESIGN.md "Errored Sessions
-   * Retry"):
-   *
-   *   - retries left → this attempt goes FAILED *read* (it isn't news — the
-   *     retry is), and a fresh READY item (attempt n+1) is enqueued, held until
-   *     its backoff passes and the team is ready. Comment: `[retry] …`.
-   *   - retries exhausted → FAILED, unread, so it lands in the Inbox. Comment:
-   *     `[failed] <error> after N attempts`.
-   *
-   * The daemon posts the comment here — the one exception to "the agent owns
-   * its comments", because the retry decision (and its attempt count) is the
-   * daemon's. It is posted *before* the state change, so it is the item's
-   * closing comment (ui/src/lib/mobile.ts `inboxOutcome`). Works the same for
-   * board tasks and Solitary/Scheduled WorkDefs: a task keeps its position,
-   * and the retry is just its next WorkItem.
-   */
+  /** An errored agent session: `[retry]` + a backoff-held retry, or `[failed]`; see `QueueStore.failWorkItemForSessionError`. */
   failWorkItemForSessionError(id: string, sessionError: string, now: number = Date.now()): {
     ok: boolean; error?: string; retry?: { workItemId: string; attempt: number; maxAttempts: number; retryAt: string };
   } {
-    const item = this.getWorkItem(id);
-    if (!item) return { ok: false, error: "WorkItem not found" };
-    if (item.state !== "IN_PROGRESS" && item.state !== "MORIBUND") {
-      return { ok: false, error: `WorkItem is ${item.state}, not in flight` };
-    }
-    const policy = resolveRetry(this.config);
-    const maxAttempts = policy.maxRetries + 1;
-    const reason = sessionError.trim() || "The agent session errored";
-    const author = item.memberId || "daemon";
-    const retriesLeft = item.attempt < maxAttempts && this.getWorkDef(item.ref.workDefId) !== null;
-    this.db.prepare("UPDATE work_items SET error = ? WHERE id = ?").run(reason, id);
-
-    if (!retriesLeft) {
-      const tries = item.attempt === 1 ? "1 attempt" : `${item.attempt} attempts`;
-      this.addCommentForRef(item.ref, author, `[failed] ${reason} after ${tries}. The agent session errored; nothing was done on the final attempt.`);
-      this.setWorkItemState(id, "FAILED");
-      return { ok: true };
-    }
-
-    const delayMs = retryBackoffMs(policy, item.attempt);
-    const retryAt = now + delayMs;
-    const next = item.attempt + 1;
-    this.addCommentForRef(
-      item.ref,
-      author,
-      `[retry] Attempt ${item.attempt}/${maxAttempts} failed: ${reason}. Retrying in ${formatDelay(delayMs)} (attempt ${next}/${maxAttempts}), once the team is ready.`,
-    );
-    this.setWorkItemState(id, "FAILED");
-    this.markWorkItemRead(id, true);
-    // Re-check: setWorkItemState → advance/admission never enqueues on FAILED, but stay safe.
-    if (this.getActiveWorkItem(item.ref.workDefId)) return { ok: true };
-    const fresh = this.enqueueFor(item.ref.workDefId, { attempt: next, retryAt });
-    if (!fresh) return { ok: true };
-    return { ok: true, retry: { workItemId: fresh.id, attempt: next, maxAttempts, retryAt: new Date(retryAt).toISOString() } };
+    return this.queue.failWorkItemForSessionError(id, sessionError, now);
   }
 
   /** Cancel a READY WorkItem (human). */
-  cancelWorkItem(id: string): boolean {
-    const item = this.getWorkItem(id);
-    if (!item || item.state !== "READY") return false;
-    this.setWorkItemStateRow(id, "CANCELED");
-    this.releaseTask(item.ref.workDefId);
-    this.notifyItemTerminal(id);
-    return true;
-  }
+  cancelWorkItem(id: string): boolean { return this.queue.cancelWorkItem(id); }
 
   /** Force a MORIBUND item to FAILED (human decided the agent is truly gone). */
-  forceFailWorkItem(id: string, reEnqueue = false): { ok: boolean; error?: string; newItem?: WorkItem | null } {
-    const item = this.getWorkItem(id);
-    if (!item || item.state !== "MORIBUND") return { ok: false, error: "WorkItem is not moribund" };
-    this.setWorkItemStateRow(id, "FAILED");
-    this.releaseTask(item.ref.workDefId);
-    this.notifyItemTerminal(id);
-    let newItem: WorkItem | null = null;
-    if (reEnqueue) newItem = this.reEnqueueRef(item.ref);
-    return { ok: true, newItem };
-  }
+  forceFailWorkItem(id: string, reEnqueue = false): { ok: boolean; error?: string; newItem?: WorkItem | null } { return this.queue.forceFailWorkItem(id, reEnqueue); }
 
   /** Create a fresh READY WorkItem for a ref that has no active one. */
-  reEnqueueRef(ref: WorkItemRef): WorkItem | null {
-    if (this.getActiveWorkItem(ref.workDefId)) return null;
-    return this.enqueueFor(ref.workDefId);
-  }
+  reEnqueueRef(ref: WorkItemRef): WorkItem | null { return this.queue.reEnqueueRef(ref); }
 
   /** Mark a WorkItem read/unread (Inbox). */
-  markWorkItemRead(id: string, read = true): boolean {
-    const item = this.getWorkItem(id);
-    if (!item) return false;
-    this.db.prepare("UPDATE work_items SET read = ? WHERE id = ?").run(read ? 1 : 0, id);
-    return true;
-  }
+  markWorkItemRead(id: string, read = true): boolean { return this.queue.markWorkItemRead(id, read); }
 
   // --- Mechanical rules: admission (CONWIP) + advance ---
   //
@@ -1764,64 +1365,14 @@ export class Store {
     return { taskId: row.task_id as string, memberId: row.member_id as string, claimedAt: row.claimed_at as number, task };
   }
 
-  // --- Attachment-directory primitives ---
-  //
-  // Shared by the ref-scoped attachment helpers (saveAttachmentForRef and
-  // friends). Uploads are stored as `<epoch-ms>-<name>`, so the upload time is
-  // recovered from the stored name; files placed by other means fall back to
-  // mtime. Teammates often upload the same display name repeatedly — addedAt is
-  // how the UI tells them apart.
-  private saveAttachmentInDir(attachDir: string, filename: string, data: Uint8Array | string): string {
-    fs.mkdirSync(attachDir, { recursive: true });
-    const safeName = filename.replace(/[^a-zA-Z0-9._-]/g, "-");
-    const storedName = `${Date.now()}-${safeName}`;
-    const filePath = path.join(attachDir, storedName);
-    if (typeof data === "string") fs.writeFileSync(filePath, data);
-    else fs.writeFileSync(filePath, data);
-    return storedName;
-  }
-
-  private resolveAttachmentInDir(attachDir: string, filename: string): string | null {
-    const filePath = path.join(attachDir, filename);
-    if (!existsSync(filePath)) return null;
-    // Security: the resolved path must stay within the attachments directory.
-    const resolved = path.resolve(filePath);
-    const base = path.resolve(attachDir);
-    if (!resolved.startsWith(base)) return null;
-    return resolved;
-  }
-
-  private listAttachmentsInDir(attachDir: string): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
-    if (!existsSync(attachDir)) return [];
-    const results: Array<{ name: string; storedName: string; size: number; addedAt: number }> = [];
-    for (const entry of fs.readdirSync(attachDir, { withFileTypes: true })) {
-      if (!entry.isFile()) continue;
-      const stat = fs.statSync(path.join(attachDir, entry.name));
-      const displayName = entry.name.replace(/^\d+-/, "");
-      const tsPrefix = entry.name.match(/^(\d+)-/);
-      const addedAt = tsPrefix ? Number(tsPrefix[1]) : (stat.mtime?.getTime() ?? 0);
-      results.push({ name: displayName, storedName: entry.name, size: stat.size, addedAt });
-    }
-    return results.sort((a, b) => b.addedAt - a.addedAt);
-  }
-
-
   // --- Token Usage ---
 
-  /**
-   * Record a run's usage against a ref (any WorkDef; token_usage is keyed by the
-   * WorkDef id). A no-op when the WorkDef doesn't exist. The title is
-   * snapshotted, since the ledger outlives the ref (archive/delete). `extra`
-   * carries the ledger's newer fields — cache tokens, kind, member
-   * (store/usage.ts).
-   */
+  /** Record a run's usage against a ref (a no-op for an unknown WorkDef); see `ThreadStore.addTokenUsage`. */
   addTokenUsage(
     ref: WorkItemRef, inputTokens: number, outputTokens: number, model: string, costUsd: number,
     extra: Omit<Partial<UsageEntry>, "refId" | "inputTokens" | "outputTokens" | "model" | "costUsd" | "title"> = {},
   ): void {
-    if (!this.refDir(ref)) return;
-    const title = this.getWorkDef(ref.workDefId)?.title ?? null;
-    recordUsage(this.db, { ...extra, title, refId: ref.workDefId, inputTokens, outputTokens, model, costUsd }, this.teamDir);
+    this.threads.addTokenUsage(ref, inputTokens, outputTokens, model, costUsd, extra);
   }
 
   /** Record a run's usage that isn't for any ref (the leader's chat, a teammate between items). */
@@ -1839,24 +1390,14 @@ export class Store {
     return runsOnDay(this.db, opts);
   }
 
+  /** A ref's runs' usage rows, oldest first. */
   getTokenUsage(taskId: string): Array<{ inputTokens: number; outputTokens: number; model: string; costUsd: number; at: string }> {
-    const rows = this.db.prepare("SELECT * FROM token_usage WHERE task_id = ? ORDER BY recorded_at").all(taskId) as Array<Record<string, unknown>>;
-    return rows.map((row) => ({
-      inputTokens: row.input_tokens as number,
-      outputTokens: row.output_tokens as number,
-      model: row.model as string,
-      costUsd: row.cost_usd as number,
-      at: new Date(row.recorded_at as number).toISOString(),
-    }));
+    return this.threads.getTokenUsage(taskId);
   }
 
   /** A ref's total cost and tokens across its runs, or null when it has none. */
   getTokenUsageSummary(ref: WorkItemRef): { totalCostUsd: number; totalInputTokens: number; totalOutputTokens: number } | null {
-    const row = this.db.prepare(
-      "SELECT SUM(input_tokens) as inp, SUM(output_tokens) as out, SUM(cost_usd) as cost FROM token_usage WHERE task_id = ?"
-    ).get(ref.workDefId) as Record<string, unknown> | undefined;
-    if (!row || row.cost === null) return null;
-    return { totalCostUsd: row.cost as number, totalInputTokens: row.inp as number, totalOutputTokens: row.out as number };
+    return this.threads.getTokenUsageSummary(ref);
   }
 
   // --- Members, dismissals, the reaper (daemon/store/members.ts) ---
@@ -3440,127 +2981,39 @@ export class Store {
     return true;
   }
 
-  // --- Ref-based comments/attachments ---
+  // --- Ref-based comments/attachments (daemon/store/threads.ts) ---
   //
   // Comments live on the *ref* — i.e. the WorkDef directory (`tasks/<id>/`),
   // uniformly for board tasks and standalone work. Agents post via a WorkItem
   // id, resolved to its ref. See docs/DESIGN.md "WorkDefs & Parents".
 
-  private refDir(ref: WorkItemRef): string | null {
-    return getWorkDef(this.teamDir, ref.workDefId) ? workDefDir(this.teamDir, ref.workDefId) : null;
-  }
-
-  /**
-   * A ref's comments. Triage **decision** lines live in the same append-only file
-   * (docs/DESIGN.md "Auto Triage") and are not comments, so they're filtered out
-   * here — every existing caller (the prompt, the thread UI, agents) sees exactly
-   * what it did before. Use `getThreadEntries` for the whole file.
-   */
-  getCommentsForRef(ref: WorkItemRef): Comment[] {
-    return this.getThreadEntries(ref).filter((e) => !isTriageDecision(e)) as Comment[];
-  }
+  /** A ref's comments (triage decision lines filtered out); see `ThreadStore.getCommentsForRef`. */
+  getCommentsForRef(ref: WorkItemRef): Comment[] { return this.threads.getCommentsForRef(ref); }
 
   /** Every line of a ref's thread, comments and triage decisions alike, in order. */
-  getThreadEntries(ref: WorkItemRef): ThreadEntry[] {
-    const dir = this.refDir(ref);
-    if (!dir) return [];
-    const file = path.join(dir, "comments.jsonl");
-    if (!existsSync(file)) return [];
-    const out: ThreadEntry[] = [];
-    for (const line of fs.readFileSync(file, "utf8").split("\n")) {
-      if (!line.trim()) continue;
-      // A malformed line must not take the whole thread down with it.
-      try { out.push(JSON.parse(line) as ThreadEntry); } catch { /* skip */ }
-    }
-    return out;
-  }
+  getThreadEntries(ref: WorkItemRef): ThreadEntry[] { return this.threads.getThreadEntries(ref); }
 
-  /** Append one raw line to a ref's thread (comments.jsonl stays append-only). */
-  private appendThreadEntry(ref: WorkItemRef, entry: ThreadEntry): boolean {
-    const dir = this.refDir(ref);
-    if (!dir) return false;
-    fs.mkdirSync(dir, { recursive: true });
-    fs.appendFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(entry) + "\n");
-    return true;
-  }
+  /** Append one raw line to a ref's thread (no onComment hook). */
+  private appendThreadEntry(ref: WorkItemRef, entry: ThreadEntry): boolean { return this.threads.appendThreadEntry(ref, entry); }
 
+  /** Append a comment to a ref's thread and tell its source (hook: onComment). */
   addCommentForRef(ref: WorkItemRef, from: string, body: string, attachments?: Array<{ name: string; size: number; type: string }>): void {
-    const dir = this.refDir(ref);
-    if (!dir) return;
-    fs.mkdirSync(dir, { recursive: true });
-    const comment: Comment = { from, body, at: new Date().toISOString() };
-    if (attachments && attachments.length > 0) comment.attachments = attachments;
-    fs.appendFileSync(path.join(dir, "comments.jsonl"), JSON.stringify(comment) + "\n");
-    this.notifyComment(ref, comment);
+    this.threads.addCommentForRef(ref, from, body, attachments);
   }
 
-  /**
-   * Tell the def's source a comment was added (hook: onComment — write-back,
-   * e.g. a teammate's completion comment to the external item). Fire-and-forget:
-   * an async hook's promise is never awaited, so the caller (a route, the agent
-   * protocol) doesn't wait on the external system, and a throw or rejection is
-   * only logged. Called synchronously, like onItemTerminal, so a source sees a
-   * teammate's closing comment before the state change that follows it.
-   */
-  private notifyComment(ref: WorkItemRef, comment: Comment): void {
-    // A comment that came from the source is never written back to it.
-    if (comment.external) return;
-    const def = this.getWorkDef(ref.workDefId);
-    const src = def ? this.sources.forWorkDef(def) : undefined;
-    if (!def || !src?.source.onComment) return;
-    const fail = (e: unknown) => src.ctx.log(`onComment failed: ${errorMessage(e)}`);
-    // The id the source gave the posted comment: recorded so sync recognises it
-    // when it comes back (docs/DESIGN.md "A mirrored thread").
-    const record = (r: unknown) => {
-      const id = (r as { externalId?: unknown } | null | undefined)?.externalId;
-      if (typeof id !== "string" || !id) return;
-      try { src.ctx.kv.set(wroteBackKey(def.id, id), comment.at); } catch (e) { fail(e); }
-    };
-    try {
-      const r = src.source.onComment(def, { ...comment }, src.ctx);
-      if (r instanceof Promise) {
-        const pending = { startedAt: Date.now() };
-        const set = this.pendingWriteBacks.get(def.id) ?? new Set();
-        set.add(pending);
-        this.pendingWriteBacks.set(def.id, set);
-        r.then(record, fail).finally(() => {
-          set.delete(pending);
-          if (set.size === 0 && this.pendingWriteBacks.get(def.id) === set) this.pendingWriteBacks.delete(def.id);
-        });
-      } else {
-        record(r);
-      }
-    } catch (e) {
-      fail(e);
-    }
-  }
-
+  /** Store an upload under a ref's `attachments/`; returns its stored name, or null for an unknown ref. */
   saveAttachmentForRef(ref: WorkItemRef, filename: string, data: Uint8Array | string): string | null {
-    const dir = this.refDir(ref);
-    if (!dir) return null;
-    return this.saveAttachmentInDir(path.join(dir, "attachments"), filename, data);
+    return this.threads.saveAttachmentForRef(ref, filename, data);
   }
 
   /** List a ref's attachments, newest first (works for any WorkDef). */
-  getAttachmentsForRef(ref: WorkItemRef): Array<{ name: string; storedName: string; size: number; addedAt: number }> {
-    const dir = this.refDir(ref);
-    if (!dir) return [];
-    return this.listAttachmentsInDir(path.join(dir, "attachments"));
-  }
+  getAttachmentsForRef(ref: WorkItemRef): AttachmentInfo[] { return this.threads.getAttachmentsForRef(ref); }
 
   /** Resolve a ref attachment's file path (or null if missing / out of bounds). */
-  getAttachmentPathForRef(ref: WorkItemRef, filename: string): string | null {
-    const dir = this.refDir(ref);
-    if (!dir) return null;
-    return this.resolveAttachmentInDir(path.join(dir, "attachments"), filename);
-  }
+  getAttachmentPathForRef(ref: WorkItemRef, filename: string): string | null { return this.threads.getAttachmentPathForRef(ref, filename); }
 
   /** Delete a ref attachment. Returns false if it doesn't exist. */
-  deleteAttachmentForRef(ref: WorkItemRef, storedName: string): boolean {
-    const filePath = this.getAttachmentPathForRef(ref, storedName);
-    if (!filePath) return false;
-    try { fs.rmSync(filePath); return true; } catch { return false; }
-  }
+  deleteAttachmentForRef(ref: WorkItemRef, storedName: string): boolean { return this.threads.deleteAttachmentForRef(ref, storedName); }
 
   // --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
   //
