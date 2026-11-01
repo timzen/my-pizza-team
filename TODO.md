@@ -3,14 +3,6 @@
 Known code issues and deferred work. Each item names a symbol rather than a line
 number. Delete an item when it's done.
 
-## Bugs
-
-- **Deregistering a member orphans its in-flight WorkItem** (`Store.removeMember`):
-  `member_id` is set to NULL but the item stays `IN_PROGRESS`, and the reaper only walks
-  members, so it is never reaped to MORIBUND. A Pi teammate deregisters on shutdown even
-  mid-item. (`mpt agent` fails its item before deregistering, so it avoids this.) Fix:
-  move the member's in-flight items to MORIBUND in `removeMember`.
-
 ## Code health
 
 - **Helper copies outside `shared/`:** `ui/src/lib/structural.ts` and

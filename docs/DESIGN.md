@@ -1158,7 +1158,8 @@ it does **not** declare failure or hand the work to someone else — it moves th
 agent's `IN_PROGRESS` items to `MORIBUND` and keeps the lease. The agent
 reconnecting restores them; a human who's sure it's gone force-fails them
 (optionally re-enqueuing). A daemon restart does the same to anything left
-`IN_PROGRESS`, since a fresh daemon holds no live connections.
+`IN_PROGRESS`, since a fresh daemon holds no live connections, and so does an
+agent deregistering (or being dismissed) mid-item.
 
 *Why:* a heartbeat can false-positive (a hung-but-alive agent mid-commit).
 Auto-re-enqueuing on a guess risks two agents doing the same work; MORIBUND makes

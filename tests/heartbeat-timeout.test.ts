@@ -5,6 +5,9 @@
  * - Marked offline
  * - Have their claimed tasks released
  * - Logged as warnings
+ *
+ * Also that deregistering (`removeMember`) moves a member's in-flight items to
+ * MORIBUND the same way, since the reaper never sees a member once it's gone.
  */
 
 import * as fs from "node:fs";
@@ -147,5 +150,62 @@ test("reapOfflineAgents uses default timeout when not configured", () => {
 
     const reaped2 = store.reapOfflineAgents();
     assertEquals(reaped2, ["a1"]);
+  } finally { cleanup(teamDir, store); }
+});
+
+test("removeMember moves a deregistered member's in-flight WorkItem to MORIBUND", () => {
+  const teamDir = createTempTeamDir();
+  const store = new Store(teamDir, TEST_CONFIG);
+  try {
+    store.registerMember("a1", "neo", "/tmp");
+    store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
+    const item = store.getNextWorkItem({ id: "a1" })!;
+    store.claimWorkItem(item.id, "a1");
+
+    // A Pi teammate deregistering on shutdown mid-item.
+    store.removeMember("a1");
+    assertEquals(store.getMember("a1"), null);
+    const after = store.getWorkItem(item.id)!;
+    assertEquals(after.state, "MORIBUND");
+    // Not terminal: no retry enqueued, and a human can still force-fail it.
+    assertEquals(store.getWorkItems({ workDefId: "s1-1" }).total, 1);
+    assertEquals(store.forceFailWorkItem(item.id).ok, true);
+    assertEquals(store.getWorkItem(item.id)!.state, "FAILED");
+  } finally { cleanup(teamDir, store); }
+});
+
+test("removeMember of an idle member leaves WorkItems unchanged", () => {
+  const teamDir = createTempTeamDir();
+  const store = new Store(teamDir, TEST_CONFIG);
+  try {
+    store.registerMember("a1", "neo", "/tmp");
+    store.registerMember("a2", "trinity", "/tmp");
+    store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
+    const item = store.getNextWorkItem({ id: "a2" })!;
+    store.claimWorkItem(item.id, "a2");
+
+    store.removeMember("a1");
+    const after = store.getWorkItem(item.id)!;
+    assertEquals(after.state, "IN_PROGRESS");
+    assertEquals(after.memberId, "a2");
+  } finally { cleanup(teamDir, store); }
+});
+
+test("removeMember after failing the item (mpt agent's stop) leaves it FAILED", () => {
+  const teamDir = createTempTeamDir();
+  const store = new Store(teamDir, TEST_CONFIG);
+  try {
+    store.registerMember("a1", "neo", "/tmp");
+    store.createStory("s1", "Story", "Desc", "open", [], [{ title: "T1", description: "D1" }]);
+    const item = store.getNextWorkItem({ id: "a1" })!;
+    store.claimWorkItem(item.id, "a1");
+
+    // AgentSupervisor.stop: fail the item in hand, then deregister.
+    assertEquals(store.setWorkItemState(item.id, "FAILED").ok, true);
+    const states = () => store.getWorkItems({ workDefId: "s1-1" }).items.map((wi) => [wi.id, wi.state, wi.lastStateChangeAt]);
+    const before = states();
+    store.removeMember("a1");
+    assertEquals(store.getWorkItem(item.id)!.state, "FAILED");
+    assertEquals(states(), before);
   } finally { cleanup(teamDir, store); }
 });

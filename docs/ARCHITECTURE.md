@@ -434,6 +434,10 @@ agent the daemon no longer knows gets `reregister` (a restart forgot it); one th
 was explicitly dismissed (`DELETE /api/agents/:id?dismiss=true`) gets `dismissed`
 and shuts down. A plain `DELETE` is a clean self-deregister and leaves no
 tombstone. This keeps restarts and upgrades from silently killing teammates.
+Removing a member (either `DELETE`) moves its `IN_PROGRESS` items to `MORIBUND`
+first — the reaper's transition, since the reaper only walks members — and clears
+their `member_id`; a human force-fails them from the Queue page. A Pi teammate
+deregisters on shutdown even mid-item; `mpt agent` fails its item first.
 
 **Dismissing closes the window.** Spawn types `cd … && <harness>` into the
 window's shell, so a harness that exits leaves a shell prompt behind. A dismiss

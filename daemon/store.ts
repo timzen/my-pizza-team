@@ -1975,7 +1975,14 @@ export class Store {
     return this.rowToMember(row);
   }
 
+  /**
+   * Remove a member (a self-deregister, or via `dismissMember`). Its in-flight
+   * WorkItems go to MORIBUND first — the reaper's transition (`markInFlightMoribund`)
+   * — since the reaper only walks members and would never see them once the
+   * member is gone (docs/DESIGN.md "Reaping"). A human then force-fails them.
+   */
   removeMember(id: string): void {
+    this.markInFlightMoribund(id);
     this.db.prepare("DELETE FROM assignments WHERE member_id = ?").run(id);
     this.db.prepare("UPDATE work_items SET member_id = NULL WHERE member_id = ?").run(id);
     this.db.prepare("DELETE FROM members WHERE id = ?").run(id);
@@ -2068,14 +2075,11 @@ export class Store {
       // don't declare failure or hand its work to someone else — see
       // docs/DESIGN.md "Reaping"). The lease is kept; a human force-fails
       // it, or the agent reconnects and its item is restored to IN_PROGRESS.
-      const inflight = this.db.prepare(
-        "SELECT id FROM work_items WHERE member_id = ? AND state = 'IN_PROGRESS'"
-      ).all(id) as Array<Record<string, unknown>>;
-      for (const wi of inflight) this.setWorkItemStateRow(wi.id as string, "MORIBUND");
-      if (inflight.length > 0) {
+      const moved = this.markInFlightMoribund(id);
+      if (moved > 0) {
         console.warn(
           `⚠️  Agent "${name}" (${id}) timed out (no heartbeat for ${agoSec}s). ` +
-          `${inflight.length} work item(s) marked MORIBUND.`
+          `${moved} work item(s) marked MORIBUND.`
         );
       } else {
         console.warn(
@@ -2089,6 +2093,19 @@ export class Store {
     }
 
     return reaped;
+  }
+
+  /**
+   * Move a member's IN_PROGRESS WorkItems to MORIBUND (the lease is kept; not
+   * terminal, so no `onItemTerminal` and no retry). Shared by the reaper and
+   * `removeMember`. Returns how many items moved.
+   */
+  private markInFlightMoribund(memberId: string): number {
+    const inflight = this.db.prepare(
+      "SELECT id FROM work_items WHERE member_id = ? AND state = 'IN_PROGRESS'"
+    ).all(memberId) as Array<Record<string, unknown>>;
+    for (const wi of inflight) this.setWorkItemStateRow(wi.id as string, "MORIBUND");
+    return inflight.length;
   }
 
   // --- Autosave timers ---
