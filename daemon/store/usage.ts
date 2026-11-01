@@ -58,53 +58,6 @@ export interface UsageEntry {
 }
 
 /**
- * Bring an older `token_usage` table up to date:
- *
- * 1. **Drop the foreign key.** Early databases declared `task_id REFERENCES
- *    tasks(id)`; the schema has since removed it (usage is recorded on WorkDef
- *    refs, and standalone WorkDefs, archived tasks, and chat runs have no
- *    `tasks` row), but `CREATE TABLE IF NOT EXISTS` never touched existing
- *    tables — so on those DBs every such insert failed the constraint.
- *    SQLite can't drop a constraint in place, so the table is rebuilt, keeping
- *    its rows.
- * 2. Add the columns the ledger grew (cache tokens, kind, member, title).
- */
-export function migrateUsageColumns(db: DatabaseSync): void {
-  const fks = db.prepare("PRAGMA foreign_key_list(token_usage)").all() as unknown[];
-  if (fks.length > 0) {
-    db.exec("BEGIN");
-    try {
-      db.exec(`CREATE TABLE token_usage_rebuilt (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        task_id TEXT,
-        input_tokens INTEGER,
-        output_tokens INTEGER,
-        model TEXT,
-        cost_usd REAL,
-        recorded_at INTEGER
-      )`);
-      db.exec(`INSERT INTO token_usage_rebuilt (id, task_id, input_tokens, output_tokens, model, cost_usd, recorded_at)
-               SELECT id, task_id, input_tokens, output_tokens, model, cost_usd, recorded_at FROM token_usage`);
-      db.exec("DROP TABLE token_usage");
-      db.exec("ALTER TABLE token_usage_rebuilt RENAME TO token_usage");
-      db.exec("COMMIT");
-    } catch (err) {
-      db.exec("ROLLBACK");
-      throw err;
-    }
-  }
-  const cols = new Set((db.prepare("PRAGMA table_info(token_usage)").all() as Array<{ name: string }>).map((c) => c.name));
-  const add = (name: string, type: string) => { if (!cols.has(name)) db.exec(`ALTER TABLE token_usage ADD COLUMN ${name} ${type}`); };
-  add("cache_read_tokens", "INTEGER DEFAULT 0");
-  add("cache_write_tokens", "INTEGER DEFAULT 0");
-  // Rows from before kinds existed were all teammate work-item runs.
-  add("kind", "TEXT DEFAULT 'work'");
-  add("member_id", "TEXT");
-  add("title", "TEXT");
-  db.exec("CREATE INDEX IF NOT EXISTS idx_token_usage_recorded_at ON token_usage(recorded_at)");
-}
-
-/**
  * Record one run: append it to the month's ledger file (the source of truth),
  * then mirror it into the SQLite cache. `teamDir` is optional only so the
  * cache can be rebuilt without re-appending.

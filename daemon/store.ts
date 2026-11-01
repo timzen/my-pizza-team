@@ -114,7 +114,8 @@ import { commitTeamDir } from "./store/git-sync.ts";
 import { TeammateTranscripts } from "./store/transcripts.ts";
 import { TeammatePairing } from "./store/pairing.ts";
 import { migrateLegacyStoryFiles } from "./store/story-migration.ts";
-import { migrateUsageColumns, recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
+import { migrateSchema, cleanRetiredData } from "./store/schema.ts";
+import { recordUsage, dailyUsage, runsOnDay, syncUsageLedger, type UsageEntry, type UsageDay, type UsageRun } from "./store/usage.ts";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
@@ -426,7 +427,9 @@ export class Store {
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
-    this.initSchema();
+    // Numbered migrations against PRAGMA user_version (store/schema.ts).
+    migrateSchema(this.db);
+    cleanRetiredData(this.db);
     // Before workflows load: legacy state files, triage.md, and the context
     // library become personas (docs/DESIGN.md "Migration"). A no-op once done.
     migrateToPersonas({
@@ -839,305 +842,6 @@ export class Store {
     fs.rmSync(wfDir, { recursive: true });
     delete this.workflows[name];
     return true;
-  }
-
-  private initSchema(): void {
-    this.db.exec(`
-      CREATE TABLE IF NOT EXISTS stories (
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        description TEXT,
-        status TEXT DEFAULT 'open',
-        depends_on TEXT DEFAULT '[]',
-        pending INTEGER DEFAULT 0,
-        workflow TEXT,
-        task_order TEXT DEFAULT '[]',
-        directory TEXT,
-        dir_path TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS tasks (
-        id TEXT PRIMARY KEY,
-        story_id TEXT REFERENCES stories(id),
-        seq INTEGER,
-        slug TEXT,
-        title TEXT,
-        description TEXT,
-        status TEXT DEFAULT 'todo',
-        result TEXT,
-        dir_path TEXT
-      );
-
-      CREATE TABLE IF NOT EXISTS assignments (
-        task_id TEXT PRIMARY KEY REFERENCES tasks(id),
-        member_id TEXT,
-        claimed_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS members (
-        id TEXT PRIMARY KEY,
-        name TEXT,
-        metadata TEXT DEFAULT '{}',   -- opaque harness-owned data (daemon never interprets it)
-        protocol_version INTEGER,     -- agent-protocol version the harness speaks (null = pre-handshake)
-        harness TEXT,                 -- which harness this agent runs under (e.g. 'pi')
-        harness_version TEXT,         -- the harness integration's build version (informational)
-        status TEXT DEFAULT 'idle',
-        last_heartbeat INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS token_usage (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        -- The WorkDef ref id (a board task id, or a standalone/Scheduled WorkDef
-        -- id). No FK to tasks(id): usage is recorded on the ref, and standalone
-        -- WorkDefs have no tasks row. See docs/DESIGN.md "WorkDefs & Parents".
-        task_id TEXT,
-        input_tokens INTEGER,
-        output_tokens INTEGER,
-        model TEXT,
-        cost_usd REAL,
-        recorded_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS assistant_messages (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT,
-        id TEXT UNIQUE,
-        session_id TEXT,         -- the chat session this belongs to
-        role TEXT,               -- 'user' | 'assistant' | 'system'
-        content TEXT,
-        origin TEXT,             -- 'web' | 'tui' | 'agent' | 'system'
-        delivery TEXT,           -- user rows: 'queued'|'delivered'|'read' (receipts)
-        state TEXT DEFAULT 'ok', -- assistant rows: 'ok'|'failed'
-        reply_to TEXT,           -- id of the message this one quotes
-        send_mode TEXT,          -- user rows: 'queue'|'steer' when the sender chose (terminal mode)
-        created_at INTEGER
-      );
-
-      -- A chat session: one continuous conversation, backed by one Pi session.
-      -- Ending a session snapshots it to assistant/sessions/<id>.md; nothing is
-      -- ever deleted, which is what makes resume possible. At most one session is
-      -- 'active'. See docs/DESIGN.md "Assistant Chat Model".
-      CREATE TABLE IF NOT EXISTS assistant_sessions (
-        id TEXT PRIMARY KEY,
-        persona_id TEXT,         -- persona id, NULL for the default assistant
-        persona_title TEXT,      -- denormalized so listings survive persona deletion
-        title TEXT,              -- derived from the first user message
-        pi_session_path TEXT,    -- backing Pi session file (reported by the extension)
-        status TEXT NOT NULL,    -- 'active' | 'ended'
-        snapshot_path TEXT,
-        started_at INTEGER NOT NULL,
-        ended_at INTEGER,
-        message_count INTEGER DEFAULT 0
-      );
-
-      -- One queue of asks from the daemon to the leader. Not keyed by host: there
-      -- is exactly one leader (docs/DESIGN.md "One Host, One Leader", P1c-1).
-      CREATE TABLE IF NOT EXISTS leader_directives (
-        id TEXT PRIMARY KEY,
-        action TEXT NOT NULL,      -- 'spawn' | 'reset-session' | ...
-        member_id TEXT,            -- target agent for actions on an existing member
-        params TEXT DEFAULT '{}',  -- action params (e.g. spawn name/cwd/storyId/reason)
-        status TEXT DEFAULT 'pending', -- 'pending' | 'done' | 'failed'
-        error TEXT,                -- why it failed, so a failure has somewhere visible to live
-        created_at INTEGER,
-        updated_at INTEGER
-      );
-
-      CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,       -- simple daemon-wide key/value settings
-        value TEXT
-      );
-
-      -- The WorkItem queue: the unit of agent execution. A dumb, terminal-only
-      -- attempt pointing at the WorkDef it runs. See docs/DESIGN.md "The WorkItem".
-      CREATE TABLE IF NOT EXISTS work_items (
-        id TEXT PRIMARY KEY,
-        title TEXT,
-        work_def_id TEXT,          -- the ref: the WorkDef this runs
-        directory TEXT,            -- affinity bias, copied from the ref at creation
-        state TEXT,                -- READY|IN_PROGRESS|MORIBUND|COMPLETE|FAILED|CANCELED
-        read INTEGER DEFAULT 0,
-        member_id TEXT,            -- who is/was working it
-        enqueued_at INTEGER,
-        last_state_change_at INTEGER,
-        attempt INTEGER DEFAULT 1, -- n-th try at this ref (retries after an errored session)
-        retry_at INTEGER,          -- a READY retry is held until this time (backoff)
-        error TEXT,                -- why this attempt's agent session errored
-        -- The persona this run was given, snapshotted at claim (never rewritten;
-        -- all NULL when it had none). docs/DESIGN.md "The in-flight persona".
-        persona_id TEXT,
-        persona_title TEXT,
-        persona_origin TEXT,       -- team | builtin | package:<name>
-        persona_via TEXT,          -- PersonaVia
-        persona_fallback_from TEXT -- the id that didn't resolve, when a built-in stood in
-      );
-    `);
-
-    // Migration: add columns if they don't exist (for existing databases)
-    // The token-usage ledger grew cache/kind/member/title columns (store/usage.ts).
-    migrateUsageColumns(this.db);
-
-    // Errored-session retries (docs/DESIGN.md "Errored Sessions Retry").
-    const workItemColumns = this.db.prepare("PRAGMA table_info(work_items)").all() as Array<Record<string, unknown>>;
-    if (!workItemColumns.some((col) => col.name === "attempt")) {
-      this.db.exec("ALTER TABLE work_items ADD COLUMN attempt INTEGER DEFAULT 1");
-    }
-    if (!workItemColumns.some((col) => col.name === "retry_at")) {
-      this.db.exec("ALTER TABLE work_items ADD COLUMN retry_at INTEGER");
-    }
-    if (!workItemColumns.some((col) => col.name === "error")) {
-      this.db.exec("ALTER TABLE work_items ADD COLUMN error TEXT");
-    }
-    // The in-flight persona snapshot (docs/DESIGN.md "The in-flight persona").
-    for (const col of ["persona_id", "persona_title", "persona_origin", "persona_via", "persona_fallback_from"]) {
-      if (!workItemColumns.some((c) => c.name === col)) this.db.exec(`ALTER TABLE work_items ADD COLUMN ${col} TEXT`);
-    }
-
-    const storyColumns = this.db.prepare("PRAGMA table_info(stories)").all() as Array<Record<string, unknown>>;
-    if (!storyColumns.some((col) => col.name === "workflow")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN workflow TEXT");
-    }
-    // Pending stories (docs/DESIGN.md "Pending: Write, Review, Activate"); the
-    // `paused` column it replaced is dropped in dropRetiredColumns.
-    if (!storyColumns.some((col) => col.name === "pending")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN pending INTEGER DEFAULT 0");
-    }
-    if (!storyColumns.some((col) => col.name === "task_order")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN task_order TEXT DEFAULT '[]'");
-    }
-    // Work-model: the story's working directory is plain data (see docs/DESIGN.md "The Work Model").
-    if (!storyColumns.some((col) => col.name === "directory")) {
-      this.db.exec("ALTER TABLE stories ADD COLUMN directory TEXT");
-    }
-
-    // Assistant chat: sessions + real delivery receipts. These columns are added
-    // for databases created before them; the v1 turn model they replaced is gone
-    // entirely (P1c-5 — no deployment ever carried v1 data).
-    const asstColumns = this.db.prepare("PRAGMA table_info(assistant_messages)").all() as Array<Record<string, unknown>>;
-    const hasAsstColumn = (name: string) => asstColumns.some((col) => col.name === name);
-    if (!hasAsstColumn("session_id")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN session_id TEXT");
-    if (!hasAsstColumn("origin")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN origin TEXT");
-    if (!hasAsstColumn("delivery")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN delivery TEXT");
-    if (!hasAsstColumn("state")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN state TEXT DEFAULT 'ok'");
-    if (!hasAsstColumn("reply_to")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN reply_to TEXT");
-    if (!hasAsstColumn("send_mode")) this.db.exec("ALTER TABLE assistant_messages ADD COLUMN send_mode TEXT");
-    // Vestiges of the v1 turn model, dropped rather than carried.
-    this.db.exec("DROP TABLE IF EXISTS assistant_turns");
-    if (hasAsstColumn("turn_id")) this.db.exec("ALTER TABLE assistant_messages DROP COLUMN turn_id");
-    if (hasAsstColumn("status")) this.db.exec("ALTER TABLE assistant_messages DROP COLUMN status");
-
-    const taskColumns = this.db.prepare("PRAGMA table_info(tasks)").all() as Array<Record<string, unknown>>;
-    if (!taskColumns.some((col) => col.name === "context")) {
-      this.db.exec("ALTER TABLE tasks ADD COLUMN context TEXT DEFAULT '[]'");
-    }
-    // WorkDef unification: board tasks are WorkDefs — cache their authored
-    // acceptance criteria / additional context (see docs/DESIGN.md "WorkDefs & Parents").
-    if (!taskColumns.some((col) => col.name === "acceptance_criteria")) {
-      this.db.exec("ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT");
-    }
-    if (!taskColumns.some((col) => col.name === "additional_context")) {
-      this.db.exec("ALTER TABLE tasks ADD COLUMN additional_context TEXT");
-    }
-
-    const memberColumns = this.db.prepare("PRAGMA table_info(members)").all() as Array<Record<string, unknown>>;
-    if (!memberColumns.some((col) => col.name === "metadata")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN metadata TEXT DEFAULT '{}'");
-    }
-    // Directory-affinity matching: the agent's working directory (docs/DESIGN.md "Work Matching: Directory Affinity").
-    if (!memberColumns.some((col) => col.name === "directory")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN directory TEXT");
-    }
-    // Version handshake (docs/DESIGN.md "One Protocol, One Version"). Null protocol_version means a
-    // pre-handshake harness, which is reported rather than refused.
-    if (!memberColumns.some((col) => col.name === "protocol_version")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN protocol_version INTEGER");
-    }
-    if (!memberColumns.some((col) => col.name === "harness")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN harness TEXT");
-    }
-    if (!memberColumns.some((col) => col.name === "harness_version")) {
-      this.db.exec("ALTER TABLE members ADD COLUMN harness_version TEXT");
-    }
-    // Host routing removed (P1c-2): one machine, so there is nothing to route.
-    if (memberColumns.some((col) => col.name === "host_id")) {
-      this.db.exec("ALTER TABLE members DROP COLUMN host_id");
-    }
-
-    // One leader, so the directive queue is no longer keyed by host (P1c-1). The
-    // column was NOT NULL, so it has to go rather than simply being ignored.
-    const directiveColumns = this.db.prepare("PRAGMA table_info(leader_directives)").all() as Array<Record<string, unknown>>;
-    if (directiveColumns.some((col) => col.name === "host_id")) {
-      this.db.exec("ALTER TABLE leader_directives DROP COLUMN host_id");
-    }
-    // The daemon realizes spawns itself now (P3-1), so a failure needs a home that a
-    // human sees rather than a log line nobody reads.
-    if (!directiveColumns.some((col) => col.name === "error")) {
-      this.db.exec("ALTER TABLE leader_directives ADD COLUMN error TEXT");
-    }
-
-    this.dropRetiredColumns();
-    this.dropRetiredTables();
-    this.cancelRetiredDirectives();
-    // After the column migrations, so `work_def_id` is guaranteed to exist. Serves
-    // the per-WorkDef execution-count aggregate (getExecutionStats) and the
-    // active-item lookup.
-    this.db.exec("CREATE INDEX IF NOT EXISTS idx_work_items_work_def ON work_items(work_def_id)");
-  }
-
-  /**
-   * Cancel pending spawns for the retired assistant role. The leader is the chat
-   * agent now, but a database from before that can still hold a pending
-   * `spawn` with `reason: "assistant"`. Left alone it would be realized as a
-   * teammate, listed as a pending spawn, and counted toward the team size — so it is
-   * cancelled once, here, instead of every reader having to skip it.
-   */
-  private cancelRetiredDirectives(): void {
-    this.db.prepare(
-      `UPDATE leader_directives SET status = 'cancelled', updated_at = ?
-       WHERE action = 'spawn' AND status = 'pending' AND json_extract(params, '$.reason') = 'assistant'`,
-    ).run(Date.now());
-  }
-
-  /**
-   * Drop columns from models the daemon no longer has, from databases created
-   * before they went: capability matching (`requirements`, `capabilities`), work
-   * modes (`work_mode`, `assigned_story_id`), task substatus and read tracking
-   * (`substatus`, `last_read_at`), story `categories` (replaced by context), story
-   * `paused` (replaced by `pending`; the cache is rebuilt from files), story and
-   * task `context` (the context library, removed for personas), task `dirty`
-   * (it flagged rows for a `task.json` mirror nothing read), and the
-   * old task|workdef WorkItem ref (`ref_kind`, `story_id`, `task_id`). Nothing reads
-   * or writes them, but a column that still exists invites someone to.
-   *
-   * WorkItems are the one table not rebuilt from files (they are the Inbox's
-   * history), so an item from before the ref collapsed may name its WorkDef only in
-   * `task_id`; that is copied into `work_def_id` before the column goes.
-   */
-  private dropRetiredColumns(): void {
-    const has = (table: string, col: string) =>
-      (this.db.prepare(`PRAGMA table_info(${table})`).all() as Array<Record<string, unknown>>).some((c) => c.name === col);
-    if (has("work_items", "task_id")) {
-      this.db.exec("UPDATE work_items SET work_def_id = task_id WHERE work_def_id IS NULL AND task_id IS NOT NULL");
-    }
-    const retired: Array<[string, string]> = [
-      ["stories", "requirements"], ["stories", "categories"], ["stories", "paused"], ["stories", "context"],
-      ["tasks", "substatus"], ["tasks", "last_read_at"], ["tasks", "context"], ["tasks", "dirty"],
-      ["members", "capabilities"], ["members", "work_mode"], ["members", "assigned_story_id"],
-      ["work_items", "ref_kind"], ["work_items", "story_id"], ["work_items", "task_id"],
-    ];
-    for (const [table, col] of retired) {
-      if (has(table, col)) this.db.exec(`ALTER TABLE ${table} DROP COLUMN ${col}`);
-    }
-  }
-
-  /**
-   * Drop tables the daemon no longer has, from databases created before they
-   * went: `comments` / `comments_loaded`, a write-only SQLite copy of each task's
-   * thread. Comments live only in the ref's `comments.jsonl` (getCommentsForRef);
-   * nothing ever read the copy.
-   */
-  private dropRetiredTables(): void {
-    this.db.exec("DROP TABLE IF EXISTS comments_loaded");
-    this.db.exec("DROP TABLE IF EXISTS comments");
   }
 
   // --- Load from filesystem ---
@@ -3586,7 +3290,7 @@ export class Store {
   /** Pending `spawn` directives for pool teammates. */
   private countPendingTeammateSpawns(): number {
     // Every pending spawn is a teammate: retired assistant spawns are cancelled at
-    // boot (cancelRetiredDirectives).
+    // boot (store/schema.ts cleanRetiredData).
     const row = this.db.prepare("SELECT COUNT(*) AS n FROM leader_directives WHERE action = 'spawn' AND status = 'pending'").get() as { n: number };
     return row.n;
   }

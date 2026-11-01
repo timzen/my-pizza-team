@@ -203,12 +203,14 @@ test("migration: an old token_usage with a FK to tasks is rebuilt (rows kept, FK
   try {
     fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
     // A current schema, then swap in the early token_usage (FK to tasks) with
-    // one row, and no ledger files — as an old team dir has it.
+    // one row, and no ledger files — as an old team dir has it (from before
+    // schema versioning, so user_version 0).
     new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 }).close();
     fs.rmSync(path.join(teamDir, "usage"), { recursive: true, force: true });
     const { DatabaseSync } = await import("node:sqlite");
     const db = new DatabaseSync(path.join(teamDir, "state.db"));
-    db.exec(`DROP TABLE token_usage;
+    db.exec(`PRAGMA user_version = 0;
+      DROP TABLE token_usage;
       CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id),
         input_tokens INTEGER, output_tokens INTEGER, model TEXT, cost_usd REAL, recorded_at INTEGER);
       PRAGMA foreign_keys = OFF;
