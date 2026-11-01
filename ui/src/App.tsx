@@ -20,22 +20,19 @@
  *
  * Sources, Workflows and Personas are tabs of the Config page
  * (`/config/sources[/:sourceId]`, `/config/workflows[/:name]`,
- * `/config/personas[/:id]`). Workflows' old top-level URLs, and the removed
- * context library's (`/context`, `/config/context`, now Personas), redirect
- * there with `replace` (lib/config-tabs.ts `legacyConfigPath`).
+ * `/config/personas[/:id]`).
  *
  * Board, Tasks, and Schedule are sub-tabs of **Work** (`/work/board
  * |tasks|schedule|pending|archived`, lib/work-items.ts); `/work` lands on
  * the first enabled tab. Each registered external Work Source adds a read-only
- * tab at `/work/source/:sourceId` (pages/ExternalSourcePage). Their old top-level URLs (`/board`, `/tasks`,
- * `/schedule`, `/pending`, `/backlog`, `/archived`) redirect there with
- * `replace`. Templates are hidden from the UI (being deprecated — the daemon's
- * template API and data are untouched); `/templates[/:id]` redirects to Tasks.
+ * tab at `/work/source/:sourceId` (pages/ExternalSourcePage). Templates are
+ * hidden from the UI (being deprecated — the daemon's template API and data are
+ * untouched). The pre-Work and pre-Config URLs (`/board`, `/tasks`, `/workflows`,
+ * `/context`, …) no longer redirect; their shims were removed.
  */
 
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
-import { legacyConfigPath } from "./lib/config-tabs";
-import { defaultWorkItemsPath, legacyWorkItemsPath } from "./lib/work-items";
+import { defaultWorkItemsPath } from "./lib/work-items";
 import { useExternalSources, useFeatures } from "./hooks/useFeatures";
 import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
@@ -116,16 +113,6 @@ function DesktopShell() {
             <Route path="/work/archived" element={<LifecyclePage key="archived" state="archived" />} />
             {/* One generic, read-only tab per external (pull-only) Work Source (docs/DESIGN.md "Work Sources"). */}
             <Route path="/work/source/:sourceId" element={<ExternalSourcePage />} />
-            {/* The pre-Work-Items URLs (and the hidden Templates) keep working. */}
-            <Route path="/work-items/*" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/board" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/tasks" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/schedule" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/pending" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/backlog" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/archived" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/templates" element={<LegacyWorkItemsRedirect />} />
-            <Route path="/templates/:id" element={<LegacyWorkItemsRedirect />} />
             <Route path="/work-defs/new" element={<WorkDefFormRoute><NewWorkDefPage /></WorkDefFormRoute>} />
             <Route path="/work-defs/:id" element={<WorkDefDetailPage />} />
             <Route path="/task/:storyId/:taskId" element={<FeatureRoute feature="stories"><TaskDetailPage /></FeatureRoute>} />
@@ -140,11 +127,6 @@ function DesktopShell() {
             <Route path="/config/sources/:sourceId" element={<ConfigPage />} />
             {/* A persona, inside Config's Personas tab. A splat: package ids contain "/". */}
             <Route path="/config/personas/*" element={<ConfigPage />} />
-            {/* Workflows moved under Config, and the context library became Personas; keep the old URLs working. */}
-            <Route path="/context" element={<LegacyConfigRedirect />} />
-            <Route path="/config/context" element={<LegacyConfigRedirect />} />
-            <Route path="/workflows" element={<LegacyConfigRedirect />} />
-            <Route path="/workflows/:name" element={<LegacyConfigRedirect />} />
             <Route path="/help" element={<HelpPage />} />
             {/* A teammate's live view, opened from the sidebar (docs/DESIGN.md "Watching and Pairing with a Teammate"). */}
             <Route path="/teammates/:id" element={<TeammatePage />} />
@@ -155,25 +137,6 @@ function DesktopShell() {
     </div>
     </SideDockProvider>
   );
-}
-
-/**
- * `/context`, `/config/context`, `/workflows`, `/workflows/:name` → their Config tab, keeping any
- * query string. `replace`, so Back doesn't bounce into the redirect.
- */
-function LegacyConfigRedirect() {
-  const { pathname, search } = useLocation();
-  return <Navigate to={(legacyConfigPath(pathname) ?? "/config") + search} replace />;
-}
-
-/**
- * `/board`, `/tasks`, `/schedule`, `/pending`, `/backlog`, `/archived`,
- * `/templates[/:id]` → their Work sub-tab, keeping any query string.
- * `replace`, so Back doesn't bounce into the redirect.
- */
-function LegacyWorkItemsRedirect() {
-  const { pathname, search } = useLocation();
-  return <Navigate to={(legacyWorkItemsPath(pathname) ?? "/work") + search} replace />;
 }
 
 /**

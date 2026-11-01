@@ -28,8 +28,8 @@ test("navSectionForPath: list pages map to their own section only", () => {
   assertEquals(navSectionForPath("/thoughts/t1/triage"), "thoughts");
 });
 
-test("navSectionForPath: story/task detail pages and legacy list routes light Work", () => {
-  for (const p of ["/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1", "/board", "/tasks", "/schedule", "/pending", "/backlog", "/archived", "/templates", "/templates/atlas"]) {
+test("navSectionForPath: story/task detail pages light Work", () => {
+  for (const p of ["/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
     assertEquals(navSectionForPath(p), "work-items", p);
   }
 });
@@ -51,7 +51,9 @@ test("navSectionForPath: /work-defs/new follows ?type (default Solitary)", () =>
 });
 
 test("navSectionForPath: non-section routes light nothing", () => {
-  for (const p of ["/", "/queue", "/help", "/config", "/config/theme", "/config/workflows", "/config/workflows/coding", "/config/context", "/usage", "/teammates/a1"]) {
+  for (const p of ["/", "/queue", "/help", "/config", "/config/theme", "/config/workflows", "/config/workflows/coding", "/config/context", "/usage", "/teammates/a1",
+    // The removed pre-Work URLs (their redirects are gone) — and `/tasks` isn't claimed by `/task`.
+    "/board", "/tasks", "/schedule", "/pending", "/backlog", "/archived", "/templates", "/work-items/board"]) {
     assertEquals(navSectionForPath(p), null, p);
   }
 });

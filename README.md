@@ -734,7 +734,7 @@ The current protocol version is `PROTOCOL_VERSION` in `shared/agent-protocol.ts`
 | Teammate pairing | `POST /api/agents/:id/pair\|messages\|release`, `GET .../pairing[/state]` | Talk to a paused teammate from the browser |
 | Usage | `POST /api/agents/:id/usage`, `GET /api/usage/daily\|day` | Token and cost ledger; dashboard rollups |
 | Assistant | `/api/assistant/*` | The chat: messages, SSE stream, receipts, thoughts peek, sessions, persona |
-| Personas | `/api/personas[/:id[/usage\|/duplicate]]` | The persona library (team, built-in, package); `/api/context*` answers 410 |
+| Personas | `/api/personas[/:id[/usage\|/duplicate]]` | The persona library (team, built-in, package) |
 | Thoughts | `/api/thoughts/*`, `/api/thought-groups/*` | Markdown sticky-note board |
 | Workflows | `GET /api/workflows[/:name]`, `PUT .../states/:state` | Workflows; select a state's persona |
 

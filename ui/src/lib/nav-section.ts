@@ -14,9 +14,7 @@
  *
  * Board, Tasks, and Schedule used to be three nav sections; they are now
  * sub-tabs of the one **Work** section (lib/work-items.ts), which also
- * claims story/task/WorkDef detail pages. The old top-level list URLs redirect
- * into `/work/*` but are still mapped here, so the redirect's first
- * render lights the right item.
+ * claims story/task/WorkDef detail pages.
  */
 
 import { workItemsPath } from "./work-items.ts";
@@ -29,25 +27,15 @@ export type WorkDefKind = "Solitary" | "Scheduled" | "Board" | "Triage" | "Templ
 
 /**
  * First path segment → section. Segment (not prefix) matching keeps unrelated
- * routes that merely share a prefix out. Workflows and Context live under
+ * routes that merely share a prefix out. Workflows and Personas live under
  * `/config` (lit by the gear, not a section).
  */
 const SEGMENT_SECTIONS: Record<string, NavSection> = {
   thoughts: "thoughts",
   work: "work-items",
-  // The surface's old root (`/work-items/*` redirects to `/work/*`).
-  "work-items": "work-items",
   story: "work-items",
   stories: "work-items",
   task: "work-items",
-  // Legacy list routes (redirect into /work/*).
-  board: "work-items",
-  tasks: "work-items",
-  schedule: "work-items",
-  pending: "work-items",
-  backlog: "work-items",
-  archived: "work-items",
-  templates: "work-items",
 };
 
 /** The section a WorkDef of this type belongs to (standalone and board work → Work, triage → Thoughts). */

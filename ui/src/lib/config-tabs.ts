@@ -7,9 +7,7 @@
  * Sources (Work Source plugins: on/off, settings form, Preview — list +
  * `/config/sources/:id`), Workflows (list + `/config/workflows/:name` detail), Personas
  * (the persona library — list + `/config/personas/:id`), Triage (auto-triage
- * settings + the triage persona), and Theme. Workflows used to be its own page
- * (`/workflows`); the context library (`/context`, later `/config/context`) was
- * replaced by personas. Those URLs now redirect here (`legacyConfigPath`).
+ * settings + the triage persona), and Theme.
  *
  * Kept pure (no React) so the rules are unit-tested (tests/config-tabs.test.ts).
  */
@@ -71,23 +69,4 @@ export function tabSavesConfig(tab: ConfigTab): boolean {
 /** The detail route for a workflow (the Workflows tab's drill-down). */
 export function workflowPath(name: string): string {
   return `/config/workflows/${encodeURIComponent(name)}`;
-}
-
-/**
- * Where a retired URL now lives: `/workflows` → `/config/workflows`,
- * `/workflows/:name` → `/config/workflows/:name`, and the removed context
- * library's `/context` and `/config/context` → `/config/personas` (personas
- * replaced it; docs/DESIGN.md "Personas"). Null for any other path. App.tsx redirects these with `replace`, so old bookmarks
- * and links keep working without leaving a dead history entry.
- */
-export function legacyConfigPath(pathname: string): string | null {
-  const segments = pathname.split("/").filter(Boolean);
-  if (segments[0] === "context" && segments.length === 1) return "/config/personas";
-  if (segments[0] === "config" && segments[1] === "context" && segments.length === 2) return "/config/personas";
-  if (segments[0] === "workflows") {
-    if (segments.length === 1) return "/config/workflows";
-    // Segments come from the URL already encoded; keep them as they are.
-    if (segments.length === 2) return `/config/workflows/${segments[1]}`;
-  }
-  return null;
 }

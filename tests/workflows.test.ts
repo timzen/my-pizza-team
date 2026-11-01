@@ -3,7 +3,7 @@
  *
  * Verifies GET /api/workflows, GET /api/workflows/:name, the state persona
  * selection (PUT /api/workflows/:name/states/:state), and that the old
- * instruction-file routes answer 410.
+ * instruction-file routes are gone (404).
  */
 
 import * as fs from "node:fs";
@@ -68,13 +68,12 @@ test("GET /api/workflows/:name returns 404 for unknown workflow", async () => {
   assertEquals(res.status, 404);
 });
 
-test("the workflow instruction-file routes are gone (410), naming the replacement", async () => {
+test("the workflow instruction-file routes are gone (404)", async () => {
   for (const method of ["GET", "PUT"]) {
     const res = await app.request("/api/workflows/default/instructions/in_progress", {
       method, headers: { "Content-Type": "application/json" }, body: method === "PUT" ? JSON.stringify({ content: "x" }) : undefined,
     });
-    assertEquals(res.status, 410);
-    assertEquals((await res.json()).error.includes("/api/workflows/:name/states/:state"), true);
+    assertEquals(res.status, 404);
   }
   assertEquals(fs.existsSync(path.join(testDir, "workflows", "default", "in_progress.md")), false);
 });

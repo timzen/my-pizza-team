@@ -1,15 +1,13 @@
 /**
  * tests/config-tabs.test.ts — The Config page's tabs (ui/src/lib/config-tabs.ts):
  * route → tab mapping (incl. a workflow's detail keeping Workflows lit), which
- * tabs show for the feature toggles, which show the global Save button, and the
- * redirects from the old `/workflows` page and the removed context library
- * (`/context`, `/config/context` → Personas).
+ * tabs show for the feature toggles, and which show the global Save button.
  */
 
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 import {
-  CONFIG_TABS, configTabFromPath, legacyConfigPath, tabSavesConfig, visibleConfigTabs, workflowPath,
+  CONFIG_TABS, configTabFromPath, tabSavesConfig, visibleConfigTabs, workflowPath,
 } from "../ui/src/lib/config-tabs.ts";
 
 test("CONFIG_TABS: order and deep-linkable routes", () => {
@@ -48,14 +46,3 @@ test("workflowPath: encodes the name", () => {
   assertEquals(workflowPath("a b"), "/config/workflows/a%20b");
 });
 
-test("legacyConfigPath: old Workflows URLs and the removed context library's, nothing else", () => {
-  assertEquals(legacyConfigPath("/context"), "/config/personas");
-  assertEquals(legacyConfigPath("/context/"), "/config/personas");
-  assertEquals(legacyConfigPath("/config/context"), "/config/personas");
-  assertEquals(legacyConfigPath("/workflows"), "/config/workflows");
-  assertEquals(legacyConfigPath("/workflows/coding"), "/config/workflows/coding");
-  assertEquals(legacyConfigPath("/workflows/a%20b"), "/config/workflows/a%20b");
-  for (const p of ["/", "/config", "/config/personas", "/config/context/x", "/board", "/workflows/a/b", "/context/x"]) {
-    assertEquals(legacyConfigPath(p), null, p);
-  }
-});

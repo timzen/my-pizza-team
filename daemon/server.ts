@@ -21,8 +21,7 @@
  *   - sources: every Work Source's settings — list, preview, save + re-init
  *   - triage: proposals on any triage subject by WorkDef id (a triage-mode
  *     external item's accept/reject), and the handling the note routes share
- *   - personas: the persona library, state persona selection, and 410s for the
- *     removed context-library / instruction-file routes
+ *   - personas: the persona library and state persona selection
  *   - transcripts: live teammate transcripts (watch view SSE + agent mirror)
  *   - pairing: pair with / message / release a teammate from the web UI
  *   - usage: token-usage reports for any run + the Usage dashboard's rollups

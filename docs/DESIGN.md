@@ -1620,18 +1620,19 @@ or instead of them:
 `:id` routes match the encoded id (`/api/personas/:id{.+}`), since package ids
 contain `/`.
 
-**Removed outright, answering 410 Gone** with the replacement named:
-`/api/context*` ("the context library was removed; use personas, or put project
-knowledge in the project's AGENTS.md"), `GET`/`PUT
-/api/workflows/:name/instructions/:state` ("use /api/personas and
-/api/workflows/:name/states/:state"), `GET`/`PUT /api/triage/instructions` ("use
-config triage.persona"). *Why no shim:* the only clients are this repo's UI and
-harness, which change in the same story; a shim that writes a persona when an
+**Removed outright:** `/api/context*`, `GET`/`PUT
+/api/workflows/:name/instructions/:state` and `GET`/`PUT
+/api/triage/instructions`. *Why no shim:* the only clients are this repo's UI and
+harness, which changed in the same story; a shim that writes a persona when an
 old client PUTs instructions would have to invent ids and could overwrite a
-shared persona. A 410 that names the fix is what "Fail loudly" asks for. The 410
-stubs are a few lines and are deleted after a release (TODO.md).
+shared persona. For one release they answered 410 Gone naming the replacement
+(what "Fail loudly" asks for); those stubs have since been deleted, so the paths
+now 404 like any unknown route. The UI's redirects from pre-Work and pre-Config
+URLs (`/board`, `/tasks`, `/schedule`, `/pending`, `/backlog`, `/archived`,
+`/templates`, `/work-items/*`, `/workflows`, `/context`, `/config/context`) were
+removed at the same time.
 
-The same reasoning covers the **attachment fields**: a request that still sends a
+The same "Fail loudly" reasoning covers the **attachment fields**: a request that still sends a
 non-empty `context` (story create/update, add task) or `contextRefs` (WorkDef or
 template create/update) is refused with 400 and the same message, rather than the
 field being silently dropped — an old client that thinks it attached reference

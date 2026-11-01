@@ -1,7 +1,7 @@
 /**
  * lib/work-items.ts — The Work surface: its sub-tabs (Board · Tasks ·
  * Schedule · Pending · Archived), which of them a team's feature toggles show,
- * where `/work` lands, where the pre-Work-Items URLs now live, and the
+ * where `/work` lands, and the
  * "active only" rule the Schedule tab lists by (standalone tasks use
  * lib/pending.ts `filterByPending`).
  *
@@ -147,32 +147,6 @@ export function workItemsTabFromPath(pathname: string): WorkItemsTab | null {
   const segments = pathname.split("/").filter(Boolean);
   if (segments[0] !== "work" || segments.length !== 2) return null;
   return WORK_ITEMS_TABS.find((t) => t.tab === segments[1])?.tab ?? null;
-}
-
-/**
- * Where a pre-Work-Items URL now lives: `/board`, `/tasks`, `/schedule`,
- * `/pending`, `/backlog` (the Pending tab's old name), and `/archived` map to
- * their sub-tab. Templates are hidden from the UI (being deprecated), so
- * `/templates` and `/templates/:id` go to the Tasks tab. Null for any other
- * path. App.tsx redirects these with `replace`, so old bookmarks keep working
- * without leaving a dead history entry.
- */
-export function legacyWorkItemsPath(pathname: string): string | null {
-  const segments = pathname.split("/").filter(Boolean);
-  const [first] = segments;
-  // The surface's old root: `/work-items[/...]` → `/work[/...]`, rest kept as-is.
-  if (first === "work-items") return [WORK_ITEMS_ROOT, ...segments.slice(1)].join("/");
-  if (first === "templates" && segments.length <= 2) return workItemsPath("tasks");
-  if (segments.length !== 1) return null;
-  switch (first) {
-    case "board": return workItemsPath("board");
-    case "tasks": return workItemsPath("tasks");
-    case "schedule": return workItemsPath("schedule");
-    case "pending":
-    case "backlog": return workItemsPath("pending");
-    case "archived": return workItemsPath("archived");
-    default: return null;
-  }
 }
 
 /**

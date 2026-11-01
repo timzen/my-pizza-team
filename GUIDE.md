@@ -80,7 +80,7 @@ The nav bar has two destinations, plus pause / **usage** / help / config / theme
 
 Workflows and the persona library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Personas**.
 
-The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Old addresses (`/board`, `/tasks`, `/schedule`, `/pending`, `/archived`) still work and take you to the matching tab.
+The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Each tab has its own address — `/work/board`, `/work/tasks`, `/work/schedule`, `/work/pending`, `/work/archived` — so bookmark those (the old `/board`, `/tasks`, `/schedule`, … addresses no longer work).
 
 **External sources.** When the team has an external work source connected (a [plugin package](#writing-a-work-source-plugin) your team added, or the development fixture source), it gets its own read-only tab between **Schedule** and **Pending**, named after the source. It lists what the source supplies — title, an **Open in <source>** link, the last revision seen, the state of its latest run, and how many times it has run — and refreshes from the source on its own (**Sync now** pulls at once; **Show archived** includes items the source no longer has; **Configure** opens its settings on Config → Sources). Each new revision of an item runs once. Opening an item shows the usual details page, but read-only: change it in the source, not here. Its **Thread** works as usual — comments and attachments — and comments and run outcomes are passed back to the source. If the source reports its own comments, they appear in the Thread too, in time order, each with a badge naming the source and, where it has several threads, the channel (**SIM-T · Correspondence**, **SIM-T · Worklog**). Those came *from* the source, so they're never sent back; a comment you post here and the source then reports back isn't shown twice. A new comment in the source doesn't re-run the item.
 
@@ -164,7 +164,7 @@ Both tabs use the same create form (`New Solitary Task` / `New Scheduled Job`), 
 
 ## Workflows
 
-**Config → Workflows** (`/config/workflows`) lists workflow definitions. It only appears while Stories are switched on — workflows only apply to stories. (The old `/workflows` address still works and takes you there.)
+**Config → Workflows** (`/config/workflows`) lists workflow definitions. It only appears while Stories are switched on — workflows only apply to stories.
 
 ### Viewing / editing a workflow
 
@@ -333,8 +333,6 @@ Board tasks get their persona from the workflow state they're in.
 - context entries tagged **`persona`** become personas (and the assistant keeps the one you'd picked);
 - entries that were **attached** to a story or task are copied into those tasks' **Additional Context**, under a heading naming the entry, so their prompts carry the same text;
 - the old `context/` folder is kept as `context.migrated/`, and a one-time notice says how many entries were moved and how many were left there — turn the useful ones into personas, or move them into the project's AGENTS.md.
-
-Old links to the Context page (`/context`, `/config/context`) open Config → Personas.
 
 ### Assistant style: chat or terminal
 

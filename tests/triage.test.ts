@@ -314,12 +314,10 @@ test("POST /api/thoughts/:id/triage enqueues a run; the claim prompt is the note
   });
 });
 
-test("/api/triage/instructions is gone (410); PUT /api/config selects triage.persona", async () => {
+test("/api/triage/instructions is gone (404); PUT /api/config selects triage.persona", async () => {
   await withTeam({}, async ({ app, store }) => {
-    const gone = await app.request("/api/triage/instructions");
-    assertEquals(gone.status, 410);
-    assertStringIncludes((await gone.json()).error, "triage.persona");
-    assertEquals((await app.request("/api/triage/instructions", { method: "PUT", body: "{}" })).status, 410);
+    assertEquals((await app.request("/api/triage/instructions")).status, 404);
+    assertEquals((await app.request("/api/triage/instructions", { method: "PUT", body: "{}" })).status, 404);
 
     const created = store.createPersona({ title: "House rules", content: "# House rules" });
     const id = created.ok ? created.persona.id : "";

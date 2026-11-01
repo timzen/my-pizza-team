@@ -2,7 +2,7 @@
  * tests/personas.test.ts — The persona library: team files, read-only built-ins
  * and package personas, `resolvePersona`'s fallback, "Used by", the
  * `/api/personas*` routes (lint, read-only, delete protection, duplicate), the
- * 410 stubs for the removed context library, `persona` on Solitary/Scheduled
+ * removed context library (its routes 404, its attachments are refused), `persona` on Solitary/Scheduled
  * WorkDefs, and the WorkItem's claim-time persona snapshot. See docs/DESIGN.md
  * "Personas: One Library, Selected by Reference".
  */
@@ -222,15 +222,15 @@ test("routes: a persona in use can't be deleted (409 + usedBy); usage lists its 
   });
 });
 
-test("routes: the context library is gone — 410 naming personas, and attachments are refused", async () => {
+test("routes: the context library is gone — its routes 404, and attachments are refused naming personas", async () => {
   await withTeam({}, async ({ app, store }) => {
     for (const [method, url] of [["GET", "/api/context"], ["POST", "/api/context"], ["GET", "/api/context/x"], ["PUT", "/api/context/x"], ["DELETE", "/api/context/x"]] as const) {
       const res = await app.request(url, jsonInit(method, method === "GET" || method === "DELETE" ? undefined : {}));
-      assertEquals(res.status, 410);
-      assertStringIncludes((await res.json()).error, "/api/personas");
+      assertEquals(res.status, 404);
     }
     const wd = await app.request("/api/work-defs", jsonInit("POST", { title: "T", goal: "g", contextRefs: ["x"] }));
     assertEquals(wd.status, 400);
+    assertStringIncludes((await wd.json()).error, "/api/personas");
     store.createStory("s1", "S", "d", "open", []);
     assertEquals((await app.request("/api/stories/s1/tasks", jsonInit("POST", { title: "T", description: "d", context: ["x"] }))).status, 400);
     assertEquals((await app.request("/api/stories/s1", jsonInit("PUT", { context: ["x"] }))).status, 400);

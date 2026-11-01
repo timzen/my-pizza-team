@@ -30,17 +30,20 @@ test("featureForProposalKind matches the daemon's gate", () => {
 });
 
 test("featureForPath: each kind's pages, and ungated ones", () => {
-  for (const p of ["/work/board", "/board", "/config/workflows", "/config/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
+  for (const p of ["/work/board", "/config/workflows", "/config/workflows/default", "/story/s1", "/stories/new", "/story/s1/tasks/new", "/task/s1/t1"]) {
     assertEquals(featureForPath(p), "stories", p);
   }
-  for (const p of ["/work/tasks", "/tasks", "/templates", "/templates/atlas"]) assertEquals(featureForPath(p), "tasks", p);
+  assertEquals(featureForPath("/work/tasks"), "tasks");
   assertEquals(featureForPath("/work/schedule"), "schedules");
-  assertEquals(featureForPath("/schedule"), "schedules");
   // Work's Pending and Archived tabs mix every kind, so they aren't gated on one.
-  for (const p of ["/work", "/work/pending", "/work/archived", "/pending", "/backlog", "/archived"]) {
+  for (const p of ["/work", "/work/pending", "/work/archived"]) {
     assertEquals(featureForPath(p), null, p);
   }
   for (const p of ["/", "/queue", "/thoughts", "/thoughts/n1/triage", "/config", "/config/context", "/config/triage", "/config/theme", "/help", "/usage", "/work-defs/w1"]) {
+    assertEquals(featureForPath(p), null, p);
+  }
+  // The pre-Work list URLs no longer exist (their redirects were removed), so they aren't gated either.
+  for (const p of ["/board", "/tasks", "/schedule", "/pending", "/backlog", "/archived", "/templates", "/templates/atlas"]) {
     assertEquals(featureForPath(p), null, p);
   }
   // The new-WorkDef form's kind comes from ?type= (Template belongs to Tasks).

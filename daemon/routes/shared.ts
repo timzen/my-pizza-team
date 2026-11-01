@@ -336,7 +336,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     return c.json(wf);
   });
   // A state's persona is selected with PUT /api/workflows/:name/states/:state
-  // (daemon/routes/personas.ts); the old instruction-file routes answer 410 there.
+  // (daemon/routes/personas.ts).
 }
 
 /**

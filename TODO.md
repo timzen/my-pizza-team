@@ -97,8 +97,6 @@ Deferred on purpose:
   `persona` on a board WorkDef is refused (400).
 - **Shared registry / marketplace UI:** a shared index of persona packages, browsed
   and installed from the web UI. Today it's `mpt plugins add <spec>`.
-- **Remove the 410 stubs** for `/api/context*`, `/api/workflows/:name/instructions/:state`,
-  and `/api/triage/instructions` one release after the story ships.
 - **Hot reload of package personas:** like sources, they load once at startup
   (see "Hot reload" above).
 - **Richer persona globs:** `mpt.personas` supports a `*` in the last path segment

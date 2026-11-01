@@ -117,20 +117,11 @@ export function featureForWorkDefForm(search: string): FeatureName {
   return type === "Scheduled" ? "schedules" : "tasks";
 }
 
-/**
- * First path segment → the feature its pages belong to. The legacy list routes
- * (`/board`, `/tasks`, `/templates`, `/schedule`) redirect to the matching Work
- * Items sub-tab and keep its feature; `/pending` and `/archived` redirect to
- * the mixed tabs, which aren't gated on one kind.
- */
+/** First path segment → the feature its pages belong to (story/task detail and forms → Stories). */
 const SEGMENT_FEATURES: Record<string, FeatureName> = {
-  board: "stories",
   story: "stories",
   stories: "stories",
   task: "stories",
-  tasks: "tasks",
-  templates: "tasks",
-  schedule: "schedules",
 };
 
 /**

@@ -305,7 +305,7 @@ export interface AssistantSessionsResponse { sessions: AssistantSession[] }
 export interface AssistantSessionResponse { success: boolean; session?: AssistantSession; contextRestored?: boolean; error?: string }
 
 // --- Personas (docs/DESIGN.md "Personas: One Library, Selected by Reference") ---
-// The context library (`/api/context*`) was removed; those routes answer 410.
+// The context library (`/api/context*`) was removed (no route; 404).
 // GET /api/personas[?kind=worker|triage|assistant] — team, built-in, package (hinted kind first)
 export interface PersonasResponse { personas: Persona[] }
 // GET /api/personas/:id

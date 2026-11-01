@@ -11,8 +11,7 @@
  * one-line state framing. (The per-state `<state>.md` files became personas.)
  *
  * Rendered inside the Config page's Workflows tab at `/config/workflows/:name`
- * (ConfigPage supplies the tab bar and outer layout); the old `/workflows/:name`
- * URL redirects here.
+ * (ConfigPage supplies the tab bar and outer layout).
  */
 
 import { useState } from "react";

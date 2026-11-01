@@ -22,7 +22,7 @@
  * The data is composed client-side from the existing list endpoints (see
  * lib/lifecycle-list.ts). Replaced the per-kind-section PendingPage and
  * ArchivedPage (and, before them, the Board's Pending/Backlog and Archive
- * tabs); `/pending`, `/backlog`, and `/archived` redirect here.
+ * tabs).
  */
 
 import { Link } from "react-router-dom";

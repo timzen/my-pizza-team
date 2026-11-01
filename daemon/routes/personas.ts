@@ -1,6 +1,7 @@
 /**
  * daemon/routes/personas.ts — The persona library (`/api/personas*`), workflow
- * state persona selection, and the 410 stubs for the APIs personas replaced.
+ * state persona selection, and the refusal of the removed context-library
+ * attachments.
  *
  * One library, three origins (docs/DESIGN.md "Personas: One Library, Selected by
  * Reference"): team personas (`personas/<id>.md`) are created, edited and
@@ -14,11 +15,11 @@
  * - `:id` matches the whole rest of the path (`:id{.+}`), since package ids
  *   contain `/`; clients should `encodeURIComponent` ids anyway.
  *
- * **Removed, answering 410 Gone with the replacement named** ("Routes"): the
- * context library (`/api/context*`), workflow state instruction files
- * (`/api/workflows/:name/instructions/:state`), and `triage.md`
- * (`/api/triage/instructions`). No shim: the only clients change in the same
- * story, and a shim would have to invent persona ids.
+ * The APIs personas replaced — the context library (`/api/context*`), workflow
+ * state instruction files (`/api/workflows/:name/instructions/:state`) and
+ * `triage.md` (`/api/triage/instructions`) — are gone; their 410 stubs were
+ * removed one release after personas shipped, so they now 404 like any
+ * unknown route.
  */
 
 import type { Context } from "hono";
@@ -32,11 +33,9 @@ import type {
 import { validatePersonaMarkdown } from "../personas/lint.ts";
 import { normalizeKinds } from "../personas/library.ts";
 
-/** The 410 messages, naming what replaced each removed API. */
+/** The refusal message for a context-library attachment, naming what replaced it. */
 export const GONE = {
   context: "The context library was removed: use personas (/api/personas) for how to do the work, or put project knowledge in the project's AGENTS.md.",
-  stateInstructions: "Workflow state instruction files were replaced by personas: edit them at /api/personas and select one with PUT /api/workflows/:name/states/:state { persona }.",
-  triageInstructions: "triage.md was replaced by a persona: edit it at /api/personas and select it as config triage.persona (PUT /api/config { triage: { persona } }).",
 } as const;
 
 /** Why `READ_ONLY` personas refuse edits. */
@@ -64,12 +63,6 @@ export function sortForKind(personas: Persona[], kind: PersonaKind | undefined):
 
 export function registerPersonaRoutes(ctx: RouteContext): void {
   const { app, store } = ctx;
-
-  // ─── Removed APIs (410 Gone) ───────────────────────────────────────
-  app.all("/api/context", (c) => fail(c, 410, GONE.context));
-  app.all("/api/context/*", (c) => fail(c, 410, GONE.context));
-  app.all("/api/workflows/:name/instructions/:state", (c) => fail(c, 410, GONE.stateInstructions));
-  app.all("/api/triage/instructions", (c) => fail(c, 410, GONE.triageInstructions));
 
   // ─── Library ───────────────────────────────────────────────────────
 

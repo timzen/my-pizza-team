@@ -1,7 +1,7 @@
 /**
  * tests/work-items-ui.test.ts — The Work surface's rules
  * (ui/src/lib/work-items.ts): which sub-tabs the feature toggles show, where
- * `/work` lands, route → tab, the legacy-URL redirects, and the
+ * `/work` lands, route → tab, and the
  * "active only" rule for scheduled jobs.
  */
 
@@ -12,7 +12,6 @@ import {
   defaultWorkItemsPath,
   hasAnyWorkItemsFeature,
   isActiveScheduledJob,
-  legacyWorkItemsPath,
   visibleWorkItemsTabs,
   workItemsTabFromPath,
 } from "../ui/src/lib/work-items.ts";
@@ -56,24 +55,6 @@ test("workItemsTabFromPath: only /work/<known tab>", () => {
   assertEquals(workItemsTabFromPath("/work"), null);
   assertEquals(workItemsTabFromPath("/work/nope"), null);
   assertEquals(workItemsTabFromPath("/board"), null);
-});
-
-test("legacyWorkItemsPath: old list URLs move under /work; Templates go to Tasks", () => {
-  assertEquals(legacyWorkItemsPath("/board"), "/work/board");
-  assertEquals(legacyWorkItemsPath("/tasks"), "/work/tasks");
-  assertEquals(legacyWorkItemsPath("/schedule"), "/work/schedule");
-  assertEquals(legacyWorkItemsPath("/pending"), "/work/pending");
-  assertEquals(legacyWorkItemsPath("/backlog"), "/work/pending");
-  assertEquals(legacyWorkItemsPath("/archived"), "/work/archived");
-  assertEquals(legacyWorkItemsPath("/templates"), "/work/tasks");
-  assertEquals(legacyWorkItemsPath("/templates/atlas"), "/work/tasks");
-  // The surface's old root redirects to /work, keeping the rest of the path.
-  assertEquals(legacyWorkItemsPath("/work-items"), "/work");
-  assertEquals(legacyWorkItemsPath("/work-items/board"), "/work/board");
-  assertEquals(legacyWorkItemsPath("/work-items/source/jira"), "/work/source/jira");
-  for (const p of ["/", "/story/s1", "/task/s1/t1", "/work/board", "/board/x", "/thoughts"]) {
-    assertEquals(legacyWorkItemsPath(p), null, p);
-  }
 });
 
 test("isActiveScheduledJob: active only when both definition and Schedule are", () => {
