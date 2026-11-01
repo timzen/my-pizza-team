@@ -26,7 +26,6 @@ import {
   ACTIVE_WORK_ITEM_STATES,
   STORIES_DIR,
   WORKDEFS_DIR,
-  CONFIG_FILE,
   resolveMinTeammates,
   type Comment,
   type Story,
@@ -68,6 +67,7 @@ import {
   parsePersonaId,
   type Assignment,
 } from "../shared/types.ts";
+import { saveTeamConfig } from "../shared/team-config.ts";
 import { validateWorkflow } from "./workflow-engine.ts";
 import { listBuiltinPersonas, getBuiltinPersona } from "./personas/builtins.ts";
 import { deleteTeamPersona, freeTeamPersonaId, listTeamPersonas, readTeamPersona, writeTeamPersona, type TeamPersonaInput } from "./personas/library.ts";
@@ -240,52 +240,6 @@ function formatDelay(ms: number): string {
   const h = Math.floor(totalMin / 60);
   const m = totalMin % 60;
   return h === 0 ? `${m}m` : m === 0 ? `${h}h` : `${h}h ${m}m`;
-}
-
-/**
- * Serialize a TeamConfig to the on-disk config.json shape. Preserves all
- * persistable fields (workflows live in the workflows/ dir, so they are
- * intentionally omitted here). Every route that saves config comes through here,
- * so a field missing from this list is erased on the next save — add new
- * TeamConfig fields here and to tests/config-persist.test.ts.
- */
-function serializeConfig(config: TeamConfig): Record<string, unknown> {
-  const out: Record<string, unknown> = {
-    port: config.port,
-    tmuxSession: config.tmuxSession,
-    defaultWorkflow: config.defaultWorkflow,
-    autosave: config.autosave,
-    maxTeammates: config.maxTeammates,
-  };
-  // Only persist an *explicit* size: unset means "half of maxTeammates", and
-  // writing the derived value would freeze it (see resolveMinTeammates).
-  if (config.minTeammates !== undefined) out.minTeammates = config.minTeammates;
-  if (config.agentTimeoutSeconds !== undefined) out.agentTimeoutSeconds = config.agentTimeoutSeconds;
-  if (config.apiToken) out.apiToken = config.apiToken;
-  if (config.teammates && Object.keys(config.teammates).length > 0) out.teammates = config.teammates;
-  if (config.readinessProbe) out.readinessProbe = config.readinessProbe;
-  // Harness templates have no editor in the UI, so nothing re-sends them: dropping
-  // them here erased a team's custom templates on any Config save or team-size
-  // change (tests/config-persist.test.ts).
-  if (config.harnesses) out.harnesses = config.harnesses;
-  if (config.defaultHarness) out.defaultHarness = config.defaultHarness;
-  if (config.experimental && Object.keys(config.experimental).length > 0) out.experimental = config.experimental;
-  if (config.triage && Object.keys(config.triage).length > 0) out.triage = config.triage;
-  if (config.retry && Object.keys(config.retry).length > 0) out.retry = config.retry;
-  // Default is on; persist only an explicit value so config.json stays minimal.
-  if (config.exclusiveDirectories !== undefined) out.exclusiveDirectories = config.exclusiveDirectories;
-  // Absent means "everything on" (an existing team); persist only an explicit block.
-  if (config.features) out.features = config.features;
-  if (config.assistant && Object.keys(config.assistant).length > 0) out.assistant = config.assistant;
-  // Per-source personas (docs/DESIGN.md "Work Source personas"): daemon-held team config.
-  if (config.sourcePersonas && Object.keys(config.sourcePersonas).length > 0) out.sourcePersonas = config.sourcePersonas;
-  if (config.favoriteDirectories && config.favoriteDirectories.length > 0) out.favoriteDirectories = config.favoriteDirectories;
-  // Plugin packages (and their per-package `config`, edited by `PUT
-  // /api/sources/:id/config`) and dev-only settings: no Config-page form
-  // re-sends them, so dropping them here erased a team's plugins on any save.
-  if (config.packages !== undefined) out.packages = config.packages;
-  if (config.dev !== undefined) out.dev = config.dev;
-  return out;
 }
 
 /**
@@ -3719,12 +3673,12 @@ export class Store {
   }
 
   /**
-   * Persist the mutable parts of the in-memory config to `config.json`. The
-   * single writer, so no caller can accidentally drop a field it didn't know
-   * about (see serializeConfig).
+   * Persist the in-memory config to `config.json` (`saveTeamConfig`, which writes
+   * every key but the derived ones). The daemon's single writer, so no caller can
+   * accidentally drop a field it didn't know about.
    */
   saveConfig(): void {
-    fs.writeFileSync(path.join(this.teamDir, CONFIG_FILE), JSON.stringify(serializeConfig(this.config), null, 2) + "\n");
+    saveTeamConfig(this.teamDir, this.config);
   }
 
   // --- Directory suggestions (docs/DESIGN.md "Favorite Directories") ---

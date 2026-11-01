@@ -254,8 +254,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       if (harnessSettings.defaultHarness) config.defaultHarness = harnessSettings.defaultHarness;
       else delete config.defaultHarness;
 
-      // Store is the single config writer (it owns serializeConfig, so no field
-      // this route doesn't know about — e.g. apiToken — is silently dropped).
+      // Store is the single config writer (saveTeamConfig writes every key, so no
+      // field this route doesn't know about — e.g. apiToken — is silently dropped).
       store.saveConfig();
       // A changed pool size takes effect now, not on the next heartbeat tick.
       store.reconcileTeammatePool();

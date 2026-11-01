@@ -21,6 +21,7 @@ import { harnessCapability, probeTmuxCapability, realizePending } from "./spawne
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { TEAM_DIR } from "../shared/types.ts";
+import { readTeamConfigFile } from "../shared/team-config.ts";
 import { serve } from "@hono/node-server";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -81,10 +82,7 @@ export async function startDaemonInProcess(
   }
 
   // Validate bind safety: refuse 0.0.0.0 without a token
-  const configPath = path.join(teamDir, "config.json");
-  const configToken = existsSync(configPath)
-    ? (JSON.parse(fs.readFileSync(configPath, "utf8")).apiToken as string | undefined)
-    : undefined;
+  const configToken = readTeamConfigFile(teamDir)?.apiToken as string | undefined;
   const token = resolveToken(configToken);
   const bindCheck = validateBindSafety(hostname, token);
   if (!bindCheck.safe) {

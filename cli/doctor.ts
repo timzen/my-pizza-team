@@ -47,6 +47,7 @@ import {
   stableNodeAlternative,
 } from "../shared/runtime-config.ts";
 import { cliEntryScript } from "../shared/paths.ts";
+import { readTeamConfigFile } from "../shared/team-config.ts";
 import type { ServiceProgram } from "./service.ts";
 import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
 
@@ -687,8 +688,8 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
 /** Whether each ACP harness could launch here — only if the team opted in to them. */
 function experimentalHarnessFacts(teamDir: string): DoctorFacts["experimentalHarnesses"] {
   try {
-    const config = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as { experimental?: { harnesses?: boolean } };
-    if (!config.experimental?.harnesses) return undefined;
+    const config = readTeamConfigFile(teamDir) as { experimental?: { harnesses?: boolean } } | undefined;
+    if (!config?.experimental?.harnesses) return undefined;
   } catch {
     return undefined;
   }

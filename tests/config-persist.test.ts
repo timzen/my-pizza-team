@@ -5,7 +5,8 @@
  * persists config goes through it (`PUT /api/config`, `PUT /api/teammate-pool`).
  * A field the writer forgets is silently erased the first time anyone saves the
  * Config page or changes the team size — which is how custom harness templates were
- * being lost. These tests save through each path and read the file back.
+ * being lost. These tests save through each path and read the file back, and
+ * check that a key the daemon doesn't know about survives (shared/team-config.ts).
  */
 
 import * as fs from "node:fs";
@@ -15,7 +16,8 @@ import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { buildApp } from "../daemon/server.ts";
 import { Store } from "../daemon/store.ts";
-import { resolveAssistantChatMode, type TeamConfig } from "../shared/types.ts";
+import { DEFAULT_CONFIG, resolveAssistantChatMode, type TeamConfig } from "../shared/types.ts";
+import { loadTeamConfig, readTeamConfigFile, saveTeamConfig } from "../shared/team-config.ts";
 import * as path from "node:path";
 
 /** Every persistable field set to a non-default value, so a dropped one shows. */
@@ -242,4 +244,53 @@ test("PUT /api/config rejects an invalid assistant.chatMode and changes nothing"
     assertEquals(r.status, 400);
     assertStringIncludes(r.body.error ?? "", "assistant");
   } finally { cleanup(); }
+});
+
+// ─── Keys the daemon doesn't know about (shared/team-config.ts) ──────
+
+test("a key the daemon doesn't know about survives a load and a save", async () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-config-test-"));
+  const file = path.join(teamDir, "config.json");
+  fs.writeFileSync(file, JSON.stringify({
+    autosave: { autoCommit: false },
+    futureSetting: { nested: [1, 2] },
+    maxTeammates: 6,
+  }));
+  const config = loadTeamConfig(teamDir);
+  // Nested defaults are applied the way createApp always did.
+  assertEquals(config.autosave.flushIntervalMinutes, DEFAULT_CONFIG.autosave.flushIntervalMinutes);
+  const store = new Store(teamDir, config);
+  try {
+    const app = buildApp(store, config, teamDir);
+    const current = await (await app.request("/api/config")).json();
+    const res = await app.request("/api/config", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...current, maxTeammates: 8 }),
+    });
+    assertEquals((await res.json()).success, true);
+    store.setMinTeammates(null);
+    const saved = JSON.parse(fs.readFileSync(file, "utf8")) as Record<string, unknown>;
+    assertEquals(saved.futureSetting, { nested: [1, 2] });
+    assertEquals(saved.maxTeammates, 8);
+    // Derived values stay derived: workflows live in workflows/, and an unset
+    // minTeammates isn't frozen at half of maxTeammates.
+    assertEquals("workflows" in saved, false);
+    assertEquals("minTeammates" in saved, false);
+  } finally {
+    store.close();
+    fs.rmSync(teamDir, { recursive: true, force: true });
+  }
+});
+
+test("saveTeamConfig keeps raw keys as written and omits derived/empty ones", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-config-test-"));
+  try {
+    saveTeamConfig(teamDir, {
+      somethingNew: "kept", minTeammates: undefined, workflows: {}, teammates: {}, apiToken: "", packages: [],
+    });
+    assertEquals(readTeamConfigFile(teamDir), { somethingNew: "kept", packages: [] });
+    // No temp file is left behind.
+    assertEquals(fs.readdirSync(teamDir), ["config.json"]);
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });

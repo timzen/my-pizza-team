@@ -21,6 +21,7 @@ import {
   type PiSettings,
 } from "./pi-config.ts";
 import { newTeamConfig } from "../shared/types.ts";
+import { saveTeamConfig, teamConfigPath } from "../shared/team-config.ts";
 
 /** One change setup intends to make. Rendered to the user before anything happens. */
 export type Action =
@@ -202,9 +203,8 @@ export function writePiSettingsFile(agentDir: string, raw: Record<string, unknow
  */
 export function initTeamConfig(teamDir: string): boolean {
   fs.mkdirSync(teamDir, { recursive: true });
-  const configFile = path.join(teamDir, "config.json");
-  if (existsSync(configFile)) return false;
-  fs.writeFileSync(configFile, `${JSON.stringify(newTeamConfig(), null, 2)}\n`);
+  if (existsSync(teamConfigPath(teamDir))) return false;
+  saveTeamConfig(teamDir, newTeamConfig());
   return true;
 }
 

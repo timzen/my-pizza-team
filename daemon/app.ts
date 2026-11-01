@@ -12,9 +12,9 @@ import { Store } from "./store.ts";
 import { FixtureSource } from "./sources/fixture.ts";
 import { loadPlugins } from "./plugins/loader.ts";
 import { installMissingPackages, type PluginRunner, pluginInstallTimeoutMs, runPluginCommand } from "./plugins/install.ts";
-import { DEFAULT_CONFIG, type TeamConfig } from "../shared/types.ts";
+import type { TeamConfig } from "../shared/types.ts";
+import { loadTeamConfig } from "../shared/team-config.ts";
 import * as path from "node:path";
-import * as fs from "node:fs";
 import { existsSync } from "node:fs";
 
 export interface AppContext {
@@ -38,18 +38,8 @@ export interface CreateAppOptions {
  */
 export async function createApp(teamDir?: string, opts: CreateAppOptions = {}): Promise<AppContext> {
   if (teamDir && existsSync(teamDir)) {
-    const configFile = path.join(teamDir, "config.json");
-    const userConfig = existsSync(configFile)
-      ? JSON.parse(fs.readFileSync(configFile, "utf8"))
-      : {};
-
-    // Merge with defaults so missing fields don't crash
-    const config: TeamConfig = {
-      ...DEFAULT_CONFIG,
-      ...userConfig,
-      autosave: { ...DEFAULT_CONFIG.autosave, ...(userConfig.autosave || {}) },
-      teammates: { ...DEFAULT_CONFIG.teammates, ...(userConfig.teammates || {}) },
-    };
+    // Merged with defaults so missing fields don't crash (shared/team-config.ts).
+    const config = loadTeamConfig(teamDir);
 
     const store = new Store(teamDir, config);
     registerDevSources(store, config, teamDir);

@@ -44,6 +44,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { PluginLoadStatus, WorkSourcesResponse } from "../shared/protocol.ts";
 import type { PackageEntry } from "../shared/types.ts";
+import { readTeamConfigFile, saveTeamConfig, teamConfigPath } from "../shared/team-config.ts";
 import { packageInstallDir, readPackagePersonaFiles, readPluginManifest } from "../daemon/plugins/loader.ts";
 import { personaUsage } from "../daemon/personas/resolve.ts";
 import { readPersonaUsageInput } from "../daemon/personas/usage-disk.ts";
@@ -133,36 +134,21 @@ export async function runPlugins(args: string[], d: PluginsDeps): Promise<number
 
 // --- config.json ---
 
-function configPath(teamDir: string): string {
-  return path.join(teamDir, "config.json");
-}
-
 /**
  * The team's config.json as written (not merged with defaults, so writing it
  * back adds nothing the user didn't have). A missing file is `{}` when the team
  * dir exists; a missing team dir is an error (run `mpt setup` first).
  */
 export function readRawConfig(teamDir: string): Record<string, unknown> {
-  const file = configPath(teamDir);
-  if (!fs.existsSync(file)) {
-    if (!fs.existsSync(teamDir)) throw new PluginsError(`No team directory at ${teamDir} — run \`mpt setup\` first (or set TEAM_DIR).`);
-    return {};
-  }
+  let parsed: Record<string, unknown> | undefined;
   try {
-    const parsed: unknown = JSON.parse(fs.readFileSync(file, "utf8"));
-    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) throw new Error("not a JSON object");
-    return parsed as Record<string, unknown>;
+    parsed = readTeamConfigFile(teamDir);
   } catch (e) {
-    throw new PluginsError(`Cannot parse ${file}: ${(e as Error).message}`);
+    throw new PluginsError(`Cannot parse ${teamConfigPath(teamDir)}: ${(e as Error).message}`);
   }
-}
-
-/** Write config.json back (temp file + rename, so a crash can't leave it half-written). */
-function writeRawConfig(teamDir: string, config: Record<string, unknown>): void {
-  const file = configPath(teamDir);
-  const tmp = `${file}.tmp-${process.pid}`;
-  fs.writeFileSync(tmp, JSON.stringify(config, null, 2) + "\n");
-  fs.renameSync(tmp, file);
+  if (parsed) return parsed;
+  if (!fs.existsSync(teamDir)) throw new PluginsError(`No team directory at ${teamDir} — run \`mpt setup\` first (or set TEAM_DIR).`);
+  return {};
 }
 
 /** The raw `packages` array (empty when unset); anything else is an error rather than silently replaced. */
@@ -326,7 +312,7 @@ function cmdAdd(args: string[], d: PluginsDeps): number {
 
   const entry: PackageEntry = pluginConfig ? { source: written, config: pluginConfig } : written;
   config.packages = [...raw, entry];
-  writeRawConfig(d.teamDir, config);
+  saveTeamConfig(d.teamDir, config);
   d.log(`✅ Added ${written}${spec.kind === "local" ? ` (loads in place from ${dir})` : ` (installed at ${dir})`}`);
   d.log(`   Source entries: ${provided.sources.length ? provided.sources.join(", ") : "none"}`);
   d.log(`   Personas: ${provided.personas.length ? provided.personas.join(", ") : "none"}`);
@@ -385,7 +371,7 @@ function cmdRemove(args: string[], d: PluginsDeps): number {
 
   const drop = new Set(matches.map((m) => m.index));
   config.packages = raw.filter((_, i) => !drop.has(i));
-  writeRawConfig(d.teamDir, config);
+  saveTeamConfig(d.teamDir, config);
   for (const m of matches) {
     const shown = typeof m.raw === "string" ? m.raw : JSON.stringify(m.raw);
     if (m.spec && m.spec.kind !== "local") {

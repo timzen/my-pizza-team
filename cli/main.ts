@@ -5,7 +5,8 @@
  * directly as `node cli/main.ts`.
  */
 
-import { DEFAULT_CONFIG, DEFAULT_HARNESS, DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, TEAM_DIR } from "../shared/types.ts";
+import { DEFAULT_HARNESS, DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, TEAM_DIR, type TeamConfig } from "../shared/types.ts";
+import { applyTeamConfigDefaults, loadTeamConfig, readTeamConfigFile, saveTeamConfig, teamConfigPath } from "../shared/team-config.ts";
 import * as path from "node:path";
 import * as fs from "node:fs";
 import { existsSync } from "node:fs";
@@ -201,23 +202,21 @@ async function cmdStatus(): Promise<void> {
 
 function cmdRotateToken(): void {
   const teamDir = getTeamDir();
-  const configPath = `${teamDir}/config.json`;
-
-  let config: Record<string, unknown> = {};
-  if (existsSync(configPath)) {
-    try {
-      config = JSON.parse(fs.readFileSync(configPath, "utf8"));
-    } catch {
-      console.error("❌ Failed to parse config.json");
-      process.exit(1);
-    }
-  } else if (!existsSync(teamDir)) {
-    fs.mkdirSync(teamDir, { recursive: true });
+  let config: Record<string, unknown> | undefined;
+  try {
+    config = readTeamConfigFile(teamDir);
+  } catch {
+    console.error("❌ Failed to parse config.json");
+    process.exit(1);
+  }
+  if (!config) {
+    config = {};
+    if (!existsSync(teamDir)) fs.mkdirSync(teamDir, { recursive: true });
   }
 
   const token = generateToken();
   config.apiToken = token;
-  fs.writeFileSync(configPath, JSON.stringify(config, null, 2) + "\n");
+  saveTeamConfig(teamDir, config);
 
   console.log(`✅ New API token generated and saved to config.json`);
   console.log(`\n   Token: ${token}`);
@@ -322,15 +321,13 @@ Getting started (in your project folder):
 `);
 }
 
-/** Read the team's config, falling back to defaults for anything unset. */
-function readTeamConfig(teamDir: string): typeof DEFAULT_CONFIG & Record<string, unknown> {
-  const file = path.join(teamDir, "config.json");
-  if (!existsSync(file)) return { ...DEFAULT_CONFIG };
+/** Read the team's config (`loadTeamConfig`), falling back to defaults when it can't be parsed. */
+function readTeamConfig(teamDir: string): TeamConfig {
   try {
-    return { ...DEFAULT_CONFIG, ...JSON.parse(fs.readFileSync(file, "utf8")) };
+    return loadTeamConfig(teamDir);
   } catch {
-    console.warn(`⚠️  Could not parse ${file} — using defaults.`);
-    return { ...DEFAULT_CONFIG };
+    console.warn(`⚠️  Could not parse ${teamConfigPath(teamDir)} — using defaults.`);
+    return applyTeamConfigDefaults({});
   }
 }
 

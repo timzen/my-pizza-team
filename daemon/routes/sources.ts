@@ -40,14 +40,13 @@
  * daemon ran isn't dropped.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
 import type { Context } from "hono";
 import type { RouteContext } from "./types.ts";
 import type {
   PluginLoadStatus, SourceConfigResponse, SourcePersonaRequest, SourcePersonaResponse, SourcePreviewResponse, SourcesResponse, SourceView,
 } from "../../shared/protocol.ts";
 import type { PackageEntry, TeamConfig } from "../../shared/types.ts";
+import { readTeamConfigFile } from "../../shared/team-config.ts";
 import type { Store } from "../store.ts";
 import { type SourceEntry, sourceIdForWorkDef, TASK_SOURCE_ID } from "../sources/registry.ts";
 import { STORY_SOURCE_ID } from "../sources/story.ts";
@@ -122,8 +121,8 @@ function schemaErrors({ source }: SourceEntry, block: Record<string, unknown>): 
 /** The team's `packages` as config.json has them now (falls back to the in-memory copy when unreadable). */
 function packagesOnDisk(teamDir: string, config: TeamConfig): PackageEntry[] | undefined {
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as unknown;
-    if (isPlainObject(raw) && Array.isArray(raw.packages)) return raw.packages as PackageEntry[];
+    const raw = readTeamConfigFile(teamDir);
+    if (raw && Array.isArray(raw.packages)) return raw.packages as PackageEntry[];
   } catch {
     // No file yet, or bad JSON: the in-memory config is the best we have.
   }
@@ -226,7 +225,7 @@ export function registerSourceRoutes(ctx: RouteContext): void {
     const updated = setPackageEntryConfig(onDisk, pkg.identity, entryConfig, teamDir);
     if ("error" in updated) return c.json({ success: false, error: updated.error } satisfies SourceConfigResponse, 409);
     config.packages = updated.packages;
-    // Store is the single config writer (serializeConfig keeps `packages`).
+    // Store is the single config writer (saveTeamConfig keeps `packages`).
     store.saveConfig();
 
     // Every source of the package reads this config as its ctx.options(): re-init them all.

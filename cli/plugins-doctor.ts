@@ -63,6 +63,7 @@ import { SOURCE_ID_PATTERN, TASK_SOURCE_ID } from "../daemon/sources/registry.ts
 import { DEFAULT_SYNC_TIMEOUT_MS } from "../daemon/sources/sync.ts";
 import { type ExternalDef, type SourceContext, WORK_SOURCE_API_VERSION, type WorkSource } from "../daemon/sources/types.ts";
 import { normalizeCliSpec } from "./plugins.ts";
+import { readTeamConfigFile, teamConfigPath } from "../shared/team-config.ts";
 import { type Comment, DEFAULT_CONFIG, parsePersonaId, type SourcePersonaSetting, type WorkDef, type WorkItem } from "../shared/types.ts";
 import { getBuiltinPersona } from "../daemon/personas/builtins.ts";
 import { readTeamPersona } from "../daemon/personas/library.ts";
@@ -244,8 +245,8 @@ interface PersonaCheckContext {
 function personaCheckContext(teamDir: string, packages: PackagePersonas): PersonaCheckContext {
   let settings: Record<string, SourcePersonaSetting> = {};
   try {
-    const raw = JSON.parse(fs.readFileSync(path.join(teamDir, "config.json"), "utf8")) as unknown;
-    if (isObject(raw) && isObject(raw.sourcePersonas)) settings = raw.sourcePersonas as Record<string, SourcePersonaSetting>;
+    const raw = readTeamConfigFile(teamDir);
+    if (raw && isObject(raw.sourcePersonas)) settings = raw.sourcePersonas as Record<string, SourcePersonaSetting>;
   } catch {
     // No (or an unreadable) config.json: no per-source settings.
   }
@@ -263,15 +264,13 @@ function personaCheckContext(teamDir: string, packages: PackagePersonas): Person
 
 /** The team's raw config.json `packages` (empty when there's no config.json or no team dir). */
 function configuredPackages(teamDir: string): unknown[] {
-  const file = path.join(teamDir, "config.json");
-  if (!fs.existsSync(file)) return [];
-  let parsed: unknown;
+  let parsed: Record<string, unknown> | undefined;
   try {
-    parsed = JSON.parse(fs.readFileSync(file, "utf8"));
+    parsed = readTeamConfigFile(teamDir);
   } catch (e) {
-    throw new DoctorUsageError(`Cannot parse ${file}: ${(e as Error).message}`);
+    throw new DoctorUsageError(`Cannot parse ${teamConfigPath(teamDir)}: ${(e as Error).message}`);
   }
-  const p = isObject(parsed) ? parsed.packages : undefined;
+  const p = parsed?.packages;
   if (p === undefined || p === null) return [];
   if (!Array.isArray(p)) throw new DoctorUsageError(`config.json "packages" must be an array (it is ${JSON.stringify(p)})`);
   return p;
