@@ -54,9 +54,7 @@ class DaemonManager {
         if self.teamDir.isEmpty {
             let candidates = [
                 FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".my-pizza-team").path,
-                FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".pi-pizza-team").path,
                 FileManager.default.currentDirectoryPath + "/.my-pizza-team",
-                FileManager.default.currentDirectoryPath + "/.pi-pizza-team",
             ]
             for candidate in candidates {
                 if FileManager.default.fileExists(atPath: candidate) {
@@ -87,7 +85,7 @@ class DaemonManager {
         if teamDir.isEmpty { return FileManager.default.homeDirectoryForCurrentUser.path }
         let ns = teamDir as NSString
         let last = ns.lastPathComponent
-        if last == ".my-pizza-team" || last == ".pi-pizza-team" {
+        if last == ".my-pizza-team" {
             return ns.deletingLastPathComponent
         }
         return teamDir

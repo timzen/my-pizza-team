@@ -21,22 +21,20 @@ import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
 import { test } from "node:test";
-import { fileURLToPath } from "node:url";
 import { assertEquals, assertStringIncludes } from "./_assert.ts";
 import {
   type Check,
   compareVersions,
   type DoctorFacts,
   evaluate,
-  findLegacyBinaries,
-  findLegacyBridges,
-  isLegacyBridge,
+  gather,
   type NodeFacts,
   nodeChecks,
   PERMISSION_SYSTEM_PACKAGE,
   report,
   TESTED_PI_VERSION,
 } from "../cli/doctor.ts";
+import { PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 
 /** A fully healthy system; each test perturbs one fact. */
 function healthy(over: Partial<DoctorFacts> = {}): DoctorFacts {
@@ -326,9 +324,6 @@ function nodeFacts(over: Partial<NodeFacts> = {}): NodeFacts {
     service: { node: "/opt/homebrew/bin/node", entry: "/pkg/dist/main.js" },
     expectedEntry: "/pkg/dist/main.js",
     serviceEntryMatches: true,
-    legacyBinaries: [],
-    legacyBridges: [],
-    serviceIsBridge: false,
     ...over,
   };
 }
@@ -382,28 +377,6 @@ test("node: an old compiled-binary service warns once, even with no Node saved",
   assertStringIncludes(service[0]!.fix!, "mpt install");
 });
 
-test("node: a leftover compiled mpt on PATH warns with the path to delete", () => {
-  const c = find(nodeChecks(nodeFacts({ legacyBinaries: ["/usr/local/bin/mpt"] })), "Old mpt binary");
-  assertEquals(c.status, "warn");
-  assertStringIncludes(c.fix!, "rm /usr/local/bin/mpt");
-});
-
-test("findLegacyBinaries: a native mpt counts, a script or symlink to one doesn't", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-legacy-"));
-  try {
-    const native = path.join(dir, "native"), script = path.join(dir, "script");
-    fs.mkdirSync(native);
-    fs.mkdirSync(script);
-    fs.writeFileSync(path.join(native, "mpt"), Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]));
-    fs.writeFileSync(path.join(dir, "main.js"), "#!/usr/bin/env node\n");
-    fs.symlinkSync(path.join(dir, "main.js"), path.join(script, "mpt"));
-    const found = findLegacyBinaries([script, native, path.join(dir, "missing")].join(path.delimiter));
-    assertEquals(found, [path.join(native, "mpt")]);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
 test("node: no service means no service checks", () => {
   const checks = nodeChecks(nodeFacts({ service: null }));
   assertEquals(checks.some((c) => c.name.startsWith("Service")), false);
@@ -415,49 +388,37 @@ test("node: this process on a different Node warns", () => {
   assertStringIncludes(c.detail, "/usr/bin/node");
 });
 
-// ─── The legacy bridge (scripts/legacy-bridge.sh) ────────────────────
+// ─── A pre-0.36.0 team layout (daemon/layout-check.ts) ───────────────
 
-const BRIDGE_SCRIPT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "scripts", "legacy-bridge.sh");
+test("team layout: a pre-0.36.0 layout fails with the daemon's upgrade message; a current one adds no check", () => {
+  assertEquals(evaluate(healthy()).some((c) => c.name === "Team layout"), false);
+  assertEquals(evaluate(healthy({ preCutoffLayout: [] })).some((c) => c.name === "Team layout"), false);
 
-test("isLegacyBridge: the real bridge script counts; other scripts and binaries don't", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-bridge-"));
+  const teamDir = "/p/.my-pizza-team";
+  const findings = ["backlog/a.json", "triage.md", "context", "stories/s1.json", "tasks/t/workdef.md"]
+    .map((rel) => ({ path: path.join(teamDir, rel), what: "old" }));
+  const checks = evaluate(healthy({ teamDir, preCutoffLayout: findings }));
+  const c = find(checks, "Team layout");
+  assertEquals(c.status, "fail");
+  assertStringIncludes(c.detail, "from before 0.36.0");
+  assertStringIncludes(c.detail, "backlog/a.json, triage.md, context, stories/s1.json and 1 more");
+  assertEquals(c.fix, PRE_CUTOFF_UPGRADE_MESSAGE);
+  assertStringIncludes(c.fix!, "npm i -g my-pizza-team@0.36");
+});
+
+test("team layout: gather reports the same findings as the daemon's check", async () => {
+  const project = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-doctor-layout-"));
   try {
-    const other = path.join(dir, "other");
-    fs.writeFileSync(other, "#!/bin/sh\necho hi\n");
-    const native = path.join(dir, "native");
-    fs.writeFileSync(native, Buffer.from([0x7f, 0x45, 0x4c, 0x46, 0x02, 0x01]));
-    assertEquals(isLegacyBridge(BRIDGE_SCRIPT), true);
-    assertEquals(isLegacyBridge(other), false);
-    assertEquals(isLegacyBridge(native), false);
-    assertEquals(isLegacyBridge(path.join(dir, "missing")), false);
+    const teamDir = path.join(project, ".my-pizza-team");
+    fs.mkdirSync(teamDir);
+    fs.writeFileSync(path.join(teamDir, "config.json"), "{}");
+    fs.writeFileSync(path.join(teamDir, "triage.md"), "triage me");
+    const facts = await gather({ teamDir, projectDir: project, daemonVersion: "0.0.0", daemonUrl: "http://127.0.0.1:9", serviceInstalled: false });
+    assertEquals(facts.preCutoffLayout?.map((f) => path.relative(teamDir, f.path)), ["triage.md"]);
+    assertEquals(find(evaluate(facts), "Team layout").status, "fail");
   } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
+    fs.rmSync(project, { recursive: true, force: true });
   }
-});
-
-test("findLegacyBridges: finds a bridge installed as mpt on PATH", () => {
-  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-bridge-"));
-  try {
-    fs.copyFileSync(BRIDGE_SCRIPT, path.join(dir, "mpt"));
-    assertEquals(findLegacyBridges([dir, path.join(dir, "missing")].join(path.delimiter)), [path.join(dir, "mpt")]);
-  } finally {
-    fs.rmSync(dir, { recursive: true, force: true });
-  }
-});
-
-test("node: a bridge on PATH warns, says it works, and names the file to delete", () => {
-  const c = find(nodeChecks(nodeFacts({ legacyBridges: ["/usr/local/bin/mpt"] })), "mpt bridge");
-  assertEquals(c.status, "warn");
-  assertStringIncludes(c.detail, "it works");
-  assertStringIncludes(c.fix!, "rm /usr/local/bin/mpt");
-});
-
-test("node: a service that launches the bridge is told apart from an old binary", () => {
-  const checks = nodeChecks(nodeFacts({ service: { node: "/usr/local/bin/mpt", entry: null }, serviceEntryMatches: false, serviceIsBridge: true }));
-  const service = checks.filter((c) => c.name.startsWith("Service"));
-  assertEquals(service.length, 1);
-  assertStringIncludes(service[0]!.detail, "bridge");
-  assertStringIncludes(service[0]!.fix!, "mpt install");
 });
 
 // ─── Plugins ─────────────────────────────────────────────────────────

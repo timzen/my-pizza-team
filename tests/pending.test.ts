@@ -6,9 +6,10 @@
  * one-way: it makes the WorkDef eligible (Solitary: enqueued; Board: admitted;
  * Scheduled: next cron) and locks its definition against further PUTs.
  *
- * Also covers the pre-rename spellings: `draft: true` frontmatter loads as
- * pending, and the deprecated `draft` request field / `POST …/publish` route
- * still work for one release.
+ * Also covers the pre-rename request spellings: the deprecated `draft` request
+ * field / `POST …/publish` route still work for one release. (A `draft: true`
+ * *file* is no longer read as pending: a team still spelling it is from before
+ * 0.36.0 and is refused at startup — tests/layout-check.test.ts.)
  */
 
 import { test } from "node:test";
@@ -27,13 +28,9 @@ test("pending frontmatter round-trips; absent means active", () => {
   assert(!serializeWorkDef({ id: "p", title: "T", goal: "g", acceptanceCriteria: "a" }).includes("pending"));
 });
 
-test("legacy draft: true frontmatter loads as pending and is rewritten as pending", () => {
+test("the pre-rename draft: true frontmatter is not read as pending", () => {
   const legacy = "---\ntitle: \"Old\"\ndraft: true\n---\n## Goal\n\ng\n\n## Acceptance Criteria\n\na\n\n## Additional Context\n\n";
-  const def = parseWorkDef("old", legacy)!;
-  assertEquals(def.pending, true);
-  const rewritten = serializeWorkDef(def);
-  assert(rewritten.includes("pending: true"));
-  assert(!rewritten.includes("draft"));
+  assertEquals(parseWorkDef("old", legacy)!.pending, undefined);
 });
 
 test("a Solitary pending task is not enqueued, can't be Run, and stays editable", async () => {

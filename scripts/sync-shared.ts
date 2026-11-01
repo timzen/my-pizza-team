@@ -56,6 +56,7 @@ export const RUNTIME_TARGET_DIR = new URL("harnesses/pi/src/runtime/", ROOT);
 const EXPORTED: Record<string, string> = {
   TEAM_DIR: "string",
   LEGACY_TEAM_DIR: "string",
+  PRE_CUTOFF_UPGRADE_MESSAGE: "string",
   DEFAULT_DAEMON_URL: "string",
   DEFAULT_TMUX_SESSION: "string",
   LEADER_WINDOW: "string",

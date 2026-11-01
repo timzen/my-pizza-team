@@ -35,6 +35,19 @@ number. Delete an item when it's done.
   shape, `WorkSourcesResponse`) and sub-routes, and `defaultExternalToggle` gates
   both, so an older CLI or script keeps working. Remove the alias, the
   `WorkSourcesResponse` type and the extra toggle routes after a release.
+- **Deprecated request aliases:** `draft` (WorkDef / board-task create) and
+  `POST /api/work-defs/:id/publish`, and story `paused`
+  (`daemon/routes/work-defs.ts` `requestsPending`, `routes/stories.ts`
+  `requestsStoryPending`) are still accepted "for one release". They're request
+  shapes, not team layouts, so the pre-0.36.0 cutoff didn't remove them; drop
+  them (and the `@deprecated` protocol fields) with the alias above.
+- **Pre-0.36.0 refusal:** `daemon/layout-check.ts` and
+  `daemon/store/schema.ts` `preCutoffSchemaFindings` refuse layouts older than
+  0.36.0 (docs/DESIGN.md "Upgrading from before 0.36.0"). When the cutoff moves
+  up, raise `MIN_UPGRADE_FROM_VERSION` / `PRE_CUTOFF_UPGRADE_MESSAGE`; once it is
+  past 0.36.x, `preCutoffSchemaFindings` can refuse every version-0 database
+  outright (migration 1 stays — shipped migrations aren't edited). The context-library notice
+  (`Store.getNotices`) can go once no supported team can still carry one.
 
 ## Work Sources as plugins — package loading — built
 
@@ -85,12 +98,12 @@ One persona library (`personas/<id>.md`, `builtin:*`, package `<name>/<id>`)
 replaces workflow state files, `triage.md`, the assistant's context-library persona,
 and the context library itself; everything selects a persona by id through
 `resolvePersona`. Shipped in the Unified Personas story: the library and built-ins,
-the API, the on-load migration (steps 1–7), WorkDef `persona`, the WorkItem snapshot
+the API, the on-load migration (0.34–0.36; removed since — pre-0.36.0 teams are refused), WorkDef `persona`, the WorkItem snapshot
 (recorded at claim), every prompt path, the Pi tools (`list_personas`, `persona`
 params), Work Source personas, the UI (Config → Personas, pickers, the
 triage-persona-required state, in-flight chips, the notices strip), persona packages
 (the loader's `mpt.personas`, `mpt plugins` and the doctor), and the demo team
-(mpt-demo-team's fixtures, legacy-layout migration check and persona package).
+(mpt-demo-team's fixtures, the pre-0.36.0 refusal check and persona package).
 Deferred on purpose:
 
 - **Composition / inheritance:** a persona that extends another (a team "reviewer"
@@ -123,7 +136,7 @@ Open questions (decide while building, or leave as-is and record why):
   every `usedBy` reference in one step) instead of a plain 409.
 - **Package personas and `config`:** a package might want per-team values in its
   persona text (a team name, a queue URL); that's templating, deferred above.
-- **Notices surface:** the migration notice is the first `/api/status` `notices`
+- **Notices surface:** the (0.34–0.36) migration notice is the only `/api/status` `notices`
   entry (dismissed with `DELETE /api/notices/:id`, held in SQLite `settings`); if a
   second kind appears, give notices their own store.
 

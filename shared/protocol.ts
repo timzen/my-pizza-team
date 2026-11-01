@@ -71,7 +71,8 @@ export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   assistantChatMode: AssistantChatMode;
   /**
    * One-line, dismissable notices (`DELETE /api/notices/:id`) — today only the
-   * persona migration's "the context library was removed" line.
+   * "the context library was removed" line 0.34–0.36's persona migration left,
+   * until it's dismissed.
    */
   notices: Array<{ id: string; message: string }>;
 }

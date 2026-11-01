@@ -13,7 +13,6 @@ import { existsSync } from "node:fs";
 import { spawn, spawnSync } from "node:child_process";
 import { install, uninstall, detectInstalledService } from "./service.ts";
 import { defaultUpgradeDeps, runUpgrade } from "./upgrade.ts";
-import { adoptLegacyInstall } from "./legacy.ts";
 import { ensureNodeForCommand } from "./node-choice.ts";
 import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/runtime-config.ts";
 import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
@@ -43,7 +42,7 @@ import {
 } from "./setup.ts";
 import { generateToken, resolveToken } from "../daemon/auth.ts";
 import { fetchPluginStatuses, runPlugins, runPluginCommand } from "./plugins.ts";
-import { resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
+import { refusePreCutoffLayout, resolveTeamDir, startDaemonInProcess } from "../daemon/start.ts";
 import { mptInvocation } from "../daemon/self.ts";
 import { isMainModule } from "../shared/main-module.ts";
 import { cmdAgent, cmdSetupHarness } from "./agent.ts";
@@ -94,6 +93,10 @@ async function cmdStart(args: string[]): Promise<void> {
   const teamDir = getTeamDir();
   const port = getPort();
   const hostname = process.env["HOST"] || "127.0.0.1";
+
+  // Here too, not only in the daemon, so `start --daemon` says why in this
+  // terminal instead of "exited during startup" (daemon/layout-check.ts).
+  refusePreCutoffLayout(teamDir);
 
   // Check if already running
   const pid = readPid(teamDir);
@@ -719,6 +722,8 @@ export async function main(): Promise<void> {
       if (args.includes("--foreground-internal")) {
         // The background child `start --daemon` launches: no terminal, so log to a file.
         const teamDir = getTeamDir();
+        // Before the mkdir below, which would hide a lone pre-rename .pi-pizza-team.
+        refusePreCutoffLayout(teamDir);
         fs.mkdirSync(teamDir, { recursive: true });
         redirectOutputToLog(teamDir);
         const port = getPort();
@@ -765,11 +770,6 @@ export async function main(): Promise<void> {
       break;
     case "write-extension-internal":
       cmdWriteExtensionInternal();
-      break;
-    // Hidden: scripts/legacy-bridge.sh runs this once, after moving an old
-    // compiled-binary install onto the npm package (cli/legacy.ts).
-    case "adopt-legacy-internal":
-      process.exitCode = await adoptLegacyInstall(args.slice(1));
       break;
     case "--help":
     case "-h":

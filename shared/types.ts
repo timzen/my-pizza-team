@@ -490,8 +490,7 @@ export interface WorkDef {
    * While true the definition is editable and the daemon never creates a WorkItem
    * for it — not on Run, not on cron, not on board admission. Activating clears it
    * (one-way), which locks the definition and lets its parent enqueue it. Absent =
-   * active, so every WorkDef written before pending existed is active. Files that
-   * still carry the legacy `draft: true` load as pending.
+   * active, so every WorkDef written before pending existed is active.
    */
   pending?: boolean;
   /**
@@ -632,8 +631,7 @@ export interface Story {
   /**
    * When true the story is **pending**: none of its tasks are admitted or handed
    * out (an in-flight task finishes; nothing new starts), and stories that
-   * `dependsOn` it wait. Reversible (active ⇄ pending). Replaces the old
-   * `paused` flag and the `backlog/` directory, both migrated on load. See
+   * `dependsOn` it wait. Reversible (active ⇄ pending). See
    * docs/DESIGN.md "Pending: Write, Review, Activate".
    */
   pending?: boolean;
@@ -909,8 +907,22 @@ export const DEFAULT_CONFIG: TeamConfig = {
 
 /** Team directory name. */
 export const TEAM_DIR = ".my-pizza-team";
-/** Team directory name before the rename; still recognised when discovering one. */
+/**
+ * Team directory name before the rename. Never used as a team directory any more:
+ * finding only this one (and no `TEAM_DIR`) is reported as a pre-0.36.0 layout
+ * (daemon/layout-check.ts; docs/DESIGN.md "Upgrading from before 0.36.0").
+ */
 export const LEGACY_TEAM_DIR = ".pi-pizza-team";
+/**
+ * The oldest version a team can upgrade from. A team last run on an older one is
+ * refused at startup (daemon/layout-check.ts) instead of being migrated: it has
+ * to be started once on 0.36.x first, which migrates it.
+ */
+export const MIN_UPGRADE_FROM_VERSION = "0.36.0";
+/** What to do about a pre-0.36.0 team: the one message the daemon, `mpt doctor` and the extension print. */
+export const PRE_CUTOFF_UPGRADE_MESSAGE =
+  "This team was last run on a version older than 0.36.0. Install my-pizza-team 0.36.x " +
+  "(`npm i -g my-pizza-team@0.36`), start it once to migrate, then upgrade again.";
 /** Where a harness looks for the daemon when nothing else says otherwise. */
 export const DEFAULT_DAEMON_URL = "http://localhost:7437";
 
@@ -990,12 +1002,6 @@ export function resolveMinTeammates(config: Pick<TeamConfig, "maxTeammates" | "m
 }
 export const STATE_DB = "state.db";
 export const STORIES_DIR = "stories";
-/**
- * Legacy: archived stories used to move to `archived/<id>.json`. They now stay in
- * `stories/<id>.json` with `archivedAt` set; only the load-time migration
- * (daemon/store/story-migration.ts) and old-layout readers use this.
- */
-export const ARCHIVED_DIR = "archived";
 export const WORKFLOWS_DIR = "workflows";
 /** Directory holding every WorkDef (`tasks/<id>/workdef.md` + comments + attachments). */
 export const WORKDEFS_DIR = "tasks";
@@ -1005,14 +1011,6 @@ export const SCHEDULES_DIR = "schedules";
 export const TEMPLATES_DIR = "templates";
 /** Directory holding the team's persona library (`personas/<id>.md`; docs/DESIGN.md "Personas"). */
 export const PERSONAS_DIR = "personas";
-/**
- * The former context library (`context/<id>.md`). Nothing reads it any more; the
- * persona migration (daemon/personas/migrate.ts) moves it to
- * `CONTEXT_ARCHIVE_DIR`.
- */
-export const LEGACY_CONTEXT_DIR = "context";
-/** Where the persona migration archives the former context library. */
-export const CONTEXT_ARCHIVE_DIR = "context.migrated";
 
 /**
  * Directory holding assistant-chat artifacts. Session transcripts are markdown
@@ -1029,12 +1027,6 @@ export const ASSISTANT_SESSIONS_DIR = "sessions";
 
 /** Directory holding thought notes (`thoughts/<id>.md`); groups live in `groups.json`. */
 export const THOUGHTS_DIR = "thoughts";
-/**
- * The former team-wide triage instructions file. Nothing reads it any more: the
- * persona migration turns it into a team persona and sets `triage.persona`
- * (docs/DESIGN.md "Personas" — Migration).
- */
-export const LEGACY_TRIAGE_INSTRUCTIONS_FILE = "triage.md";
 export const THOUGHT_GROUPS_FILE = "groups.json";
 
 /**

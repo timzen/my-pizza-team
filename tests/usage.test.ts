@@ -6,7 +6,6 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertAlmostEquals, assertEquals } from "./_assert.ts";
 import { makeTeam, withTeam, post } from "./_team.ts";
@@ -114,50 +113,13 @@ test("files: a lost state.db is rebuilt from the ledger files", () => {
   }
 });
 
-test("files: first boot migrates task.json mirrors (incl. archived stories), idempotently", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-migrate-"));
+test("files: a new team gets an empty usage/ ledger on first boot", () => {
+  const { store, teamDir } = makeTeam({ minTeammates: 0 });
   try {
-    fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-    // An archived board task that mirrored its usage into task.json…
-    const taskDir = path.join(teamDir, "archived", "s1", "tasks", "s1-1");
-    fs.mkdirSync(taskDir, { recursive: true });
-    const mirrored = { inputTokens: 18, outputTokens: 4068, model: "opus", costUsd: 0.061074, at: "2026-07-16T20:35:28.254Z" };
-    fs.writeFileSync(path.join(taskDir, "task.json"), JSON.stringify({ id: "s1-1", title: "Old task", tokenUsage: [mirrored] }));
-    // First boot on this version: no usage/ dir yet, so it migrates.
-    const db = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
-    const julyRuns = db.getUsageRunsOnDay({ date: "2026-07-16", tzOffsetMin: 0 });
-    assertEquals(julyRuns.length, 1);
-    assertEquals(julyRuns[0]!.title, "Old task");
-    db.close();
-    const again = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
-    assertEquals(again.getUsageRunsOnDay({ date: "2026-07-16", tzOffsetMin: 0 }).length, 1);
-    const lines = fs.readFileSync(path.join(teamDir, "usage", "2026-07.jsonl"), "utf8").trim().split("\n");
-    assertEquals(lines.length, 1);
-    again.close();
+    assertEquals(fs.readdirSync(path.join(teamDir, "usage")), []);
+    assertEquals(store.getUsageRunsOnDay({ date: "2026-09-01", tzOffsetMin: 0 }).length, 0);
   } finally {
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
-});
-
-test("files: a DB row and its task.json mirror dedupe to one entry", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-dedup-"));
-  try {
-    fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-    // Boot once and record a board-task run the old way (DB only)…
-    const s1 = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
-    const at = Date.UTC(2026, 6, 1, 10);
-    s1.recordRunUsage({ refId: "t-1", inputTokens: 5, outputTokens: 6, model: "m", costUsd: 0.2, kind: "work", at });
-    s1.close();
-    // …then pretend the ledger files never existed, with the mirror present.
-    fs.rmSync(path.join(teamDir, "usage"), { recursive: true, force: true });
-    fs.mkdirSync(path.join(teamDir, "tasks", "t-1"), { recursive: true });
-    fs.writeFileSync(path.join(teamDir, "tasks", "t-1", "task.json"), JSON.stringify({
-      id: "t-1", title: "T", tokenUsage: [{ inputTokens: 5, outputTokens: 6, model: "m", costUsd: 0.2, at: new Date(at).toISOString() }],
-    }));
-    const s2 = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
-    assertEquals(s2.getUsageRunsOnDay({ date: "2026-07-01", tzOffsetMin: 0 }).length, 1);
-    s2.close();
-  } finally {
+    store.close();
     try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }
 });
@@ -171,38 +133,6 @@ test("files: a malformed ledger line is skipped, not fatal", () => {
     const fresh = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
     assertEquals(fresh.getUsageRunsOnDay({ date: "2026-09-02", tzOffsetMin: 0 }).length, 1);
     fresh.close();
-  } finally {
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
-  }
-});
-
-test("migration: an old token_usage with a FK to tasks is rebuilt (rows kept, FK gone)", async () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-usage-fk-"));
-  try {
-    fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-    // A current schema, then swap in the early token_usage (FK to tasks) with
-    // one row, and no ledger files — as an old team dir has it (from before
-    // schema versioning, so user_version 0).
-    new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 }).close();
-    fs.rmSync(path.join(teamDir, "usage"), { recursive: true, force: true });
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(path.join(teamDir, "state.db"));
-    db.exec(`PRAGMA user_version = 0;
-      DROP TABLE token_usage;
-      CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id),
-        input_tokens INTEGER, output_tokens INTEGER, model TEXT, cost_usd REAL, recorded_at INTEGER);
-      PRAGMA foreign_keys = OFF;
-      INSERT INTO token_usage (task_id, input_tokens, output_tokens, model, cost_usd, recorded_at)
-        VALUES ('t-gone', 3, 557, 'opus', 0.008, ${Date.UTC(2026, 7, 3)});`);
-    db.close();
-
-    const store = new Store(teamDir, { ...structuredClone(TEST_CONFIG), minTeammates: 0 });
-    // The old row survived the rebuild and made it into the ledger files…
-    assertEquals(store.getUsageRunsOnDay({ date: "2026-08-03", tzOffsetMin: 0 }).length, 1);
-    // …and a ref-less run (which the FK used to reject) now records.
-    store.recordRunUsage({ inputTokens: 1, outputTokens: 1, model: "m", costUsd: 0.1, kind: "chat", at: Date.UTC(2026, 7, 4) });
-    assertEquals(store.getUsageRunsOnDay({ date: "2026-08-04", tzOffsetMin: 0 }).length, 1);
-    store.close();
   } finally {
     try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* ignore */ }
   }

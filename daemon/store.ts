@@ -56,7 +56,6 @@ import { saveTeamConfig } from "../shared/team-config.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import type { TeamPersonaInput } from "./personas/library.ts";
 import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
-import { CONTEXT_NOTICE_KEY, migrateToPersonas } from "./personas/migrate.ts";
 import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
@@ -108,6 +107,12 @@ export type { AcceptProposalOptions, ProposalResult, TriageProposalOverrides, Tr
 
 /** `ctx.options()` of a source registered without settings (the built-ins). */
 const EMPTY_SOURCE_OPTIONS: Readonly<Record<string, unknown>> = Object.freeze({});
+
+/**
+ * The settings key holding the context-library notice the persona migration
+ * (0.34–0.36) raised; dismissing the notice deletes it.
+ */
+const CONTEXT_NOTICE_KEY = "notice:context-library-removed";
 
 export class Store {
   private db: DatabaseSync;
@@ -268,8 +273,9 @@ export class Store {
     this.db = new DatabaseSync(dbPath);
     this.db.exec("PRAGMA journal_mode = WAL");
     this.db.exec("PRAGMA busy_timeout = 5000");
-    // Numbered migrations against PRAGMA user_version (store/schema.ts).
-    migrateSchema(this.db);
+    // Numbered migrations against PRAGMA user_version (store/schema.ts). A
+    // pre-0.36.0 database throws; close it rather than leak the handle.
+    try { migrateSchema(this.db); } catch (e) { this.db.close(); throw e; }
     cleanRetiredData(this.db);
     const domain = { db: this.db, teamDir, config };
     this.threads = new ThreadStore(domain, {
@@ -324,17 +330,10 @@ export class Store {
       getActiveWorkItem: (id) => this.queue.getActiveWorkItem(id),
       setWorkItemStateRow: (id, state) => this.queue.setWorkItemStateRow(id, state),
     });
-    // Before workflows load: legacy state files, triage.md, and the context
-    // library become personas (docs/DESIGN.md "Migration"). A no-op once done.
-    migrateToPersonas({
-      teamDir, config, db: this.db,
-      saveConfig: () => this.saveConfig(),
-      commit: (message) => { if (config.autosave?.autoCommit) this.commitToGit(message); },
-    });
     // Session persona titles come from the persona library (the persona domain).
     this.chat = new AssistantChat(this.db, teamDir, (id) => this.getPersona(id)?.title ?? null);
     // Usage: the `usage/*.jsonl` files are the source of truth; rebuild the
-    // SQLite cache from them (migrating the pre-files ledger on first boot).
+    // SQLite cache from them.
     syncUsageLedger(this.db, teamDir);
     this.resetConnectionsForBoot();
     this.board.reloadWorkflows();
@@ -1711,7 +1710,11 @@ export class Store {
 
   // --- Notices (one-line, dismissable; carried by /api/status) ---
 
-  /** The current notices (today: the context-library migration's), for `/api/status`. */
+  /**
+   * The current notices, for `/api/status`. Today the only one is the line
+   * 0.34–0.36's persona migration left in the settings table when it archived a
+   * context library (`CONTEXT_NOTICE_KEY`); it stays until dismissed.
+   */
   getNotices(): Array<{ id: string; message: string }> {
     const message = this.getSetting(CONTEXT_NOTICE_KEY);
     return message ? [{ id: "context-library-removed", message }] : [];

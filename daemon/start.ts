@@ -20,6 +20,7 @@ import { resolveToken, validateBindSafety } from "./auth.ts";
 import { harnessCapability, probeTmuxCapability, realizePending } from "./spawner.ts";
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
+import { findPreCutoffLayout, formatPreCutoffMessage } from "./layout-check.ts";
 import { TEAM_DIR } from "../shared/types.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
 import { serve } from "@hono/node-server";
@@ -41,6 +42,18 @@ export function resolveTeamDir(env: string | undefined = process.env["TEAM_DIR"]
 }
 
 /**
+ * Refuse a team last run on a version older than 0.36.0 (daemon/layout-check.ts):
+ * print what was found and the upgrade path, and exit non-zero. Returns only when
+ * the team dir is in the current layout (or doesn't exist yet).
+ */
+export function refusePreCutoffLayout(teamDir: string): void {
+  const findings = findPreCutoffLayout(teamDir);
+  if (findings.length === 0) return;
+  console.error(`❌ ${formatPreCutoffMessage(teamDir, findings)}`);
+  process.exit(1);
+}
+
+/**
  * Start the daemon server in the current process.
  * This is what foreground CLI mode, the background child and the service all use.
  */
@@ -49,6 +62,10 @@ export async function startDaemonInProcess(
   port: number,
   hostname: string,
 ): Promise<void> {
+  // Before anything is created or opened: a pre-0.36.0 team is refused, not
+  // migrated (docs/DESIGN.md "Upgrading from before 0.36.0").
+  refusePreCutoffLayout(teamDir);
+
   // Ensure team directory exists
   if (!existsSync(teamDir)) {
     fs.mkdirSync(teamDir, { recursive: true });

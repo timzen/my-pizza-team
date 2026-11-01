@@ -17,6 +17,7 @@ import { loadTeamConfig } from "../shared/team-config.ts";
 import * as path from "node:path";
 import { existsSync } from "node:fs";
 import { errorMessage } from "../shared/util.ts";
+import { assertCurrentLayout } from "./layout-check.ts";
 
 export interface AppContext {
   app: Hono;
@@ -32,12 +33,16 @@ export interface CreateAppOptions {
 
 /**
  * Create the full app with store, or a minimal app for health-only mode.
+ * Throws `PreCutoffLayoutError` on a team last run before 0.36.0.
  * Async because plugin packages (`config.packages`) are loaded with `import()`
  * before the timers start; a failing plugin is logged, never thrown. Configured
  * npm/git packages that aren't installed are installed first (pi-style), each
  * on its own: one that fails is reported in its load status and skipped.
  */
 export async function createApp(teamDir?: string, opts: CreateAppOptions = {}): Promise<AppContext> {
+  // A pre-0.36.0 team throws PreCutoffLayoutError before the Store opens it
+  // (daemon/layout-check.ts; daemon/start.ts checks first, to exit cleanly).
+  if (teamDir) assertCurrentLayout(teamDir);
   if (teamDir && existsSync(teamDir)) {
     // Merged with defaults so missing fields don't crash (shared/team-config.ts).
     const config = loadTeamConfig(teamDir);
@@ -55,7 +60,7 @@ export async function createApp(teamDir?: string, opts: CreateAppOptions = {}): 
     store.setPluginStatuses(await loadPlugins(store, config, teamDir, { installErrors }));
     // Work Source personas (docs/DESIGN.md "Work Source personas"), once every
     // source and package persona is registered: seed a triage plugin's triage
-    // persona (migration step 3), then warn about declared ids that don't resolve.
+    // persona when it declares none, then warn about declared ids that don't resolve.
     store.seedSourceTriagePersonas();
     store.checkDeclaredSourcePersonas();
     store.loadFromDisk();

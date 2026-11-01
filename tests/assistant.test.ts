@@ -9,12 +9,9 @@
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals, assertExists, assertStringIncludes } from "./_assert.ts";
 import { makeTeam, withTeam, post, put } from "./_team.ts";
-import { TEST_CONFIG } from "./_config.ts";
-import { Store } from "../daemon/store.ts";
 import {
   ASSISTANT_CHAT_FRAMING, ASSISTANT_TERMINAL_FRAMING, assistantFraming, composeSystemPrompt,
 } from "../daemon/routes/assistant.ts";
@@ -384,50 +381,6 @@ test("persona swap ends the session (snapshotted) instead of wiping the chat", a
     // The agent is asked to roll its Pi session so its context matches.
     assertEquals(store.getMemberDirectives("leader").some((d) => d.action === "new-session"), true);
   });
-});
-
-// ─── Migration ───────────────────────────────────────────────────────
-
-test("vestiges of the v1 turn model are dropped, not carried", async () => {
-  // The v1 → v2 migration is gone (P1c-5): no deployment ever carried v1 data, so
-  // folding it into a `legacy-*` session was dead code. What remains is cleanup —
-  // a database created back then still has the turn table and columns, and opening
-  // it should leave none of them behind.
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-asst-v1-vestige-"));
-  fs.mkdirSync(path.join(teamDir, "stories"), { recursive: true });
-  try {
-    const { DatabaseSync } = await import("node:sqlite");
-    const db = new DatabaseSync(path.join(teamDir, "state.db"));
-    db.exec(`
-      CREATE TABLE assistant_messages (
-        seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, role TEXT, content TEXT,
-        status TEXT DEFAULT 'done', turn_id TEXT, created_at INTEGER
-      );
-      CREATE TABLE assistant_turns (id TEXT PRIMARY KEY, status TEXT, claimed_at INTEGER, created_at INTEGER);
-    `);
-    db.close();
-
-    // Opening the Store runs the migrations; inspect the file afterwards rather
-    // than reaching into its private connection.
-    new Store(teamDir, TEST_CONFIG).close();
-
-    const check = new DatabaseSync(path.join(teamDir, "state.db"));
-    try {
-      const columns = (check.prepare("PRAGMA table_info(assistant_messages)").all() as Array<{ name: string }>)
-        .map((c) => c.name);
-      assertEquals(columns.includes("turn_id"), false, "turn_id should be dropped");
-      assertEquals(columns.includes("status"), false, "the v1 status column should be dropped");
-      // And the v2 columns are present, so the table is usable.
-      for (const col of ["session_id", "origin", "delivery", "state", "reply_to"]) {
-        assertEquals(columns.includes(col), true, `${col} should exist`);
-      }
-      const tables = (check.prepare("SELECT name FROM sqlite_master WHERE type='table'").all() as Array<{ name: string }>)
-        .map((t) => t.name);
-      assertEquals(tables.includes("assistant_turns"), false, "the v1 turn table should be dropped");
-    } finally { check.close(); }
-  } finally {
-    try { fs.rmSync(teamDir, { recursive: true, force: true }); } catch { /* */ }
-  }
 });
 
 test("the leader is the chat agent; the inbox is gated on designation", async () => {

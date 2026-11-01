@@ -173,36 +173,37 @@ restart them for you.
 Running from source, `mpt upgrade` just points you at `git pull` (then `npm
 install`, `mpt setup` to rewrite the managed extension, and restart the daemon).
 
-### Migrating from the binary
+### Upgrading from before 0.36.0
 
-Releases up to 0.27 shipped `mpt` as a single compiled binary (built with Deno).
-From 0.28 mpt is the npm package `my-pizza-team` and runs on Node.js >=24. With
-Node.js 24 or newer installed, the old binary's own `mpt upgrade` moves you
-across: it installs a small bridge script in the binary's place, which installs
-the npm package with your Node's npm, records that Node, re-points the service at
-it, and from then on hands every `mpt` call to the package. Without a usable Node
-(or if npm can't install), the bridge says why and puts the v0.27.0 binary back,
-so `mpt` keeps working — install Node and run `mpt upgrade` again.
+**0.36.0 is the oldest version a team can upgrade from.** Up to 0.36.x the daemon
+migrated older team layouts on load (the story `paused` flag and `backlog/`,
+`archived/<id>.json`, `draft: true` WorkDefs, the context library, `triage.md`
+and workflow state files becoming personas, older `state.db` shapes, usage kept
+only in the database). Those migrations are gone. A team that has started once on
+0.36.x is fully migrated and upgrades normally; on an older one the daemon
+**refuses to start**, listing what it found, and `mpt doctor` fails a "Team
+layout" check with the same fix:
 
-Afterwards `mpt doctor` points out the leftover: the bridge still sits at the old
-binary's path ("mpt bridge"); delete it once npm's own `mpt` is on your PATH. On
-Windows, or to do it by hand:
-
-```bash
-rm /usr/local/bin/mpt      # delete the old binary first, wherever it is (`which -a mpt`)
-hash -r                    # so your shell forgets the old path
-npm i -g my-pizza-team     # Node >=24
-mpt setup                  # asks which Node runs mpt; rewrites the Pi extension
-mpt install                # rewrites the service to run <node> <package>/dist/main.js
+```text
+This team was last run on a version older than 0.36.0. Install my-pizza-team 0.36.x
+(`npm i -g my-pizza-team@0.36`), start it once to migrate, then upgrade again.
 ```
 
-(Delete the old binary first: if it comes earlier on PATH than npm's `mpt`,
-`mpt setup` and `mpt install` would otherwise run the old one.)
+So: `npm i -g my-pizza-team@0.36`, `mpt start` once in the team's project (it
+migrates and keeps running — `mpt stop` it), then `mpt upgrade`. A team directory
+still named `.pi-pizza-team` (with no `.my-pizza-team` beside it) is reported too:
+rename it to `.my-pizza-team`; and 0.36.x only rewrote a WorkDef's `draft: true`
+when it was saved, so change any it reports to `pending: true` by hand. Leftover
+nested folder-per-story directories (`backlog/<id>/…`, `archived/<id>/…`) aren't a
+sign of an old team and are ignored.
 
-Your team directory, config and data are untouched. `mpt doctor` warns about
-both leftovers: an `mpt` on PATH that is a native binary ("Old mpt binary"), and a
-service that still launches the binary directly ("Service entry … an old
-compiled-binary install").
+The same goes for the old compiled binary (releases up to 0.27, built with Deno):
+mpt is the npm package `my-pizza-team` now, and releases no longer carry the
+bridge that let the binary's own `mpt upgrade` move across. Delete the binary
+(`which -a mpt`, then `hash -r`), install Node.js >=24 and `npm i -g
+my-pizza-team@0.36`, run `mpt setup` and `mpt install`, start the team once, then
+upgrade. `mpt doctor` still warns about a service that launches a program with no
+entry script ("Service entry … an old compiled-binary install").
 
 ---
 
@@ -383,7 +384,7 @@ Inbox are always on, so every kind can be off at once.
 │   └── nightly.json
 ├── templates/           # reusable molds for Solitary tasks (never enqueued)
 │   └── investigate-ticket/template.md
-├── context.migrated/    # only if you had a context library: archived by the persona migration
+├── context.migrated/    # only on a team 0.34–0.36 migrated: its former context library (nothing reads it)
 ├── assistant/
 │   └── sessions/        # one markdown transcript per chat session
 ├── thoughts/            # Thoughts board notes (thoughts/<id>.md)
@@ -430,9 +431,10 @@ pending** in the UI; the assistant's `add_task` / `create_task` / `create_schedu
 take `pending` too). A pending WorkDef is editable and never gets a WorkItem — a
 pending board task holds its place, so its story waits there.
 `POST /api/work-defs/:id/activate` ends pending and locks the definition; from then
-on revisions go through the thread plus a re-run. Existing WorkDefs are active, and
-files with the old `draft: true` load as pending. For one release the API still
-accepts the old `draft` request field and `POST …/publish` as deprecated aliases.
+on revisions go through the thread plus a re-run. Existing WorkDefs are active. For
+one release the API still accepts the old `draft` request field and `POST …/publish`
+as deprecated aliases (a `draft: true` *file* is from before 0.36.0 — see
+"Upgrading from before 0.36.0").
 See [docs/DESIGN.md](docs/DESIGN.md#pending-write-review-activate).
 
 **Pending stories.** A story is active or **pending**, and unlike a WorkDef it can go
@@ -442,12 +444,10 @@ page's **Make pending** / **Activate**, and the assistant's `create_story` /
 `edit_story` `pending`). A pending story hands out nothing new — a task already
 running finishes, but no task is admitted and no READY item is offered — and stories
 that `dependsOn` it wait. Activating resumes it where it was. Pending replaced the old
-story `paused` flag and the `backlog/` directory: on load, `paused: true` becomes
-`pending: true` and `backlog/<id>.json` moves back to `stories/` as pending
-(`backloggedAt` dropped). Archived stories likewise used to move to `archived/`;
-they now stay in `stories/` with `archivedAt` set, and a legacy `archived/<id>.json`
-moves back on load. For one release the API still accepts `paused` as an
-alias of `pending`.
+story `paused` flag and the `backlog/` directory, and archived stories stay in
+`stories/` with `archivedAt` set (0.36.x migrated the old files; see "Upgrading
+from before 0.36.0"). For one release the API still accepts `paused` as an alias
+of `pending`.
 
 **Pending schedules.** A Schedule (a Scheduled job's cron parent) can also go
 active ⇄ pending (`PUT /api/schedules/:id { pending }`, `POST
@@ -506,15 +506,13 @@ edit/view link. While a teammate works, a ✦ chip shows the persona it was give
 tab, Queue, the watch view's header, a task's **Runs**), linked to the persona or
 marked "(deleted)" if it's gone since. See GUIDE.md "Personas".
 
-**Upgrading a team.** On its first start, the daemon migrates the old layout in
-one commit: `workflows/<wf>/<state>.md` files, `triage.md`, and context-library
-entries tagged `persona` become personas (and are selected where they were used).
-The **context library is gone** — project knowledge belongs in the project's own
-AGENTS.md / README. Entries that were attached to stories or tasks are inlined into
-those tasks' Additional Context, so prompts carry the same text, and `context/` is
-archived to `context.migrated/`. A triage-mode plugin source that declares no
-triage persona gets the team's triage persona as its per-source choice, once, so
-it keeps syncing.
+**From the pre-persona layout.** The **context library is gone** — project
+knowledge belongs in the project's own AGENTS.md / README. 0.34–0.36 migrated the
+old layout (`workflows/<wf>/<state>.md` files, `triage.md`, persona-tagged context
+entries, attached context) on load; a team still in it is refused — see "Upgrading
+from before 0.36.0". A triage-mode plugin source that declares no triage persona
+gets the team's triage persona (else `builtin:triage`) as its per-source choice,
+once, so it keeps syncing.
 
 Manual states need no persona. Create workflows and edit their states under
 **Config → Workflows** (`/config/workflows`); every story names its workflow at
@@ -814,10 +812,9 @@ the `npm pack` tarball (installs it into a scratch prefix and runs
 if that version is already on npm, so re-running a tag only redoes the GitHub
 Release). A best-effort job builds the macOS menu bar app, signs and notarizes it,
 and the GitHub Release gets generated notes, the smoke-tested
-`my-pizza-team-<version>.tgz`, the DMG, and `scripts/legacy-bridge.sh` under the
-old binary asset names (`mpt-darwin-arm64`, … plus `checksums.sha256`), which is
-what an old binary's `mpt upgrade` downloads (see "Migrating from the binary"). There are no per-platform binaries or
-checksums any more; users install with `npm i -g my-pizza-team` and upgrade with
+`my-pizza-team-<version>.tgz` and the DMG. There are no per-platform binaries or
+checksums any more (nor the bridge for the old binary's `mpt upgrade` that releases
+up to 0.36.x carried — see "Upgrading from before 0.36.0"); users install with `npm i -g my-pizza-team` and upgrade with
 `mpt upgrade`.
 
 npm publishing uses **Trusted Publishing** — no npm token. The package's trusted

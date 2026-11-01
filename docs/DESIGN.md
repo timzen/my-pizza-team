@@ -765,9 +765,9 @@ see "Old spellings" below.)
   `edit_task` revise a pending task, so the assistant can write work up for
   review. `activate_task` exists, but its guidance is to use it only when you
   ask: the point of pending is that a human reads it first.
-- **Old spellings.** A `workdef.md` with the pre-rename `draft: true` loads as
-  pending and is rewritten as `pending: true` on its next save — no migration
-  pass. For one release the API also accepts `draft: true` in create requests
+- **Old spellings.** A `workdef.md` with the pre-rename `draft: true` is from
+  before 0.36.0 and is refused at startup (see "Upgrading from before 0.36.0"). For
+  one release the API still accepts `draft: true` in create requests
   (WorkDefs, board tasks, a story's inline `tasks[]`) and `POST
   /api/work-defs/:id/publish` as aliases, so an older Pi extension keeps working
   against a newer daemon; responses only carry `pending`. Both aliases go in the
@@ -802,13 +802,10 @@ transitively depended on it — was moved into).
   write, not a file move plus a reload. The UI, API (`pending` on create/PUT,
   `POST …/pending|activate`), and the assistant's `create_story` / `edit_story`
   all say *pending*.
-- **Migrated on load, once.** `loadFromDisk` first rewrites old files
-  (`store/story-migration.ts`): `paused: true` → `pending: true`, and
-  `backlog/<id>.json` back to `stories/` as pending with `backloggedAt` dropped
-  (a board task's WorkDef never moved, so nothing else is needed). Old fields and
-  the empty directory are removed, so it's idempotent. A backlog file whose id is
-  already a live story is left alone and warned about — never clobber live work.
-  For one release the API also accepts `paused` as an alias of `pending`.
+- **Old files are refused, not migrated.** 0.26–0.36 rewrote `paused` and
+  `backlog/<id>.json` on load; a team that still has them is from before 0.36.0
+  and the daemon won't start on it (see "Upgrading from before 0.36.0"). For one
+  release the API still accepts `paused` as an alias of `pending`.
 
 ### Archived stories: a flag in place, too
 
@@ -827,12 +824,9 @@ keeps `status: archived` and an archived thought keeps its status.
   story routes treat it as not found, and create refuses its id, so it can't be
   clobbered or edited. `GET /api/archived` and Work → **Archived** read it by the
   flag; their shape is unchanged, and archiving is still one-way.
-- **Migrated on load, once.** `store/story-migration.ts` moves each legacy
-  `archived/<id>.json` into `stories/` as is (stamping `archivedAt` from the file's
-  mtime if it had none) and removes `archived/` once empty, so a second run
-  changes nothing. An id already in `stories/` is left in both places and warned
-  about. After that, `archived/` is only ever read by the migration (and the
-  persona migration, which still accepts the old layout).
+- **Old files are refused, not migrated.** Up to 0.36.x a legacy
+  `archived/<id>.json` was moved into `stories/` on load; one still there is from
+  before 0.36.0 (see "Upgrading from before 0.36.0"). Nothing reads `archived/`.
 
 ### Pending schedules: reversible, no catch-up
 
@@ -935,7 +929,7 @@ sources" — "Triage mode: the mirror is the triage subject".
 - **The WorkDef is a container, not authored work.** `triage-<noteId>` is created
   lazily the first time a note is due, and holds nothing but a title and its parent.
   The instructions live **once**, in the persona config `triage.persona` selects
-  (unset = `builtin:triage`; formerly `triage.md`, migrated — see "Personas"), and the prompt is assembled at claim time from those plus the
+  (unset = `builtin:triage`; formerly `triage.md` — see "Personas"), and the prompt is assembled at claim time from those plus the
   note's *current* text, its group name, the open stories, and any earlier analysis.
   Copying the note into `workdef.md` would mean rewriting an authored file on every
   edit, which "WorkDefs & Parents" forbids. The *WorkItem* title is resolved at
@@ -1216,7 +1210,7 @@ metadata (`{ id }`) for bookkeeping. Order: state persona (board work) → Story
 (board work) → working-directory instruction → Task (Goal / Acceptance Criteria /
 Additional Context) → comments from the team lead → completion guidance. There are no transition
 instructions, because workers don't transition. (The former Reference Context
-section went with the context library; the persona migration inlined attached
+section went with the context library; 0.34–0.36's persona migration inlined attached
 entries into Additional Context — "Personas: One Library, Selected by Reference".)
 
 *Why:* the prompt is mostly workflow knowledge the daemon already owns. Assembling
@@ -1237,8 +1231,8 @@ swallow the rest of the prompt); shallow headings and stray `---` are warnings.
 > `builtin:*`, package personas), `resolvePersona` on every prompt path, `persona`
 > on Solitary/Scheduled WorkDefs, Work Source personas (default + per-source +
 > per-WorkDef, triage persona required), the WorkItem snapshot and in-flight chips,
-> persona packages, the Context library's removal and the on-load migration are all
-> in. Deferred follow-ups are in TODO.md "Personas". The text below keeps the
+> persona packages and the Context library's removal are all in (the on-load
+> migration shipped in 0.34–0.36 and is gone since — "Upgrading from before 0.36.0"). Deferred follow-ups are in TODO.md "Personas". The text below keeps the
 > original problem statement ("today" means before this story) for the rationale.
 
 *How an agent behaves* is defined in four disconnected places today: a workflow
@@ -1424,8 +1418,8 @@ triage-mode mirror: kv persona:<defId> → ExternalDef.persona → sourcePersona
   work-mode source whose `sync` returns an individual item with `mode: "triage"`
   needs one too: that item is mirrored but **not enqueued** (nothing stamped, like
   a readiness hold), and the source's status carries the same message, so fixing
-  it runs the item on the next sync. *Migration seeds it* for existing triage
-  plugins (below), so nothing that works today stops working — but the
+  it runs the item on the next sync. *A startup seed fills it* for a triage
+  plugin that names none (below), so nothing that works today stops working — but the
   requirement itself is explicit.
 - **The team's notes triage persona (`triage.persona`) is not a fallback** for
   external triage, for the reason above.
@@ -1482,8 +1476,8 @@ claim.
 
 Every body goes through `normalizeInstructionMarkdown(body, 3)` as today.
 **The "Reference Context" section is removed** from `buildWorkDefPrompt` along with
-`WorkDefPromptInput.contextEntries`; migration moves its text into Additional
-Context (below), so a migrated task's prompt carries the same words.
+`WorkDefPromptInput.contextEntries`; 0.34–0.36's migration moved its text into
+Additional Context, so a migrated task's prompt carried the same words.
 
 **Chat framing stays system-level** ("Assistant Chat Model" point 7): the
 `ASSISTANT_CHAT_FRAMING` / `ASSISTANT_TERMINAL_FRAMING` prefix is the daemon's,
@@ -1670,12 +1664,12 @@ Smaller decisions made while building it:
     tick after the fix syncs. `PUT /api/sources/:id/persona` also kicks a sync
     when the triage persona changed, so the fix shows at once.
   - *A cleared entry stays.* Clearing both fields leaves `sourcePersonas.<id>:
-    {}` in config.json: step 3's guard is "no entry", so an empty entry is what
+    {}` in config.json: the seed's guard is "no entry", so an empty entry is what
     stops the startup seed from refilling a choice a person removed.
   - *The seed only covers package sources* (they are the existing triage plugins);
     an in-daemon source such as the dev fixture declares its `triagePersona`
     (`dev.fixtureSource.triagePersona`). The seed runs after `loadPlugins` and
-    commits on its own (`mpt: migrate to personas (source triage personas)`).
+    commits on its own (`mpt: seed triage personas for triage-mode sources`).
   - *A triage-mode item already queued* when its source loses its triage persona
     still claims: it resolves to `builtin:triage` (via `source-default`) rather
     than failing the claim, per "never fails a claim".
@@ -1705,82 +1699,24 @@ The Pi harness's assistant tools follow: `list_context` becomes **`list_personas
 params, and `create_task` / `create_schedule` / `edit_task` gain an optional
 `persona`.
 
-### Migration: on load, lossless, idempotent
+### Upgrading a pre-persona team
 
-`daemon/personas/migrate.ts` runs at Store load, before workflows and sources
-load, and is a no-op on a migrated team. It writes config.json through the same path `PUT /api/config` uses, so the in-memory config the Store holds matches the file. Each step is idempotent on its own
-(guarded by "is the old thing still there?"), so a crash midway is finished by
-the next start; the whole run ends in one autocommit, `mpt: migrate to personas`,
-so the change is one reviewable, revertable commit.
-
-**Id collisions** (every step that creates a team persona): if `personas/<id>.md`
-exists with the *same* body, reuse it; otherwise take `<id>-2`, `-3`… and record
-the rename in the step's mapping so references follow it. Ids are slugified to the
-team grammar first.
-
-1. **Workflow state files.** For each agent state with no `persona` and a
-   non-empty `workflows/<wf>/<state>.md`: create persona `<wf>-<state>` (title
-   "<Workflow> — <state>", `kinds: [worker]`), set the state's `persona`, delete the
-   `.md`. A state that already has `persona` keeps it; a leftover `.md` beside it
-   is left alone and warned about (someone may have edited it by hand).
-2. **`triage.md`.** If present and `triage.persona` is unset: persona `triage`
-   (`kinds: [triage]`), set `triage.persona`, delete `triage.md`. No `triage.md` →
-   nothing (the built-in is already the default).
-3. **Triage-mode sources.** For each configured *package* whose source declares
-   `mode: "triage"`, no `triagePersona`, and has no `sourcePersonas` entry: seed
-   `sourcePersonas.<id>.triagePersona` with the team's triage persona (step 2's,
-   else `builtin:triage`) — exactly what it runs with today — and log it. (Needs
-   the sources loaded, so this step runs after plugin load rather than with the
-   rest; it's still guarded and idempotent.)
-4. **Context entries tagged `persona`** → team personas (same id, collision rule),
-   tag kept. These are assistant personas today, so `kinds: [assistant]`.
-5. **Assistant selection.** If the SQLite `assistant_persona` setting is set and
-   `assistant.persona` is not: write `assistant.persona` (through step 4's mapping;
-   an id that pointed at a deleted entry is dropped with a log line — it already
-   resolved to the default), then clear the setting. Remap
-   `assistant_sessions.persona_id` and the `personaId` in session snapshot
-   frontmatter (`assistant/sessions/*.md`) through the mapping.
-6. **Attached context is inlined.** For every WorkDef (active, pending, and
-   archived; board, Solitary, Scheduled) and template with `contextRefs`, and every
-   story (`stories/`, active or archived, plus a legacy `archived/`) with `context`: the referenced entries' text is
-   appended to the WorkDef's Additional Context, story-level entries first (onto
-   *each* of the story's tasks), then the WorkDef's own, deduped — the exact order
-   `resolveTaskContext` used — each under a heading naming it:
-
-   ```markdown
-   ### Reference: Project conventions (from the former context library, `project-conventions`)
-
-   <entry body, headings demoted under it>
-   ```
-
-   Then `contextRefs` / `context` is dropped from the file. This is a one-time,
-   explicit edit of authored content — the "workdef.md is authored-only"
-   invariant allows explicit edits, and this one preserves meaning — so the
-   migrated prompt carries the same words, one section earlier. Persona-tagged
-   entries that were *also* attached are inlined too (attached means reference
-   text). Ids that point at deleted entries are dropped (they contributed nothing).
-   Mirrors are skipped: their files are written only by sync, and the UI never
-   allowed attaching context to one.
-7. **Archive `context/`.** Once 4–6 are done, `context/` is renamed to
-   **`context.migrated/`** (or `context.migrated-2/`… if that exists), with a
-   `README.md` written into it saying what happened and that nothing reads it.
-   *Why archive, not delete:* it's free (it's in git either way), it keeps the
-   unattached entries discoverable in the team dir, and it makes "where did my
-   context go?" answerable by `ls`. The daemon logs, and `/api/status` carries
-   (`notices`), one line: "The context library was removed: N entries were
-   attached and are now in their tasks' Additional Context; M unattached entries
-   are in context.migrated/ — turn the useful ones into personas, or move project
-   knowledge into the project's AGENTS.md." The notice clears when dismissed.
-
-The `context/` directory reappearing later (an old clone merged in) re-runs steps
-4–7, which is the right thing.
+0.34–0.36 migrated the pre-persona layout on load, losslessly and in one commit
+(`mpt: migrate to personas`): workflow state files and `triage.md` became team
+personas selected where they were used, persona-tagged context entries became
+personas, attached context was inlined into each task's Additional Context under
+a `### Reference: <title> (from the former context library, …)` heading, and
+`context/` was archived to `context.migrated/` with a one-line notice. That
+migration is gone; a team still in that layout is refused at startup — see
+"Upgrading from before 0.36.0". The notice a 0.36 migration left in `state.db`
+still shows (`/api/status` `notices`) until it's dismissed.
 
 ### Where it lives
 
 `daemon/personas/` — `library.ts` (team files: list/read/write, the frontmatter
 shape), `builtins.ts`, `packages.ts` (personas loaded from plugin packages, fed by
-`daemon/plugins/loader.ts`), `resolve.ts` (`resolvePersona`, `usedBy`), `lint.ts`,
-`migrate.ts`; routes in `daemon/routes/personas.ts`. `daemon/store/context.ts`,
+`daemon/plugins/loader.ts`), `resolve.ts` (`resolvePersona`, `usedBy`), `lint.ts`;
+routes in `daemon/routes/personas.ts`. `daemon/store/context.ts`,
 `daemon/routes/context.ts`, `resolveTaskContext`, the Config → Context tab, and
 `ui/src/components/board/ContextSelector.tsx` are deleted. The UI gets Config →
 Personas (`/config/personas`, `/config/personas/:id`), persona pickers on
@@ -1899,42 +1835,51 @@ and the surface used is small and stable; and only genuine breakage sets a non-z
 exit code. Its checks must never contradict each other — enforced by a property
 test over `evaluate()`.
 
-## Moving Old Binaries Across
+## Upgrading from before 0.36.0
 
-Up to 0.27 mpt was one compiled binary, and its `mpt upgrade` replaced itself with
-`mpt-<os>-<arch>` from the latest GitHub Release. From 0.28 mpt is an npm package
-run by Node, and there is no binary to download — yet that old upgrader is the one
-thing every old install will run. So rather than leave those installs stuck with a
-404 and a manual migration, **each release publishes `scripts/legacy-bridge.sh`
-under the old asset names** (with a `checksums.sha256`, which the old upgrader
-verifies). The upgrader writes it over the binary without knowing the difference,
-and its follow-up calls — `<path> write-extension-internal`, then a service that
-runs `<path> start` — land on the bridge, which installs the package with the
-found Node's own npm and execs it. The old path keeps working, so nothing that
-remembered it (the service, scripts, a teammate's callback) breaks.
+**0.36.0 is the oldest version a team can upgrade from** (`MIN_UPGRADE_FROM_VERSION`).
+Up to 0.36.x every older layout was migrated on load — story `paused` and
+`backlog/`, `archived/<id>.json`, `draft: true` WorkDefs, the context library,
+`triage.md` and workflow state files becoming personas, every pre-versioning
+`state.db` shape, usage kept only in the database or `task.json`, the
+`.pi-pizza-team` directory name, and the old compiled binary's `mpt upgrade`
+bridge. A team that has started once on 0.36.x has none of that left, so the
+migrations are gone; what remains is a check that refuses to misread a team that
+skipped 0.36.
 
-- **Never leave an mpt that doesn't run.** The upgrader has already replaced the
-  binary before the bridge first runs, so every failure — no Node >=24, npm can't
-  write its prefix, run under sudo — ends with the bridge putting the
-  checksum-verified v0.27.0 binary back over itself and running that, after saying
-  what to fix. A machine without Node stays on 0.27 instead of losing its daemon.
-- **It never installs Node.** It uses one that is there (`MPT_NODE`, the saved
-  `runtime.json`, PATH, the usual locations). Silently installing a runtime is a
-  bigger decision than an upgrade should make.
-- **The service is re-pointed only from a terminal.** An old service has a bare
-  PATH, so it can run the bridge (which finds Node itself) but not npm's
-  `#!/usr/bin/env node` link. From a terminal, `adopt-legacy-internal` rewrites the
-  service to `<node> <entry> start`; run *by* the service, the bridge leaves the
-  file alone rather than rewrite the job running it. When npm's `mpt` link lands on
-  the bridge's own path (an npm prefix of `/usr/local`), npm must replace it
-  (`--force`), which only happens from a terminal, where the service is re-pointed
-  in the same breath; the service itself falls back to 0.27 and says to upgrade
-  from a terminal.
-- **The bridge is a shim, and says so.** `mpt doctor` recognises it on PATH or as
-  the service's program, says it works, and names the cleanup (`rm` it once npm's
-  `mpt` is on PATH; `mpt install`).
-- **No Windows.** A shell script can't stand in for `mpt-windows-x64.exe`; Windows
-  installs move across by hand.
+- **Refuse, don't guess.** Before the Store opens anything, the daemon looks
+  (read-only; `daemon/layout-check.ts` `findPreCutoffLayout`) for exactly the
+  formats the removed code used to rewrite, and on any of them exits non-zero
+  with one message — what it found, and "This team was last run on a version
+  older than 0.36.0. Install my-pizza-team 0.36.x (`npm i -g my-pizza-team@0.36`),
+  start it once to migrate, then upgrade again." `mpt doctor` fails a "Team
+  layout" check with the same fix, and the Pi extension prints it when it finds
+  only a `.pi-pizza-team`. *Why not keep migrating?* Each migration was code that
+  every boot ran and every refactor had to keep working, for layouts no current
+  team has; the one supported path (0.36.x migrates, losslessly and in one commit)
+  already exists.
+- **Only what the migrations handled.** Nested folder-per-story leftovers
+  (`backlog/<id>/<id>.json`, `archived/<id>/story.json`) are from even older
+  layouts the migrations never touched, and real teams carry them, so they don't
+  trigger the refusal. Neither do the leftovers 0.36.x left in place on purpose
+  (a `backlog/`/`archived/` file whose id was already in `stories/`; `triage.md` or
+  a state file once the persona was set), nor a `context/` beside a
+  `context.migrated*` archive (a folder someone made since). One exception can
+  survive a 0.36 start: it read `draft: true` as pending but rewrote it only on
+  save, so the finding says to change it to `pending: true` by hand.
+- **The database is refused too, never rebuilt.** `state.db` is a cache rebuilt
+  from files — except `work_items`, the Inbox history. 0.36.0 is the last release
+  before `PRAGMA user_version`, so its database reads as version 0; migration 1
+  takes exactly that shape to today's. A version-0 database in an older shape
+  (`preCutoffSchemaFindings`: a missing table or column, a column or table 0.36.0
+  had already dropped, `token_usage`'s old foreign key) gets the same error from
+  `migrateSchema` rather than a silent rebuild that would lose that history. A
+  fresh team (no `state.db`) is created at the current version as before.
+- **The old binary.** Releases up to 0.36.x carried a bridge script under the
+  compiled binary's asset names, so a ≤0.27 binary's `mpt upgrade` could move
+  onto the npm package. Such an install is older than 0.36.0 as well: it moves
+  by hand (README "Upgrading from before 0.36.0"), and `mpt doctor` still flags
+  a service that launches a program with no entry script.
 
 ## The Daemon Is the Supervisor
 

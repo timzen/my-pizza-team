@@ -11,6 +11,7 @@
 
 export const TEAM_DIR: string = ".my-pizza-team";
 export const LEGACY_TEAM_DIR: string = ".pi-pizza-team";
+export const PRE_CUTOFF_UPGRADE_MESSAGE: string = "This team was last run on a version older than 0.36.0. Install my-pizza-team 0.36.x (`npm i -g my-pizza-team@0.36`), start it once to migrate, then upgrade again.";
 export const DEFAULT_DAEMON_URL: string = "http://localhost:7437";
 export const DEFAULT_TMUX_SESSION: string = "my-pizza-team";
 export const LEADER_WINDOW: string = "leader";

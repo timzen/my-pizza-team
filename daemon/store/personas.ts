@@ -270,12 +270,12 @@ export class PersonaStore {
   }
 
   /**
-   * Startup, after the plugins load (docs/DESIGN.md "Migration", step 3): for
+   * Startup, after the plugins load (docs/DESIGN.md "Work Source personas"): for
    * every plugin-package source that declares `mode: "triage"` but no
    * `triagePersona`, and has no `sourcePersonas` entry yet, seed
-   * `sourcePersonas.<id>.triagePersona` with what it ran with before the
-   * requirement — the team's triage persona, else `builtin:triage` — so nothing
-   * that worked stops. Guarded by "no entry", so it runs once per source (a
+   * `sourcePersonas.<id>.triagePersona` with the team's triage persona, else
+   * `builtin:triage` — so a newly added triage plugin that names no persona
+   * still runs (a triage-mode item needs one). Guarded by "no entry", so it runs once per source (a
    * person clearing it later keeps the empty entry). Returns the seeded ids.
    */
   seedSourceTriagePersonas(): string[] {
@@ -286,12 +286,12 @@ export class PersonaStore {
       if (this.config.sourcePersonas?.[source.id] !== undefined) continue;
       const ref = this.config.triage?.persona && this.getPersona(this.config.triage.persona) ? this.config.triage.persona : "builtin:triage";
       this.config.sourcePersonas = { ...this.config.sourcePersonas, [source.id]: { triagePersona: ref } };
-      console.warn(`[personas] triage-mode source "${source.id}" declares no triagePersona: set its triage persona to ${ref} (what it ran with before)`);
+      console.warn(`[personas] triage-mode source "${source.id}" declares no triagePersona: set its triage persona to ${ref}`);
       seeded.push(source.id);
     }
     if (seeded.length) {
       this.deps.saveConfig();
-      if (this.config.autosave?.autoCommit) this.deps.commitToGit("mpt: migrate to personas (source triage personas)");
+      if (this.config.autosave?.autoCommit) this.deps.commitToGit("mpt: seed triage personas for triage-mode sources");
     }
     return seeded;
   }

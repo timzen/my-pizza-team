@@ -26,7 +26,7 @@ Any WorkDef can start as **pending**: **Save as pending** on the create forms (*
 
 While it's pending, you and the assistant can both revise it: open it and press **Edit** (Save / Cancel). When it's right, press **Activate**. Pending stories, Solitary tasks, and scheduled jobs are listed on **Work → Pending** — the Board, Tasks, and Schedule tabs show only active work (a pending board task stays in its story's swimlane, holding its place). Activating is one-way and **locks the definition**: a Solitary task is enqueued straight away, a board task is picked up when its story reaches it, and a scheduled job fires on its next cron time. To change active work, do what you always do — add a comment on its **Thread** and **Run** it again (for a board task, move it back into an agent state); the comments go into the next attempt's prompt. A scheduled job's **cron** stays editable after activating — it belongs to the schedule, not the definition.
 
-Everything created before pending existed counts as active. (Pending used to be called *draft*, and Activate was *Publish*; old drafts show up as pending.)
+Everything created before pending existed counts as active. (Pending used to be called *draft*, and Activate was *Publish*.)
 
 **Stories can be pending too — and back again.** A whole story can be **pending**: tick **Pending** on New Story, press **Make pending** on its page (or the ⌛ on its swimlane), or ask the assistant. Unlike a task, a story goes back and forth: **Activate** (▶) resumes it where it left off. While a story is pending, a task that's already running finishes normally, but nothing new is handed out, and stories that depend on it wait. Pending stories live on **Work → Pending**. (This replaces the old story *pause* and the *Backlog*: paused and backlogged stories show up as pending.)
 
@@ -328,11 +328,7 @@ Board tasks get their persona from the workflow state they're in.
 
 **Seeing who's working how.** While a teammate works, a ✦ **persona chip** shows the persona it was given — on its row in the Team tab, on Queue rows, in the header when you watch it, and in the **Runs** list on a task's Details tab. Click it to open the persona. The chip records what the run actually got, so editing or deleting the persona later doesn't change it: a deleted one shows its name marked **(deleted)**, without a link. A run with no persona has no chip. An amber outline means the persona it asked for was missing, so a built-in stood in (hover for which).
 
-**The Context Library was removed.** *How to do the work* belongs in a persona; *what the project is* (conventions, architecture, build commands) belongs in the project itself — its AGENTS.md or README — where teammates already read it. When your team first starts on this version, MPT moves things over for you, in one commit:
-
-- context entries tagged **`persona`** become personas (and the assistant keeps the one you'd picked);
-- entries that were **attached** to a story or task are copied into those tasks' **Additional Context**, under a heading naming the entry, so their prompts carry the same text;
-- the old `context/` folder is kept as `context.migrated/`, and a one-time notice says how many entries were moved and how many were left there — turn the useful ones into personas, or move them into the project's AGENTS.md.
+**The Context Library was removed.** *How to do the work* belongs in a persona; *what the project is* (conventions, architecture, build commands) belongs in the project itself — its AGENTS.md or README — where teammates already read it. Versions 0.34–0.36 moved an old team over on its first start (tagged entries became personas, attached ones were copied into their tasks' **Additional Context**, and `context/` was kept as `context.migrated/`, with a one-time notice you can dismiss under the menu bar). A team that never ran one of those versions has to start once on 0.36 first: see README "Upgrading from before 0.36.0".
 
 ### Assistant style: chat or terminal
 

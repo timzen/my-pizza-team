@@ -101,7 +101,7 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // How the UI renders the assistant (default applied): "chat" bubbles or the
       // teammate-style "terminal" transcript (TeamConfig.assistant).
       assistantChatMode: resolveAssistantChatMode(config),
-      // One-line notices (the persona migration's), dismissed with DELETE /api/notices/:id.
+      // One-line notices (0.34–0.36's persona migration left one), dismissed with DELETE /api/notices/:id.
       notices: store.getNotices(),
     });
   });

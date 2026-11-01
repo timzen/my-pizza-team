@@ -8,18 +8,16 @@
  * - Dependencies: stories that dependOn a pending story wait (unmet), nothing moves.
  * - API: create/PUT take `pending` (deprecated `paused` alias), POST
  *   /pending and /activate, backlog routes gone.
- * - Migration on load: `paused: true` → pending; `backlog/` → `stories/` as
- *   pending; old fields dropped; idempotent.
+ *
+ * (Pre-0.36.0 `paused` / `backlog/` story files are no longer migrated; such a
+ * team is refused at startup — tests/layout-check.test.ts.)
  */
 
 import * as fs from "node:fs";
-import * as os from "node:os";
 import { test } from "node:test";
 import { assertEquals, assertExists } from "./_assert.ts";
 import { withTeam, jsonInit, type TeamOptions } from "./_team.ts";
-import { existsSync } from "node:fs";
 import * as path from "node:path";
-import { migrateLegacyStoryFiles } from "../daemon/store/story-migration.ts";
 import type { WorkflowConfig } from "../shared/types.ts";
 
 /** One agent state: completing it finishes the task (done), admitting the next. */
@@ -38,11 +36,6 @@ const SOLO_TEAM: TeamOptions = {
 
 function readStoryFile(teamDir: string, id: string, dir = "stories"): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(path.join(teamDir, dir, `${id}.json`), "utf8"));
-}
-
-function writeStoryFile(teamDir: string, dir: string, data: Record<string, unknown>): void {
-  fs.mkdirSync(path.join(teamDir, dir), { recursive: true });
-  fs.writeFileSync(path.join(teamDir, dir, `${data.id}.json`), JSON.stringify(data, null, 2) + "\n");
 }
 
 // ─── Dispatch ───────────────────────────────────────────────────────
@@ -200,59 +193,4 @@ test("API: the backlog routes are gone", async () => {
     assertEquals((await app.request("/api/stories/s1/backlog", jsonInit("POST"))).status, 404);
     assertEquals((await app.request("/api/backlog/s1/restore", jsonInit("POST"))).status, 404);
   }, SOLO_TEAM);
-});
-
-// ─── Migration ──────────────────────────────────────────────────────
-
-test("migration: paused stories and backlog/ stories load as pending; old fields dropped", () => {
-  return withTeam({}, ({ store, teamDir }) => {
-    // A board task for the backlogged story: its WorkDef lives in tasks/ (never moved).
-    store.createStory("shelved", "Shelved", "d", "open", [], [{ title: "T", description: "d" }], "default");
-    const shelved = readStoryFile(teamDir, "shelved");
-    fs.rmSync(path.join(teamDir, "stories", "shelved.json"));
-    writeStoryFile(teamDir, "backlog", { ...shelved, backloggedAt: "2026-01-01T00:00:00.000Z" });
-
-    writeStoryFile(teamDir, "stories", { id: "held", title: "Held", description: "d", status: "open", dependsOn: [], tasks: [], paused: true });
-    writeStoryFile(teamDir, "stories", { id: "running", title: "Running", description: "d", status: "open", dependsOn: [], tasks: [], paused: false });
-
-    store.loadFromDisk();
-
-    assertEquals(store.getStory("held")!.pending, true);
-    assertEquals(store.getStory("running")!.pending, undefined);
-    assertEquals(store.getStory("shelved")!.pending, true);
-    assertEquals(store.getTasksForStory("shelved").map((t) => t.id), ["shelved-1"]);
-
-    const held = readStoryFile(teamDir, "held");
-    assertEquals(held.pending, true);
-    assertEquals("paused" in held, false);
-    assertEquals("paused" in readStoryFile(teamDir, "running"), false);
-    assertEquals("pending" in readStoryFile(teamDir, "running"), false);
-    const moved = readStoryFile(teamDir, "shelved");
-    assertEquals(moved.pending, true);
-    assertEquals("backloggedAt" in moved, false);
-    assertEquals(existsSync(path.join(teamDir, "backlog")), false);
-  }, SOLO_TEAM);
-});
-
-test("migration: idempotent, and never clobbers an active story with a backlog copy", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-story-migration-test-"));
-  try {
-    writeStoryFile(teamDir, "stories", { id: "dup", title: "Live", description: "d", status: "open", dependsOn: [], tasks: [] });
-    writeStoryFile(teamDir, "backlog", { id: "dup", title: "Old copy", description: "d", status: "open", dependsOn: [], tasks: [], backloggedAt: "x" });
-    writeStoryFile(teamDir, "stories", { id: "p", title: "P", description: "d", status: "open", dependsOn: [], tasks: [], paused: true });
-
-    const first = migrateLegacyStoryFiles(teamDir);
-    assertEquals(first.rewritten, ["p"]);
-    assertEquals(first.unbacklogged, []);
-    assertEquals(first.conflicts, ["dup"]);
-    assertEquals(readStoryFile(teamDir, "dup").title, "Live");
-    assertEquals(existsSync(path.join(teamDir, "backlog", "dup.json")), true);
-
-    const second = migrateLegacyStoryFiles(teamDir);
-    assertEquals(second.rewritten, []);
-    assertEquals(second.unbacklogged, []);
-    assertEquals(readStoryFile(teamDir, "p").pending, true);
-  } finally {
-    fs.rmSync(teamDir, { recursive: true, force: true });
-  }
 });

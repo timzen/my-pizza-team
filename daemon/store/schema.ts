@@ -7,6 +7,9 @@
  *
  *   - **A new database** (no tables, `user_version` 0) gets `FINAL_SCHEMA`
  *     directly and is stamped `SCHEMA_VERSION`; no migration runs.
+ *   - **A database from before 0.36.0** (`user_version` 0 in an older shape than
+ *     0.36.0's; `preCutoffSchemaFindings`) is refused with the "upgrade through
+ *     0.36.x first" error — not migrated, and not silently rebuilt.
  *   - **An existing database** runs every migration numbered above its
  *     `user_version`, each in its own transaction that also bumps the version,
  *     so a crash mid-migration leaves the database at the previous version and
@@ -18,11 +21,10 @@
  * `cleanRetiredData(db)` runs right after it on every boot: row fixes that can't
  * be a one-time migration because such rows can still arrive.
  *
- * Migration 1 is the pre-versioning history folded into one step: every
- * database written before `user_version` was used reads as version 0, in any of
- * its historical shapes, and migration 1 takes it to today's exact schema with
- * the idempotent "add the column if it is missing / drop it if it is retired"
- * checks the Store used to run on every boot.
+ * Migration 1 takes 0.36.0's database — the last release before `user_version`
+ * was used, so it reads as version 0 — to today's exact schema. Older shapes are
+ * no longer migrated: 0.36.0 is the oldest version a team can upgrade from
+ * (`MIN_UPGRADE_FROM_VERSION`).
  *
  * Adding a migration (docs/ARCHITECTURE.md "SQLite schema and migrations"):
  * change `FINAL_SCHEMA` to the new shape, append a function to `MIGRATIONS` that
@@ -32,12 +34,13 @@
  * matches a fresh one.
  */
 
-import type { DatabaseSync } from "node:sqlite";
+import { DatabaseSync } from "node:sqlite";
+import { PRE_CUTOFF_UPGRADE_MESSAGE } from "../../shared/types.ts";
 
 /**
  * Today's schema, as a new database gets it. Columns are listed in the order a
- * database migrated from version 0 ends up with them (later additions at the
- * end), so the two are identical, not just equivalent.
+ * database 0.36.0 created ends up with them after migration 1 (later additions
+ * at the end), so the two are identical, not just equivalent.
  */
 const FINAL_SCHEMA = `
   CREATE TABLE IF NOT EXISTS stories (
@@ -191,7 +194,7 @@ const FINAL_SCHEMA = `
  * `migrateSchema`, so it must not open its own.
  */
 const MIGRATIONS: ReadonlyArray<(db: DatabaseSync) => void> = [
-  migrateLegacySchema,
+  migrateFrom036,
 ];
 
 /** The schema version this code writes: the number of migrations. */
@@ -216,6 +219,10 @@ export function migrateSchema(db: DatabaseSync): void {
     });
     return;
   }
+  // A version-0 database older than 0.36.0 is refused, never rebuilt: work_items
+  // (the Inbox history) lives only here (docs/DESIGN.md "Upgrading from before 0.36.0").
+  const tooOld = preCutoffSchemaFindings(db);
+  if (tooOld.length > 0) throw new Error(`${PRE_CUTOFF_UPGRADE_MESSAGE}\n${tooOld.map((f) => `  - ${f}`).join("\n")}`);
   MIGRATIONS.slice(version).forEach((migrate, i) => {
     inTransaction(db, () => {
       migrate(db);
@@ -266,165 +273,77 @@ function columnsOf(db: DatabaseSync, table: string): Set<string> {
   return new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
 }
 
-// --- Migration 1: every pre-versioning shape → today's schema ---
+// --- Migration 1: 0.36.0's shape → today's schema ---
 
 /**
- * Migration 1. Takes a database from before `user_version` — any of its
- * historical shapes, including one missing whole tables — to today's exact
- * schema. Every step is idempotent (it checks before it changes), because a
- * version-0 database may already be partly or wholly up to date: this is what
- * used to run on every boot.
+ * Migration 1. Takes a database written by 0.36.0 — the last release before
+ * `user_version` was used, so it reads as version 0 — to today's exact schema.
+ * `migrateSchema` has already refused any version-0 database whose shape is
+ * older than 0.36.0's (`preCutoffSchemaFindings`), so only what 0.36.0 still had
+ * is left to drop: task `dirty` (it flagged rows for a `task.json` mirror nothing
+ * read) and the `comments` / `comments_loaded` tables (a write-only SQLite copy of
+ * each task's thread; comments live only in the ref's `comments.jsonl`). A
+ * database from a development build between 0.36.0 and versioning may already
+ * lack them, so each step checks first.
  */
-function migrateLegacySchema(db: DatabaseSync): void {
-  // Missing tables are created in their final shape; the checks below then
-  // find nothing to do for them.
-  db.exec(FINAL_SCHEMA.replace(/CREATE INDEX[^;]*;/g, ""));
-
-  // The token-usage ledger lost its FK and grew cache/kind/member/title columns.
-  migrateUsageTable(db);
-
-  // Errored-session retries (docs/DESIGN.md "Errored Sessions Retry") and the
-  // in-flight persona snapshot (docs/DESIGN.md "The in-flight persona").
-  addMissingColumns(db, "work_items", [
-    ["attempt", "INTEGER DEFAULT 1"], ["retry_at", "INTEGER"], ["error", "TEXT"],
-    ["persona_id", "TEXT"], ["persona_title", "TEXT"], ["persona_origin", "TEXT"],
-    ["persona_via", "TEXT"], ["persona_fallback_from", "TEXT"],
-  ]);
-
-  // Pending stories (docs/DESIGN.md "Pending: Write, Review, Activate"; the
-  // `paused` column it replaced is dropped below), and the story's working
-  // directory as plain data (docs/DESIGN.md "The Work Model").
-  addMissingColumns(db, "stories", [
-    ["workflow", "TEXT"], ["pending", "INTEGER DEFAULT 0"], ["task_order", "TEXT DEFAULT '[]'"], ["directory", "TEXT"],
-  ]);
-
-  // Assistant chat: sessions + real delivery receipts. The v1 turn model they
-  // replaced is dropped rather than carried (P1c-5 — no deployment ever
-  // carried v1 data).
-  const asst = columnsOf(db, "assistant_messages");
-  addMissingColumns(db, "assistant_messages", [
-    ["session_id", "TEXT"], ["origin", "TEXT"], ["delivery", "TEXT"],
-    ["state", "TEXT DEFAULT 'ok'"], ["reply_to", "TEXT"], ["send_mode", "TEXT"],
-  ]);
-  db.exec("DROP TABLE IF EXISTS assistant_turns");
-  if (asst.has("turn_id")) db.exec("ALTER TABLE assistant_messages DROP COLUMN turn_id");
-  if (asst.has("status")) db.exec("ALTER TABLE assistant_messages DROP COLUMN status");
-
-  // WorkDef unification: board tasks cache their authored fields
-  // (docs/DESIGN.md "WorkDefs & Parents").
-  addMissingColumns(db, "tasks", [["acceptance_criteria", "TEXT"], ["additional_context", "TEXT"]]);
-
-  // Directory-affinity matching (docs/DESIGN.md "Work Matching: Directory
-  // Affinity") and the version handshake (docs/DESIGN.md "One Protocol, One
-  // Version" — a null protocol_version is a pre-handshake harness, reported
-  // rather than refused).
-  addMissingColumns(db, "members", [
-    ["metadata", "TEXT DEFAULT '{}'"], ["directory", "TEXT"], ["protocol_version", "INTEGER"],
-    ["harness", "TEXT"], ["harness_version", "TEXT"],
-  ]);
-  // Host routing removed (P1c-2): one machine, so there is nothing to route.
-  if (columnsOf(db, "members").has("host_id")) db.exec("ALTER TABLE members DROP COLUMN host_id");
-
-  // One leader, so the directive queue is no longer keyed by host (P1c-1). The
-  // column was NOT NULL, so it has to go rather than simply being ignored. The
-  // daemon realizes spawns itself now (P3-1), so a failure needs a home that a
-  // human sees rather than a log line nobody reads.
-  if (columnsOf(db, "leader_directives").has("host_id")) db.exec("ALTER TABLE leader_directives DROP COLUMN host_id");
-  addMissingColumns(db, "leader_directives", [["error", "TEXT"]]);
-
-  dropRetiredColumns(db);
-  dropRetiredTables(db);
-
-  // After the column migrations, so `work_def_id` and `recorded_at` exist.
+function migrateFrom036(db: DatabaseSync): void {
+  if (columnsOf(db, "tasks").has("dirty")) db.exec("ALTER TABLE tasks DROP COLUMN dirty");
+  db.exec("DROP TABLE IF EXISTS comments_loaded");
+  db.exec("DROP TABLE IF EXISTS comments");
   db.exec("CREATE INDEX IF NOT EXISTS idx_token_usage_recorded_at ON token_usage(recorded_at)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_work_items_work_def ON work_items(work_def_id)");
 }
 
-/** `ALTER TABLE … ADD COLUMN` each `[name, type]` the table doesn't have yet. */
-function addMissingColumns(db: DatabaseSync, table: string, cols: Array<[string, string]>): void {
-  const have = columnsOf(db, table);
-  for (const [name, type] of cols) {
-    if (!have.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
+// --- Refusing pre-0.36.0 databases ---
+
+/** What 0.36.0 had beyond today's schema; a version-0 database may carry these and still be 0.36.0's. */
+const SCHEMA_036_EXTRA_TABLES = new Set(["comments", "comments_loaded"]);
+const SCHEMA_036_EXTRA_COLUMNS = new Set(["tasks.dirty"]);
+
+/** Today's tables and their columns, read off `FINAL_SCHEMA` in a scratch in-memory database. */
+function finalColumns(): Map<string, Set<string>> {
+  const scratch = new DatabaseSync(":memory:");
+  try {
+    scratch.exec(FINAL_SCHEMA);
+    const out = new Map<string, Set<string>>();
+    for (const { name } of scratch.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>) {
+      out.set(name, columnsOf(scratch, name));
+    }
+    return out;
+  } finally {
+    scratch.close();
   }
 }
 
 /**
- * Bring an older `token_usage` table up to date:
- *
- * 1. **Drop the foreign key.** Early databases declared `task_id REFERENCES
- *    tasks(id)`; the schema has since removed it (usage is recorded on WorkDef
- *    refs, and standalone WorkDefs, archived tasks, and chat runs have no
- *    `tasks` row), but `CREATE TABLE IF NOT EXISTS` never touched existing
- *    tables — so on those DBs every such insert failed the constraint.
- *    SQLite can't drop a constraint in place, so the table is rebuilt, keeping
- *    its rows.
- * 2. Add the columns the ledger grew (cache tokens, kind, member, title).
+ * Why `db` is older than 0.36.0, or an empty list when it isn't. Only a database
+ * from before versioning (`user_version` 0, with tables) can be: every version
+ * 0.36.0 boots brought the database to its shape (the idempotent column checks it
+ * ran on every start), so a version-0 database that is missing a table or column
+ * today's schema has, still has a column or table 0.36.0 had already dropped, or
+ * still has `token_usage`'s old foreign key, was last opened by an older version.
+ * Read-only; daemon/layout-check.ts reports these, and `migrateSchema` refuses them.
  */
-function migrateUsageTable(db: DatabaseSync): void {
-  const fks = db.prepare("PRAGMA foreign_key_list(token_usage)").all() as unknown[];
-  if (fks.length > 0) {
-    db.exec(`CREATE TABLE token_usage_rebuilt (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      task_id TEXT,
-      input_tokens INTEGER,
-      output_tokens INTEGER,
-      model TEXT,
-      cost_usd REAL,
-      recorded_at INTEGER
-    )`);
-    db.exec(`INSERT INTO token_usage_rebuilt (id, task_id, input_tokens, output_tokens, model, cost_usd, recorded_at)
-             SELECT id, task_id, input_tokens, output_tokens, model, cost_usd, recorded_at FROM token_usage`);
-    db.exec("DROP TABLE token_usage");
-    db.exec("ALTER TABLE token_usage_rebuilt RENAME TO token_usage");
+export function preCutoffSchemaFindings(db: DatabaseSync): string[] {
+  if (userVersion(db) !== 0 || !hasTables(db)) return [];
+  const findings: string[] = [];
+  const final = finalColumns();
+  const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((t) => t.name);
+  for (const [table, cols] of final) {
+    if (!tables.includes(table)) { findings.push(`state.db has no \`${table}\` table`); continue; }
+    const have = columnsOf(db, table);
+    const missing = [...cols].filter((c) => !have.has(c));
+    const extra = [...have].filter((c) => !cols.has(c) && !SCHEMA_036_EXTRA_COLUMNS.has(`${table}.${c}`));
+    if (missing.length) findings.push(`state.db's \`${table}\` table has no ${missing.map((c) => `\`${c}\``).join(", ")}`);
+    if (extra.length) findings.push(`state.db's \`${table}\` table still has the retired ${extra.map((c) => `\`${c}\``).join(", ")}`);
   }
-  addMissingColumns(db, "token_usage", [
-    ["cache_read_tokens", "INTEGER DEFAULT 0"],
-    ["cache_write_tokens", "INTEGER DEFAULT 0"],
-    // Rows from before kinds existed were all teammate work-item runs.
-    ["kind", "TEXT DEFAULT 'work'"],
-    ["member_id", "TEXT"],
-    ["title", "TEXT"],
-  ]);
-}
-
-/**
- * Drop columns from models the daemon no longer has: capability matching
- * (`requirements`, `capabilities`), work modes (`work_mode`,
- * `assigned_story_id`), task substatus and read tracking (`substatus`,
- * `last_read_at`), story `categories` (replaced by context), story `paused`
- * (replaced by `pending`; the cache is rebuilt from files), story and task
- * `context` (the context library, removed for personas), task `dirty` (it
- * flagged rows for a `task.json` mirror nothing read), and the old
- * task|workdef WorkItem ref (`ref_kind`, `story_id`, `task_id`). Nothing reads
- * or writes them, but a column that still exists invites someone to.
- *
- * WorkItems are the one table not rebuilt from files (they are the Inbox's
- * history), so an item from before the ref collapsed may name its WorkDef only in
- * `task_id`; that is copied into `work_def_id` before the column goes.
- */
-function dropRetiredColumns(db: DatabaseSync): void {
-  if (columnsOf(db, "work_items").has("task_id")) {
-    db.exec("UPDATE work_items SET work_def_id = task_id WHERE work_def_id IS NULL AND task_id IS NOT NULL");
+  for (const table of tables) {
+    if (!final.has(table) && !SCHEMA_036_EXTRA_TABLES.has(table)) findings.push(`state.db still has the retired \`${table}\` table`);
   }
-  const retired: Array<[string, string]> = [
-    ["stories", "requirements"], ["stories", "categories"], ["stories", "paused"], ["stories", "context"],
-    ["tasks", "substatus"], ["tasks", "last_read_at"], ["tasks", "context"], ["tasks", "dirty"],
-    ["members", "capabilities"], ["members", "work_mode"], ["members", "assigned_story_id"],
-    ["work_items", "ref_kind"], ["work_items", "story_id"], ["work_items", "task_id"],
-  ];
-  for (const [table, col] of retired) {
-    if (columnsOf(db, table).has(col)) db.exec(`ALTER TABLE ${table} DROP COLUMN ${col}`);
+  if (tables.includes("token_usage") && (db.prepare("PRAGMA foreign_key_list(token_usage)").all() as unknown[]).length > 0) {
+    findings.push("state.db's `token_usage` table still has its old foreign key to `tasks`");
   }
-}
-
-/**
- * Drop tables the daemon no longer has: `comments` / `comments_loaded`, a
- * write-only SQLite copy of each task's thread. Comments live only in the ref's
- * `comments.jsonl` (Store.getCommentsForRef); nothing ever read the copy.
- */
-function dropRetiredTables(db: DatabaseSync): void {
-  db.exec("DROP TABLE IF EXISTS comments_loaded");
-  db.exec("DROP TABLE IF EXISTS comments");
+  return findings;
 }
 
 // --- Every boot ---

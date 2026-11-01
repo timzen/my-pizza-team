@@ -18,7 +18,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
-import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL } from "./shared/types.js";
+import { TEAM_DIR, LEGACY_TEAM_DIR, DEFAULT_DAEMON_URL, PRE_CUTOFF_UPGRADE_MESSAGE } from "./shared/types.js";
 import { DaemonClient } from "./runtime/client.js";
 import { summarizeRun, hasUsage } from "./runtime/usage.js";
 import { readSessionStats, sameStats, type SessionStats } from "./runtime/session-stats.js";
@@ -99,14 +99,12 @@ export default function (pi: ExtensionAPI) {
     const pptDaemon = (pi.getFlag("ppt-daemon") as string) || "";
     const agentName = (pi.getFlag("ppt-name") as string) || "";
 
-    // Detect leader via config file (check current name, then legacy)
-    let teamDirName = TEAM_DIR;
-    let configFile = path.join(cwd, TEAM_DIR, "config.json");
-    let hasConfig = fs.existsSync(configFile);
-    if (!hasConfig) {
-      configFile = path.join(cwd, LEGACY_TEAM_DIR, "config.json");
-      hasConfig = fs.existsSync(configFile);
-      if (hasConfig) teamDirName = LEGACY_TEAM_DIR;
+    // Detect leader via config file. A lone pre-rename team directory is from
+    // before 0.36.0: not used, just reported (the daemon refuses it too).
+    const configFile = path.join(cwd, TEAM_DIR, "config.json");
+    const hasConfig = fs.existsSync(configFile);
+    if (!hasConfig && fs.existsSync(path.join(cwd, LEGACY_TEAM_DIR)) && ctx.hasUI) {
+      ctx.ui.notify(`🍕 Found ${LEGACY_TEAM_DIR}/ but no ${TEAM_DIR}/ here. ${PRE_CUTOFF_UPGRADE_MESSAGE}`, "warning");
     }
 
     // Resolve daemon URL (priority: --ppt-daemon > config > default)

@@ -31,7 +31,8 @@
  * (Solitary/Scheduled/Board → Work, Triage → Thoughts).
  *
  * Under the bar, the daemon's one-line **notices** (`/api/status` `notices` —
- * today only the persona migration's "the context library was removed" line),
+ * today only the "the context library was removed" line 0.34–0.36's persona
+ * migration left, until it's dismissed),
  * each with a link to Config → Personas and a dismiss (`DELETE /api/notices/:id`).
  */
 

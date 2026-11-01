@@ -8,8 +8,9 @@
  *   archived dependency as done.
  * - The archived list / context and the archive + /api/archived routes still work.
  * - The regular story routes refuse an archived story (404 / 409 on its id).
- * - Migration: legacy `archived/<id>.json` moves into `stories/`, idempotent,
- *   and a conflicting id is left in place and reported.
+ *
+ * (A pre-0.36.0 `archived/<id>.json` is no longer migrated; such a team is refused
+ * at startup — tests/layout-check.test.ts.)
  */
 
 import * as fs from "node:fs";
@@ -21,7 +22,6 @@ import { assertEquals, assertExists } from "./_assert.ts";
 import { withTeam, jsonInit } from "./_team.ts";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { migrateLegacyStoryFiles } from "../daemon/store/story-migration.ts";
 
 function tempTeamDir(): string {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-story-archive-test-"));
@@ -144,54 +144,3 @@ test("routes: archive + /api/archived keep their shapes; archived stories reject
   });
 });
 
-test("migration: archived/<id>.json moves into stories/ (still archived), idempotent", () => {
-  const teamDir = tempTeamDir();
-  try {
-    writeJson(teamDir, "archived/legacy.json", {
-      id: "legacy", title: "Legacy", description: "d", status: "done", dependsOn: [],
-      tasks: [{ id: "legacy-1", status: "done" }], archivedAt: "2025-06-01T00:00:00.000Z", synopsis: "# Legacy",
-    });
-    const first = migrateLegacyStoryFiles(teamDir);
-    assertEquals(first.unarchivedDir, ["legacy"]);
-    assertEquals(first.conflicts, []);
-    const moved = readJson(teamDir, "stories/legacy.json");
-    assertEquals(moved.archivedAt, "2025-06-01T00:00:00.000Z");
-    assertEquals(moved.synopsis, "# Legacy");
-    assertEquals(existsSync(path.join(teamDir, "archived")), false);
-
-    const second = migrateLegacyStoryFiles(teamDir);
-    assertEquals(second, { rewritten: [], unbacklogged: [], unarchivedDir: [], conflicts: [] });
-    assertEquals(readJson(teamDir, "stories/legacy.json"), moved);
-
-    // Through the store: not on the board, but in the archived list.
-    const store = new Store(teamDir, TEST_CONFIG);
-    try {
-      store.loadFromDisk();
-      assertEquals(store.getStory("legacy"), null);
-      assertEquals(store.getArchivedStories(), [{ id: "legacy", title: "Legacy", synopsis: "# Legacy" }]);
-      assertEquals(store.getArchivedStoryContext("legacy")!.story.archivedAt, "2025-06-01T00:00:00.000Z");
-    } finally { store.close(); }
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});
-
-test("migration: an archived/ file whose id is already in stories/ is left in place and reported", () => {
-  const teamDir = tempTeamDir();
-  try {
-    writeJson(teamDir, "stories/dup.json", { id: "dup", title: "Live", description: "d", status: "open", dependsOn: [], tasks: [] });
-    writeJson(teamDir, "archived/dup.json", { id: "dup", title: "Old", description: "d", status: "done", dependsOn: [], tasks: [], archivedAt: "x", synopsis: "s" });
-    writeJson(teamDir, "archived/ok.json", { id: "ok", title: "Ok", description: "d", status: "done", dependsOn: [], tasks: [], archivedAt: "y", synopsis: "s" });
-
-    const first = migrateLegacyStoryFiles(teamDir);
-    assertEquals(first.unarchivedDir, ["ok"]);
-    assertEquals(first.conflicts, ["dup"]);
-    assertEquals(readJson(teamDir, "stories/dup.json").title, "Live");
-    assertEquals(readJson(teamDir, "archived/dup.json").title, "Old");
-    assertEquals(existsSync(path.join(teamDir, "archived", "ok.json")), false);
-
-    // Still reported, nothing else changes.
-    const second = migrateLegacyStoryFiles(teamDir);
-    assertEquals(second.unarchivedDir, []);
-    assertEquals(second.conflicts, ["dup"]);
-    assertEquals(existsSync(path.join(teamDir, "archived", "dup.json")), true);
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});

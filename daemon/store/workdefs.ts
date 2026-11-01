@@ -11,7 +11,7 @@
  * except on an explicit human/agent edit. All mutable runtime state lives off
  * the markdown: workflow status on the Story, cron/lastEnqueuedAt on the
  * Schedule, the note version last triaged on the Thought. Frontmatter carries only structural metadata (title, parent,
- * directory, persona, `pending: true` while pending — legacy `draft: true` reads as pending); the body carries Goal / Acceptance Criteria /
+ * directory, persona, `pending: true` while pending); the body carries Goal / Acceptance Criteria /
  * Additional Context, round-tripped by those exact headers.
  *
  * The one exception: a **mirrored** WorkDef (`parentKind: external`, plus
@@ -55,7 +55,6 @@ export function serializeWorkDef(def: WorkDef): string {
   if (def.persona) fm.push(`persona: ${quote(def.persona)}`);
   if (def.status === "archived") fm.push(`status: archived`);
   // Only pending is marked; absence means active (the default for old files).
-  // A legacy `draft: true` file is rewritten as `pending: true` on its next save.
   if (def.pending) fm.push(`pending: true`);
   // Where an accepted triage proposal turned into this work (structural, not authored).
   if (def.origin) {
@@ -88,9 +87,10 @@ export function parseWorkDef(id: string, raw: string): WorkDef | null {
   };
   const additional = section(body, CONTEXT_H, null);
   if (additional) def.additionalContext = additional;
-  // `draft: true` is the pre-rename spelling of pending (docs/DESIGN.md
-  // "Pending: Write, Review, Activate"); both load as pending.
-  if (scalar(fm, "pending") === "true" || scalar(fm, "draft") === "true") def.pending = true;
+  // Pending: docs/DESIGN.md "Pending: Write, Review, Activate". (The pre-rename
+  // `draft: true` isn't read: a team still spelling it is refused at startup —
+  // daemon/layout-check.ts.)
+  if (scalar(fm, "pending") === "true") def.pending = true;
   const parent = parseParent(fm);
   if (parent) def.parent = parent;
   const dir = scalar(fm, "directory");

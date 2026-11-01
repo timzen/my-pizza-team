@@ -5,8 +5,7 @@
  * Parents", "Admission (CONWIP, WIP = 1 per story)"):
  *   - workflows (`workflows/<name>/workflow.json`, falling back to the built-in
  *     default) — load, save, delete, and the effective workflow of a story/task;
- *   - `loadFromDisk`: legacy story-file migration, then the stories/tasks SQLite
- *     cache rebuilt from `stories/<id>.json` + the board WorkDefs (`story.tasks`
+ *   - `loadFromDisk`: the stories/tasks SQLite cache rebuilt from `stories/<id>.json` + the board WorkDefs (`story.tasks`
  *     reconciled against what's on disk), then every source's `reconcile`;
  *   - story and board-task CRUD, the story-owned task order, task positions,
  *     assignments, and the entry points into the board policy (admission, moves —
@@ -40,7 +39,6 @@ import { normalizeDirectory } from "../../shared/directory.ts";
 import { writeFileAtomic } from "../../shared/atomic-write.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, deleteWorkDef, workDefDir } from "./workdefs.ts";
-import { migrateLegacyStoryFiles } from "./story-migration.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
 /**
@@ -119,7 +117,7 @@ export class BoardStore {
   private deps: BoardStoreDeps;
   private workflows: Record<string, WorkflowConfig> = {};
 
-  /** Built empty: the Store loads workflows (`reloadWorkflows`) once the persona migration has run. */
+  /** Built empty: the Store loads workflows (`reloadWorkflows`) at the end of its constructor. */
   constructor(ctx: StoreDomainContext, deps: BoardStoreDeps) {
     this.db = ctx.db;
     this.teamDir = ctx.teamDir;
@@ -192,18 +190,11 @@ export class BoardStore {
   // --- Load from filesystem ---
 
   /**
-   * Rebuild the stories/tasks cache from the team dir (after migrating legacy
-   * story files), reconciling each story's `tasks` against its board WorkDefs,
+   * Rebuild the stories/tasks cache from the team dir, reconciling each story's `tasks` against its board WorkDefs,
    * then let every source reconcile the queue.
    */
   loadFromDisk(): void {
     const storiesDir = path.join(this.teamDir, STORIES_DIR);
-
-    // Old story files first: `paused` and `backlog/` become pending (idempotent).
-    const migrated = migrateLegacyStoryFiles(this.teamDir);
-    if (migrated.conflicts.length > 0) {
-      console.warn(`[store] backlog/ or archived/ stories not migrated (stories/ already has that id): ${migrated.conflicts.join(", ")}`);
-    }
 
     // Read flat story files (stories/<id>.json).
     const stories: Story[] = [];

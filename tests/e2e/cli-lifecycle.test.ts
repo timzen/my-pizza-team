@@ -10,9 +10,12 @@
  * not merely the exit code. An exit code of 0 is exactly what a command that did the
  * wrong thing quietly also returns.
  *
- * The last case starts the daemon on a legacy team layout (an archived/ story) and
- * checks story archiving end to end: the migration into stories/, archiving in
- * place, and that a restart changes nothing (docs/DESIGN.md "Archived stories").
+ * The story-archive case starts the daemon on a team with an archived story and
+ * checks story archiving end to end: archiving in place, and that a restart
+ * changes nothing (docs/DESIGN.md "Archived stories"). The last case puts a
+ * pre-0.36.0 layout (an `archived/<id>.json` file) in front of `mpt start` and
+ * `mpt doctor`: the daemon refuses it with the upgrade message, doctor fails on it
+ * (docs/DESIGN.md "Upgrading from before 0.36.0").
  */
 
 import * as fs from "node:fs";
@@ -271,18 +274,18 @@ function boardWorkDef(storyId: string, title: string): string {
   return `---\ntitle: "${title}"\nparentKind: story\nparentId: "${storyId}"\n---\n## Goal\n\n${title} goal\n\n## Acceptance Criteria\n\nDone.\n\n## Additional Context\n\n`;
 }
 
-test("mpt start: a legacy archived/ story migrates in place; archiving keeps it in stories/; restart changes nothing", async () => {
+test("mpt start: an archived story stays in stories/; archiving keeps it there; restart changes nothing", async () => {
   await using sb = await sandbox("story-archive");
   // No teammates or autosave commits: this is about the files, not agents.
   sb.writeTeamConfig({ minTeammates: 0, autosave: { autoCommit: false } });
-  // The legacy layout: a live story `a` (depends on `b`, its task waiting in
-  // the manual review state) and an archived `b` still in archived/.
+  // A live story `a` (depends on `b`, its task waiting in the manual review
+  // state) and `b`, archived in place.
   writeTeamFile(sb, "stories/a.json", {
     id: "a", title: "Story A", description: "live", status: "open", dependsOn: ["b"],
     tasks: [{ id: "a-1", status: "review" }],
   });
   writeTeamFile(sb, "tasks/a-1/workdef.md", boardWorkDef("a", "A one"));
-  writeTeamFile(sb, "archived/b.json", {
+  writeTeamFile(sb, "stories/b.json", {
     id: "b", title: "Story B", description: "old", status: "done", dependsOn: [],
     tasks: [{ id: "b-1", status: "done" }], archivedAt: "2025-06-01T00:00:00.000Z", synopsis: "# Story B synopsis",
   });
@@ -294,11 +297,10 @@ test("mpt start: a legacy archived/ story migrates in place; archiving keeps it 
   const board = async () => (await api("/api/stories")).stories as Array<{ id: string; ready: boolean; tasks: Array<{ id: string }> }>;
   const archivedList = async () => (await api("/api/archived")).stories as Array<{ id: string; title: string; archivedAt: string; synopsis: string }>;
 
-  // 1. First start: b is migrated into stories/, still archived with its context.
+  // 1. First start: b is archived, with its context, and stays where it is.
   let started = await sb.mpt("start", "--daemon");
   try {
     assertEquals(started.code, 0, started.output);
-    assertEquals(existsSync(path.join(sb.teamDir, "archived")), false, "archived/ is removed once empty");
     const b = readStory("b");
     assertEquals(b.archivedAt, "2025-06-01T00:00:00.000Z");
     assertEquals(b.synopsis, "# Story B synopsis");
@@ -339,4 +341,32 @@ test("mpt start: a legacy archived/ story migrates in place; archiving keeps it 
   } finally {
     await sb.mpt("stop");
   }
+});
+
+// ─── a pre-0.36.0 layout ─────────────────────────────────────────────
+
+test("mpt start and doctor refuse a pre-0.36.0 layout (an archived/<id>.json file)", async () => {
+  await using sb = await sandbox("pre-036");
+  sb.writeTeamConfig({ minTeammates: 0, autosave: { autoCommit: false } });
+  writeTeamFile(sb, "archived/b.json", {
+    id: "b", title: "Story B", description: "old", status: "done", dependsOn: [], tasks: [],
+    archivedAt: "2025-06-01T00:00:00.000Z", synopsis: "# B",
+  });
+  // A nested folder-per-story leftover the old migration never handled: not a sign.
+  writeTeamFile(sb, "archived/c/story.json", { id: "c" });
+
+  const started = await sb.mpt("start", "--daemon");
+  assertEquals(started.code, 1, started.output);
+  assertStringIncludes(started.output, "This team was last run on a version older than 0.36.0");
+  assertStringIncludes(started.output, "npm i -g my-pizza-team@0.36");
+  assertStringIncludes(started.output, "archived/b.json");
+  assertEquals(started.output.includes("archived/c/story.json"), false, started.output);
+  assertEquals(existsSync(path.join(sb.teamDir, "daemon.pid")), false, "no daemon was left running");
+  assertEquals(existsSync(path.join(sb.teamDir, "state.db")), false, "nothing was opened");
+  assertEquals(existsSync(path.join(sb.teamDir, "archived", "b.json")), true, "the file is untouched");
+
+  const doctor = await sb.mpt("doctor");
+  assertEquals(doctor.code === 0, false, doctor.output);
+  assertStringIncludes(doctor.output, "Team layout");
+  assertStringIncludes(doctor.output, "npm i -g my-pizza-team@0.36");
 });

@@ -1,32 +1,83 @@
 /**
  * tests/schema-migrate.test.ts — the versioned schema migrations
- * (daemon/store/schema.ts). Opening a pre-versioning state.db (user_version 0)
- * runs migration 1: it drops the columns of retired models and the retired
- * tables, adds the missing columns, keeps the data that matters, and ends at
- * exactly the schema a fresh database gets. A database already at the latest
- * version is left untouched.
+ * (daemon/store/schema.ts).
  *
- * Builds the old shapes by hand — the columns as the daemon used to create them,
- * with user_version 0 as every database had before versioning — then opens them
- * with the current Store.
+ * - A fresh database is created at the latest version.
+ * - A database 0.36.0 wrote (user_version 0, 0.36.0's exact shape — the oldest a
+ *   team can upgrade from) runs migration 1: it ends at exactly the schema a
+ *   fresh database gets and keeps its rows.
+ * - A user_version-0 database in an older shape (a column 0.36.0 had already
+ *   added or dropped, a retired table, token_usage's old foreign key) is
+ *   refused with the "upgrade through 0.36.x first" error and left untouched —
+ *   never rebuilt.
+ * - A database already at the latest version is left untouched.
+ *
+ * Builds the old shapes by hand, then opens them with the current Store.
  */
 
 import * as fs from "node:fs";
 import * as os from "node:os";
 import { test } from "node:test";
-import { assert, assertEquals } from "./_assert.ts";
+import { assert, assertEquals, assertStringIncludes } from "./_assert.ts";
 import { DatabaseSync } from "node:sqlite";
 import { TEST_CONFIG } from "./_config.ts";
 import { Store } from "../daemon/store.ts";
-import { SCHEMA_VERSION } from "../daemon/store/schema.ts";
+import { preCutoffSchemaFindings, SCHEMA_VERSION } from "../daemon/store/schema.ts";
+import { PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import * as path from "node:path";
 
-const RETIRED: Record<string, string[]> = {
-  stories: ["requirements", "categories"],
-  tasks: ["substatus", "last_read_at", "dirty"],
-  members: ["capabilities", "work_mode", "assigned_story_id"],
-  work_items: ["ref_kind", "story_id", "task_id"],
-};
+/**
+ * The schema 0.36.0 left a database in (its initSchema: the CREATEs, then the
+ * columns it added to existing tables — which a database it created also got,
+ * at the end, in this order).
+ */
+const SCHEMA_036 = `
+  CREATE TABLE stories (id TEXT PRIMARY KEY, title TEXT, description TEXT, status TEXT DEFAULT 'open',
+    depends_on TEXT DEFAULT '[]', pending INTEGER DEFAULT 0, workflow TEXT, task_order TEXT DEFAULT '[]',
+    directory TEXT, dir_path TEXT);
+  CREATE TABLE tasks (id TEXT PRIMARY KEY, story_id TEXT REFERENCES stories(id), seq INTEGER, slug TEXT, title TEXT,
+    description TEXT, status TEXT DEFAULT 'todo', result TEXT, dir_path TEXT, dirty INTEGER DEFAULT 0);
+  CREATE TABLE assignments (task_id TEXT PRIMARY KEY REFERENCES tasks(id), member_id TEXT, claimed_at INTEGER);
+  CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id), from_id TEXT,
+    body TEXT, created_at INTEGER);
+  CREATE TABLE comments_loaded (task_id TEXT PRIMARY KEY REFERENCES tasks(id), loaded_at INTEGER);
+  CREATE TABLE members (id TEXT PRIMARY KEY, name TEXT, metadata TEXT DEFAULT '{}', protocol_version INTEGER,
+    harness TEXT, harness_version TEXT, status TEXT DEFAULT 'idle', last_heartbeat INTEGER);
+  CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT, input_tokens INTEGER,
+    output_tokens INTEGER, model TEXT, cost_usd REAL, recorded_at INTEGER);
+  CREATE TABLE assistant_messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, session_id TEXT, role TEXT,
+    content TEXT, origin TEXT, delivery TEXT, state TEXT DEFAULT 'ok', reply_to TEXT, send_mode TEXT, created_at INTEGER);
+  CREATE TABLE assistant_sessions (id TEXT PRIMARY KEY, persona_id TEXT, persona_title TEXT, title TEXT,
+    pi_session_path TEXT, status TEXT NOT NULL, snapshot_path TEXT, started_at INTEGER NOT NULL, ended_at INTEGER,
+    message_count INTEGER DEFAULT 0);
+  CREATE TABLE leader_directives (id TEXT PRIMARY KEY, action TEXT NOT NULL, member_id TEXT, params TEXT DEFAULT '{}',
+    status TEXT DEFAULT 'pending', error TEXT, created_at INTEGER, updated_at INTEGER);
+  CREATE TABLE settings (key TEXT PRIMARY KEY, value TEXT);
+  CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT, work_def_id TEXT, directory TEXT, state TEXT,
+    read INTEGER DEFAULT 0, member_id TEXT, enqueued_at INTEGER, last_state_change_at INTEGER,
+    attempt INTEGER DEFAULT 1, retry_at INTEGER, error TEXT, persona_id TEXT, persona_title TEXT,
+    persona_origin TEXT, persona_via TEXT, persona_fallback_from TEXT);
+  ALTER TABLE token_usage ADD COLUMN cache_read_tokens INTEGER DEFAULT 0;
+  ALTER TABLE token_usage ADD COLUMN cache_write_tokens INTEGER DEFAULT 0;
+  ALTER TABLE token_usage ADD COLUMN kind TEXT DEFAULT 'work';
+  ALTER TABLE token_usage ADD COLUMN member_id TEXT;
+  ALTER TABLE token_usage ADD COLUMN title TEXT;
+  CREATE INDEX idx_token_usage_recorded_at ON token_usage(recorded_at);
+  ALTER TABLE tasks ADD COLUMN acceptance_criteria TEXT;
+  ALTER TABLE tasks ADD COLUMN additional_context TEXT;
+  ALTER TABLE members ADD COLUMN directory TEXT;
+  CREATE INDEX idx_work_items_work_def ON work_items(work_def_id);
+`;
+
+/** A team dir holding a state.db built by `sql` (user_version 0 — from before versioning). */
+function oldTeam(sql: string): { teamDir: string; dbPath: string } {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
+  const dbPath = path.join(teamDir, "state.db");
+  const db = new DatabaseSync(dbPath);
+  db.exec(sql);
+  db.close();
+  return { teamDir, dbPath };
+}
 
 function columns(dbPath: string, table: string): string[] {
   const db = new DatabaseSync(dbPath);
@@ -35,103 +86,12 @@ function columns(dbPath: string, table: string): string[] {
   } finally { db.close(); }
 }
 
-test("an old database loses the retired columns, and old WorkItems keep their ref", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  const dbPath = path.join(teamDir, "state.db");
-  try {
-    // The old shape: today's schema plus the retired columns, added back the way
-    // older daemons created them — and a WorkItem from before the ref collapsed,
-    // which names its WorkDef only in task_id.
-    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
-    const old = new DatabaseSync(dbPath);
-    old.exec("PRAGMA user_version = 0"); // from before versioning
-    for (const [table, cols] of Object.entries(RETIRED)) {
-      for (const col of cols) old.exec(`ALTER TABLE ${table} ADD COLUMN ${col} TEXT`);
-    }
-    old.exec(`
-      INSERT INTO work_items (id, title, ref_kind, story_id, task_id, work_def_id, state, read, enqueued_at, last_state_change_at)
-        VALUES ('wi-old', 'Old item', 'task', 's1', 'old-task-1', NULL, 'COMPLETE', 0, 1, 1),
-               ('wi-new', 'New item', NULL, NULL, NULL, 'def-2', 'COMPLETE', 0, 2, 2);
-    `);
-    old.close();
-    for (const [table, cols] of Object.entries(RETIRED)) {
-      assert(cols.every((c) => columns(dbPath, table).includes(c)), `fixture has ${table}'s retired columns`);
-    }
-
-    const store = new Store(teamDir, structuredClone(TEST_CONFIG));
-    const items = store.getWorkItems({}).items;
-    assertEquals(items.find((i) => i.id === "wi-old")?.ref.workDefId, "old-task-1", "the task_id ref was carried over");
-    assertEquals(items.find((i) => i.id === "wi-new")?.ref.workDefId, "def-2");
-    store.close();
-
-    for (const [table, retired] of Object.entries(RETIRED)) {
-      const cols = columns(dbPath, table);
-      for (const col of retired) assert(!cols.includes(col), `${table}.${col} should be dropped`);
-    }
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});
-
-test("a fresh database never has the retired columns", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  try {
-    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
-    for (const [table, retired] of Object.entries(RETIRED)) {
-      const cols = columns(path.join(teamDir, "state.db"), table);
-      assert(cols.length > 0, `${table} exists`);
-      for (const col of retired) assert(!cols.includes(col), `${table}.${col} is not created`);
-    }
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});
-
 function tables(dbPath: string): string[] {
   const db = new DatabaseSync(dbPath);
   try {
     return (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name);
   } finally { db.close(); }
 }
-
-test("an old database loses the retired comments tables; a fresh one never has them", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  const dbPath = path.join(teamDir, "state.db");
-  try {
-    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
-    for (const t of ["comments", "comments_loaded"]) assert(!tables(dbPath).includes(t), `${t} is not created`);
-    // The old shape: the write-only SQLite copy of task threads, as older daemons created it.
-    const old = new DatabaseSync(dbPath);
-    old.exec("PRAGMA user_version = 0"); // from before versioning
-    old.exec(`
-      CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id), from_id TEXT, body TEXT, created_at INTEGER);
-      CREATE TABLE comments_loaded (task_id TEXT PRIMARY KEY REFERENCES tasks(id), loaded_at INTEGER);
-    `);
-    old.close();
-    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
-    for (const t of ["comments", "comments_loaded"]) assert(!tables(dbPath).includes(t), `${t} should be dropped`);
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});
-
-test("an old work_items table gains the retry columns; old items read as attempt 1", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  const dbPath = path.join(teamDir, "state.db");
-  try {
-    // A work_items table from before errored-session retries (no attempt/retry_at/error).
-    const old = new DatabaseSync(dbPath);
-    old.exec(`
-      CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT, work_def_id TEXT, directory TEXT, state TEXT,
-        read INTEGER DEFAULT 0, member_id TEXT, enqueued_at INTEGER, last_state_change_at INTEGER);
-      INSERT INTO work_items (id, title, work_def_id, state, read, enqueued_at, last_state_change_at)
-        VALUES ('wi-old', 'Old item', 'def-1', 'COMPLETE', 0, 1, 1);
-    `);
-    old.close();
-
-    const store = new Store(teamDir, structuredClone(TEST_CONFIG));
-    const item = store.getWorkItem("wi-old")!;
-    assertEquals(item.attempt, 1);
-    assertEquals(item.retryAt, undefined);
-    assertEquals(item.error, undefined);
-    store.close();
-    for (const col of ["attempt", "retry_at", "error"]) assert(columns(dbPath, "work_items").includes(col), `work_items.${col} added`);
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});
 
 /** Everything that defines a schema, order-independent: per-table columns, FKs, and the indexes. */
 function schemaOf(dbPath: string): Record<string, unknown> {
@@ -157,83 +117,36 @@ function userVersion(dbPath: string): number {
   finally { db.close(); }
 }
 
-test("a fresh database is created at the latest schema version", () => {
+test("a fresh database is created at the latest schema version, without 0.36.0's leftovers", () => {
   const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
+  const dbPath = path.join(teamDir, "state.db");
   try {
     new Store(teamDir, structuredClone(TEST_CONFIG)).close();
     assert(SCHEMA_VERSION >= 1, "there is at least one migration");
-    assertEquals(userVersion(path.join(teamDir, "state.db")), SCHEMA_VERSION);
-  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
-});
-
-test("a database already at the latest version is left untouched", () => {
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  const dbPath = path.join(teamDir, "state.db");
-  try {
-    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
-    // A retired column, which migration 1 would drop — so if it survives, no
-    // migration ran.
-    const db = new DatabaseSync(dbPath);
-    db.exec("ALTER TABLE stories ADD COLUMN requirements TEXT");
-    db.close();
-    const before = schemaOf(dbPath);
-
-    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
-
-    assertEquals(JSON.stringify(schemaOf(dbPath)), JSON.stringify(before), "schema unchanged");
-    assert(columns(dbPath, "stories").includes("requirements"), "the retired column is still there");
     assertEquals(userVersion(dbPath), SCHEMA_VERSION);
+    assert(!columns(dbPath, "tasks").includes("dirty"), "tasks.dirty is not created");
+    for (const t of ["comments", "comments_loaded"]) assert(!tables(dbPath).includes(t), `${t} is not created`);
   } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });
 
-test("an old-shape database is migrated to exactly the fresh schema", () => {
+test("a 0.36.0 database is migrated to exactly the fresh schema and keeps its rows", () => {
   const freshDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
-  const dbPath = path.join(teamDir, "state.db");
+  const { teamDir, dbPath } = oldTeam(SCHEMA_036 + `
+    INSERT INTO work_items (id, title, work_def_id, state, read, enqueued_at, last_state_change_at)
+      VALUES ('wi-old', 'Old item', 'def-1', 'COMPLETE', 0, 1, 1);
+    INSERT INTO leader_directives (id, action, params, status, created_at, updated_at)
+      VALUES ('d-asst', 'spawn', '{"reason":"assistant"}', 'pending', 1, 1),
+             ('d-team', 'spawn', '{"reason":"pool"}', 'pending', 1, 1);
+    INSERT INTO comments (task_id, from_id, body, created_at) VALUES (NULL, 'me', 'hi', 1);
+  `);
   try {
     new Store(freshDir, structuredClone(TEST_CONFIG)).close();
     const fresh = schemaOf(path.join(freshDir, "state.db"));
-
-    // An early database: before stories had workflow/pending/order/directory,
-    // tasks their cached WorkDef fields, members the handshake and directory,
-    // directives an error column (but still a NOT NULL host_id), WorkItems
-    // retries, personas or a work_def_id-only ref, chat sessions and receipts
-    // (but the v1 turn model), usage its extra columns (but an FK to tasks) —
-    // plus the retired comments tables, and with some tables not yet existing.
-    const old = new DatabaseSync(dbPath);
-    old.exec(`
-      CREATE TABLE stories (id TEXT PRIMARY KEY, title TEXT, description TEXT, status TEXT DEFAULT 'open',
-        depends_on TEXT DEFAULT '[]', dir_path TEXT, requirements TEXT, categories TEXT, paused INTEGER DEFAULT 0, context TEXT);
-      CREATE TABLE tasks (id TEXT PRIMARY KEY, story_id TEXT REFERENCES stories(id), seq INTEGER, slug TEXT, title TEXT,
-        description TEXT, status TEXT DEFAULT 'todo', result TEXT, dir_path TEXT, substatus TEXT, last_read_at INTEGER,
-        context TEXT DEFAULT '[]', dirty INTEGER);
-      CREATE TABLE assignments (task_id TEXT PRIMARY KEY REFERENCES tasks(id), member_id TEXT, claimed_at INTEGER);
-      CREATE TABLE members (id TEXT PRIMARY KEY, name TEXT, host_id TEXT, status TEXT DEFAULT 'idle', last_heartbeat INTEGER,
-        capabilities TEXT, work_mode TEXT, assigned_story_id TEXT);
-      CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id), input_tokens INTEGER,
-        output_tokens INTEGER, model TEXT, cost_usd REAL, recorded_at INTEGER);
-      CREATE TABLE assistant_messages (seq INTEGER PRIMARY KEY AUTOINCREMENT, id TEXT UNIQUE, role TEXT, content TEXT,
-        turn_id TEXT, status TEXT, created_at INTEGER);
-      CREATE TABLE assistant_turns (id TEXT PRIMARY KEY, status TEXT);
-      CREATE TABLE leader_directives (id TEXT PRIMARY KEY, host_id TEXT NOT NULL, action TEXT NOT NULL, member_id TEXT,
-        params TEXT DEFAULT '{}', status TEXT DEFAULT 'pending', created_at INTEGER, updated_at INTEGER);
-      CREATE TABLE work_items (id TEXT PRIMARY KEY, title TEXT, ref_kind TEXT, story_id TEXT, task_id TEXT, work_def_id TEXT,
-        directory TEXT, state TEXT, read INTEGER DEFAULT 0, member_id TEXT, enqueued_at INTEGER, last_state_change_at INTEGER);
-      CREATE TABLE comments (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id), from_id TEXT, body TEXT, created_at INTEGER);
-      CREATE TABLE comments_loaded (task_id TEXT PRIMARY KEY REFERENCES tasks(id), loaded_at INTEGER);
-
-      INSERT INTO leader_directives (id, host_id, action, params, status, created_at, updated_at)
-        VALUES ('d-asst', 'h1', 'spawn', '{"reason":"assistant"}', 'pending', 1, 1),
-               ('d-team', 'h1', 'spawn', '{"reason":"pool"}', 'pending', 1, 1);
-      INSERT INTO work_items (id, title, ref_kind, task_id, state, read, enqueued_at, last_state_change_at)
-        VALUES ('wi-old', 'Old item', 'task', 'old-task-1', 'COMPLETE', 0, 1, 1);
-    `);
     assertEquals(userVersion(dbPath), 0);
-    old.close();
 
     const store = new Store(teamDir, structuredClone(TEST_CONFIG));
     const item = store.getWorkItem("wi-old")!;
-    assertEquals(item.ref.workDefId, "old-task-1", "the task_id ref was carried over");
+    assertEquals(item.ref.workDefId, "def-1", "the Inbox history is kept");
     assertEquals(item.attempt, 1);
     store.close();
 
@@ -242,14 +155,77 @@ test("an old-shape database is migrated to exactly the fresh schema", () => {
     for (const key of new Set([...Object.keys(fresh), ...Object.keys(migrated)])) {
       assertEquals(JSON.stringify(migrated[key]), JSON.stringify(fresh[key]), `${key} matches the fresh schema`);
     }
+    // Identical, not just equivalent: the column order matches too.
+    assertEquals(columns(dbPath, "tasks"), columns(path.join(freshDir, "state.db"), "tasks"));
     const check = new DatabaseSync(dbPath);
     try {
       const status = (id: string) => (check.prepare("SELECT status FROM leader_directives WHERE id = ?").get(id) as { status: string }).status;
-      assertEquals(status("d-asst"), "cancelled", "the retired assistant spawn is cancelled");
+      assertEquals(status("d-asst"), "cancelled", "the retired assistant spawn is cancelled (every boot)");
       assertEquals(status("d-team"), "pending", "a teammate spawn is kept");
     } finally { check.close(); }
   } finally {
     fs.rmSync(freshDir, { recursive: true, force: true });
     fs.rmSync(teamDir, { recursive: true, force: true });
   }
+});
+
+/** Older-than-0.36.0 shapes, each a 0.36.0 database with one thing changed. */
+const PRE_036: Array<[string, string, string]> = [
+  ["a missing column", SCHEMA_036.replace("ALTER TABLE members ADD COLUMN directory TEXT;", ""), "`members` table has no `directory`"],
+  ["a retired column", SCHEMA_036 + "ALTER TABLE stories ADD COLUMN paused INTEGER DEFAULT 0;", "`stories` table still has the retired `paused`"],
+  ["a retired column on work_items", SCHEMA_036 + "ALTER TABLE work_items ADD COLUMN task_id TEXT;", "`work_items` table still has the retired `task_id`"],
+  ["a retired table", SCHEMA_036 + "CREATE TABLE assistant_turns (id TEXT PRIMARY KEY, status TEXT);", "retired `assistant_turns` table"],
+  ["a missing table", SCHEMA_036.replace(/CREATE TABLE assistant_sessions[^;]*;/, ""), "no `assistant_sessions` table"],
+  ["token_usage's old FK", SCHEMA_036.replace("CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT,", "CREATE TABLE token_usage (id INTEGER PRIMARY KEY AUTOINCREMENT, task_id TEXT REFERENCES tasks(id),"), "old foreign key"],
+];
+
+for (const [name, sql, expected] of PRE_036) {
+  test(`a pre-0.36.0 database (${name}) is refused with the upgrade message and left untouched`, () => {
+    const { teamDir, dbPath } = oldTeam(sql + "INSERT INTO work_items (id, title, state) VALUES ('wi-keep', 'Keep me', 'COMPLETE');");
+    try {
+      const before = schemaOf(dbPath);
+      let error: Error | null = null;
+      try { new Store(teamDir, structuredClone(TEST_CONFIG)).close(); } catch (e) { error = e as Error; }
+      assert(error !== null, "the Store refuses to open it");
+      assertStringIncludes(error!.message, PRE_CUTOFF_UPGRADE_MESSAGE);
+      assertStringIncludes(error!.message, expected);
+      assertEquals(userVersion(dbPath), 0, "not stamped");
+      assertEquals(JSON.stringify(schemaOf(dbPath)), JSON.stringify(before), "not migrated or rebuilt");
+      const db = new DatabaseSync(dbPath);
+      try { assertEquals((db.prepare("SELECT COUNT(*) AS n FROM work_items").get() as { n: number }).n, 1, "rows kept"); }
+      finally { db.close(); }
+    } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
+  });
+}
+
+test("preCutoffSchemaFindings: nothing for a 0.36.0, a fresh, or a versioned database", () => {
+  const db = new DatabaseSync(":memory:");
+  try {
+    assertEquals(preCutoffSchemaFindings(db), [], "no tables yet");
+    db.exec(SCHEMA_036);
+    assertEquals(preCutoffSchemaFindings(db), [], "0.36.0's shape");
+    db.exec("ALTER TABLE stories ADD COLUMN paused INTEGER");
+    assertEquals(preCutoffSchemaFindings(db).length, 1);
+    db.exec("PRAGMA user_version = 1");
+    assertEquals(preCutoffSchemaFindings(db), [], "versioned databases are the migrations' business");
+  } finally { db.close(); }
+});
+
+test("a database already at the latest version is left untouched", () => {
+  const teamDir = fs.mkdtempSync(path.join(os.tmpdir(), "mpt-schema-test-"));
+  const dbPath = path.join(teamDir, "state.db");
+  try {
+    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
+    // A column no migration knows; if it survives, nothing ran (and nothing refused).
+    const db = new DatabaseSync(dbPath);
+    db.exec("ALTER TABLE stories ADD COLUMN requirements TEXT");
+    db.close();
+    const before = schemaOf(dbPath);
+
+    new Store(teamDir, structuredClone(TEST_CONFIG)).close();
+
+    assertEquals(JSON.stringify(schemaOf(dbPath)), JSON.stringify(before), "schema unchanged");
+    assert(columns(dbPath, "stories").includes("requirements"), "the extra column is still there");
+    assertEquals(userVersion(dbPath), SCHEMA_VERSION);
+  } finally { fs.rmSync(teamDir, { recursive: true, force: true }); }
 });

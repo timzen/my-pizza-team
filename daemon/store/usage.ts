@@ -21,10 +21,9 @@
  * committed with the stories, tasks, and config (state.db is gitignored — by the
  * .gitignore that store/git-sync.ts writes into the team directory), diffs
  * are append-only, and it's greppable / `jq`-able. On boot the `token_usage`
- * table is rebuilt from those files (`syncUsageLedger`). The first boot without
- * a `usage/` dir migrates: existing DB rows, plus the `tokenUsage` arrays that
- * old board tasks mirrored into `task.json` (including archived stories — the
- * only usage git had), deduplicated.
+ * table is rebuilt from those files (`syncUsageLedger`). (A team whose usage is
+ * still only in state.db or `task.json` — from before 0.36.0 — is refused at
+ * startup: daemon/layout-check.ts.)
  *
  * Rollups back the Usage dashboard (routes/usage.ts): tokens + cost per local
  * day (the client passes its UTC offset, so "a day" is the user's day), and one
@@ -277,81 +276,15 @@ function readUsageFiles(teamDir: string): UsageEntry[] {
   return out;
 }
 
-/** Every `task.json` under the team dir (live and archived board tasks). */
-function findTaskJsonFiles(dir: string, out: string[] = []): string[] {
-  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    if (entry.name.startsWith(".") || entry.name === USAGE_DIR) continue;
-    const p = path.join(dir, entry.name);
-    if (entry.isDirectory()) findTaskJsonFiles(p, out);
-    else if (entry.isFile() && entry.name === "task.json") out.push(p);
-  }
-  return out;
-}
-
-/** Usage that old board tasks mirrored into task.json (`tokenUsage: [...]`). */
-function readTaskJsonUsage(teamDir: string): UsageEntry[] {
-  const out: UsageEntry[] = [];
-  for (const file of findTaskJsonFiles(teamDir)) {
-    try {
-      const data = JSON.parse(fs.readFileSync(file, "utf8")) as { id?: string; title?: string; tokenUsage?: Array<Record<string, unknown>> };
-      for (const u of data.tokenUsage ?? []) {
-        const e = fromLine({ ...u, kind: "work", refId: data.id ?? path.basename(path.dirname(file)), title: data.title ?? null } as Partial<UsageLine>);
-        if (e) out.push(e);
-      }
-    } catch { /* skip unreadable task files */ }
-  }
-  return out;
-}
-
-/** Existing cache rows (the pre-files ledger). */
-function readDbRows(db: DatabaseSync): UsageEntry[] {
-  const rows = db.prepare("SELECT * FROM token_usage").all() as Array<Record<string, unknown>>;
-  return rows.map((r) => ({
-    at: Number(r.recorded_at) || 0,
-    kind: ((r.kind as string) || "work") as UsageKind,
-    refId: (r.task_id as string) ?? null,
-    title: (r.title as string) ?? null,
-    memberId: (r.member_id as string) ?? null,
-    model: String(r.model ?? ""),
-    inputTokens: Number(r.input_tokens) || 0,
-    outputTokens: Number(r.output_tokens) || 0,
-    cacheReadTokens: Number(r.cache_read_tokens) || 0,
-    cacheWriteTokens: Number(r.cache_write_tokens) || 0,
-    costUsd: Number(r.cost_usd) || 0,
-  }));
-}
-
-/** Same run seen twice (DB row + its task.json mirror)? Same second, ref, tokens, cost. */
-function dedupKey(e: UsageEntry): string {
-  return [Math.floor((e.at ?? 0) / 1000), e.refId ?? "", e.inputTokens, e.outputTokens, (e.costUsd ?? 0).toFixed(6)].join("|");
-}
-
 /**
- * Make the files authoritative and the cache match them. Called once at boot.
- *
- * - `usage/` exists → rebuild `token_usage` from the files (a pulled commit or
- *   hand-edit is reflected; a stale/deleted state.db loses nothing).
- * - it doesn't (first boot on this version) → migrate: write the DB rows and
- *   task.json mirrors, deduplicated, into the month files, then rebuild.
+ * Make the cache match the files. Called once at boot: rebuilds `token_usage`
+ * from `usage/` (created empty when missing), so a pulled commit or hand-edit is
+ * reflected and a stale/deleted state.db loses nothing.
  *
  * Returns how many entries the ledger holds.
  */
 export function syncUsageLedger(db: DatabaseSync, teamDir: string): number {
-  const dir = path.join(teamDir, USAGE_DIR);
-  if (!existsSync(dir)) {
-    const seen = new Set<string>();
-    const merged: UsageEntry[] = [];
-    // DB rows first: they carry the richer fields (cache, kind, member, title).
-    for (const e of [...readDbRows(db), ...readTaskJsonUsage(teamDir)]) {
-      const k = dedupKey(e);
-      if (seen.has(k)) continue;
-      seen.add(k);
-      merged.push(e);
-    }
-    merged.sort((a, b) => (a.at ?? 0) - (b.at ?? 0));
-    fs.mkdirSync(dir, { recursive: true });
-    for (const e of merged) appendUsageLine(teamDir, e);
-  }
+  fs.mkdirSync(path.join(teamDir, USAGE_DIR), { recursive: true });
   const entries = readUsageFiles(teamDir);
   db.exec("BEGIN");
   try {
