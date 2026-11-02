@@ -28,6 +28,8 @@
  *   after the shell's route focus (hooks/useRouteFocus) has put focus on the
  *   h1. An old one-page link (`/help#moribund`) is sent on to the topic that
  *   has the heading (lib/guide.ts `topicForAnchor`).
+ * - **Show the Welcome checklist** (below the contents) reopens the first-run
+ *   card and goes Home (components/onboarding/ShowWelcomeButton).
  * - Headings render at their own level here (the page's `#` title is its
  *   h1), and links into the guide go through the router — components/help/
  *   GuideMarkdown, the renderer the side dock's Help panel shares.
@@ -40,12 +42,13 @@ import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 
 import { Link, Navigate, useLocation } from "react-router-dom";
 import { ChevronLeft, ChevronRight, List, Search } from "lucide-react";
 import { GuideMarkdown } from "@/components/help/GuideMarkdown";
+import { ShowWelcomeButton } from "@/components/onboarding/ShowWelcomeButton";
 import { getSearchIndex, topicsFor } from "@/components/help/guideContent";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { focusTarget } from "@/hooks/useRouteFocus";
 import { adjacentTopics, searchAnnouncement, searchGuide, topicForAnchor, type GuideTopic } from "@/lib/guide";
-import { HELP_HOME_TOPIC, HELP_ROOT, anchorOfHash, helpPath, helpTopicParam, resolveTopic } from "@/lib/help";
+import { HELP_HOME_TOPIC, HELP_ROOT, MOBILE_HELP_ROOT, anchorOfHash, helpPath, helpTopicParam, resolveTopic } from "@/lib/help";
 import { scrollBehavior } from "@/lib/motion";
 
 /** How long typing must pause before the result count is announced. */
@@ -175,6 +178,7 @@ function HelpSidebar({ root, topics, current, anchor }: { root: string; topics: 
           </nav>
         </>
       )}
+      <ShowWelcomeButton phone={root === MOBILE_HELP_ROOT} className="self-start text-sm" />
     </div>
   );
 }

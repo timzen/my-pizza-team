@@ -2307,6 +2307,21 @@ capture a note), each ticked off by **doing it**, wherever and however it was do
   something the user cares about, and changes nothing. It's only a prefill until
   **Run** (`POST /api/onboarding/sample-task`): nothing is created for a user who
   just looks.
+- **The next step, said, and the rest still there.** The card highlights the first
+  undone step and says what it is in one sentence, but every undone step keeps its
+  action — the order is a suggestion, and asking the assistant before a teammate is
+  online is fine (on the phone only the next step's action shows, to keep it a
+  peek). Each step has a **Learn more** into the guide, so the card stays
+  short and the explanation lives in one place.
+- **Ticks are news; polls aren't.** The card polls (every few seconds while it's up),
+  and a step ticking off is spoken through the polite live region; an unchanged poll
+  says nothing (see "Polling Never Disturbs the Reader"). State is text — "Done",
+  "Next" — not only a check icon.
+- **An ending, then gone.** When the last step ticks the card says "You're set",
+  with a few guide pages to read next, rather than vanishing mid-glance; it's gone on
+  the next load (`completedAt`). Dismiss says where it went ("reopen it from Help"),
+  and Help's **Show the Welcome checklist** is how it comes back. On the phone it's
+  the same card at the top of Team, minus Spawn (see "A Phone Is a Peek").
 
 ## A Phone Is a Peek
 

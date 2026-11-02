@@ -9,6 +9,10 @@
  *  - **Queue** — the Queue tab's list (pages/QueuePage `QueueList`), with its
  *    stall banner and recovery buttons, fed from the shell's data.
  *
+ * A new team sees the **Welcome checklist** at the top (components/onboarding/
+ * WelcomeCard, without its Spawn button); its "Watch it run" moves focus to the
+ * Queue heading below.
+ *
  * Team size and spawning stay on the desktop: they're setup, not a peek. With
  * nobody online the tab says what teammates and the leader are and how to
  * start the leader (components/team/TeamEmpty, without its Spawn button).
@@ -20,6 +24,7 @@ import type { QueueData } from "@/hooks/useQueue";
 import { TeammateRow } from "@/components/team/TeamParts";
 import { TeamEmpty } from "@/components/team/TeamEmpty";
 import { QueueList } from "@/pages/QueuePage";
+import { MOBILE_QUEUE_HEADING_ID, WelcomeCard } from "@/components/onboarding/WelcomeCard";
 import { TeammatePage } from "@/pages/TeammatePage";
 import { MOBILE_ROOT } from "@/lib/mobile";
 import { ChevronLeft } from "lucide-react";
@@ -48,6 +53,7 @@ export function MobileTeam({ team, queue, paused }: { team: TeamData; queue: Que
 
   return (
     <div className="h-full space-y-6 overflow-y-auto p-3">
+      <WelcomeCard phone />
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">
           Teammates <span className="font-normal text-muted-foreground">({online.length} online)</span>
@@ -84,7 +90,7 @@ export function MobileTeam({ team, queue, paused }: { team: TeamData; queue: Que
       </section>
 
       <section className="space-y-2">
-        <h2 className="text-sm font-semibold">Queue</h2>
+        <h2 id={MOBILE_QUEUE_HEADING_ID} tabIndex={-1} className="scroll-mt-3 text-sm font-semibold">Queue</h2>
         <QueueList queue={queue} teammates={teammates} paused={paused} teammatePath={teammatePath} desktopLinks={false} />
       </section>
     </div>

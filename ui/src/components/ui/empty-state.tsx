@@ -125,8 +125,13 @@ export function StartWorkActions({ desktopLinks = true }: { desktopLinks?: boole
 // Underlined, not only colored: a link in text must not rely on color alone (WCAG 1.4.1).
 const LEARN_MORE_CLASS = "inline-flex min-h-6 items-center rounded-sm px-1 text-primary underline underline-offset-2 hover:decoration-2";
 
-/** "Learn more": the dock's Help panel on the desktop, the guide's page on the phone. */
-function LearnMore({ topic, anchor, describedBy, compact }: { topic: string; anchor?: string; describedBy: string; compact?: boolean }) {
+/**
+ * "Learn more": the dock's Help panel on the desktop, the guide's page on the
+ * phone. `describedBy` names what it's about (the title it sits under), so a
+ * list of them doesn't read as a column of identical links. Also the Welcome
+ * checklist's per-step link (components/onboarding/WelcomeCard).
+ */
+export function LearnMore({ topic, anchor, describedBy, compact }: { topic: string; anchor?: string; describedBy: string; compact?: boolean }) {
   const dock = useContext(SideDockContext);
   const { pathname } = useLocation();
   const className = cn(LEARN_MORE_CLASS, compact ? "text-xs" : "text-sm");

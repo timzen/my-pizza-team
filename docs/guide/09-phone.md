@@ -3,7 +3,8 @@
 Open MPT on a phone and you get the **phone view** (`/m`): a quick way to check on the
 team, not the whole app. Four tabs along the bottom:
 
-- **Team** — your teammates (what each is working on, its model, context fill, and
+- **Team** — the [Welcome checklist](00-getting-started.md#the-welcome-checklist)
+  while the team is new (spawning is left to the full UI), then your teammates (what each is working on, its model, context fill, and
   cost), then the queue: at risk, waiting, working, with **Force-fail** /
   **Re-enqueue** / **Cancel**. Tap a teammate to watch it live, or **Pair** (see
   [Teammates](03-teammates.md#pairing-with-a-teammate)). The tab gets an amber dot

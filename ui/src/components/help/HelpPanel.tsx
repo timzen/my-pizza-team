@@ -19,6 +19,9 @@
  * a ? opens it, focus moves to the section's heading; Esc anywhere in the
  * panel closes it, and the dock gives focus back to where it was.
  *
+ * The footer's **Show the Welcome checklist** reopens the first-run card on
+ * Home (components/onboarding/ShowWelcomeButton).
+ *
  * Nothing here polls: the panel only changes when you open a section
  * (docs/DESIGN.md "Polling Never Disturbs the Reader").
  */
@@ -28,6 +31,7 @@ import { Link } from "react-router-dom";
 import { BookOpen } from "lucide-react";
 import { GuideMarkdown } from "./GuideMarkdown";
 import { GuideLinkContext, topicsFor } from "./guideContent";
+import { ShowWelcomeButton } from "@/components/onboarding/ShowWelcomeButton";
 import { useSideDock, type HelpTarget } from "@/hooks/useSideDock";
 import { focusTarget } from "@/hooks/useRouteFocus";
 import { guideSection } from "@/lib/guide";
@@ -84,6 +88,9 @@ export function HelpPanel() {
         <GuideLinkContext value={openInPanel}>
           <GuideMarkdown key={sectionKey} content={section.markdown} variant="panel" topLevel={section.level} />
         </GuideLinkContext>
+      </div>
+      <div className="shrink-0 border-t border-border px-3 py-1.5 text-xs">
+        <ShowWelcomeButton />
       </div>
     </section>
   );

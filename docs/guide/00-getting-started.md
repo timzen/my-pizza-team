@@ -26,6 +26,27 @@ plans work with you and writes tasks for you. The web UI at
    ideas there; a teammate reads changed notes every hour and suggests what could
    become work. See [Thoughts and triage](05-thoughts-and-triage.md).
 
+## The Welcome checklist
+
+A new team's home page starts with a **Welcome** card: the first steps above, as a
+checklist with a progress meter. Each step ticks off by itself when you do it, wherever
+you do it (the card, the CLI, the assistant), and the next one is highlighted with what
+to do:
+
+- **Start the leader** — run `mpt lead` in your team's directory (the card has a copy
+  button). The leader is the assistant you chat with.
+- **Get a teammate** — **Spawn a teammate**, or the reason it can't happen yet.
+- **Create your first task** — **Use a sample task** fills in "Summarize this project"
+  in the leader's directory; change anything, then **Run**. Or **Write your own**.
+- **Watch it run**, **Review the result**, **Ask the assistant something**, **Capture a
+  thought** — each links to where you do it.
+
+Every step has a **Learn more** link to its part of this guide. When all are done the
+card says **You're set**, with a few pages to read next, and goes away. **Dismiss**
+hides it sooner; **Show the Welcome checklist**, at the bottom of the Help panel and
+under this guide's contents, brings it back. A team that already has finished work
+doesn't see it unless it asks.
+
 ## Read next
 
 - [Tasks and runs](01-tasks-and-runs.md) — tasks, runs, pending, the Queue and Inbox

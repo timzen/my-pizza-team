@@ -32,6 +32,9 @@ minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, `mpt lead
 The in-app **Help** (`/help`) is the user guide: short topic pages in
 [docs/guide/](docs/guide/00-getting-started.md), indexed by [GUIDE.md](GUIDE.md), with
 a table of contents, search, and a link for every section (`/help/<topic>#<section>`).
+A new team's home page shows a **Welcome checklist** — start the leader, get a teammate,
+run a first task (a one-click sample), review it, ask the assistant, capture a note —
+that ticks off from the team's real state; dismiss it, and reopen it from Help.
 Every page's **?** (or the `?` key) opens the section about that page in the side dock,
 beside the page, and the forms' non-obvious fields (workflow, persona, directory,
 pending, cron…) each say what they do in one line, with a **Learn more** into it.

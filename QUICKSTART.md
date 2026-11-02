@@ -74,7 +74,9 @@ mpt start --daemon
 ```
 
 The daemon runs in the background and serves the web UI at
-**http://localhost:7437/**.
+**http://localhost:7437/**. A new team's home page has a **Welcome checklist** that
+walks you through the rest — starting the leader, a first teammate, a one-click sample
+task — and ticks each step off as you do it.
 
 ## 5. Start the leader
 

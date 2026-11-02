@@ -6,6 +6,9 @@
  * finished work. The active tab follows the route (`/queue`, `/` = Inbox) so
  * both stay deep-linkable.
  *
+ * A new team sees the **Welcome checklist** above the tabs (components/
+ * onboarding/WelcomeCard) until it's done or dismissed.
+ *
  * Several things deliberately live elsewhere now: the **assistant chat** and the
  * **quick-create buttons** moved into the left `SideDock`, so starting work
  * is possible from any page rather than only from home. **Thoughts** (the idea
@@ -18,6 +21,7 @@ import { RouteTabs } from "@/components/RouteTabs";
 import { InboxPage } from "./InboxPage";
 import { QueuePage } from "./QueuePage";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
+import { WelcomeCard } from "@/components/onboarding/WelcomeCard";
 
 const TABS = [
   { path: "/queue", label: "Queue" },
@@ -33,6 +37,7 @@ export function RootPage() {
     <div className="container mx-auto p-6 space-y-4">
       {/* The page's heading for screen readers; the lit tab says it visually. */}
       <h1 className="sr-only">{isQueue ? "Queue" : "Inbox"}</h1>
+      <WelcomeCard />
       <div className="flex items-center gap-2">
         <RouteTabs label="Queue and Inbox" tabs={TABS} />
         <PageHelpButton />
