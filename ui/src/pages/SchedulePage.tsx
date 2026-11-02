@@ -32,21 +32,15 @@ import { isActiveScheduledJob } from "@/lib/work-items";
 import { Plus, Play, Pause, CalendarClock, FolderOpen, Archive } from "lucide-react";
 import type { ScheduleView, WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { describeCron } from "@/lib/field-help";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
 
-/** Best-effort human phrasing for the common cron shapes; falls back to raw. */
-function describeCron(cron?: string | null): string {
+/** The job's cron in words (lib/field-help.ts `describeCron`), or the raw expression when it can't be phrased. */
+function cronLabel(cron?: string | null): string {
   if (!cron) return "—";
-  const known: Record<string, string> = {
-    "0 * * * *": "Every hour",
-    "0 9 * * *": "Every day at 9am",
-    "0 9 * * 1-5": "Weekdays at 9am",
-    "0 9 * * 1": "Every Monday at 9am",
-    "0 9 1 * *": "First of the month at 9am",
-  };
-  return known[cron.trim()] || cron;
+  return describeCron(cron) ?? cron;
 }
 
 export function SchedulePage() {
@@ -103,7 +97,7 @@ export function SchedulePage() {
               <Link to={`/work-defs/${encodeURIComponent(def.id)}`} className="min-w-0 flex-1">
                 <p className="font-medium truncate">{def.title}</p>
                 <div className="flex items-center gap-2 mt-1 text-xs text-muted-foreground flex-wrap">
-                  <Badge variant="outline" className="text-[10px] flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" />{describeCron(cron)}</Badge>
+                  <Badge variant="outline" className="text-[10px] flex items-center gap-1"><CalendarClock className="h-2.5 w-2.5" />{cronLabel(cron)}</Badge>
                   {cron && <code className="text-[10px] bg-muted px-1 rounded">{cron}</code>}
                   {def.directory && (
                     <Badge variant="secondary" className="text-[10px] font-mono flex items-center gap-1"><FolderOpen className="h-2.5 w-2.5" />{def.directory}</Badge>

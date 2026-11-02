@@ -4,7 +4,9 @@
  * returns to wherever you came from (board or story page). **Save as pending**
  * creates it as pending: it holds its place in the story (later tasks wait
  * behind it) and gets no WorkItem until activated from the task page
- * (docs/DESIGN.md "Pending: Write, Review, Activate").
+ * (docs/DESIGN.md "Pending: Write, Review, Activate"). Its hints (where the
+ * task goes in the story's order, what pending does) come from
+ * lib/field-help.ts via components/ui/field-hint.
  */
 
 import { useState } from "react";
@@ -15,10 +17,10 @@ import { Label } from "@/components/ui/label";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { BackButton } from "@/components/ui/back-button";
 import { apiPost } from "@/hooks/useApi";
-import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
+import { FieldHint } from "@/components/ui/field-hint";
 
 export function NewTaskPage() {
   const { id: storyId } = useParams<{ id: string }>();
@@ -47,16 +49,15 @@ export function NewTaskPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="task-title">Title</Label></div><Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="task-title">Title</Label></div><Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} required aria-describedby="task-order-hint" /><FieldHint id="task-order-hint" field="taskOrder" className="mt-1" /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
         <FormError className="text-sm">{error}</FormError>
         <div className="flex gap-2">
           <Button type="submit" value="add">Add Task</Button>
-          <Tooltip content="Hold its place in the story; nothing runs until you activate it">
-            <Button type="submit" value="pending" variant="secondary">Save as pending</Button>
-          </Tooltip>
+          <Button type="submit" value="pending" variant="secondary" aria-describedby="task-pending-hint">Save as pending</Button>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
+        <FieldHint id="task-pending-hint" field="pending">{" "}It holds its place in the story meanwhile.</FieldHint>
       </form>
     </div>
   );

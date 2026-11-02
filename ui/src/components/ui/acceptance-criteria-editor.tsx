@@ -9,13 +9,16 @@
  * criterion testable, so we surface a small strength badge — green (normative),
  * amber (recommended), blue (optional), or red (vague) — nudging the author
  * toward MUST / SHALL / SHOULD / MAY, uppercase per the RFC's convention.
+ * Its one-line hint (lib/field-help.ts `acceptanceCriteria`) sits under the
+ * list and describes each criterion's input.
  */
 
-import { useState } from "react";
+import { useId, useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Plus, X } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FieldHint } from "@/components/ui/field-hint";
 
 // ─── RFC 2119 scoring ──────────────────────────────────────────────
 
@@ -80,6 +83,8 @@ export function AcceptanceCriteriaEditor({
   onChange: (markdown: string) => void;
 }) {
   const items = parseItems(value);
+  // The hint (lib/field-help.ts) describes every criterion's input, not just the new one's.
+  const hintId = useId();
   const [draft, setDraft] = useState("");
 
   const commit = (next: string[]) => onChange(toMarkdown(next));
@@ -111,6 +116,7 @@ export function AcceptanceCriteriaEditor({
                 onChange={(e) => edit(i, e.target.value)}
                 className="flex-1"
                 aria-label={`Criterion ${i + 1}`}
+                aria-describedby={hintId}
               />
               <Tooltip content={score.hint ?? `Aligns with RFC 2119 (${score.label})`} focusable>
                 <span
@@ -142,6 +148,7 @@ export function AcceptanceCriteriaEditor({
             onChange={(e) => setDraft(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); add(); } }}
             aria-label="New criterion"
+            aria-describedby={hintId}
             className={draft.trim() ? "pr-24" : undefined}
           />
           {draft.trim() && (() => {
@@ -162,9 +169,7 @@ export function AcceptanceCriteriaEditor({
         </IconButton>
       </div>
 
-      <p className="text-[11px] text-muted-foreground">
-        Phrase each as a testable requirement. RFC 2119 keywords (MUST, SHALL, SHOULD, MAY — uppercase) make intent unambiguous.
-      </p>
+      <FieldHint id={hintId} field="acceptanceCriteria" />
     </div>
   );
 }

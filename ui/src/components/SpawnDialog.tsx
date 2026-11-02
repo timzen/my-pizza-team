@@ -31,6 +31,8 @@ import {
 } from "@/components/ui/dialog";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { FieldHint } from "@/components/ui/field-hint";
+import { describedBy } from "@/lib/field-help";
 
 export function SpawnDialog({
   open,
@@ -105,9 +107,10 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
 
       <form onSubmit={submit} className="space-y-4">
         <div className="space-y-1.5">
-          <Label>Working directory (optional)</Label>
-          <DirectoryInput value={cwd} onChange={setCwd} extraDirectories={storyDirs} />
-          <p className="text-xs text-muted-foreground">Blank uses the leader's directory.</p>
+          <Label htmlFor="spawn-cwd">Working directory (optional)</Label>
+          <DirectoryInput id="spawn-cwd" value={cwd} onChange={setCwd} extraDirectories={storyDirs} hintId="spawn-cwd-hint" />
+          {/* No "Learn more" in a modal: the dock's Help can't be reached behind it. */}
+          <FieldHint id="spawn-cwd-hint" field="spawnDirectory" learnMore={false} />
         </div>
 
         {experimental && (
@@ -117,14 +120,16 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
               id="spawn-harness"
               value={harness}
               onChange={(e) => setHarness(e.target.value)}
+              aria-describedby={describedBy("spawn-harness-hint", harness !== "pi" && "spawn-harness-setup")}
               className="h-9 w-full rounded-md border border-border bg-background px-2 text-sm"
             >
               <option value="pi">Pi</option>
               <option value="kiro">Kiro (experimental)</option>
               <option value="claude">Claude Code (experimental)</option>
             </select>
+            <FieldHint id="spawn-harness-hint" field="harness" learnMore={false} />
             {harness !== "pi" && (
-              <p className="text-xs text-muted-foreground">
+              <p id="spawn-harness-setup" className="text-xs text-muted-foreground">
                 Runs under <code>mpt agent</code>. Needs <code>mpt setup --harness {harness}</code> first. No web pairing yet.
               </p>
             )}

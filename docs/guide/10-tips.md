@@ -29,6 +29,12 @@ same, and so does the **?** key anywhere you aren't typing. **Open full guide** 
 top of the tab — or **Shift**-clicking the nav bar's ? — opens the whole guide at that
 section.
 
+**Hints on forms.** Under a field whose meaning isn't obvious — a story's workflow, a
+persona, the directory, pending, cron, acceptance criteria, team size — one line says
+what it does (a screen reader reads it when you reach the field). **Learn more** at its
+end opens the section about it in the same Help tab. A schedule's cron field also reads
+itself back in words as you type: `0 9 * * 1-5` shows "Every weekday at 9:00."
+
 The full guide (`/help`) lists the topics on the left, with the
 sections of the one you're reading under it, and the box above them searches every
 page. Each section has its own address (`/help/<topic>#<section>`), so you can

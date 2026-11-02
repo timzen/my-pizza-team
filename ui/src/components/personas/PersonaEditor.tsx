@@ -9,7 +9,8 @@
  * (docs/DESIGN.md "Linting: one linter for every persona"): an error (an
  * unbalanced code fence would swallow the rest of the prompt) refuses the save
  * and is shown here; warnings (shallow headings, stray `---`) are saved and
- * listed under the form.
+ * listed under the form. Each field's one-line hint is components/ui/field-hint
+ * (copy in lib/field-help.ts).
  */
 
 import { useState } from "react";
@@ -25,6 +26,8 @@ import { AlertTriangle, Check, Save, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { FieldHint } from "@/components/ui/field-hint";
+import { describedBy } from "@/lib/field-help";
 
 interface Props {
   /** The persona being edited; null creates a new team persona. */
@@ -100,20 +103,23 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
         {!persona && (
           <div className="space-y-1">
             <Label htmlFor="persona-id">Id <span className="font-normal text-muted-foreground">(optional)</span></Label>
-            <Input id="persona-id" value={id} onChange={(e) => setId(e.target.value)} placeholder={slugHint(title) || "from the title"} className="font-mono text-xs" />
+            <Input id="persona-id" value={id} onChange={(e) => setId(e.target.value)} placeholder={slugHint(title) || "from the title"} className="font-mono text-xs" aria-describedby="persona-id-hint" />
+            <FieldHint id="persona-id-hint" field="personaId" />
           </div>
         )}
       </div>
       <div className="space-y-1">
         <Label htmlFor="persona-description">Description</Label>
-        <Input id="persona-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One line, shown in pickers" />
+        <Input id="persona-description" value={description} onChange={(e) => setDescription(e.target.value)} placeholder="One line" aria-describedby="persona-description-hint" />
+        <FieldHint id="persona-description-hint" field="personaDescription" />
       </div>
       <div className="space-y-1">
-        <Label htmlFor="persona-tags">Tags <span className="font-normal text-muted-foreground">(comma-separated, for filtering)</span></Label>
-        <Input id="persona-tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="coding, review" />
+        <Label htmlFor="persona-tags">Tags</Label>
+        <Input id="persona-tags" value={tags} onChange={(e) => setTags(e.target.value)} placeholder="coding, review" aria-describedby="persona-tags-hint" />
+        <FieldHint id="persona-tags-hint" field="personaTags" />
       </div>
-      <div className="space-y-1">
-        <Label>Suggested for</Label>
+      <div className="space-y-1" role="group" aria-labelledby="persona-kinds-label" aria-describedby="persona-kinds-hint">
+        <Label id="persona-kinds-label">Suggested for</Label>
         <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
           {PERSONA_KINDS.map((k) => (
             <Tooltip key={k} content={KIND_HINT[k]} describe={false}>
@@ -126,7 +132,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
             </Tooltip>
           ))}
         </div>
-        <p className="text-xs text-muted-foreground">A hint for pickers only — any persona can be picked anywhere.</p>
+        <FieldHint id="persona-kinds-hint" field="personaKinds" />
       </div>
       <div className="space-y-1">
         <Label htmlFor="persona-content">Instructions</Label>
@@ -137,13 +143,12 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
           placeholder={"You are the … (role, voice, process, checklists — how to do the work)"}
           rows={14}
           aria-invalid={lintErrors.length > 0 || undefined}
-          aria-describedby={lintErrors.length > 0 ? "persona-content-errors" : undefined}
+          aria-describedby={describedBy(lintErrors.length > 0 && "persona-content-errors", "persona-content-hint")}
           className="min-h-[16rem] font-mono text-sm"
         />
-        <p className="text-xs text-muted-foreground">
-          Injected verbatim into the prompt (headings are nested under the prompt's own sections). Project knowledge —
-          conventions, build commands — belongs in the project's AGENTS.md, which teammates already read.
-        </p>
+        <FieldHint id="persona-content-hint" field="personaInstructions">
+          {" "}Its headings nest under the prompt's own sections.
+        </FieldHint>
       </div>
 
       <FormError className="text-sm">{error}</FormError>

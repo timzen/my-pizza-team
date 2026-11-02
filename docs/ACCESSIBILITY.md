@@ -180,6 +180,11 @@ focus is.
     rejects `{error && <p className="… text-destructive">{error}</p>}`). When the error
     is about one field, that field gets `aria-invalid` and `aria-describedby` the
     FormError's id (`DirectoryInput` and `PersonaPicker` take an `errorId` for it).
+  - **A field's hint** is a `<FieldHint id=… field=…>` (`components/ui/field-hint.tsx`,
+    copy in `lib/field-help.ts`), and the field lists its id in `aria-describedby` —
+    after the error's, when there is one (`describedBy(errorId, hintId)`;
+    `DirectoryInput` / `PersonaPicker` take a `hintId`). Write new copy there, not in
+    the form. Hints aren't announced: they're read when you reach the field.
     Errors that change as you type (a JSON field's parse error) describe their field but
     aren't announced.
   - **Polled data is announced only through a diff** (`lib/live-announce.ts`, wired by

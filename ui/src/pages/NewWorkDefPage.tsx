@@ -14,6 +14,10 @@
  * teammate does the work (every run of a schedule uses it; unset = no persona
  * block); it stays changeable after creating, on the detail page.
  *
+ * Each non-obvious field carries its one-line hint (components/ui/field-hint,
+ * copy in lib/field-help.ts), and the cron field reads back in words as you
+ * type (components/ui/cron-preview).
+ *
  * See the daemon's docs/DESIGN.md "The WorkItem" for the model.
  */
 
@@ -29,10 +33,11 @@ import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
-import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { FormError } from "@/components/ui/form-error";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
+import { FieldHint } from "@/components/ui/field-hint";
+import { CronPreview } from "@/components/ui/cron-preview";
 
 type WorkDefType = "Solitary" | "Scheduled";
 
@@ -126,36 +131,39 @@ export function NewWorkDefPage() {
         </div>
         <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — the agent cds here. Also biases which teammate picks it up.</p><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-dir">Directory</Label></div><DirectoryInput id="wd-dir" value={directory} onChange={setDirectory} hintId="wd-dir-hint" /><FieldHint id="wd-dir-hint" field="directory" className="mt-1" /></div>
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-persona">Persona</Label></div><p className="text-xs text-muted-foreground mb-1">How a teammate does the work{type === "Scheduled" ? " — every run uses it" : ""}. Optional; project knowledge belongs in the directory's AGENTS.md.</p><PersonaPicker id="wd-persona" kind="worker" value={persona} onChange={setPersona} noneLabel="No persona" /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-persona">Persona</Label></div><PersonaPicker id="wd-persona" kind="worker" value={persona} onChange={setPersona} noneLabel="No persona" hintId="wd-persona-hint" /><FieldHint id="wd-persona-hint" field={type === "Scheduled" ? "scheduledPersona" : "persona"} className="mt-1" /></div>
 
         {type === "Scheduled" ? (
           <div>
             <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-cron">Schedule (cron)</Label></div>
-            <p className="text-xs text-muted-foreground mb-1">5-field cron (minute hour day month weekday). Pick a preset or edit.</p>
-            <div className="flex flex-wrap gap-1 mb-2">
+            <div className="flex flex-wrap gap-1 mb-2" role="group" aria-label="Schedule presets">
               {CRON_PRESETS.map(p => (
-                <Button key={p.cron} type="button" variant={cron === p.cron ? "default" : "outline"} size="sm" onClick={() => setCron(p.cron)}>{p.label}</Button>
+                <Button key={p.cron} type="button" variant={cron === p.cron ? "default" : "outline"} size="sm" aria-pressed={cron === p.cron} onClick={() => setCron(p.cron)}>{p.label}</Button>
               ))}
             </div>
-            <Input id="wd-cron" className="font-mono" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
+            <Input id="wd-cron" className="font-mono" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" aria-describedby="wd-cron-preview wd-cron-hint" />
+            <CronPreview id="wd-cron-preview" cron={cron} />
+            <FieldHint id="wd-cron-hint" field="cron" />
           </div>
         ) : type === "Solitary" ? (
-          <label className="flex items-center gap-2 text-sm">
-            <input type="checkbox" checked={enqueueNow} onChange={e => setEnqueueNow(e.target.checked)} />
-            Enqueue immediately (uncheck to save without running yet)
-          </label>
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={enqueueNow} onChange={e => setEnqueueNow(e.target.checked)} aria-describedby="wd-enqueue-hint" />
+              Enqueue immediately
+            </label>
+            <FieldHint id="wd-enqueue-hint" field="enqueueNow" />
+          </div>
         ) : null}
 
         <FormError id="wd-error" className="text-sm">{error}</FormError>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button type="submit" value="create" disabled={saving}>{saving ? "Creating…" : `Create ${submitLabel}`}</Button>
-          <Tooltip content="Save it for review: nothing runs until you activate it">
-            <Button type="submit" value="pending" variant="secondary" disabled={saving}>Save as pending</Button>
-          </Tooltip>
+          <Button type="submit" value="pending" variant="secondary" disabled={saving} aria-describedby="wd-pending-hint">Save as pending</Button>
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
+        <FieldHint id="wd-pending-hint" field="pending" />
       </form>
     </div>
   );

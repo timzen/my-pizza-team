@@ -26,6 +26,7 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
+import { FieldHint } from "@/components/ui/field-hint";
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -181,7 +182,7 @@ export function StoryDetailPage() {
       <div className="space-y-4">
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={4} required />
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><p className="text-xs text-muted-foreground mb-2">Where the work happens — teammates cd here and read its AGENTS.md before starting.</p><DirectoryInput placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-edit-dir">Directory</Label></div><DirectoryInput id="story-edit-dir" placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} hintId="story-edit-dir-hint" /><FieldHint id="story-edit-dir-hint" field="directory" className="mt-1" /></div>
 
         <FormError className="text-sm">{error}</FormError>
       </div>

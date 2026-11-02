@@ -66,6 +66,9 @@ import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { FieldHint } from "@/components/ui/field-hint";
+import { CronPreview } from "@/components/ui/cron-preview";
+import { describedBy } from "@/lib/field-help";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
@@ -232,15 +235,17 @@ export function WorkDefDetailPage() {
         />
         {def.type === "Scheduled" && (
           <div>
-            <div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div>
+            <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="workdef-cron">Schedule (cron)</Label></div>
             <div className="flex gap-2 mt-1">
-              <Input className="font-mono" aria-label="Schedule (cron)" value={cron} onChange={e => { setCron(e.target.value); setCronInvalid(false); }}
-                aria-invalid={(cronInvalid && !!error) || undefined} aria-describedby={cronInvalid && error ? "workdef-error" : undefined} placeholder="0 9 * * *" />
+              <Input id="workdef-cron" className="font-mono" value={cron} onChange={e => { setCron(e.target.value); setCronInvalid(false); }}
+                aria-invalid={(cronInvalid && !!error) || undefined}
+                aria-describedby={describedBy(cronInvalid && error && "workdef-error", "workdef-cron-preview", "workdef-cron-hint")} placeholder="0 9 * * *" />
               <Button variant="outline" onClick={saveCron}><Save className="h-4 w-4 mr-1" />Save schedule</Button>
             </div>
-            <p className="text-[11px] text-muted-foreground mt-1">
-              Five fields: <span className="font-mono">minute hour day-of-month month day-of-week</span> (use <span className="font-mono">*</span> for any). E.g. <span className="font-mono">0 9 * * *</span> = 9:00 every day; <span className="font-mono">*/15 * * * *</span> = every 15 min; <span className="font-mono">0 2 * * 1</span> = 02:00 every Monday.
-            </p>
+            <CronPreview id="workdef-cron-preview" cron={cron} />
+            <FieldHint id="workdef-cron-hint" field="cron">
+              {" "}E.g. <span className="font-mono">0 9 * * *</span> = 9:00 every day; <span className="font-mono">*/15 * * * *</span> = every 15 minutes.
+            </FieldHint>
           </div>
         )}
 

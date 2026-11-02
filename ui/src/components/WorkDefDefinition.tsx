@@ -35,6 +35,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { FieldHint } from "@/components/ui/field-hint";
 
 /** The WorkDef fields this section shows/edits (a subset of the API's WorkDefView). */
 export interface WorkDefDefinitionData {
@@ -164,14 +165,20 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
 
       {editing ? (
         <>
-          <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} /></div>
+          <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="workdef-edit-title">Title</Label></div><Input id="workdef-edit-title" value={title} onChange={e => setTitle(e.target.value)} /></div>
           <MarkdownField label={goalLabel} value={goal} onChange={setGoal} rows={3} />
           <div>
             <div className="mb-2 pb-1 border-b border-border"><Label>Acceptance criteria</Label></div>
             <div className="mt-1"><AcceptanceCriteriaEditor value={acceptanceCriteria} onChange={setAcceptanceCriteria} /></div>
           </div>
           <MarkdownField label="Additional context" value={additionalContext} onChange={setAdditionalContext} rows={2} />
-          <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><div className="mt-1"><DirectoryInput value={directory} onChange={setDirectory} /></div></div>
+          <div>
+            <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="workdef-edit-dir">Directory</Label></div>
+            <div className="mt-1 space-y-1">
+              <DirectoryInput id="workdef-edit-dir" value={directory} onChange={setDirectory} hintId="workdef-edit-dir-hint" />
+              <FieldHint id="workdef-edit-dir-hint" field="directory" />
+            </div>
+          </div>
         </>
       ) : (
         <>

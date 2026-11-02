@@ -25,6 +25,7 @@ import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { Label } from "@/components/ui/label";
 import type { WorkDefDefinitionData } from "@/components/WorkDefDefinition";
 import { FormError } from "@/components/ui/form-error";
+import { FieldHint } from "@/components/ui/field-hint";
 
 export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData; onChanged: () => void }) {
   const [saving, setSaving] = useState(false);
@@ -55,10 +56,11 @@ export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData;
           onChange={(persona) => save(`/api/work-defs/${id}`, { persona })}
           noneLabel="No persona"
           disabled={saving}
+          hintId="workdef-persona-hint"
         />
-        <p className="text-xs text-muted-foreground">
-          How a teammate does this work{def.type === "Scheduled" ? " — every run of the schedule uses it" : ""}. Changeable any time; applies to the next run.
-        </p>
+        <FieldHint id="workdef-persona-hint" field={def.type === "Scheduled" ? "scheduledPersona" : "persona"}>
+          {" "}Changeable any time; applies to the next run.
+        </FieldHint>
       </>
     );
   } else if (def.type === "External" && def.mirror) {
@@ -72,8 +74,9 @@ export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData;
           onChange={(persona) => save(`/api/work-defs/${id}/persona`, { persona })}
           noneLabel={def.persona ? `${mirror.sourceLabel}'s suggestion (${def.persona})` : `${mirror.sourceLabel}'s setting`}
           disabled={saving}
+          hintId="mirror-persona-hint"
         />
-        <p className="text-xs text-muted-foreground">
+        <p id="mirror-persona-hint" className="text-xs text-muted-foreground">
           An override for this item only, kept across syncs. Without one it uses{" "}
           {def.persona ? <>the persona {mirror.sourceLabel} suggests for it, else </> : null}
           the {mirror.mode === "triage" ? "triage " : ""}persona set for{" "}

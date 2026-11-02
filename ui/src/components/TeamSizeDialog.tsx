@@ -26,6 +26,8 @@ import { AlertTriangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { FieldHint } from "@/components/ui/field-hint";
+import { describedBy } from "@/lib/field-help";
 
 /** Live pool state from GET /api/teammate-pool. */
 export interface TeammatePool {
@@ -91,7 +93,7 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
       <DialogHeader>
         <DialogTitle>Steady team size</DialogTitle>
         <DialogDescription>
-          The daemon keeps this many teammates online, spawning replacements as needed. Lowering it never dismisses anyone.
+          Declare the team's size; the daemon does the spawning.
         </DialogDescription>
       </DialogHeader>
 
@@ -107,13 +109,15 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               aria-invalid={error ? true : undefined}
-              aria-describedby={error ? "team-size-error" : undefined}
+              aria-describedby={describedBy(error && "team-size-error", "team-size-hint", pool && "team-size-status")}
               className="w-24"
             />
             {max > 0 && <span className="text-xs text-muted-foreground">max {max}</span>}
           </div>
+          {/* No "Learn more" in a modal: the dock's Help can't be reached behind it. */}
+          <FieldHint id="team-size-hint" field="teamSize" learnMore={false} />
           {pool && (
-            <p className="text-xs text-muted-foreground">
+            <p id="team-size-status" className="text-xs text-muted-foreground">
               {pool.online} online{pool.pending > 0 ? ` · ${pool.pending} starting` : ""}
               {pool.isDefault ? ` · using the default (half of max)` : ""}
             </p>

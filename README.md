@@ -33,7 +33,8 @@ The in-app **Help** (`/help`) is the user guide: short topic pages in
 [docs/guide/](docs/guide/00-getting-started.md), indexed by [GUIDE.md](GUIDE.md), with
 a table of contents, search, and a link for every section (`/help/<topic>#<section>`).
 Every page's **?** (or the `?` key) opens the section about that page in the side dock,
-beside the page.
+beside the page, and the forms' non-obvious fields (workflow, persona, directory,
+pending, cron…) each say what they do in one line, with a **Learn more** into it.
 Writing a plugin? See [docs/PLUGINS.md](docs/PLUGINS.md).
 
 ---

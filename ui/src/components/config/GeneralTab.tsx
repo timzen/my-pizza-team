@@ -3,7 +3,8 @@
  * the Assistant card (chat mode + persona), Server, Scheduling, favorite
  * directories, and Autosave. Everything except the favorites and the
  * assistant's persona edits the page's config.json draft (ConfigPage), saved
- * with its Save Configuration button.
+ * with its Save Configuration button. Its non-obvious fields carry their
+ * one-line hints (components/ui/field-hint; copy in lib/field-help.ts).
  */
 
 import { useApi } from "@/hooks/useApi";
@@ -15,6 +16,7 @@ import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { FieldHint } from "@/components/ui/field-hint";
 
 /** The General tab's cards over the draft; `saved` is the daemon's last answer (for the feature locks). */
 export function GeneralTab({ config, setConfig, saved, featureError }: {
@@ -44,9 +46,15 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
             <Label htmlFor="config-port">Port</Label>
             <Input id="config-port" type="number" value={config.port} onChange={(e) => update("port", parseInt(e.target.value) || 9999)} className="max-w-[120px]" />
             <Label htmlFor="config-tmux-session">Tmux Session</Label>
-            <Input id="config-tmux-session" value={config.tmuxSession} onChange={(e) => update("tmuxSession", e.target.value)} className="max-w-[200px]" />
+            <div className="space-y-1">
+              <Input id="config-tmux-session" value={config.tmuxSession} onChange={(e) => update("tmuxSession", e.target.value)} className="max-w-[200px]" aria-describedby="config-tmux-session-hint" />
+              <FieldHint id="config-tmux-session-hint" field="tmuxSession" />
+            </div>
             <Label htmlFor="config-max-teammates">Max Teammates</Label>
-            <Input id="config-max-teammates" type="number" value={config.maxTeammates ?? 4} onChange={(e) => update("maxTeammates", parseInt(e.target.value) || 4)} className="max-w-[120px]" />
+            <div className="space-y-1">
+              <Input id="config-max-teammates" type="number" value={config.maxTeammates ?? 4} onChange={(e) => update("maxTeammates", parseInt(e.target.value) || 4)} className="max-w-[120px]" aria-describedby="config-max-teammates-hint" />
+              <FieldHint id="config-max-teammates-hint" field="maxTeammates" />
+            </div>
             {/* The declared pool size, applied at startup and reconciled
                 continuously. Also editable live from the sidebar's team-size
                 dialog. Blank = the default (half of Max Teammates), sent as
@@ -66,19 +74,20 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
                 }}
                 className="max-w-[160px]"
               />
-              <p id="config-min-teammates-hint" className="text-xs text-muted-foreground">
-                Teammates the daemon keeps online (spawning replacements as needed). Blank = half of Max Teammates; 0 spawns none.
-              </p>
+              <FieldHint id="config-min-teammates-hint" field="minTeammates" />
             </div>
             <Label id="config-default-workflow">Default Workflow</Label>
-            <Select value={config.defaultWorkflow} onValueChange={(v) => update("defaultWorkflow", v)}>
-              <SelectTrigger className="max-w-[200px]" aria-labelledby="config-default-workflow"><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {workflowNames.map((n) => (
-                  <SelectItem key={n} value={n}>{n}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            <div className="space-y-1">
+              <Select value={config.defaultWorkflow} onValueChange={(v) => update("defaultWorkflow", v)}>
+                <SelectTrigger className="max-w-[200px]" aria-labelledby="config-default-workflow" aria-describedby="config-default-workflow-hint"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {workflowNames.map((n) => (
+                    <SelectItem key={n} value={n}>{n}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <FieldHint id="config-default-workflow-hint" field="defaultWorkflow" />
+            </div>
           </div>
         </CardContent>
       </Card>
@@ -94,11 +103,12 @@ export function GeneralTab({ config, setConfig, saved, featureError }: {
               onChange={(e) => update("readinessProbe", e.target.value || undefined)}
               placeholder="e.g. /path/to/check-creds.sh"
               className="max-w-[400px] font-mono text-xs"
+              aria-describedby="config-readiness-probe-hint config-readiness-probe-detail"
             />
           </div>
-          <p className="text-xs text-muted-foreground">
-            Shell command run by the leader each heartbeat. Exit 0 = ready; non-zero = not ready (stdout = reason).
-            Scheduled work is held while the host is not ready, then fires once on recovery.
+          <FieldHint id="config-readiness-probe-hint" field="readinessProbe" />
+          <p id="config-readiness-probe-detail" className="text-xs text-muted-foreground">
+            Run by the leader. Exit 0 = ready; non-zero = not ready (stdout = reason). Held work fires once on recovery.
           </p>
         </CardContent>
       </Card>

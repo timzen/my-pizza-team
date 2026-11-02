@@ -11,6 +11,7 @@ import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { Card, CardContent } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { FieldHint } from "@/components/ui/field-hint";
 
 /**
  * The Triage tab: the sweep's settings and the persona every note-triage run
@@ -31,21 +32,23 @@ export function TriageSettings({ config, setConfig }: ConfigDraftProps) {
       <CardContent className="space-y-3 p-4">
         <h2 className="font-semibold">Auto Triage</h2>
         <p className="text-xs text-muted-foreground">
-          A teammate reads each note whose text you've changed and comments with an analysis,
-          leaning toward work worth creating. Finished runs land in your Inbox; a badge on the
-          note opens its triage page.
+          Finished triage runs land in your Inbox; a badge on the note opens its triage page.
         </p>
         <div className="grid grid-cols-[160px_1fr] items-center gap-3">
           <Label htmlFor="triage-enabled">Enabled</Label>
-          <label className="flex items-center gap-2 text-sm">
-            <input
-              id="triage-enabled"
-              type="checkbox"
-              checked={enabled}
-              onChange={(e) => setTriage({ enabled: e.target.checked })}
-            />
-            Read changed notes and propose work
-          </label>
+          <div className="space-y-1">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                id="triage-enabled"
+                type="checkbox"
+                checked={enabled}
+                onChange={(e) => setTriage({ enabled: e.target.checked })}
+                aria-describedby="triage-enabled-hint"
+              />
+              Read changed notes and propose work
+            </label>
+            <FieldHint id="triage-enabled-hint" field="triageEnabled" />
+          </div>
           <Label htmlFor="triage-interval">Sweep Interval (min)</Label>
           <div className="space-y-1">
             <Input
@@ -55,8 +58,9 @@ export function TriageSettings({ config, setConfig }: ConfigDraftProps) {
               value={t.intervalMinutes ?? 60}
               onChange={(e) => setTriage({ intervalMinutes: Math.max(1, parseInt(e.target.value) || 60) })}
               className="max-w-[120px]"
+              aria-describedby="triage-interval-hint"
             />
-            <p className="text-xs text-muted-foreground">Takes effect when the daemon restarts.</p>
+            <FieldHint id="triage-interval-hint" field="triageInterval" />
           </div>
           <Label htmlFor="triage-quiet">Quiet Period (min)</Label>
           <div className="space-y-1">
@@ -67,10 +71,9 @@ export function TriageSettings({ config, setConfig }: ConfigDraftProps) {
               value={t.quietMinutes ?? 10}
               onChange={(e) => setTriage({ quietMinutes: Math.max(0, parseInt(e.target.value) || 0) })}
               className="max-w-[120px]"
+              aria-describedby="triage-quiet-hint"
             />
-            <p className="text-xs text-muted-foreground">
-              How long a note is left alone after your last edit, so a half-written thought isn't read.
-            </p>
+            <FieldHint id="triage-quiet-hint" field="triageQuiet" />
           </div>
           <Label htmlFor="triage-persona">Persona</Label>
           <div className="space-y-1">
@@ -82,9 +85,11 @@ export function TriageSettings({ config, setConfig }: ConfigDraftProps) {
               onChange={(persona) => setTriage({ persona })}
               noneLabel="Built-in triage (default)"
               exclude={["builtin:triage"]}
+              hintId="triage-persona-hint"
             />
+            <FieldHint id="triage-persona-hint" field="triagePersona" />
             <p className="text-xs text-muted-foreground">
-              What every note-triage run is told, before the note itself. Write or customize one on{" "}
+              Write or customize one on{" "}
               <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link> (duplicate the built-in to start from it).
             </p>
           </div>

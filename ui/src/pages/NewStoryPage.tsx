@@ -7,6 +7,8 @@
  * starts but nothing runs until they're activated (docs/DESIGN.md "Pending:
  * Write, Review, Activate"). The **Pending** checkbox instead creates the
  * whole story pending (reversible: activate it from its page or the board).
+ * Each non-obvious field carries its one-line hint (components/ui/field-hint,
+ * copy in lib/field-help.ts).
  */
 
 import { useState } from "react";
@@ -21,10 +23,10 @@ import { SegmentedTabs } from "@/components/RouteTabs";
 import { Plus, X } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { useApi, apiPost } from "@/hooks/useApi";
-import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
+import { FieldHint } from "@/components/ui/field-hint";
 
 interface WorkflowSummary {
   name: string;
@@ -87,33 +89,44 @@ export function NewStoryPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
-          <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-id">ID</Label></div><Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required /></div>
-          <div className="flex items-end pb-1"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pending} onChange={e => setPending(e.target.checked)} /> Pending (hand out nothing until activated)</label></div>
+          <div>
+            <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-id">ID</Label></div>
+            <Input id="story-id" value={id} onChange={e => setId(e.target.value)} placeholder="my-story-id" required aria-describedby="story-id-hint" />
+            <FieldHint id="story-id-hint" field="storyId" className="mt-1" />
+          </div>
+          <div className="space-y-1 pt-7">
+            <label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={pending} onChange={e => setPending(e.target.checked)} aria-describedby="story-pending-hint" /> Pending</label>
+            <FieldHint id="story-pending-hint" field="storyPending" />
+          </div>
         </div>
         <div>
-          <div className="mb-2 pb-1 border-b border-border"><Label>Workflow</Label></div>
-          <div className="mt-1">
+          <div className="mb-2 pb-1 border-b border-border"><Label id="story-workflow-label">Workflow</Label></div>
+          <div className="mt-1 space-y-1">
             <SegmentedTabs
               tabs={(workflows || []).map(wf => ({ key: wf.name, label: wf.name }))}
               active={effectiveWorkflow || null}
               onSelect={(key) => setWorkflow(key ?? "")}
+              labelledBy="story-workflow-label"
+              describedBy="story-workflow-hint"
             />
+            <FieldHint id="story-workflow-hint" field="workflow" />
           </div>
         </div>
         <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-title">Title</Label></div><Input id="story-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
 
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-dir">Directory</Label></div><p className="text-xs text-muted-foreground mb-1">Where the work happens — teammates cd here and read its AGENTS.md. Also biases which teammate picks up the work.</p><DirectoryInput id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="story-dir">Directory</Label></div><DirectoryInput id="story-dir" placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} hintId="story-dir-hint" /><FieldHint id="story-dir-hint" field="directory" className="mt-1" /></div>
 
         <div>
           <div className="flex items-center justify-between mb-2 pb-1 border-b border-border">
             <Label>Tasks</Label>
-            <Button type="button" variant="outline" size="sm" onClick={addTask}><Plus className="h-3 w-3 mr-1" />Task</Button>
+            <Button type="button" variant="outline" size="sm" onClick={addTask} aria-describedby="story-tasks-hint"><Plus className="h-3 w-3 mr-1" />Task</Button>
           </div>
+          <FieldHint id="story-tasks-hint" field="storyTasks" className="mb-2" />
           {tasks.map((task, i) => (
             <div key={i} className="flex gap-2 mb-2 items-start">
               <div className="flex-1 space-y-1">
-                <Input placeholder="Task title" aria-label={`Task ${i + 1} title`} value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
+                <Input placeholder="Task title" aria-label={`Task ${i + 1} title`} aria-describedby="story-tasks-hint" value={task.title} onChange={e => updateTask(i, "title", e.target.value)} />
                 <Input placeholder="Description" aria-label={`Task ${i + 1} description`} value={task.description} onChange={e => updateTask(i, "description", e.target.value)} />
               </div>
               <IconButton type="button" className="h-8 w-8 shrink-0" onClick={() => removeTask(i)} label={`Remove task ${i + 1}`}><X className="h-3 w-3" /></IconButton>
@@ -125,12 +138,11 @@ export function NewStoryPage() {
         <div className="flex gap-2">
           <Button type="submit" value="create">Create Story</Button>
           {tasks.length > 0 && (
-            <Tooltip content="Create the story with its tasks pending: nothing runs until you activate them">
-              <Button type="submit" value="pending" variant="secondary">Save tasks as pending</Button>
-            </Tooltip>
+            <Button type="submit" value="pending" variant="secondary" aria-describedby="story-tasks-pending-hint">Save tasks as pending</Button>
           )}
           <Button type="button" variant="outline" onClick={() => navigate(-1)}>Cancel</Button>
         </div>
+        {tasks.length > 0 && <FieldHint id="story-tasks-pending-hint" field="pending" />}
       </form>
     </div>
   );

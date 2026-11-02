@@ -95,19 +95,25 @@ export interface SegmentedTab {
   title?: string;
 }
 
-export function SegmentedTabs({ tabs, active, disabled, onSelect }: {
+export function SegmentedTabs({ tabs, active, disabled, onSelect, labelledBy, describedBy }: {
   tabs: SegmentedTab[];
   active: string | null;
   /** Disable all tabs (e.g. while a selection is being applied). */
   disabled?: boolean;
   onSelect: (key: string | null) => void;
+  /** The id of the label naming the choice: makes the row a labelled group. */
+  labelledBy?: string;
+  /** The id of the choice's hint (components/ui/field-hint): describes the group. */
+  describedBy?: string;
 }) {
+  const grouped = !!(labelledBy || describedBy);
   return (
-    <div className={CONTAINER_CLASS}>
+    <div className={CONTAINER_CLASS} role={grouped ? "group" : undefined} aria-labelledby={labelledBy} aria-describedby={describedBy}>
       {tabs.map((tab) => (
         <Tooltip key={tab.key ?? ""} content={tab.title}>
           <button
             type="button"
+            aria-pressed={grouped ? active === tab.key : undefined}
             disabled={disabled}
             onClick={() => onSelect(tab.key)}
             className={`${itemClass(active === tab.key)} disabled:opacity-50`}

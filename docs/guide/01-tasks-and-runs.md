@@ -122,7 +122,9 @@ Not all work belongs on the Board. Two Work tabs manage active standalone work:
   running, done, or failed — except one you **canceled** before it ran.
 - **Schedule** — scheduled jobs. Each is a task attached to a cron **schedule**; the
   daemon queues a run every time the schedule fires, and **Run now** starts one
-  immediately. Each row shows its run count and last run; **Make pending** moves it to
+  immediately. The cron is five fields — minute, hour, day of month, month, day of week
+  (`*` for any), in the daemon's local time — and the form reads it back in words as
+  you type (`0 9 * * 1-5` → "Every weekday at 9:00"), as does the list. Each row shows its run count and last run; **Make pending** moves it to
   **Pending**.
 
 The archive button on a row moves the task or job to **Work → Archived**, where

@@ -17,6 +17,7 @@ import { missingSelection, optionLabel, personaPath, pickerGroups, type PersonaK
 import { cn } from "@/lib/utils";
 import { AlertTriangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { describedBy } from "@/lib/field-help";
 
 interface Props {
   /** The selected persona id; null/"" = the "none" option. */
@@ -34,12 +35,14 @@ interface Props {
   label?: string;
   /** The id of an error message about this choice (a refused save): marks it invalid and described by it. */
   errorId?: string;
+  /** The id (or space-separated ids) of the choice's hint (components/ui/field-hint): describes it, after any error. */
+  hintId?: string;
   className?: string;
   /** Hide the edit/view link (when the host shows its own). */
   hideLink?: boolean;
 }
 
-export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disabled, id, label, errorId, className, hideLink }: Props) {
+export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disabled, id, label, errorId, hintId, className, hideLink }: Props) {
   const personas = usePersonas();
   const { hinted, rest } = pickerGroups(personas ?? [], kind, exclude);
   // A value shown another way (the default the "none" option stands for) selects "none".
@@ -57,7 +60,7 @@ export function PersonaPicker({ value, onChange, kind, noneLabel, exclude, disab
         onChange={(e) => onChange(e.target.value || null)}
         className="h-8 min-w-[220px] max-w-[360px] rounded-md border border-border bg-background px-2 text-sm disabled:opacity-50"
         aria-invalid={missing !== null || !!errorId}
-        aria-describedby={errorId}
+        aria-describedby={describedBy(errorId, hintId)}
       >
         <option value="">{noneLabel}</option>
         {missing && <option value={missing}>{missing} (missing)</option>}

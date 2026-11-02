@@ -2221,6 +2221,18 @@ thing you were looking at, and with it the reason you asked. So every screen has
   remembered like the dock's other tabs; what it shows follows the page you're on.
 - **On the phone** there's no dock to put it in (see "A Phone Is a Peek"), so the
   header's ? opens the phone view's section of `/m/help` instead.
+- **Down to the field.** A form's non-obvious fields — workflow, persona, directory,
+  pending, the order a story's tasks run in, cron, acceptance criteria, team size —
+  each carry one line saying what the field *does* (not how to fill it in), wired to
+  the field with `aria-describedby` so a screen reader hears it on focus, and ending
+  in **Learn more**, which opens that field's section in the same panel
+  (`components/ui/field-hint`). The copy is one module (`lib/field-help.ts`), not
+  strings in each form: the same field reads the same on every form, and a test holds
+  each hint to one short line and every Learn more to a real heading. A hint inside a
+  modal (Spawn, Team size) has no Learn more — the dock can't be reached behind it.
+  A cron field also reads itself back in words as you type ("Every weekday at 9:00"),
+  because five fields of digits and stars are easy to get subtly wrong; it describes
+  the field rather than announcing each keystroke.
 
 ## A Phone Is a Peek
 

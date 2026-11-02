@@ -1,7 +1,8 @@
 /**
  * TeammatesTab — Config → Teammates (`/config/teammates`): name nouns, the
  * one-teammate-per-directory toggle, and the experimental harnesses opt-in +
- * default harness. All edit the page's config.json draft (ConfigPage).
+ * default harness. All edit the page's config.json draft (ConfigPage). Their
+ * hints are components/ui/field-hint (copy in lib/field-help.ts).
  */
 
 import { useState } from "react";
@@ -13,6 +14,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Plus, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FieldHint } from "@/components/ui/field-hint";
 
 /** The Teammates tab's cards over the draft. */
 export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
@@ -37,7 +39,7 @@ export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
       <Card>
         <CardContent className="p-4 space-y-3">
           <h2 className="font-semibold">Name Nouns</h2>
-          <p className="text-xs text-muted-foreground">Custom nouns for auto-generated teammate names (adjective-noun). Leave empty for sci-fi character defaults.</p>
+          <FieldHint id="teammate-nouns-hint" field="nameNouns" />
           <div className="flex gap-1 flex-wrap">
             {nouns.map((n) => (
               <Badge key={n} variant="secondary" className="gap-1">
@@ -53,7 +55,7 @@ export function TeammatesTab({ config, setConfig }: ConfigDraftProps) {
           </div>
           {nouns.length === 0 && <p className="text-xs text-muted-foreground italic">Showing built-in defaults. Add a noun to use a custom list instead.</p>}
           <div className="flex gap-2">
-            <Input placeholder="Add a noun..." aria-label="New noun" value={newNoun} onChange={(e) => setNewNoun(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addNoun()} className="max-w-[200px]" />
+            <Input placeholder="Add a noun..." aria-label="New noun" aria-describedby="teammate-nouns-hint" value={newNoun} onChange={(e) => setNewNoun(e.target.value)} onKeyDown={(e) => e.key === "Enter" && addNoun()} className="max-w-[200px]" />
             <IconButton variant="outline" size="sm" onClick={addNoun} label="Add noun"><Plus className="h-3.5 w-3.5" /></IconButton>
           </div>
         </CardContent>
@@ -79,22 +81,20 @@ function ExclusiveDirectories({ config, setConfig }: ConfigDraftProps) {
     <Card>
       <CardContent className="p-4 space-y-3">
         <h2 className="font-semibold">Directories</h2>
-        <p className="text-xs text-muted-foreground">
-          While a piece of work runs in a directory, other work for that directory (or a folder inside
-          it, or one containing it) waits in the queue, so two teammates never edit and commit in the
-          same checkout at once. Work with no directory always runs in parallel.
-        </p>
         <label className="flex items-center gap-2 text-sm">
           <input
             id="exclusive-directories"
             type="checkbox"
+            aria-describedby="exclusive-directories-hint exclusive-directories-detail"
             checked={enabled}
             onChange={(e) => setConfig({ ...config, exclusiveDirectories: e.target.checked })}
           />
           One teammate per directory
         </label>
-        <p className="text-xs text-muted-foreground">
-          Takes effect as soon as you save. A stuck <em>At risk</em> item keeps its directory until you
+        <FieldHint id="exclusive-directories-hint" field="exclusiveDirectories" />
+        <p id="exclusive-directories-detail" className="text-xs text-muted-foreground">
+          A folder inside it, or one containing it, counts as the same directory; work with no directory
+          always runs in parallel. Takes effect as soon as you save. A stuck <em>At risk</em> item keeps its directory until you
           force-fail it on the Queue page.
         </p>
       </CardContent>
@@ -149,15 +149,15 @@ function ExperimentalHarnesses({ config, setConfig }: ConfigDraftProps) {
               id="default-harness"
               value={current}
               disabled={!enabled}
+              aria-describedby="default-harness-hint"
               onChange={(e) => setConfig({ ...config, defaultHarness: e.target.value })}
               className="h-9 max-w-[260px] rounded-md border border-border bg-background px-2 text-sm disabled:opacity-50"
             >
               {options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
             </select>
-            <p className="text-xs text-muted-foreground">
-              Used for spawns that don't pick a harness — including the teammates the daemon keeps
-              online. {enabled ? "" : "Pi while experimental harnesses are off."}
-            </p>
+            <FieldHint id="default-harness-hint" field="defaultHarness">
+              {enabled ? "" : " Pi while experimental harnesses are off."}
+            </FieldHint>
           </div>
         </div>
         <p className="text-xs text-muted-foreground">

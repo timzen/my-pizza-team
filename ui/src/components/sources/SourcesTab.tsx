@@ -63,6 +63,8 @@ import type { PluginLoadStatus } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { FieldHint } from "@/components/ui/field-hint";
+import { describedBy } from "@/lib/field-help";
 
 
 const TONE_CLASS: Record<SourceStatus["tone"], string> = {
@@ -426,7 +428,7 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
       <div>
         <h3 className="text-sm font-semibold">Personas</h3>
         <p className="text-xs text-muted-foreground">
-          How a teammate works this source's items. Applies at once (no Save, no re-init); one item can override it on its own page.
+          Applies at once (no Save, no re-init).
         </p>
       </div>
       {source.personaError && (
@@ -447,11 +449,12 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
             onChange={(id) => set("triagePersona", id)}
             noneLabel={source.defaultTriagePersona ? `Source default (${source.defaultTriagePersona})` : triageMode ? "None — pick one (required)" : "None"}
             disabled={saving !== null}
+            hintId={`source-${source.id}-triage-persona-hint source-${source.id}-triage-persona-effective`}
           />
-          <p className="text-xs text-muted-foreground">
+          <FieldHint id={`source-${source.id}-triage-persona-hint`} field="sourceTriagePersona" />
+          <p id={`source-${source.id}-triage-persona-effective`} className="text-xs text-muted-foreground">
             {triageMode ? "Every item is triaged into proposals; " : "For any item it sends in triage mode; "}
             {effective.triage ? <>runs with <code>{effective.triage.id}</code>{effective.triage.from === "declared" ? " (declared by the source)" : ""}.</> : "none set — triage items don't run until one is."}
-            {" "}Your notes' triage persona (Config → Triage) is not used here.
           </p>
         </div>
         {!triageMode && (
@@ -465,8 +468,10 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
                 onChange={(id) => set("persona", id)}
                 noneLabel={source.defaultPersona ? `Source default (${source.defaultPersona})` : "No persona"}
                 disabled={saving !== null}
+                hintId={`source-${source.id}-persona-hint source-${source.id}-persona-effective`}
               />
-              <p className="text-xs text-muted-foreground">
+              <FieldHint id={`source-${source.id}-persona-hint`} field="sourceWorkPersona" />
+              <p id={`source-${source.id}-persona-effective`} className="text-xs text-muted-foreground">
                 {effective.work ? <>Its items run with <code>{effective.work.id}</code>{effective.work.from === "declared" ? " (declared by the source)" : ""}.</> : "Its items run with no persona block."}
               </p>
             </div>
@@ -492,6 +497,9 @@ function FieldRow({ field, draft, source, errors, set }: {
   // The field's errors, which describe its input (aria-describedby).
   const errorId = `${inputId}-error`;
   const hint = defaultHint(field);
+  // The schema's description and the default's hint describe it too (after any error).
+  const descriptionId = `${inputId}-description`;
+  const defaultHintId = `${inputId}-default`;
 
   if (field.kind === "group") {
     return (
@@ -506,12 +514,14 @@ function FieldRow({ field, draft, source, errors, set }: {
 
   const value = valueAt(draft, field.path);
   const invalid = mine.length > 0;
+  const showDefault = !!hint && value === undefined && field.kind !== "select";
+  const described = describedBy(invalid && errorId, field.description && descriptionId, showDefault && defaultHintId);
   let input;
   switch (field.kind) {
     case "boolean":
       input = (
         <label className="flex items-center gap-2 text-sm">
-          <input id={inputId} type="checkbox" checked={typeof value === "boolean" ? value : field.default === true}
+          <input id={inputId} type="checkbox" aria-describedby={described} checked={typeof value === "boolean" ? value : field.default === true}
             onChange={(e) => set(field.path, e.target.checked)} />
           {field.title}{field.required && <RequiredMark />}
         </label>
@@ -519,7 +529,7 @@ function FieldRow({ field, draft, source, errors, set }: {
       break;
     case "select":
       input = (
-        <select id={inputId} value={selectInput(field, value)} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
+        <select id={inputId} value={selectInput(field, value)} aria-invalid={invalid} aria-describedby={described}
           onChange={(e) => set(field.path, selectValue(field, e.target.value))}
           className="h-9 max-w-[320px] rounded-md border border-border bg-background px-2 text-sm">
           <option value="">{field.default !== undefined ? `(default: ${String(field.default)})` : "(not set)"}</option>
@@ -530,7 +540,7 @@ function FieldRow({ field, draft, source, errors, set }: {
     case "multi-select": {
       const chosen = Array.isArray(value) ? value : [];
       input = (
-        <div id={inputId} className="flex flex-wrap gap-3 text-sm">
+        <div id={inputId} role="group" aria-label={field.title} aria-describedby={described} className="flex flex-wrap gap-3 text-sm">
           {field.options?.map((o) => (
             <label key={String(o)} className="flex items-center gap-1.5">
               <input type="checkbox" checked={chosen.includes(o)}
@@ -547,7 +557,7 @@ function FieldRow({ field, draft, source, errors, set }: {
     }
     case "string-list":
       input = (
-        <Textarea id={inputId} rows={3} value={stringListText(value)} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
+        <Textarea id={inputId} rows={3} value={stringListText(value)} aria-invalid={invalid} aria-describedby={described}
           placeholder={field.placeholder ?? "One per line"}
           onChange={(e) => set(field.path, stringListValue(e.target.value))}
           className="max-w-[420px] font-mono text-xs" />
@@ -555,18 +565,18 @@ function FieldRow({ field, draft, source, errors, set }: {
       break;
     case "number":
       input = (
-        <Input id={inputId} type="number" step={field.integer ? 1 : "any"} value={typeof value === "number" ? value : ""} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
+        <Input id={inputId} type="number" step={field.integer ? 1 : "any"} value={typeof value === "number" ? value : ""} aria-invalid={invalid} aria-describedby={described}
           placeholder={field.placeholder ?? (field.default !== undefined ? String(field.default) : undefined)}
           onChange={(e) => set(field.path, numberValue(e.target.value))}
           className="max-w-[160px]" />
       );
       break;
     case "env-var":
-      input = <EnvVarInput id={inputId} field={field} value={value} source={source} invalid={invalid} errorId={invalid ? errorId : undefined} onChange={(v) => set(field.path, v)} />;
+      input = <EnvVarInput id={inputId} field={field} value={value} source={source} invalid={invalid} describedById={described} onChange={(v) => set(field.path, v)} />;
       break;
     default:
       input = (
-        <Input id={inputId} value={isRedacted(value) ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
+        <Input id={inputId} value={isRedacted(value) ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid} aria-describedby={described}
           placeholder={isRedacted(value) ? "•••••• stored (hidden) — type to replace" : field.placeholder ?? (typeof field.default === "string" ? field.default : undefined)}
           onChange={(e) => set(field.path, textValue(e.target.value))}
           className="max-w-[420px]" />
@@ -579,8 +589,8 @@ function FieldRow({ field, draft, source, errors, set }: {
         <label htmlFor={inputId} className="block text-sm font-medium">{field.title}{field.required && <RequiredMark />}</label>
       )}
       {input}
-      {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
-      {hint && value === undefined && field.kind !== "select" && <p className="text-xs text-muted-foreground">{hint}</p>}
+      {field.description && <p id={descriptionId} className="text-xs text-muted-foreground">{field.description}</p>}
+      {showDefault && <p id={defaultHintId} className="text-xs text-muted-foreground">{hint}</p>}
       {mine.length > 0 && <div id={errorId}>{mine.map((m) => <p key={m} className="text-xs text-destructive">{m}</p>)}</div>}
     </div>
   );
@@ -596,10 +606,10 @@ function RequiredMark() {
  * changed one is checked once saved. A stored non-name (a pasted secret) is
  * hidden and must be replaced by a name.
  */
-function EnvVarInput({ id, field, value, source, invalid, errorId, onChange }: {
+function EnvVarInput({ id, field, value, source, invalid, describedById, onChange }: {
   id: string;
-  /** The id of the field's error messages, when it has some. */
-  errorId?: string;
+  /** The ids of what else describes the field (its errors, its description), when it has some. */
+  describedById?: string;
   field: FormField;
   value: unknown;
   source: SourceView;
@@ -611,7 +621,7 @@ function EnvVarInput({ id, field, value, source, invalid, errorId, onChange }: {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        <Input id={id} value={hidden ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid || hidden} aria-describedby={errorId}
+        <Input id={id} value={hidden ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid || hidden} aria-describedby={describedBy(describedById, `${id}-env-hint`)}
           placeholder={hidden ? "A secret value is stored here — enter a variable name instead" : field.placeholder ?? (typeof field.default === "string" ? field.default : "ENV_VAR_NAME")}
           onChange={(e) => onChange(textValue(e.target.value.trim()))}
           className="max-w-[280px] font-mono text-xs" autoComplete="off" spellCheck={false} />
@@ -619,7 +629,7 @@ function EnvVarInput({ id, field, value, source, invalid, errorId, onChange }: {
         {state === "not-set" && <Tooltip content="The daemon's environment doesn't have it — set it where the daemon runs, then restart" focusable><Badge variant="outline" className={TONE_CLASS.bad}>not set</Badge></Tooltip>}
         {state === "unknown" && <Tooltip content="Checked once saved" focusable><Badge variant="outline" className={TONE_CLASS.neutral}>checked on save</Badge></Tooltip>}
       </div>
-      <p className="text-xs text-muted-foreground">
+      <p id={`${id}-env-hint`} className="text-xs text-muted-foreground">
         Environment variable <em>name</em> — the daemon reads the secret from its environment; it's never stored or shown here.
       </p>
       {hidden && <p className="text-xs text-amber-700 dark:text-amber-400">config.json has a value here that isn't a variable name (a pasted secret?). Replace it with the variable's name.</p>}
