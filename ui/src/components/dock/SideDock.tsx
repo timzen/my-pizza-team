@@ -44,6 +44,10 @@
  * `assistant.chatMode: "terminal"` — the teammate watch/pair view pointed at the
  * leader (docs/DESIGN.md "Assistant Chat Model"), switching live with Config.
  *
+ * Every presentation is one `<nav aria-label="Side dock">` landmark, and a
+ * keep-focus region: a route change never pulls focus out of it
+ * (lib/route-focus.ts, docs/ACCESSIBILITY.md).
+ *
  * The chat stream, the team data, and the queue are owned here, not in the tabs, so
  * collapsing or switching tabs never drops the SSE connection or the badges.
  * Both tab bodies stay mounted (the inactive one hidden) so a half-typed chat
@@ -71,9 +75,17 @@ import { useTeamData } from "@/hooks/useTeamData";
 import { useSideDock, type SideDockTab } from "@/hooks/useSideDock";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { countUnread } from "@/lib/unread";
+import { KEEP_FOCUS_ATTR } from "@/lib/route-focus";
 import {
   MessageSquare, PanelLeftClose, PanelLeftOpen, X, Clock, Users,
 } from "lucide-react";
+
+/**
+ * Marks the dock a keep-focus region: a navigation never moves focus out of it
+ * (lib/route-focus.ts), so typing in the chat or opening a teammate keeps you
+ * in the dock.
+ */
+const KEEP_FOCUS = { [KEEP_FOCUS_ATTR]: "" };
 
 const WIDTH_KEY = "mpt.assistantDock.width";
 const MIN_WIDTH = 300;
@@ -165,7 +177,7 @@ export function SideDock() {
   // Below lg there is no room for a column, so the dock becomes a floating panel.
   if (!isDesktop) {
     return (
-      <div>
+      <nav aria-label="Side dock" {...KEEP_FOCUS}>
         {dialogs}
         {open && (
           <div className="fixed bottom-20 left-4 z-40 flex h-[70vh] w-[min(24rem,calc(100vw-2rem))] flex-col overflow-hidden rounded-xl border border-border bg-background shadow-xl">
@@ -186,14 +198,14 @@ export function SideDock() {
             {!open && <UnreadBadge count={unread} />}
           </button>
         </Tooltip>
-      </div>
+      </nav>
     );
   }
 
   // Collapsed: a slim icon rail with both tabs' essentials.
   if (!open) {
     return (
-      <aside className="flex w-14 shrink-0 flex-col items-center border-r border-border bg-muted/30">
+      <nav aria-label="Side dock" {...KEEP_FOCUS} className="flex w-14 shrink-0 flex-col items-center border-r border-border bg-muted/30">
         {dialogs}
         <div className="flex h-14 w-full shrink-0 items-center justify-center border-b border-border">
           <IconButton className="h-8 w-8" onClick={() => setDockOpen(true)} label="Expand the dock" side="right">
@@ -250,13 +262,13 @@ export function SideDock() {
             </IconLink>
           )}
         </div>
-      </aside>
+      </nav>
     );
   }
 
   // Expanded: the resizable dock column.
   return (
-    <aside className="relative flex shrink-0 flex-col border-r border-border bg-muted/30" style={{ width }}>
+    <nav aria-label="Side dock" {...KEEP_FOCUS} className="relative flex shrink-0 flex-col border-r border-border bg-muted/30" style={{ width }}>
       {dialogs}
       {header}
       {tabRow}
@@ -271,7 +283,7 @@ export function SideDock() {
           className="absolute inset-y-0 -right-1 z-10 w-2 cursor-col-resize hover:bg-primary/20"
         />
       </Tooltip>
-    </aside>
+    </nav>
   );
 }
 

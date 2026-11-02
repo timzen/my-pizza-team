@@ -54,7 +54,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
   const dirty = title !== (persona?.title ?? "") || description !== (persona?.description ?? "")
     || tags !== (persona?.tags.join(", ") ?? "") || content !== (persona?.content ?? "")
     || kinds.join() !== (persona?.kinds ?? []).join() || id !== "";
-  useUnsavedChangesGuard(dirty && !saving);
+  const guardDialog = useUnsavedChangesGuard(dirty && !saving);
 
   const toggleKind = (k: PersonaKind) =>
     setKinds((ks) => ks.includes(k) ? ks.filter((x) => x !== k) : PERSONA_KINDS.filter((x) => x === k || ks.includes(x)));
@@ -86,9 +86,11 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
 
   return (
     <div className="space-y-3">
+      {guardDialog}
       <div className="grid gap-3 md:grid-cols-2">
         <div className="space-y-1">
           <Label htmlFor="persona-title">Title</Label>
+          {/* eslint-disable-next-line jsx-a11y/no-autofocus -- the form opens on the user's New / Edit; its first field takes focus */}
           <Input id="persona-title" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Reviewer" autoFocus required />
         </div>
         {!persona && (
@@ -161,7 +163,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
 export function LintWarnings({ warnings }: { warnings: string[] }) {
   if (warnings.length === 0) return null;
   return (
-    <ul className="space-y-1 text-xs text-amber-600 dark:text-amber-400">
+    <ul className="space-y-1 text-xs text-amber-700 dark:text-amber-400">
       {warnings.map((w) => (
         <li key={w} className="flex items-start gap-1"><AlertTriangle className="mt-0.5 h-3 w-3 shrink-0" /><span>{w}</span></li>
       ))}

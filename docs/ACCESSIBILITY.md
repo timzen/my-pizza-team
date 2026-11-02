@@ -22,14 +22,10 @@ of real problems — a clean scan is the floor, not the finish.
 ### Lint: `eslint-plugin-jsx-a11y`
 
 `ui/eslint.config.js` adds jsx-a11y's **recommended** rules to the UI's lint
-(`cd ui && npx eslint .`, part of the gates). Each rule is an error, except those
-whose remaining violations need a later task: those are `"warn"` with a `TODO` naming
-the task — never `"off"`. Today that is:
-
-| Rule | Why it's a warning | Back to "error" in |
-|---|---|---|
-| `no-autofocus` | inline editors and dialogs focus their field on open; decided per case with focus management | task 3 |
-| `click-events-have-key-events`, `no-static-element-interactions` | click-to-edit surfaces (title and markdown fields, a note's "tap to write", a diff line's comment, a folder's rename) need their own keyboard path | task 3 |
+(`cd ui && npx eslint .`, part of the gates). Every rule is an error — never `"warn"`
+or `"off"`. (Task 1 left `no-autofocus`, `click-events-have-key-events` and
+`no-static-element-interactions` as warnings; task 3 fixed what they found and turned
+them back.)
 
 One project rule rides along: `no-restricted-syntax` rejects a `<Button size="icon…">`
 written directly — an icon-only button must be an `IconButton`, whose required `label`
@@ -38,7 +34,11 @@ and carries a disable comment).
 
 A justified exception is an `eslint-disable-next-line <rule> -- <reason>` on the line, not
 a config change: e.g. `anchor-has-content` on a `<Button render={<a … />}>`, whose
-anchor gets the Button's children from Base UI at render time.
+anchor gets the Button's children from Base UI at render time, or `no-autofocus` on a
+field that appears *because the user asked for it* (Rename, Edit, a line's comment box) —
+never on something that renders on page load. A click-to-edit surface whose keyboard
+path is a real button beside it (the title and markdown fields' **Edit**, a folder's ✎,
+a diff line's number) is `role="presentation"`: a pointer shortcut, not a second tab stop.
 
 ### Scan: axe-core on every main route
 
@@ -59,8 +59,25 @@ A/AA rules. It is separate from the fast `npm test`.
 Routes: `/`, `/queue`, `/thoughts`, `/work/board`, `/work/tasks`, `/work/schedule`,
 `/work/pending`, `/work/archived`, a task page, a story page, both WorkDef kinds, `/config`
 and every Config tab (plus a workflow's detail), `/help`, `/usage` — at 1440×900 — and
-`/m`, `/m/chat`, `/m/thoughts`, `/m/inbox` with iPhone 13 emulation. Only the default
-(light) theme is scanned.
+`/m`, `/m/chat`, `/m/thoughts`, `/m/inbox` with iPhone 13 emulation, all in the light
+theme; then every desktop route again in **dark** (`prefers-color-scheme: dark`), for
+`color-contrast` only, named `<path> (dark)`. The default palette is scanned; Solarized
+isn't (its focus ring is unit-tested, below).
+
+On top of axe's WCAG rules, each light-theme route checks its **structure**: axe's
+best-practice `page-has-heading-one`, `heading-order`, `landmark-one-main`,
+`landmark-no-duplicate-main`, `landmark-main-is-top-level` and `landmark-unique`
+(promoted to serious), and by hand (`structureFindings`): exactly one rendered `<h1>` and
+one `<main>`, a title shaped `<page> · <team> · Pizza Team`, and "Skip to content" as the
+first Tab. After the routes, a full run walks a few **keyboard** paths and fails if focus
+lands anywhere unexpected: the skip link → the page's h1; a NavBar link → the new page's
+h1; a Work tab → that tab (not the heading); a confirm dialog opens on **Cancel** and Esc
+returns focus to the button that opened it.
+
+**Contrast in every theme** is also a unit test (`tests/contrast-ui.test.ts`, in `npm test`):
+it parses `ui/src/index.css` and holds the default palette's text — foreground and muted
+text on every surface, button text, destructive text on its own tints — to 4.5:1 in light
+and dark, and the focus ring to 3:1 on every surface in every palette.
 
 **What fails** (`tests/a11y/_gate.ts`, unit-tested in `tests/a11y-gate.test.ts`):
 
@@ -71,8 +88,8 @@ and every Config tab (plus a workflow's detail), `/help`, `/usage` — at 1440×
 
 Minor and moderate findings never fail; every finding is in the markdown report the run
 writes (its path is printed; `$TMPDIR/mpt-a11y-report.md` by default), with a selector for
-the first offending element. Each allowlist entry names the task that removes it; task 4
-leaves the list empty.
+the first offending element. Each allowlist entry names the task that removes it. Since
+task 3 the list is **empty**: any serious or critical finding fails the scan.
 
 ### By hand: the keyboard pass
 
@@ -113,19 +130,44 @@ focus is.
 - **Use native elements.** A `<button>` for actions, `<a>`/`<Link>` for navigation,
   real form controls. A clickable `<div>` needs a role, `tabIndex` and key handling — and
   usually should be a button instead.
-- **Focus is always visible and never lost.** Every interactive element has a
-  `focus-visible` ring (don't add `outline-none` without one); dialogs and menus return
-  focus to their trigger; a route change moves focus to the page's heading (task 3).
-- **Structure:** one `<h1>` per page and headings in order; one `<main>`; labelled
-  `<nav>` landmarks; each route sets `document.title` (task 3).
+- **Focus is always visible and never lost.** index.css draws one ring for every
+  `:focus-visible` element — a 2px `--ring` outline, unlayered so a utility's
+  `outline-none` can't remove it — so don't add your own `focus-visible:ring-*` (a
+  CodeMirror frame, which can't take the outline, uses `focus-within:ring-2 ring-ring`).
+  Dialogs and menus are Base UI's, which return focus to their trigger; a custom popup
+  puts focus back itself when it closes (the directory picker does, on Esc or a pick).
+  Never `window.confirm()`: use `useConfirm()` (`components/ui/confirm-dialog.tsx`), an
+  AlertDialog that opens on Cancel and gives focus back to the button that asked.
+  A route change moves focus to the new page's h1 (`hooks/useRouteFocus`) — except a
+  route tab (`RouteTabs` keeps focus on the tab), a `?tab=` switch (Details | Thread),
+  and anything while focus is in the side dock (`data-keep-focus`).
+- **Structure:** one `<h1>` per page (visually hidden — `sr-only` — where the page has no
+  room for one: the canvas, Queue | Inbox, the phone's tabs) and headings in order;
+  rendered markdown starts at h2 (`MarkdownView` shifts its headings down a level); one
+  `<main>`; `<nav>` landmarks with unique labels ("Main", "Side dock", "Work sections" …);
+  "Skip to content" first. Each route's `document.title` is `<Page> · <team> · Pizza
+  Team`: add a new top-level route to `lib/page-title.ts` `pageTitleForPath`; a detail
+  page calls `useDocumentTitle` with its item's name. The lit nav link or tab is
+  `aria-current="page"`.
+- **Scrolling regions** take keyboard focus: a code block that scrolls sideways becomes a
+  named tab stop (`MarkdownView`'s `ScrollablePre`), only when it scrolls.
+- **Small targets** (under 24×24) are fine inside one composite control with a single tab
+  stop, like the Usage heatmap's grid (arrow keys between days, Enter to list a day's
+  runs) — not as hundreds of separate buttons.
 - **Live regions announce changes, politely and once.** Things that change without a
   page load (a chat reply, a run finishing, a save's result) go through the app-wide
   announcer (task 4). Polling must never re-announce unchanged data (docs/DESIGN.md
   "Polling Never Disturbs the Reader").
 - **Contrast:** 4.5:1 for text, 3:1 for large text, icons and focus rings — in both
-  themes.
-- **Motion:** respect `prefers-reduced-motion` for animations, transitions and canvas
-  pans (task 3).
+  themes. Use the theme's tokens (`text-muted-foreground`, not `/60`–`/70` of it). Status
+  colors as text are a 700 shade in light with a 400 in dark (`text-amber-700
+  dark:text-amber-400`; `-800` on a `/15` tint of its own color); a 600 is fine only for
+  an icon or a dot (3:1).
+- **Motion:** `prefers-reduced-motion: reduce` stills every CSS animation and transition
+  (index.css: the dialogs' fades and zooms, the thinking dots, pulses, spinners, the
+  canvas's drag transitions). Script-driven motion asks `lib/motion.ts` —
+  `scrollTo({ behavior: scrollBehavior() })`. The canvas's pans and zooms are instant
+  already.
 - **Phone view:** touch targets at least 24×24 CSS px (WCAG 2.5.8), and the same names
   and labels as the desktop.
 
@@ -176,3 +218,46 @@ justified disable comment.
 Known gaps the scan doesn't cover: the dark theme, dialogs and menus in their open state,
 the assistant chat with messages, a teammate's live view, and keyboard operability
 generally — the keyboard pass covers those.
+
+## Status after task 3: structure, focus, motion, contrast
+
+**0 serious/critical findings on 48 scans** (26 routes light, 22 desktop routes dark); the
+allowlist is empty, the lint has no warnings, and the new structure checks and keyboard
+walks pass. Before → after:
+
+- **Titles:** every tab said "Pizza Team"; now `<Page> · <team> · Pizza Team` — e.g. "Board
+  · Work · acme · Pizza Team", "Theme · Configuration · …", a task's or story's own title.
+  The team's name is `/api/status` `teamName` (its repo's directory name).
+- **Landmarks and headings:** the NavBar's links and the dock had no `<nav>` (the dock was
+  an unnamed `<aside>`), Queue | Inbox, the Thoughts canvas, the story page and the phone
+  view had no h1, and Help had two (its guide's `#`). Now: "Main", "Side dock", the
+  section tabs' and the phone's tabs' navs, one h1 everywhere, markdown from h2.
+- **Skip link:** "Skip to content" is the first Tab on both shells.
+- **Route focus:** a NavBar or in-page link left focus on `<body>` (the old page's link
+  was gone), so the next Tab started at the top; now focus lands on the new page's h1 (a
+  route tab keeps it on the tab, the dock keeps its own).
+- **Focus ring:** a 50%-alpha `ring/50` halo (about 1.5:1 in light) on primitives, the
+  browser default elsewhere, and none where `outline-none` was set; now one 2px outline,
+  3:1 or better in every palette.
+- **Confirms:** 17 `window.confirm()`s (Archive, Make pending, every Delete, Discard, the
+  unsaved-changes guard, Switch persona, Mark failed) are `useConfirm()` dialogs.
+- **Keyboard paths:** folders and canvas groups have a Rename button (double-click was the
+  only way); a diff line's number is its "Comment on line N" button; the directory
+  picker's list closes with Esc and returns focus; two dialogs no longer autofocus a field
+  Base UI would focus anyway, and the terminal composer (on every page in terminal chat
+  mode) no longer grabs focus on load.
+- **Contrast:** light `--muted-foreground` 0.556 → 0.52 (4.34 → 5.05:1 on `--muted`),
+  `--destructive` darker in light and lighter in dark (its text on its own tint was 4.0:1),
+  status text from 600 to 700 shades (about 3.2 → 5:1) with 400s in dark, the faded
+  "empty" hints at full muted color.
+- **Help's code blocks** scroll by keyboard; **the Usage heatmap** is one grid tab stop
+  (was 365 undersized buttons).
+- **Motion:** reduced motion stills animations and transitions; the chat's smooth scrolls
+  jump instead.
+
+Known gaps after task 3: **Solarized** keeps its own colors, and its secondary text
+(base0 / base00 on its backgrounds) is under 4.5:1 by design — its focus ring meets 3:1;
+CodeMirror editors use Tab to indent (Esc, then Tab, leaves — with vim on, Esc is vim's);
+the Thoughts canvas is still pointer-first (its list view is the keyboard path); live
+announcements are task 4. The scan still doesn't open dialogs or menus beyond the one
+confirm, or see the assistant chat with messages or a teammate's live view.

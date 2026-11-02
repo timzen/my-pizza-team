@@ -170,6 +170,7 @@ export function ConfigPage() {
       tabs={
         // Route-driven; the Workflows tab stays lit on a workflow's detail.
         <RouteTabs
+          label="Configuration sections"
           tabs={tabs.map((t) => ({
             path: t.path,
             label: t.label,
@@ -184,7 +185,7 @@ export function ConfigPage() {
       {config && tabSavesConfig(activeTab) && (
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-border">
           {toast && (
-            <span className={`text-sm ${toast.error ? "text-destructive" : "text-green-600 dark:text-green-400"}`}>
+            <span className={`text-sm ${toast.error ? "text-destructive" : "text-green-700 dark:text-green-400"}`}>
               {toast.msg}
             </span>
           )}

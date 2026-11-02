@@ -10,6 +10,7 @@ import type { ConfigDraftProps } from "@/lib/config-draft";
 import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 // --- Assistant chat mode (docs/DESIGN.md "Assistant Chat Model") ---
 
@@ -62,9 +63,14 @@ function AssistantPersonaSetting() {
   const { data, refetch } = useApi<{ personaId: string | null }>("/api/assistant/persona");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [confirmDialog, confirm] = useConfirm();
   const pick = async (personaId: string | null) => {
     if (busy || personaId === (data?.personaId ?? null)) return;
-    if (!confirm("Switching the assistant's persona ends the current chat (it stays in the history) and starts a new one. Switch?")) return;
+    if (!(await confirm({
+      title: "Switch the assistant's persona?",
+      description: "It ends the current chat (it stays in the history) and starts a new one.",
+      confirmLabel: "Switch",
+    }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -75,6 +81,7 @@ function AssistantPersonaSetting() {
   };
   return (
     <div className="space-y-1 border-t border-border pt-3">
+      {confirmDialog}
       <Label htmlFor="assistant-persona">Persona</Label>
       <PersonaPicker
         id="assistant-persona"

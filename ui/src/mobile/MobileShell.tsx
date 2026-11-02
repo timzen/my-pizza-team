@@ -18,11 +18,16 @@
  * the team. Tabs are routes (lib/mobile.ts `mobileTabOf`), so Back and bookmarks
  * work.
  *
+ * Page structure as on the desktop (docs/ACCESSIBILITY.md "Structure"): a skip
+ * link first, one `<main>` whose (visually hidden) h1 names the tab, the bottom
+ * tabs a labelled `<nav>`, the document title per tab, and focus moved to the
+ * h1 when you switch tabs (hooks/useRouteFocus).
+ *
  * Opening `/m` clears a "desktop view" preference; the 🖥 button sets it and goes
  * to the full UI, which stops sending a phone at the home page here.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useApi } from "@/hooks/useApi";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
@@ -38,11 +43,22 @@ import { MobileInbox } from "./MobileInbox";
 import { Inbox, MessageSquare, Monitor, Pause, StickyNote, Users } from "lucide-react";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { SkipLink } from "@/components/SkipLink";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useRouteFocus } from "@/hooks/useRouteFocus";
+import { pageTitleForPath } from "@/lib/page-title";
+import { MAIN_CONTENT_ID } from "@/lib/route-focus";
+
+/** Each tab's name: its bottom-tab label, the page's (visually hidden) h1, and the document title. */
+const TAB_LABELS: Record<MobileTab, string> = { team: "Team", chat: "Chat", thoughts: "Thoughts", inbox: "Inbox" };
 
 export function MobileShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const tab = mobileTabOf(pathname);
+  const mainRef = useRef<HTMLElement>(null);
+  useDocumentTitle(pageTitleForPath(pathname));
+  useRouteFocus(mainRef);
 
   // Being here is the choice of the phone view: forget an earlier "desktop".
   if (readViewPref(globalThis.localStorage) === "desktop") writeViewPref(globalThis.localStorage, null);
@@ -76,6 +92,7 @@ export function MobileShell() {
 
   return (
     <div className="flex h-dvh flex-col overflow-hidden bg-background text-foreground">
+      <SkipLink mainRef={mainRef} />
       <header className="shrink-0 border-b border-border bg-muted pt-[env(safe-area-inset-top)]">
         <div className="flex h-12 items-center gap-2 px-3">
           <Link to={MOBILE_TAB_PATHS.team} className="flex min-w-0 items-center gap-2 font-semibold">
@@ -98,7 +115,7 @@ export function MobileShell() {
         <Link to={MOBILE_TAB_PATHS.team} className="flex h-8 items-center gap-1.5 border-t border-border/60 px-3 text-xs">
           {counts.total === 0 && <span className="text-muted-foreground">Queue: nothing in flight</span>}
           {counts.atRisk > 0 && (
-            <span className="flex items-center gap-1 font-medium text-amber-600">
+            <span className="flex items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{counts.atRisk} at risk
             </span>
           )}
@@ -111,7 +128,8 @@ export function MobileShell() {
         </Link>
       </header>
 
-      <main className="min-h-0 flex-1">
+      <main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-0 flex-1">
+        <h1 className="sr-only">{TAB_LABELS[tab]}</h1>
         <div className={tab === "team" ? "h-full" : "hidden"}>
           <MobileTeam team={team} queue={queue} paused={paused} />
         </div>
@@ -126,11 +144,11 @@ export function MobileShell() {
         </div>
       </main>
 
-      <nav className="grid shrink-0 grid-cols-4 border-t border-border bg-muted pb-[env(safe-area-inset-bottom)]">
-        <TabLink tab="team" current={tab} icon={Users} label="Team" attention={counts.atRisk > 0 || team.needsAttention} />
-        <TabLink tab="chat" current={tab} icon={MessageSquare} label="Chat" badge={unreadChat} dot={chatDot} />
-        <TabLink tab="thoughts" current={tab} icon={StickyNote} label="Thoughts" />
-        <TabLink tab="inbox" current={tab} icon={Inbox} label="Inbox" badge={inbox?.total ?? 0} />
+      <nav aria-label="Tabs" className="grid shrink-0 grid-cols-4 border-t border-border bg-muted pb-[env(safe-area-inset-bottom)]">
+        <TabLink tab="team" current={tab} icon={Users} label={TAB_LABELS.team} attention={counts.atRisk > 0 || team.needsAttention} />
+        <TabLink tab="chat" current={tab} icon={MessageSquare} label={TAB_LABELS.chat} badge={unreadChat} dot={chatDot} />
+        <TabLink tab="thoughts" current={tab} icon={StickyNote} label={TAB_LABELS.thoughts} />
+        <TabLink tab="inbox" current={tab} icon={Inbox} label={TAB_LABELS.inbox} badge={inbox?.total ?? 0} />
       </nav>
     </div>
   );

@@ -32,6 +32,7 @@ import { DirectoryInput } from "@/components/ui/directory-input";
 import { WorkDefPersona } from "@/components/personas/WorkDefPersona";
 import { Lock, Pencil, Save, Send, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 /** The WorkDef fields this section shows/edits (a subset of the API's WorkDefView). */
 export interface WorkDefDefinitionData {
@@ -78,7 +79,7 @@ function lockedHint(type: WorkDefDefinitionData["type"]): string {
 export function PendingBadge({ className = "" }: { className?: string }) {
   return (
     <Tooltip content="Pending — not dispatched until activated" describe={false}>
-      <Badge variant="outline" className={`border-amber-500/60 text-amber-600 ${className}`}>
+      <Badge variant="outline" className={`border-amber-500/60 text-amber-700 dark:text-amber-400 ${className}`}>
         Pending
       </Badge>
     </Tooltip>
@@ -94,6 +95,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
   const [directory, setDirectory] = useState("");
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [confirmDialog, confirm] = useConfirm();
 
   const startEdit = () => {
     setTitle(def.title);
@@ -120,7 +122,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
   };
 
   const activate = async () => {
-    if (editing && !confirm("Activate without saving your edits?")) return;
+    if (editing && !(await confirm({ title: "Activate without saving your edits?", description: "Your unsaved changes to the definition are dropped.", confirmLabel: "Activate" }))) return;
     setError("");
     setBusy(true);
     try {
@@ -133,6 +135,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       {readOnlyNote ? (
         <p className="flex items-center gap-1.5 text-xs text-muted-foreground">
           <Lock className="h-3 w-3" />{readOnlyNote}

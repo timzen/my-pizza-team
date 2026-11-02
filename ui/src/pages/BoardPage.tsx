@@ -29,6 +29,7 @@ import { useStoryCollapse } from "@/hooks/useStoryCollapse";
 import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
 import type { StatusResponse, StoryView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type StatusData = Pick<StatusResponse, "defaultWorkflow" | "workflows">;
 
@@ -49,6 +50,7 @@ function StoryBoard() {
   const { data: statusData } = useApi<StatusData>("/api/status", [], { pollInterval: 5000 });
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
+  const [confirmDialog, confirm] = useConfirm();
   const { isCollapsed, setCollapsed, setAllCollapsed } = useStoryCollapse();
 
   // Active stories only; pending ones are on the Pending tab.
@@ -99,20 +101,29 @@ function StoryBoard() {
 
   // Find data for the read-only task preview modal
   const handleArchive = async (storyId: string) => {
-    if (!confirm(`Archive story "${storyId}"? Tasks not in 'done' will be force-completed.`)) return;
+    if (!(await confirm({
+      title: `Archive story "${storyId}"?`,
+      description: "Tasks not in 'done' will be force-completed.",
+      confirmLabel: "Archive",
+    }))) return;
     await apiPost(`/api/stories/${storyId}/archive`, { force: true });
     refetch();
   };
 
   /** Pending ⇄ active. Pending stops new work only; an in-flight task finishes. */
   const handleTogglePending = async (storyId: string, pending: boolean) => {
-    if (pending && !confirm(`Make "${storyId}" pending? Nothing new is handed out until it's activated (a task already running finishes).`)) return;
+    if (pending && !(await confirm({
+      title: `Make "${storyId}" pending?`,
+      description: "Nothing new is handed out until it's activated (a task already running finishes).",
+      confirmLabel: "Make pending",
+    }))) return;
     await apiPost(`/api/stories/${storyId}/${pending ? "pending" : "activate"}`);
     refetch();
   };
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       {/* Toolbar (story/task counts at the right) */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="relative flex-1 min-w-[200px] max-w-sm">

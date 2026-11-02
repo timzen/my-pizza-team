@@ -30,6 +30,7 @@ import { BackButton } from "@/components/ui/back-button";
 import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 type WorkDefType = "Solitary" | "Scheduled";
 
@@ -97,6 +98,7 @@ export function NewWorkDefPage() {
   };
 
   const heading = type === "Scheduled" ? "New Scheduled Job" : "New Solitary Task";
+  useDocumentTitle([heading, "Work"]);
   const submitLabel = type === "Scheduled" ? "Job" : "Task";
 
   return (

@@ -22,6 +22,7 @@ import { DEFAULT_ASSISTANT_PERSONA_ID, PersonaChips } from "./PersonaChips";
 import type { AssistantStreamState } from "@/hooks/useAssistantStream";
 import type { AssistantMessage } from "@/lib/assistant-types";
 import { usePersonas } from "@/hooks/usePersonas";
+import { scrollBehavior } from "@/lib/motion";
 
 interface AssistantChatProps {
   /** Live chat state, owned by the dock so it survives collapse. */
@@ -66,7 +67,7 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
   // the chat comes back on screen).
   useEffect(() => {
     if (!active) return;
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: scrollBehavior() });
   }, [messages.length, thinking, active]);
 
   const send = async () => {
@@ -159,7 +160,7 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
 function jumpTo(id: string) {
   const el = document.getElementById(`msg-${id}`);
   if (!el) return;
-  el.scrollIntoView({ behavior: "smooth", block: "center" });
+  el.scrollIntoView({ behavior: scrollBehavior(), block: "center" });
   el.classList.add("ring-2", "ring-primary/60", "rounded-2xl");
   setTimeout(() => el.classList.remove("ring-2", "ring-primary/60", "rounded-2xl"), 1200);
 }

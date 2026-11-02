@@ -25,7 +25,7 @@ import { workItemsTabLinks } from "@/lib/work-items";
 
 export function WorkItemsTabs() {
   const tabs = workItemsTabLinks(useFeatures(), useExternalSources());
-  return <RouteTabs tabs={tabs.map(({ path, label, isActive }) => ({ path, label, isActive }))} />;
+  return <RouteTabs label="Work sections" tabs={tabs.map(({ path, label, isActive }) => ({ path, label, isActive }))} />;
 }
 
 /**

@@ -57,7 +57,7 @@ export function MarkdownField({ value, onChange, label, rows = 3, required, defa
         </div>
       </div>
       {editing ? (
-        <div className="overflow-hidden rounded-lg border border-input focus-within:border-ring focus-within:ring-3 focus-within:ring-ring/50 dark:bg-input/30">
+        <div className="overflow-hidden rounded-lg border border-input focus-within:border-ring focus-within:ring-2 focus-within:ring-ring dark:bg-input/30">
           <div className="max-h-[60vh] overflow-y-auto">
             <CodeEditorSurface
               initial={value}
@@ -65,6 +65,7 @@ export function MarkdownField({ value, onChange, label, rows = 3, required, defa
               onChange={onChange}
               onVimMode={setVimMode}
               minLines={rows}
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- only after the user's own Edit (focusOnOpen), never on page load
               autoFocus={focusOnOpen}
               placeholder="Write… (markdown)"
               commands={{ write: () => {}, save: toPreview, quit: toPreview, submit: toPreview }}
@@ -81,7 +82,9 @@ export function MarkdownField({ value, onChange, label, rows = 3, required, defa
           </div>
         </div>
       ) : (
+        // A pointer shortcut for the Edit button above (the keyboard's way in).
         <div
+          role="presentation"
           className="rounded-md bg-background px-3 py-2 min-h-[80px] cursor-pointer"
           onClick={startEditing}
         >

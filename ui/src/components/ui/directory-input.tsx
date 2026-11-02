@@ -7,9 +7,13 @@
  * input favorites whatever path is typed — so favorites can be managed right
  * where they're used, not only on the Config page. See docs/DESIGN.md
  * "Favorite Directories".
+ *
+ * Keyboard: the list opens as the field takes focus; its rows are the next tab
+ * stops. Esc closes it, and picking a row closes it — both put focus back on
+ * the field (docs/ACCESSIBILITY.md "Focus is always visible and never lost").
  */
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type KeyboardEvent } from "react";
 import { Input } from "@/components/ui/input";
 import { ChevronDown, Star } from "lucide-react";
 import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
@@ -46,6 +50,10 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
   const hasAny = favorites.length + recent.length + extras.length > 0;
   const [open, setOpen] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  /** Close the list and put focus back on the field (a picked option unmounts, so focus would drop to <body>). */
+  const closeToInput = () => { setOpen(false); inputRef.current?.focus(); };
+  const onEscape = (e: KeyboardEvent) => { if (e.key === "Escape" && open) { e.preventDefault(); e.stopPropagation(); closeToInput(); } };
 
   // Stay in sync with stars clicked in other pickers / the Config page.
   useEffect(() => {
@@ -83,8 +91,10 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
     <div ref={wrapperRef} className="relative">
       <div className="relative">
         <Input
+          ref={inputRef}
           id={id}
           value={value}
+          onKeyDown={onEscape}
           onChange={e => { onChange(e.target.value); setOpen(true); }}
           onFocus={() => { if (hasAny) setOpen(true); }}
           placeholder={placeholder || "~/projects/foo"}
@@ -100,7 +110,7 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
                 onClick={() => onStar(typed, typedIsFavorite)}
                 tabIndex={-1}
               >
-                <Star className={`h-4 w-4 ${typedIsFavorite ? "fill-yellow-400 text-yellow-500" : ""}`} />
+                <Star className={`h-4 w-4 ${typedIsFavorite ? "fill-amber-400 text-amber-600" : ""}`} />
               </button>
             </Tooltip>
           )}
@@ -127,7 +137,8 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
                 <button
                   type="button"
                   className="flex-1 min-w-0 px-3 py-2 text-left text-sm truncate"
-                  onClick={() => { onChange(dir); setOpen(false); }}
+                  onKeyDown={onEscape}
+                  onClick={() => { onChange(dir); closeToInput(); }}
                 >
                   {dir}
                 </button>
@@ -136,9 +147,10 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
                     type="button"
                     className="px-2 text-muted-foreground hover:text-foreground"
                     aria-label={favorite ? `Remove ${dir} from favorites` : `Add ${dir} to favorites`}
+                    onKeyDown={onEscape}
                     onClick={() => onStar(dir, favorite)}
                   >
-                    <Star className={`h-3.5 w-3.5 ${favorite ? "fill-yellow-400 text-yellow-500" : ""}`} />
+                    <Star className={`h-3.5 w-3.5 ${favorite ? "fill-amber-400 text-amber-600" : ""}`} />
                   </button>
                 </Tooltip>
               </div>

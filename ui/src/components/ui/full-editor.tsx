@@ -40,6 +40,7 @@ import { readVimPref, writeVimPref } from "@/lib/editorPrefs";
 import type { CodeEditorProps, VimMode } from "./code-editor";
 import { Check, Columns2, Maximize2, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const CodeEditor = lazy(() => import("./code-editor"));
 
@@ -218,9 +219,10 @@ function FullEditor({ initial, title, submitLabel, onFinish, onDiscard }: FullEd
   const [mode, setMode] = useState<VimMode>("insert");
   const [preview, setPreview] = useState(false);
   const dirty = text !== initial;
+  const [confirmDialog, confirm] = useConfirm();
 
-  const discard = (force: boolean) => {
-    if (!force && dirty && !window.confirm("Discard your changes?")) return;
+  const discard = async (force: boolean) => {
+    if (!force && dirty && !(await confirm({ title: "Discard your changes?", confirmLabel: "Discard", destructive: true }))) return;
     onDiscard();
   };
 
@@ -243,6 +245,8 @@ function FullEditor({ initial, title, submitLabel, onFinish, onDiscard }: FullEd
           // Keep a vim Esc from reaching an enclosing dialog's dismiss handler.
           onKeyDown={(e) => { if (e.key === "Escape" && vimOn) e.stopPropagation(); }}
         >
+          {/* Inside the popup, so it nests: focus stays trapped in the editor's dialog. */}
+          {confirmDialog}
           <div className="flex h-14 shrink-0 items-center gap-3 border-b border-border px-4">
             <Maximize2 className="h-4 w-4 text-muted-foreground" />
             <DialogPrimitive.Title className="text-sm font-medium">{title ?? "Editor"}</DialogPrimitive.Title>

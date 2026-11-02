@@ -64,9 +64,9 @@ import { Tooltip } from "@/components/ui/tooltip";
 
 
 const TONE_CLASS: Record<SourceStatus["tone"], string> = {
-  ok: "border-emerald-500/60 text-emerald-600",
+  ok: "border-emerald-500/60 text-emerald-700 dark:text-emerald-400",
   bad: "border-red-500/60 text-red-600",
-  warn: "border-amber-500/60 text-amber-600",
+  warn: "border-amber-500/60 text-amber-700 dark:text-amber-400",
   neutral: "text-muted-foreground",
 };
 
@@ -240,7 +240,7 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
   // The block Preview and Save send: the form's draft, or the parsed JSON (null while it doesn't parse).
   const options = fields ? draft : parsedJson?.ok ? parsedJson.options : null;
   const dirty = fields ? settingsDirty(draft, saved) : jsonText !== settingsJson(saved);
-  useUnsavedChangesGuard(dirty);
+  const guardDialog = useUnsavedChangesGuard(dirty);
 
   const [errors, setErrors] = useState<Record<string, string[]>>({});
   const [previewing, setPreviewing] = useState(false);
@@ -299,6 +299,7 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
 
   return (
     <Card>
+      {guardDialog}
       <CardContent className="p-4 space-y-4">
         <div className="flex items-center gap-2">
           <h2 className="font-semibold mr-auto">{source.label} settings</h2>
@@ -372,8 +373,8 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
           {dirty && (
             <Button variant="ghost" size="sm" onClick={reset} className="gap-1"><RotateCcw className="h-3.5 w-3.5" />Discard changes</Button>
           )}
-          {dirty && <span className="text-xs text-amber-600">Unsaved changes</span>}
-          {result && <span className={`text-xs ${result.ok ? "text-green-600 dark:text-green-400" : "text-destructive"}`}>{result.message}</span>}
+          {dirty && <span className="text-xs text-amber-700 dark:text-amber-400">Unsaved changes</span>}
+          {result && <span className={`text-xs ${result.ok ? "text-green-700 dark:text-green-400" : "text-destructive"}`}>{result.message}</span>}
         </div>
 
         {(previewing || preview) && <PreviewResult source={source} previewing={previewing} preview={preview} />}
@@ -606,7 +607,7 @@ function EnvVarInput({ id, field, value, source, invalid, onChange }: {
       <p className="text-xs text-muted-foreground">
         Environment variable <em>name</em> — the daemon reads the secret from its environment; it's never stored or shown here.
       </p>
-      {hidden && <p className="text-xs text-amber-600">config.json has a value here that isn't a variable name (a pasted secret?). Replace it with the variable's name.</p>}
+      {hidden && <p className="text-xs text-amber-700 dark:text-amber-400">config.json has a value here that isn't a variable name (a pasted secret?). Replace it with the variable's name.</p>}
     </div>
   );
 }
@@ -635,7 +636,7 @@ function PreviewResult({ source, previewing, preview }: { source: SourceView; pr
       </div>
       {preview.note && <p className="text-xs text-muted-foreground">{preview.note}</p>}
       {preview.warnings && preview.warnings.length > 0 && (
-        <ul className="text-xs text-amber-600 list-disc pl-4">{preview.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
+        <ul className="text-xs text-amber-700 dark:text-amber-400 list-disc pl-4">{preview.warnings.map((w) => <li key={w}>{w}</li>)}</ul>
       )}
       {items.length > 0 && (
         <div className="overflow-x-auto">

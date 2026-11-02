@@ -13,9 +13,13 @@
  * each checkbox's ordinal is stamped onto the tree by a rehype plugin rather
  * than counted during render. The same plugin stamps each checkbox's item
  * text, which becomes its accessible name (a bare checkbox says nothing).
+ *
+ * Headings render one level down (a document's `#` is an h2), because the
+ * markdown always sits under its page's own h1; and a code block that scrolls
+ * sideways is a keyboard tab stop (ScrollablePre) — docs/ACCESSIBILITY.md.
  */
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useLayoutEffect, useRef, useState } from "react";
 import Markdown, { type Components } from "react-markdown";
 import remarkGfm from "remark-gfm";
 
@@ -102,11 +106,47 @@ function TaskInput({ type, checked, node }: React.ComponentProps<"input"> & { no
   );
 }
 
+/**
+ * A code block. It scrolls sideways when a line is too long, and a scrolling
+ * region must be reachable by keyboard (WCAG 2.1.1; axe
+ * `scrollable-region-focusable`) — so it becomes a named tab stop then, and
+ * only then: a short block that doesn't scroll adds no tab stop.
+ */
+function ScrollablePre({ children }: React.ComponentProps<"pre">) {
+  const ref = useRef<HTMLPreElement>(null);
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const check = () => setScrolls(el.scrollWidth > el.clientWidth);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
+  return (
+    <pre
+      ref={ref}
+      className="bg-muted rounded p-3 text-xs overflow-x-auto mb-2"
+      tabIndex={scrolls ? 0 : undefined}
+      role={scrolls ? "group" : undefined}
+      aria-label={scrolls ? "Code block" : undefined}
+    >
+      {children}
+    </pre>
+  );
+}
+
 const COMPONENTS: Components = {
-  h1: ({ children }) => <h1 className="text-xl font-bold mt-4 mb-2">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-lg font-bold mt-3 mb-2">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-base font-semibold mt-3 mb-1">{children}</h3>,
-  h4: ({ children }) => <h4 className="text-sm font-semibold mt-2 mb-1">{children}</h4>,
+  // One level down: rendered markdown always sits under its page's own h1
+  // (docs/ACCESSIBILITY.md "Structure"), so a document's `#` is an h2. The
+  // look follows the markdown level, not the tag.
+  h1: ({ children }) => <h2 className="text-xl font-bold mt-4 mb-2">{children}</h2>,
+  h2: ({ children }) => <h3 className="text-lg font-bold mt-3 mb-2">{children}</h3>,
+  h3: ({ children }) => <h4 className="text-base font-semibold mt-3 mb-1">{children}</h4>,
+  h4: ({ children }) => <h5 className="text-sm font-semibold mt-2 mb-1">{children}</h5>,
+  h5: ({ children }) => <h6 className="text-sm font-semibold mt-2 mb-1">{children}</h6>,
+  h6: ({ children }) => <h6 className="text-sm font-semibold mt-2 mb-1">{children}</h6>,
   p: ({ children }) => <p className="mb-2 leading-relaxed">{children}</p>,
   // Task lists (contains-task-list) drop the bullet so the checkbox is
   // the only marker; ordinary lists keep their disc/decimal.
@@ -123,11 +163,12 @@ const COMPONENTS: Components = {
   code: ({ children, className: codeClassName }) => {
     // Block code has a className like "language-xxx"
     if (codeClassName) {
-      return <code className="block bg-muted rounded p-3 text-xs overflow-x-auto mb-2">{children}</code>;
+      // The enclosing <pre> pads, tints and scrolls it (ScrollablePre).
+      return <code className="block">{children}</code>;
     }
     return <code className="bg-muted rounded px-1.5 py-0.5 text-xs">{children}</code>;
   },
-  pre: ({ children }) => <pre className="bg-muted rounded p-3 text-xs overflow-x-auto mb-2">{children}</pre>,
+  pre: ScrollablePre,
   a: ({ href, children }) => (
     <a href={href} target="_blank" rel="noopener" className="text-primary underline hover:text-primary/80">
       {children}

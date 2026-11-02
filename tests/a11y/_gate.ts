@@ -108,3 +108,43 @@ export function reportTable(findings: Finding[]): string {
     ...rows.map((f) => `| ${f.impact ?? "?"} | ${f.rule} | ${f.route} | ${f.nodes} | ${cell(f.help)} | ${f.example ? `\`${cell(f.example)}\`` : ""} |`),
   ].join("\n");
 }
+
+/**
+ * axe's page-structure rules (best practice, not WCAG-tagged, so axe rates them
+ * moderate). The scan runs them too and promotes their violations to serious:
+ * the UI promises one h1, one main, headings in order and uniquely labelled
+ * landmarks on every route (docs/ACCESSIBILITY.md "Structure").
+ */
+export const STRUCTURE_RULES = [
+  "page-has-heading-one", "heading-order", "landmark-one-main", "landmark-no-duplicate-main",
+  "landmark-main-is-top-level", "landmark-unique",
+] as const;
+
+/** What the scan reads off a loaded page for `structureFindings`. */
+export interface PageFacts {
+  /** Rendered (not display:none) `<h1>`s, visually hidden ones included. */
+  h1s: number;
+  /** `<main>` / `role=main` landmarks. */
+  mains: number;
+  title: string;
+  /** The name of what the first Tab from a fresh load focuses. */
+  firstTab: string | null;
+}
+
+/** The title every route must have: `<page> · <team> · Pizza Team` (ui/src/lib/page-title.ts). */
+const TITLE_SHAPE = /^.+ · .+ · Pizza Team$/;
+
+/**
+ * The structure promises the scan checks by hand, as failing (serious)
+ * findings: exactly one h1 and one main, a page-specific title, and "Skip to
+ * content" as the first tab stop.
+ */
+export function structureFindings(route: string, facts: PageFacts): Finding[] {
+  const out: Finding[] = [];
+  const add = (rule: string, help: string) => out.push({ route, rule, impact: "serious", nodes: 1, help });
+  if (facts.h1s !== 1) add("mpt-one-h1", `A page has exactly one h1 (found ${facts.h1s})`);
+  if (facts.mains !== 1) add("mpt-one-main", `A page has exactly one main landmark (found ${facts.mains})`);
+  if (!TITLE_SHAPE.test(facts.title)) add("mpt-page-title", `The title is "<page> · <team> · Pizza Team" (got "${facts.title}")`);
+  if (facts.firstTab !== "Skip to content") add("mpt-skip-link", `The first Tab reaches "Skip to content" (got ${JSON.stringify(facts.firstTab)})`);
+  return out;
+}

@@ -39,7 +39,7 @@ export function TeamPanel({ team }: { team: TeamData }) {
         */}
         {skewed.length > 0 && (
           <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
-            <p className="font-medium text-amber-600 dark:text-amber-400">
+            <p className="font-medium text-amber-700 dark:text-amber-400">
               {skewed.length === 1 ? "An agent is" : `${skewed.length} agents are`} out of step with the daemon
             </p>
             <ul className="mt-1 space-y-0.5 text-muted-foreground">
@@ -51,7 +51,7 @@ export function TeamPanel({ team }: { team: TeamData }) {
             */}
             <button
               onClick={() => void team.restartSkewed()}
-              className="mt-1.5 text-[11px] font-medium text-amber-600 underline hover:no-underline dark:text-amber-400"
+              className="mt-1.5 text-[11px] font-medium text-amber-700 underline hover:no-underline dark:text-amber-400"
             >
               Restart {skewed.length === 1 ? "it" : `all ${skewed.length}`} (rolls the session, clearing context)
             </button>

@@ -40,11 +40,12 @@ import { isTriageMode, latestStateLabel, latestStateTone, type MirroredDefRow, o
 import { sourceSettingsPath } from "@/lib/source-settings";
 import { ExternalLink, FolderSync, RefreshCw, Settings } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 /** Badge classes per latest-state tone. */
 const TONE_CLASS: Record<ReturnType<typeof latestStateTone>, string> = {
-  active: "border-sky-500/60 text-sky-600",
-  ok: "border-emerald-500/60 text-emerald-600",
+  active: "border-sky-500/60 text-sky-700 dark:text-sky-400",
+  ok: "border-emerald-500/60 text-emerald-700 dark:text-emerald-400",
   bad: "border-red-500/60 text-red-600",
   neutral: "text-muted-foreground",
 };
@@ -71,6 +72,7 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
   const [syncError, setSyncError] = useState("");
   const label = data?.source.label ?? sourceId;
   const defs = data?.defs ?? [];
+  useDocumentTitle([label, "Work"]);
 
   const syncNow = async () => {
     setSyncing(true);

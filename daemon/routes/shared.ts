@@ -11,16 +11,26 @@ import type { RouteContext } from "./types.ts";
 import { readBody, fail } from "./http.ts";
 import type { TeamConfig, WorkflowConfig } from "../../shared/types.ts";
 import {
-  ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, isAssistantChatMode, isExperimentalHarness, resolveAssistantChatMode,
+  ASSISTANT_CHAT_MODES, DEFAULT_HARNESS, DEFAULT_NOUNS, TEAM_DIR, isAssistantChatMode, isExperimentalHarness, resolveAssistantChatMode,
 } from "../../shared/types.ts";
 import { enabledFeatures, featureSources, featureUsage, resolveFeaturesUpdate } from "../features.ts";
 import { resolveTemplates } from "../spawner.ts";
 import { externalSourceViews } from "./sources.ts";
 import { validateWorkflow } from "../workflow-engine.ts";
 import { execFile } from "node:child_process";
+import * as path from "node:path";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+/**
+ * The team's name: its repo's directory name — the folder holding
+ * `.my-pizza-team/`, or the team directory itself when it isn't named that.
+ */
+export function teamNameOf(teamDir: string): string {
+  const dir = path.resolve(teamDir);
+  return path.basename(path.basename(dir) === TEAM_DIR ? path.dirname(dir) : dir);
+}
 
 export function registerSharedRoutes(ctx: RouteContext): void {
   const { app, store, config, teamDir, setPaused, isPaused, startedAt } = ctx;
@@ -77,6 +87,8 @@ export function registerSharedRoutes(ctx: RouteContext): void {
     const members = store.getMembers();
     return c.json({
       running: true,
+      // The team's name for the web UI's tab titles ("Board · Work · <team> · Pizza Team").
+      teamName: teamNameOf(teamDir),
       // Task distribution paused (control/pause)? The UI needs it to render the
       // pause toggle's real state and to explain why queued work isn't moving.
       paused: isPaused(),

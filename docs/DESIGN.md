@@ -21,6 +21,7 @@ either disagrees with the code, the code is right and the doc is a bug.
 6. **Workers never move tasks** — Teammates execute work; the daemon executes flow (admission + advance); humans/the leader make judgment moves. See "The Work Model".
 7. **Fail loudly** — a missing piece must surface as an error that names its fix, never as a symptom (a teammate that never appears, a chat nobody answers). This one principle drives the version handshake, `mpt doctor`, failed-spawn reporting, and the permission-system warning.
 8. **Polling never disturbs the reader** — a background refresh or stream frame must not unmount, remount, or rewrite anything that didn't change, so a text selection (or a scroll position, a draft) survives it. See "Polling Never Disturbs the Reader".
+9. **Focus follows the page, not the URL** — a route change that is a new page puts the keyboard on its heading; one that isn't (a tab, a query, anything while you're in the dock) leaves focus alone. See "Focus Follows the Page, Not the URL".
 
 ---
 
@@ -2290,6 +2291,32 @@ rules above an update only rewrites nodes whose content actually changed, so a
 selection is lost only when the selected text itself changes — and then the new
 text is what the user should see. Pausing would add hidden state (a frozen page
 that looks live) for no gain.
+
+## Focus Follows the Page, Not the URL
+
+A single-page app changes pages without a page load, so the browser doesn't
+announce the new page or put the keyboard anywhere sensible: focus stays on the
+link you pressed, or — when that link belonged to the old page — falls to
+`<body>`, and the next Tab starts again at the top of the dock. So on a route change
+the shell moves focus to the new page's `<h1>` (`hooks/useRouteFocus`), as a real
+load would, and the tab's title names the page.
+
+But a URL change isn't always a new page, and moving focus then would be worse
+than leaving it (docs/ACCESSIBILITY.md, `lib/route-focus.ts`):
+
+- **Tabs are not pages.** Work's and Config's tabs are routes so they can be
+  bookmarked, but walking them is one task: each tab keeps focus (and takes it back
+  if the new page remounted the tab bar). A `?tab=` switch (Details | Thread) or a
+  selected note changes only the query, so nothing moves.
+- **The dock is not the center** (see "The Shell: a Dock and a Center"). While focus is
+  in the dock — typing to the assistant, opening a teammate from the rail — a route
+  change never pulls it out; you asked the center to change, not to be taken there.
+- **A first load isn't a move.** Focus stays at the top, where the skip link is.
+
+The same reasoning sets the confirm dialog's default: it opens on **Cancel**, so a
+stray Enter never deletes anything, and closing it returns you to the button that
+asked — or, if that button went with what it deleted, wherever the dialog library
+falls back to — rather than to `<body>`.
 
 ## The Big Editor
 

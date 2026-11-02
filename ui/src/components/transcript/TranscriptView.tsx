@@ -150,7 +150,7 @@ function ToolBlock({ entry }: { entry: Of<"tool"> }) {
   const result = entry.result?.replace(/\s+$/, "") || "";
   const lines = result ? result.split("\n") : [];
   const shown = open ? lines : lines.slice(0, RESULT_PREVIEW_LINES);
-  const dot = entry.state === "running" ? "animate-pulse text-amber-500" : entry.state === "error" ? "text-destructive" : "text-green-600";
+  const dot = entry.state === "running" ? "animate-pulse text-amber-600" : entry.state === "error" ? "text-destructive" : "text-green-600";
   return (
     <div>
       <div className="flex gap-2">

@@ -31,6 +31,10 @@
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type
  * (Solitary/Scheduled/Board → Work, Triage → Thoughts).
  *
+ * The links sit in `<nav aria-label="Main">` (the dock is the other labelled
+ * nav), and the lit one is `aria-current="page"`, so a screen reader says
+ * where you are too (docs/ACCESSIBILITY.md "Structure").
+ *
  * Under the bar, the daemon's one-line **notices** (`/api/status` `notices` —
  * today only the "the context library was removed" line 0.34–0.36's persona
  * migration left, until it's dismissed),
@@ -104,9 +108,14 @@ export function NavBar() {
           </Link>
         </Tooltip>
 
-        <nav className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
+        <nav aria-label="Main" className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none]">
           {navItems.map((item) => (
-            <Link key={item.path} to={item.path} className={`shrink-0 whitespace-nowrap ${linkClass(item.section)}`}>
+            <Link
+              key={item.path}
+              to={item.path}
+              aria-current={activeSection === item.section ? "page" : undefined}
+              className={`shrink-0 whitespace-nowrap ${linkClass(item.section)}`}
+            >
               {item.label}
             </Link>
           ))}
@@ -124,6 +133,7 @@ export function NavBar() {
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
             label="Usage"
+            aria-current={location.pathname === "/usage" ? "page" : undefined}
           >
             <ChartColumn className="h-4 w-4" />
           </IconLink>
@@ -135,6 +145,7 @@ export function NavBar() {
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
             label="Help"
+            aria-current={location.pathname === "/help" ? "page" : undefined}
           >
             <HelpCircle className="h-4 w-4" />
           </IconLink>
@@ -146,6 +157,7 @@ export function NavBar() {
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
             label="Config"
+            aria-current={location.pathname.startsWith("/config") ? "page" : undefined}
           >
             <Settings className="h-4 w-4" />
           </IconLink>
@@ -154,7 +166,7 @@ export function NavBar() {
       </div>
       {(status?.notices ?? []).map((n) => (
         <div key={n.id} className="flex items-start gap-2 border-b border-border bg-sky-500/5 px-4 py-1.5 text-xs" role="status">
-          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-600" />
+          <Info className="mt-0.5 h-3.5 w-3.5 shrink-0 text-sky-700 dark:text-sky-400" />
           <span className="flex-1">
             {n.message}{" "}
             <Link to={PERSONAS_TAB_PATH} className="text-primary underline">Personas</Link>
@@ -253,7 +265,7 @@ function PauseButton({ paused, onToggled }: { paused: boolean; onToggled: () => 
       onClick={toggle}
       className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
         paused
-          ? "text-amber-500 hover:text-amber-600 hover:bg-accent/50"
+          ? "text-amber-600 hover:text-amber-700 hover:bg-accent/50 dark:text-amber-400 dark:hover:text-amber-300"
           : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
       }`}
       aria-label={label}

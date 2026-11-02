@@ -103,7 +103,6 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
               className="w-24"
-              autoFocus
             />
             {max > 0 && <span className="text-xs text-muted-foreground">max {max}</span>}
           </div>
@@ -116,7 +115,7 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
         </div>
 
         {pool && pool.minTeammates > 0 && !pool.leaderPresent && (
-          <p className="flex items-center gap-1 text-xs text-amber-600">
+          <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> No leader connected — nothing can spawn until one is.
           </p>
         )}

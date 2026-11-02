@@ -31,9 +31,9 @@ interface RunItem {
 const LIMIT = 10;
 
 const STATE_TONE: Record<string, string> = {
-  IN_PROGRESS: "border-green-500/50 text-green-600",
-  MORIBUND: "border-amber-500/50 text-amber-600",
-  COMPLETE: "border-emerald-500/50 text-emerald-600",
+  IN_PROGRESS: "border-green-500/50 text-green-700 dark:text-green-400",
+  MORIBUND: "border-amber-500/50 text-amber-700 dark:text-amber-400",
+  COMPLETE: "border-emerald-500/50 text-emerald-700 dark:text-emerald-400",
   FAILED: "border-red-500/50 text-red-600",
 };
 

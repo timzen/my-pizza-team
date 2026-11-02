@@ -21,12 +21,17 @@ import { BackButton } from "@/components/ui/back-button";
 import type { StoryView } from "@shared/protocol";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { data, refetch } = useApi<{ stories: StoryView[] }>("/api/stories");
   const story = data?.stories.find(s => s.id === id);
+  const [confirmDialog, confirm] = useConfirm();
+  // The tab's title is the story's (the path can't know it: lib/page-title.ts).
+  useDocumentTitle([story?.title ?? id ?? "Story", "Story"]);
 
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -64,7 +69,7 @@ export function StoryDetailPage() {
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Delete story "${story.id}"?`)) return;
+    if (!(await confirm({ title: `Delete story "${story.id}"?`, confirmLabel: "Delete", destructive: true }))) return;
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/stories/${story.id}`);
     if (res.success) navigate("/work/board", { replace: true });
     else setError(res.error || "Failed to delete");
@@ -80,7 +85,7 @@ export function StoryDetailPage() {
     }
     // If the error indicates not all tasks are done, offer force-archive
     if (res.error && res.error.includes("Not all tasks are done")) {
-      if (!confirm("Not all tasks are done. Archive anyway?")) return;
+      if (!(await confirm({ title: "Not all tasks are done. Archive anyway?", description: "Tasks not in 'done' will be force-completed.", confirmLabel: "Archive" }))) return;
       const forceRes = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, { force: true });
       if (forceRes.success) navigate("/work/board");
       else setError(forceRes.error || "Failed to archive");
@@ -113,7 +118,7 @@ export function StoryDetailPage() {
 
   /** Delete a task from this story. */
   const deleteTaskById = async (taskId: string) => {
-    if (!confirm(`Delete task "${taskId}"?`)) return;
+    if (!(await confirm({ title: `Delete task "${taskId}"?`, confirmLabel: "Delete", destructive: true }))) return;
     setError("");
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
     if (res.success) refetch();
@@ -122,6 +127,7 @@ export function StoryDetailPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4 max-w-3xl">
+      {confirmDialog}
       {/* Top bar: back to board + save/delete actions */}
       <div className="flex items-center justify-between">
         <BackButton fallback="/work/board" label="Back to board" />
@@ -146,7 +152,7 @@ export function StoryDetailPage() {
 
       {/* Header: title, then path on the left + status on the right */}
       <div className="space-y-2">
-        <TitleField label="Title" value={title} onChange={setTitle} required />
+        <TitleField label="Title" value={title} onChange={setTitle} required heading />
         <div className="flex items-center justify-between gap-2">
           <Badge variant="secondary" className="font-mono">/{story.id}</Badge>
           <div className="flex items-center gap-2">

@@ -14,9 +14,9 @@ export type QueueItem = Omit<WorkItemView, "state"> & { state: QueueState };
 
 /** Human labels + colors per state, in the order they're worth your attention. */
 export const QUEUE_STATES: Array<{ state: QueueState; label: string; dot: string; chip: string }> = [
-  { state: "MORIBUND", label: "At risk", dot: "bg-amber-500", chip: "text-amber-600 border-amber-500/50" },
+  { state: "MORIBUND", label: "At risk", dot: "bg-amber-500", chip: "text-amber-700 dark:text-amber-400 border-amber-500/50" },
   { state: "READY", label: "Waiting", dot: "bg-muted-foreground/50", chip: "text-muted-foreground" },
-  { state: "IN_PROGRESS", label: "Working", dot: "bg-green-500", chip: "text-green-600 border-green-500/50" },
+  { state: "IN_PROGRESS", label: "Working", dot: "bg-green-500", chip: "text-green-700 dark:text-green-400 border-green-500/50" },
 ];
 
 export function queueStateInfo(state: QueueState) {

@@ -33,6 +33,8 @@ import { statusLabel, type Teammate } from "@/lib/team";
 import { FolderOpen, Eye, WifiOff, MessageSquare, Play, CheckCircle2, XCircle } from "lucide-react";
 import type { WorkItemView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type Agent = Teammate;
 
@@ -49,8 +51,10 @@ export function TeammatePage() {
     `/api/agents/${encodeURIComponent(id)}/pairing/state`, [id], { pollInterval: 3000 },
   );
   const [error, setError] = useState("");
+  const [confirmDialog, confirm] = useConfirm();
 
   const agent = agents?.agents.find((a) => a.id === id);
+  useDocumentTitle([agent?.name ?? id, "Teammate"]);
   const current = work?.items.find((w) => w.memberId === id);
   const paired = !!pairing?.paired;
   // Experimental ACP teammates (`mpt agent`) don't poll for pairing yet.
@@ -61,8 +65,13 @@ export function TeammatePage() {
     setError(res.success ? "" : res.error || "Request failed");
     refetchPairing();
   };
-  const release = (action: "resume" | "complete" | "fail") => {
-    if (action === "fail" && !window.confirm("Mark its work item FAILED? The task will be left for a human.")) return;
+  const release = async (action: "resume" | "complete" | "fail") => {
+    if (action === "fail" && !(await confirm({
+      title: "Mark its work item FAILED?",
+      description: "The task will be left for a human.",
+      confirmLabel: "Mark failed",
+      destructive: true,
+    }))) return;
     act("release", { action });
   };
 
@@ -72,6 +81,7 @@ export function TeammatePage() {
 
   return (
     <div className="flex h-full flex-col">
+      {confirmDialog}
       <div className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-border px-4 py-2">
         {agent && <StatusIcon teammate={agent} className="h-4 w-4 shrink-0 text-muted-foreground" />}
         <h1 className="font-semibold">{agent?.name ?? id}</h1>

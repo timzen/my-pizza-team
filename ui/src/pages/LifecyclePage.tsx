@@ -40,6 +40,7 @@ import {
 } from "@/lib/lifecycle-list";
 import { Archive, ArchiveRestore, CalendarClock, ChevronDown, ChevronRight, FolderOpen, Search, Send, Trash2 } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const POLL_MS = 10_000;
 
@@ -54,6 +55,7 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
   const enabled = enabledKinds(features);
   const [selected, setSelected] = useState<LifecycleKind[]>(["story", "task", "schedule"]);
   const [query, setQuery] = useState("");
+  const [confirmDialog, confirm] = useConfirm();
 
   // Only fetch what the team has switched on (a switched-off kind's routes 403).
   const wantStories = !!features?.stories;
@@ -88,7 +90,11 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
   };
   const archive = async (row: LifecycleRow) => {
     if (row.kind === "story") {
-      if (!confirm(`Archive story "${row.id}"? Tasks not in 'done' will be force-completed.`)) return;
+      if (!(await confirm({
+        title: `Archive story "${row.id}"?`,
+        description: "Tasks not in 'done' will be force-completed.",
+        confirmLabel: "Archive",
+      }))) return;
       await apiPost(`/api/stories/${encodeURIComponent(row.id)}/archive`, { force: true });
     } else {
       await apiPost(`/api/work-defs/${encodeURIComponent(row.id)}/archive`, {});
@@ -100,13 +106,14 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
     refetchDefs();
   };
   const remove = async (row: LifecycleRow) => {
-    if (!confirm(`Delete "${row.title}" for good?`)) return;
+    if (!(await confirm({ title: `Delete "${row.title}" for good?`, confirmLabel: "Delete", destructive: true }))) return;
     await apiDelete(`/api/work-defs/${encodeURIComponent(row.id)}`);
     refetchDefs();
   };
 
   return (
     <WorkItemsLayout bodyClassName="max-w-3xl">
+      {confirmDialog}
       <p className="text-sm text-muted-foreground">{INTRO[state]}</p>
       <div className="flex items-center gap-2 flex-wrap">
         {LIFECYCLE_KINDS.filter(k => enabled.includes(k.kind)).map(({ kind, label }) => (

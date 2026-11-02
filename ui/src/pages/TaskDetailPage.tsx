@@ -40,6 +40,8 @@ import { BackButton } from "@/components/ui/back-button";
 import type { Comment } from "@shared/types";
 import type { StoryView, WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type WorkDef = WorkDefView;
 
@@ -62,6 +64,8 @@ export function TaskDetailPage() {
   const story = storiesData?.stories.find(s => s.id === storyId);
   const task = story?.tasks.find(t => t.id === taskId);
   const comments = commentsData?.comments || [];
+  useDocumentTitle([def?.title ?? taskId ?? "Task", "Task"]);
+  const [confirmDialog, confirm] = useConfirm();
 
   const [tab, setTab] = useDetailTab();
 
@@ -89,7 +93,7 @@ export function TaskDetailPage() {
   };
 
   const deleteTask = async () => {
-    if (!taskId || !confirm(`Delete task "${taskId}"?`)) return;
+    if (!taskId || !(await confirm({ title: `Delete task "${taskId}"?`, confirmLabel: "Delete", destructive: true }))) return;
     // Delete via the task endpoint: it drops the task from the story's list and
     // frees the CONWIP token (the plain WorkDef delete wouldn't).
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
@@ -110,6 +114,7 @@ export function TaskDetailPage() {
       bodyClassName="max-w-3xl"
       tabs={<DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} />}
       header={<>
+      {confirmDialog}
       {/* Top bar: breadcrumb + status + save/delete */}
       <div className="flex items-center gap-3">
         <BackButton fallback="/work/board" title="Back to board" />

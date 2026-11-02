@@ -9,13 +9,28 @@
  * Workflows/Context/Triage/Theme — lib/config-tabs.ts; its tabs pass `isActive`
  * so a workflow's detail route keeps Workflows lit).
  *
+ * Switching route tabs is not "a new page" for focus: each tab link marks its
+ * navigation keep-focus (lib/route-focus.ts), so the shell doesn't move focus
+ * to the heading, and when the new page remounts the tabs (Work's tabs live in
+ * each Work page), the active tab takes focus back — Tab, Enter, Tab, Enter
+ * walks the tabs. The lit tab is `aria-current="page"`.
+ *
  * `SegmentedTabs` is the controlled (state-driven) variant with identical
  * styling, for selections that aren't routes (e.g. the assistant persona
  * picker).
  */
 
+import { useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
+import { keepFocusState } from "@/lib/route-focus";
 import { Tooltip } from "@/components/ui/tooltip";
+
+/**
+ * Set by a tab link's click, cleared by the next RouteTabs to render: "a tab
+ * was just activated here". Not `location.state` alone, which a reload
+ * restores — focus must follow a click in this session, never a page load.
+ */
+let tabActivated = false;
 
 /** Shared styles so both variants render identically. */
 const CONTAINER_CLASS = "inline-flex items-center gap-1 rounded-lg bg-muted p-1";
@@ -33,20 +48,42 @@ export interface RouteTab {
   isActive?: (pathname: string) => boolean;
 }
 
-export function RouteTabs({ tabs }: { tabs: RouteTab[] }) {
+export function RouteTabs({ tabs, label }: {
+  tabs: RouteTab[];
+  /** Names the group of tabs (e.g. "Work sections"). */
+  label?: string;
+}) {
   const location = useLocation();
+  const activeRef = useRef<HTMLAnchorElement>(null);
+
+  // A tab click that remounted these tabs dropped focus to <body>: put it back
+  // on the (new) active tab. Focus anywhere else is the user's; leave it.
+  useEffect(() => {
+    if (!tabActivated) return;
+    tabActivated = false;
+    const active = document.activeElement;
+    if (!active || active === document.body) activeRef.current?.focus();
+  }, [location.key]);
 
   return (
-    <div className={CONTAINER_CLASS}>
+    <nav aria-label={label} className={CONTAINER_CLASS}>
       {tabs.map((tab) => {
         const active = tab.isActive ? tab.isActive(location.pathname) : location.pathname === tab.path;
         return (
-          <Link key={tab.path} to={tab.path} className={itemClass(active)}>
+          <Link
+            key={tab.path}
+            ref={active ? activeRef : undefined}
+            to={tab.path}
+            state={keepFocusState()}
+            onClick={() => { tabActivated = true; }}
+            aria-current={active ? "page" : undefined}
+            className={itemClass(active)}
+          >
             {tab.label}
           </Link>
         );
       })}
-    </div>
+    </nav>
   );
 }
 

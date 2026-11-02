@@ -41,7 +41,7 @@ export function QueueSummary({ queue }: { queue: QueueData }) {
         <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs">
           {counts.total === 0 && <span className="text-muted-foreground">nothing in flight</span>}
           {counts.atRisk > 0 && (
-            <span className="flex shrink-0 items-center gap-1 font-medium text-amber-600">
+            <span className="flex shrink-0 items-center gap-1 font-medium text-amber-700 dark:text-amber-400">
               <span className="h-1.5 w-1.5 rounded-full bg-amber-500" />{counts.atRisk} at risk
             </span>
           )}

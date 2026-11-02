@@ -13,6 +13,7 @@
 import type { ReactNode } from "react";
 import { Link, useLocation } from "react-router-dom";
 import { useFeatures } from "@/hooks/useFeatures";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { FEATURE_LABELS, featureForWorkDefForm, type FeatureName } from "@/lib/features";
 import { SOURCES_TAB_PATH, sourceSettingsPath } from "@/lib/source-settings";
 import { Card, CardContent } from "@/components/ui/card";
@@ -47,12 +48,18 @@ export function FeatureOffNotice({ feature, sourceLabel, sourceId, embedded }: {
   /** Inside a tabbed page's body (Config → Workflows): no own padding or centering, so it stays left-aligned with the header. */
   embedded?: boolean;
 }) {
+  const name = feature ? FEATURE_LABELS[feature] : "This kind of work";
+  const heading = !feature && sourceLabel ? `${sourceLabel} is turned off` : `${name} ${feature ? "are" : "is"} turned off`;
+  // Standalone it is the page (its h1 and the tab's title); embedded, it sits
+  // under its page's own h1, so it's an h2 and the page keeps its title.
+  const Heading = embedded ? "h2" : "h1";
+  useDocumentTitle(embedded ? null : heading);
   if (!feature && sourceLabel) {
     return (
       <div className={embedded ? "max-w-xl" : "container mx-auto max-w-xl p-6"}>
         <Card>
           <CardContent className="space-y-2 p-6 text-sm">
-            <h1 className="flex items-center gap-2 font-semibold"><Power className="h-4 w-4" />{sourceLabel} is turned off</h1>
+            <Heading className="flex items-center gap-2 font-semibold"><Power className="h-4 w-4" />{heading}</Heading>
             <p className="text-muted-foreground">
               Your team has switched {sourceLabel} off: it isn't synced and nothing new from it runs. Turn it back on under{" "}
               <Link to={sourceId ? sourceSettingsPath(sourceId) : SOURCES_TAB_PATH} className="text-primary underline">Config → Sources</Link>. Finished work
@@ -63,12 +70,11 @@ export function FeatureOffNotice({ feature, sourceLabel, sourceId, embedded }: {
       </div>
     );
   }
-  const name = feature ? FEATURE_LABELS[feature] : "This kind of work";
   return (
     <div className={embedded ? "max-w-xl" : "container mx-auto max-w-xl p-6"}>
       <Card>
         <CardContent className="space-y-2 p-6 text-sm">
-          <h1 className="flex items-center gap-2 font-semibold"><Power className="h-4 w-4" />{name} {feature ? "are" : "is"} turned off</h1>
+          <Heading className="flex items-center gap-2 font-semibold"><Power className="h-4 w-4" />{heading}</Heading>
           <p className="text-muted-foreground">
             Your team has switched {feature ? FEATURE_LABELS[feature] : "it"} off. Turn it back on under{" "}
             <Link to="/config" className="text-primary underline">Config → Work items</Link>. Finished work

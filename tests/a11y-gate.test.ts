@@ -2,12 +2,13 @@
  * tests/a11y-gate.test.ts — the accessibility scan's pass/fail rule (tests/a11y/_gate.ts).
  *
  * The scan itself needs a browser and runs separately (`npm run test:a11y`); the
- * rule deciding what fails it is pure and is checked here, in the fast suite.
+ * rule deciding what fails it — and its page-structure checks — is pure and is
+ * checked here, in the fast suite.
  */
 
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes, assertThrows } from "./_assert.ts";
-import { type Finding, gate, isFailing, parseAllowlist, reportTable } from "./a11y/_gate.ts";
+import { type Finding, gate, isFailing, parseAllowlist, reportTable, structureFindings } from "./a11y/_gate.ts";
 
 const f = (route: string, rule: string, impact: Finding["impact"]): Finding => ({ route, rule, impact, nodes: 1, help: `${rule} help` });
 
@@ -54,4 +55,16 @@ test("reportTable lists the most severe first and escapes pipes", () => {
   assertStringIncludes(lines[2]!, "crit");
   assertStringIncludes(lines[2]!, "a \\| b");
   assertStringIncludes(lines[3]!, "minor-rule");
+});
+
+test("structureFindings: one h1, one main, a page-specific title, the skip link first", () => {
+  const ok = { h1s: 1, mains: 1, title: "Board · Work · acme · Pizza Team", firstTab: "Skip to content" };
+  assertEquals(structureFindings("/", ok), []);
+  const rules = (facts: Partial<typeof ok>) => structureFindings("/", { ...ok, ...facts }).map((x) => x.rule);
+  assertEquals(rules({ h1s: 0 }), ["mpt-one-h1"]);
+  assertEquals(rules({ h1s: 2, mains: 2 }), ["mpt-one-h1", "mpt-one-main"]);
+  assertEquals(rules({ title: "Pizza Team" }), ["mpt-page-title"]);
+  assertEquals(rules({ title: "Board · Pizza Team" }), ["mpt-page-title"]);
+  assertEquals(rules({ firstTab: "Pizza Team" }), ["mpt-skip-link"]);
+  assertEquals(structureFindings("/", { ...ok, h1s: 0 })[0]!.impact, "serious");
 });

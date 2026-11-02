@@ -180,7 +180,7 @@ export function SpawnRequestRow({ request, onCancel }: { request: SpawnRequest; 
   return (
     <div className="group rounded-md border border-dashed border-amber-500/50 bg-amber-500/5 p-2.5">
       <div className="flex items-center gap-2">
-        <Clock className="h-3.5 w-3.5 shrink-0 text-amber-500 animate-pulse" />
+        <Clock className="h-3.5 w-3.5 shrink-0 text-amber-600 animate-pulse" />
         <span className="font-medium text-sm truncate flex-1">{request.name || "(unnamed)"}</span>
         <Tooltip content="Cancel spawn request" describe={false}>
           <button
@@ -247,7 +247,7 @@ export function TeammateRow({
         {skewReason && (
           <Tooltip content={skewReason} describe={false}>
             <span className="relative z-10 shrink-0">
-              <AlertTriangle className="h-3.5 w-3.5 text-amber-500" role="img" aria-label={skewReason} />
+              <AlertTriangle className="h-3.5 w-3.5 text-amber-600" role="img" aria-label={skewReason} />
             </span>
           </Tooltip>
         )}

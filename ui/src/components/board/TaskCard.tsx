@@ -96,8 +96,8 @@ function WorkItemChip({ state }: { state: NonNullable<TaskCardProps["task"]["wor
   // reviewed in the Inbox, not on the card).
   const meta: Partial<Record<typeof state, { label: string; title: string; cls: string }>> = {
     READY: { label: "queued", title: "Waiting for a teammate", cls: "" },
-    IN_PROGRESS: { label: "working", title: "A teammate is working on this", cls: "border-green-500/50 text-green-600" },
-    MORIBUND: { label: "at risk", title: "The teammate went offline — force-fail or wait for reconnect", cls: "border-amber-500/50 text-amber-600" },
+    IN_PROGRESS: { label: "working", title: "A teammate is working on this", cls: "border-green-500/50 text-green-700 dark:text-green-400" },
+    MORIBUND: { label: "at risk", title: "The teammate went offline — force-fail or wait for reconnect", cls: "border-amber-500/50 text-amber-700 dark:text-amber-400" },
   };
   const m = meta[state];
   if (!m) return null;

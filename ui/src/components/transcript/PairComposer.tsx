@@ -76,7 +76,6 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
           aria-label={`Message ${recipient}`}
           placeholder={running ? `Message ${recipient} — Enter queues it after this run, ⌘↵ steers now` : `Message ${recipient}…`}
           className="min-h-0 flex-1 resize-none font-mono text-[13px]"
-          autoFocus
         />
         {/* Edit and Send side by side (Steer below while running), so the
             buttons never stack taller than the two-line box. */}

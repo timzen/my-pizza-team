@@ -39,6 +39,7 @@ import { MarkdownView } from "@/components/ui/markdown-view";
 import { BackButton } from "@/components/ui/back-button";
 import { AlertTriangle, Copy, Lock, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export function PersonasPage({ personaId }: { personaId: string | null }) {
   return personaId ? <PersonaDetail key={personaId} id={personaId} /> : <PersonaList />;
@@ -147,6 +148,7 @@ function PersonaDetail({ id }: { id: string }) {
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [refusedBy, setRefusedBy] = useState<PersonaUsage[] | null>(null);
+  const [confirmDialog, confirm] = useConfirm();
 
   if (loading && !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const persona = data?.persona;
@@ -177,7 +179,12 @@ function PersonaDetail({ id }: { id: string }) {
   };
 
   const remove = async () => {
-    if (!confirm(`Delete persona “${persona.title}”? Its file is removed from the team's library.`)) return;
+    if (!(await confirm({
+      title: `Delete persona “${persona.title}”?`,
+      description: "Its file is removed from the team's library.",
+      confirmLabel: "Delete",
+      destructive: true,
+    }))) return;
     setBusy(true);
     setError(null);
     try {
@@ -190,6 +197,7 @@ function PersonaDetail({ id }: { id: string }) {
 
   return (
     <div className="space-y-4">
+      {confirmDialog}
       <div className="flex flex-wrap items-center gap-3">
         <BackButton fallback={PERSONAS_TAB_PATH} title="Back to personas" />
         <Sparkles className="h-5 w-5" />

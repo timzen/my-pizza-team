@@ -45,7 +45,7 @@ export function CanvasNote({ note: n, selected, dragging, leaving, groupTitle, b
         <div className="min-h-0 flex-1 overflow-hidden p-3 [mask-image:linear-gradient(to_bottom,black_75%,transparent)]">
           {n.content.trim()
             ? <MarkdownView content={n.content} className="text-[13px] [&_p]:mb-1" onToggleTask={onToggleTask} />
-            : <span className="text-sm text-muted-foreground/60">Empty note — double-click to write</span>}
+            : <span className="text-sm text-muted-foreground">Empty note — double-click to write</span>}
         </div>
 
         {/* Expand (top-right, on hover): the discoverable / touch-friendly

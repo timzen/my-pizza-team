@@ -31,6 +31,7 @@
  * `/context`, …) no longer redirect; their shims were removed.
  */
 
+import { useRef } from "react";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { defaultWorkItemsPath } from "./lib/work-items";
 import { useExternalSources, useFeatures } from "./hooks/useFeatures";
@@ -59,6 +60,11 @@ import { FeatureOffNotice, FeatureRoute, WorkDefFormRoute } from "./components/F
 import { MobileShell } from "./mobile/MobileShell";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { MOBILE_ROOT, PHONE_QUERY, isMobilePath, readViewPref, shouldRedirectToMobile } from "./lib/mobile";
+import { SkipLink } from "./components/SkipLink";
+import { useDocumentTitle } from "./hooks/useDocumentTitle";
+import { useRouteFocus } from "./hooks/useRouteFocus";
+import { pageTitleForPath } from "./lib/page-title";
+import { MAIN_CONTENT_ID } from "./lib/route-focus";
 
 function App() {
   return (
@@ -79,8 +85,18 @@ function Shell() {
   return <DesktopShell />;
 }
 
-/** The desktop shell: the dock and the center. */
+/**
+ * The desktop shell: the dock and the center. Its page structure
+ * (docs/ACCESSIBILITY.md "Structure"): a skip link first, the dock and the
+ * NavBar as labelled `<nav>`s, one `<main>` holding the routed page, the tab's
+ * title from the path (detail pages set their own), and focus moved to the new
+ * page's heading on navigation (hooks/useRouteFocus).
+ */
 function DesktopShell() {
+  const mainRef = useRef<HTMLElement>(null);
+  const { pathname } = useLocation();
+  useDocumentTitle(pageTitleForPath(pathname));
+  useRouteFocus(mainRef);
   return (
     <SideDockProvider>
     {/* h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
@@ -88,13 +104,14 @@ function DesktopShell() {
         shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
         grows the page instead of scrolling inside the dock. */}
     <div className="h-dvh overflow-hidden flex bg-background text-foreground">
+      <SkipLink mainRef={mainRef} />
       <SideDock />
       {/* The center column: its own nav on top, the routed page below.
           @container so the nav adapts to the room the docks leave, not the
           viewport width. */}
       <div className="@container flex flex-1 min-w-0 flex-col">
         <NavBar />
-        <main className="flex-1 min-h-0 overflow-y-auto">
+        <main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1} className="flex-1 min-h-0 overflow-y-auto">
           <Routes>
             <Route path="/" element={<RootPage />} />
             {/* The chat lives in the dock now; keep the old URL working. */}

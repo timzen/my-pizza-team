@@ -62,6 +62,8 @@ import { mirrorTriageNowBlocked, type WorkDefTriageView } from "@/lib/triage";
 import type { Comment } from "@shared/types";
 import type { ScheduleView, WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
@@ -72,6 +74,8 @@ export function WorkDefDetailPage() {
   const { data, refetch, error: loadError } = useApi<{ workDef?: WorkDef; success?: boolean }>(`/api/work-defs/${id}`, [id]);
   const { data: commentsData, refetch: refetchComments } = useApi<{ comments: Comment[] }>(`/api/work-defs/${id}/comments`, [id], { pollInterval: 10_000 });
   const def = data?.workDef;
+  useDocumentTitle([def?.title ?? id ?? "Work", def?.type === "Scheduled" ? "Scheduled job" : "Work"]);
+  const [confirmDialog, confirm] = useConfirm();
   // Cron lives on the parent Schedule, not the WorkDef.
   const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
   const { data: schedData, refetch: refetchSchedule } = useApi<{ schedule?: Schedule }>(scheduleId ? `/api/schedules/${scheduleId}` : "/api/schedules?none", [scheduleId]);
@@ -146,7 +150,7 @@ export function WorkDefDetailPage() {
   };
 
   const remove = async () => {
-    if (!confirm(`Delete "${def.title}"? This can't be undone.`)) return;
+    if (!(await confirm({ title: `Delete "${def.title}"?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true }))) return;
     await apiDelete(`/api/work-defs/${def.id}`);
     // replace: the deleted page must not be a Back target.
     navigate(backTo, { replace: true });
@@ -165,6 +169,7 @@ export function WorkDefDetailPage() {
       tabs={<DetailTabBar tab={tab} onChange={setTab} threadCount={comments.length} triage={triageMode ? { pending: triageView?.pending.length ?? 0 } : undefined} />}
       header={
       <div className="flex items-center gap-3">
+        {confirmDialog}
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold flex-1">{def.title}</h1>
         {(def.pending || schedule?.pending) && <PendingBadge />}

@@ -53,6 +53,8 @@ export type HarnessKind = "pi" | (string & {});
 // GET /api/status — what a harness reads (agent-protocol.ts), plus the rest the UI uses.
 export interface StatusResponse extends AgentStatusResponse<WorkflowConfig> {
   running: boolean;
+  /** The team's name — its repo's directory name (the web UI's tab titles). */
+  teamName: string;
   /** Task distribution paused (control/pause). */
   paused: boolean;
   /** READY WorkItems — queued, not yet picked up (Pizza Team link badge). */

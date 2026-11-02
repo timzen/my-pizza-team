@@ -785,11 +785,13 @@ npm run test:e2e         # real git, tmux, and shell — run before pushing
 npm run typecheck:ext    # the Pi extension
 npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b && npx eslint .)   # the web UI (lint includes jsx-a11y)
-npm run test:a11y        # the UI's accessibility scan (axe-core in headless Chromium)
+npm run test:a11y        # the UI's accessibility scan (axe-core in headless Chromium, light + dark, structure + keyboard walks)
 ```
 
-The UI targets WCAG 2.2 AA; the checks, the rules for UI code and the current status
-are in [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
+The UI targets WCAG 2.2 AA — keyboard-only and screen-reader use included (a skip link,
+page titles, focus that follows the page, accessible confirm dialogs, reduced motion);
+the checks, the rules for UI code and the current status are in
+[docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
 
 The root `package.json` owns the version; the extension's `package.json` and the lockfile
 are generated from it (`npm run sync-version`), and its shared constants, agent-protocol definitions and `src/runtime/` from `shared/types.ts`, `shared/agent-protocol.ts` and the root `runtime/` (`npm run sync-shared`); CI fails

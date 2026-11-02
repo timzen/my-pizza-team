@@ -14,7 +14,8 @@
  *  - **+ Note** and **Folder** live in the page's shared toolbar (so both views
  *    keep their controls in the same places); a new note goes in the selected
  *    note's folder, and a new folder arrives here in rename mode
- *    (`renameGroupId`). Double-click a folder to rename it.
+ *    (`renameGroupId`). Double-click a folder to rename it (or its ✎ button,
+ *    the keyboard's way).
  *  - **Search** filters by text; matching folders open regardless of collapse.
  *
  * The rules (titles, ordering, search, keyboard order) are pure, in
@@ -22,7 +23,7 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Pin, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, Pin, Search, X } from "lucide-react";
 import { NoteEditor } from "@/components/thoughts/NoteEditor";
 import { CopyId } from "@/components/thoughts/CopyId";
 import { TriageBadge } from "@/components/thoughts/TriageBadge";
@@ -161,6 +162,13 @@ export function ThoughtsList(props: ThoughtsListProps) {
     props.onRenameGroup(renaming.id, renaming.title.trim() || "New Group");
     setRenaming(null);
   };
+  /**
+   * After Enter / Esc in the name field (which unmounts it), put focus back on
+   * the folder's ✎ button, so the keyboard isn't dropped to <body>.
+   */
+  const refocusRename = (id: string) => requestAnimationFrame(() => {
+    listRef.current?.querySelector<HTMLElement>(`[data-folder-rename="${CSS.escape(id)}"]`)?.focus();
+  });
   /** Archive/delete move the selection on first, so the pane never goes blank. */
   const removing = (id: string, act: (id: string) => void) => {
     if (id === selectedId) onSelect(neighbourAfterRemoval(order, id));
@@ -206,7 +214,7 @@ export function ThoughtsList(props: ThoughtsListProps) {
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1">
             <span className={`truncate text-sm ${title ? "font-medium" : "italic text-muted-foreground"}`}>{title || "Empty note"}</span>
-            {n.pinned && <Pin className="h-3 w-3 shrink-0 text-amber-500" aria-label="Pinned" />}
+            {n.pinned && <Pin className="h-3 w-3 shrink-0 text-amber-600" aria-label="Pinned" />}
             <TriageBadge noteId={n.id} badge={badges?.[n.id]} className="ml-auto" />
           </span>
           <span className="flex gap-2 text-xs text-muted-foreground">
@@ -257,18 +265,25 @@ export function ThoughtsList(props: ThoughtsListProps) {
                   <span className={`h-2 w-2 shrink-0 rounded-sm ${g.groupColor ? dotClass(g.groupColor) : "bg-muted-foreground/40"}`} />
                   {renaming?.id === g.id ? (
                     <input
+                      // Focus follows the user's own Rename (or a new folder's); not a page-load autofocus.
+                      // eslint-disable-next-line jsx-a11y/no-autofocus -- opened by the user's rename action
                       autoFocus
                       value={renaming.title}
                       aria-label="Folder name"
                       onFocus={(e) => e.currentTarget.select()}
                       onChange={(e) => setRenaming({ id: g.id, title: e.target.value })}
                       onBlur={commitRename}
-                      onKeyDown={(e) => { if (e.key === "Enter") commitRename(); if (e.key === "Escape") setRenaming(null); }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter") { commitRename(); refocusRename(g.id); }
+                        if (e.key === "Escape") { setRenaming(null); refocusRename(g.id); }
+                      }}
                       className="min-w-0 flex-1 rounded border border-primary bg-background px-1 text-sm font-semibold outline-none"
                     />
                   ) : (
                     <Tooltip content="Double-click to rename" describe={false}>
+                      {/* Pointer shortcuts for the chevron (toggle) and the Rename button beside Delete. */}
                       <span
+                        role="presentation"
                         className="min-w-0 flex-1 cursor-default truncate text-sm font-semibold"
                         onClick={() => toggleFolder(g.id)}
                         onDoubleClick={() => setRenaming({ id: g.id, title: g.title })}
@@ -278,6 +293,16 @@ export function ThoughtsList(props: ThoughtsListProps) {
                     </Tooltip>
                   )}
                   <span className="text-xs text-muted-foreground">{members.length}</span>
+                  <Tooltip content={`Rename folder ${g.title}`} describe={false}>
+                    <button
+                      data-folder-rename={g.id}
+                      onClick={() => setRenaming({ id: g.id, title: g.title })}
+                      className="rounded p-0.5 text-muted-foreground opacity-0 hover:text-foreground group-hover/folder:opacity-100 focus-visible:opacity-100"
+                      aria-label={`Rename folder ${g.title}`}
+                    >
+                      <Pencil className="h-3.5 w-3.5" />
+                    </button>
+                  </Tooltip>
                   <Tooltip content="Delete folder (its notes stay, ungrouped)" describe={false}>
                     <button
                       onClick={() => props.onDeleteGroup(g.id)}
@@ -290,7 +315,7 @@ export function ThoughtsList(props: ThoughtsListProps) {
                 </div>
                 {open && (members.length
                   ? members.map((n) => row(n, true))
-                  : <p className="py-1 pl-8 text-xs text-muted-foreground/70">Empty — drag notes here</p>)}
+                  : <p className="py-1 pl-8 text-xs text-muted-foreground">Empty — drag notes here</p>)}
               </div>
             );
           })}
@@ -303,7 +328,7 @@ export function ThoughtsList(props: ThoughtsListProps) {
               )}
               {tree.loose.map((n) => row(n, false))}
               {tree.loose.length === 0 && tree.folders.length > 0 && !searching && (
-                <p className="py-1 pl-2 text-xs text-muted-foreground/70">Drag a note here to take it out of its folder</p>
+                <p className="py-1 pl-2 text-xs text-muted-foreground">Drag a note here to take it out of its folder</p>
               )}
             </div>
           )}

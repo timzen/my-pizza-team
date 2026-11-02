@@ -80,6 +80,8 @@ The nav bar has two destinations, plus pause / **usage** / help / config / theme
 
 Workflows and the persona library live under the **config** (gear) icon, as **Config → Workflows** and **Config → Personas**.
 
+**Keyboard and screen readers.** Everything works without a mouse, and you can always see where you are: the control you're on has a visible ring. The first **Tab** on any page reaches **Skip to content**, which jumps past the dock and the nav to the page's heading. Following a link moves you to the new page's heading (and a screen reader announces it), while switching tabs — Work's, Config's, Queue | Inbox, a page's Details | Thread — keeps you on the tabs, and nothing you open from the dock pulls you out of the dock. Each browser tab is titled with the page, then the team — e.g. "Board · Work · acme · Pizza Team" — so a row of tabs reads at a glance. "Are you sure?" questions (archive, delete, discard…) are a small dialog that starts on **Cancel**: **Enter** there backs out, **Esc** backs out too, and you land back on the button you pressed. If your system asks for **reduced motion**, the UI drops its fades, pulses and smooth scrolling.
+
 **Hints.** Every icon-only button and link says what it does in a small tooltip — when you **hover** it, and also when you reach it with **Tab** — and **Esc** closes the tooltip. A screen reader announces the same words as the control's name (longer hints as its description), so nothing depends on a mouse. Buttons that are greyed out still take focus when their hint explains why (e.g. **Run now** on a pending task).
 
 The Board, Tasks, and Schedule tabs only appear while their kind is switched on under **Config → General → Work items** (a new team starts with Tasks only; see [Work items](#work-items-feature-toggles)); Pending and Archived stay while any kind is on, and **Work** itself goes away only when all three are off. Clicking **Work** opens its first tab. Each tab has its own address — `/work/board`, `/work/tasks`, `/work/schedule`, `/work/pending`, `/work/archived` — so bookmark those (the old `/board`, `/tasks`, `/schedule`, … addresses no longer work).
@@ -408,7 +410,7 @@ A personal workspace — **Thoughts** in the top nav (`/thoughts`). Markdown sti
 - **Click a note** to read it on the right; **↑ / ↓** move through the list. A note's title is its first line.
 - **Write** — the right side is the same editor as the canvas's large view (Preview, or **Edit** / double-click the text), with the color, pin, group, archive, and delete controls above it. There's nothing to close: edits **save as you type**, and switching notes saves too. ⌘↵ returns to Preview.
 - **File a note** — drag it onto a folder, or onto **Notes** to take it out of every folder. The group picker above the note does the same. On the canvas it moves into (or out from under) that group, so both views stay in step.
-- **+ Note** makes a note in the current note's folder; **Folder** makes a new folder and lets you name it straight away. **Double-click** a folder to rename it; its **×** deletes the folder but keeps its notes.
+- **+ Note** makes a note in the current note's folder; **Folder** makes a new folder and lets you name it straight away. **Double-click** a folder (or use its **✎**) to rename it; its **×** deletes the folder but keeps its notes.
 - **Search** filters notes by their text; folders with matches open automatically.
 - Switching views keeps your place: the note selected in one is selected (and, on the canvas, centered) in the other.
 
@@ -437,7 +439,7 @@ Notes live under the team directory as `thoughts/<id>.md` (markdown + frontmatte
 The chart icon in the nav opens **Usage** — what the team is spending, in tokens and dollars:
 
 - **Tiles** — today, the last 7 and 30 days, the past year, and the peak day (by tokens or cost, whichever the grid shades by).
-- **The grid** — one square per day for the past year, darker for busier days (shade by **Tokens** or **Cost**). **Hover** a day for its tokens, the full breakdown (input, output, cache read, cache write), cost, number of runs, and how it split between teammate work, the assistant chat, and pairing. **Click** it to list that day's runs, most expensive first.
+- **The grid** — one square per day for the past year, darker for busier days (shade by **Tokens** or **Cost**). **Hover** a day for its tokens, the full breakdown (input, output, cache read, cache write), cost, number of runs, and how it split between teammate work, the assistant chat, and pairing. **Click** it to list that day's runs, most expensive first. From the keyboard the grid is a single stop: **Tab** to it, move between days with the **arrow keys** (←/→ a week, ↑/↓ a day, **Home**/**End** along the row) — the same details show — and press **Enter** to list that day's runs.
 - **Where it went** — the year split by kind, by cost or tokens.
 - **What do these mean?** — a collapsed glossary at the bottom.
 

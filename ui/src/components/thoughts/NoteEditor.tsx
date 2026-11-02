@@ -31,6 +31,7 @@ import { THOUGHT_COLORS, dotClass, noteClass } from "@/lib/thoughtColors";
 import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { Archive, Eye, Pencil, Pin, PinOff, Trash2 } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 export interface EditorNote {
   id: string;
@@ -78,6 +79,7 @@ export function NoteEditor({
   const [mode, setMode] = useState<"preview" | "edit">(startEditing || !note.content.trim() ? "edit" : "preview");
   const inDialog = onDone !== undefined;
   const [vimOn, setVimOn] = useVimPref();
+  const [confirmDialog, confirm] = useConfirm();
   const [vimMode, setVimMode] = useState<VimMode>("insert");
 
   // The last content known to be saved. A ref (not `note.content`) so the
@@ -115,6 +117,7 @@ export function NoteEditor({
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {confirmDialog}
       {/* Header: color, pin, group, id … edit/preview, archive, delete, (done) */}
       <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-border px-4 py-2">
         {headerStart}
@@ -165,8 +168,8 @@ export function NoteEditor({
           <Tooltip content="Delete" describe={false}>
             <Button
               variant="ghost" size="sm" className="h-7 px-2 text-destructive"
-              onClick={() => {
-                if (!window.confirm("Delete this note? This can't be undone.")) return;
+              onClick={async () => {
+                if (!(await confirm({ title: "Delete this note?", description: "This can't be undone.", confirmLabel: "Delete", destructive: true }))) return;
                 saved.current = latest.current.draft; // nothing left to flush
                 onDelete(note.id);
                 onDone?.();

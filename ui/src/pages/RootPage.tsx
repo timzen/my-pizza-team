@@ -30,7 +30,9 @@ export function RootPage() {
 
   return (
     <div className="container mx-auto p-6 space-y-4">
-      <RouteTabs tabs={TABS} />
+      {/* The page's heading for screen readers; the lit tab says it visually. */}
+      <h1 className="sr-only">{isQueue ? "Queue" : "Inbox"}</h1>
+      <RouteTabs label="Queue and Inbox" tabs={TABS} />
       {isQueue ? <QueuePage /> : <InboxPage />}
     </div>
   );

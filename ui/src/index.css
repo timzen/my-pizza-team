@@ -60,13 +60,13 @@
     --secondary: oklch(0.97 0 0);
     --secondary-foreground: oklch(0.205 0 0);
     --muted: oklch(0.97 0 0);
-    --muted-foreground: oklch(0.556 0 0);
+    --muted-foreground: oklch(0.52 0 0);      /* 4.5:1 on --muted (docs/ACCESSIBILITY.md) */
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
-    --destructive: oklch(0.577 0.245 27.325);
+    --destructive: oklch(0.5 0.2 27.5);        /* 4.5:1 as text on its own /10–/20 tint */
     --border: oklch(0.922 0 0);
     --input: oklch(0.922 0 0);
-    --ring: oklch(0.708 0 0);
+    --ring: oklch(0.556 0 0);                 /* the focus ring: 3:1 on every surface */
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -80,7 +80,7 @@
     --sidebar-accent: oklch(0.97 0 0);
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
-    --sidebar-ring: oklch(0.708 0 0);
+    --sidebar-ring: oklch(0.556 0 0);
 }
 
 .dark {
@@ -98,10 +98,10 @@
     --muted-foreground: oklch(0.708 0 0);
     --accent: oklch(0.269 0 0);
     --accent-foreground: oklch(0.985 0 0);
-    --destructive: oklch(0.704 0.191 22.216);
+    --destructive: oklch(0.73 0.17 22);       /* 4.5:1 as text on its own /20–/30 tint */
     --border: oklch(1 0 0 / 10%);
     --input: oklch(1 0 0 / 15%);
-    --ring: oklch(0.556 0 0);
+    --ring: oklch(0.708 0 0);
     --chart-1: oklch(0.87 0 0);
     --chart-2: oklch(0.556 0 0);
     --chart-3: oklch(0.439 0 0);
@@ -114,12 +114,12 @@
     --sidebar-accent: oklch(0.269 0 0);
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(1 0 0 / 10%);
-    --sidebar-ring: oklch(0.556 0 0);
+    --sidebar-ring: oklch(0.708 0 0);
 }
 
 @layer base {
   * {
-    @apply border-border outline-ring/50;
+    @apply border-border;
     }
   body {
     @apply bg-background text-foreground;
@@ -127,6 +127,49 @@
   html {
     @apply font-sans;
     }
+}
+
+/* ─── Focus and motion (docs/ACCESSIBILITY.md) ─────────────────────────
+   One focus ring for every interactive element: a 2px --ring outline
+   (3:1 against every surface, in every palette — tests/contrast-ui.test.ts)
+   drawn only for keyboard focus (:focus-visible). Unlayered on purpose: it
+   outranks Tailwind's utilities, so a stray `outline-none` can't hide it.
+   Items inside a scrolling popup (menus, listboxes) draw it inset, where
+   the popup's overflow can't clip it (a CodeMirror editor's frame shows
+   its focus with a focus-within ring instead). The route-focus target (an h1 or
+   <main>, focused by useRouteFocus with tabindex=-1) isn't a control, so
+   it gets no ring. */
+:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+[role="menuitem"]:focus-visible,
+[role="menuitemradio"]:focus-visible,
+[role="menuitemcheckbox"]:focus-visible,
+[role="option"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+[data-route-focus]:focus,
+main[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* prefers-reduced-motion: no animations or transitions anywhere — the
+   tw-animate-css enter/exit fades and zooms, the thinking dots' bounce, the
+   pulses and spinners (each settles on its first frame), drag transitions on
+   the canvas. JS-driven scrolling checks the same query (lib/motion.ts). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    animation-delay: 0ms !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
 }
 
 /* ─── Palettes ──────────────────────────────────────────────────────────
@@ -154,7 +197,7 @@ html[data-theme="solarized"] {
     --destructive: #dc322f;         /* red */
     --border: #d9d2c0;
     --input: #d9d2c0;
-    --ring: #93a1a1;                /* base1 */
+    --ring: #657b83;                /* base00: 3:1 focus ring */
     --chart-1: #b58900;             /* yellow */
     --chart-2: #cb4b16;             /* orange */
     --chart-3: #268bd2;             /* blue */
@@ -167,7 +210,7 @@ html[data-theme="solarized"] {
     --sidebar-accent: #fdf6e3;
     --sidebar-accent-foreground: #073642;
     --sidebar-border: #d9d2c0;
-    --sidebar-ring: #93a1a1;
+    --sidebar-ring: #657b83;
 }
 
 /* Solarized — dark */
@@ -189,7 +232,7 @@ html.dark[data-theme="solarized"] {
     --destructive: #dc322f;         /* red */
     --border: #093c4a;
     --input: #0d4354;
-    --ring: #586e75;                /* base01 */
+    --ring: #839496;                /* base0: 3:1 focus ring */
     --chart-1: #b58900;             /* yellow */
     --chart-2: #cb4b16;             /* orange */
     --chart-3: #268bd2;             /* blue */
@@ -202,5 +245,5 @@ html.dark[data-theme="solarized"] {
     --sidebar-accent: #002b36;
     --sidebar-accent-foreground: #eee8d5;
     --sidebar-border: #093c4a;
-    --sidebar-ring: #586e75;
+    --sidebar-ring: #839496;
 }

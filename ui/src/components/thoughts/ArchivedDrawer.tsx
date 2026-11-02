@@ -28,7 +28,7 @@ export function ArchivedDrawer({ notes, onClose, onRestore, onDelete }: {
         {(notes ?? []).length === 0 && <p className="text-sm text-muted-foreground">Nothing archived.</p>}
         {(notes ?? []).map((n) => (
           <div key={n.id} className={`rounded-md border p-2 ${noteClass(n.color)}`}>
-            <div className="mb-1 line-clamp-3 text-xs">{n.content.trim() || <span className="text-muted-foreground/60">(empty)</span>}</div>
+            <div className="mb-1 line-clamp-3 text-xs">{n.content.trim() || <span className="text-muted-foreground">(empty)</span>}</div>
             <div className="flex gap-1">
               <button onClick={() => onRestore(n.id)} className="flex items-center gap-1 rounded bg-card/70 px-1.5 py-0.5 text-xs hover:bg-card"><ArchiveRestore className="h-3 w-3" /> Restore</button>
               <button onClick={() => onDelete(n.id)} className="flex items-center gap-1 rounded bg-card/70 px-1.5 py-0.5 text-xs hover:bg-card"><Trash2 className="h-3 w-3" /> Delete</button>

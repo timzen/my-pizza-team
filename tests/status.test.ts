@@ -2,13 +2,15 @@
  * tests/status.test.ts — GET /api/status reports whether task distribution is
  * paused, so the UI can show the pause toggle's real state and explain stalled
  * queue items (the Queue tab's banner), plus the cheap counts behind the NavBar's
- * Pizza Team badges (`queuedCount`, `unreadInboxCount`).
+ * Pizza Team badges (`queuedCount`, `unreadInboxCount`), and the team's name
+ * for the tab titles (`teamName`).
  */
 
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 import { makeTeam } from "./_team.ts";
 import { badgeLabel } from "../ui/src/lib/inbox.ts";
+import { teamNameOf } from "../daemon/routes/shared.ts";
 
 test("status: `paused` follows control/pause and control/resume", async () => {
   const { store, app, cleanup } = makeTeam({ minTeammates: 0 });
@@ -68,4 +70,14 @@ test("status: badgeLabel hides zero/unknown and caps at 99+", () => {
   assertEquals(badgeLabel(1), "1");
   assertEquals(badgeLabel(99), "99");
   assertEquals(badgeLabel(100), "99+");
+});
+
+test("status: teamName is the team repo's directory name (the UI's tab titles)", async () => {
+  const { app, teamDir, cleanup } = makeTeam({ minTeammates: 0 });
+  try {
+    assertEquals((await (await app.request("/api/status")).json()).teamName, teamNameOf(teamDir));
+    assertEquals(teamNameOf("/home/u/acme/.my-pizza-team"), "acme");
+    assertEquals(teamNameOf("/home/u/acme/.my-pizza-team/"), "acme");
+    assertEquals(teamNameOf("/tmp/mpt-test-x1"), "mpt-test-x1");
+  } finally { cleanup(); }
 });

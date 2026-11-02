@@ -35,6 +35,7 @@ import { Archive, ChevronDown, ChevronLeft, ChevronRight, Eye, Pencil, Pin, PinO
 import type { Thought, ThoughtGroup } from "@shared/types";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
+import { useConfirm } from "@/components/ui/confirm-dialog";
 
 type Note = Thought;
 type Group = ThoughtGroup;
@@ -167,6 +168,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
   const [params] = useSearchParams();
   const [draft, setDraft] = useState(note.content);
   const [mode, setMode] = useState<"preview" | "edit">(params.has("edit") || !note.content.trim() ? "edit" : "preview");
+  const [confirmDialog, confirm] = useConfirm();
 
   // The last content known to be saved, and what the unmount flush needs — the
   // same bookkeeping as the desktop NoteEditor's pane mode.
@@ -202,7 +204,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
     leave();
   };
   const remove = async () => {
-    if (!window.confirm("Delete this note? This can't be undone.")) return;
+    if (!(await confirm({ title: "Delete this note?", description: "This can't be undone.", confirmLabel: "Delete", destructive: true }))) return;
     saved.current = latest.current.draft; // nothing left to flush
     await apiDelete(`/api/thoughts/${encodeURIComponent(note.id)}`);
     onChanged();
@@ -211,6 +213,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
 
   return (
     <div className="flex h-full min-h-0 flex-col">
+      {confirmDialog}
       <div className="flex shrink-0 items-center gap-1 border-b border-border px-2 py-1.5">
         <BackToList />
         <div className="ml-auto flex items-center">
@@ -246,6 +249,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
       <div className={`min-h-0 flex-1 overflow-y-auto ${noteClass(note.color)}`}>
         {mode === "edit" ? (
           <Textarea
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- edit mode is the user's choice: Edit, "tap to write", or a note they just created
             autoFocus
             value={draft}
             onChange={(e) => setDraft(e.target.value)}
@@ -254,7 +258,8 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
             className="h-full min-h-full resize-none rounded-none border-0 bg-transparent p-4 text-base focus-visible:ring-0 dark:bg-transparent"
           />
         ) : (
-          <div className="p-4" onClick={() => { if (!draft.trim()) setMode("edit"); }}>
+          // "Tap to write" is a pointer shortcut for the Edit button in the header.
+          <div role="presentation" className="p-4" onClick={() => { if (!draft.trim()) setMode("edit"); }}>
             {draft.trim() ? (
               <MarkdownView
                 content={draft}
@@ -269,7 +274,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
                 }}
               />
             ) : (
-              <p className="text-muted-foreground">Empty note — tap to write.</p>
+              <p className="text-muted-foreground">Empty note — tap to write, or use Edit.</p>
             )}
           </div>
         )}

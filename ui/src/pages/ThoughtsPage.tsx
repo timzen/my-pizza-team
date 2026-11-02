@@ -333,6 +333,8 @@ export function ThoughtsPage() {
 
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden rounded-lg border border-border">
+      {/* The page's heading for screen readers (the canvas has no room for a visible one). */}
+      <h1 className="sr-only">Thoughts</h1>
       <ThoughtsToolbar
         mode={mode}
         onModeChange={setMode}

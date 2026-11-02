@@ -51,8 +51,8 @@ function scoreCriterion(text: string): Score {
 }
 
 const BADGE: Record<Level, string> = {
-  normative: "bg-green-500/15 text-green-600 border-green-500/40",
-  recommended: "bg-amber-500/15 text-amber-600 border-amber-500/40",
+  normative: "bg-green-500/15 text-green-800 dark:text-green-400 border-green-500/40",
+  recommended: "bg-amber-500/15 text-amber-800 dark:text-amber-400 border-amber-500/40",
   optional: "bg-blue-500/15 text-blue-600 border-blue-500/40",
   vague: "bg-destructive/15 text-destructive border-destructive/40",
 };

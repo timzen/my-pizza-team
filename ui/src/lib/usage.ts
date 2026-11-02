@@ -141,6 +141,44 @@ export function buildGrid(days: UsageDay[], today: string, weeks = 53): GridCell
   return cols;
 }
 
+/** A day's place in the grid: its week (`col`) and weekday (`row`, 0 = Sunday). */
+export interface GridPos { col: number; row: number }
+
+/**
+ * Where a key moves the contribution grid's keyboard cursor (the ARIA grid
+ * pattern, docs/ACCESSIBILITY.md): ←/→ a week back/forward, ↑/↓ a day, Home/End
+ * the first/last day of that weekday's row. The cursor stays put at an edge or
+ * in front of a day after today. Null for a key the grid doesn't handle, so the
+ * caller leaves it alone (Tab, Enter …).
+ */
+export function moveGridCursor(cols: GridCell[][], at: GridPos, key: string): GridPos | null {
+  const valid = (p: GridPos) => !!cols[p.col]?.[p.row]?.inRange;
+  let next: GridPos;
+  switch (key) {
+    case "ArrowLeft": next = { col: at.col - 1, row: at.row }; break;
+    case "ArrowRight": next = { col: at.col + 1, row: at.row }; break;
+    case "ArrowUp": next = { col: at.col, row: at.row - 1 }; break;
+    case "ArrowDown": next = { col: at.col, row: at.row + 1 }; break;
+    case "Home": next = { col: 0, row: at.row }; break;
+    case "End": {
+      let col = cols.length - 1;
+      while (col > 0 && !valid({ col, row: at.row })) col--;
+      next = { col, row: at.row };
+      break;
+    }
+    default: return null;
+  }
+  return valid(next) ? next : at;
+}
+
+/** The grid position of the latest in-range day (today) — where the cursor starts. */
+export function lastGridPos(cols: GridCell[][]): GridPos {
+  for (let col = cols.length - 1; col >= 0; col--) {
+    for (let row = 6; row >= 0; row--) if (cols[col]![row]?.inRange) return { col, row };
+  }
+  return { col: 0, row: 0 };
+}
+
 /**
  * Shade thresholds from the non-zero values (quartiles), GitHub-style: level 0
  * is "none", 1–4 climb through the quartiles, so a single huge day doesn't wash

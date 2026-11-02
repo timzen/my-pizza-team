@@ -1,7 +1,8 @@
 /**
  * GroupPlate — One group's plate on the Thoughts canvas: a named, movable,
- * resizable rectangle behind its notes, with a header (title — double-click to
- * rename — color/opacity popover, copy-id, delete) and a corner resize grip.
+ * resizable rectangle behind its notes, with a header (title — double-click or
+ * ✎ to rename, and Enter / Esc hand focus back to ✎ — color/opacity popover,
+ * copy-id, delete) and a corner resize grip.
  *
  * The plate wraps its members — minus any being dragged, so a member can be
  * dragged out (lib/thoughtGeometry `plateRect`). While it's the drop target it
@@ -12,7 +13,8 @@
  */
 
 import type { PointerEvent } from "react";
-import { SquareStack, X, Palette } from "lucide-react";
+import { useRef } from "react";
+import { SquareStack, X, Palette, Pencil } from "lucide-react";
 import { CopyId } from "@/components/thoughts/CopyId";
 import { THOUGHT_COLORS, dotClass, plateTintStyle } from "@/lib/thoughtColors";
 import { plateRect, previewRect } from "@/lib/thoughtGeometry";
@@ -43,6 +45,8 @@ export function GroupPlate({
   const memberCount = notes.filter((n) => n.groupId === g.id && !dragIds.has(n.id)).length;
   const { left, top, right, bottom } = isDropTarget ? previewRect(g, notes, dragIds) : plateRect(g, notes, dragIds);
   const rect = { left, top, width: right - left, height: bottom - top };
+  const renameRef = useRef<HTMLButtonElement>(null);
+  const refocusRename = () => requestAnimationFrame(() => renameRef.current?.focus());
   return (
     <div onPointerDown={onPointerDown} className={`group/plate absolute cursor-move rounded-xl border-2 border-dashed bg-muted/20 ${dragIds.size ? "transition-[left,top,width,height,background-color,border-color] duration-150" : "transition-colors"} ${isDropTarget ? "border-primary bg-primary/10" : "border-muted-foreground/30"}`} style={{ left: rect.left, top: rect.top, width: rect.width, height: rect.height, zIndex: 0, ...plateTintStyle(g.groupColor, g.plateOpacity) }}>
       {/* Header (title + controls). Bubbles to the plate for moving;
@@ -52,13 +56,18 @@ export function GroupPlate({
           <SquareStack className="h-3 w-3 shrink-0" />
           {rename ? (
             <input
+              // eslint-disable-next-line jsx-a11y/no-autofocus -- opened by the user's rename action (double-click or ✎)
               autoFocus
               value={rename.title}
               aria-label="Group name"
               onPointerDown={(e) => e.stopPropagation()}
               onChange={(e) => rename.onChange(e.target.value)}
               onBlur={rename.onSave}
-              onKeyDown={(e) => { if (e.key === "Enter") rename.onSave(); if (e.key === "Escape") rename.onCancel(); }}
+              onKeyDown={(e) => {
+                // The field unmounts: hand focus back to ✎ rather than <body>.
+                if (e.key === "Enter") { rename.onSave(); refocusRename(); }
+                if (e.key === "Escape") { rename.onCancel(); refocusRename(); }
+              }}
               className="w-36 bg-transparent outline-none"
             />
           ) : (
@@ -68,6 +77,9 @@ export function GroupPlate({
           )}
         </div>
         <div className="flex items-center gap-1 opacity-0 transition-opacity group-hover/plate:opacity-100 focus-within:opacity-100">
+          <Tooltip content="Rename group" describe={false}>
+            <button ref={renameRef} onPointerDown={(e) => e.stopPropagation()} onClick={onStartRename} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" aria-label={`Rename group ${g.title}`}><Pencil className="h-3 w-3" /></button>
+          </Tooltip>
           <Tooltip content="Plate color" describe={false}>
             <button onPointerDown={(e) => e.stopPropagation()} onClick={onTogglePaint} className="rounded bg-muted/80 p-0.5 text-muted-foreground hover:bg-accent/60 hover:text-foreground" aria-label="Plate color"><Palette className="h-3 w-3" /></button>
           </Tooltip>
@@ -94,7 +106,7 @@ export function GroupPlate({
         </div>
       )}
       {memberCount === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground/50">Empty group — drag notes here</div>
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-xs text-muted-foreground">Empty group — drag notes here</div>
       )}
       {/* Resize handle: a 28px hit box straddling the corner (easy to
           grab), with a visible grip that's always faintly there and

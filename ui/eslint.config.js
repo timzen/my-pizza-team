@@ -1,8 +1,8 @@
 // eslint.config.js — the web UI's lint rules: JS/TS recommended, React hooks,
 // react-refresh, and jsx-a11y's recommended accessibility rules
-// (docs/ACCESSIBILITY.md). A jsx-a11y rule whose remaining violations need a
-// later task of the accessibility story is downgraded to "warn" — never
-// switched off — with a TODO naming that task, which turns it back to "error".
+// (docs/ACCESSIBILITY.md), every one an error. A justified exception is an
+// `eslint-disable-next-line <rule> -- <reason>` on the line, never a config
+// change.
 // One project rule on top: an icon-only <Button size="icon…"> must be an
 // IconButton, whose required `label` names it.
 import js from '@eslint/js'
@@ -28,15 +28,6 @@ export default defineConfig([
       globals: globals.browser,
     },
     rules: {
-      // TODO(ui-a11y-foundations-3 "Page structure: titles, landmarks, skip link,
-      // focus, motion"): inline editors and dialogs autofocus their field on open;
-      // decide per case as part of focus management, then back to "error".
-      'jsx-a11y/no-autofocus': 'warn',
-      // TODO(ui-a11y-foundations-3): click-to-edit surfaces (title/markdown fields,
-      // a note's "tap to write", a diff line's comment, a folder's rename) need a
-      // keyboard path of their own; then back to "error".
-      'jsx-a11y/click-events-have-key-events': 'warn',
-      'jsx-a11y/no-static-element-interactions': 'warn',
       // An icon-only Button must be an IconButton (components/ui/icon-button.tsx),
       // which requires a `label` — so an unnamed icon control can't be written.
       'no-restricted-syntax': ['error', {

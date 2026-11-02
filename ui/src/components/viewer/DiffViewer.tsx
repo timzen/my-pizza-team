@@ -3,7 +3,8 @@
  *
  * Features:
  * - Syntax-highlighted diff rendering (+/-/@@)
- * - Click any line to add a comment
+ * - Click any line to add a comment (from the keyboard: its line-number
+ *   button, "Comment on line N" — the line itself is a pointer shortcut)
  * - Review panel accumulates comments
  * - Submit Review posts batched comments + .review.json attachment
  */
@@ -46,6 +47,12 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
     setInputValue("");
     setActiveInput(null);
   }, [inputValue, lines]);
+
+  /** Open (or close) the comment box under a line. */
+  const toggleComment = (lineIdx: number) => {
+    setActiveInput(activeInput === lineIdx ? null : lineIdx);
+    setInputValue("");
+  };
 
   const removeComment = (lineIdx: number) => {
     setComments(prev => prev.filter(c => c.line !== lineIdx));
@@ -115,12 +122,19 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
             // The diff is fetched once and never re-ordered: a line's index *is* its identity.
             <div key={idx}>
               <div
+                role="presentation"
                 className={`flex cursor-pointer hover:bg-accent/5 ${cls} ${hasComment ? "bg-blue-50/50 dark:bg-blue-950/20" : ""}`}
-                onClick={() => { setActiveInput(activeInput === idx ? null : idx); setInputValue(""); }}
+                onClick={() => toggleComment(idx)}
               >
-                <span className="w-10 text-right pr-2 text-muted-foreground select-none shrink-0">
+                <button
+                  type="button"
+                  aria-label={`Comment on line ${idx + 1}`}
+                  aria-expanded={activeInput === idx}
+                  onClick={(e) => { e.stopPropagation(); toggleComment(idx); }}
+                  className="w-10 text-right pr-2 text-muted-foreground select-none shrink-0 hover:text-foreground"
+                >
                   {cls.includes("italic") ? "" : lineNum}
-                </span>
+                </button>
                 <span className="px-3 whitespace-pre flex-1">{line}</span>
               </div>
 
@@ -135,6 +149,7 @@ export function DiffViewer({ content, filename, workDefId, storedName, onReviewS
               {activeInput === idx && (
                 <div className="pl-12 pr-4 py-2 bg-muted/30 border-b">
                   <Textarea
+                    // eslint-disable-next-line jsx-a11y/no-autofocus -- opened by the user's click on this line
                     autoFocus
                     aria-label="Comment on this line" placeholder="Add a comment on this line..."
                     value={inputValue}

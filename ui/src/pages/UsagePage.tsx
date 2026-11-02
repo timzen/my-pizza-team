@@ -7,7 +7,8 @@
  *    Tokens/Cost switch), GitHub-style quartile shades. **Hover** a day for
  *    its tokens, the full input / output / cache read / cache write breakdown,
  *    cost, runs, and the split by kind; **click** it to list that day's runs
- *    below.
+ *    below. From the keyboard the grid is one tab stop: arrows move between
+ *    days (showing the same card), Enter lists the runs (DayGrid).
  *  - **Where it went**: the past year split into teammate work, assistant
  *    chat, pairing, and other — by cost or tokens, following the switch.
  *  - **Glossary**: a collapsed "What do these mean?" at the bottom.
@@ -29,8 +30,8 @@ import { useApi } from "@/hooks/useApi";
 import { SegmentedTabs } from "@/components/RouteTabs";
 import {
   KIND_LABEL, buildGrid, formatDay, formatTokens, formatUsd, levelOf, levelThresholds, metricOf, monthLabels,
-  peakDay, readIncludeCached, tokensOf, writeIncludeCached,
-  type GridCell, type UsageDay, type UsageKind, type UsageMetric, type UsageRun, type UsageTotals,
+  lastGridPos, moveGridCursor, peakDay, readIncludeCached, tokensOf, writeIncludeCached,
+  type GridCell, type GridPos, type UsageDay, type UsageKind, type UsageMetric, type UsageRun, type UsageTotals,
 } from "@/lib/usage";
 import { Tooltip } from "@/components/ui/tooltip";
 
@@ -128,47 +129,31 @@ export function UsagePage() {
           </div>
         </div>
 
-        <div className="relative overflow-x-auto pb-1" onMouseLeave={() => setHover(null)}>
+        <div className="relative overflow-x-auto pb-1">
           <div className="inline-flex gap-1">
             {/* Weekday labels */}
-            <div className="flex flex-col gap-[2px] pt-4 pr-1 text-[9px] leading-[10px] text-muted-foreground">
+            <div className="flex flex-col gap-[2px] pt-4 pr-1 text-[9px] leading-[10px] text-muted-foreground" aria-hidden>
               {["", "Mon", "", "Wed", "", "Fri", ""].map((l, i) => <span key={i} className="h-[10px]">{l}</span>)}
             </div>
             <div>
               {/* Month labels */}
-              <div className="relative h-4 text-[9px] text-muted-foreground">
+              <div className="relative h-4 text-[9px] text-muted-foreground" aria-hidden>
                 {months.map((m, i) => m && <span key={i} className="absolute" style={{ left: i * CELL }}>{m}</span>)}
               </div>
-              <div className="flex gap-[2px]">
-                {cols.map((col, ci) => (
-                  <div key={ci} className="flex flex-col gap-[2px]">
-                    {col.map((cell) => {
-                      const v = cell.day ? metricOf(cell.day, metric, includeCached) : 0;
-                      const level = levelOf(v, thresholds);
-                      return (
-                        <button
-                          key={cell.date}
-                          type="button"
-                          disabled={!cell.inRange}
-                          onClick={() => setPicked(cell.date)}
-                          onMouseEnter={(e) => {
-                            const r = e.currentTarget.getBoundingClientRect();
-                            setHover({ cell, x: r.left + r.width / 2, y: r.top });
-                          }}
-                          className={`h-[10px] w-[10px] rounded-[2px] ${cell.inRange ? LEVEL_CLASS[level] : "bg-transparent"} ${picked === cell.date ? "ring-2 ring-foreground/60" : ""} ${cell.inRange ? "hover:ring-1 hover:ring-foreground/40" : ""}`}
-                          aria-label={`${cell.date}: ${cell.day ? `${formatTokens(tokensOf(cell.day, includeCached))} tokens, ${formatUsd(cell.day.costUsd)}` : "no usage"}`}
-                        />
-                      );
-                    })}
-                  </div>
-                ))}
-              </div>
+              <DayGrid
+                cols={cols}
+                cellClass={(cell) => (cell.inRange ? LEVEL_CLASS[levelOf(cell.day ? metricOf(cell.day, metric, includeCached) : 0, thresholds)] : "bg-transparent")}
+                cellLabel={(cell) => `${cell.date}: ${cell.day ? `${formatTokens(tokensOf(cell.day, includeCached))} tokens, ${formatUsd(cell.day.costUsd)}` : "no usage"}`}
+                picked={picked}
+                onPick={setPicked}
+                onHover={setHover}
+              />
             </div>
           </div>
         </div>
 
         <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>{empty ? "No usage recorded yet — it's counted from every agent run from now on." : "Hover a day for details · click to list its runs"}</span>
+          <span>{empty ? "No usage recorded yet — it's counted from every agent run from now on." : "Hover or arrow to a day for details · click or Enter to list its runs"}</span>
           <span className="flex items-center gap-1">
             Less {LEVEL_CLASS.map((c, i) => <span key={i} className={`h-[10px] w-[10px] rounded-[2px] ${c}`} />)} More
           </span>
@@ -192,6 +177,92 @@ function Tile({ label, t, includeCached }: { label: string; t: UsageTotals; incl
       <p className="text-xs text-muted-foreground">{label}</p>
       <p className="text-xl font-semibold">{formatUsd(t.costUsd)}</p>
       <p className="text-xs text-muted-foreground">{formatTokens(tokensOf(t, includeCached))} tokens · {t.runs} run{t.runs === 1 ? "" : "s"}</p>
+    </div>
+  );
+}
+
+/**
+ * The contribution grid: an ARIA grid (rows = weekdays, columns = weeks) with
+ * **one** tab stop. The grid itself holds focus and points at the current day
+ * with `aria-activedescendant`; arrow keys move it (lib/usage
+ * `moveGridCursor`), Enter or Space lists that day's runs, and the day's card
+ * shows for the keyboard as it does on hover. The 10px cells aren't focusable
+ * themselves, so they aren't 24px targets each (WCAG 2.5.8): the grid is the
+ * one control, and a click on a cell is handled by the grid.
+ */
+function DayGrid({ cols, cellClass, cellLabel, picked, onPick, onHover }: {
+  cols: GridCell[][];
+  cellClass: (cell: GridCell) => string;
+  cellLabel: (cell: GridCell) => string;
+  picked: string | null;
+  onPick: (date: string) => void;
+  onHover: (h: { cell: GridCell; x: number; y: number } | null) => void;
+}) {
+  const [cursor, setCursor] = useState<GridPos | null>(null);
+  const [focused, setFocused] = useState(false);
+  const at = cursor ?? lastGridPos(cols);
+  const cellId = (date: string) => `usage-day-${date}`;
+  const current = cols[at.col]?.[at.row];
+
+  /** Show the day's card over a cell (by date), like hovering it. */
+  const showCard = (date: string) => {
+    const el = document.getElementById(cellId(date));
+    const cell = cols.flat().find((c) => c.date === date);
+    if (!el || !cell) return;
+    const r = el.getBoundingClientRect();
+    onHover({ cell, x: r.left + r.width / 2, y: r.top });
+  };
+  const dateOf = (target: EventTarget) => (target as HTMLElement).closest<HTMLElement>("[data-date]")?.dataset.date;
+
+  return (
+    <div
+      role="grid"
+      tabIndex={0}
+      aria-label="Daily usage, past year"
+      aria-activedescendant={current ? cellId(current.date) : undefined}
+      className="group/grid flex flex-col gap-[2px] rounded-sm"
+      onFocus={() => { setFocused(true); if (current) showCard(current.date); }}
+      onBlur={() => { setFocused(false); onHover(null); }}
+      onMouseLeave={() => { if (!focused) onHover(null); }}
+      onMouseOver={(e) => { const d = dateOf(e.target); if (d) showCard(d); }}
+      onClick={(e) => {
+        const d = dateOf(e.target);
+        const cell = d ? cols.flat().find((c) => c.date === d) : undefined;
+        if (!cell?.inRange) return;
+        onPick(cell.date);
+        const col = cols.findIndex((c) => c.includes(cell));
+        setCursor({ col, row: cols[col]!.indexOf(cell) });
+      }}
+      onKeyDown={(e) => {
+        if ((e.key === "Enter" || e.key === " ") && current) { e.preventDefault(); onPick(current.date); return; }
+        const next = moveGridCursor(cols, at, e.key);
+        if (!next) return;
+        e.preventDefault();
+        setCursor(next);
+        const cell = cols[next.col]?.[next.row];
+        if (cell) showCard(cell.date);
+      }}
+    >
+      {[0, 1, 2, 3, 4, 5, 6].map((row) => (
+        <div key={row} role="row" className="flex gap-[2px]">
+          {cols.map((col, ci) => {
+            const cell = col[row]!;
+            const isCursor = focused && ci === at.col && row === at.row;
+            return (
+              <div
+                key={cell.date}
+                id={cellId(cell.date)}
+                data-date={cell.date}
+                role="gridcell"
+                aria-label={cellLabel(cell)}
+                aria-selected={picked === cell.date}
+                aria-disabled={!cell.inRange || undefined}
+                className={`h-[10px] w-[10px] rounded-[2px] ${cellClass(cell)} ${picked === cell.date ? "ring-2 ring-foreground/60" : ""} ${cell.inRange ? "cursor-pointer hover:ring-1 hover:ring-foreground/40" : ""} ${isCursor ? "outline-2 outline-offset-1 outline-ring" : ""}`}
+              />
+            );
+          })}
+        </div>
+      ))}
     </div>
   );
 }
