@@ -17,7 +17,8 @@ team, not the whole app. Four tabs along the bottom:
   read); **Open full** goes to the task's page in the full UI.
 
 The strip under the header is the queue summary, and ⏸ shows when distribution is
-paused. 🖥 switches this device to the full UI, and it stays there until you open
+paused. **?** opens this guide (`/m/help`), with its topics and search under a
+**Contents** button; a bottom tab takes you back. 🖥 switches this device to the full UI, and it stays there until you open
 `/m` again. Boards, tasks, schedules, workflows, team size, and config are only in the
 full UI (so the [Work items](08-configuration.md#work-items-feature-toggles) toggles
 don't change the phone view; **Open full** on an item of a switched-off kind shows the

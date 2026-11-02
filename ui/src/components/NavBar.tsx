@@ -52,6 +52,7 @@ import { PERSONAS_TAB_PATH } from "@/lib/personas";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, homeLinkCounts, homeLinkLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
+import { HELP_ROOT, isHelpPath } from "@/lib/help";
 import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
 import type { StatusResponse } from "@shared/protocol";
 import { useAnnounceUnread } from "@/hooks/useLiveAnnouncements";
@@ -141,14 +142,14 @@ export function NavBar() {
             <ChartColumn className="h-4 w-4" />
           </IconLink>
           <IconLink
-            to="/help"
+            to={HELP_ROOT}
             className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
-              location.pathname === "/help"
+              isHelpPath(location.pathname)
                 ? "bg-accent text-accent-foreground"
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
             label="Help"
-            aria-current={location.pathname === "/help" ? "page" : undefined}
+            aria-current={isHelpPath(location.pathname) ? "page" : undefined}
           >
             <HelpCircle className="h-4 w-4" />
           </IconLink>

@@ -3,7 +3,7 @@
  * not the desktop UI squeezed down (docs/DESIGN.md "A Phone Is a Peek").
  *
  *   ┌──────────────────────────────┐
- *   │ 🍕 Pizza Team  ⏸  ☀  🖥      │  header: pause state, theme, desktop view
+ *   │ 🍕 Pizza Team  ⏸  ?  ☀  🖥   │  header: pause state, help, theme, desktop view
  *   │ ● 1 at risk · 2 waiting      │  queue summary (taps through to Team)
  *   ├──────────────────────────────┤
  *   │         the active tab       │  each tab scrolls itself
@@ -23,6 +23,10 @@
  * tabs a labelled `<nav>`, the document title per tab, and focus moved to the
  * h1 when you switch tabs (hooks/useRouteFocus).
  *
+ * The guide is here too, at `/m/help[/<topic>]` (pages/HelpPage with the phone
+ * root; the ? in the header): not a tab, so while it's open no tab is current,
+ * and the four tabs stay mounted underneath.
+ *
  * Opening `/m` clears a "desktop view" preference; the 🖥 button sets it and goes
  * to the full UI, which stops sending a phone at the home page here.
  */
@@ -41,8 +45,10 @@ import { MobileTeam } from "./MobileTeam";
 import { MobileChat } from "./MobileChat";
 import { MobileThoughts } from "./MobileThoughts";
 import { MobileInbox } from "./MobileInbox";
-import { Inbox, MessageSquare, Monitor, Pause, StickyNote, Users } from "lucide-react";
-import { IconButton } from "@/components/ui/icon-button";
+import { HelpCircle, Inbox, MessageSquare, Monitor, Pause, StickyNote, Users } from "lucide-react";
+import { IconButton, IconLink } from "@/components/ui/icon-button";
+import { HelpPage } from "@/pages/HelpPage";
+import { MOBILE_HELP_ROOT, isHelpPath } from "@/lib/help";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SkipLink } from "@/components/SkipLink";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -57,6 +63,9 @@ export function MobileShell() {
   const { pathname } = useLocation();
   const navigate = useNavigate();
   const tab = mobileTabOf(pathname);
+  // The guide covers the tabs (they stay mounted underneath); no tab is current.
+  const help = isHelpPath(pathname);
+  const current = help ? null : tab;
   const mainRef = useRef<HTMLElement>(null);
   useDocumentTitle(pageTitleForPath(pathname));
   useRouteFocus(mainRef);
@@ -112,6 +121,14 @@ export function MobileShell() {
             </Tooltip>
           )}
           <div className="ml-auto flex items-center">
+            <IconLink
+              to={MOBILE_HELP_ROOT}
+              label="Help"
+              aria-current={help ? "page" : undefined}
+              className={`inline-flex size-8 items-center justify-center rounded-md ${help ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}
+            >
+              <HelpCircle className="h-4 w-4" />
+            </IconLink>
             <ThemeToggle />
             <IconButton variant="ghost" size="icon" onClick={desktop} label="Desktop view">
               <Monitor className="h-4 w-4" />
@@ -135,26 +152,32 @@ export function MobileShell() {
       </header>
 
       <main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1} className="min-h-0 flex-1">
-        <h1 className="sr-only">{TAB_LABELS[tab]}</h1>
-        <div className={tab === "team" ? "h-full" : "hidden"}>
+        {help ? (
+          <div className="h-full overflow-y-auto">
+            <HelpPage root={MOBILE_HELP_ROOT} />
+          </div>
+        ) : (
+          <h1 className="sr-only">{TAB_LABELS[tab]}</h1>
+        )}
+        <div className={current === "team" ? "h-full" : "hidden"}>
           <MobileTeam team={team} queue={queue} paused={paused} />
         </div>
-        <div className={tab === "chat" ? "h-full" : "hidden"}>
-          <MobileChat stream={stream} viewingId={viewingId} onViewSession={setViewingId} active={tab === "chat"} />
+        <div className={current === "chat" ? "h-full" : "hidden"}>
+          <MobileChat stream={stream} viewingId={viewingId} onViewSession={setViewingId} active={current === "chat"} />
         </div>
-        <div className={tab === "thoughts" ? "h-full" : "hidden"}>
-          <MobileThoughts active={tab === "thoughts"} />
+        <div className={current === "thoughts" ? "h-full" : "hidden"}>
+          <MobileThoughts active={current === "thoughts"} />
         </div>
-        <div className={tab === "inbox" ? "h-full" : "hidden"}>
-          <MobileInbox active={tab === "inbox"} onChanged={refetchInbox} />
+        <div className={current === "inbox" ? "h-full" : "hidden"}>
+          <MobileInbox active={current === "inbox"} onChanged={refetchInbox} />
         </div>
       </main>
 
       <nav aria-label="Tabs" className="grid shrink-0 grid-cols-4 border-t border-border bg-muted pb-[env(safe-area-inset-bottom)]">
-        <TabLink tab="team" current={tab} icon={Users} label={TAB_LABELS.team} attention={counts.atRisk > 0 || team.needsAttention} />
-        <TabLink tab="chat" current={tab} icon={MessageSquare} label={TAB_LABELS.chat} badge={unreadChat} dot={chatDot} />
-        <TabLink tab="thoughts" current={tab} icon={StickyNote} label={TAB_LABELS.thoughts} />
-        <TabLink tab="inbox" current={tab} icon={Inbox} label={TAB_LABELS.inbox} badge={inbox?.total ?? 0} />
+        <TabLink tab="team" current={current} icon={Users} label={TAB_LABELS.team} attention={counts.atRisk > 0 || team.needsAttention} />
+        <TabLink tab="chat" current={current} icon={MessageSquare} label={TAB_LABELS.chat} badge={unreadChat} dot={chatDot} />
+        <TabLink tab="thoughts" current={current} icon={StickyNote} label={TAB_LABELS.thoughts} />
+        <TabLink tab="inbox" current={current} icon={Inbox} label={TAB_LABELS.inbox} badge={inbox?.total ?? 0} />
       </nav>
     </div>
   );
@@ -165,7 +188,8 @@ function TabLink({
   tab, current, icon: Icon, label, badge = 0, dot, attention,
 }: {
   tab: MobileTab;
-  current: MobileTab;
+  /** The tab on screen; null while the guide covers them. */
+  current: MobileTab | null;
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   badge?: number;

@@ -19,7 +19,11 @@
 ## Getting around
 
 The nav bar has two destinations, plus pause / **usage** / help / config / theme
-icons:
+icons. **Help** (the ? icon) is this guide: the topics are listed on the left, with the
+sections of the one you're reading under it, and the box above them searches every
+page. Each section has its own address (`/help/<topic>#<section>`), so you can
+bookmark or share one, and **Previous** / **Next** at the bottom of a page walk the guide
+in order. In a narrow window the list folds into a **Contents** button.
 
 - **Thoughts** — sticky notes, where ideas start: a canvas, or a list with folders
   (see [Thoughts and triage](05-thoughts-and-triage.md)).
@@ -52,6 +56,10 @@ you're on has a visible ring.
 - "Are you sure?" questions (archive, delete, discard…) are a small dialog that starts
   on **Cancel**: **Enter** there backs out, **Esc** backs out too, and you land back
   on the button you pressed.
+- In **Help**, type in the search box, then **↓** to the results (**↑** / **↓** move
+  through them, **Enter** opens one at its section); **Esc** clears the search. A screen
+  reader hears how many results there are once you stop typing. Opening a section's
+  link puts you on its heading.
 - If your system asks for **reduced motion**, the UI drops its fades, pulses and
   smooth scrolling.
 

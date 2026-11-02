@@ -4,7 +4,9 @@
  * screen reader announces where you landed and a row of tabs stays readable.
  *
  * `pageTitleForPath` names the routes whose title follows from the URL alone —
- * every top-level page, each Work and Config tab, the phone view's tabs. A
+ * every top-level page, each Work and Config tab, the phone view's tabs. The
+ * Help (`/help`, `/help/<topic>`, and the phone's `/m/help…`) names itself
+ * after its topic's title, which lives in the guide's markdown (pages/HelpPage). A
  * detail page (a task, a story, a WorkDef, a teammate, a Work Source's tab —
  * and the new-WorkDef form, whose heading follows its `?type=`) returns null: its title is the thing's own name, which only the page knows
  * once it has loaded, so the page sets it (hooks/useDocumentTitle). The shell
@@ -14,6 +16,7 @@
 import { CONFIG_TABS } from "./config-tabs.ts";
 import { WORK_ITEMS_TABS } from "./work-items.ts";
 import { MOBILE_ROOT } from "./mobile.ts";
+import { isHelpPath } from "./help.ts";
 
 /** The product name: always the title's last part. */
 export const APP_TITLE = "Pizza Team";
@@ -44,7 +47,6 @@ const STATIC_TITLES: Record<string, string[]> = {
   "/": ["Inbox"],
   "/queue": ["Queue"],
   "/thoughts": ["Thoughts"],
-  "/help": ["Help"],
   "/usage": ["Usage"],
   "/work": ["Work"],
   "/stories/new": ["New story", "Work"],
@@ -58,6 +60,7 @@ const STATIC_TITLES: Record<string, string[]> = {
  */
 export function pageTitleForPath(pathname: string): string[] | null {
   const path = pathname.length > 1 ? pathname.replace(/\/+$/, "") : pathname;
+  if (isHelpPath(path)) return null;
   if (path === MOBILE_ROOT || path.startsWith(`${MOBILE_ROOT}/`)) {
     const tab = MOBILE_TITLES[path];
     return tab ? [tab] : [MOBILE_TITLES[MOBILE_ROOT]!];

@@ -2204,7 +2204,10 @@ A peek needs a fraction of the surface, and rebuilding that fraction from the sa
 parts is cheaper than making every page work at 390px. The parts *are* the same:
 `AssistantChat`, `TeammateRow`, `QueueList`, `TeammatePage`, `lib/thoughtList.ts`.
 Anything the phone doesn't do (boards, workflows, config, team size) is one "Open
-full" or 🖥 tap away in the desktop UI.
+full" or 🖥 tap away in the desktop UI. The one page it borrows whole is the **Help**
+(`/m/help`, the header's ?): reading the guide is a peek too, and it's the same
+`HelpPage` with its table of contents folded into a menu — shown over the four tabs,
+which stay mounted underneath.
 
 **How you get there.** The split happens in `App.tsx` before either shell mounts, so
 the phone never mounts the dock (a second chat stream). A phone — a narrow viewport
@@ -2321,6 +2324,10 @@ than leaving it (docs/ACCESSIBILITY.md, `lib/route-focus.ts`):
   in the dock — typing to the assistant, opening a teammate from the rail — a route
   change never pulls it out; you asked the center to change, not to be taken there.
 - **A first load isn't a move.** Focus stays at the top, where the skip link is.
+- **A `#section` is a place on the page.** A deep link into the Help
+  (`/help/<topic>#<section>`) means "read from here", so the Help scrolls to that
+  heading and focuses it — after the route focus has gone to the h1, so the more
+  specific target wins, whether the link came from inside the page or a bookmark.
 
 The same reasoning sets the confirm dialog's default: it opens on **Cancel**, so a
 stray Enter never deletes anything, and closing it returns you to the button that

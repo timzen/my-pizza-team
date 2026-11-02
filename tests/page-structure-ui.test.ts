@@ -26,7 +26,6 @@ test("pageTitleForPath: top-level pages, Work and Config tabs, the phone's tabs"
   assertEquals(pageTitleForPath("/"), ["Inbox"]);
   assertEquals(pageTitleForPath("/queue"), ["Queue"]);
   assertEquals(pageTitleForPath("/thoughts"), ["Thoughts"]);
-  assertEquals(pageTitleForPath("/help/"), ["Help"]);
   assertEquals(pageTitleForPath("/usage"), ["Usage"]);
   assertEquals(pageTitleForPath("/work/board"), ["Board", "Work"]);
   assertEquals(pageTitleForPath("/work/archived"), ["Archived", "Work"]);
@@ -44,7 +43,9 @@ test("pageTitleForPath: top-level pages, Work and Config tabs, the phone's tabs"
 });
 
 test("pageTitleForPath: a detail page names itself (null)", () => {
-  for (const p of ["/task/s1/t1", "/story/s1", "/work-defs/d1", "/work-defs/new", "/teammates/m1", "/work/source/jira", "/nope"]) {
+  for (const p of ["/task/s1/t1", "/story/s1", "/work-defs/d1", "/work-defs/new", "/teammates/m1", "/work/source/jira", "/nope",
+    // The Help names itself after its topic (pages/HelpPage).
+    "/help", "/help/", "/help/glossary", "/m/help", "/m/help/phone"]) {
     assertEquals(pageTitleForPath(p), null, p);
   }
 });

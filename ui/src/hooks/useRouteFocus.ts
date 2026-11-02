@@ -57,12 +57,13 @@ export function focusPageHeading(main: HTMLElement): () => void {
 /**
  * Focus a non-interactive element: `tabindex=-1` makes it focusable by script
  * but not a tab stop, and `data-route-focus` tells index.css it's not a control
- * (no focus ring).
+ * (no focus ring). Also how the Help focuses a deep-linked heading
+ * (pages/HelpPage), which scrolls it itself (`preventScroll`).
  */
-function focusTarget(el: HTMLElement) {
+export function focusTarget(el: HTMLElement, options?: FocusOptions) {
   if (!el.hasAttribute("tabindex")) {
     el.setAttribute("tabindex", "-1");
     el.setAttribute("data-route-focus", "");
   }
-  el.focus();
+  el.focus(options);
 }

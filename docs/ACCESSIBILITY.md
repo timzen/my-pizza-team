@@ -58,8 +58,9 @@ A/AA rules. It is separate from the fast `npm test`.
 
 Routes: `/`, `/queue`, `/thoughts`, `/work/board`, `/work/tasks`, `/work/schedule`,
 `/work/pending`, `/work/archived`, a task page, a story page, both WorkDef kinds, `/config`
-and every Config tab (plus a workflow's detail), `/help`, `/usage` — at 1440×900 — and
-`/m`, `/m/chat`, `/m/thoughts`, `/m/inbox` with iPhone 13 emulation, all in the light
+and every Config tab (plus a workflow's detail), `/help` and two of its topics, `/usage` —
+at 1440×900 — and `/m`, `/m/chat`, `/m/thoughts`, `/m/inbox`, `/m/help` with iPhone 13
+emulation, all in the light
 theme; then every desktop route again in **dark** (`prefers-color-scheme: dark`), for
 `color-contrast` only, named `<path> (dark)`. The default palette is scanned; Solarized
 isn't (its focus ring is unit-tested, below).
@@ -72,7 +73,11 @@ one `<main>`, a title shaped `<page> · <team> · Pizza Team`, and "Skip to cont
 first Tab. After the routes, a full run walks a few **keyboard** paths and fails if focus
 lands anywhere unexpected: the skip link → the page's h1; a NavBar link → the new page's
 h1; a Work tab → that tab (not the heading); a confirm dialog opens on **Cancel** and Esc
-returns focus to the button that opened it. Then the **announcer**, on the desktop and at
+returns focus to the button that opened it; and the Help — its search box by keyboard
+(the result count announced, ↓ + Enter onto a result focuses its heading, Esc clears), a
+`#section` deep link focusing its heading with the topic `aria-current` in the Guide nav,
+an old `/help#anchor` landing on the right topic, and **Next** moving focus to the next
+topic's h1. Then the **announcer**, on the desktop and at
 `/m`: exactly one polite and one assertive live region, both silent after a load (nothing
 changed, so nothing is said), the chat transcript a `role="log"` that doesn't read itself
 out, and a story's **Make pending** spoken as "Story made pending".

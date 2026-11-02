@@ -66,9 +66,9 @@ const ROUTES: Route[] = [
     "/work-defs/audit-project-dependencies", "/work-defs/nightly-test-run",
     "/config", "/config/teammates", "/config/sources", "/config/workflows", "/config/workflows/default",
     "/config/personas", "/config/triage", "/config/theme",
-    "/help", "/usage",
+    "/help", "/help/tasks-and-runs", "/help/glossary", "/usage",
   ].map((p) => ({ name: p, path: p })),
-  ...["/m", "/m/chat", "/m/thoughts", "/m/inbox"].map((p) => ({ name: `${p} (phone)`, path: p, phone: true })),
+  ...["/m", "/m/chat", "/m/thoughts", "/m/inbox", "/m/help"].map((p) => ({ name: `${p} (phone)`, path: p, phone: true })),
 ];
 
 /** The dark-theme pass over every desktop route. */
@@ -174,7 +174,11 @@ async function keyboardProblems(context: BrowserContext, base: string): Promise<
     await page.keyboard.press("Enter");
     await page.waitForURL("**/help");
     await page.waitForTimeout(300);
-    expect("NavBar link to Help", await focused(page), "H1 Help");
+    expect("NavBar link to Help", await focused(page), "H1 Getting Started");
+
+    // The guide (pages/HelpPage): search by keyboard, Esc clears; a result
+    // and a deep link focus their heading; Next goes to the next topic.
+    problems.push(...await helpProblems(page, base));
 
     await page.goto(`${base}/work/board`);
     await page.waitForSelector("nav[aria-label='Work sections']");
@@ -219,6 +223,48 @@ async function keyboardProblems(context: BrowserContext, base: string): Promise<
   } finally {
     await page.close();
   }
+  return problems;
+}
+
+/**
+ * The Help by keyboard: typing in its search box lists results and says how
+ * many through the polite live region, ↓ and Enter follow one to its heading
+ * (focused), Esc clears the box; a deep link focuses its heading; an old
+ * one-page anchor lands on the topic that has it; Next topic goes on.
+ */
+async function helpProblems(page: Page, base: string): Promise<string[]> {
+  const problems: string[] = [];
+  const search = page.getByRole("searchbox", { name: "Search the guide" });
+  await search.focus();
+  await page.keyboard.type("moribund");
+  await page.waitForFunction(`/results? for “moribund”/.test(document.querySelector("[data-announcer=polite]")?.textContent ?? "")`, undefined, { timeout: 3000 })
+    .catch(() => problems.push("help search: the result count wasn't announced"));
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Enter");
+  await page.waitForURL("**/help/glossary#moribund").catch(() => problems.push(`help search: Enter on the first result went to ${page.url()}`));
+  await page.waitForTimeout(300);
+  if (await focused(page) !== "H2 MORIBUND") problems.push(`help search: focus on "${await focused(page)}" after following a result, expected "H2 MORIBUND"`);
+  await search.focus();
+  await page.keyboard.type("queue");
+  await page.keyboard.press("Escape");
+  if (await search.inputValue() !== "") problems.push("help search: Esc didn't clear the box");
+
+  await page.goto(`${base}/help/tasks-and-runs#the-queue`);
+  await page.waitForTimeout(500);
+  if (await focused(page) !== "H3 The Queue") problems.push(`help deep link: focus on "${await focused(page)}", expected "H3 The Queue"`);
+  const current = await page.locator("nav[aria-label='Guide'] [aria-current=page]").textContent();
+  if (current !== "Tasks and runs") problems.push(`help sidebar: aria-current on "${current}", expected "Tasks and runs"`);
+
+  await page.goto(`${base}/help#moribund`);
+  await page.waitForURL("**/help/glossary#moribund").catch(() => problems.push(`help: the old /help#moribund went to ${page.url()}`));
+
+  await page.goto(`${base}/help`);
+  await page.waitForSelector("nav[aria-label='Previous and next topic']");
+  await page.locator("nav[aria-label='Previous and next topic'] a[rel=next]").focus();
+  await page.keyboard.press("Enter");
+  await page.waitForURL("**/help/tasks-and-runs").catch(() => problems.push(`help: Next topic went to ${page.url()}`));
+  await page.waitForTimeout(300);
+  if (await focused(page) !== "H1 Tasks and runs") problems.push(`help: focus on "${await focused(page)}" after Next, expected "H1 Tasks and runs"`);
   return problems;
 }
 

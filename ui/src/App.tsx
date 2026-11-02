@@ -144,7 +144,9 @@ function DesktopShell() {
             <Route path="/config/sources/:sourceId" element={<ConfigPage />} />
             {/* A persona, inside Config's Personas tab. A splat: package ids contain "/". */}
             <Route path="/config/personas/*" element={<ConfigPage />} />
+            {/* The guide: Getting Started at /help, a topic at /help/:topic (lib/help.ts helpPath). */}
             <Route path="/help" element={<HelpPage />} />
+            <Route path="/help/:topic" element={<HelpPage />} />
             {/* A teammate's live view, opened from the sidebar (docs/DESIGN.md "Watching and Pairing with a Teammate"). */}
             <Route path="/teammates/:id" element={<TeammatePage />} />
             <Route path="/usage" element={<UsagePage />} />

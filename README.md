@@ -29,8 +29,9 @@ Agents run on [Pi](https://pi.mariozechner.at/) today; see
 
 📖 **New here?** [QUICKSTART.md](QUICKSTART.md) gets a team running in about five
 minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, `mpt lead`.
-The in-app **Help** page is the user guide: short topic pages in
-[docs/guide/](docs/guide/00-getting-started.md), indexed by [GUIDE.md](GUIDE.md).
+The in-app **Help** (`/help`) is the user guide: short topic pages in
+[docs/guide/](docs/guide/00-getting-started.md), indexed by [GUIDE.md](GUIDE.md), with
+a table of contents, search, and a link for every section (`/help/<topic>#<section>`).
 Writing a plugin? See [docs/PLUGINS.md](docs/PLUGINS.md).
 
 ---
