@@ -1,6 +1,6 @@
 /**
  * plugin/index.ts — The public plugin surface: `import … from "my-pizza-team/plugin"`.
- * See GUIDE.md "Writing a Work Source plugin" and docs/DESIGN.md "Plugin packages".
+ * See docs/PLUGINS.md "Writing a Work Source plugin" and docs/DESIGN.md "Plugin packages".
  *
  * Everything a Work Source plugin author needs from the host and nothing
  * store-internal: the `WorkSource` interface and the `SourceContext` it is

@@ -1,0 +1,129 @@
+# Stories and workflows
+
+## Stories
+
+A **story** groups related tasks and gives them an order and a
+[workflow](#workflows). Each story has an **ID**, **Title**, **Description**, a
+**Workflow**, an optional **Directory** (where the work happens), **Dependencies**
+(other stories that must finish first), and an ordered list of its tasks with each
+task's current status.
+
+A story's tasks run **one at a time, in order**: the next task starts only when
+none of the story's tasks is between `todo` and `done`, so commits don't stack up
+while an earlier task waits for (or fails) review (internally
+[CONWIP](glossary.md#conwip)).
+
+### Creating a story
+
+Use **New Story** (from the dock's **+** menu, or `/stories/new`):
+
+1. **ID** — a URL-safe identifier
+2. **Workflow** — which workflow governs this story's tasks
+3. **Title** & **Description** (markdown)
+4. **Directory** — where teammates work (also the
+   [directory affinity](glossary.md#directory-affinity) bias). Pick from the dropdown
+   — your **favorite directories** first, then recently used ones — or type a path
+   (see [Favorite directories](08-configuration.md#favorite-directories))
+5. **Tasks** — optionally add initial tasks inline
+
+(How each task is worked comes from its workflow step's
+[persona](06-personas.md). Project knowledge — conventions, build commands — belongs
+in the directory's AGENTS.md, which teammates read before starting.)
+
+### Pending stories
+
+A whole story can be **pending** — and back again: tick **Pending** on New Story,
+press **Make pending** on its page (or the ⌛ on its swimlane), or ask the assistant.
+Unlike a task, a story goes back and forth: **Activate** (▶) resumes it where it left
+off. While a story is pending, a task that's already running finishes normally, but
+nothing new is handed out, and stories that depend on it wait. Pending stories live on
+**Work → Pending**. (This replaces the old story *pause* and the *Backlog*: paused and
+backlogged stories show up as pending.)
+
+Pending tasks inside a story hold its place — see
+[Pending](01-tasks-and-runs.md#pending-write-first-run-when-its-right).
+
+## The Board
+
+The Board (**Work → Board**, `/work/board`) shows active stories as horizontal
+swimlanes, with task cards arranged by workflow step.
+
+### Managing tasks
+
+The Board is for glancing and light triage; editing happens on the task page.
+
+- **Add a task** — the `+` on a story swimlane
+- **Move a task** — drag its card to another column (that's how you send to review,
+  approve, or send back for rework)
+- **Open a task** — the `details →` link opens the task page (read it — or
+  **Edit**/**Activate** it while it's
+  [pending](01-tasks-and-runs.md#pending-write-first-run-when-its-right) — move,
+  delete, read comments, upload/review files)
+- **Edit a story** — click the story title to open its page (title, description,
+  directory; **Make pending** / **Activate**)
+- **Hold a story** — the ⌛ on its swimlane makes it [pending](#pending-stories) (it
+  moves to **Work → Pending**); ▶ there activates it again
+- **Retire a story** — the archive button on its swimlane; archived stories (with
+  their synopses) are on **Work → Archived** (on disk an archived story stays in the
+  team's `stories/` folder, flagged as archived; stories archived before this lived in
+  `archived/` and are moved back on startup)
+
+### Expanding and collapsing stories
+
+Every story starts **expanded** (its task columns showing). The chevron at the left of
+a story's header collapses it to just the header row — the title and its actions
+(`+`, archive, pending/activate) — and clicking it again expands it. **Expand all** /
+**Collapse all** in the toolbar (next to search and sort) apply to the stories
+currently shown, so with a search active they only touch the matching stories.
+Searching doesn't expand collapsed stories. The Board remembers each story's choice in
+this browser.
+
+A card shows its title/ID, assignee, cost (if tracked), and a small chip when it has
+an active run: **queued**, **working**, or **at risk** (see
+[the Queue](01-tasks-and-runs.md#the-queue)).
+
+## Workflows
+
+A workflow is an ordered list of **steps** (*states*) a story task passes through,
+e.g. `todo → in_progress → review → done` (`todo`/`done` are implicit buckets). Each
+step is one of two types:
+
+- **agent** — worked by teammates (each time a task enters it, it gets a new
+  [run](01-tasks-and-runs.md#runs-one-attempt-at-a-task)). It can pick a
+  **persona** from the library — role framing put into the prompt for that step.
+- **manual** — worked by you or the assistant; moving the card onward *is* the
+  completion (review gates, approvals).
+
+**Teammates never move tasks.** Finishing an agent step advances the task
+automatically; you make the judgment moves (send to review, approve, send back for
+rework). There are no per-transition permissions to configure — just the step type.
+
+### Viewing and editing a workflow
+
+**Config → Workflows** (`/config/workflows`) lists workflow definitions. It only
+appears while Stories are switched on — workflows only apply to stories.
+
+Create a workflow by name (it starts as `in_progress` → `review`). Open one to see
+its ordered steps and edit them: add/remove steps and set each step's **type**
+(**agent** or **manual**), or make it the default. There are no transitions or
+permissions to configure — the pipeline is the ordered list, and the daemon advances
+agent steps automatically. Every story picks its workflow when it's created.
+
+### State personas
+
+Each **agent** step can pick a **persona** — role framing the teammate receives when
+working that step (implementer, reviewer, CR-writer, …). On a workflow's page,
+**State Personas** has a picker per agent step; a change saves at once and applies
+from the next time a teammate picks up a run. **edit** (or **view**, for a built-in or
+package persona) beside the picker opens the persona itself on
+[Config → Personas](06-personas.md). No persona means just a one-line "you're working
+in the … state" framing.
+
+## Reviewing work
+
+When a teammate finishes an agent step, the task advances to the next step. If that's
+a **manual** step (like `review`), it waits for you: review the work and any attached
+diffs, then **drag it forward** (approve → `done`) or **back** (send to rework) with a
+comment explaining what to fix. Moving it back into an agent step queues a fresh run,
+and the teammate picks it up again with your comments in the prompt (see
+[Comments and the thread](01-tasks-and-runs.md#comments-and-the-thread)).

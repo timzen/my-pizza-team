@@ -1,6 +1,6 @@
 /**
  * tests/plugins-doctor.test.ts — `mpt plugins doctor` (cli/plugins-doctor.ts).
- * See GUIDE.md "Testing your plugin".
+ * See docs/PLUGINS.md "Testing your plugin".
  *
  * Every plugin is a throwaway local-path package in a temp dir with a plain
  * `.js` entry (each test its own dir, so Node's module cache never hands one

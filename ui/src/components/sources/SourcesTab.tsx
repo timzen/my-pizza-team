@@ -1,7 +1,7 @@
 /**
  * SourcesTab — Config → **Sources** (`/config/sources`, a source's settings at
  * `/config/sources/:id`): set up and manage Work Source plugins entirely from
- * the UI. See GUIDE.md "Setting up a plugin from the UI" and docs/DESIGN.md
+ * the UI. See docs/guide/07-sources.md "Setting up a source from the UI" and docs/DESIGN.md
  * "Plugin settings: configSchema and preview".
  *
  * - **The list** (`GET /api/sources`, polled): every plugin and external
@@ -222,8 +222,8 @@ function NoPluginsCard() {
         </p>
         <pre className="rounded bg-muted p-2 text-xs">mpt plugins add npm:mpt-acme-tracker{"\n"}mpt stop && mpt start --daemon</pre>
         <p className="text-muted-foreground">
-          See <Link to="/help" className="text-primary underline">Help</Link> → <em>Writing a Work Source plugin</em> (step 5,
-          “Add it, then restart”) for npm, git, and local packages.
+          See <Link to="/help" className="text-primary underline">Help</Link> → <em>Sources</em> (“Adding a source”) for npm,
+          git, and local packages.
         </p>
       </CardContent>
     </Card>

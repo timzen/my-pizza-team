@@ -57,7 +57,7 @@ installed by `mpt plugins add|list|remove|update` into `<teamDir>/packages/`, lo
 at startup by `daemon/plugins/loader.ts` from each package's `"mpt": { "sources": [...] }`,
 with types and constants from the host's `my-pizza-team/plugin` export (peer
 dependency, resolved to the running daemon by a resolve hook). The design is in
-docs/DESIGN.md "Plugin packages"; the author guide is GUIDE.md "Writing a Work Source
+docs/DESIGN.md "Plugin packages"; the author guide is docs/PLUGINS.md "Writing a Work Source
 plugin". What's left:
 
 - **Isolation:** plugins run with the daemon's full permissions. The core already
@@ -145,7 +145,7 @@ Open questions (decide while building, or leave as-is and record why):
 A teammate reads each note whose text you've changed and proposes what should become
 work; you accept, edit, or reject from the note's triage page. Shipped in three
 stages; the design now lives in docs/DESIGN.md "Auto Triage: a Note Is a Parent" and
-docs/ARCHITECTURE.md "Thoughts", with the user-facing half in GUIDE.md.
+docs/ARCHITECTURE.md "Thoughts", with the user-facing half in docs/guide/05-thoughts-and-triage.md.
 
 Tests: tests/triage.test.ts (42), tests/triage-ui.test.ts (8),
 harnesses/pi/tests/tools.test.mjs.
@@ -168,8 +168,8 @@ Known gaps / ideas, none blocking:
 
 A Work Source (or one of its items) can declare `mode: "triage"`: the read-only
 mirror is the triage subject, a new revision is the turn, and proposals are decided on
-the mirror's Triage tab (docs/DESIGN.md "External sources" — "Triage mode"; GUIDE.md
-"Triage-mode sources" and "Writing a Work Source plugin"). Tests:
+the mirror's Triage tab (docs/DESIGN.md "External sources" — "Triage mode"; docs/guide/07-sources.md
+"Triage-mode sources" and docs/PLUGINS.md "Writing a Work Source plugin"). Tests:
 tests/external-triage.test.ts; demo: mpt-demo-team's demo-tracker plugin (`DEMO-3`,
 checked by `run-e2e.sh`). What's left:
 
@@ -187,7 +187,7 @@ checked by `run-e2e.sh`). What's left:
 ## Phone View — built
 
 `/m`: Team (teammates + queue), Chat, Thoughts, Inbox — docs/DESIGN.md "A Phone Is a
-Peek", docs/ARCHITECTURE.md "Phone view", GUIDE.md "On Your Phone". Tests:
+Peek", docs/ARCHITECTURE.md "Phone view", docs/guide/09-phone.md. Tests:
 tests/mobile.test.ts. Checked in headless Chrome with iPhone emulation.
 
 Known gaps / ideas, none blocking:

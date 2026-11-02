@@ -32,7 +32,8 @@ Instructions for AI coding agents working on this project.
 1. **Update the docs.** Every change that affects the project's behavior, structure, or API must be reflected in:
    - `README.md` — if it changes user-facing behavior, commands, UI, directory structure, or setup
    - `QUICKSTART.md` — if it changes the getting-started flow
-   - `GUIDE.md` — if it changes what a user sees or does in the web UI
+   - `docs/guide/<topic>.md` — if it changes what a user sees or does in the web UI (one page per topic; new internal terms go in `docs/guide/glossary.md`, and a new page goes in `GUIDE.md`'s index and Getting Started's "Read next")
+   - `docs/PLUGINS.md` — if it changes what a plugin author writes (the Work Source API, persona packages, `mpt plugins`)
    - `docs/ARCHITECTURE.md` — if it changes modules, API routes, data flow, schema, or internal design decisions
    - `docs/DESIGN.md` — if it introduces new design principles or changes existing rationale
 
@@ -46,11 +47,13 @@ Instructions for AI coding agents working on this project.
 my-pizza-team/
 ├── README.md                 # User-facing docs (keep updated!)
 ├── QUICKSTART.md             # Getting started guide (keep updated!)
-├── GUIDE.md                  # User guide, rendered as the in-app Help page (keep updated!)
+├── GUIDE.md                  # Index of the user guide's pages (docs/guide/)
 ├── TODO.md                   # Known code issues and deferred work
 ├── docs/
 │   ├── ARCHITECTURE.md       # Internal technical docs (keep updated!)
 │   ├── ACCESSIBILITY.md      # The UI's a11y target, checks, rules and status (keep updated!)
+│   ├── PLUGINS.md            # Developer docs: writing Work Source plugins and persona packages (keep updated!)
+│   ├── guide/                # User guide, one page per topic + glossary; the in-app Help page (keep updated!)
 │   └── DESIGN.md             # Design philosophy (keep updated!)
 ├── daemon/
 │   ├── server.ts             # Route orchestrator

@@ -1,7 +1,7 @@
 /**
  * tests/persona-packages.test.ts — Persona packages: plugin packages that ship
  * personas (`"mpt": { "personas": [...] }`). See docs/DESIGN.md "Persona
- * packages" and GUIDE.md "Distributing a persona package".
+ * packages" and docs/PLUGINS.md "Distributing a persona package".
  *
  * Every package is a throwaway local-path package in a temp dir. Covers the
  * loader (daemon/plugins/loader.ts): a persona-only package registers read-only

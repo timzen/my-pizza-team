@@ -1,2 +1,4 @@
-# Auto-generated at build time — do not edit directly
+# Auto-generated at build time (the prebuild copies docs/guide/*.md) — do not edit directly
+guide/
+# The single-file guide of earlier versions
 guide.md

@@ -9,7 +9,9 @@
  *
  * mpt ships as an npm package: package.json "files" is the one list, and the
  * release workflow smoke-tests the packed tarball before publishing. This guards
- * both.
+ * both — and that the UI build embeds the user guide's topic pages
+ * (docs/guide/*.md → ui/src/content/guide/, rendered by the Help page), so the
+ * package needs no docs of its own beyond docs/PLUGINS.md for plugin authors.
  */
 
 import * as fs from "node:fs";
@@ -20,6 +22,8 @@ import { fileURLToPath } from "node:url";
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const REQUIRED = ["ui/dist/", "harnesses/pi/package.json", "harnesses/pi/src/"];
+/** Plugin authors install my-pizza-team as a devDependency: the author guide travels with it. */
+const DOCS = ["docs/PLUGINS.md"];
 
 /** A file's text without comment lines, so prose *about* a command doesn't count. */
 function code(file: string): string {
@@ -34,6 +38,26 @@ test("the npm package ships the UI and the Pi extension", () => {
   const files: string[] = pkg.files ?? [];
   const missing = REQUIRED.filter((f) => !files.includes(f));
   assertEquals(missing, [], "a package without these ships an mpt whose `mpt setup` cannot work");
+});
+
+test("the npm package ships the plugin author guide", () => {
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  const files: string[] = pkg.files ?? [];
+  assertEquals(DOCS.filter((f) => !files.includes(f)), []);
+  assertEquals(DOCS.filter((f) => !fs.existsSync(path.join(ROOT, f))), []);
+});
+
+test("the UI build embeds every user guide page", () => {
+  // The Help page renders whatever the prebuild copied: a prebuild that copies
+  // the wrong folder (or the old single GUIDE.md) ships an empty or stale Help.
+  const ui = JSON.parse(fs.readFileSync(path.join(ROOT, "ui/package.json"), "utf8"));
+  assertEquals(/cp \.\.\/docs\/guide\/\*\.md src\/content\/guide\//.test(ui.scripts.prebuild ?? ""), true,
+    "ui prebuild should copy ../docs/guide/*.md into src/content/guide/");
+  assertEquals(/npm run prebuild/.test(ui.scripts.build ?? ""), true, "ui build should run the prebuild");
+  const help = code(path.join(ROOT, "ui/src/pages/HelpPage.tsx"));
+  assertEquals(help.includes('import.meta.glob<string>("../content/guide/*.md"'), true, "HelpPage should bundle every copied page");
+  const pages = fs.readdirSync(path.join(ROOT, "docs/guide")).filter((f) => f.endsWith(".md"));
+  assertEquals(pages.includes("00-getting-started.md") && pages.includes("glossary.md"), true);
 });
 
 test("the release workflow smoke-tests the packed package before publishing it", () => {

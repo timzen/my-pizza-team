@@ -5,7 +5,7 @@
  * env-var fields (name only, set / not set), server field errors by field,
  * the JSON fallback, the dirty check, the toggle body, Preview/Save results,
  * and the navigate-away guard's link rule (ui/src/lib/unsaved-changes.ts).
- * See GUIDE.md "Setting up a plugin from the UI".
+ * See docs/guide/07-sources.md "Setting up a source from the UI".
  */
 
 import { test } from "node:test";

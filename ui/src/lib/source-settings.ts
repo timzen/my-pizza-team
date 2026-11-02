@@ -5,8 +5,8 @@
  * source's `configSchema`, how form edits change the draft settings block,
  * the JSON-editor fallback, server field errors by field, the dirty check, and
  * the body for switching a source on or off right from the tab.
- * See docs/DESIGN.md "Plugin settings: configSchema and preview" and GUIDE.md
- * "Setting up a plugin from the UI".
+ * See docs/DESIGN.md "Plugin settings: configSchema and preview" and docs/guide/07-sources.md
+ * "Setting up a source from the UI".
  *
  * The wire types are shared/protocol.ts's (`SourceView`, `SourcePreviewResponse`,
  * `SourceConfigResponse`, `REDACTED_SETTING`); the form reads `configSchema` as

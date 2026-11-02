@@ -119,8 +119,8 @@ something seems off.
 - **Stay current** — `mpt upgrade` updates `mpt` *and* its Pi extension together.
   Restart running agents afterwards; the Team tab flags any still on the old version
   and can restart them.
-- **Read the full docs** — [GUIDE.md](GUIDE.md) (also the in-app **Help** page) for
-  using the web UI, [README.md](README.md) for the CLI, configuration, and protocol.
+- **Read the full docs** — the [user guide](docs/guide/00-getting-started.md) (also the in-app **Help**
+  page) for using the web UI, [README.md](README.md) for the CLI, configuration, and protocol.
 
 > **Your team's data lives in `.my-pizza-team/`.** If your project is a git repository,
 > mpt autosaves that directory into it periodically (only that directory — your own

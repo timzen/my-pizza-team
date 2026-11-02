@@ -26,6 +26,7 @@
     "harnesses/pi/package.json",
     "harnesses/pi/src/",
     "README.md",
+    "docs/PLUGINS.md",
     "LICENSE"
   ],
   "engines": {

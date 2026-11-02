@@ -722,7 +722,7 @@ for a plugin that installed nothing (installs use `--omit=peer`; a local folder
 may have no `node_modules`), and a plugin that did install its own copy still
 gets the host's. Types are erased at runtime, so only the constants actually
 travel through the hook; the published `.d.ts` are for the author's editor and
-`tsc`. GUIDE.md "Writing a Work Source plugin" is the author-facing version.
+`tsc`. docs/PLUGINS.md "Writing a Work Source plugin" is the author-facing version.
 
 ## Pending: Write, Review, Activate
 

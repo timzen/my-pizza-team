@@ -1,6 +1,6 @@
 /**
  * cli/plugins-doctor.ts — `mpt plugins doctor`: check a plugin package before
- * (or after) it goes into a real team. See GUIDE.md "Testing your plugin" and
+ * (or after) it goes into a real team. See docs/PLUGINS.md "Testing your plugin" and
  * docs/ARCHITECTURE.md "Plugin packages".
  *
  * Two levels, the second opt-in:
@@ -443,7 +443,7 @@ function packagePersonaChecks(r: PackagePersonaCheck): DoctorCheck[] {
   for (const id of r.registered.personas) {
     if (!lintFailed.has(id)) out.push({ status: "ok", message: `persona ${id}` });
   }
-  for (const w of r.registered.warnings) out.push({ status: "warn", message: w, hint: "see GUIDE.md \"Distributing a persona package\"" });
+  for (const w of r.registered.warnings) out.push({ status: "warn", message: w, hint: "see docs/PLUGINS.md \"Distributing a persona package\"" });
   return out;
 }
 
@@ -463,7 +463,7 @@ async function checkPackage(
   check("ok", `spec parses (${spec.kind}; identity ${spec.identity})`);
 
   if (t.installError !== undefined) {
-    check("fail", `install into a scratch cache failed: ${t.installError}`, "see GUIDE.md \"Distributing a plugin\"");
+    check("fail", `install into a scratch cache failed: ${t.installError}`, "see docs/PLUGINS.md \"Distributing a plugin\"");
     return report;
   }
   if (t.scratchTeamDir) check("ok", "installed into a scratch cache (not configured; removed after the checks)");

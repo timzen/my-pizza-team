@@ -1,7 +1,7 @@
 /**
  * daemon/plugins/install.ts — Fetch and prepare npm / git plugin packages into
  * the team's install layout (`packageInstallDir`). See docs/DESIGN.md "Plugin
- * packages" and GUIDE.md "Distributing a plugin".
+ * packages" and docs/PLUGINS.md "Distributing a plugin".
  *
  * One code path for every installer: `mpt plugins add|update` (cli/plugins.ts),
  * the daemon's install-on-start of configured-but-missing packages
@@ -81,7 +81,7 @@ const STDERR_TAIL_LINES = 12;
 
 /** The contract a git plugin must meet, quoted when its npm step fails. */
 export const GIT_PLUGIN_CONTRACT = "Git plugins must install and build with plain npm against your npm registry (`npm config get registry`), "
-  + "or ship prebuilt mpt.sources entries. See GUIDE.md \"Distributing a plugin\".";
+  + "or ship prebuilt mpt.sources entries. See docs/PLUGINS.md \"Distributing a plugin\".";
 
 /** What a failed npm install of an npm package says next. */
 const NPM_PLUGIN_HINT = "Check the package name and version, and that your npm registry (`npm config get registry`) serves it.";

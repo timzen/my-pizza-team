@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "prebuild": "cp ../GUIDE.md src/content/guide.md",
+    "prebuild": "rm -rf src/content/guide src/content/guide.md && mkdir -p src/content/guide && cp ../docs/guide/*.md src/content/guide/",
     "build": "npm run prebuild && tsc -b && vite build",
     "lint": "eslint .",
     "preview": "vite preview"

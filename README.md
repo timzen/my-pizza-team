@@ -29,7 +29,9 @@ Agents run on [Pi](https://pi.mariozechner.at/) today; see
 
 📖 **New here?** [QUICKSTART.md](QUICKSTART.md) gets a team running in about five
 minutes: install `mpt` and Pi, then `mpt setup`, `mpt start --daemon`, `mpt lead`.
-The in-app **Help** page is the user guide ([GUIDE.md](GUIDE.md)).
+The in-app **Help** page is the user guide: short topic pages in
+[docs/guide/](docs/guide/00-getting-started.md), indexed by [GUIDE.md](GUIDE.md).
+Writing a plugin? See [docs/PLUGINS.md](docs/PLUGINS.md).
 
 ---
 
@@ -74,7 +76,7 @@ non-zero only for real breakage.
 A team can pull work from outside sources through **plugin packages** — npm
 packages, git repositories, or local folders whose `package.json` declares
 `"mpt": { "sources": ["./dist/index.js"] }` — and share personas the same way
-(`"mpt": { "personas": ["personas/*.md"] }`, with or without sources; see GUIDE.md
+(`"mpt": { "personas": ["personas/*.md"] }`, with or without sources; see docs/PLUGINS.md
 "Distributing a persona package"). They are listed in the team's
 `config.json` `packages` and managed with `mpt plugins`:
 
@@ -91,15 +93,16 @@ mpt plugins doctor [<path|spec>] [--config '<json>']   # check it loads; with --
 npm and git packages are installed under `<teamDir>/packages/` (npm with
 `--omit=peer`, so the plugin uses this mpt's copy of `my-pizza-team`; a git clone
 also gets `npm install` and `npm run build` unless it ships its entries prebuilt —
-see GUIDE.md "Distributing a plugin"). The daemon installs any configured npm/git
+see docs/PLUGINS.md "Distributing a plugin"). The daemon installs any configured npm/git
 package that's missing when it starts (each on its own, 10-minute limit per
 command via `MPT_PLUGIN_INSTALL_TIMEOUT_MS`; a failure is reported, the rest load). `add` validates the manifest (and lints any personas) before touching config.json. A version (npm)
 or a tag/commit (git) pins a package, and `update` skips it; a branch or no ref
 follows upstream. Relative local paths resolve from the current directory. The
 daemon loads plugins at startup, so restart it after any change
 (`mpt stop && mpt start --daemon`, or restart the service); `mpt doctor` reports
-a package that failed to load. To write one, see GUIDE.md "Writing a Work Source
-plugin".
+a package that failed to load. To write one, see [docs/PLUGINS.md](docs/PLUGINS.md) "Writing a
+Work Source plugin"; using one from the web UI is in
+[docs/guide/07-sources.md](docs/guide/07-sources.md).
 
 `mpt lead` opens a `leader` window in the project directory running the harness's
 `leader` command. Running it again attaches to the existing leader rather than
@@ -472,7 +475,7 @@ prompt. Everything that needs one *references it by id* — an agent state
 assistant (`assistant.persona`), optionally a Solitary or Scheduled task
 (`persona` on the WorkDef), and a Work Source's items (a plugin's
 `defaultPersona` / `triagePersona`, the team's per-source choice in
-`sourcePersonas`, or a per-item override — see GUIDE.md "Writing a Work Source
+`sourcePersonas`, or a per-item override — see docs/PLUGINS.md "Writing a Work Source
 plugin"; a triage-mode source must have a triage persona or it doesn't sync):
 
 ```markdown
@@ -504,7 +507,7 @@ Config → General), a Solitary/Scheduled task's form and Details tab, a source'
 Personas section on Config → Sources, an item's override — it's a picker with an
 edit/view link. While a teammate works, a ✦ chip shows the persona it was given (Team
 tab, Queue, the watch view's header, a task's **Runs**), linked to the persona or
-marked "(deleted)" if it's gone since. See GUIDE.md "Personas".
+marked "(deleted)" if it's gone since. See docs/guide/06-personas.md.
 
 **From the pre-persona layout.** The **context library is gone** — project
 knowledge belongs in the project's own AGENTS.md / README. 0.34–0.36 migrated the
@@ -759,7 +762,8 @@ my-pizza-team/
 ├── desktop/           # Tray/menu-bar apps (macOS, Windows)
 ├── scripts/           # Build, packaging, release, code generation
 ├── tests/             # Fast suite; tests/e2e/ is the slow suite
-└── docs/              # ARCHITECTURE.md (the map), DESIGN.md (the why)
+└── docs/              # ARCHITECTURE.md (the map), DESIGN.md (the why), PLUGINS.md (plugin authors),
+                       #   guide/ (the user guide: one page per topic, also the in-app Help)
 ```
 
 ---

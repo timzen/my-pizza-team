@@ -1,0 +1,94 @@
+# Configuration
+
+Settings live under the **config** (gear) icon, at `/config`:
+
+- **General** — the **Work items** toggles, the **Assistant** style (see
+  [The assistant](04-assistant.md#assistant-style-chat-or-terminal)), port, tmux
+  session, team size (min/max teammates), default workflow, the **readiness probe**,
+  **favorite directories**, autosave (flush/commit cadence, auto-commit)
+- **Teammates** — the nouns used to name teammates, **One teammate per directory**,
+  and **Experimental Harnesses** (opt in to Kiro / Claude Code teammates and pick the
+  default harness; applies on save, no restart — see
+  [Teammates](03-teammates.md#experimental-kiro-and-claude-code-teammates))
+- **Sources** — your source plugins: switch each on or off, edit its settings,
+  **Preview** what it would pull, and **Save** (see
+  [Setting up a source from the UI](07-sources.md#setting-up-a-source-from-the-ui))
+- **Workflows** — your story workflows and their state personas (see
+  [Workflows](02-stories-and-workflows.md#workflows)); hidden while Stories are off
+- **Personas** — the persona library: create, edit, duplicate, and see what uses each
+  one (see [Personas](06-personas.md))
+- **Triage** — [auto triage](05-thoughts-and-triage.md#auto-triage-notes-that-become-work):
+  on/off, the sweep interval, the quiet period, and the **persona** every note-triage
+  run follows (edit it on Personas)
+- **Theme** — palette (a client-side preference; light/dark is the navbar toggle)
+
+Each tab has its own address (`/config/teammates`, `/config/sources`,
+`/config/workflows`, `/config/personas`, `/config/triage`, `/config/theme`). **Save
+Configuration** appears on General, Teammates, and Triage — it saves the edits from
+all three at once. Sources has its own Save per plugin (and source personas apply at
+once), Workflows and Personas save as you go, the assistant's persona applies at once,
+and Theme applies immediately.
+
+Every Config tab (Workflows and Personas included) lights the gear in the nav.
+
+## Work items (feature toggles)
+
+**Config → General → Work items** picks the kinds of work your team uses: **Stories**
+(the Board tab, plus Config → Workflows), **Tasks** (standalone tasks — the Tasks
+tab), and **Schedules** (the Schedule tab). A brand-new team starts with Tasks only; a
+team that existed before the toggles has everything on. Tick or untick, then **Save
+Configuration** — it applies right away, no restart.
+
+When a kind is off:
+
+- its **Work** tab (**Board**, **Tasks**, or **Schedule**) disappears, and so do its
+  chip and rows on the **Pending** and **Archived** tabs (for Stories, so does Config's
+  **Workflows** tab; with all three off, **Work** leaves the nav), and so does its
+  entry in the dock's **+** quick-create menu (with all three off, the **+** goes too);
+- its pages — lists, detail pages, and create forms — show a "turned off" notice with
+  a link back here, even from a bookmark;
+- a triage proposal of that kind can only be **Rejected** (Accept and Edit are
+  disabled until you turn the kind back on);
+- the assistant stops offering it: its tools for that kind leave its tool list (within
+  about 10 seconds, or at its next reply) and it will tell you the kind is off if you
+  ask for one;
+- the API refuses it too, and `mpt status` leaves out its counts.
+
+**Thoughts**, **Personas**, the **Queue**, and the **Inbox** are always there — even
+with every kind off — and finished work stays in the Inbox.
+
+You can only turn a kind off when it has no active work: a toggle that's still in use
+is greyed out with what to clear first (e.g. "archive or delete 3 stories first").
+Pending stories and pending tasks count; archived ones don't. Turning a kind back on
+is always allowed.
+
+[Sources](07-sources.md) (plugins like a tracker) are switched on the **Sources** tab
+instead — see [Switching a source off](07-sources.md#switching-a-source-off).
+
+## Readiness probe
+
+If your machine sometimes can't work (expired credentials, VPN down), set a
+**readiness probe**: a shell command the daemon runs every 30 seconds. Exit 0 means
+ready; anything else means not ready, and its first line of output is the reason.
+While not ready, **scheduled** jobs are held instead of run — and when it recovers,
+each held job runs once (not once per missed tick). Story tasks and standalone tasks
+still run. With no probe, the team is always ready. Automatic
+[retries](01-tasks-and-runs.md#retries) also wait for the probe to pass.
+
+## Favorite directories
+
+Every directory field — New Story, a story's page, New Task, a task's page, a triage
+proposal's edit form, and **Spawn** — has a dropdown of suggestions: your
+**Favorites** first, then **Recent** directories (where teammates are working now,
+then recent work and story directories). Click the ☆ on any row to favorite it (★ to
+unfavorite), or the ☆ inside the field to favorite the path you typed. Manage the list
+under **Config → General → Favorite Directories**; changes save immediately (no Save
+button). Paths are stored resolved — `~` expanded and symlinks followed — so `~/repo`
+and its real path are the same favorite.
+
+## Autosave
+
+Your stories, tasks, notes, and usage are plain files in `.my-pizza-team/`. If that
+folder is inside a git repository, mpt commits it periodically (only that folder —
+never your own work) and pushes if there's a remote. Turn it off with **Auto
+Commit**.

@@ -345,7 +345,7 @@ test("git: an npm install failure shows the command, exit code, stderr tail and 
     assertStringIncludes(text, "`npm install --omit=peer --no-audit --no-fund` failed (exit 1)");
     assertStringIncludes(text, "npm error 404 Not Found - GET https://registry.npmjs.org/@amzn%2fbrazil");
     assertStringIncludes(text, "Git plugins must install and build with plain npm against your npm registry (`npm config get registry`)");
-    assertStringIncludes(text, `See GUIDE.md "Distributing a plugin".`);
+    assertStringIncludes(text, `See docs/PLUGINS.md "Distributing a plugin".`);
     assertEquals(env.calls.filter((c) => c[0] === "npm" && c[1] === "run"), [], "no build after a failed install");
     assert(!fs.existsSync(path.join(env.teamDir, "packages", "git", "git.test", "acme", "e404")), "partial clone removed");
     assertEquals(fs.readFileSync(path.join(env.teamDir, "config.json"), "utf8"), before);
