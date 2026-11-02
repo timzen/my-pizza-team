@@ -83,6 +83,11 @@ checkout of the extension (it steps aside and says so), and uninstall never revo
 Pi project trust. `mpt doctor` is read-only — also the dry run for setup — and exits
 non-zero only for real breakage.
 
+`mpt setup` is also the repair command: it always rewrites the managed extension
+(`~/.my-pizza-team/pi-extension`), so if that directory was deleted or damaged,
+running setup again restores it. `mpt doctor` fails the "Extension" check when the
+registration is still in Pi's settings but the directory is gone.
+
 ### Plugin packages
 
 A team can pull work from outside sources through **plugin packages** — npm

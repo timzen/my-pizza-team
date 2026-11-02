@@ -183,6 +183,16 @@ test("a registration pointing at a deleted directory fails", () => {
   assertStringIncludes(check.detail, "no longer exists");
 });
 
+test("a managed registration whose directory was deleted fails and names mpt setup", () => {
+  // `rm -rf ~/.my-pizza-team` leaves the settings.json entry behind. It still
+  // resolves to the managed path, so it classifies as "managed" — but Pi has
+  // nothing to load, and doctor used to call that "ok".
+  const check = find(evaluate(healthy({ managedDirVersion: null })), "Extension");
+  assertEquals(check.status, "fail");
+  assertStringIncludes(check.detail, "missing");
+  assertStringIncludes(check.fix!, "mpt setup");
+});
+
 // ─── Version skew ────────────────────────────────────────────────────
 
 test("an older installed extension warns, and the fix includes restarting agents", () => {

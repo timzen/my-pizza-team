@@ -467,6 +467,17 @@ function extensionCheck(f: DoctorFacts): Check {
   const reg = regs[0]!;
   switch (reg.kind) {
     case "managed":
+      // The registration is classified by path alone, so it stays "managed" even
+      // after the directory is deleted (e.g. `rm -rf ~/.my-pizza-team`). Without a
+      // readable manifest Pi can't load it, so that is a failure, not "ok".
+      if (f.managedDirVersion === null) {
+        return {
+          name: "Extension",
+          status: "fail",
+          detail: `registered at ${reg.resolvedPath}, but the managed install is missing or has no readable package.json`,
+          fix: "mpt setup (rewrites the managed extension)",
+        };
+      }
       return { name: "Extension", status: "ok", detail: `managed install at ${reg.resolvedPath}` };
     case "dev":
       return {
