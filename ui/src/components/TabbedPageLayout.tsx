@@ -19,6 +19,7 @@
  */
 
 import type { ReactNode } from "react";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 export function TabbedPageLayout({ icon, title, tabs, bodyClassName = "", children }: {
   /** Icon shown before the title (a lucide icon element). */
@@ -35,9 +36,10 @@ export function TabbedPageLayout({ icon, title, tabs, bodyClassName = "", childr
     <div className="flex items-center gap-2">
       {icon}
       <h1 className="text-2xl font-bold">{title}</h1>
+      <PageHelpButton />
     </div>
   );
-  return <PageFrame header={heading} tabs={tabs} bodyClassName={bodyClassName}>{children}</PageFrame>;
+  return <PageFrame header={heading} tabs={tabs} bodyClassName={bodyClassName} help>{children}</PageFrame>;
 }
 
 /**
@@ -71,8 +73,10 @@ export function DetailPageMessage({ children }: { children: ReactNode }) {
 }
 
 /** The shared frame: fixed `p-6` padding, left-aligned, never centered. */
-function PageFrame({ header, tabs, headerClassName = "", bodyClassName = "", children }: {
+function PageFrame({ header, tabs, headerClassName = "", bodyClassName = "", help = false, children }: {
   header: ReactNode;
+  /** The header already has its ? (TabbedPageLayout's title row). */
+  help?: boolean;
   tabs: ReactNode;
   headerClassName?: string;
   bodyClassName?: string;
@@ -81,7 +85,11 @@ function PageFrame({ header, tabs, headerClassName = "", bodyClassName = "", chi
   return (
     <div className="p-6 space-y-4" data-testid="tabbed-page">
       <header className={`space-y-4 ${headerClassName}`} data-testid="tabbed-page-header">
-        {header}
+        {/* The page's ? sits at the end of its title row (components/help/PageHelpButton). */}
+        <div className="flex items-start gap-2">
+          <div className="min-w-0 flex-1">{header}</div>
+          {!help && <PageHelpButton className="mt-1" />}
+        </div>
         {tabs}
       </header>
       <div className={`space-y-4 ${bodyClassName}`}>{children}</div>

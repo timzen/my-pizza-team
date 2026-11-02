@@ -17,6 +17,7 @@ import { useLocation } from "react-router-dom";
 import { RouteTabs } from "@/components/RouteTabs";
 import { InboxPage } from "./InboxPage";
 import { QueuePage } from "./QueuePage";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 const TABS = [
   { path: "/queue", label: "Queue" },
@@ -32,7 +33,10 @@ export function RootPage() {
     <div className="container mx-auto p-6 space-y-4">
       {/* The page's heading for screen readers; the lit tab says it visually. */}
       <h1 className="sr-only">{isQueue ? "Queue" : "Inbox"}</h1>
-      <RouteTabs label="Queue and Inbox" tabs={TABS} />
+      <div className="flex items-center gap-2">
+        <RouteTabs label="Queue and Inbox" tabs={TABS} />
+        <PageHelpButton />
+      </div>
       {isQueue ? <QueuePage /> : <InboxPage />}
     </div>
   );

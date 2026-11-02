@@ -24,6 +24,7 @@ import { useApi, apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 interface WorkflowSummary {
   name: string;
@@ -81,6 +82,7 @@ export function NewStoryPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback="/work/board" title="Back to board" />
         <h1 className="text-2xl font-bold">New Story</h1>
+        <PageHelpButton />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

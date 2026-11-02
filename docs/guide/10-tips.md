@@ -19,7 +19,17 @@
 ## Getting around
 
 The nav bar has two destinations, plus pause / **usage** / help / config / theme
-icons. **Help** (the ? icon) is this guide: the topics are listed on the left, with the
+icons.
+
+**Help where you are.** Every page has a **?** beside its title. It opens the part of
+this guide about that page in the dock's **Help** tab, next to the page, so you can
+read and click along; **Esc** (or the ✕ on the tab) closes it and puts you back where
+you were. Links in it to other sections open there too. The nav bar's ? icon does the
+same, and so does the **?** key anywhere you aren't typing. **Open full guide** at the
+top of the tab — or **Shift**-clicking the nav bar's ? — opens the whole guide at that
+section.
+
+The full guide (`/help`) lists the topics on the left, with the
 sections of the one you're reading under it, and the box above them searches every
 page. Each section has its own address (`/help/<topic>#<section>`), so you can
 bookmark or share one, and **Previous** / **Next** at the bottom of a page walk the guide
@@ -56,6 +66,8 @@ you're on has a visible ring.
 - "Are you sure?" questions (archive, delete, discard…) are a small dialog that starts
   on **Cancel**: **Enter** there backs out, **Esc** backs out too, and you land back
   on the button you pressed.
+- **?** (when you aren't typing in a box) opens or closes the help for the page
+  you're on, in the dock; your place is kept, and closing it brings you back to it.
 - In **Help**, type in the search box, then **↓** to the results (**↑** / **↓** move
   through them, **Enter** opens one at its section); **Esc** clears the search. A screen
   reader hears how many results there are once you stop typing. Opening a section's

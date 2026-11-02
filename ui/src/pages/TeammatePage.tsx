@@ -36,6 +36,7 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { FormError } from "@/components/ui/form-error";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 type Agent = Teammate;
 
@@ -103,6 +104,7 @@ export function TeammatePage() {
           </Tooltip>
         )}
         <div className="ml-auto flex items-center gap-2">
+          <PageHelpButton />
           {!connected && <span className="flex items-center gap-1 text-xs text-muted-foreground"><WifiOff className="h-3.5 w-3.5" /> reconnecting…</span>}
           {paired ? (
             <PairedControls hasWork={!!current} releasing={pairing?.pendingRelease ?? null} onRelease={release} />

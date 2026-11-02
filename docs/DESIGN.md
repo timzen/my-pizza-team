@@ -2144,7 +2144,7 @@ time.
 
 | Column | What's there |
 | --- | --- |
-| **Dock** (`SideDock`) — a header, then two tabs | Header: `+` (New Story / Solitary Task / Scheduled Job) then the queue summary. Tabs: **Assistant** (the chat with the leader) and **Team** (the teammates; team size, spawn) |
+| **Dock** (`SideDock`) — a header, then three tabs | Header: `+` (New Story / Solitary Task / Scheduled Job) then the queue summary. Tabs: **Assistant** (the chat with the leader), **Team** (the teammates; team size, spawn), and **Help** (the guide section for the page in the center — see "Help Comes to You") |
 | **Center** (nav + `<main>`) | board, tasks, schedule, thoughts, task detail, inbox, a teammate's live view, config (incl. workflows and context) |
 
 *Why a dock, not a page:* talking to the assistant and watching the team happen
@@ -2188,6 +2188,39 @@ page you came from (router history); only with no in-app history (a fresh tab)
 does it fall back — to that same section's list — and pages you've just created
 or deleted replace their history entry so Back never lands on a stale form or a
 deleted item (`ui/src/lib/nav-section.ts`).
+
+## Help Comes to You
+
+A guide you have to leave the page to read gets read once, if at all: you lose the
+thing you were looking at, and with it the reason you asked. So every screen has a
+**?** that brings the guide to it — the section about *that* page, in the dock's
+**Help** tab, beside the page (`ui/src/lib/help.ts` `helpForPath`,
+`components/help/HelpPanel`).
+
+- **The dock, not a popover.** The dock is already "what you keep beside the center"
+  (see "The Shell: a Dock and a Center"); help is one more of those. A popover would
+  cover what it explains, and close the moment you clicked the page to try it.
+- **A section, not a page.** The ? opens the heading for the screen and what's under
+  it (`lib/guide.ts` `guideSection`) — "The Queue", not all of "Tasks and runs".
+  Links in it to other sections stay in the panel; **Open full guide** (or a
+  Shift-click on the NavBar's ?) goes to `/help/<topic>#<section>` for the rest.
+- **One map, tested.** Which section explains which screen is one table in
+  `lib/help.ts`, and a test checks every section it names is a real heading — so
+  renaming a heading can't quietly break a ?. A stale anchor shows the whole topic
+  rather than nothing.
+- **One renderer.** The panel and the Help page render the same markdown with the
+  same component (`components/help/GuideMarkdown`), so a section reads the same in
+  both; only the heading levels move (the panel's section heading is an h2 — the
+  page beside it owns the h1) and the panel drops the anchor ids (they'd duplicate
+  the page's when both are on screen).
+- **A peek costs nothing.** Opening it remembers where you were — the dock's tab,
+  whether it was collapsed, and the focused element — and closing it (Esc, ✕, or
+  `?` again) puts all three back. `?` works anywhere you aren't typing
+  (`isTypingTarget`: not in a field, an editor, or a dialog). Focus moves to the
+  section's heading on open, so a screen reader reads it at once. The tab itself is
+  remembered like the dock's other tabs; what it shows follows the page you're on.
+- **On the phone** there's no dock to put it in (see "A Phone Is a Peek"), so the
+  header's ? opens the phone view's section of `/m/help` instead.
 
 ## A Phone Is a Peek
 

@@ -23,7 +23,9 @@
  * also checks the page structure (tests/a11y/_gate.ts `STRUCTURE_RULES`, run
  * through axe and promoted to serious, plus `structureFindings`: one h1, one
  * main, a page-specific title, the skip link first), and then a few keyboard
- * walks check where focus goes on a route change (`keyboardProblems`), and that
+ * walks check where focus goes on a route change (`keyboardProblems`), that
+ * the side dock's Help panel opens, closes and hands focus back by keyboard
+ * (and passes axe while open — `helpPanelProblems`), and that
  * the live announcer's regions are there, silent on load, and speak a save's
  * result (`liveRegionProblems`), desktop and phone.
  */
@@ -170,11 +172,13 @@ async function keyboardProblems(context: BrowserContext, base: string): Promise<
     await page.keyboard.press("Enter");
     expect("skip link", await focused(page), "H1 Work");
 
-    await page.getByRole("link", { name: "Help", exact: true }).focus();
-    await page.keyboard.press("Enter");
-    await page.waitForURL("**/help");
+    // The Help panel (docs/DESIGN.md "Help Comes to You"): the page's ? opens
+    // the Board's section in the dock and focuses its heading; Esc closes it
+    // and focus goes back to the ?; the `?` key toggles it.
+    problems.push(...await helpPanelProblems(page));
+
+    await page.goto(`${base}/help`);
     await page.waitForTimeout(300);
-    expect("NavBar link to Help", await focused(page), "H1 Getting Started");
 
     // The guide (pages/HelpPage): search by keyboard, Esc clears; a result
     // and a deep link focus their heading; Next goes to the next topic.
@@ -223,6 +227,54 @@ async function keyboardProblems(context: BrowserContext, base: string): Promise<
   } finally {
     await page.close();
   }
+  return problems;
+}
+
+/**
+ * The side dock's Help panel by keyboard, on /work/board: the page's ? opens
+ * the Board's section with focus on its heading, Esc closes it and gives focus
+ * back to the ?, the `?` key opens and closes it (focus back to the page), the
+ * NavBar's Help opens it too, and its "Open full guide" goes to that section
+ * of /help.
+ */
+async function helpPanelProblems(page: Page): Promise<string[]> {
+  const problems: string[] = [];
+  const expect = (what: string, got: string, want: string) => { if (got !== want) problems.push(`${what}: focus on "${got}", expected "${want}"`); };
+  const panel = page.locator("section[aria-label='Help for this page']");
+  await page.getByRole("button", { name: "Help for Board" }).focus();
+  await page.keyboard.press("Enter");
+  await panel.waitFor().catch(() => problems.push("help panel: the page's ? didn't open it"));
+  await page.waitForTimeout(200);
+  expect("help panel opened by the page's ?", await focused(page), "H2 The Board");
+  // The open panel passes axe too (the route scans see the dock closed on its other tabs).
+  const axe = await new AxeBuilder({ page }).include("section[aria-label='Help for this page']").withTags(WCAG_TAGS).analyze();
+  for (const v of axe.violations) if (v.impact === "serious" || v.impact === "critical") problems.push(`help panel: ${v.impact} ${v.id} (${v.nodes.length} element(s)): ${v.help}`);
+  await page.keyboard.press("Escape");
+  await panel.waitFor({ state: "detached" }).catch(() => problems.push("help panel: Esc didn't close it"));
+  await page.waitForTimeout(200);
+  const back = await page.evaluate(`document.activeElement?.getAttribute("aria-label") ?? ""`) as string;
+  if (back !== "Help for Board") problems.push(`help panel closed by Esc: focus on "${back}", expected the page's ? ("Help for Board")`);
+
+  await page.evaluate(`(() => { const h = document.querySelector("main h1"); h.setAttribute("tabindex", "-1"); h.focus(); })()`);
+  await page.keyboard.press("?");
+  await panel.waitFor().catch(() => problems.push("help panel: the ? key didn't open it"));
+  await page.waitForTimeout(200);
+  expect("help panel opened by the ? key", await focused(page), "H2 The Board");
+  await page.keyboard.press("?");
+  await panel.waitFor({ state: "detached" }).catch(() => problems.push("help panel: the ? key didn't close it"));
+  await page.waitForTimeout(200);
+  expect("help panel closed by the ? key", await focused(page), "H1 Work");
+
+  await page.locator("nav[aria-label='Main']").locator("xpath=..").getByRole("button", { name: "Help", exact: true }).focus();
+  await page.keyboard.press("Enter");
+  await panel.waitFor().catch(() => problems.push("help panel: the NavBar's Help didn't open it"));
+  await panel.getByRole("link", { name: "Open full guide" }).focus();
+  await page.keyboard.press("Enter");
+  await page.waitForURL("**/help/stories-and-workflows#the-board").catch(() => problems.push(`help panel: Open full guide went to ${page.url()}`));
+  await page.waitForTimeout(400);
+  expect("help panel's Open full guide", await focused(page), "H2 The Board");
+  // Leave the dock as it was found for the walks after this one.
+  await page.getByRole("button", { name: "Close help" }).click();
   return problems;
 }
 

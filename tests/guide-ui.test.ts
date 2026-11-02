@@ -2,7 +2,8 @@
  * tests/guide-ui.test.ts — The user guide's topic pages and how the in-app Help
  * assembles them (ui/src/lib/guide.ts): reading order, GitHub-style heading
  * anchors, link retargeting to Help routes, Previous / Next, old one-page
- * anchors, and the search index — and, over the real docs/guide/*.md and
+ * anchors, the search index, and one section of a topic (the dock's Help
+ * panel) — and, over the real docs/guide/*.md and
  * docs/PLUGINS.md, that every relative link points at a file and heading that
  * exist, that GUIDE.md and Getting Started list every page, and that each
  * page's headings nest without skipping a level.
@@ -14,7 +15,7 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import { assertEquals } from "./_assert.ts";
 import {
-  GUIDE_REPO_URL, HeadingSlugger, adjacentTopics, buildSearchIndex, guideLinkTarget, guidePages, guideTopics, headingSlug,
+  GUIDE_REPO_URL, HeadingSlugger, adjacentTopics, buildSearchIndex, guideLinkTarget, guidePages, guideSection, guideTopics, headingSlug,
   inlineText, pageHeadings, plainText, rewriteGuideLinks, searchAnnouncement, searchGuide, snippet, topicForAnchor,
 } from "../ui/src/lib/guide.ts";
 import { helpPath } from "../ui/src/lib/help.ts";
@@ -90,6 +91,23 @@ const MINI = {
   "g/01-tasks.md": "# Tasks\n\nA task is work.\n\n## The Queue\n\nWaiting work sits in the queue until a teammate claims it.\n\n### Retries\n\nA failed run may retry.\n",
   "g/glossary.md": "# Glossary\n\n## MORIBUND\n\nA run whose teammate went quiet. Not the queue.\n",
 };
+
+test("guideSection: a heading and what's under it, up to the next heading at its level", () => {
+  const tasks = guideTopics({
+    ...MINI,
+    "g/01-tasks.md": "# Tasks\n\nA task is work.\n\n## The Queue\n\nWaiting.\n\n```\n## not a heading\n```\n\n### Retries\n\nRetry.\n\n## Runs\n\nAttempts.\n",
+  })[1]!;
+  const queue = guideSection(tasks, "the-queue");
+  assertEquals([queue.title, queue.level, queue.anchor], ["The Queue", 2, "the-queue"]);
+  assertEquals(queue.markdown, "## The Queue\n\nWaiting.\n\n```\n## not a heading\n```\n\n### Retries\n\nRetry.");
+  assertEquals(guideSection(tasks, "retries").markdown, "### Retries\n\nRetry.");
+  assertEquals(guideSection(tasks, "runs").markdown, "## Runs\n\nAttempts.");
+  // No anchor, the title's, or an unknown one: the whole topic.
+  for (const a of [undefined, "", "tasks", "renamed-heading"]) {
+    const whole = guideSection(tasks, a);
+    assertEquals([whole.title, whole.level, whole.anchor, whole.markdown], ["Tasks", 1, "", tasks.markdown], String(a));
+  }
+});
 
 test("guideTopics: topic ids, titles, headings and app links, in reading order", () => {
   const topics = guideTopics(MINI);

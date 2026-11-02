@@ -9,6 +9,7 @@
 import { Plus, Minus, Archive, FolderPlus, LayoutGrid, BoxSelect, Map as MapIcon } from "lucide-react";
 import { ViewSwitch, type ViewMode } from "@/components/thoughts/ViewSwitch";
 import { Tooltip } from "@/components/ui/tooltip";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 /** The shared toolbar. `selectedCount` is the canvas selection's size. */
 export function ThoughtsToolbar({
@@ -80,6 +81,7 @@ export function ThoughtsToolbar({
       )}
 
       <div className="ml-auto flex items-center gap-2">
+        <PageHelpButton />
         {/* Zoom (canvas only): −  NN% (reset)  + */}
         {mode === "canvas" && (
           <div className="flex items-center rounded-md border border-border bg-card shadow-sm">

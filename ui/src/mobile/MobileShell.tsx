@@ -24,7 +24,9 @@
  * h1 when you switch tabs (hooks/useRouteFocus).
  *
  * The guide is here too, at `/m/help[/<topic>]` (pages/HelpPage with the phone
- * root; the ? in the header): not a tab, so while it's open no tab is current,
+ * root; the ? in the header, which opens the section for the phone view —
+ * lib/help.ts `helpForPath` — since there's no dock here to show it beside
+ * the page, docs/DESIGN.md "A Phone Is a Peek"): not a tab, so while it's open no tab is current,
  * and the four tabs stay mounted underneath.
  *
  * Opening `/m` clears a "desktop view" preference; the 🖥 button sets it and goes
@@ -48,7 +50,7 @@ import { MobileInbox } from "./MobileInbox";
 import { HelpCircle, Inbox, MessageSquare, Monitor, Pause, StickyNote, Users } from "lucide-react";
 import { IconButton, IconLink } from "@/components/ui/icon-button";
 import { HelpPage } from "@/pages/HelpPage";
-import { MOBILE_HELP_ROOT, isHelpPath } from "@/lib/help";
+import { MOBILE_HELP_ROOT, helpForPath, helpPath, isHelpPath } from "@/lib/help";
 import { Tooltip } from "@/components/ui/tooltip";
 import { SkipLink } from "@/components/SkipLink";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
@@ -66,6 +68,9 @@ export function MobileShell() {
   // The guide covers the tabs (they stay mounted underneath); no tab is current.
   const help = isHelpPath(pathname);
   const current = help ? null : tab;
+  // The ? opens this view's section of the guide (lib/help.ts helpForPath); on the guide, its start.
+  const pageHelp = helpForPath(pathname);
+  const helpTo = pageHelp ? helpPath(pageHelp.topic, pageHelp.anchor, MOBILE_HELP_ROOT) : MOBILE_HELP_ROOT;
   const mainRef = useRef<HTMLElement>(null);
   useDocumentTitle(pageTitleForPath(pathname));
   useRouteFocus(mainRef);
@@ -122,7 +127,7 @@ export function MobileShell() {
           )}
           <div className="ml-auto flex items-center">
             <IconLink
-              to={MOBILE_HELP_ROOT}
+              to={helpTo}
               label="Help"
               aria-current={help ? "page" : undefined}
               className={`inline-flex size-8 items-center justify-center rounded-md ${help ? "bg-accent text-accent-foreground" : "text-muted-foreground"}`}

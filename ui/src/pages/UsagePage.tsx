@@ -34,6 +34,7 @@ import {
   type GridCell, type GridPos, type UsageDay, type UsageKind, type UsageMetric, type UsageRun, type UsageTotals,
 } from "@/lib/usage";
 import { Tooltip } from "@/components/ui/tooltip";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 interface DailyResponse {
   today: string;
@@ -83,7 +84,10 @@ export function UsagePage() {
   return (
     <div className="container mx-auto max-w-5xl space-y-6 p-6">
       <div>
-        <h1 className="text-2xl font-bold">Usage</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl font-bold">Usage</h1>
+          <PageHelpButton />
+        </div>
         <p className="text-sm text-muted-foreground">Tokens and cost across the team — teammate work, the assistant chat, and pairing.</p>
       </div>
 

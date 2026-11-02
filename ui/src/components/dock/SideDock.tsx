@@ -1,6 +1,6 @@
 /**
- * SideDock — the left column: the **Assistant** and the **Team**, as two tabs,
- * reachable from every page.
+ * SideDock — the left column: the **Assistant**, the **Team**, and **Help**, as
+ * tabs, reachable from every page.
  *
  * The shell is two columns now: this dock, and the center (nav + page). The
  * dock holds both things you keep an eye on *while* looking at something else —
@@ -14,7 +14,7 @@
  * Layout, top to bottom:
  *
  *   [+] │ ⏱ Queue  1 at risk · 2 waiting            [⇤]   ← 56px, aligned with the nav
- *   [💬 Assistant ●] [👥 Team 2]        (tab's actions)   ← tab row
+ *   [💬 Assistant ●] [👥 Team 2] [? Help]  (tab's actions)  ← tab row
  *   … the active tab …
  *
  * The header row is dock-level (it belongs to both tabs, hence above them):
@@ -29,7 +29,7 @@
  * Three presentations, one dock:
  *  - `lg+` expanded — a resizable column (drag the inner edge, 300–560px, width
  *    remembered in localStorage).
- *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), quick-create
+ *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), help, quick-create
  *    (only the kinds switched on in Config),
  *    the team buttons, teammate avatars (linking to their live view), and the
  *    queue count (linking to the Queue tab; amber when anything is at risk).
@@ -39,6 +39,12 @@
  * The presentation is chosen with a real media query, not `hidden lg:flex`:
  * rendering both and hiding one would mount the chat twice (duplicate `msg-*`
  * ids, two scroll containers, double polling).
+ *
+ * The Help tab is `HelpPanel` (components/help): the guide section for the
+ * page in the center, opened by the page's ?, the NavBar's Help, or the `?`
+ * key (docs/DESIGN.md "Help Comes to You"; the open/close and focus logic is
+ * SideDockProvider's). Unlike the other two it mounts only while shown: it
+ * holds no live data and no half-typed text.
  *
  * The Assistant tab is `AssistantPane`: the bubble chat, or — in
  * `assistant.chatMode: "terminal"` — the teammate watch/pair view pointed at the
@@ -65,6 +71,8 @@ import { TeamSizeDialog } from "@/components/TeamSizeDialog";
 import { QueueSummary } from "@/components/queue/QueueSummary";
 import { SessionMenu } from "@/components/assistant/SessionMenu";
 import { NewWorkMenu } from "./NewWorkMenu";
+import { HelpPanel } from "@/components/help/HelpPanel";
+import { HELP_SHORTCUT } from "@/lib/help";
 import { START_WORK } from "@/lib/start-work";
 import { filterByFeatures } from "@/lib/features";
 import { useFeatures } from "@/hooks/useFeatures";
@@ -78,7 +86,7 @@ import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { countUnread } from "@/lib/unread";
 import { KEEP_FOCUS_ATTR } from "@/lib/route-focus";
 import {
-  MessageSquare, PanelLeftClose, PanelLeftOpen, X, Clock, Users,
+  MessageSquare, PanelLeftClose, PanelLeftOpen, X, Clock, Users, HelpCircle,
 } from "lucide-react";
 
 /**
@@ -94,7 +102,7 @@ const MAX_WIDTH = 560;
 const DEFAULT_WIDTH = 380;
 
 export function SideDock() {
-  const { open, setOpen, tab, setTab } = useSideDock();
+  const { open, setOpen, tab, setTab, openHelp, closeHelp } = useSideDock();
   // null = follow the live session; an id = read an earlier one.
   const [viewingId, setViewingId] = useState<string | null>(null);
   const stream = useAssistantStream(viewingId ?? undefined);
@@ -159,11 +167,16 @@ export function SideDock() {
           active={tab === "team"} onClick={() => openTab("team")} icon={Users} label="Team"
           count={team.online.length} attention={team.needsAttention}
         />
+        <TabButton active={tab === "help"} onClick={() => openTab("help")} icon={HelpCircle} label="Help" hint={`Help for this page (${HELP_SHORTCUT})`} />
       </div>
       <div className="flex shrink-0 items-center">
-        {tab === "assistant"
-          ? <SessionMenu viewingId={viewingId} onView={setViewingId} onChanged={stream.refresh} compact />
-          : <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} />}
+        {tab === "assistant" && <SessionMenu viewingId={viewingId} onView={setViewingId} onChanged={stream.refresh} compact />}
+        {tab === "team" && <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} />}
+        {tab === "help" && (
+          <IconButton className="h-8 w-8" onClick={closeHelp} label="Close help">
+            <X className="h-4 w-4" />
+          </IconButton>
+        )}
       </div>
     </div>
   );
@@ -176,6 +189,7 @@ export function SideDock() {
       <div className={tab === "team" ? "h-full" : "hidden"}>
         <TeamPanel team={team} />
       </div>
+      {tab === "help" && <HelpPanel />}
     </div>
   );
 
@@ -229,6 +243,9 @@ export function SideDock() {
               <UnreadBadge count={unread} />
             </button>
           </Tooltip>
+          <IconButton className="h-8 w-8 shrink-0 text-muted-foreground" onClick={() => openHelp()} label="Help for this page" hint={`Help for this page (${HELP_SHORTCUT})`} side="right">
+            <HelpCircle className="h-4 w-4" />
+          </IconButton>
           {startWork.map((item) => (
             <IconButton key={item.to} variant="outline" className="h-8 w-8 shrink-0" label={item.label} side="right" render={<Link to={item.to} />}>
               <item.icon className="h-4 w-4" />
@@ -294,7 +311,7 @@ export function SideDock() {
 
 /** One tab of the dock's segmented tab bar, with its live badge. */
 function TabButton({
-  active, onClick, icon: Icon, label, badge = 0, count, attention, dot, dotTitle,
+  active, onClick, icon: Icon, label, badge = 0, count, attention, dot, dotTitle, hint: extraHint,
 }: {
   active: boolean;
   onClick: () => void;
@@ -309,6 +326,8 @@ function TabButton({
   /** A status dot class after the label (e.g. the leader's presence). */
   dot?: string;
   dotTitle?: string;
+  /** More words for the tooltip (e.g. the tab's shortcut). */
+  hint?: string;
 }) {
   // The dot, count and badge say things in color and digits; the hint says
   // them in words (the tab's tooltip and description).
@@ -317,6 +336,7 @@ function TabButton({
     count !== undefined && `${count} online`,
     attention && "Needs attention",
     badge > 0 && `${badge} new message${badge === 1 ? "" : "s"}`,
+    extraHint,
   ].filter(Boolean).join(" · ");
   return (
     <Tooltip content={hint}>

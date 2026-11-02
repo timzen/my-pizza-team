@@ -29,64 +29,27 @@
  *   h1. An old one-page link (`/help#moribund`) is sent on to the topic that
  *   has the heading (lib/guide.ts `topicForAnchor`).
  * - Headings render at their own level here (the page's `#` title is its
- *   h1), and links into the guide go through the router.
+ *   h1), and links into the guide go through the router — components/help/
+ *   GuideMarkdown, the renderer the side dock's Help panel shares.
  *
  * Nothing here polls, so nothing re-renders under the reader (docs/DESIGN.md
  * "Polling Never Disturbs the Reader").
  */
 
-import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from "react";
 import { Link, Navigate, useLocation } from "react-router-dom";
-import type { Components } from "react-markdown";
 import { ChevronLeft, ChevronRight, List, Search } from "lucide-react";
-import { MarkdownView } from "@/components/ui/markdown-view";
+import { GuideMarkdown } from "@/components/help/GuideMarkdown";
+import { getSearchIndex, topicsFor } from "@/components/help/guideContent";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { focusTarget } from "@/hooks/useRouteFocus";
-import {
-  adjacentTopics, buildSearchIndex, guideTopics, searchAnnouncement, searchGuide, topicForAnchor,
-  type GuideTopic, type SearchEntry,
-} from "@/lib/guide";
+import { adjacentTopics, searchAnnouncement, searchGuide, topicForAnchor, type GuideTopic } from "@/lib/guide";
 import { HELP_HOME_TOPIC, HELP_ROOT, anchorOfHash, helpPath, helpTopicParam, resolveTopic } from "@/lib/help";
 import { scrollBehavior } from "@/lib/motion";
 
-/** Every guide page, as raw markdown keyed by its path (Vite inlines them at build time). */
-const GUIDE_MODULES = import.meta.glob<string>("../content/guide/*.md", { query: "?raw", import: "default", eager: true });
-
-/** The topics with links under each root (`/help`, `/m/help`), built once: the pages never change while the app runs. */
-const TOPICS = new Map<string, GuideTopic[]>();
-function topicsFor(root: string): GuideTopic[] {
-  let topics = TOPICS.get(root);
-  if (!topics) TOPICS.set(root, (topics = guideTopics(GUIDE_MODULES, root)));
-  return topics;
-}
-
-/** The search index, built on the first search (the same for every root: entries carry topics, not URLs). */
-let searchIndex: SearchEntry[] | null = null;
-function getSearchIndex(): SearchEntry[] {
-  return (searchIndex ??= buildSearchIndex(topicsFor(HELP_ROOT)));
-}
-
 /** How long typing must pause before the result count is announced. */
 const ANNOUNCE_DELAY_MS = 600;
-
-/** A link in a guide page: app paths and anchors through the router, anything else in a new tab. */
-function GuideLink({ href, children }: { href?: string; children?: ReactNode }) {
-  const cls = "text-primary underline hover:text-primary/80";
-  if (href && (href.startsWith("/") || href.startsWith("#"))) return <Link to={href} className={cls}>{children}</Link>;
-  return <a href={href} target="_blank" rel="noopener" className={cls}>{children}</a>;
-}
-
-/** The guide's renderers: headings at their own level (the page's `#` is its h1), router links. */
-const HELP_COMPONENTS: Components = {
-  h1: ({ children, id }) => <h1 id={id} className="scroll-mt-4 text-2xl font-bold mb-4">{children}</h1>,
-  h2: ({ children, id }) => <h2 id={id} className="scroll-mt-4 text-xl font-bold mt-8 mb-2">{children}</h2>,
-  h3: ({ children, id }) => <h3 id={id} className="scroll-mt-4 text-base font-semibold mt-6 mb-2">{children}</h3>,
-  h4: ({ children, id }) => <h4 id={id} className="scroll-mt-4 text-sm font-semibold mt-4 mb-1">{children}</h4>,
-  h5: ({ children, id }) => <h5 id={id} className="scroll-mt-4 text-sm font-semibold mt-3 mb-1">{children}</h5>,
-  h6: ({ children, id }) => <h6 id={id} className="scroll-mt-4 text-sm font-semibold mt-3 mb-1">{children}</h6>,
-  a: GuideLink,
-};
 
 /** The guide at `root` (`/help` on the desktop, `/m/help` on the phone). */
 export function HelpPage({ root = HELP_ROOT }: { root?: string }) {
@@ -121,7 +84,7 @@ export function HelpPage({ root = HELP_ROOT }: { root?: string }) {
         <article ref={contentRef} className="min-w-0 max-w-3xl flex-1">
           {current ? (
             <>
-              <MarkdownView key={current.topic} content={current.markdown} headingIds components={HELP_COMPONENTS} />
+              <GuideMarkdown key={current.topic} content={current.markdown} />
               <PrevNext root={root} topics={topics} topic={current.topic} />
             </>
           ) : (

@@ -18,6 +18,7 @@ import { apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 export function NewTaskPage() {
   const { id: storyId } = useParams<{ id: string }>();
@@ -42,6 +43,7 @@ export function NewTaskPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback={`/story/${storyId}`} title="Back to story" />
         <h1 className="text-2xl font-bold">Add Task to {storyId}</h1>
+        <PageHelpButton />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

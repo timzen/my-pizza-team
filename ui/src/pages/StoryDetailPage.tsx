@@ -25,6 +25,7 @@ import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -151,6 +152,7 @@ export function StoryDetailPage() {
           >
             <Trash2 className="h-4 w-4" />
           </IconButton>
+          <PageHelpButton />
         </div>
       </div>
 

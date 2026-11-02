@@ -35,6 +35,7 @@ import { outcomeLabel, triageNowBlocked, type TriageView } from "@/lib/triage";
 import { Lightbulb, Play, StickyNote } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { FormError } from "@/components/ui/form-error";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 export function TriagePage() {
   const { id = "" } = useParams();
@@ -66,6 +67,7 @@ export function TriagePage() {
         <Badge variant="secondary" className="font-mono text-[10px]">{note.id}</Badge>
         <Badge variant={latestOutcome === "proposals" ? "default" : "secondary"}>{outcomeLabel(latestOutcome)}</Badge>
         <div className="ml-auto flex items-center gap-2">
+          <PageHelpButton />
           {/* `?note=` selects (and centers) it, so this lands on the note itself. */}
           <Button variant="outline" size="sm" render={<Link to={`/thoughts?note=${encodeURIComponent(note.id)}`} />}>
             <StickyNote className="mr-1 h-4 w-4" />Edit note

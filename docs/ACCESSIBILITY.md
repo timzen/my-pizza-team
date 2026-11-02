@@ -73,7 +73,10 @@ one `<main>`, a title shaped `<page> · <team> · Pizza Team`, and "Skip to cont
 first Tab. After the routes, a full run walks a few **keyboard** paths and fails if focus
 lands anywhere unexpected: the skip link → the page's h1; a NavBar link → the new page's
 h1; a Work tab → that tab (not the heading); a confirm dialog opens on **Cancel** and Esc
-returns focus to the button that opened it; and the Help — its search box by keyboard
+returns focus to the button that opened it; the dock's Help panel — the page's ?
+opens it on the page's section with focus on its heading (and the open panel passes axe),
+Esc closes it and focus returns to the ?, the `?` key opens and closes it, the NavBar's
+Help opens it, and **Open full guide** lands on that section's heading in `/help`; and the Help — its search box by keyboard
 (the result count announced, ↓ + Enter onto a result focuses its heading, Esc clears), a
 `#section` deep link focusing its heading with the topic `aria-current` in the Guide nav,
 an old `/help#anchor` landing on the right topic, and **Next** moving focus to the next

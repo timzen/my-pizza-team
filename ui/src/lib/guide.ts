@@ -216,6 +216,47 @@ export function topicForAnchor(topics: readonly GuideTopic[], anchor: string, pr
   return topics.find(has)?.topic ?? null;
 }
 
+/** One section of a topic, as the side dock's Help panel shows it (`guideSection`). */
+export interface GuideSection {
+  /** The section's heading text (the topic's title for the whole topic). */
+  title: string;
+  /** Its heading's level in the page: 1 for the whole topic, 2 for a `##` section, … */
+  level: number;
+  /** The heading's anchor, or "" for the whole topic. */
+  anchor: string;
+  /** The section's markdown, from its heading to the next heading at its level or above. */
+  markdown: string;
+}
+
+/**
+ * One section of a topic: the heading with this anchor and everything under
+ * it, up to the next heading at the same level or above (so a `##` section
+ * keeps its `###`s). No anchor — or one the page doesn't have, say after a
+ * heading was renamed — is the whole topic, so a stale link still helps.
+ */
+export function guideSection(topic: GuideTopic, anchor?: string): GuideSection {
+  const whole: GuideSection = { title: topic.title, level: 1, anchor: "", markdown: topic.markdown };
+  const at = anchor ? topic.headings.findIndex((h) => h.id === anchor) : -1;
+  const heading = topic.headings[at];
+  if (!heading || heading.level === 1) return whole;
+  // The same walk as pageHeadings, so the i-th heading line here is the i-th heading there.
+  const lines = topic.markdown.split("\n");
+  let inFence = false;
+  let h = -1;
+  let start = -1;
+  let end = lines.length;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i] ?? "";
+    if (/^```/.test(line)) inFence = !inFence;
+    if (inFence || !/^#{1,6}[ \t]+\S/.test(line)) continue;
+    h++;
+    if (h === at) start = i;
+    else if (start >= 0 && (topic.headings[h]?.level ?? 1) <= heading.level) { end = i; break; }
+  }
+  if (start < 0) return whole;
+  return { title: heading.text, level: heading.level, anchor: heading.id, markdown: lines.slice(start, end).join("\n").trim() };
+}
+
 // ─── Search ──────────────────────────────────────────────────────────
 
 /** One searchable section: a heading and the plain text under it, up to the next heading. */

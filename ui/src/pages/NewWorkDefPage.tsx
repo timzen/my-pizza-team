@@ -32,6 +32,7 @@ import { apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { FormError } from "@/components/ui/form-error";
+import { PageHelpButton } from "@/components/help/PageHelpButton";
 
 type WorkDefType = "Solitary" | "Scheduled";
 
@@ -110,6 +111,7 @@ export function NewWorkDefPage() {
       <div className="flex items-center gap-3">
         <BackButton fallback={backTo} title="Back" />
         <h1 className="text-2xl font-bold">{heading}</h1>
+        <PageHelpButton />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">

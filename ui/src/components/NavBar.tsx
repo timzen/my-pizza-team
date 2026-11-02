@@ -35,15 +35,20 @@
  * nav), and the lit one is `aria-current="page"`, so a screen reader says
  * where you are too (docs/ACCESSIBILITY.md "Structure").
  *
+ * Help (the ? icon) opens the side dock's Help panel on this page's section
+ * (lib/help.ts `helpForPath`; docs/DESIGN.md "Help Comes to You") —
+ * Shift-click goes to that section of the full guide instead, and on the Help
+ * itself it's a plain link to `/help`.
+ *
  * Under the bar, the daemon's one-line **notices** (`/api/status` `notices` —
  * today only the "the context library was removed" line 0.34–0.36's persona
  * migration left, until it's dismissed),
  * each with a link to Config → Personas and a dismiss (`DELETE /api/notices/:id`).
  */
 
-import { useEffect, useState } from "react";
-import { Link, useLocation } from "react-router-dom";
-import { IconLink } from "@/components/ui/icon-button";
+import { useEffect, type MouseEvent } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
+import { IconButton, IconLink } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { ThemeToggle } from "./ThemeToggle";
 import { Pizza, Settings, Pause, Play, HelpCircle, ChartColumn, Info, X } from "lucide-react";
@@ -52,7 +57,9 @@ import { PERSONAS_TAB_PATH } from "@/lib/personas";
 import { navSectionForPath, type NavSection } from "@/lib/nav-section";
 import { badgeLabel, homeLinkCounts, homeLinkLabel, INBOX_CHANGED_EVENT } from "@/lib/inbox";
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
-import { HELP_ROOT, isHelpPath } from "@/lib/help";
+import { HELP_ROOT, HELP_SHORTCUT, helpPath, isHelpPath } from "@/lib/help";
+import { useSideDock } from "@/hooks/useSideDock";
+import { useWorkDefTypeForPath } from "@/hooks/useWorkDefType";
 import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
 import type { StatusResponse } from "@shared/protocol";
 import { useAnnounceUnread } from "@/hooks/useLiveAnnouncements";
@@ -141,18 +148,7 @@ export function NavBar() {
           >
             <ChartColumn className="h-4 w-4" />
           </IconLink>
-          <IconLink
-            to={HELP_ROOT}
-            className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
-              isHelpPath(location.pathname)
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-            }`}
-            label="Help"
-            aria-current={isHelpPath(location.pathname) ? "page" : undefined}
-          >
-            <HelpCircle className="h-4 w-4" />
-          </IconLink>
+          <HelpButton />
           <IconLink
             to="/config"
             className={`p-1.5 @2xl:p-2 rounded-md transition-colors ${
@@ -191,29 +187,37 @@ export function NavBar() {
 }
 
 /**
- * On `/work-defs/:id`, the WorkDef's type (Solitary/Scheduled/…), which decides
- * the lit nav section; null elsewhere or until it loads. Fetched here (rather
- * than pushed up from the page) so deep links highlight correctly too.
+ * The NavBar's Help: opens (or closes) the side dock's Help panel on this
+ * page's section; Shift-click goes to that section in the full guide. On the
+ * Help itself (no page to explain) it's the link to `/help`, lit.
  */
-function useWorkDefTypeForPath(pathname: string): string | null {
-  const match = /^\/work-defs\/([^/]+)\/?$/.exec(pathname);
-  const id = match?.[1] && match[1] !== "new" ? decodeURIComponent(match[1]) : null;
-  const [loaded, setLoaded] = useState<{ id: string; type: string | null } | null>(null);
-
-  useEffect(() => {
-    if (!id) return;
-    let cancelled = false;
-    fetch(`/api/work-defs/${encodeURIComponent(id)}`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((json: { workDef?: { type?: string } } | null) => {
-        if (!cancelled) setLoaded({ id, type: json?.workDef?.type ?? null });
-      })
-      .catch(() => { if (!cancelled) setLoaded({ id, type: null }); });
-    return () => { cancelled = true; };
-  }, [id]);
-
-  // Ignore a result for a different WorkDef (stale until the new fetch lands).
-  return id && loaded?.id === id ? loaded.type : null;
+function HelpButton() {
+  const { pathname } = useLocation();
+  const navigate = useNavigate();
+  const { helpOpen, toggleHelp, pageHelp } = useSideDock();
+  if (isHelpPath(pathname)) {
+    return (
+      <IconLink to={HELP_ROOT} className="p-1.5 @2xl:p-2 rounded-md transition-colors bg-accent text-accent-foreground" label="Help" aria-current="page">
+        <HelpCircle className="h-4 w-4" />
+      </IconLink>
+    );
+  }
+  const onClick = (e: MouseEvent) => {
+    if (e.shiftKey) navigate(helpPath(pageHelp.topic, pageHelp.anchor));
+    else toggleHelp();
+  };
+  return (
+    <IconButton
+      onClick={onClick}
+      label="Help"
+      hint={`Help for ${pageHelp.page} (${HELP_SHORTCUT}) — Shift-click for the full guide`}
+      aria-expanded={helpOpen}
+      aria-keyshortcuts={HELP_SHORTCUT}
+      className={helpOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"}
+    >
+      <HelpCircle className="h-4 w-4" />
+    </IconButton>
+  );
 }
 
 /**

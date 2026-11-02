@@ -10,7 +10,8 @@
  * mpt ships as an npm package: package.json "files" is the one list, and the
  * release workflow smoke-tests the packed tarball before publishing. This guards
  * both — and that the UI build embeds the user guide's topic pages
- * (docs/guide/*.md → ui/src/content/guide/, rendered by the Help page), so the
+ * (docs/guide/*.md → ui/src/content/guide/, bundled by components/help/guideContent
+ * and rendered by the Help page and the dock's Help panel), so the
  * package needs no docs of its own beyond docs/PLUGINS.md for plugin authors.
  */
 
@@ -54,8 +55,10 @@ test("the UI build embeds every user guide page", () => {
   assertEquals(/cp \.\.\/docs\/guide\/\*\.md src\/content\/guide\//.test(ui.scripts.prebuild ?? ""), true,
     "ui prebuild should copy ../docs/guide/*.md into src/content/guide/");
   assertEquals(/npm run prebuild/.test(ui.scripts.build ?? ""), true, "ui build should run the prebuild");
-  const help = code(path.join(ROOT, "ui/src/pages/HelpPage.tsx"));
-  assertEquals(help.includes('import.meta.glob<string>("../content/guide/*.md"'), true, "HelpPage should bundle every copied page");
+  // The bundling lives in components/help/guideContent.ts, shared by the Help page and the dock's Help panel.
+  const content = code(path.join(ROOT, "ui/src/components/help/guideContent.ts"));
+  assertEquals(content.includes('import.meta.glob<string>("../../content/guide/*.md"'), true, "guideContent should bundle every copied page");
+  assertEquals(code(path.join(ROOT, "ui/src/pages/HelpPage.tsx")).includes('from "@/components/help/guideContent"'), true, "HelpPage should read the bundled pages");
   const pages = fs.readdirSync(path.join(ROOT, "docs/guide")).filter((f) => f.endsWith(".md"));
   assertEquals(pages.includes("00-getting-started.md") && pages.includes("glossary.md"), true);
 });
