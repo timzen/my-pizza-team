@@ -2322,6 +2322,13 @@ capture a note), each ticked off by **doing it**, wherever and however it was do
   the next load (`completedAt`). Dismiss says where it went ("reopen it from Help"),
   and Help's **Show the Welcome checklist** is how it comes back. On the phone it's
   the same card at the top of Team, minus Spawn (see "A Phone Is a Peek").
+- **The terminal points at it.** The first commands a new user runs — `mpt setup`,
+  `mpt start --daemon`, `mpt lead` — end with one line, "Open http://localhost:<port>/
+  — the Welcome checklist walks you through your first task", when the daemon says
+  the card is showing (`visible`, so the terminal and the UI agree). An onboarded team
+  keeps the usual output, and an unreachable daemon adds nothing: a pointer, never a
+  warning (`cli/onboarding-hint.ts`). `mpt doctor` doesn't print it — it checks
+  prerequisites, it isn't a guide.
 
 ## A Phone Is a Peek
 

@@ -47,6 +47,7 @@ import { mptInvocation } from "../daemon/self.ts";
 import { isMainModule } from "../shared/main-module.ts";
 import { cmdAgent, cmdSetupHarness } from "./agent.ts";
 import { LOG_FILENAME, redirectOutputToLog } from "../daemon/lifecycle.ts";
+import { printOnboardingHint } from "./onboarding-hint.ts";
 import { daemonErrorMessage, type StatusSummaryInput, statusSummaryLines } from "./features.ts";
 // Single source of truth for the version: the root package.json (shared/paths.ts
 // packageVersion; scripts/sync-version.ts copies it into the extension's manifest).
@@ -136,6 +137,7 @@ async function cmdStart(args: string[]): Promise<void> {
     if (newPid && !exited) {
       console.log(`✅ Daemon started (PID ${newPid}) on http://localhost:${port}`);
       console.log(`   Log: ${logPath}`);
+      await printOnboardingHint(port, teamToken(teamDir), "   ");
     } else {
       console.error(`❌ The daemon ${exited ? "exited during startup" : "did not start within 15s"}. See ${logPath}`);
       process.exit(1);
@@ -334,6 +336,11 @@ function readTeamConfig(teamDir: string): TeamConfig {
   }
 }
 
+/** The API token the CLI sends the daemon (`MPT_API_TOKEN`, else config.json's), or null. */
+function teamToken(teamDir: string): string | null {
+  return resolveToken(readTeamConfig(teamDir).apiToken as string | undefined);
+}
+
 /**
  * `mpt lead` — start the leader in tmux and attach to it.
  *
@@ -411,6 +418,8 @@ async function cmdLead(args: string[]): Promise<void> {
     console.error(`❌ Could not start the leader: ${(e as Error).message}`);
     process.exit(1);
   }
+  // Before attaching, so it's in the scrollback when the user detaches.
+  if (daemonUp) await printOnboardingHint(port, resolveToken(config.apiToken as string | undefined), "   ");
 
   if (args.includes("--no-attach")) {
     console.log(`   Attach with: tmux attach -t ${session}`);
@@ -543,6 +552,7 @@ async function cmdSetup(args: string[]): Promise<void> {
     console.log("✅ Already set up — nothing to change.");
     for (const note of plan.respected) console.log(`   ·  ${note}`);
     console.log("\n   Run `mpt doctor` to check the details.");
+    await printOnboardingHint(getPort(), teamToken(teamDir), "   ");
     return;
   }
 
@@ -606,6 +616,7 @@ async function cmdSetup(args: string[]): Promise<void> {
 
   console.log("\nNext: `mpt start --daemon` to run the daemon, then `mpt lead` to start the leader.");
   console.log("      `mpt doctor` re-checks everything.");
+  await printOnboardingHint(getPort(), teamToken(teamDir), "      ");
 }
 
 /**

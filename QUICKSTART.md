@@ -67,28 +67,24 @@ you turn them on under **Config → General → Work items** (or with `"features
 `.my-pizza-team/config.json`; see [Feature toggles](README.md#feature-toggles)). A
 team directory that already existed keeps everything on.
 
-## 4. Start the daemon
+## 4. Start the daemon and the leader
 
 ```bash
 mpt start --daemon
-```
-
-The daemon runs in the background and serves the web UI at
-**http://localhost:7437/**. A new team's home page has a **Welcome checklist** that
-walks you through the rest — starting the leader, a first teammate, a one-click sample
-task — and ticks each step off as you do it.
-
-## 5. Start the leader
-
-```bash
 mpt lead
 ```
 
-This opens the leader in a tmux window and attaches you to it. The leader is the agent
-you chat with — in that window or in the web UI, which is one conversation. Detach
-with `Ctrl-b d`; `mpt lead` again reattaches.
+The daemon runs in the background and serves the web UI at
+**http://localhost:7437/**. `mpt lead` opens the leader — the agent you chat with,
+here or in the web UI — in a tmux window and attaches you to it; detach with
+`Ctrl-b d`, and `mpt lead` again reattaches.
 
-## 6. Check everything
+Then open the web UI. A new team's home page has a **Welcome checklist** that walks
+you through the rest — a first teammate, a one-click sample task, watching it run,
+reviewing it in the Inbox — and ticks each step off as you do it. Until you're
+through it, `mpt start --daemon` and `mpt lead` end by pointing you there.
+
+## 5. Check everything
 
 ```bash
 mpt doctor
@@ -102,16 +98,12 @@ something seems off.
 
 ## Next steps
 
-- **Set your team size** — click the people icon next to **Team** in the teammate
-  column (or **Min Teammates** on Config › General). The daemon keeps that many
-  teammates online, starting them in tmux windows you can watch with
-  `tmux attach -t my-pizza-team`. The person-plus icon adds a one-off teammate in a specific
-  directory — teammates prefer work in their own directory.
+- **Set your team size** — the people icon next to **Team** (or **Min Teammates** on
+  Config › General); the daemon keeps that many teammates online.
 - **Create a story** — turn Stories on (**Config → General → Work items**), then
   **New Story** on the home page (pick a workflow), and add tasks to it.
 - **Run standalone work** — the **Tasks** page for one-off jobs, **Schedule** for
   cron-driven ones.
-- **Review results** — completed work lands in the **Inbox** on the home page.
 - **Configure workflows** — **Config → Workflows** customises states and picks
   each agent state's persona; write and edit personas on **Config → Personas**.
 - **Try other agents (experimental)** — Kiro and Claude Code can run as teammates too:
