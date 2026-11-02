@@ -44,8 +44,27 @@ to do:
 Every step has a **Learn more** link to its part of this guide. When all are done the
 card says **You're set**, with a few pages to read next, and goes away. **Dismiss**
 hides it sooner; **Show the Welcome checklist**, at the bottom of the Help panel and
-under this guide's contents, brings it back. A team that already has finished work
+under this guide's contents, brings it back. The card also offers a short
+[tour](#the-tour) of the screen. A team that already has finished work
 doesn't see it unless it asks.
+
+## The tour
+
+Want to see where things are first? **Take the tour** shows each area of the screen in
+turn — the top bar (Home, Work, Thoughts), the side dock with the assistant, Home's
+Queue and Inbox, Work, Thoughts, Config, and Help — with a couple of sentences beside
+each and the area outlined. It's on the Welcome card (until you've taken it), at the
+bottom of the Help panel, and under this guide's contents.
+
+- **Next** and **Back** move through the steps ("Step 3 of 7"); **Skip tour** or
+  **Esc** ends it at any point, and **Done** on the last step.
+- It doesn't take over the page: click or Tab out to try something, and the tour stays
+  where it was. Areas that aren't on screen — Work with every kind switched off, say —
+  are left out.
+- With a screen reader, each step is announced, focus is on the step's buttons, and the
+  outlined area is described by the step's text.
+- This browser remembers you've taken it. The phone view has no tour: its four tabs
+  are all there is to it.
 
 ## Read next
 

@@ -20,7 +20,9 @@
  * "You're set" with a few guide topics to read next, and goes once closed (the
  * daemon has latched it complete, so it doesn't come back on reload).
  * **Dismiss** hides it for good, until Help's "Show the Welcome checklist"
- * (components/onboarding/ShowWelcomeButton).
+ * (components/onboarding/ShowWelcomeButton). Under its hint, **Take the tour**
+ * offers the optional guided tour of the screen until this browser has taken
+ * or skipped it (components/tour/TakeTourButton; not on the phone).
  *
  * Accessibility (docs/ACCESSIBILITY.md): a `<section>` region named by its h2;
  * the steps are an ordered list whose done / next / not-done state is text
@@ -58,6 +60,7 @@ import { MOBILE_TAB_PATHS } from "@/lib/mobile";
 import { WELCOME_NEXT_READING, WELCOME_STEPS, welcomeProgress } from "@/lib/onboarding";
 import { START_WORK } from "@/lib/start-work";
 import { cn } from "@/lib/utils";
+import { TakeTourButton } from "@/components/tour/TakeTourButton";
 
 /** The id of the phone Team tab's Queue heading, which "Watch it run" moves focus to. */
 export const MOBILE_QUEUE_HEADING_ID = "mobile-team-queue";
@@ -117,6 +120,8 @@ export function WelcomeCard({ phone = false }: { phone?: boolean }) {
           <p id={hintId} className="text-sm text-muted-foreground">
             A few first steps; each ticks off when you do it, wherever you do it. You can reopen this from Help.
           </p>
+          {/* The optional tour of the screen, until this browser has taken it (desktop only). */}
+          <TakeTourButton onlyIfNew className="-ml-1.5 text-sm" />
         </div>
         <Button variant="ghost" size="sm" onClick={close}>Dismiss</Button>
       </div>

@@ -83,7 +83,15 @@ an old `/help#anchor` landing on the right topic, and **Next** moving focus to t
 topic's h1. Then the **announcer**, on the desktop and at
 `/m`: exactly one polite and one assertive live region, both silent after a load (nothing
 changed, so nothing is said), the chat transcript a `role="log"` that doesn't read itself
-out, and a story's **Make pending** spoken as "Story made pending".
+out, and a story's **Make pending** spoken as "Story made pending". Last, the **guided
+tour** (components/tour/TourProvider), on the desktop and at **200% zoom** (a 720×450
+viewport at twice the density — the narrow layout): started from /help by keyboard, focus
+lands on the popup's Next; on every step the popup reads "Step n of N", the step is
+announced politely, the outlined area's `aria-describedby` names the step's text, the
+popup is fully on screen, and **axe passes with the tour open**; Tab leaves the popup
+(into the area) without closing it; Done hands focus to Home's h1 and is remembered;
+started from the Help panel, Esc ends it and focus returns to its button; and `/m/help`
+offers no tour.
 
 **Contrast in every theme** is also a unit test (`tests/contrast-ui.test.ts`, in `npm test`):
 it parses `ui/src/index.css` and holds the default palette's text — foreground and muted

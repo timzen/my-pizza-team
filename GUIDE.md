@@ -3,7 +3,7 @@
 The user guide is split into short topic pages in [docs/guide/](docs/guide/). The
 same pages are the in-app **Help** page.
 
-- [Getting started](docs/guide/00-getting-started.md) — what MPT is and the five things you'll do
+- [Getting started](docs/guide/00-getting-started.md) — what MPT is and the five things you'll do, the Welcome checklist and the tour
 - [Tasks and runs](docs/guide/01-tasks-and-runs.md) — tasks, runs, pending, the Queue and Inbox, retries
 - [Stories and workflows](docs/guide/02-stories-and-workflows.md) — stories, the Board, workflows, review
 - [Teammates](docs/guide/03-teammates.md) — the team, watching and pairing, team size, usage

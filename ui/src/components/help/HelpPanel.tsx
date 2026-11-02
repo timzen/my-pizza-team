@@ -20,7 +20,8 @@
  * panel closes it, and the dock gives focus back to where it was.
  *
  * The footer's **Show the Welcome checklist** reopens the first-run card on
- * Home (components/onboarding/ShowWelcomeButton).
+ * Home (components/onboarding/ShowWelcomeButton), and **Take the tour** starts
+ * the guided tour (components/tour/TakeTourButton).
  *
  * Nothing here polls: the panel only changes when you open a section
  * (docs/DESIGN.md "Polling Never Disturbs the Reader").
@@ -32,6 +33,7 @@ import { BookOpen } from "lucide-react";
 import { GuideMarkdown } from "./GuideMarkdown";
 import { GuideLinkContext, topicsFor } from "./guideContent";
 import { ShowWelcomeButton } from "@/components/onboarding/ShowWelcomeButton";
+import { TakeTourButton } from "@/components/tour/TakeTourButton";
 import { useSideDock, type HelpTarget } from "@/hooks/useSideDock";
 import { focusTarget } from "@/hooks/useRouteFocus";
 import { guideSection } from "@/lib/guide";
@@ -89,8 +91,9 @@ export function HelpPanel() {
           <GuideMarkdown key={sectionKey} content={section.markdown} variant="panel" topLevel={section.level} />
         </GuideLinkContext>
       </div>
-      <div className="shrink-0 border-t border-border px-3 py-1.5 text-xs">
+      <div className="flex shrink-0 flex-wrap items-center gap-x-2 border-t border-border px-3 py-1.5 text-xs">
         <ShowWelcomeButton />
+        <TakeTourButton />
       </div>
     </section>
   );

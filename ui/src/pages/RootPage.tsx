@@ -7,7 +7,8 @@
  * both stay deep-linkable.
  *
  * A new team sees the **Welcome checklist** above the tabs (components/
- * onboarding/WelcomeCard) until it's done or dismissed.
+ * onboarding/WelcomeCard) until it's done or dismissed. The tabs are the
+ * guided tour's "Queue and Inbox" stop (`data-tour="home"`, lib/tour.ts).
  *
  * Several things deliberately live elsewhere now: the **assistant chat** and the
  * **quick-create buttons** moved into the left `SideDock`, so starting work
@@ -38,7 +39,7 @@ export function RootPage() {
       {/* The page's heading for screen readers; the lit tab says it visually. */}
       <h1 className="sr-only">{isQueue ? "Queue" : "Inbox"}</h1>
       <WelcomeCard />
-      <div className="flex items-center gap-2">
+      <div data-tour="home" className="flex w-fit items-center gap-2">
         <RouteTabs label="Queue and Inbox" tabs={TABS} />
         <PageHelpButton />
       </div>

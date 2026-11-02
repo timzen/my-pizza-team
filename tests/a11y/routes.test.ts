@@ -27,7 +27,9 @@
  * the side dock's Help panel opens, closes and hands focus back by keyboard
  * (and passes axe while open — `helpPanelProblems`), and that
  * the live announcer's regions are there, silent on load, and speak a save's
- * result (`liveRegionProblems`), desktop and phone.
+ * result (`liveRegionProblems`), desktop and phone; and the guided tour walks
+ * by keyboard, passing axe on every step, on the desktop and at 200% zoom
+ * (`tourProblems`), and isn't offered on the phone.
  */
 
 import * as fs from "node:fs";
@@ -265,7 +267,7 @@ async function helpPanelProblems(page: Page): Promise<string[]> {
   await page.waitForTimeout(200);
   expect("help panel closed by the ? key", await focused(page), "H1 Work");
 
-  await page.locator("nav[aria-label='Main']").locator("xpath=..").getByRole("button", { name: "Help", exact: true }).focus();
+  await page.locator("header:has(nav[aria-label='Main'])").getByRole("button", { name: "Help", exact: true }).focus();
   await page.keyboard.press("Enter");
   await panel.waitFor().catch(() => problems.push("help panel: the NavBar's Help didn't open it"));
   await panel.getByRole("link", { name: "Open full guide" }).focus();
@@ -321,6 +323,103 @@ async function helpProblems(page: Page, base: string): Promise<string[]> {
 }
 
 /**
+ * The guided tour by keyboard (components/tour/TourProvider, lib/tour.ts),
+ * started from /help's "Take the tour": it goes Home, focus lands on the
+ * popup's Next, and on every step the popup says "Step n of N", the step is
+ * announced politely, the highlighted area's aria-describedby names the
+ * step's text, the popup is fully on screen, and the page — tour open — passes
+ * axe. On the third step Tab leaves the popup (into the area) and the tour
+ * stays up: nothing traps focus. Enter walks it to Done, which puts focus on
+ * the page's h1 (the button that started it went with /help) and remembers it
+ * in localStorage; started again from the dock's Help panel, Esc ends it and
+ * focus goes back to that button. `where` names the context (desktop, or
+ * 200% zoom: a 720×450 viewport at twice the pixel density — the narrow
+ * layout, with the dock as a floating button).
+ */
+async function tourProblems(context: BrowserContext, base: string, where: string): Promise<string[]> {
+  const problems: string[] = [];
+  const say = (p: string) => problems.push(`tour (${where}): ${p}`);
+  const page = await load(context, base, "/help");
+  try {
+    const start = page.getByRole("button", { name: "Take the tour" });
+    if (!await start.count()) { say("no Take the tour button on /help"); return problems; }
+    await start.focus();
+    await page.keyboard.press("Enter");
+    const popup = page.locator("[data-tour-popup]");
+    await popup.waitFor().catch(() => say("Take the tour didn't open it"));
+    await page.waitForURL(`${base}/`).catch(() => say(`starting went to ${page.url()}, not Home`));
+    await page.waitForTimeout(300);
+    for (let i = 0; i < 10; i++) {
+      if (!await popup.count()) { say(`the popup went away before Done (after ${i} steps)`); break; }
+      const facts = await page.evaluate(`(() => {
+        const pop = document.querySelector("[data-tour-popup]");
+        const id = pop.getAttribute("data-tour-popup");
+        const area = document.querySelector('[data-tour="' + id + '"]');
+        const r = pop.getBoundingClientRect();
+        return {
+          id, text: pop.textContent, textId: pop.getAttribute("aria-describedby"), role: pop.getAttribute("role"),
+          describedBy: area ? area.getAttribute("aria-describedby") : null,
+          title: pop.querySelector("h2, [id='" + pop.getAttribute("aria-labelledby") + "']")?.textContent ?? "",
+          inView: r.top >= 0 && r.left >= 0 && r.bottom <= innerHeight + 1 && r.right <= innerWidth + 1,
+          focusInPopup: !!document.activeElement?.closest("[data-tour-popup]"),
+          focused: document.activeElement?.textContent?.trim() ?? "",
+        };
+      })()`) as { id: string; text: string; textId: string | null; role: string | null; describedBy: string | null; title: string; inView: boolean; focusInPopup: boolean; focused: string };
+      const pos = /Step (\d+) of (\d+)/.exec(facts.text);
+      const step = `step ${i + 1} (${facts.id})`;
+      if (!pos || Number(pos[1]) !== i + 1) { say(`${step}: the popup says "${pos?.[0] ?? "no Step n of N"}"`); break; }
+      const total = Number(pos[2]);
+      if (i === 0 && facts.focused !== "Next") say(`opening put focus on "${facts.focused}", expected the popup's Next`);
+      if (!facts.focusInPopup) say(`${step}: focus isn't in the popup`);
+      if (facts.role !== "dialog") say(`${step}: the popup's role is ${facts.role}, expected dialog`);
+      if (!facts.textId || !(facts.describedBy ?? "").split(" ").includes(facts.textId)) {
+        say(`${step}: the highlighted area's aria-describedby is "${facts.describedBy}", expected it to include the step's text (${facts.textId})`);
+      }
+      if (!facts.inView) say(`${step}: the popup isn't fully on screen`);
+      const announced = `Tour, step ${i + 1} of ${total}: ${facts.title}`;
+      await page.waitForFunction(`document.querySelector("[data-announcer=polite]")?.textContent === ${JSON.stringify(announced)}`, undefined, { timeout: 3000 })
+        .catch(() => say(`${step}: not announced as "${announced}"`));
+      const axe = await new AxeBuilder({ page }).withTags(WCAG_TAGS).analyze();
+      for (const v of axe.violations) if (v.impact === "serious" || v.impact === "critical") say(`${step}: ${v.impact} ${v.id} (${v.nodes.length} element(s)): ${v.help}`);
+      if (i === 2) {
+        await page.keyboard.press("Tab");
+        const out = await page.evaluate(`!document.activeElement?.closest("[data-tour-popup]") && !!document.activeElement?.closest("[data-tour]")`) as boolean;
+        if (!out) say("Tab from Next didn't move focus out of the popup into the highlighted area");
+        if (!await popup.count()) say("tabbing out of the popup closed the tour");
+        await popup.getByRole("button", { name: "Next" }).focus();
+      }
+      const last = i + 1 === total;
+      await page.keyboard.press("Enter");
+      await page.waitForTimeout(300);
+      if (last) break;
+    }
+    await popup.waitFor({ state: "detached", timeout: 2000 }).catch(() => say("Done didn't end the tour"));
+    await page.waitForTimeout(200);
+    const after = await focused(page);
+    if (after !== "H1 Inbox") say(`after Done focus is on "${after}", expected "H1 Inbox" (Home's heading)`);
+    if (!await page.evaluate(`localStorage.getItem("mpt.tour.doneAt")`)) say("finishing wasn't remembered (mpt.tour.doneAt)");
+
+    // Again, from the dock's Help panel; Esc ends it and focus goes back to the button.
+    await page.keyboard.press("?");
+    const panelStart = page.locator("section[aria-label='Help for this page']").getByRole("button", { name: "Take the tour" });
+    await panelStart.waitFor().catch(() => say("no Take the tour in the Help panel"));
+    await panelStart.focus();
+    await page.keyboard.press("Enter");
+    await popup.waitFor().catch(() => say("the Help panel's Take the tour didn't open it"));
+    await page.waitForTimeout(400);
+    await page.keyboard.press("Escape");
+    await popup.waitFor({ state: "detached", timeout: 2000 }).catch(() => say("Esc didn't end the tour"));
+    await page.waitForTimeout(200);
+    const back = await focused(page);
+    if (back !== "BUTTON Take the tour") say(`after Esc focus is on "${back}", expected the Help panel's Take the tour`);
+    await page.getByRole("button", { name: "Close help" }).click().catch(() => {});
+  } finally {
+    await page.close();
+  }
+  return problems;
+}
+
+/**
  * The announcer's regions on the page: exactly one polite (`role=status`) and
  * one assertive (`role=alert`), both present from the start (a region added
  * with its text isn't spoken) and silent on load — a page load or a poll must
@@ -372,6 +471,14 @@ test("the web UI's main routes have no unexpected serious or critical axe violat
       keyboard = await keyboardProblems(desktop, base);
       const mobile = await load(phone, base, "/m");
       try { keyboard.push(...await liveRegionProblems(mobile, "phone")); } finally { await mobile.close(); }
+      // The guided tour: desktop, and 200% zoom; the phone view offers none.
+      keyboard.push(...await tourProblems(desktop, base, "desktop"));
+      const zoomed = await browser.newContext({ viewport: { width: 720, height: 450 }, deviceScaleFactor: 2, colorScheme: "light" });
+      keyboard.push(...await tourProblems(zoomed, base, "200% zoom"));
+      const mobileHelp = await load(phone, base, "/m/help");
+      try {
+        if (await mobileHelp.getByRole("button", { name: "Take the tour" }).count()) keyboard.push("tour (phone): /m/help offers Take the tour, but the phone view has no tour");
+      } finally { await mobileHelp.close(); }
     }
   } finally {
     await browser?.close();

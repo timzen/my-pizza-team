@@ -2322,6 +2322,20 @@ capture a note), each ticked off by **doing it**, wherever and however it was do
   the next load (`completedAt`). Dismiss says where it went ("reopen it from Help"),
   and Help's **Show the Welcome checklist** is how it comes back. On the phone it's
   the same card at the top of Team, minus Spawn (see "A Phone Is a Peek").
+- **A tour, if you ask.** Some people want the map before the first step. So the card
+  (until this browser has taken it), the Help panel and /help offer **Take the tour**:
+  seven coach marks over the shell — the nav, the dock and its chat, Home's Queue and
+  Inbox, Work, Thoughts, Config, Help — each a title and two sentences beside its
+  area, outlined (`lib/tour.ts`, `components/tour/TourProvider`). It's what the
+  checklist isn't: a map, not the work, so it never starts itself and never blocks
+  the page. Each step is a **non-modal** popover — click or Tab out to try something
+  and it waits; Esc or Skip ends it. Steps go where the shell's areas are
+  (`data-tour="<step>"`), so an area switched off or folded away at this width is
+  left out rather than pointed at. Completion is a browser's, not the team's
+  (localStorage): it's about this person learning this screen. Built in-house on Base
+  UI's Popover rather than a tour library: a few dozen lines do it, and keep it on
+  the UI's own focus, announcer and motion rules. The phone has none — four labelled
+  tabs need no map (see "A Phone Is a Peek").
 - **The terminal points at it.** The first commands a new user runs — `mpt setup`,
   `mpt start --daemon`, `mpt lead` — end with one line, "Open http://localhost:<port>/
   — the Welcome checklist walks you through your first task", when the daemon says

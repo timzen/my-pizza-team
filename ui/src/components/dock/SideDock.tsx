@@ -50,6 +50,10 @@
  * `assistant.chatMode: "terminal"` — the teammate watch/pair view pointed at the
  * leader (docs/DESIGN.md "Assistant Chat Model"), switching live with Config.
  *
+ * The guided tour (lib/tour.ts) points at the dock's column or rail, or — below
+ * `lg` — at the floating button (its `nav` has no box of its own there):
+ * whichever carries `data-tour="dock"`.
+ *
  * Every presentation is one `<nav aria-label="Side dock">` landmark, and a
  * keep-focus region: a route change never pulls focus out of it
  * (lib/route-focus.ts, docs/ACCESSIBILITY.md).
@@ -211,6 +215,7 @@ export function SideDock() {
             onClick={() => setDockOpen(!open)}
             aria-label={open ? "Close the assistant and team" : `Assistant and team${unreadSuffix(unread)}`}
             aria-expanded={open}
+            data-tour="dock"
             className="fixed bottom-4 left-4 z-40 flex h-12 w-12 items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg hover:opacity-90"
           >
             {open ? <X className="h-5 w-5" /> : <MessageSquare className="h-5 w-5" />}
@@ -224,7 +229,7 @@ export function SideDock() {
   // Collapsed: a slim icon rail with both tabs' essentials.
   if (!open) {
     return (
-      <nav aria-label="Side dock" {...KEEP_FOCUS} className="flex w-14 shrink-0 flex-col items-center border-r border-border bg-muted/30">
+      <nav aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock" className="flex w-14 shrink-0 flex-col items-center border-r border-border bg-muted/30">
         {dialogs}
         <div className="flex h-14 w-full shrink-0 items-center justify-center border-b border-border">
           <IconButton className="h-8 w-8" onClick={() => setDockOpen(true)} label="Expand the dock" side="right">
@@ -290,7 +295,7 @@ export function SideDock() {
 
   // Expanded: the resizable dock column.
   return (
-    <nav aria-label="Side dock" {...KEEP_FOCUS} className="relative flex shrink-0 flex-col border-r border-border bg-muted/30" style={{ width }}>
+    <nav aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock" className="relative flex shrink-0 flex-col border-r border-border bg-muted/30" style={{ width }}>
       {dialogs}
       {header}
       {tabRow}

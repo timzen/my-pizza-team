@@ -31,6 +31,10 @@
  * several sections, so on a WorkDef page the bar looks up the WorkDef's type
  * (Solitary/Scheduled/Board → Work, Triage → Thoughts).
  *
+ * Its areas carry `data-tour` (the home link and section links together, Work,
+ * Thoughts, Config, Help) — the guided tour's stops (lib/tour.ts,
+ * components/tour/TourProvider).
+ *
  * The links sit in `<nav aria-label="Main">` (the dock is the other labelled
  * nav), and the lit one is `aria-current="page"`, so a screen reader says
  * where you are too (docs/ACCESSIBILITY.md "Structure").
@@ -63,6 +67,7 @@ import { useWorkDefTypeForPath } from "@/hooks/useWorkDefType";
 import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
 import type { StatusResponse } from "@shared/protocol";
 import { useAnnounceUnread } from "@/hooks/useLiveAnnouncements";
+import type { TourStepId } from "@/lib/tour";
 
 /** The slice of `/api/status` the bar reads (all optional: the first poll hasn't answered yet). */
 type NavStatus = Partial<Pick<StatusResponse, "paused" | "queuedCount" | "unreadInboxCount" | "notices">>;
@@ -71,9 +76,9 @@ type NavStatus = Partial<Pick<StatusResponse, "paused" | "queuedCount" | "unread
  * Primary nav items. Work needs at least one work-item kind switched on
  * (`workItems`); it's hidden when the team has all three off (lib/work-items.ts).
  */
-const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; workItems?: boolean }> = [
-  { path: "/thoughts", label: "Thoughts", section: "thoughts" },
-  { path: WORK_ITEMS_ROOT, label: "Work", section: "work-items", workItems: true },
+const NAV_ITEMS: Array<{ path: string; label: string; section: NavSection; workItems?: boolean; tour: TourStepId }> = [
+  { path: "/thoughts", label: "Thoughts", section: "thoughts", tour: "thoughts" },
+  { path: WORK_ITEMS_ROOT, label: "Work", section: "work-items", workItems: true, tour: "work" },
 ];
 
 export function NavBar() {
@@ -106,6 +111,8 @@ export function NavBar() {
     // last line is still a border, and the header grows to fit them.
     <header className="shrink-0 bg-muted">
       <div className="flex h-14 items-center gap-2 border-b border-border px-3 @2xl:px-4">
+        {/* Home and the section links: the guided tour's first stop (lib/tour.ts). */}
+        <div data-tour="nav" className="flex min-w-0 flex-1 items-center gap-2">
         {/* Named by its text — "Pizza Team" (visually hidden when narrow) and
             the badges' counts in words — so the name matches what's shown. */}
         <Tooltip content={homeLinkLabel(status?.queuedCount, status?.unreadInboxCount)} describe={false} side="bottom">
@@ -124,6 +131,7 @@ export function NavBar() {
             <Link
               key={item.path}
               to={item.path}
+              data-tour={item.tour}
               aria-current={activeSection === item.section ? "page" : undefined}
               className={`shrink-0 whitespace-nowrap ${linkClass(item.section)}`}
             >
@@ -131,6 +139,7 @@ export function NavBar() {
             </Link>
           ))}
         </nav>
+        </div>
 
         {/* Pause/play, help, config gear, theme toggle */}
         <div className="flex shrink-0 items-center @2xl:gap-1">
@@ -157,6 +166,7 @@ export function NavBar() {
                 : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
             }`}
             label="Config"
+            data-tour="config"
             aria-current={location.pathname.startsWith("/config") ? "page" : undefined}
           >
             <Settings className="h-4 w-4" />
@@ -197,7 +207,7 @@ function HelpButton() {
   const { helpOpen, toggleHelp, pageHelp } = useSideDock();
   if (isHelpPath(pathname)) {
     return (
-      <IconLink to={HELP_ROOT} className="p-1.5 @2xl:p-2 rounded-md transition-colors bg-accent text-accent-foreground" label="Help" aria-current="page">
+      <IconLink to={HELP_ROOT} className="p-1.5 @2xl:p-2 rounded-md transition-colors bg-accent text-accent-foreground" label="Help" aria-current="page" data-tour="help">
         <HelpCircle className="h-4 w-4" />
       </IconLink>
     );
@@ -213,6 +223,7 @@ function HelpButton() {
       hint={`Help for ${pageHelp.page} (${HELP_SHORTCUT}) — Shift-click for the full guide`}
       aria-expanded={helpOpen}
       aria-keyshortcuts={HELP_SHORTCUT}
+      data-tour="help"
       className={helpOpen ? "bg-accent text-accent-foreground" : "text-muted-foreground"}
     >
       <HelpCircle className="h-4 w-4" />

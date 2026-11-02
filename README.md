@@ -34,7 +34,8 @@ The in-app **Help** (`/help`) is the user guide: short topic pages in
 a table of contents, search, and a link for every section (`/help/<topic>#<section>`).
 A new team's home page shows a **Welcome checklist** — start the leader, get a teammate,
 run a first task (a one-click sample), review it, ask the assistant, capture a note —
-that ticks off from the team's real state; dismiss it, and reopen it from Help. While
+that ticks off from the team's real state; dismiss it, and reopen it from Help. It
+(and Help) also offer an optional, skippable **tour** of the screen's areas. While
 it's showing, `mpt setup`, `mpt start --daemon` and `mpt lead` end by pointing you to it.
 Every page's **?** (or the `?` key) opens the section about that page in the side dock,
 beside the page, and the forms' non-obvious fields (workflow, persona, directory,

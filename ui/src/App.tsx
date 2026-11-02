@@ -61,6 +61,7 @@ import { MobileShell } from "./mobile/MobileShell";
 import { useMediaQuery } from "./hooks/useMediaQuery";
 import { MOBILE_ROOT, PHONE_QUERY, isMobilePath, readViewPref, shouldRedirectToMobile } from "./lib/mobile";
 import { SkipLink } from "./components/SkipLink";
+import { TourProvider } from "./components/tour/TourProvider";
 import { useDocumentTitle } from "./hooks/useDocumentTitle";
 import { useRouteFocus } from "./hooks/useRouteFocus";
 import { pageTitleForPath } from "./lib/page-title";
@@ -90,7 +91,8 @@ function Shell() {
  * (docs/ACCESSIBILITY.md "Structure"): a skip link first, the dock and the
  * NavBar as labelled `<nav>`s, one `<main>` holding the routed page, the tab's
  * title from the path (detail pages set their own), and focus moved to the new
- * page's heading on navigation (hooks/useRouteFocus).
+ * page's heading on navigation (hooks/useRouteFocus). The optional guided tour
+ * (components/tour/TourProvider) is drawn over it; the phone shell has none.
  */
 function DesktopShell() {
   const mainRef = useRef<HTMLElement>(null);
@@ -99,6 +101,7 @@ function DesktopShell() {
   useRouteFocus(mainRef);
   return (
     <SideDockProvider>
+    <TourProvider>
     {/* h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
         columns and <main> then own their own scrolling. With a content-height
         shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
@@ -154,6 +157,7 @@ function DesktopShell() {
         </main>
       </div>
     </div>
+    </TourProvider>
     </SideDockProvider>
   );
 }
