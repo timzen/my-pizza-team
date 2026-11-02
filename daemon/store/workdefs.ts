@@ -145,6 +145,21 @@ export function listWorkDefs(teamDir: string): WorkDef[] {
   return out.sort((a, b) => a.id.localeCompare(b.id));
 }
 
+/**
+ * Is there a WorkDef matching `pred`? Parses one file at a time and stops at the
+ * first match, so a poll (the Welcome checklist) doesn't read every def of a big team.
+ */
+export function someWorkDef(teamDir: string, pred: (def: WorkDef) => boolean): boolean {
+  const dir = defsDir(teamDir);
+  if (!existsSync(dir)) return false;
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (!entry.isDirectory()) continue;
+    const def = getWorkDef(teamDir, entry.name);
+    if (def && pred(def)) return true;
+  }
+  return false;
+}
+
 export function getWorkDef(teamDir: string, id: string): WorkDef | null {
   const file = path.join(workDefDir(teamDir, id), FILE);
   if (!existsSync(file)) return null;

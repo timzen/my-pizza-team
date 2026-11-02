@@ -57,7 +57,7 @@ import type { PluginLoadStatus } from "../shared/protocol.ts";
 import type { TeamPersonaInput } from "./personas/library.ts";
 import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
-import { listWorkDefs, getWorkDef, saveWorkDef, updateWorkDef, deleteWorkDef } from "./store/workdefs.ts";
+import { listWorkDefs, getWorkDef, saveWorkDef, someWorkDef, updateWorkDef, deleteWorkDef } from "./store/workdefs.ts";
 import { listSchedules, getSchedule, saveSchedule, updateSchedule, deleteSchedule } from "./store/schedules.ts";
 import { listTemplates, getTemplate, saveTemplate, updateTemplate, deleteTemplate } from "./store/templates.ts";
 import {
@@ -1203,6 +1203,9 @@ export class Store {
   /** Messages for one session (defaults to the active session), oldest first. */
   getAssistantMessages(sessionId?: string): AssistantMessage[] { return this.chat.getMessages(sessionId); }
 
+  /** When the user first wrote to the assistant (ISO), or null — the onboarding checklist. */
+  getFirstUserMessageAt(): string | null { return this.chat.firstUserMessageAt(); }
+
   /** One chat message, or null. */
   getAssistantMessage(id: string): AssistantMessage | null { return this.chat.getMessage(id); }
 
@@ -1458,6 +1461,11 @@ export class Store {
 
   getWorkDef(id: string): WorkDef | null {
     return getWorkDef(this.teamDir, id);
+  }
+
+  /** Is there a WorkDef matching `pred`? Stops at the first match (store/workdefs.ts `someWorkDef`). */
+  hasWorkDef(pred: (def: WorkDef) => boolean): boolean {
+    return someWorkDef(this.teamDir, pred);
   }
 
   /**

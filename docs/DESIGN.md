@@ -2275,6 +2275,39 @@ section (the dock's Help panel; on the phone, its page under `/m/help`).
   live region: it appears when a poll finds a list empty, and a poll is news only when
   something changed (see "Polling Never Disturbs the Reader").
 
+## First run: a checklist, not a tour
+
+A new team's first hour decides whether it gets a second. A guided tour — modal
+bubbles pointing at buttons in a fixed order — teaches the order of the tour, not the
+product, and is gone the moment it's skipped. So a new team gets a **checklist**: a
+handful of steps that are the real first things to do (start the leader, get a
+teammate, create a task, watch it run, review it in the Inbox, ask the assistant,
+capture a note), each ticked off by **doing it**, wherever and however it was done.
+
+- **Derived, not stored.** Each step is a question asked of the state the daemon
+  already keeps — is a leader online, does an authored WorkDef exist, has a WorkItem
+  been claimed, is a finished one marked read, has the user written to the assistant,
+  is there a note (`daemon/onboarding.ts`) — every time it's asked, like the
+  Execution Count (see "Execution Count: Derived, not Counted"). Nothing ticks a step
+  but the thing itself, so creating a task through the Pi tools, the CLI or the
+  assistant counts as much as through the card, and the checklist can't drift from
+  the team. A teammate unregisters when it leaves, so "a teammate has been here" is
+  "one is online, or one has claimed a run".
+- **Store only intent.** What the state can't say is what the user *wants*: that
+  they dismissed the card, reopened it from Help, or got through it once. Those three
+  times live in the settings table (`onboarding.dismissedAt`, `reopenedAt`,
+  `completedAt`). `completedAt` latches on the first answer with every step done, so
+  the card doesn't come back when the leader stops for the night.
+- **Old teams are already onboarded.** A team with history — three finished runs —
+  sees no card, unless it reopens it: a checklist that asks a team running work
+  every day to "create your first task" is noise.
+- **A sample task, not a sample team.** The card's one-click task is real work —
+  "Summarize this project", in the leader's directory, with the built-in worker
+  persona — so the first run shows the whole loop (Queue, a teammate, the Inbox) on
+  something the user cares about, and changes nothing. It's only a prefill until
+  **Run** (`POST /api/onboarding/sample-task`): nothing is created for a user who
+  just looks.
+
 ## A Phone Is a Peek
 
 On a phone the app is a **separate shell at `/m`** (`ui/src/mobile/`), not the

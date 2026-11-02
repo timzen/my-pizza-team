@@ -425,6 +425,16 @@ export class AssistantChat {
     return true;
   }
 
+  /**
+   * When the user first wrote to the assistant (web or terminal), ISO, or null
+   * if they never have — the Welcome checklist's "assistant tried" step
+   * (daemon/onboarding.ts). Sessions are never deleted, so this survives a new chat.
+   */
+  firstUserMessageAt(): string | null {
+    const row = this.db.prepare("SELECT MIN(created_at) AS t FROM assistant_messages WHERE role = 'user'").get() as { t: number | null };
+    return row.t === null ? null : new Date(row.t).toISOString();
+  }
+
   // ─── Inbox (agent-facing) ─────────────────────────────────────────
 
   /**

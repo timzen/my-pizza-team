@@ -40,6 +40,7 @@ import { fail } from "./routes/http.ts";
 import { registerFeatureGates } from "./features.ts";
 import { registerSharedRoutes } from "./routes/shared.ts";
 import { registerDirectoryRoutes } from "./routes/directories.ts";
+import { registerOnboardingRoutes } from "./routes/onboarding.ts";
 import { registerStoryRoutes } from "./routes/stories.ts";
 import { registerTaskRoutes } from "./routes/tasks.ts";
 import { registerAgentRoutes } from "./routes/agents.ts";
@@ -117,6 +118,7 @@ export function buildApp(store: Store, config: TeamConfig, teamDir: string): Hon
   registerPairingRoutes(ctx);
   registerUsageRoutes(ctx);
   registerDirectoryRoutes(ctx);
+  registerOnboardingRoutes(ctx);
 
   return app;
 }

@@ -202,6 +202,7 @@ Activating re-runs admission; its waiting READY items become eligible again.
   - `personas/lint.ts` — `validatePersonaMarkdown` (formerly `workflow-lint.ts`): unbalanced fences are errors; shallow headings and `---` are warnings.
 - `prompt.ts` — `buildTaskPrompt` (see DESIGN.md "The Daemon Owns the Prompt") and `normalizeInstructionMarkdown` (fence-aware heading demotion).
 - `triage.ts` — Auto-triage rules (pure, like cron.ts): `triageSkipReason`/`isTriageDue` (the turn rule), `triageWorkDefId`, `triageWorkItemTitle`, `mirrorTriageWorkItemTitle`, `noteFirstLine`, and the proposal layer — `validateAnalysis`/`validateProposal`, `foldProposals`, `latestAnalysis`, `pendingProposals`, `triageBadge`, `decisionSummary`.
+- `onboarding.ts` — The Welcome checklist's progress (DESIGN.md "First run: a checklist, not a tour"): `collectOnboardingFacts` (members, an authored WorkDef — `Store.hasWorkDef`, first match, triage containers and mirrors excluded —, WorkItem COUNTs, the first user chat message, the oldest note), `deriveOnboardingSteps` / `deriveOnboarding` (pure: steps in `ONBOARDING_STEP_IDS` order, `complete`, `visible`, `hasHistory` — `ONBOARDING_HISTORY_RUNS` = 3 finished runs), `readOnboardingMarks` (the settings keys `onboarding.dismissedAt` / `reopenedAt` / `completedAt`), and `sampleTaskFor` ("Summarize this project", the leader's directory, `builtin:worker`).
 - `cron.ts` — Vendored 5-field cron parser (`parseCron`, `cronMatches`, `isCronDue`, `isValidCron`).
 - `token-cost.ts` — Fallback cost estimator, used only when a harness reports no `costUsd`.
 - `tmux.ts` — tmux control via argv arrays (no shell): session/window create, list, kill, `send-keys`, `shellQuote`, `renderTemplate` (placeholders `{name}`, `{url}`, `{cwd}`, `{session}`, `{window}`, and `{mpt}` — how to run this mpt), and `tmuxUnavailableReason`.
@@ -227,6 +228,7 @@ Activating re-runs admission; its waiting READY items become eligible again.
 - `routes/usage.ts` — Usage reports from any run, and the dashboard's daily/day rollups.
 - `routes/personas.ts` — The persona library (`/api/personas*`: lint on save, read-only built-in/package personas, delete protection, duplicate), `PUT /api/workflows/:name/states/:state`, and `contextFieldRefusal` (a request still carrying `context`/`contextRefs` → 400).
 - `routes/thoughts.ts` — Thin CRUD shell over its store module.
+- `routes/onboarding.ts` — `GET /api/onboarding` (latches `completedAt` the first time every step is done), dismiss / reopen, and `POST /api/onboarding/sample-task` (a Solitary task through `Store.createWorkDef`, enqueued; 403 while `tasks` is off).
 
 ### cli/
 
@@ -1008,6 +1010,19 @@ Every route reads its JSON body with `readBody` and answers errors with `fail`
 | GET | `/api/personas/:id/usage` | `{ usedBy }` |
 | POST | `/api/personas/:id/duplicate` | Copy any persona into the team library (`{ id?, title? }`; `duplicatedFrom` set) |
 | DELETE | `/api/notices/:id` | Dismiss a `/api/status` notice (404 unknown) |
+
+### Onboarding
+
+The Welcome checklist (DESIGN.md "First run: a checklist, not a tour"; `daemon/onboarding.ts`,
+`routes/onboarding.ts`). Steps are derived from team state on every request; only the
+`onboarding.*` marks are stored, in the settings table.
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/api/onboarding` | `OnboardingResponse`: `steps` (`[{ id, done, at? }]` in order — `leaderOnline` (a leader is online), `teammateOnline` (a pool teammate online, or any WorkItem ever claimed), `firstTaskCreated` (an authored WorkDef; a note's triage container and an external mirror don't count), `firstRunStarted` (a WorkItem claimed: IN_PROGRESS/MORIBUND/COMPLETE/FAILED), `firstRunReviewed` (a COMPLETE/FAILED item marked read), `assistantUsed` (any user chat message; `at` = the first), `thoughtCaptured` (any note, archived included; `at` = the oldest)), `complete`, `visible` (show the card: reopened, or not dismissed, not completed and no history), `hasHistory` (≥ 3 finished runs), `dismissedAt` / `reopenedAt` / `completedAt` (ISO or null), `sampleTask` (`{ title, goal, acceptanceCriteria, directory — the leader's, else null —, persona: "builtin:worker" }`, null while `tasks` is off). The first response with every step done stores `completedAt` |
+| POST | `/api/onboarding/dismiss` | Store `dismissedAt`, clear `reopenedAt`; returns the `OnboardingResponse` |
+| POST | `/api/onboarding/reopen` | Store `reopenedAt`, clear `dismissedAt` (the card shows even for a complete team or one with history); returns the `OnboardingResponse` |
+| POST | `/api/onboarding/sample-task` | The card's Run: `{ title?, goal?, acceptanceCriteria?, directory? }` (each defaults to `sampleTask`'s) → a Solitary WorkDef with `builtin:worker`, enqueued; `201 { success, workDefId, workItemId }`. 400 when there's no `directory` and no leader online; 403 while `tasks` is off |
 | GET/POST | `/api/thoughts` | List (`?status=`) with groups / create (auto-placed unless x/y given) |
 | GET/PATCH/DELETE | `/api/thoughts/:id` | Get / partial update / hard delete |
 | POST | `/api/thoughts/positions` | Batch geometry for one gesture |

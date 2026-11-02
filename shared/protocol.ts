@@ -926,3 +926,57 @@ export interface AddFavoriteDirectoryRequest { directory: string }
 export interface SetFavoriteDirectoriesRequest { directories: string[] }
 // POST / PUT / DELETE /api/directories/favorites
 export interface FavoriteDirectoriesResponse { success: boolean; favorites?: string[]; error?: string }
+
+// ─── Onboarding (docs/DESIGN.md "First run: a checklist, not a tour") ───
+
+/** The Welcome checklist's steps, in the order the card lists them. */
+export const ONBOARDING_STEP_IDS = [
+  "leaderOnline", "teammateOnline", "firstTaskCreated", "firstRunStarted",
+  "firstRunReviewed", "assistantUsed", "thoughtCaptured",
+] as const;
+export type OnboardingStepId = typeof ONBOARDING_STEP_IDS[number];
+
+/** One checklist step, derived from team state on every request (never stored). */
+export interface OnboardingStep {
+  id: OnboardingStepId;
+  done: boolean;
+  /** When it first became true (ISO), where the state records it; else absent. */
+  at?: string;
+}
+
+/** The one-click sample task the card offers: prefill for the create form. */
+export interface OnboardingSampleTask {
+  title: string;
+  goal: string;
+  acceptanceCriteria: string;
+  /** The leader's directory, or null when no leader is online (the card asks for one). */
+  directory: string | null;
+  /** The built-in worker persona (`builtin:worker`). */
+  persona: string;
+}
+
+// GET /api/onboarding
+export interface OnboardingResponse {
+  /** Every step, in `ONBOARDING_STEP_IDS` order. */
+  steps: OnboardingStep[];
+  /** Every step is done. */
+  complete: boolean;
+  /**
+   * Show the Welcome card: reopened, or none of dismissed / completed / a team
+   * with history (`ONBOARDING_HISTORY_RUNS` finished runs).
+   */
+  visible: boolean;
+  /** The team already has history, so it counts as onboarded. */
+  hasHistory: boolean;
+  /** Persisted (settings table): when the card was dismissed, reopened, first seen complete. */
+  dismissedAt: string | null;
+  reopenedAt: string | null;
+  completedAt: string | null;
+  /** The sample task to prefill, or null while Solitary tasks are switched off. */
+  sampleTask: OnboardingSampleTask | null;
+}
+
+// POST /api/onboarding/sample-task — create and enqueue the sample (the card's Run).
+// Every field is optional and defaults to `OnboardingSampleTask`'s.
+export interface CreateSampleTaskRequest { title?: string; goal?: string; acceptanceCriteria?: string; directory?: string }
+export interface CreateSampleTaskResponse { success: boolean; workDefId?: string; workItemId?: string | null; error?: string }
