@@ -54,6 +54,7 @@ import { badgeLabel, homeLinkCounts, homeLinkLabel, INBOX_CHANGED_EVENT } from "
 import { hasAnyWorkItemsFeature, WORK_ITEMS_ROOT } from "@/lib/work-items";
 import { useExternalSources, useFeatures } from "@/hooks/useFeatures";
 import type { StatusResponse } from "@shared/protocol";
+import { useAnnounceUnread } from "@/hooks/useLiveAnnouncements";
 
 /** The slice of `/api/status` the bar reads (all optional: the first poll hasn't answered yet). */
 type NavStatus = Partial<Pick<StatusResponse, "paused" | "queuedCount" | "unreadInboxCount" | "notices">>;
@@ -76,6 +77,8 @@ export function NavBar() {
   const navItems = NAV_ITEMS.filter((item) => !item.workItems || showWorkItems);
   // One status poll feeds both the home-link badges and the pause toggle.
   const { data: status, refetch: refetchStatus } = useApi<NavStatus>("/api/status", [], { pollInterval: 10_000 });
+  // A rise in unread is a run landing: part of the screen reader's activity summary.
+  useAnnounceUnread(status?.unreadInboxCount);
   useEffect(() => {
     globalThis.addEventListener(INBOX_CHANGED_EVENT, refetchStatus);
     return () => globalThis.removeEventListener(INBOX_CHANGED_EVENT, refetchStatus);

@@ -31,6 +31,7 @@ import { workDefHomePath } from "@/lib/nav-section";
 import { apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { FormError } from "@/components/ui/form-error";
 
 type WorkDefType = "Solitary" | "Scheduled";
 
@@ -60,6 +61,8 @@ export function NewWorkDefPage() {
   const [cron, setCron] = useState("0 9 * * *");
   const [enqueueNow, setEnqueueNow] = useState(true);
   const [error, setError] = useState("");
+  // The field the error is about, so it's marked invalid and described by the error.
+  const [invalidField, setInvalidField] = useState<"title" | null>(null);
   const [saving, setSaving] = useState(false);
 
   const backTo = workDefHomePath(type);
@@ -70,7 +73,8 @@ export function NewWorkDefPage() {
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const pending = submitter?.value === "pending";
     setError("");
-    if (!title.trim()) { setError("Title is required"); return; }
+    setInvalidField(null);
+    if (!title.trim()) { setError("Title is required"); setInvalidField("title"); return; }
     if (!goal.trim()) { setError("Goal is required"); return; }
 
     const body: Record<string, unknown> = {
@@ -109,7 +113,7 @@ export function NewWorkDefPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-title">Title</Label></div><Input id="wd-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="wd-title">Title</Label></div><Input id="wd-title" value={title} onChange={e => setTitle(e.target.value)} required aria-invalid={invalidField === "title" || undefined} aria-describedby={invalidField === "title" ? "wd-error" : undefined} /></div>
 
         <MarkdownField label="Goal" value={goal} onChange={setGoal} rows={3} required defaultEditing />
         <div>
@@ -142,7 +146,7 @@ export function NewWorkDefPage() {
           </label>
         ) : null}
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError id="wd-error" className="text-sm">{error}</FormError>
         <div className="flex gap-2">
           <Button type="submit" value="create" disabled={saving}>{saving ? "Creating…" : `Create ${submitLabel}`}</Button>
           <Tooltip content="Save it for review: nothing runs until you activate it">

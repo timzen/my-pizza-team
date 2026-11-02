@@ -15,6 +15,8 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Plus, ArrowRight } from "lucide-react";
 import { workflowPath } from "@/lib/config-tabs";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 interface WorkflowSummary {
   name: string;
@@ -40,6 +42,7 @@ export function WorkflowsPage() {
   const [newName, setNewName] = useState("");
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const announce = useAnnounce();
 
   // Only before the first answer: a refetch (after a create) keeps the list
   // mounted (docs/DESIGN.md "Polling Never Disturbs the Reader").
@@ -79,6 +82,7 @@ export function WorkflowsPage() {
       if (res.success) {
         setNewName("");
         refetch();
+        announce(`Created workflow ${name}`);
       } else {
         setError(res.error || "Failed to create workflow");
       }
@@ -126,6 +130,8 @@ export function WorkflowsPage() {
               value={newName}
               onChange={(e) => { setNewName(e.target.value); setError(null); }}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "new-workflow-error" : undefined}
               className="max-w-[240px]"
               disabled={creating}
             />
@@ -145,7 +151,7 @@ export function WorkflowsPage() {
               Will be created as: <code className="bg-muted px-1 py-0.5 rounded">{slugify(newName.trim())}</code> with states [in_progress · agent, review · manual]
             </p>
           )}
-          {error && <p className="text-xs text-destructive">{error}</p>}
+          <FormError id="new-workflow-error" className="text-xs">{error}</FormError>
         </CardContent>
       </Card>
     </div>

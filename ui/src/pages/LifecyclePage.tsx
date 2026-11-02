@@ -28,6 +28,7 @@
 import { Link } from "react-router-dom";
 import { useState, type ReactNode } from "react";
 import { useApi, apiPost, apiDelete } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { useFeatures } from "@/hooks/useFeatures";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
@@ -56,6 +57,7 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
   const [selected, setSelected] = useState<LifecycleKind[]>(["story", "task", "schedule"]);
   const [query, setQuery] = useState("");
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
 
   // Only fetch what the team has switched on (a switched-off kind's routes 403).
   const wantStories = !!features?.stories;
@@ -85,7 +87,8 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
   /** Activate a pending row — see lib/lifecycle-list.ts `pendingRows` for which target. */
   const activate = async (t: ActivateTarget) => {
     const base = t.kind === "story" ? "/api/stories" : t.kind === "schedule" ? "/api/schedules" : "/api/work-defs";
-    await apiPost(`${base}/${encodeURIComponent(t.id)}/activate`, {});
+    const res = await apiPost<{ success?: boolean; error?: string }>(`${base}/${encodeURIComponent(t.id)}/activate`, {});
+    announce(res.success === false ? res.error || "Couldn't activate it" : "Activated", res.success === false ? "assertive" : "polite");
     refetchAll();
   };
   const archive = async (row: LifecycleRow) => {
@@ -99,15 +102,18 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
     } else {
       await apiPost(`/api/work-defs/${encodeURIComponent(row.id)}/archive`, {});
     }
+    announce(`Archived ${row.title}`);
     refetchAll();
   };
   const restore = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/restore`, {});
+    announce("Restored");
     refetchDefs();
   };
   const remove = async (row: LifecycleRow) => {
     if (!(await confirm({ title: `Delete "${row.title}" for good?`, confirmLabel: "Delete", destructive: true }))) return;
     await apiDelete(`/api/work-defs/${encodeURIComponent(row.id)}`);
+    announce(`Deleted ${row.title}`);
     refetchDefs();
   };
 

@@ -40,6 +40,8 @@ import { BackButton } from "@/components/ui/back-button";
 import { AlertTriangle, Copy, Lock, Pencil, Plus, Search, Sparkles, Trash2 } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 export function PersonasPage({ personaId }: { personaId: string | null }) {
   return personaId ? <PersonaDetail key={personaId} id={personaId} /> : <PersonaList />;
@@ -149,6 +151,7 @@ function PersonaDetail({ id }: { id: string }) {
   const [busy, setBusy] = useState(false);
   const [refusedBy, setRefusedBy] = useState<PersonaUsage[] | null>(null);
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
 
   if (loading && !data) return <p className="text-sm text-muted-foreground">Loading…</p>;
   const persona = data?.persona;
@@ -174,6 +177,7 @@ function PersonaDetail({ id }: { id: string }) {
       const res = await apiPost<SavePersonaResponse>(`/api/personas/${encodeURIComponent(persona.id)}/duplicate`, {});
       if (!res.success || !res.persona) { setError(res.error || "Couldn't duplicate it"); return; }
       await notifyPersonasChanged();
+      announce(`Duplicated as ${res.persona.title}`);
       navigate(personaPath(res.persona.id));
     } finally { setBusy(false); }
   };
@@ -191,6 +195,7 @@ function PersonaDetail({ id }: { id: string }) {
       const res = await apiDelete<DeletePersonaResponse>(`/api/personas/${encodeURIComponent(persona.id)}`);
       if (!res.success) { setError(res.error || "Couldn't delete it"); if (res.usedBy) setRefusedBy(res.usedBy); return; }
       await notifyPersonasChanged();
+      announce(`Deleted persona ${persona.title}`);
       navigate(PERSONAS_TAB_PATH, { replace: true });
     } finally { setBusy(false); }
   };
@@ -231,7 +236,7 @@ function PersonaDetail({ id }: { id: string }) {
           Duplicated from <Link to={personaPath(persona.duplicatedFrom)} className="font-mono text-primary hover:underline">{persona.duplicatedFrom}</Link> (a copy — it doesn't follow later changes).
         </p>
       )}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError className="text-sm">{error}</FormError>
 
       <div className="grid gap-4 md:grid-cols-[1fr_260px]">
         <Card>

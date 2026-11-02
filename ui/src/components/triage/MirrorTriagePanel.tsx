@@ -25,6 +25,7 @@ import { latestStateLabel, openInLabel } from "@/lib/external-sources";
 import { outcomeLabel, type WorkDefTriageView } from "@/lib/triage";
 import { ExternalLink } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
 
 /** The mirrored item's content, as the page already has it. */
 export interface MirroredItemContent {
@@ -54,7 +55,7 @@ export function MirrorTriagePanel({ item, view, decisions, blocked }: {
         </Tooltip>
         {blocked && <span>· {blocked}</span>}
       </div>
-      {decisions.error && <p className="text-sm text-destructive">{decisions.error}</p>}
+      <FormError className="text-sm">{decisions.error}</FormError>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         {/* ─── The item, read-only ─────────────────────────────────── */}

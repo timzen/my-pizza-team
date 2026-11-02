@@ -14,6 +14,8 @@ import { useState } from "react";
 import { apiPost } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 /** The source being disconnected, or null when the dialog is closed. */
 export interface DisconnectTarget {
@@ -32,6 +34,7 @@ export function DisconnectSourceDialog({ target, onClose, onDisconnected }: {
 }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const announce = useAnnounce();
 
   const disconnect = async () => {
     if (!target) return;
@@ -39,7 +42,7 @@ export function DisconnectSourceDialog({ target, onClose, onDisconnected }: {
     setError(null);
     try {
       const res = await apiPost<{ success: boolean; error?: string }>(`/api/sources/${encodeURIComponent(target.sourceId)}/disconnect`, {});
-      if (res.success) onDisconnected(target);
+      if (res.success) { announce(`Turned off ${target.label}`); onDisconnected(target); }
       else setError(res.error || "Disconnect failed");
     } catch (e) {
       setError("Network error: " + (e as Error).message);
@@ -60,7 +63,7 @@ export function DisconnectSourceDialog({ target, onClose, onDisconnected }: {
             finishes. Turn it back on later and sync brings the items back. Applies immediately.
           </DialogDescription>
         </DialogHeader>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        <FormError className="text-xs">{error}</FormError>
         <DialogFooter>
           <Button variant="outline" onClick={close} disabled={busy}>Cancel</Button>
           <Button variant="destructive" onClick={disconnect} disabled={busy}>

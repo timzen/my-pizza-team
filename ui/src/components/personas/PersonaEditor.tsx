@@ -23,6 +23,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, Check, Save, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 interface Props {
   /** The persona being edited; null creates a new team persona. */
@@ -50,6 +52,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [lintErrors, setLintErrors] = useState<string[]>([]);
   const [warnings, setWarnings] = useState<string[]>([]);
+  const announce = useAnnounce();
 
   const dirty = title !== (persona?.title ?? "") || description !== (persona?.description ?? "")
     || tags !== (persona?.tags.join(", ") ?? "") || content !== (persona?.content ?? "")
@@ -76,6 +79,7 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
         return;
       }
       await notifyPersonasChanged();
+      announce(`${persona ? "Saved" : "Created"} persona ${res.persona.title}`);
       onSaved(res.persona, res.warnings ?? []);
     } catch (e) {
       setError("Network error: " + (e as Error).message);
@@ -132,6 +136,8 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
           onChange={(e) => setContent(e.target.value)}
           placeholder={"You are the … (role, voice, process, checklists — how to do the work)"}
           rows={14}
+          aria-invalid={lintErrors.length > 0 || undefined}
+          aria-describedby={lintErrors.length > 0 ? "persona-content-errors" : undefined}
           className="min-h-[16rem] font-mono text-sm"
         />
         <p className="text-xs text-muted-foreground">
@@ -140,9 +146,9 @@ export function PersonaEditor({ persona, onSaved, onCancel }: Props) {
         </p>
       </div>
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError className="text-sm">{error}</FormError>
       {lintErrors.length > 0 && (
-        <ul className="space-y-1 text-xs text-destructive">
+        <ul id="persona-content-errors" className="space-y-1 text-xs text-destructive">
           {lintErrors.map((w) => <li key={w} className="flex items-start gap-1"><X className="mt-0.5 h-3 w-3 shrink-0" />{w}</li>)}
         </ul>
       )}

@@ -26,6 +26,8 @@ import { FullEditorButton, useFullEditor } from "@/components/ui/full-editor";
 import { editorCommandSeed } from "@/lib/editorPrefs";
 import { Send, Zap } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 export function PairComposer({ memberId, running, recipient = "the teammate" }: {
   memberId: string;
@@ -36,6 +38,9 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
   const [text, setText] = useState("");
   const [error, setError] = useState("");
   const [sending, setSending] = useState(false);
+  const announce = useAnnounce();
+  // Unique per composer, for the error's aria-describedby.
+  const errorId = `pair-composer-${memberId}-error`;
 
   const send = async (mode: "queue" | "steer") => {
     const body = text.trim();
@@ -48,6 +53,7 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
     if (!res.success) { setError(res.error || "Couldn't send"); return; }
     setError("");
     setText("");
+    announce(mode === "steer" ? `Sent to ${recipient} — steering now` : running ? `Queued for ${recipient}` : `Sent to ${recipient}`);
   };
 
   const editor = useFullEditor({
@@ -74,6 +80,8 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
           onKeyDown={onKeyDown}
           rows={2}
           aria-label={`Message ${recipient}`}
+          aria-invalid={error ? true : undefined}
+          aria-describedby={error ? errorId : undefined}
           placeholder={running ? `Message ${recipient} — Enter queues it after this run, ⌘↵ steers now` : `Message ${recipient}…`}
           className="min-h-0 flex-1 resize-none font-mono text-[13px]"
         />
@@ -95,7 +103,7 @@ export function PairComposer({ memberId, running, recipient = "the teammate" }: 
           )}
         </div>
       </div>
-      {error && <p className="mt-1 text-xs text-destructive">{error}</p>}
+      <FormError id={errorId} className="mt-1 text-xs">{error}</FormError>
       {editor.overlay}
     </div>
   );

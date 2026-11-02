@@ -61,6 +61,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { AlertTriangle, Eye, ExternalLink, Plug, RotateCcw, Save } from "lucide-react";
 import type { PluginLoadStatus } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 
 const TONE_CLASS: Record<SourceStatus["tone"], string> = {
@@ -181,7 +183,7 @@ export function SourcesTab({ selectedId, onFeatureApplied }: {
                     </Tooltip>
                   )}
                 </div>
-                {toggleError?.id === s.id && <p className="pl-6 text-xs text-destructive">{toggleError.message}</p>}
+                {toggleError?.id === s.id && <FormError className="pl-6 text-xs">{toggleError.message}</FormError>}
               </CardContent>
             </Card>
           );
@@ -247,6 +249,7 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
   const [preview, setPreview] = useState<SourcePreviewResponse | null>(null);
   const [saving, setSaving] = useState(false);
   const [result, setResult] = useState<{ ok: boolean; message: string } | null>(null);
+  const announce = useAnnounce();
 
   const id = encodeURIComponent(source.id);
 
@@ -271,7 +274,9 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
     try {
       const res = await apiPut<SourceConfigResponse>(`/api/sources/${id}/config`, { options });
       setErrors(fieldErrorsByPath(res.fieldErrors));
-      setResult(saveOutcome(res));
+      const outcome = saveOutcome(res);
+      setResult(outcome);
+      announce(outcome.message, outcome.ok ? "polite" : "assertive");
       if (res.success) {
         // The daemon's view of what it saved (secrets redacted again) is the new baseline.
         const next = res.source?.options ?? options;
@@ -281,7 +286,9 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
         onSaved();
       }
     } catch (e) {
-      setResult({ ok: false, message: "Network error: " + (e as Error).message });
+      const message = "Network error: " + (e as Error).message;
+      setResult({ ok: false, message });
+      announce(message, "assertive");
     }
     setSaving(false);
   };
@@ -351,8 +358,10 @@ function SourceSettings({ source, onSaved }: { source: SourceView; onSaved: () =
               onChange={(e) => setJsonText(e.target.value)}
               className="font-mono text-xs"
               aria-invalid={parsedJson?.ok === false}
+              aria-describedby={parsedJson?.ok === false ? `source-${source.id}-json-error` : undefined}
             />
-            {parsedJson && !parsedJson.ok && <p className="text-xs text-destructive">{parsedJson.error}</p>}
+            {/* Not announced: it changes as you type; the field's description carries it. */}
+            {parsedJson && !parsedJson.ok && <p id={`source-${source.id}-json-error`} className="text-xs text-destructive">{parsedJson.error}</p>}
           </div>
         )}
 
@@ -396,6 +405,7 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
   const [error, setError] = useState<string | null>(null);
   const effective = effectiveSourcePersonas(source);
   const triageMode = source.mode === "triage";
+  const announce = useAnnounce();
 
   const set = async (field: "persona" | "triagePersona", id: string | null) => {
     setSaving(field);
@@ -403,6 +413,7 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
     try {
       const res = await apiPut<{ success: boolean; error?: string }>(`/api/sources/${encodeURIComponent(source.id)}/persona`, { [field]: id });
       if (!res.success) setError(res.error || "Couldn't save it");
+      else announce(field === "persona" ? "Saved the work persona" : "Saved the triage persona");
       onSaved();
     } catch (e) {
       setError("Network error: " + (e as Error).message);
@@ -462,7 +473,7 @@ function SourcePersonas({ source, onSaved }: { source: SourceView; onSaved: () =
           </>
         )}
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      <FormError className="text-xs">{error}</FormError>
     </div>
   );
 }
@@ -478,6 +489,8 @@ function FieldRow({ field, draft, source, errors, set }: {
   const key = field.path.join(".");
   const inputId = `source-${source.id}-${field.path.join("-")}`;
   const mine = errors[key] ?? [];
+  // The field's errors, which describe its input (aria-describedby).
+  const errorId = `${inputId}-error`;
   const hint = defaultHint(field);
 
   if (field.kind === "group") {
@@ -486,7 +499,7 @@ function FieldRow({ field, draft, source, errors, set }: {
         <legend className="px-1 text-sm font-medium">{field.title}{field.required && <RequiredMark />}</legend>
         {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
         {field.fields?.map((f) => <FieldRow key={f.path.join(".")} field={f} draft={draft} source={source} errors={errors} set={set} />)}
-        {mine.map((m) => <p key={m} className="text-xs text-destructive">{m}</p>)}
+        {mine.length > 0 && <div id={errorId}>{mine.map((m) => <p key={m} className="text-xs text-destructive">{m}</p>)}</div>}
       </fieldset>
     );
   }
@@ -506,7 +519,7 @@ function FieldRow({ field, draft, source, errors, set }: {
       break;
     case "select":
       input = (
-        <select id={inputId} value={selectInput(field, value)} aria-invalid={invalid}
+        <select id={inputId} value={selectInput(field, value)} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
           onChange={(e) => set(field.path, selectValue(field, e.target.value))}
           className="h-9 max-w-[320px] rounded-md border border-border bg-background px-2 text-sm">
           <option value="">{field.default !== undefined ? `(default: ${String(field.default)})` : "(not set)"}</option>
@@ -534,7 +547,7 @@ function FieldRow({ field, draft, source, errors, set }: {
     }
     case "string-list":
       input = (
-        <Textarea id={inputId} rows={3} value={stringListText(value)} aria-invalid={invalid}
+        <Textarea id={inputId} rows={3} value={stringListText(value)} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
           placeholder={field.placeholder ?? "One per line"}
           onChange={(e) => set(field.path, stringListValue(e.target.value))}
           className="max-w-[420px] font-mono text-xs" />
@@ -542,18 +555,18 @@ function FieldRow({ field, draft, source, errors, set }: {
       break;
     case "number":
       input = (
-        <Input id={inputId} type="number" step={field.integer ? 1 : "any"} value={typeof value === "number" ? value : ""} aria-invalid={invalid}
+        <Input id={inputId} type="number" step={field.integer ? 1 : "any"} value={typeof value === "number" ? value : ""} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
           placeholder={field.placeholder ?? (field.default !== undefined ? String(field.default) : undefined)}
           onChange={(e) => set(field.path, numberValue(e.target.value))}
           className="max-w-[160px]" />
       );
       break;
     case "env-var":
-      input = <EnvVarInput id={inputId} field={field} value={value} source={source} invalid={invalid} onChange={(v) => set(field.path, v)} />;
+      input = <EnvVarInput id={inputId} field={field} value={value} source={source} invalid={invalid} errorId={invalid ? errorId : undefined} onChange={(v) => set(field.path, v)} />;
       break;
     default:
       input = (
-        <Input id={inputId} value={isRedacted(value) ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid}
+        <Input id={inputId} value={isRedacted(value) ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid} aria-describedby={invalid ? errorId : undefined}
           placeholder={isRedacted(value) ? "•••••• stored (hidden) — type to replace" : field.placeholder ?? (typeof field.default === "string" ? field.default : undefined)}
           onChange={(e) => set(field.path, textValue(e.target.value))}
           className="max-w-[420px]" />
@@ -568,7 +581,7 @@ function FieldRow({ field, draft, source, errors, set }: {
       {input}
       {field.description && <p className="text-xs text-muted-foreground">{field.description}</p>}
       {hint && value === undefined && field.kind !== "select" && <p className="text-xs text-muted-foreground">{hint}</p>}
-      {mine.map((m) => <p key={m} className="text-xs text-destructive">{m}</p>)}
+      {mine.length > 0 && <div id={errorId}>{mine.map((m) => <p key={m} className="text-xs text-destructive">{m}</p>)}</div>}
     </div>
   );
 }
@@ -583,8 +596,10 @@ function RequiredMark() {
  * changed one is checked once saved. A stored non-name (a pasted secret) is
  * hidden and must be replaced by a name.
  */
-function EnvVarInput({ id, field, value, source, invalid, onChange }: {
+function EnvVarInput({ id, field, value, source, invalid, errorId, onChange }: {
   id: string;
+  /** The id of the field's error messages, when it has some. */
+  errorId?: string;
   field: FormField;
   value: unknown;
   source: SourceView;
@@ -596,7 +611,7 @@ function EnvVarInput({ id, field, value, source, invalid, onChange }: {
   return (
     <div className="space-y-1">
       <div className="flex items-center gap-2">
-        <Input id={id} value={hidden ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid || hidden}
+        <Input id={id} value={hidden ? "" : typeof value === "string" ? value : ""} aria-invalid={invalid || hidden} aria-describedby={errorId}
           placeholder={hidden ? "A secret value is stored here — enter a variable name instead" : field.placeholder ?? (typeof field.default === "string" ? field.default : "ENV_VAR_NAME")}
           onChange={(e) => onChange(textValue(e.target.value.trim()))}
           className="max-w-[280px] font-mono text-xs" autoComplete="off" spellCheck={false} />

@@ -23,7 +23,9 @@
  * also checks the page structure (tests/a11y/_gate.ts `STRUCTURE_RULES`, run
  * through axe and promoted to serious, plus `structureFindings`: one h1, one
  * main, a page-specific title, the skip link first), and then a few keyboard
- * walks check where focus goes on a route change (`keyboardProblems`).
+ * walks check where focus goes on a route change (`keyboardProblems`), and that
+ * the live announcer's regions are there, silent on load, and speak a save's
+ * result (`liveRegionProblems`), desktop and phone.
  */
 
 import * as fs from "node:fs";
@@ -155,8 +157,9 @@ async function focused(page: Page): Promise<string> {
  * Keyboard walks (docs/ACCESSIBILITY.md "Focus is always visible and never
  * lost"): activating a nav link moves focus to the new page's h1; a route tab
  * keeps it on the (new) active tab; the skip link lands on the h1; a confirm
- * opens on Cancel and Esc gives focus back to the button that asked. Returns
- * what went wrong, in words.
+ * opens on Cancel and Esc gives focus back to the button that asked; then the
+ * announcer (one polite and one assertive region, the chat a quiet log, a
+ * story's Make pending announced). Returns what went wrong, in words.
  */
 async function keyboardProblems(context: BrowserContext, base: string): Promise<string[]> {
   const problems: string[] = [];
@@ -197,9 +200,48 @@ async function keyboardProblems(context: BrowserContext, base: string): Promise<
     } else {
       problems.push("confirm dialog: no Delete story button on /story/add-user-auth to try it with");
     }
+
+    // Live announcements (docs/ACCESSIBILITY.md "Live announcements"): one
+    // polite and one assertive region, the chat a log that doesn't read itself
+    // out, and a save's result spoken politely — once.
+    problems.push(...await liveRegionProblems(page, "desktop"));
+    const log = await page.evaluate(`document.querySelectorAll("[role=log][aria-live=off]").length`) as number;
+    if (log !== 1) problems.push(`chat transcript: ${log} role="log" aria-live="off" region(s), expected 1 (the dock's chat)`);
+    const pend = page.getByRole("button", { name: "Make pending" });
+    if (await pend.count()) {
+      await pend.focus();
+      await page.keyboard.press("Enter");
+      await page.waitForFunction(`document.querySelector("[data-announcer=polite]")?.textContent === "Story made pending"`, undefined, { timeout: 3000 })
+        .catch(() => problems.push("announcer: Make pending on a story wasn't announced as \"Story made pending\""));
+    } else {
+      problems.push("announcer: no Make pending button on /story/add-user-auth to try it with");
+    }
   } finally {
     await page.close();
   }
+  return problems;
+}
+
+/**
+ * The announcer's regions on the page: exactly one polite (`role=status`) and
+ * one assertive (`role=alert`), both present from the start (a region added
+ * with its text isn't spoken) and silent on load — a page load or a poll must
+ * not announce anything. Returns what's wrong, in words.
+ */
+async function liveRegionProblems(page: Page, where: string): Promise<string[]> {
+  const facts = await page.evaluate(`({
+    polite: [...document.querySelectorAll("[data-announcer=polite]")].map((e) => [e.getAttribute("aria-live"), e.getAttribute("role"), e.textContent]),
+    assertive: [...document.querySelectorAll("[data-announcer=assertive]")].map((e) => [e.getAttribute("aria-live"), e.getAttribute("role"), e.textContent]),
+  })`) as { polite: string[][]; assertive: string[][] };
+  const problems: string[] = [];
+  const check = (kind: string, found: string[][], live: string, role: string) => {
+    if (found.length !== 1) { problems.push(`announcer (${where}): ${found.length} ${kind} region(s), expected 1`); return; }
+    const [ariaLive, ariaRole, text] = found[0]!;
+    if (ariaLive !== live || ariaRole !== role) problems.push(`announcer (${where}): the ${kind} region is aria-live=${ariaLive} role=${ariaRole}`);
+    if (text) problems.push(`announcer (${where}): the ${kind} region said "${text}" with nothing changed`);
+  };
+  check("polite", facts.polite, "polite", "status");
+  check("assertive", facts.assertive, "assertive", "alert");
   return problems;
 }
 
@@ -228,7 +270,11 @@ test("the web UI's main routes have no unexpected serious or critical axe violat
     const phone = await browser.newContext({ ...devices["iPhone 13"], colorScheme: "light" });
     for (const route of routes) findings.push(...await scan(route.phone ? phone : route.dark ? dark : desktop, base, route));
     // The keyboard walks only on a full run (a partial one is for debugging a route).
-    if (!process.env["A11Y_ROUTES"]) keyboard = await keyboardProblems(desktop, base);
+    if (!process.env["A11Y_ROUTES"]) {
+      keyboard = await keyboardProblems(desktop, base);
+      const mobile = await load(phone, base, "/m");
+      try { keyboard.push(...await liveRegionProblems(mobile, "phone")); } finally { await mobile.close(); }
+    }
   } finally {
     await browser?.close();
   }

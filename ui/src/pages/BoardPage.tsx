@@ -23,6 +23,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
 import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { useStoryCollapse } from "@/hooks/useStoryCollapse";
@@ -51,6 +52,7 @@ function StoryBoard() {
   const [search, setSearch] = useState("");
   const [sort, setSort] = useState<SortOption>("ready");
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
   const { isCollapsed, setCollapsed, setAllCollapsed } = useStoryCollapse();
 
   // Active stories only; pending ones are on the Pending tab.
@@ -107,6 +109,7 @@ function StoryBoard() {
       confirmLabel: "Archive",
     }))) return;
     await apiPost(`/api/stories/${storyId}/archive`, { force: true });
+    announce(`Archived story ${storyId}`);
     refetch();
   };
 
@@ -118,6 +121,7 @@ function StoryBoard() {
       confirmLabel: "Make pending",
     }))) return;
     await apiPost(`/api/stories/${storyId}/${pending ? "pending" : "activate"}`);
+    announce(pending ? `${storyId} made pending` : `${storyId} activated`);
     refetch();
   };
 

@@ -35,6 +35,12 @@ export interface AssistantStreamState {
   thoughts: string;
   /** False while the SSE connection is down (daemon restart, etc.). */
   connected: boolean;
+  /**
+   * True once the transcript for this session has been fetched (false again
+   * while a switch to another session loads), so a watcher can tell the
+   * history arriving from a new reply (hooks/useLiveAnnouncements).
+   */
+  loaded: boolean;
   /** Force a transcript refresh (e.g. after switching sessions). */
   refresh: () => void;
 }
@@ -50,6 +56,9 @@ export function useAssistantStream(sessionId?: string): AssistantStreamState {
   const [thinking, setThinking] = useState(false);
   const [thoughtChunks, setThoughtChunks] = useState<string[]>([]);
   const [connected, setConnected] = useState(false);
+  // The session whose transcript has been fetched ("" = the live one); loaded
+  // when it matches the one asked for, so a switch reads as "not loaded yet".
+  const [loadedFor, setLoadedFor] = useState<string | null>(null);
   const [nonce, setNonce] = useState(0);
 
   // Read the pinned session inside SSE handlers without making them a dependency
@@ -82,6 +91,7 @@ export function useAssistantStream(sessionId?: string): AssistantStreamState {
         setMessages((prev) => shareStructure(prev, data.messages || []));
         setThinking(!!data.thinking);
         setChatAgent((prev) => shareStructure(prev, data.chatAgent ?? null));
+        setLoadedFor(sessionId ?? "");
       } catch {
         // Leave the last known transcript in place; the stream or the next
         // reconcile will catch us up.
@@ -149,5 +159,5 @@ export function useAssistantStream(sessionId?: string): AssistantStreamState {
     return () => source.close();
   }, [refresh]);
 
-  return { session, messages, chatAgent, thinking, thoughts: thoughtChunks.join(""), connected, refresh };
+  return { session, messages, chatAgent, thinking, thoughts: thoughtChunks.join(""), connected, loaded: loadedFor === (sessionId ?? ""), refresh };
 }

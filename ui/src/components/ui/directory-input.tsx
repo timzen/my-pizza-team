@@ -30,6 +30,8 @@ interface DirectoryInputProps {
   onChange: (value: string) => void;
   placeholder?: string;
   id?: string;
+  /** The id of an error message about this field: marks it `aria-invalid` and described by it. */
+  errorId?: string;
   /** Additional directories to include in the dropdown (after favorites and recent) */
   extraDirectories?: string[];
 }
@@ -42,7 +44,7 @@ async function toggleFavorite(dir: string, isFavorite: boolean): Promise<string[
   return res.success ? res.favorites ?? [] : null;
 }
 
-export function DirectoryInput({ value, onChange, placeholder, id, extraDirectories }: DirectoryInputProps) {
+export function DirectoryInput({ value, onChange, placeholder, id, errorId, extraDirectories }: DirectoryInputProps) {
   const { data, refetch } = useApi<DirectoriesData>("/api/directories");
   const favorites = data?.favorites ?? [];
   const recent = data?.recent ?? [];
@@ -98,6 +100,8 @@ export function DirectoryInput({ value, onChange, placeholder, id, extraDirector
           onChange={e => { onChange(e.target.value); setOpen(true); }}
           onFocus={() => { if (hasAny) setOpen(true); }}
           placeholder={placeholder || "~/projects/foo"}
+          aria-invalid={errorId ? true : undefined}
+          aria-describedby={errorId}
           className="pr-14"
         />
         <div className="absolute right-2 top-1/2 -translate-y-1/2 flex items-center gap-1">

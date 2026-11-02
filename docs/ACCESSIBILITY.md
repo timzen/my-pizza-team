@@ -72,7 +72,10 @@ one `<main>`, a title shaped `<page> · <team> · Pizza Team`, and "Skip to cont
 first Tab. After the routes, a full run walks a few **keyboard** paths and fails if focus
 lands anywhere unexpected: the skip link → the page's h1; a NavBar link → the new page's
 h1; a Work tab → that tab (not the heading); a confirm dialog opens on **Cancel** and Esc
-returns focus to the button that opened it.
+returns focus to the button that opened it. Then the **announcer**, on the desktop and at
+`/m`: exactly one polite and one assertive live region, both silent after a load (nothing
+changed, so nothing is said), the chat transcript a `role="log"` that doesn't read itself
+out, and a story's **Make pending** spoken as "Story made pending".
 
 **Contrast in every theme** is also a unit test (`tests/contrast-ui.test.ts`, in `npm test`):
 it parses `ui/src/index.css` and holds the default palette's text — foreground and muted
@@ -154,10 +157,34 @@ focus is.
 - **Small targets** (under 24×24) are fine inside one composite control with a single tab
   stop, like the Usage heatmap's grid (arrow keys between days, Enter to list a day's
   runs) — not as hundreds of separate buttons.
-- **Live regions announce changes, politely and once.** Things that change without a
-  page load (a chat reply, a run finishing, a save's result) go through the app-wide
-  announcer (task 4). Polling must never re-announce unchanged data (docs/DESIGN.md
-  "Polling Never Disturbs the Reader").
+- **Live announcements: politely, briefly, and once.** Things that change without a page
+  load go through the app-wide announcer (`components/Announcer.tsx`, mounted once in
+  `main.tsx`): `const announce = useAnnounce(); announce("Story saved")` speaks through
+  its polite region, `announce(msg, "assertive")` through the assertive one — errors
+  only. Never add your own `aria-live` region or `role="alert"`: two regions speaking at
+  once garble each other.
+  - **A save's result:** every save / activate / archive / delete / send handler says
+    how it went ("Saved", "Activated", "Deleted task …", "Queued for ripley"). Keep it
+    short and name the item when it isn't obvious.
+  - **A form's error** is a `<FormError id=…>{error}</FormError>`
+    (`components/ui/form-error.tsx`), not a bare red `<p>`: it's announced assertively
+    when it appears or changes (a source check in `tests/live-announce-ui.test.ts`
+    rejects `{error && <p className="… text-destructive">{error}</p>}`). When the error
+    is about one field, that field gets `aria-invalid` and `aria-describedby` the
+    FormError's id (`DirectoryInput` and `PersonaPicker` take an `errorId` for it).
+    Errors that change as you type (a JSON field's parse error) describe their field but
+    aren't announced.
+  - **Polled data is announced only through a diff** (`lib/live-announce.ts`, wired by
+    `hooks/useLiveAnnouncements.ts`): the first answer is a baseline, an unchanged poll is
+    silent (docs/DESIGN.md "Polling Never Disturbs the Reader"). Today: a new assistant
+    reply ("Assistant replied" — never the message itself); queue items starting, at
+    risk, finishing, failing or canceled, plus a rise in the Inbox's unread count, folded
+    into one summary ("“Fix login” started", "Queue: 2 started, 1 finished · 3 unread in
+    Inbox") at most every 15 seconds; a teammate going offline ("ripley went offline").
+    A new kind of live news adds a rule there, with a test.
+  - **The chat transcript is a `role="log"`** with `aria-live="off"` (overriding the
+    role's implicit polite), named "Conversation": a screen reader can find it and read
+    it in order, but a long answer never talks over you.
 - **Contrast:** 4.5:1 for text, 3:1 for large text, icons and focus rings — in both
   themes. Use the theme's tokens (`text-muted-foreground`, not `/60`–`/70` of it). Status
   colors as text are a 700 shade in light with a 400 in dark (`text-amber-700
@@ -255,9 +282,36 @@ walks pass. Before → after:
 - **Motion:** reduced motion stills animations and transitions; the chat's smooth scrolls
   jump instead.
 
-Known gaps after task 3: **Solarized** keeps its own colors, and its secondary text
+Known gaps after task 3 (live announcements are closed by task 4, below): **Solarized** keeps its own colors, and its secondary text
 (base0 / base00 on its backgrounds) is under 4.5:1 by design — its focus ring meets 3:1;
 CodeMirror editors use Tab to indent (Esc, then Tab, leaves — with vim on, Esc is vim's);
 the Thoughts canvas is still pointer-first (its list view is the keyboard path); live
 announcements are task 4. The scan still doesn't open dialogs or menus beyond the one
 confirm, or see the assistant chat with messages or a teammate's live view.
+
+## Status after task 4: live announcements — the final state
+
+**0 serious/critical findings on 48 scans; the allowlist is empty and every jsx-a11y rule
+is an error** (both since task 3), and the keyboard walks now check the announcer too.
+Before → after:
+
+- **Live regions:** the UI had one — the NavBar's notice line (`role="status"`) — so a
+  chat reply, a queue item starting or failing, a run landing in the Inbox, a teammate
+  dropping off, or the result of a Save happened in silence unless you went looking.
+  Now one app-wide announcer (a polite and an assertive region) on both shells says each
+  of those once, briefly; the queue's news is one summary at most every 15 seconds.
+- **Chat:** the transcript was an unnamed `<div>`; now a `role="log"` named
+  "Conversation", quiet itself, with "Assistant replied" announced instead.
+- **Forms:** 27 error lines were bare red text, never announced; now every one is a
+  `FormError` (announced assertively), and the fields they're about — the new-job title,
+  team size, a favorite directory, a workflow or state name, a cron, a persona's
+  instructions, a state's persona, a source's settings, the pair composer — are
+  `aria-invalid` and described by them. About 50 save / activate / archive / delete
+  handlers announce their result. The Add Task form's Title is labelled.
+
+Known gaps: **Solarized**'s secondary text is under 4.5:1 by design; CodeMirror editors
+use Tab to indent (Esc, then Tab, leaves) and a markdown field (Goal, Description) can't
+be marked `aria-invalid` yet — its error is still announced; the Thoughts canvas is
+pointer-first (its list view is the keyboard path); the Thoughts note editor autosaves
+silently (its "saved" state is visual); and the scan still doesn't open most dialogs and
+menus, or see a teammate's live view. The keyboard pass covers those.

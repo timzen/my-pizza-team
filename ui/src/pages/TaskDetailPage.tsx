@@ -42,6 +42,8 @@ import type { StoryView, WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 type WorkDef = WorkDefView;
 
@@ -70,6 +72,7 @@ export function TaskDetailPage() {
   const [tab, setTab] = useDetailTab();
 
   const [editError, setEditError] = useState("");
+  const announce = useAnnounce();
 
   // Resolve workflow states/transitions for this task's story.
   const workflows = statusData?.workflows || {};
@@ -89,6 +92,7 @@ export function TaskDetailPage() {
     setEditError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}/move`, { status: targetStatus });
     if (!res.success) { setEditError(res.error || "Failed to move"); return; }
+    announce(`Moved to ${targetStatus.replace(/_/g, " ")}`);
     refetchStories();
   };
 
@@ -97,7 +101,7 @@ export function TaskDetailPage() {
     // Delete via the task endpoint: it drops the task from the story's list and
     // frees the CONWIP token (the plain WorkDef delete wouldn't).
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (res.success) navigate("/work/board", { replace: true });
+    if (res.success) { announce(`Deleted task ${taskId}`); navigate("/work/board", { replace: true }); }
     else setEditError(res.error || "Failed to delete");
   };
 
@@ -164,7 +168,7 @@ export function TaskDetailPage() {
 
         <RunHistory workDefId={def.id} />
 
-        {editError && <p className="text-sm text-destructive">{editError}</p>}
+        <FormError className="text-sm">{editError}</FormError>
       </div>
       )}
 

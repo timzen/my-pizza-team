@@ -43,6 +43,7 @@
 import { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useApi, apiPut } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { notifyFeaturesChanged, useFeatures } from "@/hooks/useFeatures";
 import type { Features } from "@/lib/features";
 import { configBody, type ConfigData } from "@/lib/config-draft";
@@ -88,8 +89,11 @@ export function ConfigPage() {
     setConfig(structuredClone(data));
   }
 
+  const announce = useAnnounce();
+  /** The save's result: shown beside Save for a few seconds, and spoken (an error assertively). */
   const showToast = (msg: string, error = false) => {
     setToast({ msg, error });
+    announce(msg.replace(/^✓\s*/, ""), error ? "assertive" : "polite");
     setTimeout(() => setToast(null), 3000);
   };
 

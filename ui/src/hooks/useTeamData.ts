@@ -20,6 +20,8 @@ import { harnessSkew, roleOf, type FailedSpawn, type SpawnRequest, type Teammate
 export interface TeamData {
   /** Pool teammates (never the leader). */
   teammates: Teammate[];
+  /** False until the first `/api/agents` poll has answered. */
+  loaded: boolean;
   online: Teammate[];
   offline: Teammate[];
   pendingSpawns: SpawnRequest[];
@@ -72,6 +74,7 @@ export function useTeamData(): TeamData {
 
   return {
     teammates,
+    loaded: data !== null,
     online: teammates.filter((a) => a.status !== "offline"),
     offline: teammates.filter((a) => a.status === "offline"),
     pendingSpawns: spawnData?.requests || [],

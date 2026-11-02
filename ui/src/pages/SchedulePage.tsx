@@ -22,6 +22,7 @@
 
 import { Link } from "react-router-dom";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -56,19 +57,23 @@ export function SchedulePage() {
   // Active only: a pending definition or a pending Schedule puts the job on the Pending tab.
   const defs = (data?.workDefs || []).filter(d => d.type === "Scheduled" && isActiveScheduledJob(d, scheduleOf(d)));
 
+  const announce = useAnnounce();
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
+    announce("Run queued");
     refetch();
   };
 
   /** Make a Schedule pending (reversible — activate it again from the Pending tab). */
   const makePending = async (scheduleId: string) => {
     await apiPost(`/api/schedules/${encodeURIComponent(scheduleId)}/pending`, {});
+    announce("Schedule made pending");
     refetchSchedules();
   };
 
   const archive = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/archive`, {});
+    announce("Archived");
     refetch();
   };
 

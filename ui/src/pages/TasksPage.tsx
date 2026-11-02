@@ -19,6 +19,7 @@
 import { Link } from "react-router-dom";
 import { useState } from "react";
 import { useApi, apiPost } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -40,13 +41,16 @@ export function TasksPage() {
   const defs = sortByRuns(filterByRuns(activeDefs, runFilter), runSort);
   const neverRunCount = countNeverRun(activeDefs);
 
+  const announce = useAnnounce();
   const run = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/enqueue`, {});
+    announce("Run queued");
     refetch();
   };
 
   const archive = async (id: string) => {
     await apiPost(`/api/work-defs/${encodeURIComponent(id)}/archive`, {});
+    announce("Archived");
     refetch();
   };
 

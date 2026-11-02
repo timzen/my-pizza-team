@@ -24,6 +24,8 @@ import {
 } from "@/components/ui/dialog";
 import { AlertTriangle } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 /** Live pool state from GET /api/teammate-pool. */
 export interface TeammatePool {
@@ -64,6 +66,7 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
   const [draft, setDraft] = useState(() => String(pool?.minTeammates ?? 0));
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
+  const announce = useAnnounce();
 
   const max = pool?.maxTeammates ?? 0;
 
@@ -72,6 +75,7 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
     const res = await apiPut<{ success: boolean; error?: string }>("/api/teammate-pool", { minTeammates });
     setSaving(false);
     if (!res.success) { setError(res.error || "Could not set team size"); return; }
+    announce(minTeammates === null ? "Team size reset to the default" : `Team size set to ${minTeammates}`);
     onDone();
   };
 
@@ -102,6 +106,8 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
               max={max || undefined}
               value={draft}
               onChange={(e) => setDraft(e.target.value)}
+              aria-invalid={error ? true : undefined}
+              aria-describedby={error ? "team-size-error" : undefined}
               className="w-24"
             />
             {max > 0 && <span className="text-xs text-muted-foreground">max {max}</span>}
@@ -119,7 +125,7 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
             <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> No leader connected — nothing can spawn until one is.
           </p>
         )}
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        <FormError id="team-size-error" className="text-xs">{error}</FormError>
 
         <DialogFooter>
           {pool && !pool.isDefault && (

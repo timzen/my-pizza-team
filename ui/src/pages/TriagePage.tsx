@@ -34,6 +34,7 @@ import { noteClass } from "@/lib/thoughtColors";
 import { outcomeLabel, triageNowBlocked, type TriageView } from "@/lib/triage";
 import { Lightbulb, Play, StickyNote } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
 
 export function TriagePage() {
   const { id = "" } = useParams();
@@ -78,7 +79,7 @@ export function TriagePage() {
       </div>
 
       {blocked && <p className="text-xs text-muted-foreground">{blocked}.</p>}
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError className="text-sm">{error}</FormError>
 
       <div className="grid gap-4 lg:grid-cols-[minmax(0,2fr)_minmax(0,3fr)]">
         {/* ─── The note, read-only ─────────────────────────────────── */}

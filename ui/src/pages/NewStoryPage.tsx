@@ -22,6 +22,8 @@ import { Plus, X } from "lucide-react";
 import { BackButton } from "@/components/ui/back-button";
 import { useApi, apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 interface WorkflowSummary {
   name: string;
@@ -39,6 +41,7 @@ export function NewStoryPage() {
   const [pending, setPending] = useState(false);
   const [workflow, setWorkflow] = useState("");
   const [tasks, setTasks] = useState<Array<{ title: string; description: string }>>([]);
+  const announce = useAnnounce();
   const [error, setError] = useState("");
 
   // Pre-select the team's default workflow once the list loads (the user can
@@ -69,7 +72,7 @@ export function NewStoryPage() {
     if (tasks.length > 0) body.tasks = tasks.filter(t => t.title).map(t => ({ title: t.title, description: t.description, pending: tasksPending || undefined }));
 
     const res = await apiPost<{ success: boolean; error?: string }>("/api/stories", body);
-    if (res.success) navigate(`/story/${encodeURIComponent(id)}`);
+    if (res.success) { announce(`Created story ${title || id}`); navigate(`/story/${encodeURIComponent(id)}`); }
     else setError(res.error || "Failed to create story");
   };
 
@@ -116,7 +119,7 @@ export function NewStoryPage() {
           ))}
         </div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError className="text-sm">{error}</FormError>
         <div className="flex gap-2">
           <Button type="submit" value="create">Create Story</Button>
           {tasks.length > 0 && (

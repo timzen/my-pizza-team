@@ -116,8 +116,12 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
         </div>
       )}
 
-      {/* Messages */}
-      <div ref={scrollRef} className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
+      {/* Messages: a log (new entries are appended, in order). Not a live
+          region itself — aria-live="off" overrides the role's implicit
+          polite — so a reply isn't read out in full: the announcer says
+          "Assistant replied" (hooks/useLiveAnnouncements), and the reader
+          goes to the log to read it. */}
+      <div ref={scrollRef} role="log" aria-live="off" aria-label="Conversation" className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
         {messages.length === 0 && (
           <p className="py-8 text-center text-sm text-muted-foreground">
             No messages yet. Say hello to your assistant below.

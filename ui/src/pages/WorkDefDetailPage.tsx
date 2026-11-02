@@ -64,6 +64,8 @@ import type { ScheduleView, WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
@@ -76,12 +78,15 @@ export function WorkDefDetailPage() {
   const def = data?.workDef;
   useDocumentTitle([def?.title ?? id ?? "Work", def?.type === "Scheduled" ? "Scheduled job" : "Work"]);
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
   // Cron lives on the parent Schedule, not the WorkDef.
   const scheduleId = def?.parent?.kind === "schedule" ? def.parent.id : undefined;
   const { data: schedData, refetch: refetchSchedule } = useApi<{ schedule?: Schedule }>(scheduleId ? `/api/schedules/${scheduleId}` : "/api/schedules?none", [scheduleId]);
 
   const [cron, setCron] = useState("");
   const [error, setError] = useState("");
+  // Whether the error is the cron's (a refused save): the cron field is then invalid and described by it.
+  const [cronInvalid, setCronInvalid] = useState(false);
   // A triage-mode mirror's page leads with (and defaults to) its Triage tab.
   const triageMode = isTriageMode(def?.mirror);
   const [tab, setTab] = useDetailTab(triageMode ? "triage" : "details", triageMode);
@@ -119,7 +124,8 @@ export function WorkDefDetailPage() {
   const saveCron = async () => {
     setError("");
     const res = await apiPut<{ success: boolean; error?: string }>(`/api/work-defs/${def.id}`, { cron: cron.trim() });
-    if (res.success) refetch();
+    setCronInvalid(!res.success);
+    if (res.success) { refetch(); announce("Schedule saved"); }
     else setError(res.error || "Failed to save schedule");
   };
 
@@ -130,6 +136,7 @@ export function WorkDefDetailPage() {
     setError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/schedules/${encodeURIComponent(schedule.id)}/${pending ? "pending" : "activate"}`, {});
     if (!res.success) setError(res.error || "Failed to update schedule");
+    else announce(pending ? "Schedule made pending" : "Schedule activated");
     refetchSchedule();
   };
 
@@ -144,6 +151,8 @@ export function WorkDefDetailPage() {
     if (!res.success) {
       const message = res.error || (triageMode ? "Could not start a triage run" : "Failed to run");
       if (triageMode) decisions.setError(message); else setError(message);
+    } else {
+      announce(triageMode ? "Triage run queued" : "Run queued");
     }
     refetch();
     if (triageMode) refetchTriage();
@@ -152,6 +161,7 @@ export function WorkDefDetailPage() {
   const remove = async () => {
     if (!(await confirm({ title: `Delete "${def.title}"?`, description: "This can't be undone.", confirmLabel: "Delete", destructive: true }))) return;
     await apiDelete(`/api/work-defs/${def.id}`);
+    announce(`Deleted ${def.title}`);
     // replace: the deleted page must not be a Back target.
     navigate(backTo, { replace: true });
   };
@@ -224,7 +234,8 @@ export function WorkDefDetailPage() {
           <div>
             <div className="mb-2 pb-1 border-b border-border"><Label>Schedule (cron)</Label></div>
             <div className="flex gap-2 mt-1">
-              <Input className="font-mono" aria-label="Schedule (cron)" value={cron} onChange={e => setCron(e.target.value)} placeholder="0 9 * * *" />
+              <Input className="font-mono" aria-label="Schedule (cron)" value={cron} onChange={e => { setCron(e.target.value); setCronInvalid(false); }}
+                aria-invalid={(cronInvalid && !!error) || undefined} aria-describedby={cronInvalid && error ? "workdef-error" : undefined} placeholder="0 9 * * *" />
               <Button variant="outline" onClick={saveCron}><Save className="h-4 w-4 mr-1" />Save schedule</Button>
             </div>
             <p className="text-[11px] text-muted-foreground mt-1">
@@ -235,7 +246,7 @@ export function WorkDefDetailPage() {
 
         <RunHistory workDefId={def.id} />
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError id="workdef-error" className="text-sm">{error}</FormError>
       </div>
       )}
 

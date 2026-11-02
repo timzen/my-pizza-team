@@ -2285,6 +2285,15 @@ the rules that replace them:
   frame re-renders one row; live plain text renders one span per line
   (`ui/append-only-lines.tsx`), so a chunk rewrites only the last line.
 
+- **A poll is news only when something changed — for the ear too.** The
+  screen-reader announcer (docs/ACCESSIBILITY.md "Live announcements") speaks
+  about polled data only through a diff against the previous answer
+  (`ui/src/lib/live-announce.ts`): the first answer is a baseline, an unchanged
+  one is silent, and queue news is folded into one summary at most every 15s —
+  never "once per poll". A chat reply is announced as "Assistant replied", not
+  read out: the transcript is a `role="log"` with `aria-live="off"`, so the
+  words are there when you go to them, and a long answer never talks over you.
+
 *Why not pause updates while text is selected?* Deferring a poll while
 `window.getSelection()` is non-empty was considered and not needed: with the
 rules above an update only rewrites nodes whose content actually changed, so a

@@ -9,6 +9,7 @@ import { featureToggleRows, type Features } from "@/lib/features";
 import type { ConfigData } from "@/lib/config-draft";
 import { SOURCES_TAB_PATH } from "@/lib/source-settings";
 import { Card, CardContent } from "@/components/ui/card";
+import { FormError } from "@/components/ui/form-error";
 
 /**
  * Switch the Stories, Tasks (incl. Templates), and Schedules kinds on or off,
@@ -79,7 +80,7 @@ export function WorkItemFeatures({ config, setConfig, saved, error }: {
             : <>Work Source plugins are switched on and off, and set up, on the{" "}</>}
           <Link to={SOURCES_TAB_PATH} className="text-primary underline">Sources</Link> tab.
         </p>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        <FormError className="text-xs">{error}</FormError>
       </CardContent>
     </Card>
   );

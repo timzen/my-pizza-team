@@ -29,6 +29,8 @@ import { DirectoryInput } from "@/components/ui/directory-input";
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from "@/components/ui/dialog";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 export function SpawnDialog({
   open,
@@ -55,6 +57,7 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
   const [storyDirs, setStoryDirs] = useState<string[]>([]);
   const [experimental, setExperimental] = useState(false);
   const [harness, setHarness] = useState("pi");
+  const announce = useAnnounce();
 
   // Experimental harnesses are offered only where the team has opted in.
   useEffect(() => {
@@ -87,6 +90,7 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
       params: { cwd: cwd || undefined, reason: "teammate", ...(harness !== "pi" ? { harness } : {}) },
     });
     if (!res.success) { setError(res.error || "Failed to spawn"); return; }
+    announce("Spawn requested");
     onDone();
   };
 
@@ -127,7 +131,7 @@ function SpawnForm({ onDone }: { onDone: () => void }) {
           </div>
         )}
 
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        <FormError className="text-xs">{error}</FormError>
 
         <DialogFooter>
           <Button type="submit">Spawn</Button>

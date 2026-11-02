@@ -298,6 +298,8 @@ rules for new UI code and the current status. `ui/eslint.config.js` adds
 - `hooks/useRouteFocus.ts` + `lib/route-focus.ts` — after a route change, focus moves to the new page's h1 (or `<main>` until it renders, then the h1), unless it's the first render, the same path (a `?tab=`, a selected note), a navigation marked `keepFocusState()` (RouteTabs' links, which re-focus their active tab if the page remounted them), or focus is inside a `data-keep-focus` region (the SideDock).
 - `components/ui/confirm-dialog.tsx` — `useConfirm()` → `[dialog, confirm]`: a Base UI AlertDialog that replaces `window.confirm()` everywhere (focus starts on Cancel, returns to the asker; render the element where it's used, so it nests inside another dialog). `hooks/useUnsavedChangesGuard.ts` uses it too and returns its element.
 - `lib/motion.ts` — `prefersReducedMotion` / `scrollBehavior` for script-driven scrolling; index.css stills CSS animations and transitions under `prefers-reduced-motion`, and draws the one focus ring (`:focus-visible`, a 2px `--ring` outline, unlayered so `outline-none` can't hide it).
+- `components/Announcer.tsx` + `hooks/useAnnounce.ts` — the app-wide screen-reader announcer, mounted once in `main.tsx` (both shells): a polite (`role=status`) and an assertive (`role=alert`) visually hidden live region. `useAnnounce()` → `announce(message, politeness)` (clears the region, then writes the text, so a repeat is spoken again); `useReportActivity()` folds queue / Inbox news into one summary, spoken after a 1.5s settle and at most every 15s. Both are no-ops outside the provider. `components/ui/form-error.tsx` `FormError` is every form's error line: red text plus an assertive announcement when it appears or changes; its `id` is the field's `aria-describedby` (with `aria-invalid`). Save / activate / archive / delete handlers `announce` their result.
+- `hooks/useLiveAnnouncements.ts` + `lib/live-announce.ts` (tested in `tests/live-announce-ui.test.ts`) — what changed, announced: `useAnnounceReplies` (new assistant bubbles → "Assistant replied"; needs `useAssistantStream`'s `loaded`), `useAnnounceQueue` (started / at risk, and items that left the queue looked up once by `GET /api/work-items/:id` → finished / failed / canceled), `useAnnounceUnread` (the Inbox's unread count rising), `useAnnounceOffline` (online → offline; needs `useTeamData`'s `loaded`). Each keeps the last answer's snapshot in a ref and diffs against it — the first answer is a baseline, an unchanged poll says nothing. The SideDock (chat, queue, team) and NavBar (unread) call them on the desktop, MobileShell on the phone. The chat transcript (`AssistantChat`) is `role="log"` `aria-live="off"`.
 - `lib/contrast.ts` — parses the palette (`oklch()` / hex) and computes WCAG contrast; `tests/contrast-ui.test.ts` holds index.css's text, destructive and ring colors to 4.5:1 / 3:1 in light and dark.
 
 **Shell.** `App.tsx` is the router and the two-column shell (`h-dvh`, so each region
@@ -499,7 +501,9 @@ first; [ACCESSIBILITY.md](ACCESSIBILITY.md)): `routes.test.ts` starts a sandboxe
 `color-contrast`. On each route it also runs axe's structure rules (`STRUCTURE_RULES`,
 promoted to serious) and `structureFindings` (one h1, one main, a `<page> · <team> · Pizza
 Team` title, the skip link as the first Tab), and after the routes a few keyboard walks
-(`keyboardProblems`: the skip link, a NavBar link, a Work tab, a confirm dialog's focus).
+(`keyboardProblems`: the skip link, a NavBar link, a Work tab, a confirm dialog's focus)
+and the announcer (`liveRegionProblems`, desktop and `/m`: one polite and one assertive
+region, silent on load; the chat a quiet `role="log"`; a story's Make pending announced).
 `_gate.ts` decides what fails: a serious or critical violation not in `allowlist.json`
 (empty since task 3), or an allowlist entry that's been fixed
 (unit-tested by `tests/a11y-gate.test.ts` in the fast suite). Both are root devDependencies.

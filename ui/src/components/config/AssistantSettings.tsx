@@ -11,6 +11,7 @@ import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { Card, CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
 
 // --- Assistant chat mode (docs/DESIGN.md "Assistant Chat Model") ---
 
@@ -93,7 +94,7 @@ function AssistantPersonaSetting() {
         disabled={busy || !data}
       />
       <p className="text-xs text-muted-foreground">Applies at once: a new chat starts with the chosen persona.</p>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      <FormError className="text-xs">{error}</FormError>
     </div>
   );
 }

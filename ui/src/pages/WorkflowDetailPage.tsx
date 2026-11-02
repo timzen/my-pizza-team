@@ -28,6 +28,8 @@ import { GitBranch, Pencil, ArrowRight, Trash2, ChevronUp, ChevronDown, Plus, Bo
 import { BackButton } from "@/components/ui/back-button";
 import type { WorkflowConfig, WorkflowState } from "@shared/types";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 interface ConfigData {
   port: number;
@@ -128,6 +130,7 @@ export function WorkflowDetailPage() {
 function StatePersonas({ name, states, onSaved }: { name: string; states: WorkflowState[]; onSaved: () => void }) {
   const [saving, setSaving] = useState<string | null>(null);
   const [errors, setErrors] = useState<Record<string, string>>({});
+  const announce = useAnnounce();
   const agentStates = states.filter((s) => s.type === "agent");
 
   const pick = async (state: string, persona: string | null) => {
@@ -138,7 +141,7 @@ function StatePersonas({ name, states, onSaved }: { name: string; states: Workfl
         `/api/workflows/${encodeURIComponent(name)}/states/${encodeURIComponent(state)}`, { persona },
       );
       if (!res.success) setErrors((e) => ({ ...e, [state]: res.error || "Save failed" }));
-      else { onSaved(); void notifyPersonasChanged(); }
+      else { onSaved(); void notifyPersonasChanged(); announce(`Saved the persona for ${state.replace(/_/g, " ")}`); }
     } catch (e) {
       setErrors((x) => ({ ...x, [state]: (e as Error).message }));
     }
@@ -159,8 +162,9 @@ function StatePersonas({ name, states, onSaved }: { name: string; states: Workfl
             onChange={(p) => pick(s.name, p)}
             noneLabel="No persona (state framing only)"
             disabled={saving === s.name}
+            errorId={errors[s.name] ? `state-persona-${s.name}-error` : undefined}
           />
-          {errors[s.name] && <span className="text-xs text-destructive">{errors[s.name]}</span>}
+          <FormError id={`state-persona-${s.name}-error`} className="text-xs">{errors[s.name]}</FormError>
         </div>
       ))}
     </div>
@@ -198,7 +202,10 @@ function StatesEditor({ name, workflow, config, onSaved }: {
   const [states, setStates] = useState<WorkflowState[]>(workflow.states);
   const [newState, setNewState] = useState("");
   const [error, setError] = useState<string | null>(null);
+  // Which field the error is about: the new state's name, or the list as a whole (Save).
+  const [nameInvalid, setNameInvalid] = useState(false);
   const [saving, setSaving] = useState(false);
+  const announce = useAnnounce();
 
   // Re-seed the editable state list when the workflow prop changes
   // (render-time adjustment; see React's "you might not need an effect").
@@ -225,21 +232,24 @@ function StatesEditor({ name, workflow, config, onSaved }: {
   const add = () => {
     const slug = newState.trim().toLowerCase().replace(/[^a-z0-9]+/g, "_").replace(/^_|_$/g, "");
     if (!slug) return;
-    if (slug === "todo" || slug === "done") { setError(`"${slug}" is a reserved bucket name`); return; }
-    if (states.some(s => s.name === slug)) { setError(`State "${slug}" already exists`); return; }
+    if (slug === "todo" || slug === "done") { setError(`"${slug}" is a reserved bucket name`); setNameInvalid(true); return; }
+    if (states.some(s => s.name === slug)) { setError(`State "${slug}" already exists`); setNameInvalid(true); return; }
     setStates([...states, { name: slug, type: "agent" }]);
     setNewState("");
     setError(null);
+    setNameInvalid(false);
+    announce(`Added ${slug.replace(/_/g, " ")} — Save to keep it`);
   };
 
   const save = async () => {
     if (states.length === 0) { setError("A workflow needs at least one state"); return; }
     setSaving(true);
     setError(null);
+    setNameInvalid(false);
     try {
       const updatedConfig = { ...config, workflows: { ...config.workflows, [name]: { states } } };
       const res = await apiPut<{ success: boolean; error?: string }>("/api/config", updatedConfig);
-      if (res.success) onSaved();
+      if (res.success) { onSaved(); announce(`Saved the ${name} workflow's states`); }
       else setError(res.error || "Failed to save");
     } catch (e) {
       setError("Network error: " + (e as Error).message);
@@ -269,15 +279,17 @@ function StatesEditor({ name, workflow, config, onSaved }: {
         <Input
           aria-label="New state name" placeholder="New state name…"
           value={newState}
-          onChange={e => setNewState(e.target.value)}
+          onChange={e => { setNewState(e.target.value); if (nameInvalid) { setNameInvalid(false); setError(null); } }}
           onKeyDown={e => { if (e.key === "Enter") add(); }}
+          aria-invalid={nameInvalid || undefined}
+          aria-describedby={nameInvalid ? "states-editor-error" : undefined}
           className="max-w-xs"
         />
         <Button variant="outline" size="sm" onClick={add} disabled={!newState.trim()}><Plus className="h-3.5 w-3.5 mr-1" />Add</Button>
         <div className="flex-1" />
         <Button size="sm" onClick={save} disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
       </div>
-      {error && <p className="text-xs text-destructive">{error}</p>}
+      <FormError id="states-editor-error" className="text-xs">{error}</FormError>
     </section>
   );
 }

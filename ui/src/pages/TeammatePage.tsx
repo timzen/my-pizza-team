@@ -35,6 +35,7 @@ import type { WorkItemView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
 
 type Agent = Teammate;
 
@@ -131,7 +132,7 @@ export function TeammatePage() {
           )}
         </div>
       </div>
-      {error && <p className="shrink-0 px-4 py-1 text-xs text-destructive">{error}</p>}
+      <FormError className="shrink-0 px-4 py-1 text-xs">{error}</FormError>
       <div className="min-h-0 flex-1">
         <AgentTerminal
           memberId={id}

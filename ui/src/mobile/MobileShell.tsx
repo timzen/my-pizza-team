@@ -33,6 +33,7 @@ import { useApi } from "@/hooks/useApi";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useQueue } from "@/hooks/useQueue";
 import { useTeamData } from "@/hooks/useTeamData";
+import { useAnnounceOffline, useAnnounceQueue, useAnnounceReplies, useAnnounceUnread } from "@/hooks/useLiveAnnouncements";
 import { ThemeToggle } from "@/components/ThemeToggle";
 import { MOBILE_TAB_PATHS, mobileTabOf, readViewPref, writeViewPref, type MobileTab } from "@/lib/mobile";
 import { countUnread } from "@/lib/unread";
@@ -73,6 +74,11 @@ export function MobileShell() {
     "/api/work-items?state=COMPLETE,FAILED&read=false&limit=1", [], { pollInterval: 15_000 },
   );
   const paused = !!status?.paused;
+  // Tell a screen reader what changed, as the desktop does (docs/ACCESSIBILITY.md "Live announcements").
+  useAnnounceReplies(stream.messages, stream.loaded);
+  useAnnounceQueue(queue.items, queue.loaded);
+  useAnnounceOffline(team.teammates, team.loaded);
+  useAnnounceUnread(inbox?.total);
 
   // Unread chat = replies since you last had the Chat tab open. Re-stamped
   // whenever the tab changes (entering or leaving Chat both count as looking)

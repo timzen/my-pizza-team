@@ -21,6 +21,7 @@
 import { useEffect, useRef, useState } from "react";
 import { Link, useMatch, useNavigate, useSearchParams } from "react-router-dom";
 import { useApi, apiDelete, apiPatch, apiPost } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -169,6 +170,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
   const [draft, setDraft] = useState(note.content);
   const [mode, setMode] = useState<"preview" | "edit">(params.has("edit") || !note.content.trim() ? "edit" : "preview");
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
 
   // The last content known to be saved, and what the unmount flush needs — the
   // same bookkeeping as the desktop NoteEditor's pane mode.
@@ -200,6 +202,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
   const archive = async () => {
     flush();
     await apiPost(`/api/thoughts/${encodeURIComponent(note.id)}/archive`, {});
+    announce("Note archived");
     onChanged();
     leave();
   };
@@ -207,6 +210,7 @@ function NoteView({ note, onChanged }: { note: Note; onChanged: () => void }) {
     if (!(await confirm({ title: "Delete this note?", description: "This can't be undone.", confirmLabel: "Delete", destructive: true }))) return;
     saved.current = latest.current.draft; // nothing left to flush
     await apiDelete(`/api/thoughts/${encodeURIComponent(note.id)}`);
+    announce("Note deleted");
     onChanged();
     leave();
   };

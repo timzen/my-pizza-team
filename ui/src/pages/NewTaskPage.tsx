@@ -16,6 +16,8 @@ import { MarkdownField } from "@/components/ui/markdown-field";
 import { BackButton } from "@/components/ui/back-button";
 import { apiPost } from "@/hooks/useApi";
 import { Tooltip } from "@/components/ui/tooltip";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 export function NewTaskPage() {
   const { id: storyId } = useParams<{ id: string }>();
@@ -23,6 +25,7 @@ export function NewTaskPage() {
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
   const [error, setError] = useState("");
+  const announce = useAnnounce();
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -30,7 +33,7 @@ export function NewTaskPage() {
     const submitter = (e.nativeEvent as SubmitEvent).submitter as HTMLButtonElement | null;
     const pending = submitter?.value === "pending";
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${encodeURIComponent(storyId)}/tasks`, { title, description, pending: pending || undefined });
-    if (res.success) navigate(-1);
+    if (res.success) { announce(pending ? "Task added as pending" : "Task added"); navigate(-1); }
     else setError(res.error || "Failed to create task");
   };
 
@@ -42,9 +45,9 @@ export function NewTaskPage() {
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4">
-        <div><div className="mb-2 pb-1 border-b border-border"><Label>Title</Label></div><Input value={title} onChange={e => setTitle(e.target.value)} required /></div>
+        <div><div className="mb-2 pb-1 border-b border-border"><Label htmlFor="task-title">Title</Label></div><Input id="task-title" value={title} onChange={e => setTitle(e.target.value)} required /></div>
         <MarkdownField label="Description" value={description} onChange={setDescription} rows={3} required defaultEditing />
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError className="text-sm">{error}</FormError>
         <div className="flex gap-2">
           <Button type="submit" value="add">Add Task</Button>
           <Tooltip content="Hold its place in the story; nothing runs until you activate it">

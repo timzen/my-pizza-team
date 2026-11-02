@@ -24,6 +24,7 @@ import { notifyPersonasChanged } from "@/hooks/usePersonas";
 import { PersonaPicker } from "@/components/personas/PersonaPicker";
 import { Label } from "@/components/ui/label";
 import type { WorkDefDefinitionData } from "@/components/WorkDefDefinition";
+import { FormError } from "@/components/ui/form-error";
 
 export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData; onChanged: () => void }) {
   const [saving, setSaving] = useState(false);
@@ -100,7 +101,7 @@ export function WorkDefPersona({ def, onChanged }: { def: WorkDefDefinitionData;
       <div className="mb-2 pb-1 border-b border-border"><Label htmlFor="workdef-persona">Persona</Label></div>
       <div className="mt-1 space-y-1">
         {body}
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        <FormError className="text-xs">{error}</FormError>
       </div>
     </div>
   );

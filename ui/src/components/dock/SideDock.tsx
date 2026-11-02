@@ -72,6 +72,7 @@ import { useQueue } from "@/hooks/useQueue";
 import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useTeamData } from "@/hooks/useTeamData";
+import { useAnnounceOffline, useAnnounceQueue, useAnnounceReplies } from "@/hooks/useLiveAnnouncements";
 import { useSideDock, type SideDockTab } from "@/hooks/useSideDock";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { countUnread } from "@/lib/unread";
@@ -99,6 +100,10 @@ export function SideDock() {
   const stream = useAssistantStream(viewingId ?? undefined);
   const team = useTeamData();
   const queue = useQueue();
+  // Tell a screen reader what changed (docs/ACCESSIBILITY.md "Live announcements").
+  useAnnounceReplies(stream.messages, stream.loaded);
+  useAnnounceQueue(queue.items, queue.loaded);
+  useAnnounceOffline(team.teammates, team.loaded);
   const [width, startResize] = useDockWidth();
   const isDesktop = useMediaQuery(LG_QUERY);
   const [sizeOpen, setSizeOpen] = useState(false);

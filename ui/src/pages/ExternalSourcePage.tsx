@@ -41,6 +41,7 @@ import { sourceSettingsPath } from "@/lib/source-settings";
 import { ExternalLink, FolderSync, RefreshCw, Settings } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { FormError } from "@/components/ui/form-error";
 
 /** Badge classes per latest-state tone. */
 const TONE_CLASS: Record<ReturnType<typeof latestStateTone>, string> = {
@@ -117,7 +118,7 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
               </Button>
             </Tooltip>
           </div>
-          {syncError && <p className="text-sm text-destructive">{syncError}</p>}
+          <FormError className="text-sm">{syncError}</FormError>
 
           {data && defs.length === 0 && (
             <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">

@@ -23,6 +23,8 @@ import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 export function StoryDetailPage() {
   const { id } = useParams<{ id: string }>();
@@ -30,6 +32,7 @@ export function StoryDetailPage() {
   const { data, refetch } = useApi<{ stories: StoryView[] }>("/api/stories");
   const story = data?.stories.find(s => s.id === id);
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
   // The tab's title is the story's (the path can't know it: lib/page-title.ts).
   useDocumentTitle([story?.title ?? id ?? "Story", "Story"]);
 
@@ -64,14 +67,14 @@ export function StoryDetailPage() {
       title, description,
       directory: directory.trim() || null,
     });
-    if (res.success) refetch();
+    if (res.success) { refetch(); announce("Story saved"); }
     else setError(res.error || "Failed to update");
   };
 
   const handleDelete = async () => {
     if (!(await confirm({ title: `Delete story "${story.id}"?`, confirmLabel: "Delete", destructive: true }))) return;
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/stories/${story.id}`);
-    if (res.success) navigate("/work/board", { replace: true });
+    if (res.success) { announce(`Deleted story ${story.title}`); navigate("/work/board", { replace: true }); }
     else setError(res.error || "Failed to delete");
   };
 
@@ -80,6 +83,7 @@ export function StoryDetailPage() {
     setError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, {});
     if (res.success) {
+      announce(`Archived story ${story.title}`);
       navigate("/work/board");
       return;
     }
@@ -87,7 +91,7 @@ export function StoryDetailPage() {
     if (res.error && res.error.includes("Not all tasks are done")) {
       if (!(await confirm({ title: "Not all tasks are done. Archive anyway?", description: "Tasks not in 'done' will be force-completed.", confirmLabel: "Archive" }))) return;
       const forceRes = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/archive`, { force: true });
-      if (forceRes.success) navigate("/work/board");
+      if (forceRes.success) { announce(`Archived story ${story.title}`); navigate("/work/board"); }
       else setError(forceRes.error || "Failed to archive");
     } else {
       setError(res.error || "Failed to archive");
@@ -98,7 +102,7 @@ export function StoryDetailPage() {
   const togglePending = async () => {
     setError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/${story.pending ? "activate" : "pending"}`);
-    if (res.success) refetch();
+    if (res.success) { refetch(); announce(story.pending ? "Story activated" : "Story made pending"); }
     else setError(res.error || "Failed to update");
   };
 
@@ -112,7 +116,7 @@ export function StoryDetailPage() {
     order.splice(to, 0, moved!);
     setError("");
     const res = await apiPost<{ success: boolean; error?: string }>(`/api/stories/${story.id}/tasks/reorder`, { order });
-    if (res.success) refetch();
+    if (res.success) { refetch(); announce(`Moved ${delta < 0 ? "up" : "down"} to position ${to + 1}`); }
     else setError(res.error || "Failed to reorder");
   };
 
@@ -121,7 +125,7 @@ export function StoryDetailPage() {
     if (!(await confirm({ title: `Delete task "${taskId}"?`, confirmLabel: "Delete", destructive: true }))) return;
     setError("");
     const res = await apiDelete<{ success: boolean; error?: string }>(`/api/tasks/${encodeURIComponent(taskId)}`);
-    if (res.success) refetch();
+    if (res.success) { refetch(); announce(`Deleted task ${taskId}`); }
     else setError(res.error || "Failed to delete task");
   };
 
@@ -177,7 +181,7 @@ export function StoryDetailPage() {
 
         <div><div className="mb-2 pb-1 border-b border-border"><Label>Directory</Label></div><p className="text-xs text-muted-foreground mb-2">Where the work happens — teammates cd here and read its AGENTS.md before starting.</p><DirectoryInput placeholder="/path/to/project (optional)" value={directory} onChange={setDirectory} /></div>
 
-        {error && <p className="text-sm text-destructive">{error}</p>}
+        <FormError className="text-sm">{error}</FormError>
       </div>
 
       {/* Task list with links to each task page */}

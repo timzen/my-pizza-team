@@ -11,6 +11,8 @@ import { FAVORITES_CHANGED_EVENT, notifyFavoritesChanged } from "@/lib/directori
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Plus, X, Star } from "lucide-react";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 /**
  * The team's favorite directories, offered first by every directory picker.
@@ -23,6 +25,7 @@ export function FavoriteDirectories() {
   const favorites = data?.favorites ?? [];
   const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const announce = useAnnounce();
 
   // Stars clicked in the picker below change the list too.
   useEffect(() => {
@@ -34,11 +37,12 @@ export function FavoriteDirectories() {
   const add = async () => {
     if (!draft.trim()) return;
     const res = await apiPost<{ success: boolean; error?: string }>("/api/directories/favorites", { directory: draft.trim() });
-    if (res.success) { setDraft(""); setError(null); notifyFavoritesChanged(); } else setError(res.error || "Could not add");
+    if (res.success) { setDraft(""); setError(null); notifyFavoritesChanged(); announce(`Added ${draft.trim()} to favorites`); } else setError(res.error || "Could not add");
   };
   const remove = async (dir: string) => {
     await apiDelete(`/api/directories/favorites?directory=${encodeURIComponent(dir)}`);
     notifyFavoritesChanged();
+    announce(`Removed ${dir} from favorites`);
   };
 
   return (
@@ -64,11 +68,11 @@ export function FavoriteDirectories() {
         <div className="flex gap-2 items-start">
           {/* Catches Enter bubbling up from the input inside; the wrapper itself isn't interactive. */}
           <div className="flex-1" role="presentation" onKeyDown={(e) => e.key === "Enter" && add()}>
-            <DirectoryInput id="favorite-directory" value={draft} onChange={setDraft} placeholder="Add a directory..." />
+            <DirectoryInput id="favorite-directory" value={draft} onChange={setDraft} placeholder="Add a directory..." errorId={error ? "favorite-directory-error" : undefined} />
           </div>
           <Button variant="outline" size="sm" onClick={add} aria-label="Add directory"><Plus className="h-3.5 w-3.5" /></Button>
         </div>
-        {error && <p className="text-xs text-destructive">{error}</p>}
+        <FormError id="favorite-directory-error" className="text-xs">{error}</FormError>
       </CardContent>
     </Card>
   );

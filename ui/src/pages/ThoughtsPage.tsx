@@ -33,6 +33,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useApi, apiPost, apiPatch, apiDelete } from "@/hooks/useApi";
+import { useAnnounce } from "@/hooks/useAnnounce";
 import { NoteDialog } from "@/components/thoughts/NoteDialog";
 import { ThoughtsList } from "@/components/thoughts/ThoughtsList";
 import { CopyId } from "@/components/thoughts/CopyId";
@@ -71,6 +72,7 @@ export function ThoughtsPage() {
   const { data: archivedData, refetch: refetchArchived } = useApi<ThoughtsData>("/api/thoughts?status=archived");
 
   const [notes, setNotes] = useState<Thought[]>([]);
+  const announce = useAnnounce();
   const [groups, setGroups] = useState<ThoughtGroup[]>([]);
   const [seed, setSeed] = useState<ThoughtsData | null>(null);
   if (data && data !== seed) { setSeed(data); setNotes(data.thoughts); setGroups(data.groups); }
@@ -140,9 +142,9 @@ export function ThoughtsPage() {
     setNotes((ns) => ns.map((x) => (x.id === id ? { ...x, pinned } : x)));
     await apiPatch(`/api/thoughts/${id}`, { pinned });
   };
-  const archive = async (id: string) => { await apiPost(`/api/thoughts/${id}/archive`, {}); refetch(); refetchArchived(); };
-  const restore = async (id: string) => { await apiPost(`/api/thoughts/${id}/restore`, {}); refetch(); refetchArchived(); };
-  const remove = async (id: string) => { await apiDelete(`/api/thoughts/${id}`); refetch(); refetchArchived(); };
+  const archive = async (id: string) => { await apiPost(`/api/thoughts/${id}/archive`, {}); announce("Note archived"); refetch(); refetchArchived(); };
+  const restore = async (id: string) => { await apiPost(`/api/thoughts/${id}/restore`, {}); announce("Note restored"); refetch(); refetchArchived(); };
+  const remove = async (id: string) => { await apiDelete(`/api/thoughts/${id}`); announce("Note deleted"); refetch(); refetchArchived(); };
 
   // ─── Selection-scoped actions (keyboard + multi-select) ───────────────
   const archiveSelected = useCallback(async () => {

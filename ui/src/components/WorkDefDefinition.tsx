@@ -33,6 +33,8 @@ import { WorkDefPersona } from "@/components/personas/WorkDefPersona";
 import { Lock, Pencil, Save, Send, X } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
+import { FormError } from "@/components/ui/form-error";
+import { useAnnounce } from "@/hooks/useAnnounce";
 
 /** The WorkDef fields this section shows/edits (a subset of the API's WorkDefView). */
 export interface WorkDefDefinitionData {
@@ -96,6 +98,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDialog, confirm] = useConfirm();
+  const announce = useAnnounce();
 
   const startEdit = () => {
     setTitle(def.title);
@@ -116,6 +119,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
         directory: directory.trim() || null,
       });
       if (!res.success) { setError(res.error || "Failed to save"); return; }
+      announce("Saved");
       setEditing(false);
       onChanged();
     } finally { setBusy(false); }
@@ -128,6 +132,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
     try {
       const res = await apiPost<{ success: boolean; error?: string }>(`/api/work-defs/${encodeURIComponent(def.id)}/activate`, {});
       if (!res.success) { setError(res.error || "Failed to activate"); return; }
+      announce("Activated");
       setEditing(false);
       onChanged();
     } finally { setBusy(false); }
@@ -177,7 +182,7 @@ export function WorkDefDefinition({ def, goalLabel = "Goal", onChanged, actions,
         </>
       )}
 
-      {error && <p className="text-sm text-destructive">{error}</p>}
+      <FormError className="text-sm">{error}</FormError>
       <div className="flex gap-2">
         {editing && (
           <>

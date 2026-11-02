@@ -785,11 +785,12 @@ npm run test:e2e         # real git, tmux, and shell — run before pushing
 npm run typecheck:ext    # the Pi extension
 npm run test:ext         # the Pi extension's suites
 (cd ui && npx tsc -b && npx eslint .)   # the web UI (lint includes jsx-a11y)
-npm run test:a11y        # the UI's accessibility scan (axe-core in headless Chromium, light + dark, structure + keyboard walks)
+npm run test:a11y        # the UI's accessibility scan (axe-core in headless Chromium, light + dark, structure + keyboard walks + live regions)
 ```
 
 The UI targets WCAG 2.2 AA — keyboard-only and screen-reader use included (a skip link,
-page titles, focus that follows the page, accessible confirm dialogs, reduced motion);
+page titles, focus that follows the page, accessible confirm dialogs, reduced motion, and
+live announcements of replies, queue changes, saves and errors);
 the checks, the rules for UI code and the current status are in
 [docs/ACCESSIBILITY.md](docs/ACCESSIBILITY.md).
 
