@@ -5,6 +5,8 @@
  * The header's Pending ⇄ Active toggle applies at once (docs/DESIGN.md
  * "Pending: Write, Review, Activate"): pending holds the story — a running
  * task finishes, nothing new is handed out, dependents wait.
+ * A story with no tasks yet explains how its tasks run and offers Add a task
+ * and the chat (components/ui/empty-state).
  */
 
 import { useState } from "react";
@@ -16,7 +18,8 @@ import { Label } from "@/components/ui/label";
 import { DirectoryInput } from "@/components/ui/directory-input";
 import { MarkdownField } from "@/components/ui/markdown-field";
 import { TitleField } from "@/components/ui/title-field";
-import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play } from "lucide-react";
+import { Save, Trash2, Plus, ChevronUp, ChevronDown, Archive, Hourglass, Play, ListChecks } from "lucide-react";
+import { AskAssistantButton, EmptyState } from "@/components/ui/empty-state";
 import { BackButton } from "@/components/ui/back-button";
 import type { StoryView } from "@shared/protocol";
 import { IconButton } from "@/components/ui/icon-button";
@@ -221,7 +224,12 @@ export function StoryDetailPage() {
             </IconButton>
           </div>
         ))}
-        {story.tasks.length === 0 && <p className="text-sm text-muted-foreground">No tasks yet.</p>}
+        {story.tasks.length === 0 && (
+          <EmptyState kind="storyTasks" icon={ListChecks} className="py-8">
+            <Button size="sm" render={<Link to={`/story/${story.id}/tasks/new`} />}><Plus className="mr-1 h-4 w-4" aria-hidden />Add a task</Button>
+            <AskAssistantButton />
+          </EmptyState>
+        )}
       </div>
     </div>
   );

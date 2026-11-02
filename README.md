@@ -35,6 +35,9 @@ a table of contents, search, and a link for every section (`/help/<topic>#<secti
 Every page's **?** (or the `?` key) opens the section about that page in the side dock,
 beside the page, and the forms' non-obvious fields (workflow, persona, directory,
 pending, cron…) each say what they do in one line, with a **Learn more** into it.
+An empty list explains what goes there and offers the next step — **New story**,
+**Ask the assistant**, **Spawn a teammate**, **How to start the leader** — and a list
+filtered down to nothing says so, with a way to clear the filters.
 Writing a plugin? See [docs/PLUGINS.md](docs/PLUGINS.md).
 
 ---

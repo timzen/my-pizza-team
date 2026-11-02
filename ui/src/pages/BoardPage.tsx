@@ -15,6 +15,9 @@
  *   bar) and shows **active** stories only. Pending and archived stories are
  *   rows of the mixed lists on Work → Pending / Archived
  *   (pages/LifecyclePage.tsx).
+ * - Empty, it explains what a story is and offers New story and the chat; a
+ *   search that matches nothing says so instead, with Clear search
+ *   (components/ui/empty-state; docs/DESIGN.md "An Empty Screen Teaches").
  */
 
 import { useState, useMemo } from "react";
@@ -27,7 +30,9 @@ import { useAnnounce } from "@/hooks/useAnnounce";
 import { StorySwimlane } from "@/components/board/StorySwimlane";
 import { WorkItemsLayout } from "@/components/WorkItemsTabs";
 import { useStoryCollapse } from "@/hooks/useStoryCollapse";
-import { Search, Plus, ChevronsDownUp, ChevronsUpDown } from "lucide-react";
+import { Search, Plus, ChevronsDownUp, ChevronsUpDown, Kanban } from "lucide-react";
+import { AskAssistantButton, EmptyState, NoMatches } from "@/components/ui/empty-state";
+import { listView } from "@/lib/empty-states";
 import type { StatusResponse, StoryView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
@@ -101,7 +106,8 @@ function StoryBoard() {
     }
   }, [filtered, sort]);
 
-  // Find data for the read-only task preview modal
+  const view = listView({ loaded: !!storiesData, total: stories.length, shown: sorted.length });
+
   const handleArchive = async (storyId: string) => {
     if (!(await confirm({
       title: `Archive story "${storyId}"?`,
@@ -191,13 +197,13 @@ function StoryBoard() {
             onToggleCollapsed={c => setCollapsed(story.id, c)}
           />
         ))}
-        {sorted.length === 0 && (
-          <p className="text-center text-muted-foreground py-12">
-            {search
-              ? "No stories match your search."
-              : "No stories yet. Create one to get started."}
-          </p>
+        {view === "empty" && (
+          <EmptyState kind="board" icon={Kanban}>
+            <Button size="sm" render={<Link to="/stories/new" />}><Plus className="h-4 w-4 mr-1" aria-hidden />New story</Button>
+            <AskAssistantButton />
+          </EmptyState>
         )}
+        {view === "no-matches" && <NoMatches onClear={() => setSearch("")} clearLabel="Clear search" />}
       </div>
     </div>
   );

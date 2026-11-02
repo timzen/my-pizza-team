@@ -187,6 +187,13 @@ focus is.
     the form. Hints aren't announced: they're read when you reach the field.
     Errors that change as you type (a JSON field's parse error) describe their field but
     aren't announced.
+  - **An empty list** is an `<EmptyState kind=… icon=…>` (`components/ui/empty-state.tsx`,
+    copy in `lib/empty-states.ts`), and one filtered to nothing a `<NoMatches>` — never
+    a bare grey `<p>`. Neither is a live region (a poll that empties a list isn't
+    news); the icon is decorative (`aria-hidden`), the title and sentence are text,
+    the actions are real buttons and links, and **Learn more** is described by the
+    title so it isn't just "Learn more" out of context. A disabled action (the Team
+    tab's Spawn) is described by the visible reason it's disabled.
   - **Polled data is announced only through a diff** (`lib/live-announce.ts`, wired by
     `hooks/useLiveAnnouncements.ts`): the first answer is a baseline, an unchanged poll is
     silent (docs/DESIGN.md "Polling Never Disturbs the Reader"). Today: a new assistant

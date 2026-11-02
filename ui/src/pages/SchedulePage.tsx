@@ -18,6 +18,9 @@
  * pending job never fires; reactivating a Schedule resumes at its next cron
  * occurrence without back-filling the ones it skipped (docs/DESIGN.md
  * "Pending schedules: reversible, no catch-up").
+ *
+ * Empty, it explains what a scheduled job is and offers New job and the chat
+ * (components/ui/empty-state; docs/DESIGN.md "An Empty Screen Teaches").
  */
 
 import { Link } from "react-router-dom";
@@ -33,6 +36,7 @@ import { Plus, Play, Pause, CalendarClock, FolderOpen, Archive } from "lucide-re
 import type { ScheduleView, WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
 import { describeCron } from "@/lib/field-help";
+import { AskAssistantButton, EmptyState } from "@/components/ui/empty-state";
 
 type WorkDef = WorkDefView;
 type Schedule = ScheduleView;
@@ -78,11 +82,11 @@ export function SchedulePage() {
         <Button size="sm" render={<Link to="/work-defs/new?type=Scheduled" />}><Plus className="h-4 w-4 mr-1" />New Job</Button>
       </div>
 
-      {defs.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-          <CalendarClock className="h-8 w-8" />
-          <p className="text-sm">No active scheduled jobs.</p>
-        </div>
+      {data && defs.length === 0 && (
+        <EmptyState kind="schedule" icon={CalendarClock}>
+          <Button size="sm" render={<Link to="/work-defs/new?type=Scheduled" />}><Plus className="h-4 w-4 mr-1" aria-hidden />New job</Button>
+          <AskAssistantButton />
+        </EmptyState>
       )}
 
       <div className="grid gap-3">

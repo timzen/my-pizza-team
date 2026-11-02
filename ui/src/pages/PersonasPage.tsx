@@ -17,6 +17,11 @@
  *   Built-in and package personas are read-only: **Duplicate to edit** copies
  *   one into the team library.
  *
+ * - **No team personas yet** (the built-ins are always there, so the list is
+ *   never empty): an empty state above the list says what one of your own is
+ *   for and offers New persona (components/ui/empty-state). A search or tag
+ *   that matches nothing says so, with Clear filters.
+ *
  * Rendered inside ConfigPage (which supplies the tab bar); saves are its own,
  * not the page's Save button. Pure rules live in lib/personas.ts.
  */
@@ -42,6 +47,8 @@ import { Tooltip } from "@/components/ui/tooltip";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
+import { EmptyState, NoMatches } from "@/components/ui/empty-state";
+import { listView } from "@/lib/empty-states";
 
 export function PersonasPage({ personaId }: { personaId: string | null }) {
   return personaId ? <PersonaDetail key={personaId} id={personaId} /> : <PersonaList />;
@@ -66,6 +73,8 @@ function PersonaList() {
   const all = useMemo(() => personas ?? [], [personas]);
   const tagCounts = useMemo(() => personaTagCounts(all), [all]);
   const filtered = useMemo(() => filterPersonas(all, query, activeTag), [all, query, activeTag]);
+  const view = listView({ loaded: personas !== null, total: all.length, shown: filtered.length });
+  const noTeamPersonas = personas !== null && !all.some((p) => p.origin.kind === "team");
 
   return (
     <div className="space-y-4">
@@ -87,6 +96,14 @@ function PersonaList() {
             <PersonaEditor persona={null} onCancel={() => setCreating(false)} onSaved={(p, warnings) => navigate(personaPath(p.id), { state: { warnings } })} />
           </CardContent>
         </Card>
+      )}
+
+      {noTeamPersonas && !creating && (
+        <div className="rounded-lg border border-dashed border-border">
+          <EmptyState kind="personas" icon={Sparkles} className="py-6">
+            <Button size="sm" onClick={() => setCreating(true)}><Plus className="mr-1 h-4 w-4" aria-hidden />New persona</Button>
+          </EmptyState>
+        </div>
       )}
 
       <div className="relative">
@@ -130,9 +147,8 @@ function PersonaList() {
             </Card>
           </Link>
         ))}
-        {personas !== null && filtered.length === 0 && (
-          <p className="py-8 text-center text-muted-foreground">{all.length === 0 ? "No personas yet." : "No personas match your filter."}</p>
-        )}
+        {view === "empty" && <p className="py-8 text-center text-muted-foreground">No personas yet.</p>}
+        {view === "no-matches" && <NoMatches onClear={() => { setQuery(""); setActiveTag(null); }} />}
       </div>
     </div>
   );

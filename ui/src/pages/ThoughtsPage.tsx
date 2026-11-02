@@ -28,6 +28,10 @@
  * CanvasNote, Minimap, ArchivedDrawer}, and the layout math (Tidy, new-group
  * wrap, marquee, zoom) is pure in lib/thoughtLayout. This page keeps the data,
  * the mutations, selection, the `?note=` link, and the keyboard shortcuts.
+ *
+ * With no notes, either view explains what Thoughts are for and offers + Note
+ * and the chat (components/ui/empty-state; docs/DESIGN.md "An Empty Screen
+ * Teaches") — on the canvas as a card over the empty board.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -53,6 +57,9 @@ import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { placeForGroupChange, slotBelowAll, slotInPlate } from "@/lib/thoughtList";
 import type { Thought, ThoughtGroup } from "@shared/types";
 import type { ThoughtsResponse } from "@shared/protocol";
+import { AskAssistantButton, EmptyState } from "@/components/ui/empty-state";
+import { Button } from "@/components/ui/button";
+import { Plus, StickyNote } from "lucide-react";
 
 type ThoughtsData = ThoughtsResponse;
 
@@ -377,6 +384,8 @@ export function ThoughtsPage() {
           onArchive={archive}
           onDelete={remove}
           badges={badges}
+          loaded={!!data}
+          onNewNote={() => createNoteInList(null)}
         />
       ) : (<>
       {/* Canvas viewport */}
@@ -461,9 +470,14 @@ export function ThoughtsPage() {
         setView((v) => ({ ...v, ...centerViewOn(plateRect(g, notes), vpW, vpH, v.scale) }));
       }} />}
 
-      {notes.length === 0 && (
-        <div className="pointer-events-none absolute inset-0 flex items-center justify-center text-muted-foreground">
-          <p>Empty canvas — hit <span className="font-medium text-foreground">+ Note</span> to capture a thought.</p>
+      {data && notes.length === 0 && (
+        <div className="pointer-events-none absolute inset-0 flex items-center justify-center p-4">
+          <div className="pointer-events-auto rounded-lg border border-border bg-background/95 shadow-sm">
+            <EmptyState kind="thoughts" icon={StickyNote} className="py-8">
+              <Button size="sm" onClick={createNote}><Plus className="mr-1 h-4 w-4" aria-hidden />New note</Button>
+              <AskAssistantButton />
+            </EmptyState>
+          </div>
         </div>
       )}
       </>)}

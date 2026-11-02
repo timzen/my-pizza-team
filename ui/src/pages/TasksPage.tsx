@@ -14,6 +14,9 @@
  * WorkItem table); the **Never run** toggle keeps only count-0 tasks — the "things
  * to do" — and the sort menu orders by run count (lib/run-count.ts; docs/DESIGN.md
  * "Execution Count: Derived, not Counted").
+ * Empty, it explains what a standalone task is and offers New task and the
+ * chat; with **Never run** on and nothing left, it says nothing matches instead
+ * (components/ui/empty-state; docs/DESIGN.md "An Empty Screen Teaches").
  */
 
 import { Link } from "react-router-dom";
@@ -29,6 +32,8 @@ import { RUN_SORTS, countNeverRun, filterByRuns, runCountLabel, sortByRuns, type
 import { Plus, Play, Zap, FolderOpen, Archive } from "lucide-react";
 import type { WorkDefView } from "@shared/protocol";
 import { Tooltip } from "@/components/ui/tooltip";
+import { AskAssistantButton, EmptyState, NoMatches } from "@/components/ui/empty-state";
+import { listView } from "@/lib/empty-states";
 
 type WorkDef = WorkDefView;
 
@@ -40,6 +45,7 @@ export function TasksPage() {
   const [runSort, setRunSort] = useState<RunSort>("default");
   const defs = sortByRuns(filterByRuns(activeDefs, runFilter), runSort);
   const neverRunCount = countNeverRun(activeDefs);
+  const view = listView({ loaded: !!data, total: activeDefs.length, shown: defs.length });
 
   const announce = useAnnounce();
   const run = async (id: string) => {
@@ -81,12 +87,13 @@ export function TasksPage() {
         <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" />New Task</Button>
       </div>
 
-      {defs.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-          <Zap className="h-8 w-8" />
-          <p className="text-sm">{runFilter === "never" ? "Every task here has run at least once." : "No active solitary tasks."}</p>
-        </div>
+      {view === "empty" && (
+        <EmptyState kind="tasks" icon={Zap}>
+          <Button size="sm" render={<Link to="/work-defs/new?type=Solitary" />}><Plus className="h-4 w-4 mr-1" aria-hidden />New task</Button>
+          <AskAssistantButton />
+        </EmptyState>
       )}
+      {view === "no-matches" && <NoMatches onClear={() => setRunFilter("all")} clearLabel="Show all tasks" />}
 
       <div className="grid gap-3">
         {defs.map(def => (

@@ -35,6 +35,17 @@ what it does (a screen reader reads it when you reach the field). **Learn more**
 end opens the section about it in the same Help tab. A schedule's cron field also reads
 itself back in words as you type: `0 9 * * 1-5` shows "Every weekday at 9:00."
 
+**Empty screens say what's next.** A list with nothing in it yet — the Queue, the
+Inbox, the Board, Tasks, Schedule, Pending, Archived, Thoughts, a source's tab, the
+Team tab, Usage, a story's tasks — says in a sentence what goes there, offers the next
+step (**New story**, **New task**, **New note**, **Sync now**…), and has a **Learn
+more** into this guide. **Ask the assistant** opens the chat with the cursor in the
+message box, ready to type. A list you've filtered or searched down to nothing says
+"Nothing matches the filters." instead, with a button to clear them — so an empty
+result never looks like an empty list. In the Inbox, *Inbox zero* means you've read
+everything (**Show read items** brings them back); *Nothing has finished yet* means no
+run has finished at all.
+
 The full guide (`/help`) lists the topics on the left, with the
 sections of the one you're reading under it, and the box above them searches every
 page. Each section has its own address (`/help/<topic>#<section>`), so you can

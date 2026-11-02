@@ -2234,6 +2234,47 @@ thing you were looking at, and with it the reason you asked. So every screen has
   because five fields of digits and stars are easy to get subtly wrong; it describes
   the field rather than announcing each keystroke.
 
+## An Empty Screen Teaches
+
+A new team's first look at every list is an empty one, so the empty screen is where
+the UI does most of its teaching. A blank — or "No stories yet." — tells you nothing
+you couldn't see, and leaves you to work out where things come from. So every list
+says, when it's empty, **what goes there and how to fill it**
+(`components/ui/empty-state` `EmptyState`, copy in `lib/empty-states.ts`): an icon, a
+short title, one sentence, the **real next step**, and **Learn more** into the guide
+section (the dock's Help panel; on the phone, its page under `/m/help`).
+
+- **The action does the thing.** Not a hint to go and find the `+`: **New story**,
+  **New task**, **New job** and **New note** open the create form (or make the note);
+  **Ask the assistant** opens the dock's Assistant tab with the cursor in the message
+  box (`hooks/useStartChat`; on the phone, the Chat tab) — for the Queue, the Inbox
+  and Pending, describing the work in words *is* the next step; **Sync now** syncs an
+  external source that hasn't mirrored anything. Where the next step depends on the
+  team's switched-on kinds, the first one on is offered (`StartWorkActions`).
+- **Empty is not "no matches".** A list filtered or searched down to nothing says
+  "Nothing matches the filters." and offers to clear them (`NoMatches`). Showing the
+  empty state there would tell a user with fifty stories to create their first.
+  `lib/empty-states.ts` `listView` makes the call — and shows neither until the list's
+  first answer, so a loading page never flashes "nothing here". The Inbox's "Unread
+  only" is a filter too: **Inbox zero** (all read, with *Show read items*) is a
+  different screen from **nothing has finished yet**, told apart by one more count,
+  asked only while the list is empty.
+- **The Team tab explains the leader.** With nobody online it says what teammates are
+  and that the leader — the assistant — starts them, offers **Spawn a teammate**, and
+  unfolds **How to start the leader** (`mpt lead`). Spawn is offered only when a spawn
+  would actually happen: the daemon can start one itself (its spawn capability, on
+  `/health`) or a leader is connected; otherwise it's disabled and says why, with the
+  daemon's own fix (`spawnState`). A failing readiness probe is said too — the
+  teammate would start, but get no work until it passes. On the phone the spawn
+  button is left out: spawning is setup (see "A Phone Is a Peek").
+- **Lists that are never empty** get the same treatment where it matters: the persona
+  library always has its built-ins, so it's "no *team* personas yet" above them.
+- **One sentence, tested.** As with field hints, the copy is one module, and a test
+  holds each to a short title and one sentence, checks every Learn more is a real
+  heading, and that every entry is rendered by some screen. An empty state is not a
+  live region: it appears when a poll finds a list empty, and a poll is news only when
+  something changed (see "Polling Never Disturbs the Reader").
+
 ## A Phone Is a Peek
 
 On a phone the app is a **separate shell at `/m`** (`ui/src/mobile/`), not the

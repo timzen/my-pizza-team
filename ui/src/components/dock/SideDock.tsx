@@ -187,7 +187,7 @@ export function SideDock() {
         <AssistantPane stream={stream} viewingId={viewingId} onViewSession={setViewingId} />
       </div>
       <div className={tab === "team" ? "h-full" : "hidden"}>
-        <TeamPanel team={team} />
+        <TeamPanel team={team} onSpawn={() => setSpawnOpen(true)} />
       </div>
       {tab === "help" && <HelpPanel />}
     </div>

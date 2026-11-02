@@ -21,6 +21,10 @@
  *
  * Reads `/api/usage/daily` and `/api/usage/day` (daemon/routes/usage.ts), both
  * bucketed by the browser's timezone. Grid math is lib/usage (tested).
+ *
+ * With nothing recorded yet, an empty state above the (all-zero) dashboard says
+ * what gets counted and offers a first piece of work and the chat
+ * (components/ui/empty-state; docs/DESIGN.md "An Empty Screen Teaches").
  */
 
 import { uniqueKeys } from "@/lib/list-keys";
@@ -35,6 +39,8 @@ import {
 } from "@/lib/usage";
 import { Tooltip } from "@/components/ui/tooltip";
 import { PageHelpButton } from "@/components/help/PageHelpButton";
+import { EmptyState, StartWorkActions } from "@/components/ui/empty-state";
+import { ChartColumn } from "lucide-react";
 
 interface DailyResponse {
   today: string;
@@ -90,6 +96,12 @@ export function UsagePage() {
         </div>
         <p className="text-sm text-muted-foreground">Tokens and cost across the team — teammate work, the assistant chat, and pairing.</p>
       </div>
+
+      {empty && (
+        <div className="rounded-lg border border-dashed border-border">
+          <EmptyState kind="usage" icon={ChartColumn} className="py-8"><StartWorkActions /></EmptyState>
+        </div>
+      )}
 
       {/* Tiles */}
       <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
@@ -157,7 +169,7 @@ export function UsagePage() {
         </div>
 
         <div className="mt-2 flex items-center justify-between text-[10px] text-muted-foreground">
-          <span>{empty ? "No usage recorded yet — it's counted from every agent run from now on." : "Hover or arrow to a day for details · click or Enter to list its runs"}</span>
+          <span>{empty ? "Nothing to show yet." : "Hover or arrow to a day for details · click or Enter to list its runs"}</span>
           <span className="flex items-center gap-1">
             Less {LEVEL_CLASS.map((c, i) => <span key={i} className={`h-[10px] w-[10px] rounded-[2px] ${c}`} />)} More
           </span>

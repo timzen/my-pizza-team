@@ -16,6 +16,11 @@ team, not the whole app. Four tabs along the bottom:
 - **Inbox** — finished work. Tap a row to read its summary right there (that marks it
   read); **Open full** goes to the task's page in the full UI.
 
+An empty tab says what goes there, as in the full UI: Team explains the leader and how
+to start it (`mpt lead`), and the Queue, Thoughts and Inbox offer **Ask the
+assistant**, which switches to Chat with the cursor in the box (or **New note** on
+Thoughts). **Learn more** opens the matching page of this guide.
+
 The strip under the header is the queue summary, and ⏸ shows when distribution is
 paused. **?** opens this guide (`/m/help`) at this page, with its topics and search
 under a **Contents** button; a bottom tab takes you back. 🖥 switches this device to the full UI, and it stays there until you open

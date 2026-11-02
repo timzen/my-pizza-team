@@ -9,13 +9,16 @@
  *  - **Queue** — the Queue tab's list (pages/QueuePage `QueueList`), with its
  *    stall banner and recovery buttons, fed from the shell's data.
  *
- * Team size and spawning stay on the desktop: they're setup, not a peek.
+ * Team size and spawning stay on the desktop: they're setup, not a peek. With
+ * nobody online the tab says what teammates and the leader are and how to
+ * start the leader (components/team/TeamEmpty, without its Spawn button).
  */
 
 import { Link, Route, Routes, useMatch } from "react-router-dom";
 import type { TeamData } from "@/hooks/useTeamData";
 import type { QueueData } from "@/hooks/useQueue";
 import { TeammateRow } from "@/components/team/TeamParts";
+import { TeamEmpty } from "@/components/team/TeamEmpty";
 import { QueueList } from "@/pages/QueuePage";
 import { TeammatePage } from "@/pages/TeammatePage";
 import { MOBILE_ROOT } from "@/lib/mobile";
@@ -75,14 +78,14 @@ export function MobileTeam({ team, queue, paused }: { team: TeamData; queue: Que
             {offline.map((t) => <TeammateRow key={t.id} teammate={t} href={null} />)}
           </div>
         )}
-        {teammates.length === 0 && pendingSpawns.length === 0 && (
-          <p className="py-2 text-xs text-muted-foreground">No teammates yet. Set a team size from the desktop view.</p>
+        {team.loaded && online.length === 0 && pendingSpawns.length === 0 && (
+          <TeamEmpty leaderPresent={!!team.pool?.leaderPresent} />
         )}
       </section>
 
       <section className="space-y-2">
         <h2 className="text-sm font-semibold">Queue</h2>
-        <QueueList queue={queue} teammates={teammates} paused={paused} teammatePath={teammatePath} />
+        <QueueList queue={queue} teammates={teammates} paused={paused} teammatePath={teammatePath} desktopLinks={false} />
       </section>
     </div>
   );

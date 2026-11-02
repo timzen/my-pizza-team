@@ -8,6 +8,12 @@
  * an item marks it read. Paginated so a busy team's history stays fast.
  *
  * Embedded in the Root page's "Inbox" tab (see RootPage). Polls /api/work-items.
+ *
+ * Two different empties (docs/DESIGN.md "An Empty Screen Teaches"): **Inbox
+ * zero** — everything finished has been read (with "Show all") — and **nothing
+ * has finished yet**, which explains what lands here and offers the next step
+ * (`InboxEmpty`, shared with the phone view). Telling them apart while "Unread
+ * only" is on takes one more count, asked only while the page is empty.
  */
 
 import { useState } from "react";
@@ -17,7 +23,9 @@ import { notifyInboxChanged } from "@/lib/inbox";
 import { hasThreadTab, workItemPath } from "@/lib/work-item-link";
 import type { WorkItemView } from "@shared/protocol";
 import { Button } from "@/components/ui/button";
-import { CheckCircle2, XCircle, Inbox as InboxIcon } from "lucide-react";
+import { EmptyState, StartWorkActions } from "@/components/ui/empty-state";
+import { useEverFinished } from "@/hooks/useEverFinished";
+import { CheckCircle2, XCircle, Inbox as InboxIcon, CheckCheck } from "lucide-react";
 
 type WorkItem = WorkItemView;
 
@@ -57,6 +65,8 @@ export function InboxPage() {
 
   const items = data?.items || [];
   const total = data?.total || 0;
+  // Empty while "Unread only": all read (Inbox zero), or nothing ever finished?
+  const everFinished = useEverFinished(!!data && items.length === 0 && unreadOnly);
 
   const markRead = async (id: string, read: boolean) => {
     await apiPost(`/api/work-items/${encodeURIComponent(id)}/read?read=${read}`, {});
@@ -82,11 +92,11 @@ export function InboxPage() {
         )}
       </div>
 
-      {items.length === 0 && (
-        <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-          <InboxIcon className="h-8 w-8" />
-          <p className="text-sm">{unreadOnly ? "Inbox zero — nothing to review." : "No completed work yet."}</p>
-        </div>
+      {data && items.length === 0 && (!unreadOnly || everFinished !== null) && (
+        <InboxEmpty
+          zero={unreadOnly && everFinished === true}
+          onShowAll={() => { setUnreadOnly(false); setOffset(0); }}
+        />
       )}
 
       <div className="space-y-2">
@@ -103,6 +113,25 @@ export function InboxPage() {
         </div>
       )}
     </div>
+  );
+}
+
+/**
+ * The Inbox's empty states: **Inbox zero** (`zero` — everything's been read;
+ * offers the read ones), or nothing has finished yet (offers starting work).
+ * The phone view passes `desktopLinks={false}`: its only way to start work is
+ * the chat.
+ */
+export function InboxEmpty({ zero, onShowAll, desktopLinks = true }: { zero: boolean; onShowAll: () => void; desktopLinks?: boolean }) {
+  if (zero) {
+    return (
+      <EmptyState kind="inboxZero" icon={CheckCheck}>
+        <Button variant="outline" size="sm" onClick={onShowAll}>Show read items</Button>
+      </EmptyState>
+    );
+  }
+  return (
+    <EmptyState kind="inbox" icon={InboxIcon}><StartWorkActions desktopLinks={desktopLinks} /></EmptyState>
   );
 }
 

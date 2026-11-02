@@ -56,6 +56,12 @@ The gauge shows the context window's fill (hover for exact tokens; `?` just afte
 compacts, until its next reply). Both the gauge and the cost reset when the teammate
 starts a fresh session for its next run.
 
+With nobody online the tab says so, and how to change it: **Spawn a teammate** (when
+something can start one — the daemon itself, or a connected leader; otherwise it's
+greyed out and says why) and **How to start the leader**, which shows the command:
+`mpt lead`. It also warns when the [readiness probe](08-configuration.md#readiness-probe)
+is failing — a new teammate would start but get no work until it passes.
+
 On the Assistant tab you can still see the team at a glance: the Team tab shows how
 many are online, and an amber dot when a team size can't be met (at-risk work shows
 in the queue strip instead). The collapsed dock shows everyone as avatars.

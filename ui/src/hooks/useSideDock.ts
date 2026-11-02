@@ -53,6 +53,11 @@ export interface SideDockValue {
   takeHelpFocus: () => boolean;
   /** Bumped by every `openHelp`, so the panel's focus effect runs even when the section didn't change. */
   helpFocusRequest: number;
+  /**
+   * Open the dock on the Assistant tab and put the cursor in the message box —
+   * an empty screen's "Ask the assistant" (hooks/useStartChat).
+   */
+  focusChat: () => void;
 }
 
 export const SideDockContext = createContext<SideDockValue | null>(null);

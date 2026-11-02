@@ -17,13 +17,17 @@
  *    (`renameGroupId`). Double-click a folder to rename it (or its ✎ button,
  *    the keyboard's way).
  *  - **Search** filters by text; matching folders open regardless of collapse.
+ *  - With **no notes** the pane explains what Thoughts are for and offers New
+ *    note and the chat (components/ui/empty-state).
  *
  * The rules (titles, ordering, search, keyboard order) are pure, in
  * lib/thoughtList.ts. See docs/DESIGN.md "Thoughts".
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Pencil, Pin, Search, X } from "lucide-react";
+import { ChevronDown, ChevronRight, Pencil, Pin, Plus, Search, StickyNote, X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { AskAssistantButton, EmptyState } from "@/components/ui/empty-state";
 import { NoteEditor } from "@/components/thoughts/NoteEditor";
 import { CopyId } from "@/components/thoughts/CopyId";
 import { TriageBadge } from "@/components/thoughts/TriageBadge";
@@ -59,6 +63,10 @@ export interface ThoughtsListProps {
   onDelete: (id: string) => void;
   /** Auto-triage badges by note id (docs/DESIGN.md "Auto Triage"); absent = none. */
   badges?: Record<string, TriageBadgeState>;
+  /** False until the notes first load (so the empty state doesn't flash). Default true. */
+  loaded?: boolean;
+  /** The empty state's "New note" (the toolbar's + Note, in no folder). */
+  onNewNote?: () => void;
 }
 
 const COLLAPSED_KEY = "mpt.thoughts.collapsedFolders";
@@ -334,7 +342,6 @@ export function ThoughtsList(props: ThoughtsListProps) {
           )}
 
           {searching && order.length === 0 && <p className="p-3 text-sm text-muted-foreground">No notes match “{query.trim()}”.</p>}
-          {!searching && notes.length === 0 && <p className="p-3 text-sm text-muted-foreground">No notes yet.</p>}
         </div>
       </div>
 
@@ -358,9 +365,16 @@ export function ThoughtsList(props: ThoughtsListProps) {
               groupHint="or drag it onto a folder in the list"
             />
           ) : (
-            <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-              {notes.length ? "Select a note" : "Nothing here yet — + Note to capture a thought"}
-            </div>
+            notes.length ? (
+              <div className="flex h-full items-center justify-center text-sm text-muted-foreground">Select a note</div>
+            ) : (props.loaded ?? true) && (
+              <div className="flex h-full items-center justify-center">
+                <EmptyState kind="thoughtsList" icon={StickyNote}>
+                  {props.onNewNote && <Button size="sm" onClick={props.onNewNote}><Plus className="mr-1 h-4 w-4" aria-hidden />New note</Button>}
+                  <AskAssistantButton />
+                </EmptyState>
+              </div>
+            )
           )}
         </div>
       </div>

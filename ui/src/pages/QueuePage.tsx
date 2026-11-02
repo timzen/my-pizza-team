@@ -23,6 +23,11 @@
  * The list itself is `QueueList`, driven by data its host already has, so the
  * phone view's Team tab (mobile/MobileTeam) shows the same list without polling
  * the queue a second time.
+ *
+ * With nothing in flight it explains what the Queue holds and offers the next
+ * step — the first kind of work the team has on, and the chat (docs/DESIGN.md
+ * "An Empty Screen Teaches"); on the phone only the chat, which is how a phone
+ * starts work.
  */
 
 import { Link } from "react-router-dom";
@@ -36,6 +41,7 @@ import { PersonaChip } from "@/components/personas/PersonaChip";
 import { workItemPath } from "@/lib/work-item-link";
 import { dirName, roleOf, type Teammate } from "@/lib/team";
 import { AlertTriangle, Ban, FolderOpen, ListTodo, RotateCcw, X } from "lucide-react";
+import { EmptyState, StartWorkActions } from "@/components/ui/empty-state";
 import { Tooltip } from "@/components/ui/tooltip";
 
 /** What each group is for, shown under its heading. */
@@ -65,25 +71,21 @@ export function QueueList({
   teammates,
   paused,
   teammatePath = desktopTeammatePath,
+  desktopLinks = true,
 }: {
   queue: QueueData;
   teammates: Teammate[];
   paused: boolean;
   teammatePath?: (memberId: string) => string;
+  /** Offer the desktop's create forms when empty (off on the phone: it starts work from the chat). */
+  desktopLinks?: boolean;
 }) {
   const idle = teammates.filter((t) => t.status === "idle").length;
   // Offline teammates aren't "busy": with none online the banner should say so.
   const online = teammates.filter((t) => t.status !== "offline").length;
   const stall = stallReason(queue.counts.waiting, paused, online, idle);
 
-  if (queue.loaded && queue.items.length === 0) {
-    return (
-      <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-        <ListTodo className="h-8 w-8" />
-        <p className="text-sm">Nothing in flight — queued and running work shows up here.</p>
-      </div>
-    );
-  }
+  if (queue.loaded && queue.items.length === 0) return <QueueEmpty desktopLinks={desktopLinks} />;
 
   return (
     <div className="space-y-6">
@@ -113,6 +115,11 @@ export function QueueList({
       })}
     </div>
   );
+}
+
+/** Nothing in flight: what the Queue is for, and a way to put something in it. */
+function QueueEmpty({ desktopLinks }: { desktopLinks: boolean }) {
+  return <EmptyState kind="queue" icon={ListTodo}><StartWorkActions desktopLinks={desktopLinks} /></EmptyState>;
 }
 
 /** Why waiting work isn't moving, when there's an obvious reason. */

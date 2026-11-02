@@ -16,17 +16,22 @@
  * the other tab). The team-size and spawn buttons live in the dock's tab row
  * (right side, while this tab is active), and their dialogs are the dock's too,
  * so the rail can open them.
+ *
+ * With nobody online (and no spawn on its way) it shows TeamEmpty: what a
+ * teammate is, who the leader is, Spawn a teammate (when a spawn would
+ * happen), and how to start the leader. Offline teammates are still listed
+ * under it.
  */
 
 import { useMatch } from "react-router-dom";
 import type { TeamData } from "@/hooks/useTeamData";
 import { FailedSpawnRow, SpawnRequestRow, TeammateRow } from "./TeamParts";
-import { UserPlus, Users } from "lucide-react";
+import { TeamEmpty } from "./TeamEmpty";
 
-export function TeamPanel({ team }: { team: TeamData }) {
+export function TeamPanel({ team, onSpawn }: { team: TeamData; onSpawn: () => void }) {
   // Which teammate's view (if any) is in the center.
   const viewingId = useMatch("/teammates/:id")?.params.id ?? null;
-  const { teammates, online, offline, pendingSpawns, failedSpawns, skewed } = team;
+  const { online, offline, pendingSpawns, failedSpawns, skewed } = team;
   const skewReasonFor = (id: string) => skewed.find((s) => s.teammate.id === id)?.reason;
 
   return (
@@ -78,6 +83,10 @@ export function TeamPanel({ team }: { team: TeamData }) {
           </div>
         )}
 
+        {team.loaded && online.length === 0 && pendingSpawns.length === 0 && (
+          <TeamEmpty leaderPresent={!!team.pool?.leaderPresent} onSpawn={onSpawn} />
+        )}
+
         {online.map((t) => (
           <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={team.dismiss} onReset={team.reset} skewReason={skewReasonFor(t.id)} />
         ))}
@@ -89,12 +98,6 @@ export function TeamPanel({ team }: { team: TeamData }) {
               <TeammateRow key={t.id} teammate={t} selected={t.id === viewingId} onDismiss={team.dismiss} />
             ))}
           </div>
-        )}
-
-        {teammates.length === 0 && (
-          <p className="py-4 text-center text-xs text-muted-foreground">
-            No teammates yet. Set the team size (<Users className="inline h-3 w-3" />) or spawn one (<UserPlus className="inline h-3 w-3" />) above.
-          </p>
         )}
 
       </div>

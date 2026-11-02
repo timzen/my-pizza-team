@@ -23,6 +23,12 @@
  * lib/lifecycle-list.ts). Replaced the per-kind-section PendingPage and
  * ArchivedPage (and, before them, the Board's Pending/Backlog and Archive
  * tabs).
+ *
+ * Empty, each explains what lands there and offers the next step — Pending:
+ * the chat (ask it to write work up as pending) and the first create form the
+ * team has on; Archived: the Board (or Tasks), where things are archived from.
+ * Chips or a search that leave nothing say "Nothing matches the filters." with
+ * Clear filters instead (docs/DESIGN.md "An Empty Screen Teaches").
  */
 
 import { Link } from "react-router-dom";
@@ -39,8 +45,12 @@ import {
   KIND_BADGES, LIFECYCLE_KINDS, archivedRows, countByKind, enabledKinds, filterRows, pendingRows, sortNewestFirst, toggleKind,
   type ActivateTarget, type ArchivedStoryLike, type LifecycleKind, type LifecycleRow, type LifecycleState, type ScheduleLike, type StoryLike, type WorkDefLike,
 } from "@/lib/lifecycle-list";
-import { Archive, ArchiveRestore, CalendarClock, ChevronDown, ChevronRight, FolderOpen, Search, Send, Trash2 } from "lucide-react";
+import { Archive, ArchiveRestore, CalendarClock, ChevronDown, ChevronRight, Clock, FolderOpen, Search, Send, Trash2 } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
+import { AskAssistantButton, EmptyState, NoMatches } from "@/components/ui/empty-state";
+import { listView } from "@/lib/empty-states";
+import { filterByFeatures } from "@/lib/features";
+import { START_WORK } from "@/lib/start-work";
 import { useConfirm } from "@/components/ui/confirm-dialog";
 
 const POLL_MS = 10_000;
@@ -81,6 +91,13 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
   const allRows = filterRows(rows, enabled);
   const counts = countByKind(allRows);
   const shown = sortNewestFirst(filterRows(allRows, selected, query));
+  // Loaded once every list this page asked for has answered.
+  const loaded = !!features
+    && (!wantStories || !!(archived ? archivedData : storiesData))
+    && (!wantDefs || !!defsData)
+    && (!features.schedules || !!schedData);
+  const view = listView({ loaded, total: allRows.length, shown: shown.length });
+  const clearFilters = () => { setSelected(["story", "task", "schedule"]); setQuery(""); };
 
   const refetchAll = () => { refetchStories(); refetchDefs(); refetchSchedules(); };
 
@@ -168,13 +185,34 @@ export function LifecyclePage({ state }: { state: LifecycleState }) {
             )}
           </LifecycleRowCard>
         ))}
-        {features && shown.length === 0 && (
-          <p className="text-sm text-muted-foreground py-8 text-center">
-            {allRows.length === 0 ? `Nothing ${state}.` : "Nothing matches the filters."}
-          </p>
-        )}
+        {view === "empty" && <LifecycleEmpty state={state} />}
+        {view === "no-matches" && <NoMatches onClear={clearFilters} />}
       </div>
     </WorkItemsLayout>
+  );
+}
+
+/**
+ * Nothing pending / archived: what the tab holds, and where such work comes
+ * from — Pending: the chat (ask for it "as pending") and a create form, whose
+ * Pending box holds it; Archived: the Board (or Tasks), where it's archived from.
+ */
+function LifecycleEmpty({ state }: { state: LifecycleState }) {
+  const features = useFeatures();
+  const create = filterByFeatures(START_WORK, features)[0];
+  if (state === "pending") {
+    return (
+      <EmptyState kind="pending" icon={Clock}>
+        <AskAssistantButton label="Ask the assistant to write some up" variant="default" />
+        {create && <Button size="sm" variant="outline" render={<Link to={create.to} />}><create.icon className="mr-1 h-3.5 w-3.5" aria-hidden />{create.label}</Button>}
+      </EmptyState>
+    );
+  }
+  const from = features?.stories ? { to: "/work/board", label: "Go to the Board" } : features?.tasks ? { to: "/work/tasks", label: "Go to Tasks" } : null;
+  return (
+    <EmptyState kind="archived" icon={Archive}>
+      {from && <Button size="sm" variant="outline" render={<Link to={from.to} />}>{from.label}</Button>}
+    </EmptyState>
   );
 }
 

@@ -9,6 +9,10 @@
  * whole page. Opening a row marks it read; rows you open stay on screen until
  * you leave or change the filter, even with "unread only" on
  * (lib/mobile.ts `mergeInboxRows`).
+ *
+ * Its empty states are the desktop Inbox's (pages/InboxPage `InboxEmpty`):
+ * Inbox zero, or nothing has finished yet — whose next step here is the chat,
+ * the phone's one way to start work.
  */
 
 import { useEffect, useState } from "react";
@@ -21,7 +25,9 @@ import type { Comment } from "@shared/types";
 import type { WorkItemView } from "@shared/protocol";
 import { since } from "@/lib/queue";
 import { inboxOutcome, mergeInboxRows, outcomeBody } from "@/lib/mobile";
-import { CheckCircle2, ExternalLink, Inbox as InboxIcon, XCircle } from "lucide-react";
+import { InboxEmpty } from "@/pages/InboxPage";
+import { useEverFinished } from "@/hooks/useEverFinished";
+import { CheckCircle2, ExternalLink, XCircle } from "lucide-react";
 
 type WorkItem = WorkItemView;
 
@@ -48,6 +54,8 @@ export function MobileInbox({ active, onChanged }: { active: boolean; onChanged:
   useEffect(() => { if (active) refetch(); }, [active, refetch]);
 
   const rows = mergeInboxRows(data?.items ?? [], retained);
+  // Empty while "Unread only": all read (Inbox zero), or nothing ever finished?
+  const everFinished = useEverFinished(!!data && rows.length === 0 && unreadOnly);
 
   const markRead = async (item: WorkItem, read: boolean) => {
     await apiPost(`/api/work-items/${encodeURIComponent(item.id)}/read?read=${read}`, {});
@@ -80,11 +88,12 @@ export function MobileInbox({ active, onChanged }: { active: boolean; onChanged:
         {rows.some((r) => !r.read) && <Button variant="ghost" size="sm" onClick={markAllRead}>Mark all read</Button>}
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto">
-        {data && rows.length === 0 && (
-          <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-            <InboxIcon className="h-8 w-8" />
-            <p className="text-sm">{unreadOnly ? "Inbox zero — nothing to review." : "No finished work yet."}</p>
-          </div>
+        {data && rows.length === 0 && (!unreadOnly || everFinished !== null) && (
+          <InboxEmpty
+            zero={unreadOnly && everFinished === true}
+            onShowAll={() => { setUnreadOnly(false); setRetained([]); setOpenId(null); }}
+            desktopLinks={false}
+          />
         )}
         {rows.map((item) => (
           <InboxRow

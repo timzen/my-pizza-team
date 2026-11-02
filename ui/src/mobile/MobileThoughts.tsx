@@ -16,6 +16,10 @@
  *
  * Grouping, triage decisions, and the archive drawer stay on the desktop; a
  * note's triage badge links to its (desktop) triage page.
+ *
+ * With no notes it explains what Thoughts are for and offers New note and the
+ * chat, as the desktop does (components/ui/empty-state); a search that finds
+ * nothing says so instead.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -32,7 +36,8 @@ import { THOUGHT_COLORS, dotClass, nextRotatedColor, noteClass } from "@/lib/tho
 import { toggleTaskMarker } from "@/lib/taskMarkers";
 import { MOBILE_TAB_PATHS } from "@/lib/mobile";
 import type { TriageBadge as TriageBadgeState } from "@/lib/triage";
-import { Archive, ChevronDown, ChevronLeft, ChevronRight, Eye, Pencil, Pin, PinOff, Plus, Trash2 } from "lucide-react";
+import { Archive, ChevronDown, ChevronLeft, ChevronRight, Eye, Pencil, Pin, PinOff, Plus, StickyNote, Trash2 } from "lucide-react";
+import { AskAssistantButton, EmptyState, NoMatches } from "@/components/ui/empty-state";
 import type { Thought, ThoughtGroup } from "@shared/types";
 import { IconButton } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -130,10 +135,13 @@ function NoteList({ notes, groups, badges, loaded, onCreated }: {
         })}
         {tree.loose.map((n) => <NoteRow key={n.id} note={n} badge={badges[n.id]} />)}
         {loaded && notes.length === 0 && (
-          <p className="py-12 text-center text-sm text-muted-foreground">No notes yet — tap <strong>Note</strong> to write one.</p>
+          <EmptyState kind="thoughtsList" icon={StickyNote}>
+            <Button size="sm" onClick={create}><Plus className="mr-1 h-4 w-4" aria-hidden />New note</Button>
+            <AskAssistantButton />
+          </EmptyState>
         )}
         {searching && tree.loose.length === 0 && tree.folders.length === 0 && notes.length > 0 && (
-          <p className="py-12 text-center text-sm text-muted-foreground">No notes match “{query.trim()}”.</p>
+          <NoMatches onClear={() => setQuery("")} clearLabel="Clear search" />
         )}
       </div>
     </div>

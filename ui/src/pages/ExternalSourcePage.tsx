@@ -21,6 +21,10 @@
  * A source switched off (docs/DESIGN.md "Feature Toggles": every external
  * source has a `features.<id>` toggle by default) shows the "turned off"
  * notice instead — its tab is hidden, but a bookmark should say why.
+ *
+ * With nothing mirrored it explains what a sync brings in and offers Sync now
+ * and the source's settings (components/ui/empty-state; docs/DESIGN.md "An
+ * Empty Screen Teaches").
  */
 
 import { useState } from "react";
@@ -42,6 +46,7 @@ import { ExternalLink, FolderSync, RefreshCw, Settings } from "lucide-react";
 import { Tooltip } from "@/components/ui/tooltip";
 import { useDocumentTitle } from "@/hooks/useDocumentTitle";
 import { FormError } from "@/components/ui/form-error";
+import { EmptyState } from "@/components/ui/empty-state";
 
 /** Badge classes per latest-state tone. */
 const TONE_CLASS: Record<ReturnType<typeof latestStateTone>, string> = {
@@ -121,10 +126,14 @@ function ExternalSourceView({ sourceId }: { sourceId: string }) {
           <FormError className="text-sm">{syncError}</FormError>
 
           {data && defs.length === 0 && (
-            <div className="flex flex-col items-center gap-2 py-12 text-muted-foreground">
-              <FolderSync className="h-8 w-8" />
-              <p className="text-sm">Nothing mirrored from {label} yet.</p>
-            </div>
+            <EmptyState kind="source" icon={FolderSync} label={label}>
+              <Button size="sm" onClick={syncNow} disabled={syncing}>
+                <RefreshCw className={`h-3.5 w-3.5 mr-1 ${syncing ? "animate-spin" : ""}`} aria-hidden />Sync now
+              </Button>
+              <Button size="sm" variant="outline" render={<Link to={sourceSettingsPath(sourceId)} />}>
+                <Settings className="h-3.5 w-3.5 mr-1" aria-hidden />Check its settings
+              </Button>
+            </EmptyState>
           )}
 
           <div className="grid gap-3">
