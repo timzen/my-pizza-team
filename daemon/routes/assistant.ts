@@ -13,6 +13,7 @@
  * - Agent-facing: inbox/ack (deliver to Pi), bubbles (mirror out), thoughts, session report
  * - Sessions: list, new chat, resume, markdown snapshot
  * - Persona: read/swap (a swap ends the session and starts a new one)
+ * - Start: open the leader's tmux window (the UI's Start button; daemon/leader-start.ts)
  */
 
 import type { RouteContext } from "./types.ts";
@@ -20,6 +21,8 @@ import { readBody, fail } from "./http.ts";
 import type { AssistantDelivery } from "../store/assistant-chat.ts";
 import { resolveAssistantChatMode, type AssistantChatMode } from "../../shared/types.ts";
 import { DEFAULT_ASSISTANT_PERSONA } from "../personas/builtins.ts";
+import { startLeader } from "../leader-start.ts";
+import { mptInvocation } from "../self.ts";
 
 /**
  * The default assistant persona (`builtin:assistant`), re-exported from
@@ -79,6 +82,35 @@ export function composeSystemPrompt(personaBody: string | null, mode: AssistantC
 
 export function registerAssistantRoutes(ctx: RouteContext): void {
   const { app, store, config } = ctx;
+
+  // ─── Start ─────────────────────────────────────────────────────────
+
+  /**
+   * Start the assistant — the leader — in `<tmuxSession>:leader`, in the project
+   * directory, so a new user isn't sent to a terminal to run `mpt lead`. Run by the
+   * daemon, the only component that drives tmux (docs/DESIGN.md "The Daemon Is the
+   * Supervisor"). Idempotent: a window that exists, or a leader already connected,
+   * is `already-running` (200), never a second leader. Refused with 409 and the
+   * reason + fix when the daemon can't reach tmux or the default harness has no
+   * usable leader template (the same answer `/health`'s `assistantStartable` gives).
+   * Start only: there is no stop or restart.
+   */
+  app.post("/api/assistant/start", (c) => {
+    const result = startLeader({
+      config: store.getConfig(),
+      teamDir: ctx.teamDir,
+      daemonUrl: store.getDaemonUrl(),
+      mpt: mptInvocation(),
+      tmux: store.getTmuxCapability(),
+      leaderOnline: store.getLeader() !== null,
+    });
+    if (result.status === "error") {
+      return fail(c, 409, `${result.reason} — fix: ${result.fix}`, { code: result.code, reason: result.reason, fix: result.fix });
+    }
+    if (result.status === "started") console.log(`   Assistant started in ${result.session}:${result.window} (${result.cwd})`);
+    if (result.status === "started" && result.envWarning) console.error(`⚠️  Assistant started without its agent env: ${result.envWarning}`);
+    return c.json({ success: true, ...result }, result.status === "started" ? 201 : 200);
+  });
 
   // ─── Conversation ──────────────────────────────────────────────────
 

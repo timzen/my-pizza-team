@@ -70,6 +70,9 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // `mpt doctor` and the Team tab can say why not rather than the user
       // discovering that nothing spawns.
       spawning: store.getSpawnCapability(),
+      // Whether the assistant (the leader) can be started from the web UI
+      // (POST /api/assistant/start): `{ ok: true }`, else its reason and fix.
+      assistantStartable: store.getAssistantStartability(),
       // The tmux server the daemon's windows open on, so `mpt doctor` can check
       // it is the one the user attaches to (`tmux attach -t <tmuxSession>`).
       tmuxSocket: store.getTmuxSocket(),

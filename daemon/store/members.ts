@@ -33,6 +33,7 @@ import {
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
 import { capabilityError, harnessCapability, type SpawnCapability } from "../spawner.ts";
+import { assistantStartability, type AssistantStartability } from "../leader-start.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
 /** How long after hearing `dismissed` an agent is assumed to have exited. */
@@ -92,6 +93,12 @@ export interface TeammatePoolState {
    * reconciler queues nothing — a spawn nobody can realize would only pile up.
    */
   spawnBlocked: { reason: string; fix: string } | null;
+  /**
+   * Can the assistant (the leader) be started from the web UI
+   * (`POST /api/assistant/start`)? `{ ok: true }`, or why not and the fix — tmux
+   * unreachable, or no usable leader template for the default harness.
+   */
+  assistantStartable: AssistantStartability;
 }
 
 /** What the member domain needs from the rest of the Store. */
@@ -447,6 +454,24 @@ export class MemberStore {
     return harnessCapability(harness ? { ...this.config, defaultHarness: harness } : this.config);
   }
 
+  /**
+   * The tmux reachability probed at startup, alone (no harness checks) — what
+   * starting the leader needs (daemon/leader-start.ts), which has its own template
+   * checks.
+   */
+  getTmuxCapability(): SpawnCapability {
+    return this.tmuxCapability;
+  }
+
+  /**
+   * Can the assistant be started from here (daemon/leader-start.ts
+   * `assistantStartability`)? Re-evaluated on every call against the live config,
+   * like `getSpawnCapability`.
+   */
+  getAssistantStartability(): AssistantStartability {
+    return assistantStartability(this.config, this.tmuxCapability);
+  }
+
   /** Create a directive targeting an existing member. Null if the member is unknown. */
   createLeaderDirectiveForMember(memberId: string, action: string, params?: Record<string, unknown>): LeaderDirective | null {
     const member = this.getMember(memberId);
@@ -612,6 +637,7 @@ export class MemberStore {
       pending: this.countPendingTeammateSpawns(),
       leaderPresent: this.isLeaderOnline(),
       spawnBlocked: blocked(this.getSpawnCapability()),
+      assistantStartable: this.getAssistantStartability(),
     };
   }
 

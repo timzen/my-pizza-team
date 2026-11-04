@@ -120,6 +120,8 @@ export async function startDaemonInProcess(
   if (store && tmuxCapability) {
     store.setTmuxCapability(tmuxCapability);
     store.setTmuxSocket(tmuxCapability.canSpawn ? tmuxSocketPath() : null);
+    // The `{url}` a leader started from the web UI is given (POST /api/assistant/start).
+    store.setDaemonUrl(`http://localhost:${port}`);
   }
 
   // Start the HTTP server, and wait until it is listening: a bind failure (port in

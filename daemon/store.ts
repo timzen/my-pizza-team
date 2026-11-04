@@ -21,6 +21,7 @@
 
 import { DatabaseSync } from "node:sqlite";
 import {
+  DEFAULT_DAEMON_URL,
   type Assignment,
   type BuiltinPersonaId,
   type Comment,
@@ -56,6 +57,7 @@ import { saveTeamConfig } from "../shared/team-config.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import type { TeamPersonaInput } from "./personas/library.ts";
 import type { SpawnCapability } from "./spawner.ts";
+import type { AssistantStartability } from "./leader-start.ts";
 import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
 import { listWorkDefs, getWorkDef, saveWorkDef, someWorkDef, updateWorkDef, deleteWorkDef } from "./store/workdefs.ts";
@@ -986,6 +988,33 @@ export class Store {
   /** Can this daemon realize a spawn of `harness` (default: the team's)? See MemberStore.getSpawnCapability. */
   getSpawnCapability(harness?: string): SpawnCapability {
     return this.members.getSpawnCapability(harness);
+  }
+
+  /** Can this daemon process reach tmux at all (the startup probe)? See MemberStore.getTmuxCapability. */
+  getTmuxCapability(): SpawnCapability {
+    return this.members.getTmuxCapability();
+  }
+
+  /** Can the assistant be started from the web UI? See MemberStore.getAssistantStartability. */
+  getAssistantStartability(): AssistantStartability {
+    return this.members.getAssistantStartability();
+  }
+
+  /**
+   * The daemon's own URL, for a leader template's `{url}` (`POST /api/assistant/start`).
+   * Set at startup once the port is known (daemon/start.ts); a store nobody set
+   * (tests, tools) assumes the default port.
+   */
+  private daemonUrl = DEFAULT_DAEMON_URL;
+
+  /** Record the URL agents reach this daemon at (startup). */
+  setDaemonUrl(url: string): void {
+    this.daemonUrl = url;
+  }
+
+  /** The URL agents reach this daemon at. */
+  getDaemonUrl(): string {
+    return this.daemonUrl;
   }
 
   /** The tmux server socket the daemon talks to (daemon/tmux.ts tmuxSocketPath), or null when unknown. */

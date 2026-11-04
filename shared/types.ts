@@ -957,11 +957,13 @@ export interface HarnessTemplates {
 /**
  * Built-in templates, used when `TeamConfig.harnesses` is unset.
  *
- * `-a` (--approve) matters on the teammate: without it a teammate spawned into a
- * folder outside a trusted parent blocks on Pi's "Trust project folder?" prompt, and
- * the permissive config written into the cwd is only applied once the project is
- * trusted anyway. The leader is started by `mpt lead` in a folder the user chose, so
- * `mpt setup` has already trusted it.
+ * `-a` (--approve) matters on both: without it Pi blocks on its "Trust project
+ * folder?" prompt in a folder outside a trusted parent, and the permissive config
+ * written into the cwd is only applied once the project is trusted anyway. A
+ * teammate never has a human attached to answer it; nor does a leader started from
+ * the web UI (`POST /api/assistant/start`), which opens its window with nobody
+ * watching. A config overriding `harnesses.pi.leader` needs `-a` too to be
+ * startable from the UI.
  *
  * Both pass their tmux location so the agent reports it at registration, which is
  * how the daemon addresses the right window later (dismiss, focus).
@@ -970,7 +972,7 @@ export const DEFAULT_HARNESS_TEMPLATES: Record<string, HarnessTemplates> = {
   pi: {
     teammate:
       "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-    leader: "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}",
+    leader: "pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}",
   },
   // Experimental (behind `experimental.harnesses`): ACP agents supervised by
   // `mpt agent` (agent/supervisor.ts). Teammates only — they can't lead yet.

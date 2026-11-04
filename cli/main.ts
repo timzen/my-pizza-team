@@ -5,7 +5,7 @@
  * directly as `node cli/main.ts`.
  */
 
-import { DEFAULT_HARNESS, DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, TEAM_DIR, type TeamConfig } from "../shared/types.ts";
+import { DEFAULT_HARNESS, LEADER_WINDOW, TEAM_DIR, type TeamConfig } from "../shared/types.ts";
 import { applyTeamConfigDefaults, loadTeamConfig, readTeamConfigFile, saveTeamConfig, teamConfigPath } from "../shared/team-config.ts";
 import * as path from "node:path";
 import * as fs from "node:fs";
@@ -17,16 +17,9 @@ import { ensureNodeForCommand } from "./node-choice.ts";
 import { configuredNode, extractNodeFlag, setNodeFlagOverride } from "../shared/runtime-config.ts";
 import { isRunningFromSource, packageRoot, packageVersion } from "../shared/paths.ts";
 import { evaluate, gather, report } from "./doctor.ts";
-import { agentEnvWarning, loadAgentEnv } from "../shared/env-file.ts";
-import {
-  focusClient,
-  listWindows,
-  realTmux,
-  renderTemplate,
-  spawnWindow,
-  tmuxAvailable,
-  unresolvedPlaceholders,
-} from "../daemon/tmux.ts";
+import { loadAgentEnv } from "../shared/env-file.ts";
+import { focusClient, tmuxAvailable } from "../daemon/tmux.ts";
+import { startLeader } from "../daemon/leader-start.ts";
 import { managedExtensionDir, resolveExtensionSourceDir, writeExtension } from "./extension.ts";
 import { piAgentDir, readPiSettings } from "./pi-config.ts";
 import {
@@ -352,8 +345,10 @@ function teamToken(teamDir: string): string | null {
  * The leader is the agent you chat with, and the team pool waits for it before
  * spawning, so a team with no leader has nobody answering and no teammates
  * (docs/DESIGN.md "One Agent to Talk To", "Team Size: Declared, not Clicked").
- * Its window is opened with the daemon's tmux module; the leader itself never
- * touches tmux. Starting it was the last step still done by hand.
+ * Its window is opened by daemon/leader-start.ts `startLeader` — the same start the
+ * web UI's Start button asks the daemon for (`POST /api/assistant/start`); this adds
+ * the CLI's messages and the attach / switch-client on top. The leader itself never
+ * touches tmux.
  *
  * This is also the first consumer of the daemon's tmux module (P3-1), deliberately in
  * the easy case: a foreground command with the user's own environment, so it exercises
@@ -375,61 +370,40 @@ async function cmdLead(args: string[]): Promise<void> {
     process.exit(1);
   }
 
-  const templates = (config.harnesses as Record<string, { leader?: string }> | undefined) ??
-    DEFAULT_HARNESS_TEMPLATES;
-  const template = templates[harnessName]?.leader;
-  if (!template) {
-    console.error(`❌ No leader command configured for harness "${harnessName}".`);
-    console.error(`   Leading needs an in-process adapter; only some harnesses can do it.`);
-    console.error(`   Set harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
-    process.exit(1);
-  }
-
-  const command = renderTemplate(template, {
-    name: LEADER_WINDOW,
-    url: daemonUrl,
-    cwd: projectDir,
-    session,
-    window: LEADER_WINDOW,
-  });
-  const unresolved = unresolvedPlaceholders(command);
-  if (unresolved.length > 0) {
-    console.error(`❌ The leader template has unknown placeholders: ${unresolved.join(", ")}`);
-    console.error(`   Check harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
-    process.exit(1);
-  }
-
   // A stopped daemon isn't fatal — the extension retries — but say so, because an
-  // agent that can't reach the daemon looks broken rather than early.
+  // agent that can't reach the daemon looks broken rather than early. Probed first,
+  // said after the template checks, so a config error is the only thing printed.
   let daemonUp = false;
   try {
     daemonUp = (await fetch(`${daemonUrl}/health`, { signal: AbortSignal.timeout(1500) })).ok;
   } catch { /* not running */ }
-  if (!daemonUp) console.log(`⚠️  Daemon not reachable at ${daemonUrl} — start it with \`mpt start\` (the leader will retry).`);
 
-  try {
-    // Deliberately *not* calling ensureSession first: spawnWindow reuses a freshly
-    // created session's initial window instead of leaving it stranded beside ours, and
-    // it can only tell the session is fresh if it creates it. listWindows already
-    // returns [] for a session that doesn't exist yet.
-    if (listWindows(session).includes(LEADER_WINDOW)) {
-      // Already running: attach to it rather than starting a second one. Two leaders
-      // would both answer the chat.
-      console.log(`Leader already running in ${session}:${LEADER_WINDOW} — attaching.`);
+  // The same start the web UI's Start button asks the daemon for (daemon/leader-start.ts):
+  // template, placeholder check, idempotent window, agent env file.
+  const result = startLeader({ config, teamDir, daemonUrl, mpt: mptInvocation() });
+  if (result.status === "error") {
+    if (result.code === "no-template") {
+      console.error(`❌ No leader command configured for harness "${harnessName}".`);
+      console.error(`   Leading needs an in-process adapter; only some harnesses can do it.`);
+      console.error(`   Set harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
+    } else if (result.code === "unresolved-placeholders") {
+      console.error(`❌ ${result.reason.charAt(0).toUpperCase()}${result.reason.slice(1)}`);
+      console.error(`   Check harnesses.${harnessName}.leader in ${path.join(teamDir, "config.json")}.`);
     } else {
-      // The agent env file, read now, given to the leader's window the same way the
-      // daemon gives it to teammates' (`-e`, never typed into the shell). A bad file
-      // doesn't stop the leader: it starts without it, and this says why.
-      const env = loadAgentEnv(config, teamDir);
-      const envWarning = agentEnvWarning(env);
-      if (envWarning) console.log(`⚠️  ${envWarning} (run \`mpt doctor\`)`);
-      spawnWindow({ session, window: LEADER_WINDOW, cwd: projectDir, command, env: env.vars });
-      console.log(`✅ Leader started in ${session}:${LEADER_WINDOW} (${projectDir})`);
-      if (env.path && !envWarning) console.log(`   Agent env: ${env.keys.length} variable(s) from ${env.path}`);
+      console.error(`❌ Could not start the leader: ${result.reason}`);
+      console.error(`   Fix: ${result.fix}`);
     }
-  } catch (e) {
-    console.error(`❌ Could not start the leader: ${(e as Error).message}`);
     process.exit(1);
+  }
+
+  if (!daemonUp) console.log(`⚠️  Daemon not reachable at ${daemonUrl} — start it with \`mpt start\` (the leader will retry).`);
+  if (result.status === "already-running") {
+    // Attach to it rather than starting a second one. Two leaders would both answer the chat.
+    console.log(`Leader already running in ${session}:${LEADER_WINDOW} — attaching.`);
+  } else {
+    if (result.envWarning) console.log(`⚠️  ${result.envWarning} (run \`mpt doctor\`)`);
+    console.log(`✅ Leader started in ${session}:${LEADER_WINDOW} (${projectDir})`);
+    if (result.envPath) console.log(`   Agent env: ${result.envKeys} variable(s) from ${result.envPath}`);
   }
   // Before attaching, so it's in the scrollback when the user detaches.
   if (daemonUp) await printOnboardingHint(port, resolveToken(config.apiToken as string | undefined), "   ");

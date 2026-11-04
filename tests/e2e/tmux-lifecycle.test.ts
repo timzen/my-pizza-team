@@ -9,6 +9,8 @@
  *     `cmdLead` composed it wrongly;
  *   - a re-run attaches rather than starting a second leader (two leaders would both
  *     answer the chat);
+ *   - the web UI's Start (`POST /api/assistant/start`) has the daemon open the same
+ *     single leader window, idempotently;
  *   - inside tmux, `mpt lead` moves the user's client to the leader even from another
  *     session (`switch-client`, not just `select-window`) — with a real client,
  *     attached from a pane of a second private server;
@@ -17,7 +19,8 @@
  *   - a spawn that cannot be realized is marked `failed` with its reason, rather than
  *     retried forever in silence;
  *   - a daemon that can't reach tmux fails spawns at once, with the reason and fix,
- *     and never hands them (or dismisses) to a leader — it is the only realizer;
+ *     and never hands them (or dismisses) to a leader — it is the only realizer —
+ *     and refuses to start the assistant, saying why;
  *   - a dismiss closes the teammate's window once it has exited;
  *   - a teammate reset goes to the teammate itself (nothing typed into its window),
  *     and a teammate too old to poll for it is refused at registration;
@@ -200,6 +203,39 @@ test("mpt lead reports a typo'd template placeholder instead of running it", { s
 });
 
 // ─── Daemon-driven spawning ──────────────────────────────────────────
+
+test("POST /api/assistant/start twice opens one leader window, run by the daemon", { skip: !hasTmux() }, async () => {
+  // The web UI's Start button: the daemon opens the leader's window itself, with
+  // nobody attached. A second press (or a second tab) is already-running, never a
+  // second leader — two would both answer the chat.
+  await using sb = await sandbox("assistant-start");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  await sb.startDaemon();
+
+  const health = await api<{ assistantStartable: { ok: boolean } }>(sb, "/health", undefined, "GET");
+  assertEquals(health.assistantStartable, { ok: true });
+
+  const first = await fetch(`http://127.0.0.1:${sb.port}/api/assistant/start`, { method: "POST" });
+  assertEquals(first.status, 201);
+  assertEquals(((await first.json()) as { status: string }).status, "started");
+  const second = await fetch(`http://127.0.0.1:${sb.port}/api/assistant/start`, { method: "POST" });
+  assertEquals(second.status, 200);
+  assertEquals(((await second.json()) as { status: string }).status, "already-running");
+
+  assertEquals((await windows(sb)).filter((w) => w === "leader"), ["leader"], "exactly one leader window");
+  assertEquals(await windows(sb), ["leader"], "and no stray initial window beside it");
+  const ran = await sb.waitFor(async () => (await pane(sb, "leader")).includes("LEADER-42 "), 8000);
+  assertEquals(ran, true, `leader command did not run:\n${await pane(sb, "leader")}`);
+  // The daemon's own URL (its real port), not a default.
+  const marked = (await pane(sb, "leader")).split("\n").find((l) => l.includes("LEADER-42 ")) ?? "";
+  assertStringIncludes(marked.slice(marked.indexOf("LEADER-42 ")), `url=http://localhost:${sb.port}`);
+
+  // And `mpt lead` sees the same leader rather than starting another.
+  const lead = await sb.mpt("lead", "--no-attach");
+  assertEquals(lead.code, 0, lead.output);
+  assertStringIncludes(lead.output, "already running");
+  assertEquals(await windows(sb), ["leader"]);
+});
 
 test("the daemon spawns a teammate with no leader connected", { skip: !hasTmux() }, async () => {
   // Impossible before P3-1, when only the leader realized directives.
@@ -410,6 +446,14 @@ test("a daemon that can't reach tmux fails a spawn at once, with the reason and 
   const spawns = await api<{ requests: unknown[]; failed: Array<{ error: string }> }>(sb, "/api/spawn-requests", undefined, "GET");
   assertEquals(spawns.requests, []);
   assertStringIncludes(spawns.failed[0]!.error, "tmux is not on this process's PATH — fix:");
+
+  // Nor can the assistant be started from the UI; /health says why, and so does the route.
+  const startable = (await api<{ assistantStartable: { ok: boolean; reason?: string } }>(sb, "/health")).assistantStartable;
+  assertEquals(startable.ok, false);
+  assertStringIncludes(startable.reason!, "PATH");
+  const start = await fetch(`http://127.0.0.1:${sb.port}/api/assistant/start`, { method: "POST" });
+  assertEquals(start.status, 409);
+  assertEquals(((await start.json()) as { code: string }).code, "tmux-unavailable");
 
   // A dismiss isn't handed to a leader either: the tombstone stops the agent, and
   // the window close fails with the reason.

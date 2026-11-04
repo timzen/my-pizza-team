@@ -1175,7 +1175,9 @@ flight.
 **The team starts when its leader does.** The pool waits for a leader even when
 the daemon can open tmux windows itself. The daemon often runs as a login service;
 without this, every login would start agents before anyone ran `mpt lead` — agents
-nobody can chat with, reset, or expected. `mpt lead` is the "start the team" step.
+nobody can chat with, reset, or expected. Starting the leader is the "start the
+team" step — `mpt lead`, or the daemon itself when the web UI asks
+(`POST /api/assistant/start`): both are a human asking now.
 A one-off spawn from the Spawn dialog is a human asking now, so it isn't held.
 
 **Nor does it queue spawns the daemon can't realize.** When the daemon can't reach
@@ -1942,6 +1944,16 @@ session control.
   so a re-run attaches instead of starting another. Inside tmux it moves the
   calling client (`switch-client`) rather than nesting an attach; selecting the
   window alone left a client in another session where it was.
+- **The web UI can start the leader too** (`POST /api/assistant/start`), because
+  the daemon is the one that opens windows: telling a new user to go to a terminal
+  and run `mpt lead` was the last step the UI couldn't do. It is the same start
+  (daemon/leader-start.ts), just as idempotent — a connected leader counts as
+  running, wherever it was started — and refused with the reason and fix when tmux
+  is unreachable or the harness can't lead. Only *start*: stopping or restarting the
+  agent you're chatting with stays a deliberate act at its terminal. Because nobody
+  is attached to answer Pi's "Trust project folder?" prompt, the built-in leader
+  template passes `-a`, like the teammate's; an override of `harnesses.pi.leader`
+  needs `-a` too to be startable from the UI.
 - **Every window gets the agent env file** (`agentEnvFile`, see "The Agent
   Environment Is a File"), passed with `-e` rather than typed into its shell.
 

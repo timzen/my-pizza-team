@@ -18,7 +18,7 @@ export const LEADER_WINDOW: string = "leader";
 export const DEFAULT_HARNESS_TEMPLATES: Record<string, { teammate: string; leader?: string }> = {
   "pi": {
     "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-    "leader": "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
+    "leader": "pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
   },
   "kiro": {
     "teammate": "{mpt} agent --harness kiro --daemon={url} --name={name} --tmux-session={session} --tmux-window={window}"

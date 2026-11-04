@@ -127,6 +127,10 @@ starting a second one. Run from inside tmux, it doesn't nest an attach: it switc
 your client to `<session>:leader` (`tmux switch-client`), even from another session.
 `--no-attach` does neither and prints both commands. A new leader window gets the
 team's [`agentEnvFile`](#configuration) variables, like every teammate window.
+The daemon can start the same leader itself (`POST /api/assistant/start`, also
+idempotent), so it can be started without a terminal. The built-in Pi leader
+command passes `-a` so it doesn't stop at Pi's "Trust project folder?" prompt with
+nobody attached; if you override `harnesses.pi.leader`, keep `-a` in it.
 
 `mpt status` respects the [feature toggles](#feature-toggles): a switched-off kind's
 count is left out and a `Turned off: …` line names what's off. The CLI has no
@@ -274,7 +278,7 @@ most of it is editable on the **Config** page. Minimal:
   "harnesses": {
     "pi": {
       "teammate": "pi -a --ppt-worker --ppt-daemon={url} --ppt-name={name} --ppt-tmux-session={session} --ppt-tmux-window={window}",
-      "leader": "pi --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
+      "leader": "pi -a --ppt-lead --ppt-daemon={url} --ppt-tmux-session={session} --ppt-tmux-window={window}"
     }
   },
 
