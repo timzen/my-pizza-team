@@ -2168,12 +2168,19 @@ view: the **Queue** tab on the home page, before the Inbox, because that's where
 sits in a piece of work's life (in flight → finished).
 
 The dock collapses to an icon rail (remembered in `localStorage`) carrying both
-tabs' essentials. It sits on the **Left** by default or the **Right** (the header's
-**Dock position** menu, remembered per browser — where a panel sits is screen and
-taste, not team config). On the Right it is drawn after the center with CSS `order`
-but stays first in the DOM, so the tab order and landmarks don't change with it;
-its border, resize handle and rail tooltips move to the edge facing the center
-(`lib/dock-layout.ts`). Below the `lg` breakpoint it becomes a floating corner panel —
+tabs' essentials. It sits on the **Left** by default, the **Right**, or the
+**Bottom** (the header's **Dock position** menu, remembered per browser — where a
+panel sits is screen and taste, not team config). On the Right it is drawn after the
+center with CSS `order` but stays first in the DOM, so the tab order and landmarks
+don't change with it; its border, resize handle and rail tooltips move to the edge
+facing the center (`lib/dock-layout.ts`). At the **Bottom** the shell stacks — the
+center (nav and page) above, the dock running the full width below, by the same
+`order` trick — and the dock trades its width for a height (dragged by the top edge,
+saved apart from the side width: a good height and a good width are different
+numbers). The header and tab rows stay as they are; the rail becomes a thin bar of
+the same items in a row. *Why the chat keeps a measure there:* a full-width panel
+would stretch each line across the screen, so the bubbles and composer stay a
+readable width in the middle. Below the `lg` breakpoint it becomes a floating corner panel —
 for a narrow desktop window. A phone gets a different shell altogether (next).
 
 **Full page** (the header's ⤢, remembered like the rest) is for a long chat or a big

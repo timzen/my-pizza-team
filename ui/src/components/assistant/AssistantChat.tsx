@@ -10,6 +10,11 @@
  * and tight: persona chips that scroll, 90%-width bubbles, and the composer
  * pinned to the bottom. It has no toolbar of its own: the dock's tab row shows
  * the leader's presence (a dot on the tab) and the session menu.
+ *
+ * When the dock sits at the Bottom it's a full-width panel, so the host passes
+ * `readable`: the chips, history notice, messages and composer are kept to a
+ * readable width (max-w-3xl) in the middle, while the log still scrolls from
+ * its edge.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -36,9 +41,12 @@ interface AssistantChatProps {
    * scrolling a hidden container does nothing. Omit when it's always visible.
    */
   active?: boolean;
+  /** Center the content at a readable width (a host much wider than a column — the Bottom dock). */
+  readable?: boolean;
 }
 
-export function AssistantChat({ stream, viewingId, onViewSession, active = true }: AssistantChatProps) {
+/** The chat's rows; see AssistantChatProps. */
+export function AssistantChat({ stream, viewingId, onViewSession, active = true, readable = false }: AssistantChatProps) {
   const { session, messages, chatAgent, thinking, thoughts, refresh } = stream;
 
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
@@ -62,6 +70,8 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
   // Viewing history is read-only: sending would land in the *live* session and
   // silently move you out of the transcript you're reading.
   const isHistory = viewingId !== null;
+  // Each row's content, capped and centered when the host is wide.
+  const measure = readable ? "mx-auto w-full max-w-3xl" : "";
 
   // Auto-scroll to the newest message (and when the `…` appears/disappears, or
   // the chat comes back on screen).
@@ -98,14 +108,14 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
     <div className="flex h-full min-h-0 flex-col">
       {/* Persona picker — hidden while reading history (it would swap the live chat) */}
       {!isHistory && showChips && (
-        <div className="shrink-0 overflow-x-auto px-3">
+        <div className={`shrink-0 overflow-x-auto px-3 ${measure}`}>
           <PersonaChips personas={personas} activePersonaId={activePersonaId} disabled={swapping} onSelect={swapPersona} />
         </div>
       )}
 
       {/* Reading an earlier session */}
       {isHistory && (
-        <div className="mx-3 mt-3 shrink-0 rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs">
+        <div className={`mt-3 shrink-0 ${readable ? "mx-auto w-[calc(100%-1.5rem)] max-w-3xl" : "mx-3"} rounded-md border border-border bg-muted/40 px-2 py-1.5 text-xs`}>
           <p className="text-muted-foreground">
             Viewing “{session?.title || viewingId}” — read-only.
             {session && !session.piSessionPath && " The assistant's context for this session is gone."}
@@ -121,27 +131,29 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true 
           polite — so a reply isn't read out in full: the announcer says
           "Assistant replied" (hooks/useLiveAnnouncements), and the reader
           goes to the log to read it. */}
-      <div ref={scrollRef} role="log" aria-live="off" aria-label="Conversation" className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3">
-        {messages.length === 0 && (
-          <p className="py-8 text-center text-sm text-muted-foreground">
-            No messages yet. Say hello to your assistant below.
-          </p>
-        )}
-        {messages.map((msg) => (
-          <MessageBubble key={msg.id} message={msg} onReply={setReplyTo} onJumpTo={jumpTo} />
-        ))}
-        {/* Keep the affordance after the run: the reasoning buffer outlives it,
-            and only rendering while `thinking` made the peek a race. */}
-        {(thinking || thoughts) && !isHistory && <ThinkingBubble thoughts={thoughts} thinking={thinking} />}
-        {!chatOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
-          <p className="text-center text-xs text-muted-foreground">
-            No leader is running, so your messages are queued. Start one with{" "}
-            <code className="rounded bg-muted px-1">pi --ppt-lead</code> in your project and they'll be delivered.
-          </p>
-        )}
+      <div ref={scrollRef} role="log" aria-live="off" aria-label="Conversation" className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
+        <div className={`space-y-3 ${measure}`}>
+          {messages.length === 0 && (
+            <p className="py-8 text-center text-sm text-muted-foreground">
+              No messages yet. Say hello to your assistant below.
+            </p>
+          )}
+          {messages.map((msg) => (
+            <MessageBubble key={msg.id} message={msg} onReply={setReplyTo} onJumpTo={jumpTo} />
+          ))}
+          {/* Keep the affordance after the run: the reasoning buffer outlives it,
+              and only rendering while `thinking` made the peek a race. */}
+          {(thinking || thoughts) && !isHistory && <ThinkingBubble thoughts={thoughts} thinking={thinking} />}
+          {!chatOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
+            <p className="text-center text-xs text-muted-foreground">
+              No leader is running, so your messages are queued. Start one with{" "}
+              <code className="rounded bg-muted px-1">pi --ppt-lead</code> in your project and they'll be delivered.
+            </p>
+          )}
+        </div>
       </div>
 
-      <div className="shrink-0 px-3 pb-3">
+      <div className={`shrink-0 px-3 pb-3 ${measure}`}>
         <Composer
           draft={draft}
           onDraftChange={setDraft}

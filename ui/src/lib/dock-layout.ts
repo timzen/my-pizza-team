@@ -2,8 +2,9 @@
  * lib/dock-layout.ts — The desktop dock's layout rules, as pure functions:
  * where it sits (`DockPosition`), how much it shows (`DockMode`), reading
  * their stored values back (with the migration from the old open/closed
- * flag), the column's width limits, and which way its edge-bound bits point
- * (the resize handle, the rail's tooltips) for each position.
+ * flag), the column's width limits and the bottom panel's height limits, and
+ * which way its edge-bound bits point (the resize handle, the rail's
+ * tooltips) for each position.
  *
  * Kept free of React and the DOM so the rules are testable
  * (tests/dock-layout-ui.test.ts); hooks/useSideDock + SideDockProvider hold
@@ -34,13 +35,20 @@ export const DOCK_MODE_KEY = "mpt.sideDock.mode";
  * `DOCK_MODE_KEY` so an existing user's choice survives the switch.
  */
 export const LEGACY_DOCK_OPEN_KEY = "mpt.assistantDock.open";
-/** localStorage key for the expanded column's width (px). */
+/** localStorage key for the expanded column's width (px; shared by Left and Right). */
 export const DOCK_WIDTH_KEY = "mpt.assistantDock.width";
+/**
+ * localStorage key for the expanded bottom panel's height (px). Its own key,
+ * not the width's: a comfortable height and a comfortable width are different
+ * numbers, and switching sides shouldn't lose either.
+ */
+export const DOCK_HEIGHT_KEY = "mpt.sideDock.height";
 
-/** The positions the UI offers, in menu order (Bottom joins once its layout exists). */
+/** The positions the UI offers, in menu order. */
 export const DOCK_POSITIONS: readonly { position: DockPosition; label: string }[] = [
   { position: "left", label: "Left" },
   { position: "right", label: "Right" },
+  { position: "bottom", label: "Bottom" },
 ];
 
 /** The modes a stored value may restore to. */
@@ -49,6 +57,12 @@ const AVAILABLE_MODES: readonly DockMode[] = ["collapsed", "expanded", "full"];
 export const MIN_DOCK_WIDTH = 300;
 export const MAX_DOCK_WIDTH = 560;
 export const DEFAULT_DOCK_WIDTH = 380;
+
+/** The bottom panel's height limits: at least a few messages and the composer… */
+export const MIN_DOCK_HEIGHT = 200;
+/** …and at most this share of the window, so the page above keeps some room. */
+export const MAX_DOCK_HEIGHT_RATIO = 0.7;
+export const DEFAULT_DOCK_HEIGHT = 320;
 
 /** A stored position, or Left (today's default) for anything the UI doesn't offer. */
 export function parseDockPosition(raw: string | null): DockPosition {
@@ -149,6 +163,40 @@ export function parseDockWidth(raw: string | null): number {
  */
 export function dockWidthFromPointer(position: DockPosition, clientX: number, viewportWidth: number): number {
   return clampDockWidth(position === "right" ? viewportWidth - clientX : clientX);
+}
+
+/** The tallest the bottom panel may be in a window `viewportHeight` tall (never below the minimum). */
+export function maxDockHeight(viewportHeight: number): number {
+  return Math.max(MIN_DOCK_HEIGHT, Math.floor(viewportHeight * MAX_DOCK_HEIGHT_RATIO));
+}
+
+/** A height kept within the bottom panel's limits for this window. */
+export function clampDockHeight(px: number, viewportHeight: number): number {
+  return Math.min(maxDockHeight(viewportHeight), Math.max(MIN_DOCK_HEIGHT, px));
+}
+
+/**
+ * A stored height, or the default when it's missing or below the minimum. No
+ * upper bound here: the window may be taller next time, and the panel's CSS
+ * `max-height` (the same ratio) caps it in a shorter one.
+ */
+export function parseDockHeight(raw: string | null): number {
+  const stored = Number(raw);
+  return raw !== null && Number.isFinite(stored) && stored >= MIN_DOCK_HEIGHT ? stored : DEFAULT_DOCK_HEIGHT;
+}
+
+/**
+ * The height a resize drag on the bottom panel's top edge asks for: the panel
+ * is flush to the window's bottom, so it's the distance from the pointer down
+ * to that edge.
+ */
+export function dockHeightFromPointer(clientY: number, viewportHeight: number): number {
+  return clampDockHeight(viewportHeight - clientY, viewportHeight);
+}
+
+/** Does the dock run across the window (Bottom) rather than down one side? */
+export function isHorizontalDock(position: DockPosition): boolean {
+  return position === "bottom";
 }
 
 /** The dock's inner edge — the one facing the center, where the resize handle and the border go. */

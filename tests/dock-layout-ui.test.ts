@@ -2,19 +2,22 @@
  * tests/dock-layout-ui.test.ts — The desktop dock's layout rules
  * (ui/src/lib/dock-layout.ts, docs/DESIGN.md "The Shell: a Dock and a Center"):
  * reading stored position/mode (and migrating the old open flag), width
- * limits, the resize drag on either side, and which way the inner edge and
- * tooltips face, and Full page's transitions (the toggle, Esc, navigation).
- * Plus structural checks that a Right dock and a Full page one are laid out
- * with CSS, not moved in the DOM.
+ * limits, the Bottom panel's height limits, the resize drag on either side
+ * and at the bottom, and which way the inner edge and tooltips face, and Full
+ * page's transitions (the toggle, Esc, navigation). Plus structural checks
+ * that a Right, Bottom and Full page dock are laid out with CSS, not moved in
+ * the DOM.
  */
 
 import * as fs from "node:fs";
 import { test } from "node:test";
 import { assert, assertEquals } from "./_assert.ts";
 import {
-  DEFAULT_DOCK_WIDTH, DOCK_MODE_KEY, DOCK_POSITION_KEY, DOCK_POSITIONS, LEGACY_DOCK_OPEN_KEY, MAX_DOCK_WIDTH, MIN_DOCK_WIDTH,
-  clampDockWidth, dockFillsCenter, dockInnerEdge, dockModeAfterEscape, dockModeAfterNavigate, dockTooltipSide,
-  dockWidthFromPointer, isDockOpen, modeForOpen, parseDockMode, parseDockPosition, parseDockWidth, toggleFullPage,
+  DEFAULT_DOCK_HEIGHT, DEFAULT_DOCK_WIDTH, DOCK_HEIGHT_KEY, DOCK_MODE_KEY, DOCK_POSITION_KEY, DOCK_POSITIONS, DOCK_WIDTH_KEY,
+  LEGACY_DOCK_OPEN_KEY, MAX_DOCK_WIDTH, MIN_DOCK_HEIGHT, MIN_DOCK_WIDTH,
+  clampDockHeight, clampDockWidth, dockFillsCenter, dockHeightFromPointer, dockInnerEdge, dockModeAfterEscape, dockModeAfterNavigate,
+  dockTooltipSide, dockWidthFromPointer, isDockOpen, isHorizontalDock, maxDockHeight, modeForOpen, parseDockHeight, parseDockMode,
+  parseDockPosition, parseDockWidth, toggleFullPage,
 } from "../ui/src/lib/dock-layout.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(`../ui/src/${p}`, import.meta.url), "utf-8");
@@ -23,13 +26,42 @@ test("the keys: new ones for position and mode, the old open flag kept for migra
   assertEquals(DOCK_POSITION_KEY, "mpt.sideDock.position");
   assertEquals(DOCK_MODE_KEY, "mpt.sideDock.mode");
   assertEquals(LEGACY_DOCK_OPEN_KEY, "mpt.assistantDock.open");
+  // The Bottom panel's height has its own key, apart from the side width.
+  assertEquals(DOCK_HEIGHT_KEY, "mpt.sideDock.height");
+  assert((DOCK_HEIGHT_KEY as string) !== DOCK_WIDTH_KEY, "height and width saved separately");
 });
 
-test("parseDockPosition: Left and Right; anything else (incl. Bottom, not offered yet) is Left", () => {
+test("parseDockPosition: Left, Right and Bottom; anything else is Left", () => {
   assertEquals(parseDockPosition("left"), "left");
   assertEquals(parseDockPosition("right"), "right");
-  for (const raw of [null, "", "bottom", "Right", "top"]) assertEquals(parseDockPosition(raw), "left", String(raw));
-  assertEquals(DOCK_POSITIONS.map((p) => p.position), ["left", "right"]);
+  assertEquals(parseDockPosition("bottom"), "bottom");
+  for (const raw of [null, "", "Bottom", "Right", "top"]) assertEquals(parseDockPosition(raw), "left", String(raw));
+  assertEquals(DOCK_POSITIONS.map((p) => p.position), ["left", "right", "bottom"]);
+});
+
+test("only Bottom runs across the window", () => {
+  assertEquals(isHorizontalDock("bottom"), true);
+  assertEquals(isHorizontalDock("left"), false);
+  assertEquals(isHorizontalDock("right"), false);
+});
+
+test("heights: 200px to 70% of the window, clamped while dragging the top edge", () => {
+  assertEquals(maxDockHeight(1000), 700);
+  // A window too short for the ratio still allows the minimum.
+  assertEquals(maxDockHeight(200), MIN_DOCK_HEIGHT);
+  assertEquals(clampDockHeight(50, 1000), MIN_DOCK_HEIGHT);
+  assertEquals(clampDockHeight(9999, 1000), 700);
+  assertEquals(clampDockHeight(400, 1000), 400);
+  // The panel is flush to the bottom: height = distance from the pointer to it.
+  assertEquals(dockHeightFromPointer(600, 1000), 400);
+  assertEquals(dockHeightFromPointer(950, 1000), MIN_DOCK_HEIGHT);
+  assertEquals(dockHeightFromPointer(0, 1000), 700);
+});
+
+test("a stored height: kept from the minimum up (CSS caps it to the window); else the default", () => {
+  assertEquals(parseDockHeight("450"), 450);
+  assertEquals(parseDockHeight("1200"), 1200);
+  for (const raw of [null, "", "abc", "100", "Infinity"]) assertEquals(parseDockHeight(raw), DEFAULT_DOCK_HEIGHT, String(raw));
 });
 
 test("parseDockMode: a stored mode wins; else the old open flag decides; default expanded", () => {
@@ -74,6 +106,19 @@ test("the inner edge and tooltips face the center", () => {
   assertEquals(dockInnerEdge("bottom"), "top");
   assertEquals(dockTooltipSide("left"), "right");
   assertEquals(dockTooltipSide("right"), "left");
+  assertEquals(dockTooltipSide("bottom"), "top");
+});
+
+test("a Bottom dock is reordered with CSS: the center above, the dock (or its bar) below", () => {
+  const shell = read("App.tsx");
+  assert(shell.includes('full || bottom ? "flex-col"'), "the shell stacks for a Bottom dock");
+  assert(shell.includes('"order-first min-h-0 flex-1"'), "the center drawn first, taking the rest of the height");
+  const dock = read("components/dock/SideDock.tsx");
+  assert(dock.includes('"relative order-last flex shrink-0 flex-col border-t border-border bg-muted/30"'), "expanded: a full-width panel below");
+  assert(dock.includes('"order-last flex h-14 shrink-0 flex-row items-center border-t border-border bg-muted/30"'), "collapsed: a thin bar below");
+  assert(dock.includes("overflow-x-auto"), "the bar scrolls sideways");
+  assert(dock.includes("cursor-row-resize"), "a top-edge height handle");
+  assert(dock.includes("readable={isDesktop && onBottom && !full}"), "the chat keeps a readable width at the Bottom");
 });
 
 test("a Right dock is reordered with CSS and keeps the landmark and tour mark", () => {

@@ -1,9 +1,9 @@
 /**
  * SideDock — the dock column: the **Assistant**, the **Team**, and **Help**, as
- * tabs, reachable from every page. It sits on the Left (the default) or the
- * Right, chosen with the header's **Dock position** menu and remembered per
- * browser (lib/dock-layout.ts holds the rules: stored values, width limits,
- * which edge the handle and tooltips face).
+ * tabs, reachable from every page. It sits on the Left (the default), the
+ * Right, or the Bottom, chosen with the header's **Dock position** menu and
+ * remembered per browser (lib/dock-layout.ts holds the rules: stored values,
+ * width and height limits, which edge the handle and tooltips face).
  *
  * The shell is two columns now: this dock, and the center (nav + page). The
  * dock holds both things you keep an eye on *while* looking at something else —
@@ -33,7 +33,11 @@
  *  - `lg+` expanded — a resizable column (drag the inner edge, 300–560px, width
  *    remembered in localStorage). On the Right it's drawn after the center
  *    with CSS `order` but stays first in the DOM, so the tab order and the
- *    landmarks read the same in either position.
+ *    landmarks read the same in either position. At the Bottom it's a
+ *    full-width panel under the center instead (same `order` trick), resized
+ *    by its top edge (200px to 70% of the window, its own saved height); the
+ *    header and tab rows stay as they are, and the chat keeps a readable
+ *    width in the middle (AssistantPane `readable`).
  *  - `lg+` Full page — the header's Full page button (Esc, the Restore
  *    button, or going to another page puts it back) makes the dock fill the
  *    center below the NavBar, whichever side it sits on; the page stays
@@ -43,7 +47,9 @@
  *    (only the kinds switched on in Config),
  *    the team buttons, teammate avatars (linking to their live view), and the
  *    queue count (linking to the Queue tab; amber when anything is at risk).
- *    Its tooltips open toward the center, whichever side the rail is on.
+ *    Its tooltips open toward the center, whichever side the rail is on. At
+ *    the Bottom the rail is a thin bar instead: the same items in a row that
+ *    scrolls sideways, tooltips opening upward.
  *  - below `lg` — a floating corner button that pops the dock open in place,
  *    tabs included. Position doesn't apply there (no Dock position menu).
  *
@@ -99,14 +105,16 @@ import { useTeamData } from "@/hooks/useTeamData";
 import { useAnnounceOffline, useAnnounceQueue, useAnnounceReplies } from "@/hooks/useLiveAnnouncements";
 import { useSideDock, type DockMode, type DockPosition, type SideDockTab } from "@/hooks/useSideDock";
 import {
-  DOCK_POSITIONS, DOCK_WIDTH_KEY, dockFillsCenter, dockInnerEdge, dockModeAfterEscape, dockTooltipSide, dockWidthFromPointer,
-  parseDockPosition, parseDockWidth, toggleFullPage,
+  DOCK_HEIGHT_KEY, DOCK_POSITIONS, DOCK_WIDTH_KEY, MAX_DOCK_HEIGHT_RATIO, dockFillsCenter, dockHeightFromPointer, dockInnerEdge,
+  dockModeAfterEscape, dockTooltipSide, dockWidthFromPointer, isHorizontalDock, parseDockHeight, parseDockPosition, parseDockWidth,
+  toggleFullPage,
 } from "@/lib/dock-layout";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { countUnread } from "@/lib/unread";
 import { KEEP_FOCUS_ATTR } from "@/lib/route-focus";
 import {
-  Maximize2, Minimize2, MessageSquare, PanelLeft, PanelLeftClose, PanelLeftOpen, PanelRight, PanelRightClose, PanelRightOpen, X, Clock, Users, HelpCircle,
+  Maximize2, Minimize2, MessageSquare, PanelBottom, PanelBottomClose, PanelBottomOpen, PanelLeft, PanelLeftClose, PanelLeftOpen, PanelRight,
+  PanelRightClose, PanelRightOpen, X, Clock, Users, HelpCircle,
 } from "lucide-react";
 
 /**
@@ -120,6 +128,7 @@ const KEEP_FOCUS = { [KEEP_FOCUS_ATTR]: "" };
 export function SideDock() {
   const { position, mode, setMode, open, setOpen, tab, setTab, openHelp, closeHelp } = useSideDock();
   const onRight = position === "right";
+  const onBottom = isHorizontalDock(position);
   // The rail's hints open toward the center so they clear the dock's edge.
   const tip = dockTooltipSide(position);
   // null = follow the live session; an id = read an earlier one.
@@ -132,6 +141,7 @@ export function SideDock() {
   useAnnounceQueue(queue.items, queue.loaded);
   useAnnounceOffline(team.teammates, team.loaded);
   const [width, startResize] = useDockWidth(position);
+  const [height, startResizeHeight] = useDockHeight();
   const isDesktop = useMediaQuery(LG_QUERY);
   const full = dockFillsCenter(mode, isDesktop);
   const navRef = useRef<HTMLElement>(null);
@@ -178,7 +188,9 @@ export function SideDock() {
         </IconButton>
       )}
       <IconButton className="h-8 w-8 shrink-0" onClick={() => setDockOpen(false)} label={isDesktop ? "Collapse the dock" : "Close the dock"}>
-        {!isDesktop ? <X className="h-4 w-4" /> : onRight ? <PanelRightClose className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
+        {!isDesktop ? <X className="h-4 w-4" />
+          : onBottom ? <PanelBottomClose className="h-4 w-4" />
+          : onRight ? <PanelRightClose className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </IconButton>
     </div>
   );
@@ -212,7 +224,8 @@ export function SideDock() {
   const body = (
     <div className="min-h-0 flex-1">
       <div className={tab === "assistant" ? "h-full" : "hidden"}>
-        <AssistantPane stream={stream} viewingId={viewingId} onViewSession={setViewingId} />
+        {/* A full-width Bottom panel would stretch a line across the screen. */}
+        <AssistantPane stream={stream} viewingId={viewingId} onViewSession={setViewingId} readable={isDesktop && onBottom && !full} />
       </div>
       <div className={tab === "team" ? "h-full" : "hidden"}>
         <TeamPanel team={team} onSpawn={() => setSpawnOpen(true)} />
@@ -250,20 +263,28 @@ export function SideDock() {
     );
   }
 
-  // Collapsed: a slim icon rail with both tabs' essentials.
+  // Collapsed: a slim icon rail with both tabs' essentials — down the side, or
+  // at the Bottom a thin bar with the same items in a row.
   if (!open) {
     return (
       <nav
         aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock"
-        className={`flex w-14 shrink-0 flex-col items-center border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
+        className={onBottom
+          ? "order-last flex h-14 shrink-0 flex-row items-center border-t border-border bg-muted/30"
+          : `flex w-14 shrink-0 flex-col items-center border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
       >
         {dialogs}
-        <div className="flex h-14 w-full shrink-0 items-center justify-center border-b border-border">
+        <div className={`flex shrink-0 items-center justify-center border-border ${onBottom ? "h-full w-14 border-r" : "h-14 w-full border-b"}`}>
           <IconButton className="h-8 w-8" onClick={() => setDockOpen(true)} label="Expand the dock" side={tip}>
-            {onRight ? <PanelRightOpen className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
+            {onBottom ? <PanelBottomOpen className="h-4 w-4" /> : onRight ? <PanelRightOpen className="h-4 w-4" /> : <PanelLeftOpen className="h-4 w-4" />}
           </IconButton>
         </div>
-        <div className="flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
+        <div
+          className={onBottom
+            // py-1: room for the count badges (-top-1) inside the scroll box.
+            ? "flex h-full min-w-0 flex-1 flex-row items-center gap-2 overflow-x-auto px-3 py-1"
+            : "flex w-full flex-1 flex-col items-center gap-2 overflow-y-auto py-3"}
+        >
           <Tooltip content={`Chat with the assistant${unreadSuffix(unread)}`} describe={false} side={tip}>
             <button
               type="button"
@@ -283,7 +304,7 @@ export function SideDock() {
               <item.icon className="h-4 w-4" />
             </IconButton>
           ))}
-          <div className="my-1 h-px w-6 shrink-0 bg-border" />
+          <div className={`shrink-0 bg-border ${onBottom ? "mx-1 h-6 w-px" : "my-1 h-px w-6"}`} />
           <TeamButtons sizeTitle={sizeTitle} poolBlocked={team.poolBlocked} onSize={() => setSizeOpen(true)} onSpawn={() => setSpawnOpen(true)} tooltipSide={tip} />
           {team.pendingSpawns.length > 0 && (
             <Tooltip content={`${team.pendingSpawns.length} pending spawn request${team.pendingSpawns.length === 1 ? "" : "s"}`} describe={false} focusable side={tip}>
@@ -303,7 +324,7 @@ export function SideDock() {
           {queue.counts.total > 0 && (
             <IconLink
               to="/queue"
-              className="relative mt-1 flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground"
+              className={`relative flex h-6 w-6 shrink-0 items-center justify-center text-muted-foreground hover:text-foreground ${onBottom ? "ml-1" : "mt-1"}`}
               side={tip}
               label={`Queue: ${[
                 queue.counts.atRisk && `${queue.counts.atRisk} at risk`,
@@ -320,16 +341,20 @@ export function SideDock() {
     );
   }
 
-  // Expanded: the resizable dock column. Full page: the same element filling
-  // the center below the NavBar (the shell lays that out), with no handle.
+  // Expanded: the resizable dock column (or, at the Bottom, a full-width
+  // panel resized by its height). Full page: the same element filling the
+  // center below the NavBar (the shell lays that out), with no handle.
   return (
     <nav
       ref={navRef}
       aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock"
       className={full
         ? "relative flex min-h-0 flex-1 flex-col bg-muted/30"
-        : `relative flex shrink-0 flex-col border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
-      style={full ? undefined : { width }}
+        : onBottom
+          ? "relative order-last flex shrink-0 flex-col border-t border-border bg-muted/30"
+          : `relative flex shrink-0 flex-col border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
+      // The CSS cap (the drag's ratio) keeps a height saved in a taller window inside this one.
+      style={full ? undefined : onBottom ? { height, maxHeight: `${MAX_DOCK_HEIGHT_RATIO * 100}vh` } : { width }}
     >
       {dialogs}
       {header}
@@ -341,9 +366,11 @@ export function SideDock() {
           it's hidden from assistive tech; the hint is the cursor's tooltip. */
       <Tooltip content="Drag to resize" describe={false} side={dockInnerEdge(position)}>
         <div
-          onPointerDown={startResize}
+          onPointerDown={onBottom ? startResizeHeight : startResize}
           aria-hidden
-          className={`absolute inset-y-0 z-10 w-2 cursor-col-resize hover:bg-primary/20 ${onRight ? "-left-1" : "-right-1"}`}
+          className={onBottom
+            ? "absolute inset-x-0 -top-1 z-10 h-2 cursor-row-resize hover:bg-primary/20"
+            : `absolute inset-y-0 z-10 w-2 cursor-col-resize hover:bg-primary/20 ${onRight ? "-left-1" : "-right-1"}`}
         />
       </Tooltip>
       )}
@@ -443,15 +470,18 @@ function useSeenMarker(): { seenAt: number; markSeen: () => void } {
   return { seenAt, markSeen };
 }
 
+/** The icon for each dock position (the menu's trigger and its items). */
+const POSITION_ICON: Record<DockPosition, typeof PanelLeft> = { left: PanelLeft, right: PanelRight, bottom: PanelBottom };
+
 /**
- * The header's **Dock position** menu: Left or Right (lib/dock-layout.ts
+ * The header's **Dock position** menu: Left, Right or Bottom (lib/dock-layout.ts
  * `DOCK_POSITIONS`), the current one checked. A Base UI menu of radio items,
  * so it's keyboard-operable (Enter/Space/↓ opens it, arrows move, Enter picks
  * and closes it, Esc closes) and announced as a checked choice. Desktop only.
  */
 function DockPositionMenu() {
   const { position, setPosition } = useSideDock();
-  const Icon = position === "right" ? PanelRight : PanelLeft;
+  const Icon = POSITION_ICON[position];
   return (
     <DropdownMenu>
       <Tooltip content="Dock position" describe={false}>
@@ -464,13 +494,16 @@ function DockPositionMenu() {
       </Tooltip>
       <DropdownMenuContent className="w-36" align="end">
         <DropdownMenuRadioGroup value={position} onValueChange={(v: string) => setPosition(parseDockPosition(v))}>
-          {DOCK_POSITIONS.map((p) => (
-            // closeOnClick: picking a side is the whole errand; focus goes back to the trigger.
-            <DropdownMenuRadioItem key={p.position} value={p.position} closeOnClick>
-              {p.position === "right" ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-              {p.label}
-            </DropdownMenuRadioItem>
-          ))}
+          {DOCK_POSITIONS.map((p) => {
+            const ItemIcon = POSITION_ICON[p.position];
+            return (
+              // closeOnClick: picking a side is the whole errand; focus goes back to the trigger.
+              <DropdownMenuRadioItem key={p.position} value={p.position} closeOnClick>
+                <ItemIcon className="h-4 w-4" />
+                {p.label}
+              </DropdownMenuRadioItem>
+            );
+          })}
         </DropdownMenuRadioGroup>
       </DropdownMenuContent>
     </DropdownMenu>
@@ -530,4 +563,30 @@ function useDockWidth(position: DockPosition): [number, (e: React.PointerEvent) 
   }, [position]);
 
   return [width, startResize];
+}
+
+/**
+ * The Bottom panel's height + a pointer-drag resize handler for its top edge.
+ * Kept apart from the side width (its own localStorage key), clamped to
+ * lib/dock-layout.ts's limits for the window at the time of the drag.
+ */
+function useDockHeight(): [number, (e: React.PointerEvent) => void] {
+  const [height, setHeight] = useState(() => {
+    try { return parseDockHeight(localStorage.getItem(DOCK_HEIGHT_KEY)); } catch { return parseDockHeight(null); }
+  });
+
+  const startResize = useCallback((e: React.PointerEvent) => {
+    e.preventDefault();
+    const heightAt = (ev: PointerEvent) => dockHeightFromPointer(ev.clientY, window.innerHeight);
+    const onMove = (ev: PointerEvent) => setHeight(heightAt(ev));
+    const onUp = (ev: PointerEvent) => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onUp);
+      try { localStorage.setItem(DOCK_HEIGHT_KEY, String(heightAt(ev))); } catch { /* private mode */ }
+    };
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onUp);
+  }, []);
+
+  return [height, startResize];
 }

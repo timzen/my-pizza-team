@@ -23,8 +23,11 @@ icons.
 
 **Move the dock.** The side dock sits on the left by default. The **Dock position**
 button in its header (next to collapse) moves it to the right — handy on a wide
-screen or if you read the page first. Your choice, the dock's width, and whether it's
-collapsed are remembered in this browser.
+screen or if you read the page first — or to the bottom, a full-width panel under the
+page (drag its top edge to make it taller or shorter; collapsed, it's a thin bar of
+icons). At the bottom the chat stays a comfortable reading width in the middle. Your
+choice, the dock's width and height, and whether it's collapsed are remembered in this
+browser.
 
 **Full page dock.** For a long chat or a big team, the **Full page** button in the
 dock's header lets the dock fill the whole area below the nav bar. The page you were

@@ -2,8 +2,10 @@
  * App.tsx — Root application component with routing and layout.
  *
  * Two full-height columns with aligned h-14 headers: the **SideDock** on the
- * left (tabs: the Assistant chat, and the Team — agents + live queue — plus
+ * left or right (tabs: the Assistant chat, and the Team — agents + live queue — plus
  * quick-create; collapses to an icon rail) and the center (nav + routed page).
+ * Or, with the dock at the **Bottom**, two rows: the center above, the dock
+ * (or its collapsed bar) running the full width below.
  * The **NavBar spans only the center column**: it navigates the center, and the
  * dock is independent of it (DESIGN.md "The Shell: a Dock and a Center").
  * In **Full page** mode the dock fills the center instead: the shell turns
@@ -43,7 +45,7 @@ import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
 import { useSideDock } from "./hooks/useSideDock";
-import { dockFillsCenter } from "./lib/dock-layout";
+import { dockFillsCenter, isHorizontalDock } from "./lib/dock-layout";
 import { RootPage } from "./pages/RootPage";
 import { ThoughtsPage } from "./pages/ThoughtsPage";
 import { TriagePage } from "./pages/TriagePage";
@@ -167,22 +169,32 @@ function DesktopShell() {
  * tab order and the accessibility tree, but mounted. The skip link's target is
  * the page, so in Full page it first restores the dock (synchronously, so the
  * heading can take focus) and then skips to it.
+ *
+ * A **Bottom** dock makes the row a column as well, with the center (NavBar +
+ * `<main>`) drawn first and the dock across the bottom — again by CSS `order`,
+ * so the DOM and tab order don't change. Full page at the bottom is the same
+ * Full page as on either side.
  */
 function ShellFrame({ mainRef, children }: { mainRef: RefObject<HTMLElement | null>; children: ReactNode }) {
-  const { mode, setMode } = useSideDock();
-  const full = dockFillsCenter(mode, useMediaQuery(LG_QUERY));
+  const { mode, setMode, position } = useSideDock();
+  const isDesktop = useMediaQuery(LG_QUERY);
+  const full = dockFillsCenter(mode, isDesktop);
+  // A Bottom dock (desktop only — below lg it's the floating panel) stacks the
+  // shell too: the center on top, the dock (CSS order-last) across the bottom.
+  const bottom = isDesktop && isHorizontalDock(position);
   return (
     // h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
     // columns and <main> then own their own scrolling. With a content-height
     // shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
     // grows the page instead of scrolling inside the dock.
-    <div className={`h-dvh overflow-hidden flex bg-background text-foreground ${full ? "flex-col" : ""}`}>
+    <div className={`h-dvh overflow-hidden flex bg-background text-foreground ${full || bottom ? "flex-col" : ""}`}>
       <SkipLink mainRef={mainRef} onBeforeSkip={full ? () => flushSync(() => setMode("expanded")) : undefined} />
       <SideDock />
       {/* The center column: its own nav on top, the routed page below.
           @container so the nav adapts to the room the docks leave, not the
-          viewport width. In Full page it shrinks to the nav, drawn on top. */}
-      <div className={`@container flex min-w-0 flex-col ${full ? "order-first shrink-0" : "flex-1"}`}>
+          viewport width. In Full page it shrinks to the nav, drawn on top;
+          above a Bottom dock it takes the height the dock leaves. */}
+      <div className={`@container flex min-w-0 flex-col ${full ? "order-first shrink-0" : bottom ? "order-first min-h-0 flex-1" : "flex-1"}`}>
         <NavBar />
         <main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1} hidden={full} className="flex-1 min-h-0 overflow-y-auto">
           {children}

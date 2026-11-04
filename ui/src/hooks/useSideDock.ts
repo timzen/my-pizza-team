@@ -1,5 +1,5 @@
 /**
- * useSideDock — shared state for the SideDock: where it sits (Left or Right),
+ * useSideDock — shared state for the SideDock: where it sits (Left, Right or Bottom),
  * its mode (collapsed rail, expanded column, or Full page), which tab (Assistant, Team or
  * Help) is showing, and what the Help tab shows. The layout rules behind
  * position and mode are lib/dock-layout.ts.

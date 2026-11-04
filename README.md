@@ -550,9 +550,10 @@ mirrors that Pi session in both directions. See
 [docs/DESIGN.md](docs/DESIGN.md#one-agent-to-talk-to).
 
 It lives in the **side dock** on every page, as the **Assistant** tab beside
-**Team**. The dock sits on the left or the right (its **Dock position** menu,
-remembered per browser), collapses to an icon rail (with an unread badge),
-resizes by dragging its inner edge, or goes **Full page** — filling the center
+**Team**. The dock sits on the left, the right, or across the bottom (its
+**Dock position** menu, remembered per browser), collapses to an icon rail with an
+unread badge (a thin bar at the bottom), resizes by dragging its inner
+edge (at the bottom: its height, by the top edge), or goes **Full page** — filling the center
 below the nav bar, until you press Restore or Esc or go to another page; in a narrow desktop window it becomes a floating button. On a
 phone, the chat is a tab of the [phone view](#phone-view).
 

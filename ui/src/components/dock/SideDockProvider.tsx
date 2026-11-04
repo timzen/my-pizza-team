@@ -1,5 +1,5 @@
 /**
- * SideDockProvider — holds the dock's position (Left or Right), mode (rail,
+ * SideDockProvider — holds the dock's position (Left, Right or Bottom), mode (rail,
  * column, or Full page) and active tab for the whole app (all remembered in localStorage —
  * position and mode under lib/dock-layout.ts's keys, migrated from the old
  * open/closed flag), what its Help tab shows, plus the route helper that opens
