@@ -17,8 +17,8 @@ team, not the whole app. Four tabs along the bottom:
 - **Inbox** — finished work. Tap a row to read its summary right there (that marks it
   read); **Open full** goes to the task's page in the full UI.
 
-An empty tab says what goes there, as in the full UI: Team explains the leader and how
-to start it (`mpt lead`), and the Queue, Thoughts and Inbox offer **Ask the
+An empty tab says what goes there, as in the full UI: Team explains the leader and offers
+**Start the assistant** (so does Chat, while no one is there to answer), and the Queue, Thoughts and Inbox offer **Ask the
 assistant**, which switches to Chat with the cursor in the box (or **New note** on
 Thoughts). **Learn more** opens the matching page of this guide.
 

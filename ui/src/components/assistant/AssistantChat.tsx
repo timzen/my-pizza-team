@@ -9,7 +9,8 @@
  * Renders as the SideDock's Assistant tab (~300–560px), so it stays vertical
  * and tight: persona chips that scroll, 90%-width bubbles, and the composer
  * pinned to the bottom. It has no toolbar of its own: the dock's tab row shows
- * the leader's presence (a dot on the tab) and the session menu.
+ * the leader's presence (a dot on the tab) and the session menu. With no leader
+ * to answer, the host (AssistantPane) shows **Start the assistant** above it.
  *
  * When the dock sits at the Bottom it's a full-width panel, so the host passes
  * `readable`: the chips, history notice, messages and composer are kept to a
@@ -17,7 +18,7 @@
  * its edge.
  */
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { apiPost, apiPut, useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { MessageBubble } from "./MessageBubble";
@@ -47,7 +48,7 @@ interface AssistantChatProps {
 
 /** The chat's rows; see AssistantChatProps. */
 export function AssistantChat({ stream, viewingId, onViewSession, active = true, readable = false }: AssistantChatProps) {
-  const { session, messages, chatAgent, thinking, thoughts, refresh } = stream;
+  const { session, messages, thinking, thoughts, refresh } = stream;
 
   const { data: personaData, refetch: refetchPersona } = useApi<{ personaId: string | null }>("/api/assistant/persona", [], { pollInterval: 10_000 });
   const library = usePersonas();
@@ -56,10 +57,22 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true,
   const [replyTo, setReplyTo] = useState<AssistantMessage | null>(null);
   const [swapping, setSwapping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Does the log scroll? Then it's a tab stop, so the keyboard can scroll it even
+  // when nothing in it is focusable (docs/ACCESSIBILITY.md "Scrolling regions" —
+  // a short pane, say under the no-leader notice at 200% zoom).
+  const [scrolls, setScrolls] = useState(false);
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const check = () => setScrolls(el.scrollHeight > el.clientHeight);
+    check();
+    const ro = new ResizeObserver(check);
+    ro.observe(el);
+    if (contentRef.current) ro.observe(contentRef.current);
+    return () => ro.disconnect();
+  }, []);
 
-  // The leader answers the chat (there is no separate assistant process), so
-  // presence is simply "is a chat agent designated".
-  const chatOnline = chatAgent !== null;
   const personas = library ?? [];
   // The chips earn their row once there's a choice to make: a persona suggested
   // for the assistant, or a non-default one in use. (Any persona can still be
@@ -131,8 +144,16 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true,
           polite — so a reply isn't read out in full: the announcer says
           "Assistant replied" (hooks/useLiveAnnouncements), and the reader
           goes to the log to read it. */}
-      <div ref={scrollRef} role="log" aria-live="off" aria-label="Conversation" className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
-        <div className={`space-y-3 ${measure}`}>
+      <div
+        ref={scrollRef}
+        role="log"
+        aria-live="off"
+        aria-label="Conversation"
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex -- a scrolling region must take keyboard focus (only while it scrolls)
+        tabIndex={scrolls ? 0 : undefined}
+        className="min-h-0 flex-1 overflow-y-auto px-3 py-3"
+      >
+        <div ref={contentRef} className={`space-y-3 ${measure}`}>
           {messages.length === 0 && (
             <p className="py-8 text-center text-sm text-muted-foreground">
               No messages yet. Say hello to your assistant below.
@@ -144,12 +165,6 @@ export function AssistantChat({ stream, viewingId, onViewSession, active = true,
           {/* Keep the affordance after the run: the reasoning buffer outlives it,
               and only rendering while `thinking` made the peek a race. */}
           {(thinking || thoughts) && !isHistory && <ThinkingBubble thoughts={thoughts} thinking={thinking} />}
-          {!chatOnline && !isHistory && messages.some((m) => m.role === "user" && m.delivery === "queued") && (
-            <p className="text-center text-xs text-muted-foreground">
-              No leader is running, so your messages are queued. Start one with{" "}
-              <code className="rounded bg-muted px-1">pi --ppt-lead</code> in your project and they'll be delivered.
-            </p>
-          )}
         </div>
       </div>
 

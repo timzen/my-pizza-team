@@ -56,10 +56,12 @@ The gauge shows the context window's fill (hover for exact tokens; `?` just afte
 compacts, until its next reply). Both the gauge and the cost reset when the teammate
 starts a fresh session for its next run.
 
-With nobody online the tab says so, and how to change it: **Spawn a teammate** (when
-the daemon can start one — it doesn't need the leader for that; otherwise it's
-greyed out and says why, with the fix) and **How to start the leader**, which shows the command:
-`mpt lead`. It also warns when the [readiness probe](08-configuration.md#readiness-probe)
+With nobody online the tab says so, and how to change it: **Start the assistant**
+while the leader isn't running (it reads **Starting…** until the leader connects; if the
+daemon can't start it, it says why, with the fix; **Or from a terminal** shows the
+command, `mpt lead`), and **Spawn a teammate** (when the daemon can start one — it
+doesn't need the leader for that; otherwise it's greyed out and says why, with the fix).
+It also warns when the [readiness probe](08-configuration.md#readiness-probe)
 is failing — a new teammate would start but get no work until it passes.
 
 On the Assistant tab you can still see the team at a glance: the Team tab shows how
@@ -118,7 +120,7 @@ Details:
   General — leave it blank for the default), so it's the target the daemon applies at
   startup.
 - It's capped by **Max Teammates**, and it waits for the **leader** to be connected
-  (`mpt lead`). Until one is, the dialog tells you so. The daemon starts the tmux
+  Until one is, the dialog tells you so and offers **Start the assistant**. The daemon starts the tmux
   windows itself; if it can't reach tmux, nothing spawns: the dialog and the Team tab
   say why, with the fix, and `mpt doctor` reports it too.
 - Lowering the number never kills anyone: it just stops replacements. Dismissing a

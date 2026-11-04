@@ -2384,8 +2384,10 @@ section (the dock's Help panel; on the phone, its page under `/m/help`).
   different screen from **nothing has finished yet**, told apart by one more count,
   asked only while the list is empty.
 - **The Team tab explains the leader.** With nobody online it says what teammates are
-  and that the leader — the assistant — starts them, offers **Spawn a teammate**, and
-  unfolds **How to start the leader** (`mpt lead`). Spawn is offered only when a spawn
+  and that the leader — the assistant — starts them, offers **Start the assistant**
+  while no leader is connected (the daemon opens its window; `mpt lead` is a secondary
+  "Or from a terminal" disclosure, and when the daemon can't start it the reason and
+  fix show instead of the button) and **Spawn a teammate**. Spawn is offered only when a spawn
   would actually happen: the daemon can start one itself (its spawn capability, on
   `/health`) or a leader is connected; otherwise it's disabled and says why, with the
   daemon's own fix (`spawnState`). A failing readiness probe is said too — the

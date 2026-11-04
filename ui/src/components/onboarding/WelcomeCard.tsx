@@ -33,12 +33,13 @@
  *
  * On the phone (`phone`), only the next step shows its action, spawning is
  * left out — it's setup, a desktop job ("A Phone Is a Peek") — and the links
- * go to the phone's tabs.
+ * go to the phone's tabs. The first step's action is **Start the assistant**
+ * (components/assistant/StartAssistant) on both: one tap, no terminal.
  */
 
 import { useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
-import { Check, CheckCircle2, Circle, CircleDot, Copy, FlaskConical, Inbox, ListOrdered, PenLine, StickyNote, UserPlus } from "lucide-react";
+import { CheckCircle2, Circle, CircleDot, FlaskConical, Inbox, ListOrdered, PenLine, StickyNote, UserPlus } from "lucide-react";
 import type { CreateSampleTaskResponse, OnboardingSampleTask, OnboardingStepId } from "@shared/protocol";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -48,12 +49,13 @@ import { DirectoryInput } from "@/components/ui/directory-input";
 import { FormError } from "@/components/ui/form-error";
 import { AskAssistantButton, LearnMore } from "@/components/ui/empty-state";
 import { SpawnDialog } from "@/components/SpawnDialog";
+import { StartAssistant } from "@/components/assistant/StartAssistant";
 import { apiPost, useApi } from "@/hooks/useApi";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { useFeatures } from "@/hooks/useFeatures";
 import { useOnboarding } from "@/hooks/useOnboarding";
 import { focusTarget } from "@/hooks/useRouteFocus";
-import { LEADER_COMMAND, spawnState, type SpawnHealth } from "@/lib/empty-states";
+import { spawnState, type SpawnHealth } from "@/lib/empty-states";
 import { filterByFeatures } from "@/lib/features";
 import { HELP_ROOT, MOBILE_HELP_ROOT, helpPath } from "@/lib/help";
 import { MOBILE_TAB_PATHS } from "@/lib/mobile";
@@ -215,7 +217,7 @@ function StepAction({ id, phone, sampleTask, onCreated }: {
 }) {
   switch (id) {
     case "leaderOnline":
-      return <LeaderCommand />;
+      return <StartAssistant size="xs" />;
     case "teammateOnline":
       return phone
         ? <p className="text-xs text-muted-foreground">Spawn one, or set a team size, from the desktop view.</p>
@@ -240,25 +242,6 @@ function StepAction({ id, phone, sampleTask, onCreated }: {
     case "thoughtCaptured":
       return <Link to={phone ? MOBILE_TAB_PATHS.thoughts : "/thoughts"} className={LINK_CLASS}><StickyNote className="h-3.5 w-3.5" aria-hidden />Open Thoughts</Link>;
   }
-}
-
-/** `mpt lead`, with a copy button. */
-function LeaderCommand() {
-  const [copied, setCopied] = useState(false);
-  const announce = useAnnounce();
-  const copy = () => {
-    navigator.clipboard?.writeText(LEADER_COMMAND)
-      .then(() => { setCopied(true); announce("Copied"); setTimeout(() => setCopied(false), 1500); })
-      .catch(() => announce("Couldn't copy; select the command and copy it yourself", "assertive"));
-  };
-  return (
-    <div className="flex items-center gap-2">
-      <code className="rounded bg-muted px-2 py-1 font-mono text-xs text-foreground">{LEADER_COMMAND}</code>
-      <Button variant="outline" size="xs" onClick={copy} aria-label={`Copy the command ${LEADER_COMMAND}`}>
-        {copied ? <Check aria-hidden /> : <Copy aria-hidden />}{copied ? "Copied" : "Copy"}
-      </Button>
-    </div>
-  );
 }
 
 /** Spawn a teammate (its own Spawn dialog), or why it wouldn't happen yet. */

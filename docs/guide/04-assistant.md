@@ -17,6 +17,17 @@ Things to ask it:
 It only offers the kinds of work your team has switched on (see
 [Work items](08-configuration.md#work-items-feature-toggles)).
 
+## Starting the assistant
+
+When the leader isn't running, the top of the chat says so — anything you send waits,
+queued, until it starts — and offers **Start the assistant**. The daemon opens it in
+its tmux window (`<session>:leader`, in your project directory); the button reads
+**Starting…** until it connects, then the notice goes. If it can't be started from the
+web UI (tmux unreachable, or no leader command for your harness), the notice says why
+and how to fix it. **Or from a terminal** shows the same start as a command,
+`mpt lead`, which also attaches you to the window. The same button is on the Welcome
+checklist, the empty Team tab and the team-size dialog.
+
 ## Assistant style: chat or terminal
 
 **Config → General → Assistant** picks how you talk to the assistant. **Chat

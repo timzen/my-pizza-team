@@ -12,12 +12,18 @@
  * bubbles and composer at a readable width, centered; the terminal keeps the
  * whole width (a terminal's columns are its own).
  *
+ * With no leader connected (the stream is up but names no `chatAgent`), either
+ * view has a notice on top — nobody will answer, and messages queue — with
+ * **Start the assistant** (StartAssistant). It goes when the leader registers.
+ * Not while reading an earlier session, which nobody answers anyway.
+ *
  * Either way it's marked `data-chat-pane`, so "Ask the assistant" on an empty
  * screen can put the cursor in its message box (hooks/useStartChat).
  */
 
 import { AssistantChat } from "./AssistantChat";
 import { AssistantTerminal } from "./AssistantTerminal";
+import { StartAssistant } from "./StartAssistant";
 import { useAssistantChatMode } from "@/hooks/useFeatures";
 import { assistantTerminalTarget, assistantView } from "@/lib/assistant-mode";
 import type { AssistantStreamState } from "@/hooks/useAssistantStream";
@@ -36,8 +42,29 @@ export function AssistantPane({
   readable?: boolean;
 }) {
   const mode = useAssistantChatMode();
-  if (assistantView(mode, viewingId) === "terminal") {
-    return <div className="h-full min-h-0" {...CHAT_PANE}><AssistantTerminal leaderId={assistantTerminalTarget(stream.chatAgent)} /></div>;
-  }
-  return <div className="h-full min-h-0" {...CHAT_PANE}><AssistantChat stream={stream} viewingId={viewingId} onViewSession={onViewSession} active={active} readable={readable} /></div>;
+  const view = assistantView(mode, viewingId) === "terminal"
+    ? <AssistantTerminal leaderId={assistantTerminalTarget(stream.chatAgent)} />
+    : <AssistantChat stream={stream} viewingId={viewingId} onViewSession={onViewSession} active={active} readable={readable} />;
+  const noLeader = stream.connected && !stream.chatAgent && viewingId === null;
+  return (
+    <div className="flex h-full min-h-0 flex-col" {...CHAT_PANE}>
+      {noLeader && <NoLeaderNotice queued={stream.messages.some((m) => m.role === "user" && m.delivery === "queued")} readable={readable} />}
+      <div className="min-h-0 flex-1">{view}</div>
+    </div>
+  );
+}
+
+/** Nobody is online to answer: say so, and offer to start the assistant. */
+function NoLeaderNotice({ queued, readable }: { queued: boolean; readable?: boolean }) {
+  return (
+    <div className="shrink-0 border-b border-border bg-muted/40 px-3 py-2 text-xs" data-no-leader="">
+      <div className={readable ? "mx-auto w-full max-w-3xl space-y-1.5" : "space-y-1.5"}>
+        <p className="text-muted-foreground">
+          No leader is running to answer
+          {queued ? ", so your messages are queued; they'll be delivered once it starts." : "; messages you send wait until it starts."}
+        </p>
+        <StartAssistant size="xs" />
+      </div>
+    </div>
+  );
 }

@@ -35,7 +35,7 @@ export interface WelcomeStepCopy {
 export const WELCOME_STEPS: Record<OnboardingStepId, WelcomeStepCopy> = {
   leaderOnline: {
     title: "Start the leader",
-    text: "The leader is the assistant you chat with, and it starts teammates for you; run this in your team's directory.",
+    text: "The leader is the assistant you chat with, and it starts teammates for you; start it with one click.",
     learnMore: { topic: "glossary", anchor: "leader" },
   },
   teammateOnline: {

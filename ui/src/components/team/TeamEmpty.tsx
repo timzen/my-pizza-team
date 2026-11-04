@@ -9,9 +9,10 @@
  *    `spawnState`, from `/health`). Otherwise it's disabled, and the reason — and the
  *    daemon's own fix — says why. A failing readiness probe is said too: a
  *    teammate would start, but get no work until it passes.
- *  - **How to start the leader** unfolds the one command (`mpt lead`) and what
- *    it does: the leader is the assistant you chat with, and it's what grows
- *    the team to its size.
+ *  - **Start the assistant** (components/assistant/StartAssistant), while no
+ *    leader is connected: the daemon opens it, with the terminal command as a
+ *    secondary disclosure. The leader is the assistant you chat with, and it's
+ *    what grows the team to its size.
  *
  * The phone passes no `onSpawn` — spawning is setup, a desktop job (docs/DESIGN.md
  * "A Phone Is a Peek") — and says so instead. `/health` is only asked while this
@@ -23,7 +24,8 @@ import { UserPlus, Users, AlertTriangle } from "lucide-react";
 import { useApi } from "@/hooks/useApi";
 import { Button } from "@/components/ui/button";
 import { EmptyState } from "@/components/ui/empty-state";
-import { LEADER_COMMAND, spawnState, type SpawnHealth } from "@/lib/empty-states";
+import { spawnState, type SpawnHealth } from "@/lib/empty-states";
+import { StartAssistant } from "@/components/assistant/StartAssistant";
 
 export function TeamEmpty({ leaderPresent, onSpawn }: {
   /** Is a leader connected (the teammate pool's `leaderPresent`)? */
@@ -40,10 +42,10 @@ export function TeamEmpty({ leaderPresent, onSpawn }: {
   const leaderLine = onSpawn
     ? (leaderPresent
       ? "The leader is connected: spawn a teammate now, or set a team size (the people icon above) to keep some online."
-      : "The leader isn't running yet.")
+      : "The leader isn't running yet. It's the assistant you chat with, and it starts teammates to meet the team size.")
     : (leaderPresent
       ? "The leader is connected: spawn a teammate or set a team size from the desktop view."
-      : "The leader isn't running yet; once it is, set a team size from the desktop view.");
+      : "The leader isn't running yet. It's the assistant you chat with; once it runs, set a team size from the desktop view.");
 
   const detail = (
     <>
@@ -62,9 +64,12 @@ export function TeamEmpty({ leaderPresent, onSpawn }: {
 
   return (
     <EmptyState kind="team" icon={Users} compact detail={detail}>
+      {/* No leader: starting it is the primary step, on its own row; Spawn is secondary. */}
+      {!leaderPresent && <StartAssistant className="flex basis-full flex-col items-center" />}
       {onSpawn && (
         <Button
           size="sm"
+          variant={leaderPresent ? "default" : "outline"}
           onClick={onSpawn}
           disabled={!spawn.canSpawn}
           aria-describedby={[!spawn.canSpawn && reasonId, spawn.notReadyReason && readinessId].filter(Boolean).join(" ") || undefined}
@@ -72,17 +77,6 @@ export function TeamEmpty({ leaderPresent, onSpawn }: {
           <UserPlus className="mr-1 h-3.5 w-3.5" aria-hidden />Spawn a teammate
         </Button>
       )}
-      <details className="w-full max-w-md text-left text-xs">
-        <summary className="cursor-pointer rounded-sm py-1 text-center font-medium text-foreground">How to start the leader</summary>
-        <div className="mt-2 space-y-1.5 rounded-md border border-border bg-muted/40 p-2 text-muted-foreground">
-          <p>In a terminal, in your team's directory, run:</p>
-          <pre className="rounded bg-background px-2 py-1 font-mono text-foreground"><code>{LEADER_COMMAND}</code></pre>
-          <p>
-            It opens the leader in a tmux window. The leader is the assistant you chat with,
-            and it starts teammates to meet the team size.
-          </p>
-        </div>
-      </details>
     </EmptyState>
   );
 }

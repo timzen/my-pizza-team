@@ -186,5 +186,5 @@ export function spawnState(health: SpawnHealth | null | undefined): SpawnState {
   };
 }
 
-/** The command that starts the leader, shown by the Team tab's "How to start the leader". */
+/** The command that starts the leader, shown by Start the assistant's "Or from a terminal" (components/assistant/StartAssistant). */
 export const LEADER_COMMAND = "mpt lead";

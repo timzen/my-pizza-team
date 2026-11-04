@@ -34,8 +34,9 @@ checklist with a progress meter. Each step ticks off by itself when you do it, w
 you do it (the card, the CLI, the assistant), and the next one is highlighted with what
 to do:
 
-- **Start the leader** — run `mpt lead` in your team's directory (the card has a copy
-  button). The leader is the assistant you chat with.
+- **Start the leader** — **Start the assistant** opens it for you (or, under **Or from
+  a terminal**, run `mpt lead` in your team's directory). The leader is the assistant
+  you chat with.
 - **Get a teammate** — **Spawn a teammate**, or the reason it can't happen yet.
 - **Create your first task** — **Use a sample task** fills in "Summarize this project"
   in the leader's directory; change anything, then **Run**. Or **Write your own**.

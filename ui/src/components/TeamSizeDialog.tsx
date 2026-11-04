@@ -11,7 +11,9 @@
  * Nothing scales *down*: lowering the number just stops replacements (dismissing
  * a teammate stays a human act). Backed by PUT /api/teammate-pool; the pool
  * state is owned by the SideDock (useTeamData; it also drives the header
- * warning dot) and passed in.
+ * warning dot) and passed in. With no leader connected the pool waits, so the
+ * dialog says so and offers **Start the assistant** (components/assistant/
+ * StartAssistant) right there.
  */
 
 import { useState } from "react";
@@ -28,6 +30,7 @@ import { FormError } from "@/components/ui/form-error";
 import { useAnnounce } from "@/hooks/useAnnounce";
 import { FieldHint } from "@/components/ui/field-hint";
 import { describedBy } from "@/lib/field-help";
+import { StartAssistant } from "@/components/assistant/StartAssistant";
 
 /** Live pool state from GET /api/teammate-pool. */
 export interface TeammatePool {
@@ -127,9 +130,12 @@ function TeamSizeForm({ pool, onDone }: { pool: TeammatePool | null; onDone: () 
         </div>
 
         {pool && pool.minTeammates > 0 && !pool.leaderPresent && (
-          <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
-            <AlertTriangle className="h-3.5 w-3.5 shrink-0" /> No leader connected — nothing can spawn until one is.
-          </p>
+          <div className="space-y-1.5">
+            <p className="flex items-center gap-1 text-xs text-amber-700 dark:text-amber-400">
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden /> No leader connected — nothing can spawn until one is.
+            </p>
+            <StartAssistant size="xs" />
+          </div>
         )}
         {pool && pool.minTeammates > 0 && pool.spawnBlocked && (
           <p className="flex items-start gap-1 text-xs text-amber-700 dark:text-amber-400">
