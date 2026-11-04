@@ -287,7 +287,9 @@ walks pass. Before → after:
   an unnamed `<aside>`), Queue | Inbox, the Thoughts canvas, the story page and the phone
   view had no h1, and Help had two (its guide's `#`). Now: "Main", "Side dock", the
   section tabs' and the phone's tabs' navs, one h1 everywhere, markdown from h2.
-- **Skip link:** "Skip to content" is the first Tab on both shells.
+- **Skip link:** "Skip to content" is the first Tab on both shells. With the dock in
+  Full page (`<main>` hidden), it restores the dock first, so it always lands on the
+  page's h1.
 - **Route focus:** a NavBar or in-page link left focus on `<body>` (the old page's link
   was gone), so the next Tab started at the top; now focus lands on the new page's h1 (a
   route tab keeps it on the tab, the dock keeps its own).

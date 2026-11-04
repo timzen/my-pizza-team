@@ -2176,6 +2176,20 @@ its border, resize handle and rail tooltips move to the edge facing the center
 (`lib/dock-layout.ts`). Below the `lg` breakpoint it becomes a floating corner panel —
 for a narrow desktop window. A phone gets a different shell altogether (next).
 
+**Full page** (the header's ⤢, remembered like the rest) is for a long chat or a big
+team: the dock takes over the center, on either side, but **the NavBar stays** across
+the top. *Why keep the nav:* full page is a bigger view of the dock, not a different
+app — one click on a section is still the way back to the work, and the queue badges
+stay in sight. *Why the page stays mounted* (`hidden`, not unmounted): a half-filled
+form or a scrolled board survives a look at the chat, the same promise the tabs make.
+And the element tree doesn't change between modes — only classes do — so the dock's
+chat stream and team polling never reconnect. It's left by **Restore**, by **Esc**
+with focus in the dock when nothing in it (a menu, a dialog, the composer's quote)
+wants the Esc first, and by **going to another page** — a NavBar link or a teammate
+in the dock — because you went there to see it. The skip link's target is the page,
+so in full page it restores the dock and then skips to the page's heading. The resize
+handle hides; the saved width waits for the column's return.
+
 The **Team tab is teammates only.** The leader is the agent behind the Assistant
 tab; listing it on Team too would show one agent twice. It shows up on Team only
 through the amber dot when no leader is connected to grow the team.

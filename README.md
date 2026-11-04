@@ -551,8 +551,9 @@ mirrors that Pi session in both directions. See
 
 It lives in the **side dock** on every page, as the **Assistant** tab beside
 **Team**. The dock sits on the left or the right (its **Dock position** menu,
-remembered per browser), collapses to an icon rail (with an unread badge), or
-resizes by dragging its inner edge; in a narrow desktop window it becomes a floating button. On a
+remembered per browser), collapses to an icon rail (with an unread badge),
+resizes by dragging its inner edge, or goes **Full page** — filling the center
+below the nav bar, until you press Restore or Esc or go to another page; in a narrow desktop window it becomes a floating button. On a
 phone, the chat is a tab of the [phone view](#phone-view).
 
 - **Send whenever you like.** The composer never locks; a message sent while the

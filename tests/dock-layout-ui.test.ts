@@ -3,8 +3,9 @@
  * (ui/src/lib/dock-layout.ts, docs/DESIGN.md "The Shell: a Dock and a Center"):
  * reading stored position/mode (and migrating the old open flag), width
  * limits, the resize drag on either side, and which way the inner edge and
- * tooltips face. Plus a structural check that a Right dock is reordered with
- * CSS, not moved in the DOM.
+ * tooltips face, and Full page's transitions (the toggle, Esc, navigation).
+ * Plus structural checks that a Right dock and a Full page one are laid out
+ * with CSS, not moved in the DOM.
  */
 
 import * as fs from "node:fs";
@@ -12,8 +13,8 @@ import { test } from "node:test";
 import { assert, assertEquals } from "./_assert.ts";
 import {
   DEFAULT_DOCK_WIDTH, DOCK_MODE_KEY, DOCK_POSITION_KEY, DOCK_POSITIONS, LEGACY_DOCK_OPEN_KEY, MAX_DOCK_WIDTH, MIN_DOCK_WIDTH,
-  clampDockWidth, dockInnerEdge, dockTooltipSide, dockWidthFromPointer, isDockOpen, modeForOpen, parseDockMode,
-  parseDockPosition, parseDockWidth,
+  clampDockWidth, dockFillsCenter, dockInnerEdge, dockModeAfterEscape, dockModeAfterNavigate, dockTooltipSide,
+  dockWidthFromPointer, isDockOpen, modeForOpen, parseDockMode, parseDockPosition, parseDockWidth, toggleFullPage,
 } from "../ui/src/lib/dock-layout.ts";
 
 const read = (p: string) => fs.readFileSync(new URL(`../ui/src/${p}`, import.meta.url), "utf-8");
@@ -38,8 +39,7 @@ test("parseDockMode: a stored mode wins; else the old open flag decides; default
   assertEquals(parseDockMode(null, "0"), "collapsed");
   assertEquals(parseDockMode(null, "1"), "expanded");
   assertEquals(parseDockMode(null, null), "expanded");
-  // Full page isn't reachable yet; a stray value doesn't strand the user there.
-  assertEquals(parseDockMode("full", null), "expanded");
+  assertEquals(parseDockMode("full", "0"), "full");
   assertEquals(parseDockMode("bogus", "0"), "collapsed");
 });
 
@@ -85,4 +85,45 @@ test("a Right dock is reordered with CSS and keeps the landmark and tour mark", 
   assert(dock.includes('aria-label="Dock position"'), "the Dock position menu");
   const shell = read("App.tsx");
   assert(shell.indexOf("<SideDock />") < shell.indexOf("<NavBar />"), "dock before the center in the DOM");
+});
+
+test("the Full page button: full goes back to the column, the column goes full", () => {
+  assertEquals(toggleFullPage("expanded"), "full");
+  assertEquals(toggleFullPage("full"), "expanded");
+  assertEquals(toggleFullPage("collapsed"), "full");
+});
+
+test("Full page fills the center only on a desktop", () => {
+  assertEquals(dockFillsCenter("full", true), true);
+  assertEquals(dockFillsCenter("full", false), false);
+  assertEquals(dockFillsCenter("expanded", true), false);
+  assertEquals(dockFillsCenter("collapsed", true), false);
+});
+
+test("a new page leaves Full page; the first render, a query change, and other modes don't", () => {
+  assertEquals(dockModeAfterNavigate("full", "/work/board", "/teammates/t1"), "expanded");
+  assertEquals(dockModeAfterNavigate("full", null, "/"), "full");
+  assertEquals(dockModeAfterNavigate("full", "/story/s1", "/story/s1"), "full");
+  assertEquals(dockModeAfterNavigate("expanded", "/", "/config"), "expanded");
+  assertEquals(dockModeAfterNavigate("collapsed", "/", "/config"), "collapsed");
+});
+
+test("Esc leaves Full page only from inside the dock, and only when nothing else took it", () => {
+  assertEquals(dockModeAfterEscape({ mode: "full", handled: false, focusInDock: true }), "expanded");
+  // A dialog, menu, popover or the composer closed something first.
+  assertEquals(dockModeAfterEscape({ mode: "full", handled: true, focusInDock: true }), null);
+  assertEquals(dockModeAfterEscape({ mode: "full", handled: false, focusInDock: false }), null);
+  assertEquals(dockModeAfterEscape({ mode: "expanded", handled: false, focusInDock: true }), null);
+  assertEquals(dockModeAfterEscape({ mode: "collapsed", handled: false, focusInDock: true }), null);
+});
+
+test("Full page is laid out with CSS: the page stays mounted but hidden, no resize handle", () => {
+  const shell = read("App.tsx");
+  // One element tree in every mode: <main> is hidden, not unmounted, and the nav is drawn first.
+  assert(shell.includes("hidden={full}"), "<main> hidden in Full page");
+  assert(shell.includes('"order-first shrink-0"'), "the center (the nav) drawn on top in Full page");
+  assertEquals(shell.match(/<SideDock \/>/g)?.length, 1);
+  const dock = read("components/dock/SideDock.tsx");
+  assert(dock.includes('label={full ? "Restore the dock" : "Full page"}'), "the toggle names its action");
+  assert(dock.includes("{!full && ("), "the resize handle is hidden in Full page");
 });

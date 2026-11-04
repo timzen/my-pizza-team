@@ -26,6 +26,11 @@ button in its header (next to collapse) moves it to the right — handy on a wid
 screen or if you read the page first. Your choice, the dock's width, and whether it's
 collapsed are remembered in this browser.
 
+**Full page dock.** For a long chat or a big team, the **Full page** button in the
+dock's header lets the dock fill the whole area below the nav bar. The page you were
+on is still there, just hidden. **Restore** (the same button), **Esc** in the dock, or
+going to any page (a nav link, a teammate) puts the dock back beside the page.
+
 **Help where you are.** Every page has a **?** beside its title. It opens the part of
 this guide about that page in the dock's **Help** tab, next to the page, so you can
 read and click along; **Esc** (or the ✕ on the tab) closes it and puts you back where

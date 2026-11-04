@@ -34,6 +34,11 @@
  *    remembered in localStorage). On the Right it's drawn after the center
  *    with CSS `order` but stays first in the DOM, so the tab order and the
  *    landmarks read the same in either position.
+ *  - `lg+` Full page — the header's Full page button (Esc, the Restore
+ *    button, or going to another page puts it back) makes the dock fill the
+ *    center below the NavBar, whichever side it sits on; the page stays
+ *    mounted but hidden (App.tsx `ShellFrame`). Same element as the column, so
+ *    nothing remounts; no resize handle, and the saved width is kept for later.
  *  - `lg+` collapsed — a slim icon rail: the chat (unread badge), help, quick-create
  *    (only the kinds switched on in Config),
  *    the team buttons, teammate avatars (linking to their live view), and the
@@ -70,7 +75,7 @@
  * message survives a peek at the team.
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useMatch } from "react-router-dom";
 import { IconButton, IconLink } from "@/components/ui/icon-button";
 import { Tooltip } from "@/components/ui/tooltip";
@@ -92,15 +97,16 @@ import { SpawnDialog } from "@/components/SpawnDialog";
 import { useAssistantStream } from "@/hooks/useAssistantStream";
 import { useTeamData } from "@/hooks/useTeamData";
 import { useAnnounceOffline, useAnnounceQueue, useAnnounceReplies } from "@/hooks/useLiveAnnouncements";
-import { useSideDock, type DockPosition, type SideDockTab } from "@/hooks/useSideDock";
+import { useSideDock, type DockMode, type DockPosition, type SideDockTab } from "@/hooks/useSideDock";
 import {
-  DOCK_POSITIONS, DOCK_WIDTH_KEY, dockInnerEdge, dockTooltipSide, dockWidthFromPointer, parseDockPosition, parseDockWidth,
+  DOCK_POSITIONS, DOCK_WIDTH_KEY, dockFillsCenter, dockInnerEdge, dockModeAfterEscape, dockTooltipSide, dockWidthFromPointer,
+  parseDockPosition, parseDockWidth, toggleFullPage,
 } from "@/lib/dock-layout";
 import { LG_QUERY, useMediaQuery } from "@/hooks/useMediaQuery";
 import { countUnread } from "@/lib/unread";
 import { KEEP_FOCUS_ATTR } from "@/lib/route-focus";
 import {
-  MessageSquare, PanelLeft, PanelLeftClose, PanelLeftOpen, PanelRight, PanelRightClose, PanelRightOpen, X, Clock, Users, HelpCircle,
+  Maximize2, Minimize2, MessageSquare, PanelLeft, PanelLeftClose, PanelLeftOpen, PanelRight, PanelRightClose, PanelRightOpen, X, Clock, Users, HelpCircle,
 } from "lucide-react";
 
 /**
@@ -112,7 +118,7 @@ const KEEP_FOCUS = { [KEEP_FOCUS_ATTR]: "" };
 
 /** The dock (all three presentations); reads its state from SideDockProvider. */
 export function SideDock() {
-  const { position, open, setOpen, tab, setTab, openHelp, closeHelp } = useSideDock();
+  const { position, mode, setMode, open, setOpen, tab, setTab, openHelp, closeHelp } = useSideDock();
   const onRight = position === "right";
   // The rail's hints open toward the center so they clear the dock's edge.
   const tip = dockTooltipSide(position);
@@ -127,6 +133,9 @@ export function SideDock() {
   useAnnounceOffline(team.teammates, team.loaded);
   const [width, startResize] = useDockWidth(position);
   const isDesktop = useMediaQuery(LG_QUERY);
+  const full = dockFillsCenter(mode, isDesktop);
+  const navRef = useRef<HTMLElement>(null);
+  useEscapeLeavesFullPage(navRef, full, setMode);
   const [sizeOpen, setSizeOpen] = useState(false);
   const [spawnOpen, setSpawnOpen] = useState(false);
   const viewingTeammate = useMatch("/teammates/:id")?.params.id ?? null;
@@ -163,6 +172,11 @@ export function SideDock() {
       <div className="h-6 w-px shrink-0 bg-border" />
       <QueueSummary queue={queue} />
       {isDesktop && <DockPositionMenu />}
+      {isDesktop && (
+        <IconButton className="h-8 w-8 shrink-0" onClick={() => setMode(toggleFullPage(mode))} label={full ? "Restore the dock" : "Full page"}>
+          {full ? <Minimize2 className="h-4 w-4" /> : <Maximize2 className="h-4 w-4" />}
+        </IconButton>
+      )}
       <IconButton className="h-8 w-8 shrink-0" onClick={() => setDockOpen(false)} label={isDesktop ? "Collapse the dock" : "Close the dock"}>
         {!isDesktop ? <X className="h-4 w-4" /> : onRight ? <PanelRightClose className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
       </IconButton>
@@ -306,20 +320,25 @@ export function SideDock() {
     );
   }
 
-  // Expanded: the resizable dock column.
+  // Expanded: the resizable dock column. Full page: the same element filling
+  // the center below the NavBar (the shell lays that out), with no handle.
   return (
     <nav
+      ref={navRef}
       aria-label="Side dock" {...KEEP_FOCUS} data-tour="dock"
-      className={`relative flex shrink-0 flex-col border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
-      style={{ width }}
+      className={full
+        ? "relative flex min-h-0 flex-1 flex-col bg-muted/30"
+        : `relative flex shrink-0 flex-col border-border bg-muted/30 ${onRight ? "order-last border-l" : "border-r"}`}
+      style={full ? undefined : { width }}
     >
       {dialogs}
       {header}
       {tabRow}
       {body}
-      {/* Drag the inner edge to resize — a chat at 300px is cramped for code.
+      {!full && (
+      /* Drag the inner edge to resize — a chat at 300px is cramped for code.
           Pointer-only (the dock's width is a convenience, not a function), so
-          it's hidden from assistive tech; the hint is the cursor's tooltip. */}
+          it's hidden from assistive tech; the hint is the cursor's tooltip. */
       <Tooltip content="Drag to resize" describe={false} side={dockInnerEdge(position)}>
         <div
           onPointerDown={startResize}
@@ -327,6 +346,7 @@ export function SideDock() {
           className={`absolute inset-y-0 z-10 w-2 cursor-col-resize hover:bg-primary/20 ${onRight ? "-left-1" : "-right-1"}`}
         />
       </Tooltip>
+      )}
     </nav>
   );
 }
@@ -455,6 +475,34 @@ function DockPositionMenu() {
       </DropdownMenuContent>
     </DropdownMenu>
   );
+}
+
+/**
+ * Esc with focus in a Full page dock puts it back to the column
+ * (lib/dock-layout.ts `dockModeAfterEscape`). Listened for on `window`, after
+ * every document-level and React handler has had its turn, so a dialog, menu,
+ * popover or tooltip closing — or the composer, or the Help panel — takes the
+ * key first (they `preventDefault` it). Portaled popups aren't inside the
+ * dock's element, so their keys never count as "in the dock".
+ */
+function useEscapeLeavesFullPage(navRef: React.RefObject<HTMLElement | null>, full: boolean, setMode: (mode: DockMode) => void) {
+  useEffect(() => {
+    if (!full) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape") return;
+      const active = document.activeElement;
+      const next = dockModeAfterEscape({
+        mode: "full",
+        handled: e.defaultPrevented,
+        focusInDock: !!active && !!navRef.current?.contains(active),
+      });
+      if (!next) return;
+      e.preventDefault();
+      setMode(next);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [full, navRef, setMode]);
 }
 
 /**

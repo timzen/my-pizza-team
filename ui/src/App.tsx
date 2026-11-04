@@ -6,6 +6,9 @@
  * quick-create; collapses to an icon rail) and the center (nav + routed page).
  * The **NavBar spans only the center column**: it navigates the center, and the
  * dock is independent of it (DESIGN.md "The Shell: a Dock and a Center").
+ * In **Full page** mode the dock fills the center instead: the shell turns
+ * into a column — the NavBar across the top, the dock below — and `<main>` is
+ * hidden but stays mounted, so the page keeps its state (`ShellFrame`).
  *
  * `/m` and below is a different shell altogether — the phone view
  * (mobile/MobileShell, docs/DESIGN.md "A Phone Is a Peek"). The split happens
@@ -31,13 +34,16 @@
  * `/context`, …) no longer redirect; their shims were removed.
  */
 
-import { useRef } from "react";
+import { useRef, type ReactNode, type RefObject } from "react";
+import { flushSync } from "react-dom";
 import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
 import { defaultWorkItemsPath } from "./lib/work-items";
 import { useExternalSources, useFeatures } from "./hooks/useFeatures";
 import { NavBar } from "./components/NavBar";
 import { SideDock } from "./components/dock/SideDock";
 import { SideDockProvider, OpenAssistantTab } from "./components/dock/SideDockProvider";
+import { useSideDock } from "./hooks/useSideDock";
+import { dockFillsCenter } from "./lib/dock-layout";
 import { RootPage } from "./pages/RootPage";
 import { ThoughtsPage } from "./pages/ThoughtsPage";
 import { TriagePage } from "./pages/TriagePage";
@@ -58,7 +64,7 @@ import { TeammatePage } from "./pages/TeammatePage";
 import { UsagePage } from "./pages/UsagePage";
 import { FeatureOffNotice, FeatureRoute, WorkDefFormRoute } from "./components/FeatureGate";
 import { MobileShell } from "./mobile/MobileShell";
-import { useMediaQuery } from "./hooks/useMediaQuery";
+import { LG_QUERY, useMediaQuery } from "./hooks/useMediaQuery";
 import { MOBILE_ROOT, PHONE_QUERY, isMobilePath, readViewPref, shouldRedirectToMobile } from "./lib/mobile";
 import { SkipLink } from "./components/SkipLink";
 import { TourProvider } from "./components/tour/TourProvider";
@@ -102,19 +108,7 @@ function DesktopShell() {
   return (
     <SideDockProvider>
     <TourProvider>
-    {/* h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
-        columns and <main> then own their own scrolling. With a content-height
-        shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
-        grows the page instead of scrolling inside the dock. */}
-    <div className="h-dvh overflow-hidden flex bg-background text-foreground">
-      <SkipLink mainRef={mainRef} />
-      <SideDock />
-      {/* The center column: its own nav on top, the routed page below.
-          @container so the nav adapts to the room the docks leave, not the
-          viewport width. */}
-      <div className="@container flex flex-1 min-w-0 flex-col">
-        <NavBar />
-        <main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1} className="flex-1 min-h-0 overflow-y-auto">
+    <ShellFrame mainRef={mainRef}>
           <Routes>
             <Route path="/" element={<RootPage />} />
             {/* The chat lives in the dock now; keep the old URL working. */}
@@ -154,11 +148,47 @@ function DesktopShell() {
             <Route path="/teammates/:id" element={<TeammatePage />} />
             <Route path="/usage" element={<UsagePage />} />
           </Routes>
+    </ShellFrame>
+    </TourProvider>
+    </SideDockProvider>
+  );
+}
+
+/**
+ * The desktop shell's frame: the skip link, the dock, and the center (NavBar +
+ * `<main>` holding `children`, the routes). The element tree is the same in
+ * every dock mode — only classes change — so switching to and from Full page
+ * never remounts the dock (its chat stream and team polling) or the page.
+ *
+ * In **Full page** (lib/dock-layout.ts `dockFillsCenter`) the row becomes a
+ * column: the center, now just the NavBar, is drawn first (CSS `order`; the DOM
+ * order and so the tab order stay skip link → dock → nav, as with a Right dock)
+ * and the dock fills the rest. `<main>` is `hidden` — out of the layout, the
+ * tab order and the accessibility tree, but mounted. The skip link's target is
+ * the page, so in Full page it first restores the dock (synchronously, so the
+ * heading can take focus) and then skips to it.
+ */
+function ShellFrame({ mainRef, children }: { mainRef: RefObject<HTMLElement | null>; children: ReactNode }) {
+  const { mode, setMode } = useSideDock();
+  const full = dockFillsCenter(mode, useMediaQuery(LG_QUERY));
+  return (
+    // h-dvh (not min-h-screen) so the shell is exactly the viewport: the side
+    // columns and <main> then own their own scrolling. With a content-height
+    // shell, `flex-1 min-h-0` resolves against an auto height, so a long chat
+    // grows the page instead of scrolling inside the dock.
+    <div className={`h-dvh overflow-hidden flex bg-background text-foreground ${full ? "flex-col" : ""}`}>
+      <SkipLink mainRef={mainRef} onBeforeSkip={full ? () => flushSync(() => setMode("expanded")) : undefined} />
+      <SideDock />
+      {/* The center column: its own nav on top, the routed page below.
+          @container so the nav adapts to the room the docks leave, not the
+          viewport width. In Full page it shrinks to the nav, drawn on top. */}
+      <div className={`@container flex min-w-0 flex-col ${full ? "order-first shrink-0" : "flex-1"}`}>
+        <NavBar />
+        <main ref={mainRef} id={MAIN_CONTENT_ID} tabIndex={-1} hidden={full} className="flex-1 min-h-0 overflow-y-auto">
+          {children}
         </main>
       </div>
     </div>
-    </TourProvider>
-    </SideDockProvider>
   );
 }
 

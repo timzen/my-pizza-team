@@ -1,6 +1,6 @@
 /**
- * SideDockProvider — holds the dock's position (Left or Right), mode (rail or
- * column) and active tab for the whole app (all remembered in localStorage —
+ * SideDockProvider — holds the dock's position (Left or Right), mode (rail,
+ * column, or Full page) and active tab for the whole app (all remembered in localStorage —
  * position and mode under lib/dock-layout.ts's keys, migrated from the old
  * open/closed flag), what its Help tab shows, plus the route helper that opens
  * the Assistant tab.
@@ -18,6 +18,11 @@
  * focused element — and closing it (`?`, Esc in the panel, its close
  * button) puts all three back, so a peek at the help costs nothing.
  *
+ * **Full page** is left on any navigation to a new path (lib/dock-layout.ts
+ * `dockModeAfterNavigate`), so the page you went to is on screen. That happens
+ * during render, not in an effect, so `<main>` is visible again by the time
+ * hooks/useRouteFocus moves focus to its heading.
+ *
  * `focusChat` is the other way in from a page: an empty screen's "Ask the
  * assistant" opens the Assistant tab with the cursor in the message box
  * (hooks/useStartChat).
@@ -29,7 +34,7 @@ import {
   SIDE_DOCK_TAB_KEY, SideDockContext, useSideDock, type HelpTarget, type SideDockTab,
 } from "@/hooks/useSideDock";
 import {
-  DOCK_MODE_KEY, DOCK_POSITION_KEY, LEGACY_DOCK_OPEN_KEY, isDockOpen, modeForOpen, parseDockMode, parseDockPosition,
+  DOCK_MODE_KEY, DOCK_POSITION_KEY, LEGACY_DOCK_OPEN_KEY, dockModeAfterNavigate, isDockOpen, modeForOpen, parseDockMode, parseDockPosition,
   type DockMode, type DockPosition,
 } from "@/lib/dock-layout";
 import { useWorkDefTypeForPath } from "@/hooks/useWorkDefType";
@@ -71,10 +76,10 @@ export function SideDockProvider({ children }: { children: React.ReactNode }) {
     setPositionState(next);
     remember(DOCK_POSITION_KEY, next);
   }, []);
-  const setMode = useCallback((next: DockMode) => {
-    setModeState(next);
-    remember(DOCK_MODE_KEY, next);
-  }, []);
+  const setMode = useCallback((next: DockMode) => setModeState(next), []);
+  // Saved from an effect, not the setter: leaving Full page on navigation
+  // (below) sets the mode during render, where writing storage doesn't belong.
+  useEffect(() => { remember(DOCK_MODE_KEY, mode); }, [mode]);
   const setOpen = useCallback((next: boolean) => setMode(modeForOpen(mode, next)), [mode, setMode]);
   const setTab = useCallback((next: SideDockTab) => {
     setTabState(next);
@@ -85,6 +90,17 @@ export function SideDockProvider({ children }: { children: React.ReactNode }) {
 
   // ─── Help ───
   const { pathname } = useLocation();
+
+  // A new page leaves Full page. Adjusted during render (React's "storing
+  // information from previous renders"), so the hidden <main> is shown in the
+  // same commit as the new route.
+  const [modePath, setModePath] = useState(pathname);
+  if (modePath !== pathname) {
+    setModePath(pathname);
+    const next = dockModeAfterNavigate(mode, modePath, pathname);
+    if (next !== mode) setModeState(next);
+  }
+
   const workDefType = useWorkDefTypeForPath(pathname);
   const forPage = useMemo(() => helpForPath(pathname, { workDefType }), [pathname, workDefType]);
   // A section picked inside the panel, for the page it was picked on.

@@ -17,7 +17,8 @@ export type DockPosition = "left" | "right" | "bottom";
 
 /**
  * How much of the dock shows: the icon rail, the column, or the whole center
- * area with the NavBar kept ("full"; not reachable yet).
+ * area below the NavBar ("full" — Full page; the routed page stays mounted
+ * but hidden).
  */
 export type DockMode = "collapsed" | "expanded" | "full";
 
@@ -42,8 +43,8 @@ export const DOCK_POSITIONS: readonly { position: DockPosition; label: string }[
   { position: "right", label: "Right" },
 ];
 
-/** The modes a stored value may restore to (Full page joins once it exists). */
-const AVAILABLE_MODES: readonly DockMode[] = ["collapsed", "expanded"];
+/** The modes a stored value may restore to. */
+const AVAILABLE_MODES: readonly DockMode[] = ["collapsed", "expanded", "full"];
 
 export const MIN_DOCK_WIDTH = 300;
 export const MAX_DOCK_WIDTH = 560;
@@ -76,6 +77,58 @@ export function isDockOpen(mode: DockMode): boolean {
 export function modeForOpen(current: DockMode, open: boolean): DockMode {
   if (!open) return "collapsed";
   return isDockOpen(current) ? current : "expanded";
+}
+
+/**
+ * The header's Full page / Restore button: full goes back to the column, and
+ * anything else (the column; the rail can't show the button) goes full page.
+ */
+export function toggleFullPage(mode: DockMode): DockMode {
+  return mode === "full" ? "expanded" : "full";
+}
+
+/**
+ * Does the dock fill the center (the page hidden, the NavBar kept)? Only on a
+ * desktop (`lg`+): below it the dock is a floating panel whatever the mode, so
+ * the page must stay visible.
+ */
+export function dockFillsCenter(mode: DockMode, isDesktop: boolean): boolean {
+  return isDesktop && mode === "full";
+}
+
+/**
+ * The mode after a route change: going to a new page leaves Full page (back
+ * to the column) so you see the page you went to — a NavBar link, a teammate
+ * avatar in the dock. The first render (`prevPath` null) and a same-path
+ * change (a query or hash: in-page state) aren't a new page; every other mode
+ * is left alone.
+ */
+export function dockModeAfterNavigate(mode: DockMode, prevPath: string | null, nextPath: string): DockMode {
+  if (mode !== "full" || prevPath === null || prevPath === nextPath) return mode;
+  return "expanded";
+}
+
+/** What `dockModeAfterEscape` needs to know about one Esc keypress. */
+export interface DockEscape {
+  mode: DockMode;
+  /**
+   * Something else already handled it (`defaultPrevented`): a dialog, menu,
+   * popover or tooltip closing, the composer dropping a quote, the Help panel
+   * closing.
+   */
+  handled: boolean;
+  /** Focus is inside the dock. */
+  focusInDock: boolean;
+}
+
+/**
+ * The mode an Esc asks for, or null when the dock should ignore it: only Full
+ * page reacts (back to the column), only with focus in the dock, and only when
+ * nothing else took the key first — Esc closes the innermost thing.
+ */
+export function dockModeAfterEscape(e: DockEscape): DockMode | null {
+  if (e.mode !== "full" || e.handled || !e.focusInDock) return null;
+  return "expanded";
 }
 
 /** A width kept within the column's limits. */
