@@ -371,6 +371,15 @@ export function registerAgentRoutes(ctx: RouteContext): void {
       const gate = experimentalGate(config, harness);
       if (gate) return fail(c, 400, gate);
     }
+    if (body.action === "reset-session") {
+      // An older UI or client asking the leader to reset a teammate. Translated to
+      // the agent's own session ask (`resetMemberSession`) — the leader no longer
+      // types `/new` into a window for an agent that can take it itself.
+      if (!body.memberId || typeof body.memberId !== "string") return fail(c, 400, "Field 'memberId' is required for reset-session");
+      const directive = store.resetMemberSession(body.memberId);
+      if (!directive) return fail(c, 404, `Agent "${body.memberId}" not found`);
+      return c.json({ success: true, directive }, 201);
+    }
     const directive = store.createLeaderDirective(body.action, { memberId: body.memberId, params: body.params });
     return c.json({ success: true, directive }, 201);
   });
@@ -396,8 +405,21 @@ export function registerAgentRoutes(ctx: RouteContext): void {
   // ─── Agent self-directives (realized in-process, not via tmux) ───────
   //
   // Session replacement (`new-session`, `resume-session`) has to run inside the
-  // target agent via Pi's session APIs, so the agent polls its own queue rather
-  // than the leader delivering keystrokes. See docs/DESIGN.md "Assistant Chat Model".
+  // target agent via its own session APIs (Pi's `ctx.newSession()`, a fresh ACP
+  // session), so the agent polls its own queue rather than the leader delivering
+  // keystrokes. The leader's chat and every teammate poll it. See docs/DESIGN.md
+  // "Assistant Chat Model" and "Leader Directives".
+
+  // Ask an agent for a fresh session (the Team tab's Reset, the skew banner's
+  // Restart). Only `new-session`: `resume-session` names a chat session file, which
+  // only the chat's own resume (POST /api/assistant/sessions/:id/resume) knows.
+  app.post("/api/agents/:id/directives", async (c) => {
+    const body = await readBody(c) as { action?: string };
+    if (body.action !== "new-session") return fail(c, 400, "Field 'action' must be \"new-session\"");
+    const directive = store.resetMemberSession(c.req.param("id"));
+    if (!directive) return fail(c, 404, `Agent "${c.req.param("id")}" not found`);
+    return c.json({ success: true, directive }, 201);
+  });
 
   app.get("/api/agents/:id/directives", (c) => {
     return c.json({ directives: store.getMemberDirectives(c.req.param("id")) });

@@ -96,16 +96,16 @@ export function useTeamData(): TeamData {
       await apiDelete(`/api/agents/${encodeURIComponent(id)}?dismiss=true`);
       refetch();
     },
-    // Reset a teammate's session (clears its context window) via a leader
-    // directive the leader realizes as Pi's `/new` in the teammate's window.
+    // Reset a teammate's session (clears its context window): a `new-session` ask
+    // the teammate realizes itself (docs/DESIGN.md "Leader Directives").
     reset: async (t) => {
-      await apiPost("/api/leader/directives", { action: "reset-session", memberId: t.id });
+      await resetSession(t.id);
     },
     // Only the skewed ones: resetting a healthy agent would throw away its context
     // window for nothing.
     restartSkewed: async () => {
       for (const { teammate } of skewed) {
-        await apiPost("/api/leader/directives", { action: "reset-session", memberId: teammate.id });
+        await resetSession(teammate.id);
       }
       return skewed.length;
     },
@@ -116,4 +116,12 @@ export function useTeamData(): TeamData {
     refetchPool,
     refetchSpawns,
   };
+}
+
+/**
+ * Ask an agent for a fresh session. It goes to the agent itself; the daemon
+ * decides whether that agent can take it or (an older one) needs the leader's help.
+ */
+async function resetSession(id: string): Promise<void> {
+  await apiPost(`/api/agents/${encodeURIComponent(id)}/directives`, { action: "new-session" });
 }

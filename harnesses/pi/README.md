@@ -104,6 +104,7 @@ pi --ppt-worker
 |---------|-------------|
 | `/ppt-worker-resume` | Resume autonomous work after pairing |
 | `/ppt-worker-status` | Show current teammate status |
+| `/ppt-reset-session` | Start a fresh session now (queued by **Reset** in the web UI's Team tab) |
 
 ### Chat (leader)
 

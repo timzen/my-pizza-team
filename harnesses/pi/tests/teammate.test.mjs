@@ -309,5 +309,33 @@ test("a teammate warns at start when the permission system is missing", () => {
 });
 
 
+// ─── Reset from the web UI (a self-directive, not the leader's `/new`) ──
+
+test("the loop polls its own session directives and rolls the session on new-session", () => {
+  const poll = src.slice(src.indexOf("private async pollSessionDirectives()"));
+  assert.ok(poll.includes("this.client.getSelfDirectives()"));
+  assert.ok(poll.includes('directive.action !== "new-session"'), "only new-session is realized");
+  assert.ok(poll.includes('completeSelfDirective(directive.id, "failed")'), "anything else is failed, not retried");
+  // Acked before acting: the new session replaces this instance, and a still-pending
+  // directive would be found again by the fresh one — resetting forever.
+  const ack = poll.indexOf("await this.client.completeSelfDirective(directive.id);");
+  const act = poll.indexOf("this.onSessionDirective(");
+  assert.ok(ack > -1 && act > -1 && ack < act);
+  // Started with the loop and stopped with it.
+  assert.ok(src.includes("this.directiveTimer = setInterval("));
+  assert.ok(src.includes("clearInterval(this.directiveTimer)"));
+});
+
+test("index realizes a reset with /ppt-reset-session → newSession(), keeping /new's semantics", () => {
+  const cmd = indexSrc.slice(indexSrc.indexOf('registerCommand("ppt-reset-session"'));
+  assert.ok(cmd.includes("cmdCtx.newSession()"));
+  // Unlike /ppt-fresh-session it deregisters on the way out, as `/new` did: a held
+  // work item goes MORIBUND for a human, rather than silently carrying over.
+  assert.ok(!cmd.slice(0, cmd.indexOf("});")).includes("resettingForFreshSession"));
+  const wiring = indexSrc.slice(indexSrc.indexOf("loop.onSessionDirective ="));
+  assert.ok(wiring.includes('"/ppt-reset-session"'));
+  assert.ok(wiring.includes("expandPromptTemplates: true"), "else the command reaches the LLM as text");
+});
+
 console.log(`\n${passed} passed, ${failed} failed`);
 process.exit(failed > 0 ? 1 : 0);

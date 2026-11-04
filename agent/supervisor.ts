@@ -17,6 +17,13 @@
  * doesn't complete it. Any other stop reason, or the agent dying, fails the item
  * with the reason — nothing is left hanging.
  *
+ * A reset from the web UI (a `new-session` self-directive, polled from
+ * GET /api/agents/:id/directives like a Pi teammate does) needs no new session
+ * when idle — the next item opens one anyway, as every item does. Mid-item, the
+ * turn is cancelled and the item failed with a comment saying it was reset (the
+ * held work can't carry over to a new session), and the supervisor goes back to
+ * polling.
+ *
  * Also: permission requests are answered "allow once" (it's autonomous), usage is
  * reported when the agent gives it (tokens, and cost in USD — never credits), and
  * the session is mirrored to the web watch view while someone is watching.
@@ -60,6 +67,9 @@ export function failInstructions(failCommand: string): string {
   ].join("\n");
 }
 
+/** The comment on an item abandoned because its teammate was reset from the web UI. */
+const RESET_COMMENT = "[failed] The teammate's session was reset from the web UI before this finished.";
+
 /** One turn's worth of what the agent said, split at tool calls (the summary is the last segment). */
 interface Turn {
   segments: string[];
@@ -77,6 +87,9 @@ export class AgentSupervisor {
   private sessionId: string | null = null;
   private turn: Turn | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | undefined;
+  private directiveTimer: ReturnType<typeof setInterval> | undefined;
+  /** The item in hand was reset from the web UI: its cancelled turn is not a plain stop. */
+  private resetItem: string | null = null;
   private exitCode = 0;
   private stopped!: () => void;
   private readonly done = new Promise<void>((r) => { this.stopped = r; });
@@ -135,6 +148,7 @@ export class AgentSupervisor {
     this.running = true;
     await this.mirror.start();
     this.heartbeatTimer = setInterval(() => void this.heartbeat(), this.opts.heartbeatMs ?? 30_000);
+    this.directiveTimer = setInterval(() => void this.pollSessionDirectives().catch(() => {}), this.opts.pollMs ?? 5_000);
     void this.workLoop();
     await this.done;
     return this.exitCode;
@@ -145,6 +159,7 @@ export class AgentSupervisor {
     if (!this.running) return;
     this.running = false;
     clearInterval(this.heartbeatTimer);
+    clearInterval(this.directiveTimer);
     const item = this.currentItem;
     if (item) {
       if (this.sessionId) await this.acp.cancel(this.sessionId).catch(() => {});
@@ -170,6 +185,31 @@ export class AgentSupervisor {
       await this.stop("the teammate was dismissed");
     } else if (res.reregister) {
       await this.register().catch(() => {});
+    }
+  }
+
+  /**
+   * Realize the session directives addressed to this teammate. `new-session`
+   * (Reset in the web UI) is done at once when idle — the next item gets a fresh
+   * ACP session regardless — and mid-item cancels the turn, which `doItem` then
+   * fails as reset. Anything else is failed: this harness can't realize it.
+   */
+  private async pollSessionDirectives(): Promise<void> {
+    if (!this.running) return;
+    const { directives } = await this.opts.client.getSelfDirectives();
+    for (const d of directives) {
+      if (d.action !== "new-session") {
+        await this.opts.client.completeSelfDirective(d.id, "failed").catch(() => {});
+        continue;
+      }
+      await this.opts.client.completeSelfDirective(d.id);
+      if (!this.currentItem) {
+        this.line("\n↺ Reset: the next item starts in a fresh session.");
+        continue;
+      }
+      this.line("\n↺ Reset from the web UI — abandoning the current item.");
+      this.resetItem = this.currentItem;
+      if (this.sessionId) await this.acp.cancel(this.sessionId).catch(() => {});
     }
   }
 
@@ -203,6 +243,8 @@ export class AgentSupervisor {
       const session = await this.acp.newSession(cwd);
       this.sessionId = session.sessionId;
       if (harness.mode) await this.acp.setMode(session.sessionId, harness.mode).catch((e) => this.line(`   (couldn't set mode ${harness.mode}: ${(e as Error).message})`));
+      // Reset before the turn could start: there is nothing to cancel, so don't start it.
+      if (this.resetItem === id) throw new Error("reset before the turn started");
       const full = `${prompt}\n\n${failInstructions(this.opts.failCommand)}`;
       this.turn = { segments: [""], thinking: "", costUsd: null, model: null, tools: new Map() };
       this.mirror.onInput(full, "extension");
@@ -211,6 +253,12 @@ export class AgentSupervisor {
     } catch (e) {
       // Stopping, or the agent died: the exit handler fails the item, once.
       if (!this.running || /agent exited/.test((e as Error).message)) return;
+      if (this.resetItem === id) {
+        await this.failItem(id, RESET_COMMENT);
+        this.line(`\n✗ reset`);
+        this.endItem();
+        return;
+      }
       const why = e instanceof AcpError ? e.message : (e as Error).message;
       this.line(`\n❌ ${why}`);
       await this.failItem(id, `[failed] The agent errored: ${why}`);
@@ -224,7 +272,12 @@ export class AgentSupervisor {
 
     // Already failed (the agent ran `mpt agent fail`) or canceled by a human: leave it.
     const state = await client.getWorkItemState(id).catch(() => null);
-    if (state && state !== "IN_PROGRESS" && state !== "MORIBUND") {
+    if (this.resetItem === id) {
+      // Reset mid-item: the cancelled turn isn't a finish, and the work can't carry
+      // over to a new session — fail it, saying why.
+      await this.failItem(id, RESET_COMMENT);
+      this.line(`\n✗ reset`);
+    } else if (state && state !== "IN_PROGRESS" && state !== "MORIBUND") {
       this.line(`\n■ ${state.toLowerCase()} — not completing it`);
     } else if (result.stopReason === "end_turn") {
       const summary = lastNonEmpty(turn.segments);
@@ -240,6 +293,7 @@ export class AgentSupervisor {
 
   private endItem(): void {
     this.currentItem = null;
+    this.resetItem = null;
     this.sessionId = null;
     this.turn = null;
   }

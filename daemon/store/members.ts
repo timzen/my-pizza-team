@@ -10,9 +10,11 @@
  *     heartbeat answer `dismissed`, and the "it has gone" signals the spawner
  *     waits on before closing its tmux window;
  *   - the reaper (`reapOfflineAgents`);
- *   - leader directives (the daemon spawner's — and, for `reset-session`, the
- *     leader's — queue), with daemon-assigned spawn names, and whether this
+ *   - leader directives (the daemon spawner's — and, for a legacy `reset-session`,
+ *     the leader's — queue), with daemon-assigned spawn names, and whether this
  *     daemon can realize spawns at all (a spawn it can't is failed on creation);
+ *   - agent self-directives (`new-session`, `resume-session`), including a
+ *     teammate reset (`resetMemberSession`), which the target agent realizes;
  *   - the teammate pool (`minTeammates`) and its reconciler.
  *
  * The Store delegates its member methods here one line each. What this needs
@@ -29,6 +31,7 @@ import {
   type WorkItemState,
 } from "../../shared/types.ts";
 import { normalizeDirectory } from "../../shared/directory.ts";
+import { SELF_RESET_PROTOCOL_VERSION } from "../../shared/protocol.ts";
 import { capabilityError, harnessCapability, type SpawnCapability } from "../spawner.ts";
 import type { StoreDomainContext } from "./domain.ts";
 
@@ -449,6 +452,28 @@ export class MemberStore {
     const member = this.getMember(memberId);
     if (!member) return null;
     return this.createLeaderDirective(action, { memberId, params });
+  }
+
+  /**
+   * Ask an agent for a fresh session (the Team tab's Reset, the skew banner's
+   * Restart). Null if the member is unknown.
+   *
+   * The ask goes to the agent itself as a `new-session` self-directive, which it
+   * realizes in-process (Pi: `ctx.newSession()`; `mpt agent`: a fresh ACP
+   * session) — the daemon says *what*, never which keys to press (docs/DESIGN.md
+   * "Leader Directives"). Two kinds of agent poll for it: the leader (its chat
+   * mirror always has) and any agent speaking SELF_RESET_PROTOCOL_VERSION or
+   * later. An older teammate never polls, so it still gets the legacy
+   * `reset-session` leader directive the leader realizes — otherwise the Restart
+   * that the skew banner offers would silently do nothing to exactly the agents
+   * it is for.
+   */
+  resetMemberSession(memberId: string): LeaderDirective | null {
+    const member = this.getMember(memberId);
+    if (!member) return null;
+    const selfServe = member.name.includes(LEADER_MEMBER_NAME)
+      || (member.protocolVersion ?? 0) >= SELF_RESET_PROTOCOL_VERSION;
+    return this.createLeaderDirective(selfServe ? "new-session" : "reset-session", { memberId });
   }
 
   /**

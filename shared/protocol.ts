@@ -47,6 +47,17 @@ export type {
  */
 export const MIN_PROTOCOL_VERSION = 5;
 
+/**
+ * The first agent-protocol version whose agents realize a `new-session`
+ * self-directive (GET /api/agents/:id/directives) — teammates as well as the
+ * leader. A teammate reset goes to the teammate itself from this version on; an
+ * older one (or a pre-handshake one) still gets the legacy `reset-session`
+ * leader directive, so the skew banner's Restart keeps working on the very
+ * agents it is for (docs/DESIGN.md "Leader Directives"). Not a floor: v5 agents
+ * register as before.
+ */
+export const SELF_RESET_PROTOCOL_VERSION = 6;
+
 /** Which harness an agent runs under. Open-ended: Tier 0 harnesses self-report. */
 export type HarnessKind = "pi" | (string & {});
 

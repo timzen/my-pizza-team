@@ -4,7 +4,10 @@
  * A directive is an ask: "do X about an agent" (spawn, dismiss, reset-session).
  * `spawn` and `dismiss` are the daemon's alone (daemon/spawner.ts), so GET never
  * hands them to a leader; a spawn the daemon can't realize fails on creation.
- * Verifies GET/POST/PUT on /api/leader/directives.
+ * A teammate reset goes to the teammate itself (`new-session` on
+ * /api/agents/:id/directives) unless the teammate is too old to poll for it,
+ * when it is still a `reset-session` for the leader.
+ * Verifies GET/POST/PUT on /api/leader/directives and POST /api/agents/:id/directives.
  *
  * The queue lost its host key in P1c-1: there is exactly one leader
  * (docs/DESIGN.md "One Host, One Leader"), so there is nothing to route between.
@@ -13,6 +16,7 @@
 import { test } from "node:test";
 import { assertEquals } from "./_assert.ts";
 import { withTeam, post } from "./_team.ts";
+import { PROTOCOL_VERSION, SELF_RESET_PROTOCOL_VERSION } from "../shared/protocol.ts";
 
 test("POST spawn directive generates a unique agent name in params", async () => {
   await withTeam({}, async ({ app }) => {
@@ -93,9 +97,9 @@ test("an unconfigured harness fails its spawn on creation too; the default harne
   });
 });
 
-test("reset-session directive resolves target member metadata", async () => {
+test("a legacy reset-session (an agent too old to reset itself) resolves target member metadata", async () => {
   await withTeam({}, async ({ app }) => {
-    // Register an agent with opaque metadata (leader's tmux window).
+    // Register a pre-handshake agent (no protocolVersion) with opaque metadata (its tmux window).
     await post(app, "/api/agents/register", { id: "a1", name: "neo", metadata: { tmuxWindow: "win1" } });
     // Create a reset directive targeting that member.
     const res = await post(app, "/api/leader/directives", { action: "reset-session", memberId: "a1" });
@@ -167,5 +171,68 @@ test("DELETE /api/spawn-requests/:id cancels a pending spawn", async () => {
     // Cancelling an unknown request → 404.
     const missing = await app.request("/api/spawn-requests/nope", { method: "DELETE" });
     assertEquals(missing.status, 404);
+  });
+});
+
+test("a teammate reset goes to the teammate itself as `new-session`, not to the leader", async () => {
+  await withTeam({}, async ({ app, store }) => {
+    await post(app, "/api/agents/register", { id: "t1", name: "neo", protocolVersion: PROTOCOL_VERSION, metadata: { tmuxWindow: "neo" } });
+    const res = await post(app, "/api/agents/t1/directives", { action: "new-session" });
+    assertEquals(res.status, 201);
+    assertEquals((await res.json()).directive.action, "new-session");
+
+    // The teammate polls it; the leader never sees it.
+    const self = await (await app.request("/api/agents/t1/directives")).json();
+    assertEquals(self.directives.map((d: { action: string }) => d.action), ["new-session"]);
+    assertEquals((await (await app.request("/api/leader/directives")).json()).directives, []);
+
+    // Acked by the teammate → gone.
+    await app.request(`/api/agents/t1/directives/${self.directives[0].id}`, {
+      method: "PUT", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ status: "done" }),
+    });
+    assertEquals(store.getMemberDirectives("t1"), []);
+  });
+});
+
+test("an older client's reset-session POST is translated to the teammate's own ask", async () => {
+  await withTeam({}, async ({ app, store }) => {
+    await post(app, "/api/agents/register", { id: "t1", name: "neo", protocolVersion: SELF_RESET_PROTOCOL_VERSION, metadata: {} });
+    const res = await post(app, "/api/leader/directives", { action: "reset-session", memberId: "t1" });
+    assertEquals(res.status, 201);
+    assertEquals((await res.json()).directive.action, "new-session");
+    assertEquals(store.getMemberDirectives("t1").length, 1);
+    assertEquals(store.getLeaderDirectives().filter((d) => d.memberId), []); // (the pool may queue spawns)
+  });
+});
+
+test("a teammate older than SELF_RESET_PROTOCOL_VERSION still gets the leader's reset-session", async () => {
+  // It never polls its own directives, so a new-session would silently do nothing —
+  // and the skew banner's Restart is aimed at exactly these agents.
+  await withTeam({}, async ({ app, store }) => {
+    await post(app, "/api/agents/register", { id: "old", name: "old-neo", protocolVersion: SELF_RESET_PROTOCOL_VERSION - 1, metadata: { tmuxWindow: "old-neo" } });
+    const res = await post(app, "/api/agents/old/directives", { action: "new-session" });
+    assertEquals((await res.json()).directive.action, "reset-session");
+    assertEquals(store.getMemberDirectives("old"), []);
+    assertEquals(store.getLeaderDirectives().filter((d) => d.memberId).map((d) => [d.action, d.memberId]), [["reset-session", "old"]]);
+  });
+});
+
+test("the leader's own reset is always a new-session (its chat mirror has always polled)", async () => {
+  await withTeam({}, async ({ app, store }) => {
+    await post(app, "/api/agents/register", { id: "leader", name: "leader", metadata: {} });
+    await post(app, "/api/agents/leader/directives", { action: "new-session" });
+    assertEquals(store.getMemberDirectives("leader").map((d) => d.action), ["new-session"]);
+    assertEquals(store.getLeaderDirectives().filter((d) => d.memberId), []); // (the pool may queue spawns)
+  });
+});
+
+test("resets are validated: action, memberId, and a known agent", async () => {
+  await withTeam({}, async ({ app }) => {
+    await post(app, "/api/agents/register", { id: "t1", name: "neo", protocolVersion: PROTOCOL_VERSION, metadata: {} });
+    assertEquals((await post(app, "/api/agents/t1/directives", { action: "resume-session" })).status, 400);
+    assertEquals((await post(app, "/api/agents/t1/directives", {})).status, 400);
+    assertEquals((await post(app, "/api/agents/ghost/directives", { action: "new-session" })).status, 404);
+    assertEquals((await post(app, "/api/leader/directives", { action: "reset-session" })).status, 400);
+    assertEquals((await post(app, "/api/leader/directives", { action: "reset-session", memberId: "ghost" })).status, 404);
   });
 });

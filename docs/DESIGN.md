@@ -1928,8 +1928,11 @@ session control.
 - **A directive that can't be realized is marked `failed` with its reason** rather
   than left pending (which would retry every 2s, saying nothing). Failures show in
   the Team tab beside pending spawns.
-- **`reset-session` stays with the leader.** It types `/new`, a Pi slash command;
-  the daemon knowing each harness's commands is exactly the coupling this removes.
+- **A teammate reset goes to the teammate, not the daemon or the leader.** It used
+  to be the leader typing Pi's `/new` into the teammate's window; the daemon knowing
+  each harness's commands is exactly the coupling this removes, and the leader
+  doing it was a second tmux owner. The daemon asks the teammate for a
+  `new-session` (see "Leader Directives"), and the teammate rolls its own session.
 - **`mpt lead`** starts the leader in the project directory with the harness's
   `leader` template, and is idempotent — two leaders would both answer the chat —
   so a re-run attaches instead of starting another.
@@ -2043,8 +2046,10 @@ PUT  /api/leader/directives/:id  # { status }
 A directive has an `action` (`spawn`, `dismiss`, `reset-session`, `new-session`,
 `resume-session`), an optional `memberId`, `params` (e.g. spawn `name`/`cwd`), and a
 `status`. The daemon realizes `spawn` and `dismiss` itself — always; one it can't is
-failed with the reason, never handed on — and the leader realizes whatever is left
-(`reset-session` → `/new`). Three rules hold:
+failed with the reason, never handed on — the target agent realizes `new-session`
+and `resume-session` (below), and the leader realizes whatever is left (today only
+a legacy `reset-session` → `/new`, for a teammate too old to reset itself). Three
+rules hold:
 
 1. **Intent, not mechanism, crosses the channel.** A directive says *what*; its
    realizer decides *how*.
@@ -2055,12 +2060,26 @@ failed with the reason, never handed on — and the leader realizes whatever is 
    carries a daemon-generated adjective-noun `params.name`; the tmux window, the
    registered member, and the UI label all use it.
 
-**Self-handled actions.** `new-session` and `resume-session` roll the chat agent's
-own Pi session to follow a chat "new" or "resume". They are filtered out of the
-leader queue and polled by the target agent itself (`GET /api/agents/:id/directives`),
-because "switch to this exact session file" needs in-process Pi APIs
-(`newSession()` / `switchSession()`, available only on command contexts), not
-keystrokes.
+**Self-handled actions.** `new-session` and `resume-session` roll an agent's own
+session: the chat agent's, to follow a chat "new" or "resume", and a teammate's, on
+**Reset** in the Team tab (or the skew banner's Restart). They are filtered out of
+the leader queue and polled by the target agent itself (`GET /api/agents/:id/directives`;
+a reset is created with `POST` there), because "switch to this exact session file"
+needs in-process APIs (Pi's `newSession()` / `switchSession()`, available only on
+command contexts; a fresh ACP session for `mpt agent`), not keystrokes.
+
+**A teammate reset** keeps what typing `/new` into the window did. A Pi teammate
+rolls its session at once, even mid-run (`/ppt-reset-session`), and deregisters on
+the way out — unlike the between-items `/ppt-fresh-session`, which skips that — so
+an item it held goes MORIBUND for a human to recover in the Queue, and the fresh
+session re-registers and picks up new work. An `mpt agent` teammate has nothing to
+do when idle (every item opens a fresh ACP session anyway); mid-item it cancels the
+turn and fails the item with a comment saying it was reset. Only agents speaking
+protocol v6 (`SELF_RESET_PROTOCOL_VERSION`) poll for it — plus the leader, whose chat
+mirror always has — so a reset aimed at an older teammate is still a `reset-session`
+for the leader. Otherwise the skew banner's Restart, which exists for out-of-date
+agents, would silently do nothing to them. An older UI's `reset-session` POST is
+translated the same way.
 
 *Why:* one concept, one queue, one poll — new asks are new *actions*, not new
 endpoints.

@@ -12,6 +12,8 @@
  *   FAKE-FAIL   runs the "give up" command the supervisor put in the prompt (the text
  *               in backticks with a "<reason>" placeholder), then ends the turn.
  *   FAKE-EXIT   exits mid-turn, like a crash.
+ *   FAKE-HANG   says it's working, then waits until the client sends
+ *               `session/cancel`, and ends the turn `cancelled`.
  *
  * It also sends an agent-specific notification and an agent-specific request the
  * client doesn't know, as Kiro does, so tolerating those is part of every test.
@@ -51,6 +53,8 @@ let sessions = 0;
 /** Whether the client accepts `notice` updates (else notices go into the reply, as Claude's adapter does). */
 let clientNotices = false;
 const modes = new Map<string, string>();
+/** FAKE-HANG turns waiting for `session/cancel`, by session. */
+const cancels = new Map<string, () => void>();
 
 async function runPrompt(sessionId: string, text: string): Promise<Record<string, unknown>> {
   await send({ jsonrpc: "2.0", method: "_fake.dev/metadata", params: { sessionId, contextUsagePercentage: 1 } });
@@ -58,6 +62,12 @@ async function runPrompt(sessionId: string, text: string): Promise<Record<string
   if (text.includes("FAKE-EXIT")) {
     await update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "About to crash." } });
     process.exit(3);
+  }
+
+  if (text.includes("FAKE-HANG")) {
+    await update(sessionId, { sessionUpdate: "agent_message_chunk", content: { type: "text", text: "Working for a long time." } });
+    await new Promise<void>((resolve) => cancels.set(sessionId, resolve));
+    return { stopReason: "cancelled" };
   }
 
   if (text.includes("FAKE-FAIL")) {
@@ -138,6 +148,8 @@ async function handle(msg: Record<string, unknown>): Promise<void> {
       return void reply(await runPrompt(params.sessionId as string, text));
     }
     case "session/cancel":
+      cancels.get(params.sessionId as string)?.();
+      cancels.delete(params.sessionId as string);
       return;
     default:
       if (id !== undefined) void send({ jsonrpc: "2.0", id, error: { code: -32601, message: "not supported" } });

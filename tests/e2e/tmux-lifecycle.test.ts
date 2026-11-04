@@ -16,6 +16,8 @@
  *   - a daemon that can't reach tmux fails spawns at once, with the reason and fix,
  *     and never hands them (or dismisses) to a leader — it is the only realizer;
  *   - a dismiss closes the teammate's window once it has exited;
+ *   - a teammate reset goes to the teammate itself (nothing typed into its window),
+ *     except for a teammate too old to poll for it, which the leader still resets;
  *   - /health names the tmux server the daemon talks to — the sandbox's own,
  *     resolved from TMUX_TMPDIR like the user's default server.
  *
@@ -28,6 +30,7 @@ import * as path from "node:path";
 import { test } from "node:test";
 import { assertEquals, assertStringIncludes } from "../_assert.ts";
 import { hasTmux, sandbox, type Sandbox } from "./_sandbox.ts";
+import { PROTOCOL_VERSION, SELF_RESET_PROTOCOL_VERSION } from "../../shared/protocol.ts";
 
 /**
  * Stand-in agent commands. Each prints a marker that only *execution* can produce —
@@ -166,20 +169,54 @@ test("a spawn into a missing directory is marked failed with its reason", { skip
   assertEquals(await windows(sb), [], "and no window should have been created");
 });
 
-test("reset-session is left pending for the leader, not taken over by the daemon", { skip: !hasTmux() }, async () => {
-  // It types `/new` — a Pi command. The daemon knowing each harness's commands is
-  // exactly the coupling DESIGN.md "The Daemon Is the Supervisor" removes.
+test("a teammate reset goes to the teammate itself — nothing is typed into its window", { skip: !hasTmux() }, async () => {
+  // It used to be the leader typing `/new` (a Pi command) into the window. Now the
+  // ask is a `new-session` the teammate polls and realizes in-process; the daemon
+  // never learns a harness's keystrokes (DESIGN.md "The Daemon Is the Supervisor").
   await using sb = await sandbox("spawn-reset");
   sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
   await sb.startDaemon();
 
-  await api(sb, "/api/agents/register", { id: "t1", name: "swift-ripley", directory: sb.projectDir });
-  await api(sb, "/api/leader/directives", { action: "reset-session", memberId: "t1" });
+  const created = await api<{ directive: { params: { name: string } } }>(
+    sb, "/api/leader/directives", { action: "spawn", params: { cwd: sb.projectDir } },
+  );
+  const name = created.directive.params.name;
+  assertEquals(await sb.waitFor(async () => (await pane(sb, name)).includes(`SPAWNED-42 name=${name}`), 8000), true, `no window for ${name}`);
 
-  // Give the spawner several passes to (wrongly) act on it.
+  // A current teammate (it speaks the protocol version that polls its own directives).
+  await api(sb, "/api/agents/register", {
+    id: "t1", name, directory: sb.projectDir, protocolVersion: PROTOCOL_VERSION,
+    metadata: { tmuxSession: sb.session, tmuxWindow: name },
+  });
+  const reset = await api<{ directive: { action: string } }>(sb, "/api/agents/t1/directives", { action: "new-session" });
+  assertEquals(reset.directive.action, "new-session");
+  // An older UI's `reset-session` POST lands in the same place.
+  const legacy = await api<{ directive: { action: string } }>(sb, "/api/leader/directives", { action: "reset-session", memberId: "t1" });
+  assertEquals(legacy.directive.action, "new-session");
+
+  // Give the spawner several passes to (wrongly) act on them.
   await new Promise((r) => setTimeout(r, 4500));
-  const pending = await api<{ directives: Array<{ action: string }> }>(sb, "/api/leader/directives");
-  assertEquals(pending.directives.some((d) => d.action === "reset-session"), true, "must still be pending for the leader");
+  const own = await api<{ directives: Array<{ action: string }> }>(sb, "/api/agents/t1/directives", undefined, "GET");
+  assertEquals(own.directives.map((d) => d.action), ["new-session", "new-session"], "pending for the teammate itself");
+  const forLeader = await api<{ directives: unknown[] }>(sb, "/api/leader/directives", undefined, "GET");
+  assertEquals(forLeader.directives, [], "nothing for the leader");
+  assertEquals((await pane(sb, name)).includes("/new"), false, "nothing typed into the teammate's window");
+  assertEquals((await windows(sb)).includes(name), true, "and its window left alone");
+});
+
+test("a teammate too old to reset itself still gets the leader's reset-session, untouched by the daemon", { skip: !hasTmux() }, async () => {
+  // Kept until the leader stops realizing it: the skew banner's Restart is aimed at
+  // exactly these agents, and they never poll their own directives.
+  await using sb = await sandbox("spawn-reset-legacy");
+  sb.writeTeamConfig({ minTeammates: 0, harnesses: HARNESSES });
+  await sb.startDaemon();
+
+  await api(sb, "/api/agents/register", { id: "t1", name: "swift-ripley", directory: sb.projectDir, protocolVersion: SELF_RESET_PROTOCOL_VERSION - 1 });
+  await api(sb, "/api/agents/t1/directives", { action: "new-session" });
+
+  await new Promise((r) => setTimeout(r, 4500));
+  const pending = await api<{ directives: Array<{ action: string }> }>(sb, "/api/leader/directives", undefined, "GET");
+  assertEquals(pending.directives.map((d) => d.action), ["reset-session"], "must still be pending for the leader");
 });
 
 test("/health names the daemon's tmux server: the user's default one, under TMUX_TMPDIR", { skip: !hasTmux() }, async () => {

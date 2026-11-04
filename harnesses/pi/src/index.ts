@@ -446,6 +446,28 @@ async function setupTeammate(
     pi.sendUserMessage("/ppt-fresh-session", { deliverAs: "followUp", expandPromptTemplates: true });
   };
 
+  // Reset from the web UI (the Team tab's ↺, the skew banner's Restart): the
+  // daemon asks this teammate for a `new-session` (TeammateLoop.pollSessionDirectives),
+  // and this realizes it. It used to be the leader typing Pi's built-in `/new`
+  // into this window; this keeps exactly what that did — so, unlike
+  // /ppt-fresh-session, it does NOT skip deregistration. Mid-work-item, the run is
+  // abandoned with the old session, and deregistering moves the held item to
+  // MORIBUND for a human to recover (the Queue's recovery actions), as `/new` did.
+  // Idle, the member blinks offline and the fresh instance re-registers.
+  // Extension commands run at once even mid-run, as `/new` did; expandPromptTemplates
+  // must be true (see requestFreshSession below).
+  pi.registerCommand("ppt-reset-session", {
+    description: "Start a fresh session now (used by Reset in the web UI)",
+    handler: async (_args: unknown, cmdCtx: any) => {
+      await cmdCtx.newSession();
+    },
+  });
+
+  loop.onSessionDirective = () => {
+    debug(`[ppt-debug] reset requested from the web UI — queueing /ppt-reset-session`);
+    pi.sendUserMessage("/ppt-reset-session", { deliverAs: "followUp", expandPromptTemplates: true });
+  };
+
   pi.registerCommand("ppt-worker-resume", {
     description: "Resume autonomous work after pairing session",
     handler: async () => {

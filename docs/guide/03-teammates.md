@@ -137,8 +137,11 @@ with the fix) — dismiss a failed one once you've seen it.
 
 ## Managing a teammate
 
-- **Reset** (↺) — clears its context window (the leader carries this out as Pi's
-  `/new`, so it needs the leader running).
+- **Reset** (↺) — clears its context window: the teammate starts a fresh session
+  itself, within a few seconds. If it was in the middle of a run, that run is
+  abandoned and its item is left for you to recover from the Queue. (A teammate
+  running an extension from before this change is reset by the leader instead, so
+  that one needs the leader running.)
 - **Dismiss** (🗑) — removes it; the teammate shuts itself down on its next heartbeat.
   With a non-zero team size, a replacement takes its place.
 

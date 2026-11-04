@@ -5,8 +5,8 @@
  * in place of Kiro or Claude Code (`--acp-command`), so it costs nothing and is
  * deterministic. Covers: the experimental gate, a work item completed with its
  * summary, a fresh ACP session per item, permission requests answered, usage and
- * USD cost recorded, the agent giving up through `mpt agent fail`, and the agent
- * crashing mid-item.
+ * USD cost recorded, the agent giving up through `mpt agent fail`, the agent
+ * crashing mid-item, and a reset from the web UI (idle, and mid-item).
  */
 
 import { test } from "node:test";
@@ -134,4 +134,38 @@ test("an agent that crashes mid-item fails the item with the reason, and the sup
   assert((await comments(sb, id)).some((c) => c.includes("agent process exited")));
   // Deregistered, so the pool can replace it.
   assert(!(await get<{ agents: Array<{ id: string }> }>(sb, "/api/agents")).agents.some((a) => a.id === "fake-kiro"));
+});
+
+test("a reset from the web UI reaches an ACP teammate: a no-op when idle, abandons the item mid-turn", async () => {
+  await using sb = await sandbox("agent-reset");
+  sb.writeTeamConfig({ experimental: { harnesses: true } });
+  await sb.startDaemon();
+  const agent = startAgent(sb, "kiro", "fake-reset");
+  const pendingSelf = async () => (await get<{ directives: unknown[] }>(sb, "/api/agents/fake-reset/directives")).directives.length;
+  try {
+    assert(await sb.waitFor(async () => (await get<{ agents: Array<{ id: string }> }>(sb, "/api/agents")).agents.some((a) => a.id === "fake-reset")));
+
+    // Idle: the teammate takes the ask itself (a self-directive, not the leader's queue) and acks it.
+    const idle = await post<{ directive: { action: string } }>(sb, "/api/agents/fake-reset/directives", { action: "new-session" });
+    assertEquals(idle.status, 201);
+    assertEquals(idle.body.directive.action, "new-session");
+    assertEquals((await get<{ directives: Array<{ memberId?: string }> }>(sb, "/api/leader/directives")).directives.some((d) => d.memberId === "fake-reset"), false);
+    assert(await sb.waitFor(async () => (await pendingSelf()) === 0, 10_000), "the idle reset is acked");
+
+    // Mid-item: the turn is cancelled and the item failed, saying why.
+    const hang = await work(sb, "Long job", "FAKE-HANG until reset.");
+    assert(await sb.waitFor(async () => (await itemFor(sb, hang))?.state === "IN_PROGRESS", 20_000), "the long item starts");
+    // An older client's `reset-session` POST is translated to the same ask.
+    const legacy = await post<{ directive: { action: string } }>(sb, "/api/leader/directives", { action: "reset-session", memberId: "fake-reset" });
+    assertEquals(legacy.body.directive.action, "new-session");
+    assert(await sb.waitFor(async () => (await itemFor(sb, hang))?.state === "FAILED", 20_000), "the reset item is failed");
+    assert((await comments(sb, hang)).some((c) => c.includes("reset from the web UI")), "says it was reset");
+
+    // …and the teammate carries on with the next item, in a fresh session.
+    const next = await work(sb, "After reset", "Do the next thing.");
+    assert(await sb.waitFor(async () => (await itemFor(sb, next))?.state === "COMPLETE", 20_000), "works on after a reset");
+  } finally {
+    try { agent.child.kill("SIGTERM"); } catch { /* already exited */ }
+    await agent.output;
+  }
 });

@@ -395,7 +395,7 @@ switched-off kind (pass-through if the status read fails); `team_status` and
 | `/api/assistant/session` | POST | Report the Pi session file backing the chat (enables resume) |
 | `/api/assistant/messages` | POST | Mirror terminal-typed input as a user message (`origin: "tui"`) |
 | `/api/assistant/persona` | GET | Effective system prompt (daemon-vended: chat framing + selected persona or default) |
-| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`) |
+| `/api/agents/:id/directives` | GET | Self-directives to realize in-process (`new-session`, `resume-session`); the leader's chat and every teammate poll it |
 | `/api/agents/:id/directives/:id` | PUT | Mark a self-directive done/failed |
 | `/api/thoughts` | GET | Read the user's Thoughts board + groups for the list_thoughts / get_thought tools |
 | `/api/work-defs` | POST | Create a Solitary or Scheduled WorkDef for the create_task / create_schedule tools (`pending: true` to save it pending) |
@@ -466,6 +466,13 @@ up front and reports the error without creating a directive at all.
 
 ### Agent control intents (daemon → leader → tmux)
 
+A teammate reset no longer comes this way: the daemon asks the teammate itself for
+a `new-session` (`TeammateLoop.pollSessionDirectives` polls
+`GET /api/agents/:id/directives`, acks, then queues `/ppt-reset-session`, which calls
+`ctx.newSession()`). That keeps `/new`'s semantics — immediate even mid-run, and it
+deregisters on the way out, so a held item goes MORIBUND. Only a teammate too old
+to poll (protocol < 6) still gets the leader's `reset-session` below.
+
 The daemon expresses out-of-band intents (e.g. `reset-session`) without knowing
 how they're realized. At spawn time the leader passes each agent its tmux
 session/window (`--ppt-tmux-session/--ppt-tmux-window`); the agent reports those
@@ -511,7 +518,7 @@ File: `<cwd>/.pi/extensions/pi-permission-system/config.json`
 9. **One leader directive queue** — leader polls `/api/hosts/:hostId/leader/directives` and realizes each (spawn, reset-session) locally over tmux. The two exceptions are `new-session`/`resume-session`, which the *target agent* polls from `/api/agents/:id/directives` and realizes with Pi's session APIs — tmux keystrokes can't express "switch to this exact session file"
 10. **Task-level comments** — lead ↔ teammate via comments on the WorkDef (`/api/agents/comments/:workItemId` for agents, `/api/work-defs/:id/comment[s]` for the UI), not a chat stream
 11. **The assistant just talks; the harness mirrors it** — there is no `send_message` tool. The agent's own prose is mirrored into chat bubbles by splitting on blank lines (`src/bubbles.ts`), its reasoning feeds an ephemeral peek buffer, and messages typed in its terminal are mirrored back into the chat. Bubble boundaries are the *harness's* call because only the harness sees the raw message stream — but the framing that produces good boundaries (blank lines between points) is the daemon's `ASSISTANT_CHAT_FRAMING`. Routing replies through tool calls (v1) made prose stilted and turned the tmux transcript into a wall of tool calls.
-12. **Fresh session per work item** — after each COMPLETE/FAILED the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the queueing call **must** pass `expandPromptTemplates: true` to `pi.sendUserMessage()` (it defaults to `false`, in which case the slash command is handed to the LLM as plain text and the reset is silently skipped); the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate — the daemon/leader `reset-session` directive remains only for manual resets from the UI.
+12. **Fresh session per work item** — after each COMPLETE/FAILED the teammate queues `/ppt-fresh-session` (a command, because session control only exists on command contexts) which calls `ctx.newSession()`; the queueing call **must** pass `expandPromptTemplates: true` to `pi.sendUserMessage()` (it defaults to `false`, in which case the slash command is handed to the LLM as plain text and the reset is silently skipped); the reload re-runs `session_start`, re-registering the same member with a clean context. The shutdown for a self-reset skips deregistration so the member never flickers offline in the UI (the daemon's heartbeat timeout still covers a reset that dies mid-way). Self-managed by the teammate. A manual reset from the UI is a `new-session` self-directive the teammate polls and realizes with `/ppt-reset-session` (which, like Pi's `/new`, does *not* skip deregistration).
 
 ## Extending
 

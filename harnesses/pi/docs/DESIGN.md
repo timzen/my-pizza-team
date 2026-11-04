@@ -74,6 +74,7 @@ Two consequences worth stating plainly:
 Session control (`new-session`, `resume-session`) is the one directive class an
 agent realizes *itself*, with Pi's `ctx.newSession()` / `ctx.switchSession()` —
 the daemon still only expresses intent, but the mechanism can't be keystrokes.
+Teammates realize `new-session` too: it is the web UI's Reset.
 The extension also exposes board and memory tools. Full design:
 [docs/DESIGN.md "Assistant Chat Model"](../../../docs/DESIGN.md#assistant-chat-model-a-mirror-of-the-pi-session).
 
@@ -117,7 +118,8 @@ implements matching — it just advertises capabilities and honors the daemon.
 The daemon never knows about tmux or keystrokes; it enqueues **directives** ("an
 ask to the leader to do something about an agent"). The leader polls one per-host
 directive queue and realizes each: `spawn` → launch a tmux window; `reset-session`
-→ send Pi's `/new`. It supplies each spawned agent its tmux window/session, which
+→ send Pi's `/new` (now only for a teammate too old to reset itself — a current
+teammate polls its own `new-session`). It supplies each spawned agent its tmux window/session, which
 the agent reports back as opaque `metadata` so later directives can target it.
 
 ### 8. Permission toggling by mode

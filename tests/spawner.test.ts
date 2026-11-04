@@ -130,7 +130,7 @@ test("a spawn becomes a tmux window running the harness command", () => {
   assertStringIncludes(typed, "--ppt-tmux-window=swift-ripley");
 });
 
-test("reset-session is left for the leader, not taken over", () => {
+test("a legacy reset-session (a teammate too old to reset itself) is left for the leader, not taken over", () => {
   // It types `/new` — a Pi slash command. Doing it here would mean the daemon knowing
   // each harness's commands, which is the coupling DESIGN.md "The Daemon Is the Supervisor" removes.
   const { store, updates } = fakeStore([{ id: "d", action: "reset-session", memberId: "a1", params: {} }]);

@@ -1314,8 +1314,8 @@ export class Store {
    * Ask any online assistant to act on its Pi session. The daemon expresses
    * intent (`new-session`, `resume-session`) and never the mechanism — the
    * extension realizes it with `ctx.newSession()` / `ctx.switchSession()`
-   * (docs/DESIGN.md "Assistant Chat Model"). Replaces the old `reset-session` keystroke
-   * path for the assistant; teammates still use that.
+   * (docs/DESIGN.md "Assistant Chat Model"). A teammate's reset takes the same
+   * path (`resetMemberSession`).
    */
   private directAssistantSession(action: string, params: Record<string, unknown>): void {
     const agent = this.getLeader();
@@ -1356,6 +1356,9 @@ export class Store {
   createLeaderDirectiveForMember(memberId: string, action: string, params?: Record<string, unknown>): LeaderDirective | null {
     return this.members.createLeaderDirectiveForMember(memberId, action, params);
   }
+
+  /** Ask an agent for a fresh session (Team-tab Reset); goes to the agent itself when it can take it. Null if unknown. */
+  resetMemberSession(memberId: string): LeaderDirective | null { return this.members.resetMemberSession(memberId); }
 
   /** Pending directives for the leader, oldest first (self-handled actions excluded). */
   getLeaderDirectives(): LeaderDirective[] { return this.members.getLeaderDirectives(); }

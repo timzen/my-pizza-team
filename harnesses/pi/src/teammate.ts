@@ -29,6 +29,10 @@
 //    an empty session; see requestFreshSession). The fresh extension instance
 //    re-registers and polls for the next work item.
 //
+// Alongside the work poll, the loop polls its own session directives
+// (`new-session`: Reset in the web UI) and rolls the session on request — see
+// pollSessionDirectives.
+//
 // The teammate never assumes workflow state names — the prompt tells it what to
 // do. This makes it compatible with any workflow configuration.
 
@@ -58,6 +62,7 @@ export class TeammateLoop {
   private failedWorkItemId: string | null = null;
   private pollTimer: ReturnType<typeof setTimeout> | null = null;
   private heartbeatTimer: ReturnType<typeof setInterval> | null = null;
+  private directiveTimer: ReturnType<typeof setInterval> | null = null;
   /** True while a Pi agent run is in flight (agent_start → agent_end). */
   private agentRunning = false;
   /**
@@ -84,6 +89,14 @@ export class TeammateLoop {
    * setup, which re-registers this member and starts a new loop.
    */
   public requestFreshSession: (() => void) | null = null;
+
+  /**
+   * Realize a session self-directive the daemon addressed to this teammate
+   * (today only `new-session`: Reset in the Team tab). Wired by setupTeammate to
+   * queue /ppt-reset-session, since session control only exists on command
+   * contexts. Any other action is failed, not retried.
+   */
+  public onSessionDirective: ((action: string, params: Record<string, unknown>) => void) | null = null;
 
   /** Called when the agent is dismissed from the UI */
   public onDismissed: (() => void) | null = null;
@@ -222,6 +235,7 @@ export class TeammateLoop {
   async start(): Promise<void> {
     this.running = true;
     this.startHeartbeat();
+    this.directiveTimer = setInterval(() => { this.pollSessionDirectives().catch(() => {}); }, POLL_INTERVAL_MS);
     this.pollForWork();
   }
 
@@ -231,6 +245,7 @@ export class TeammateLoop {
     this.awaitingWorkRun = false;
     if (this.pollTimer) { clearTimeout(this.pollTimer); this.pollTimer = null; }
     if (this.heartbeatTimer) { clearInterval(this.heartbeatTimer); this.heartbeatTimer = null; }
+    if (this.directiveTimer) { clearInterval(this.directiveTimer); this.directiveTimer = null; }
   }
 
   /** Pause autonomous work (human is pairing) */
@@ -264,6 +279,38 @@ export class TeammateLoop {
         await this.reregister?.();
       }
     }, HEARTBEAT_INTERVAL_MS);
+  }
+
+  // ═══════════════════════════════════════════════════════════════════
+  // SESSION SELF-DIRECTIVES (Reset from the web UI)
+  // ═══════════════════════════════════════════════════════════════════
+
+  /**
+   * Realize the session directives the daemon addressed to this teammate
+   * (GET /api/agents/:id/directives). A reset used to be the leader typing Pi's
+   * `/new` into this teammate's tmux window; now the ask comes here and the
+   * teammate rolls its own session (my-pizza-team docs/DESIGN.md "Leader
+   * Directives").
+   *
+   * Each directive is marked done *before* it is realized: the new session
+   * replaces this instance (its loop stops mid-await), and a directive still
+   * pending then would be found again by the fresh instance — resetting forever.
+   */
+  private async pollSessionDirectives(): Promise<void> {
+    if (!this.running || !this.onSessionDirective) return;
+    const { directives } = await this.client.getSelfDirectives();
+    for (const directive of directives) {
+      // One we can't realize must leave the queue, or it is retried forever.
+      if (directive.action !== "new-session") {
+        await this.client.completeSelfDirective(directive.id, "failed").catch(() => {});
+        continue;
+      }
+      // Ack first (an unreachable daemon throws here, and the next poll retries).
+      await this.client.completeSelfDirective(directive.id);
+      this.debugLog(`[ppt-debug] session directive ${directive.action} — rolling the session`);
+      this.onSessionDirective(directive.action, directive.params || {});
+      return; // this instance is on its way out; the fresh one polls anything left
+    }
   }
 
   // ═══════════════════════════════════════════════════════════════════

@@ -224,9 +224,11 @@ export function capabilityError(capability: SpawnCapability): string | null {
  *
  * `spawn` and `dismiss` are tmux work and are the daemon's alone: when tmux is
  * unreachable (`deps.tmux`) they are failed with its reason and fix, never left
- * pending — nothing else will realize them. `reset-session` is
- * *left alone*: it types `/new` into an agent's window, which is harness-specific
- * behaviour (Pi's command), and the leader already does it correctly. Moving it here
+ * pending — nothing else will realize them. A teammate reset isn't tmux work at
+ * all: it is a `new-session` the teammate realizes itself. The legacy
+ * `reset-session` (only for a teammate too old to reset itself) is *left alone*:
+ * it types `/new` into an agent's window, which is harness-specific behaviour
+ * (Pi's command), and the leader does it. Moving it here
  * would mean the daemon knowing each harness's slash commands — the coupling DESIGN.md "The Daemon Is the Supervisor"
  * removes, reintroduced.
  *

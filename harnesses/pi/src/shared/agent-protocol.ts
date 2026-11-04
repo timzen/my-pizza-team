@@ -61,8 +61,14 @@
  *       GET /api/hosts/:hostId is gone (use GET /api/config). P1c-2.
  *   5 — GET /api/assistant/inbox no longer returns `chat`: with one leader there
  *       is no chat-agent designation to report. P1c-4.
+ *   6 — Every agent, teammates included, polls GET /api/agents/:id/directives
+ *       and realizes `new-session` itself: a teammate reset from the web UI goes
+ *       to the teammate, not through the leader typing `/new` into its tmux
+ *       window. Additive for the agent (v5 is still served); the daemon reads
+ *       the version to know which agents can take a reset this way (shared/protocol.ts
+ *       SELF_RESET_PROTOCOL_VERSION).
  */
-export const PROTOCOL_VERSION = 5;
+export const PROTOCOL_VERSION = 6;
 
 // ─── Feature toggles ─────────────────────────────────────────────────
 
