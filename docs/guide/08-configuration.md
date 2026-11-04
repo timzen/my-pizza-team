@@ -112,6 +112,14 @@ agent a tab; the daemon starts herdr's server if it isn't running. To give the t
 its own herdr server instead, set `herdrSession` in config.json to a name (letters,
 digits, `.`, `_`, `-`) and open it with `herdr session attach <name>`.
 
+Under herdr, **Start the assistant** opens a `leader` tab (the "Starting…" note names
+herdr and the command that shows it), and `mpt assistant` focuses that tab and
+attaches you with `herdr` (or `herdr session attach <name>`). Run from a herdr pane of
+the team's server, it just focuses the tab; run from inside tmux, it prints the
+attach command rather than nesting herdr inside tmux. `mpt doctor` reports herdr's
+version, the session and whether its server is running, and warns if the daemon
+talks to a different herdr server than your shell.
+
 A change applies to **new** windows only. Agents already running stay where they
 were started, and dismissing one or hopping to it (`/ppt-hop`) still works there.
 While any are still online, the Terminal field warns, and so does `mpt doctor`. To

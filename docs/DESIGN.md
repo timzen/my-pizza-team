@@ -1944,13 +1944,19 @@ session control.
   `leader` template, and is idempotent — two leaders would both answer the chat —
   so a re-run attaches instead of starting another. Inside tmux it moves the
   calling client (`switch-client`) rather than nesting an attach; selecting the
-  window alone left a client in another session where it was.
+  window alone left a client in another session where it was. The rule is the
+  same under herdr, **never nest one terminal in another**: inside a pane of the
+  team's herdr it focuses the leader tab; inside tmux, or a different herdr server,
+  it prints the attach command (herdr refuses a nested launch, and a herdr client
+  inside a tmux window is a terminal in a terminal nobody asked for); only a plain
+  terminal is attached.
 - **The web UI can start the leader too** (`POST /api/assistant/start`), because
   the daemon is the one that opens windows: telling a new user to go to a terminal
   and run `mpt lead` was the last step the UI couldn't do. It is the same start
   (daemon/leader-start.ts), just as idempotent — a connected leader counts as
-  running, wherever it was started — and refused with the reason and fix when tmux
-  is unreachable or the harness can't lead. Only *start*: stopping or restarting the
+  running, wherever it was started — and refused with the reason and fix when the
+  terminal is unreachable or the harness can't lead. It answers with the terminal
+  and its attach command, so the UI's "still nothing?" hint names the right one. Only *start*: stopping or restarting the
   agent you're chatting with stays a deliberate act at its terminal. Because nobody
   is attached to answer Pi's "Trust project folder?" prompt, the built-in leader
   template passes `-a`, like the teammate's; an override of `harnesses.pi.leader`

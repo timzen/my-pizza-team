@@ -27,7 +27,7 @@ import { spawnSync } from "node:child_process";
 import * as fs from "node:fs";
 import * as os from "node:os";
 import * as path from "node:path";
-import type { ControlKey, OpenWindowOptions, TerminalBackend, WindowRef } from "./backend.ts";
+import type { ControlKey, OpenWindowOptions, TerminalBackend, TerminalStatus, WindowRef } from "./backend.ts";
 import { shellQuote } from "./template.ts";
 
 /** Result of one tmux invocation. */
@@ -273,6 +273,23 @@ export function focusClient(session: string, window: string, exec: TmuxExec = re
 // ─── tmux as a TerminalBackend ───────────────────────────────────────
 
 /**
+ * What `mpt doctor` and the daemon report about tmux (`TerminalBackend.describe`):
+ * reachable, its version (`tmux -V` → `3.4`), whether a server answers on the
+ * default socket, and that socket. Never starts a server: `display-message` with
+ * none running just fails.
+ */
+export function tmuxStatus(exec: TmuxExec = realTmux, env: NodeJS.ProcessEnv = process.env): TerminalStatus {
+  const backend = createTmuxBackend(exec, env);
+  const why = backend.unavailable();
+  const base = { kind: "tmux" as const, displayName: "tmux", session: null };
+  if (why) return { ...base, available: false, ...why, version: null, serverRunning: null, identity: null };
+  const v = exec(["-V"]);
+  const version = /tmux\s+(\S+)/.exec(v.stdout)?.[1] ?? null;
+  const running = exec(["display-message", "-p", "#{socket_path}"]).ok;
+  return { ...base, available: true, version, serverRunning: running, identity: tmuxSocketPath(exec, env) };
+}
+
+/**
  * tmux as a `TerminalBackend`: the functions above, bound to one `TmuxExec`.
  *
  * A thin adapter on purpose: every behaviour (idempotent windows by name, `-e` env,
@@ -305,6 +322,7 @@ export function createTmuxBackend(exec: TmuxExec = realTmux, env: NodeJS.Process
       return null;
     },
     identity: () => tmuxSocketPath(exec, env),
+    describe: () => tmuxStatus(exec, env),
     ensureContainer: (session, vars) => ensureSession(session, exec, vars),
     listWindows: (session) => listWindows(session, exec),
     findWindow: (session, window) => (windowExists(session, window, exec) ? ref(session, window) : null),
@@ -318,5 +336,7 @@ export function createTmuxBackend(exec: TmuxExec = realTmux, env: NodeJS.Process
     focusClient: (w) => focusClient(w.session, w.window, exec),
     // `attach` needs a tty, so it inherits ours rather than going through `exec`'s pipes.
     attach: (w) => spawnSync("tmux", ["attach", "-t", `${w.session}:${w.window}`], { stdio: "inherit" }).status === 0,
+    attachCommand: (w) => `tmux attach -t ${w.session}:${w.window}`,
+    switchHint: (w) => `tmux switch-client -t ${w.session}:${w.window}`,
   };
 }

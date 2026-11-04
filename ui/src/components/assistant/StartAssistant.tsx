@@ -10,7 +10,7 @@
  *   ▸ Or from a terminal
  *
  * A click asks the daemon to start it (`POST /api/assistant/start`; the daemon
- * drives tmux, docs/DESIGN.md "The Daemon Is the Supervisor"). While the request
+ * drives the terminal, tmux or herdr, docs/DESIGN.md "The Daemon Is the Supervisor"). While the request
  * runs, and after it succeeds, the button reads "Starting…" (disabled, but still
  * focusable, so focus stays put) with a note on where it runs, until the leader
  * registers: the host's own presence data flips (the onboarding step, the pool's
@@ -22,7 +22,8 @@
  *
  * The terminal command stays as a secondary disclosure ("Or from a terminal"),
  * with a copy button — for a user who wants the window attached, or a daemon
- * that can't reach tmux.
+ * that can't reach the terminal. Where the note names the window, it names the
+ * terminal and the attach command the daemon reported (`terminal`, `attach`).
  *
  * Accessibility (docs/ACCESSIBILITY.md): a real button; "Starting the
  * assistant…" and the success are announced politely and an error assertively
@@ -115,7 +116,8 @@ export function StartAssistant({ size = "sm", command = true, className }: {
 
   const pending = phase.kind === "busy" || phase.kind === "starting";
   const where = phase.kind === "starting" ? phase.where : null;
-  const session = where?.split(":")[0];
+  const attach = phase.kind === "starting" ? phase.attach : null;
+  const terminal = phase.kind === "starting" ? phase.terminal : null;
 
   return (
     <div ref={rootRef} className={cn("space-y-1.5", className)} data-start-assistant="">
@@ -138,9 +140,9 @@ export function StartAssistant({ size = "sm", command = true, className }: {
       {phase.kind === "starting" && (
         <p id={noteId} className="text-xs text-muted-foreground">
           {phase.already ? "It's already running" : "It's starting"}
-          {where ? <> in the tmux window <code className="font-mono">{where}</code></> : null}
+          {where ? <> in the {terminal ? `${terminal} ` : ""}window <code className="font-mono">{where}</code></> : null}
           ; it shows up here once it connects.
-          {slow && session && <> Still nothing? Run <code className="font-mono">tmux attach -t {session}</code> to see that window.</>}
+          {slow && attach && <> Still nothing? Run <code className="font-mono">{attach}</code> to see that window.</>}
         </p>
       )}
       <FormError id={errorId} className="text-xs">{phase.kind === "error" ? phase.message : null}</FormError>
@@ -169,7 +171,7 @@ function TerminalCommand() {
             {copied ? <Check aria-hidden /> : <Copy aria-hidden />}{copied ? "Copied" : "Copy"}
           </Button>
         </div>
-        <p>It opens the same tmux window and attaches you to it.</p>
+        <p>It opens the same window and attaches you to it.</p>
       </div>
     </details>
   );

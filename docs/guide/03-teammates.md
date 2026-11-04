@@ -2,7 +2,8 @@
 
 **Teammates** are the AI agents that do the work — autonomous
 [Pi](https://pi.mariozechner.at/) coding agents by default, each running in its own
-tmux window, that connect to the daemon and ask it for work. We call them
+terminal window (tmux by default, or herdr: see [Terminal](08-configuration.md#terminal)),
+that connect to the daemon and ask it for work. We call them
 "teammates" throughout the UI because that's how you work with them; "agent" is just
 the underlying technical term (and the one the HTTP API uses, e.g. `/api/agents`).
 The [assistant](04-assistant.md) is the one agent that isn't a teammate: it's the
@@ -120,8 +121,8 @@ Details:
   General — leave it blank for the default), so it's the target the daemon applies at
   startup.
 - It's capped by **Max Teammates**, and it waits for the **assistant** to be running
-  Until one is, the dialog tells you so and offers **Start the assistant**. The daemon starts the tmux
-  windows itself; if it can't reach tmux, nothing spawns: the dialog and the Team tab
+  Until one is, the dialog tells you so and offers **Start the assistant**. The daemon starts the
+  windows itself; if it can't reach the terminal (tmux or herdr), nothing spawns: the dialog and the Team tab
   say why, with the fix, and `mpt doctor` reports it too.
 - Lowering the number never kills anyone: it just stops replacements. Dismissing a
   teammate stays your call (but with a non-zero minimum, expect a fresh one to take
@@ -134,7 +135,7 @@ The **assistant** isn't part of the pool: there is exactly one, and it's the age
 chat talks to.
 
 The Team tab also shows **pending spawns** (starting up) and **failed spawns** with
-the reason (e.g. a directory that doesn't exist, or the daemon can't reach tmux —
+the reason (e.g. a directory that doesn't exist, or the daemon can't reach tmux or herdr —
 with the fix) — dismiss a failed one once you've seen it.
 
 ## Managing a teammate

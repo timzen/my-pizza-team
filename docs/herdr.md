@@ -3,9 +3,14 @@
 Status: **implemented** in `daemon/terminal/herdr.ts` (story "herdr as an alternative
 terminal backend", task 4): with `"terminal": "herdr"` the daemon spawns, focuses and
 dismisses teammates in herdr, in the session `herdrSession` names (default: herdr's
-default session). `mpt assistant`'s attach, `mpt doctor`'s herdr checks, and the
-systemd placement below are still to come (task 5). [`tests/e2e/herdr-backend.test.ts`](../tests/e2e/herdr-backend.test.ts)
-drives it through the daemon on an isolated herdr. This page records what herdr 0.9.5 was verified to do
+default session). Task 5 added the user-facing paths: the assistant start (the web
+UI's button and `mpt assistant`), `mpt assistant`'s attach / focus / print-instead-of-nest
+(`cli/lead-attach.ts`, per "Ensuring a server, attaching, and 'inside herdr'" below),
+`/health` `terminalStatus` and `mpt doctor`'s herdr checks (version, session, server,
+same socket). The systemd placement below is not done yet (TODO.md).
+[`tests/e2e/herdr-backend.test.ts`](../tests/e2e/herdr-backend.test.ts)
+drives spawn/dismiss through the daemon on an isolated herdr, and
+[`tests/e2e/herdr-assistant.test.ts`](../tests/e2e/herdr-assistant.test.ts) the assistant. This page records what herdr 0.9.5 was verified to do
 (task 1's spike) and the decisions the backend follows. The proof is
 [`tests/e2e/herdr-contract.test.ts`](../tests/e2e/herdr-contract.test.ts), run against an
 isolated server ([`tests/e2e/_herdr.ts`](../tests/e2e/_herdr.ts)), with every JSON
@@ -93,12 +98,12 @@ Two consequences:
 - **Socket location** comes from `$XDG_CONFIG_HOME` (else `$HOME/.config`) +
   `/herdr/[sessions/<name>/]herdr.sock` — *not* from `HERDR_CONFIG_PATH`, which only moves
   `config.toml` (verified). A launchd/systemd daemon with the user's `HOME` therefore
-  finds the same server; `/health` should report `status server --json` `.socket` the way
-  it reports `tmuxSocket`, and doctor compare it with its own.
+  finds the same server; `/health` reports `status --json` `.server.socket` as
+  `terminalStatus.identity` (as it reports `tmuxSocket`), and doctor compares it with its own.
 - **systemd:** a server the daemon spawns lives in the unit's cgroup, so
   `systemctl --user stop|restart` (default `KillMode=control-group`) would take every
-  agent with it. tmux started by the daemon has the same exposure today. Recommended for
-  task 5: under systemd (`$INVOCATION_ID` set), start it outside the unit with
+  agent with it. tmux started by the daemon has the same exposure today. Recommended
+  (not yet implemented; TODO.md): under systemd (`$INVOCATION_ID` set), start it outside the unit with
   `systemd-run --user --collect --unit=herdr-<session> herdr --session <s> server`,
   falling back to a plain detached spawn; or tell the user to start herdr themselves
   (attaching with `herdr` starts the server).

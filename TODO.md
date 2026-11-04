@@ -5,6 +5,13 @@ number. Delete an item when it's done.
 
 ## Code health
 
+- **herdr server under systemd:** `daemon/terminal/herdr.ts` `realHerdrLaunch` starts
+  `herdr server` as a plain detached child, so under the systemd service it lives in the
+  unit's cgroup and `systemctl --user stop|restart` takes every herdr agent with it (tmux
+  started by the daemon has the same exposure). docs/herdr.md "Ensuring a server…"
+  recommends `systemd-run --user --collect` when `$INVOCATION_ID` is set; it needs the
+  server's environment passed explicitly, since a pane gets the server's env.
+
 - **Helper copies outside `shared/`:** `harnesses/pi/src/leader.ts` writes
   `err instanceof Error ? err.message : String(err)` inline, because the Pi
   extension can't import `shared/`. (`ui/src/lib/structural.ts` keeps its own

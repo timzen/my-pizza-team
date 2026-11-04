@@ -355,10 +355,11 @@ export function registerAgentRoutes(ctx: RouteContext): void {
     return c.json({ success: true });
   });
 
-  // Bring an agent's tmux window to the front (the leader's /ppt-hop). The daemon
-  // is the only thing that touches tmux (docs/DESIGN.md "The Daemon Is the
-  // Supervisor"), so a harness asks here rather than running `tmux select-window`
-  // itself. 409 with the reason when the window can't be selected.
+  // Bring an agent's window to the front (the leader's /ppt-hop), in the terminal it
+  // was started under (tmux `select-window`, herdr `tab focus`; spawner.ts
+  // focusMember). The daemon is the only thing that touches the terminal
+  // (docs/DESIGN.md "The Daemon Is the Supervisor"), so a harness asks here rather
+  // than running it itself. 409 with the reason when the window can't be selected.
   app.post("/api/agents/:id/focus", (c) => {
     const member = store.getMember(c.req.param("id"));
     if (!member) return fail(c, 404, `Agent "${c.req.param("id")}" not found`);

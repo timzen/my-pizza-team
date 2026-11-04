@@ -26,6 +26,7 @@ import { get, post, withTeam } from "./_team.ts";
 import { DEFAULT_HARNESS_TEMPLATES, LEADER_WINDOW, type TeamConfig } from "../shared/types.ts";
 import type { ExecResult, TmuxExec } from "../daemon/terminal/tmux.ts";
 import { assistantStartability, startLeader } from "../daemon/leader-start.ts";
+import { fakeHerdr } from "./_herdr.ts";
 
 /** A fake tmux recording every call; `windows` are what `list-windows` reports. */
 function fakeTmux(windows: string[] = [], fail?: string): { exec: TmuxExec; calls: string[][] } {
@@ -114,7 +115,60 @@ test("startLeader is idempotent: an existing leader window is already-running an
     const { exec, calls } = fakeTmux(["kind-sulu", LEADER_WINDOW]);
     const result = startLeader({ config: config(), teamDir, daemonUrl: "http://x", exec });
     assertEquals(result.status, "already-running");
-    assertEquals(calls.filter((c) => c[0] !== "list-windows"), []);
+    // Only looked: nothing created, renamed or typed.
+    assertEquals(calls.filter((c) => c[0] !== "list-windows" && c[0] !== "has-session"), []);
+    if (result.status === "already-running") assertEquals(result.attach, `tmux attach -t team:${LEADER_WINDOW}`);
+  });
+});
+
+test("startLeader says which terminal it used and how to attach", () => {
+  withProject((teamDir) => {
+    const { exec } = fakeTmux();
+    const result = startLeader({ config: config(), teamDir, daemonUrl: "http://x", exec });
+    assertEquals(result.status === "started" && result.terminal, "tmux");
+    assertEquals(result.status === "started" && result.attach, `tmux attach -t team:${LEADER_WINDOW}`);
+  });
+});
+
+// ─── Under herdr ─────────────────────────────────────────────────────
+
+test("under herdr, startLeader opens the leader tab with the env file's variables, idempotently", () => {
+  withProject((teamDir, projectDir) => {
+    fs.writeFileSync(path.join(teamDir, "agent.env"), "AWS_PROFILE=dev\n");
+    const h = fakeHerdr({ running: false });
+    const cfg = config({ terminal: "herdr", herdrSession: "mine", agentEnvFile: "agent.env" });
+    const first = startLeader({ config: cfg, teamDir, daemonUrl: "http://x", herdrExec: h.exec, herdrLaunch: h.launch });
+    assertEquals(first.status, "started");
+    if (first.status !== "started") return;
+    assertEquals(first.terminal, "herdr");
+    assertEquals(first.attach, "herdr session attach mine");
+    assertEquals(first.envKeys, 1);
+    assertEquals(h.launched, [["--session", "mine", "server"]], "the session's server was started");
+    const tab = h.tab("team", LEADER_WINDOW)!;
+    assertEquals(tab.env, ["AWS_PROFILE=dev"]);
+    assertEquals(tab.cwd, projectDir);
+    assertStringIncludes(tab.pane.typed[0]!, "--ppt-terminal=herdr --ppt-terminal-session=team --ppt-terminal-window=leader");
+
+    // Again: already running, nothing typed, no second tab.
+    const again = startLeader({ config: cfg, teamDir, daemonUrl: "http://x", herdrExec: h.exec, herdrLaunch: h.launch });
+    assertEquals(again.status, "already-running");
+    assertEquals(h.workspaces[0]!.tabs.map((t) => t.label), [LEADER_WINDOW]);
+    assertEquals(tab.pane.typed.length, 1);
+
+    // A server restart restored the tab but not its process: that's not a running
+    // leader, so the command runs into it again.
+    tab.pane.idle = true;
+    const revived = startLeader({ config: cfg, teamDir, daemonUrl: "http://x", herdrExec: h.exec, herdrLaunch: h.launch });
+    assertEquals(revived.status, "started");
+    assertEquals(tab.pane.typed.length, 2);
+  });
+});
+
+test("under herdr's default session, the attach command is plain `herdr`", () => {
+  withProject((teamDir) => {
+    const h = fakeHerdr();
+    const result = startLeader({ config: config({ terminal: "herdr" }), teamDir, daemonUrl: "http://x", herdrExec: h.exec, herdrLaunch: h.launch });
+    assertEquals(result.status === "started" && result.attach, "herdr");
   });
 });
 

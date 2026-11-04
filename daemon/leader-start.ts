@@ -1,11 +1,12 @@
 /**
- * daemon/leader-start.ts — start the leader (the assistant) in its tmux window.
+ * daemon/leader-start.ts — start the leader (the assistant) in its terminal window.
  *
- * The one place that turns "start the assistant" into a tmux window: the harness's
+ * The one place that turns "start the assistant" into a window in the team's
+ * terminal (tmux, or herdr — `TeamConfig.terminal`, daemon/terminal/): the harness's
  * `leader` template, rendered for the fixed `LEADER_WINDOW` in the project directory
  * (the team directory's parent), with the agent env file's variables. Two callers:
  * `POST /api/assistant/start` (the web UI's Start button, run by the daemon, which is
- * the only component that drives tmux — docs/DESIGN.md "The Daemon Is the
+ * the only component that drives the terminal — docs/DESIGN.md "The Daemon Is the
  * Supervisor") and `mpt lead`, which adds its own messages and the attach on top.
  *
  * Starting is idempotent: an existing leader window is reported as
@@ -19,7 +20,7 @@
 
 import * as path from "node:path";
 import { agentEnvWarning, loadAgentEnv } from "../shared/env-file.ts";
-import { DEFAULT_HARNESS, LEADER_WINDOW, resolveTerminal, type TeamConfig } from "../shared/types.ts";
+import { DEFAULT_HARNESS, LEADER_WINDOW, resolveTerminal, type TeamConfig, type TerminalKind } from "../shared/types.ts";
 import { resolveTemplates, terminalChoiceCapability, type SpawnCapability } from "./spawner.ts";
 import { getTerminalBackend } from "./terminal/index.ts";
 import { renderTemplate, type TemplateVars, unresolvedPlaceholders } from "./terminal/template.ts";
@@ -31,22 +32,32 @@ export type AssistantStartability =
   | { ok: true }
   | { ok: false; reason: string; fix: string };
 
+/**
+ * Where a started (or already running) leader is: its container and window labels,
+ * the terminal it is in, and the command a user runs to see it
+ * (`TerminalBackend.attachCommand`: `tmux attach -t mpt:leader`, `herdr`, …).
+ */
+interface LeaderWhere {
+  session: string;
+  window: string;
+  /** The directory the leader runs in (the project directory). */
+  cwd: string;
+  terminal: TerminalKind;
+  attach: string;
+}
+
 /** What a start attempt did. */
 export type LeaderStartResult =
-  | {
+  | (LeaderWhere & {
     status: "started";
-    session: string;
-    window: string;
-    /** The directory the leader runs in (the project directory). */
-    cwd: string;
     /** Why the agent env file wasn't applied (the leader started without it), or null. */
     envWarning: string | null;
     /** The agent env file that was applied, or null when none is configured or it was unusable. */
     envPath: string | null;
     /** How many variables the agent env file gave the window (0 when not applied). */
     envKeys: number;
-  }
-  | { status: "already-running"; session: string; window: string; cwd: string }
+  })
+  | (LeaderWhere & { status: "already-running" })
   | { status: "error"; code: LeaderStartErrorCode; reason: string; fix: string };
 
 /**
@@ -84,7 +95,7 @@ export interface LeaderStartDeps {
   leaderOnline?: boolean;
 }
 
-/** The tmux session the team's windows live in. */
+/** The team's container (tmux session, herdr workspace) the windows live in. */
 export function leaderSession(config: TeamConfig): string {
   return config.tmuxSession || "mpt";
 }
@@ -112,41 +123,46 @@ export function assistantStartability(config: TeamConfig, tmux: SpawnCapability 
 }
 
 /**
- * Start the leader in `<tmuxSession>:leader`, in the project directory — or report
- * that it is already running (its window exists, or `deps.leaderOnline`). Never throws: tmux unreachable, no leader
- * template, an unknown placeholder, or tmux refusing the window are all
- * `status: "error"` with a reason and a fix.
+ * Start the leader in `<tmuxSession>:leader` (a tmux window, or a herdr tab in the
+ * workspace of that name), in the project directory — or report that it is already
+ * running (its window exists with its agent, or `deps.leaderOnline`). Never throws:
+ * the terminal unreachable, no leader template, an unknown placeholder, or the
+ * terminal refusing the window are all `status: "error"` with a reason and a fix.
+ * Either success says where it is and how to attach (`LeaderWhere`).
  *
  * The agent env file is re-read now and given to the window the same way the
- * spawner gives it to teammates (`-e`, never typed into the shell). A bad file
+ * spawner gives it to teammates (tmux `-e`, herdr `--env`; never typed into the shell). A bad file
  * doesn't stop the leader: it starts without it, and `envWarning` says why.
  */
 export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
   const terminal = getTerminalBackend(deps.config, { tmuxExec: deps.exec, herdrExec: deps.herdrExec, herdrLaunch: deps.herdrLaunch });
   const session = leaderSession(deps.config);
   const cwd = leaderCwd(deps.teamDir);
-  if (deps.leaderOnline) return { status: "already-running", session, window: LEADER_WINDOW, cwd };
+  const where: LeaderWhere = {
+    session, window: LEADER_WINDOW, cwd, terminal: terminal.kind,
+    attach: terminal.attachCommand(terminal.windowRef(session, LEADER_WINDOW)),
+  };
+  if (deps.leaderOnline) return { status: "already-running", ...where };
   const checked = checkTemplate(deps.config, deps.tmux ?? { canSpawn: true }, {
     name: LEADER_WINDOW, url: deps.daemonUrl, cwd, terminal: terminal.kind, session, window: LEADER_WINDOW, mpt: deps.mpt,
   });
   if (!("command" in checked)) return { status: "error", ...checked };
 
   try {
-    // Deliberately *not* calling ensureContainer first: openWindow reuses a freshly
-    // created session's initial window instead of leaving it stranded beside ours, and
-    // it can only tell the session is fresh if it creates it. listWindows already
-    // returns [] for a session that doesn't exist yet.
-    if (terminal.listWindows(session).includes(LEADER_WINDOW)) {
-      return { status: "already-running", session, window: LEADER_WINDOW, cwd };
-    }
+    // One call, idempotent by label: an existing leader window is `created: false`,
+    // and nothing is typed into it. Deliberately not ensureContainer + listWindows
+    // first: openWindow reuses a freshly created session's initial window instead of
+    // leaving it stranded beside ours (it can only tell the session is fresh if it
+    // creates it), and under herdr a tab a server restart restored *without* its
+    // process isn't a running leader — openWindow runs the command into it
+    // (docs/herdr.md "Restart: a label is not a live agent").
     const env = loadAgentEnv(deps.config, deps.teamDir);
     const envWarning = agentEnvWarning(env);
-    terminal.openWindow({ session, window: LEADER_WINDOW, cwd, command: checked.command, env: env.vars });
+    const opened = terminal.openWindow({ session, window: LEADER_WINDOW, cwd, command: checked.command, env: env.vars });
+    if (!opened.created) return { status: "already-running", ...where };
     return {
       status: "started",
-      session,
-      window: LEADER_WINDOW,
-      cwd,
+      ...where,
       envWarning,
       envPath: envWarning ? null : env.path,
       envKeys: envWarning ? 0 : env.keys.length,
@@ -156,7 +172,7 @@ export function startLeader(deps: LeaderStartDeps): LeaderStartResult {
       status: "error",
       code: "tmux-failed",
       reason: `${terminal.displayName} could not open ${session}:${LEADER_WINDOW}: ${(e as Error).message}`,
-      fix: "run `mpt doctor` to check tmux and the daemon's tmux server",
+      fix: `run \`mpt doctor\` to check ${terminal.displayName} and the daemon's ${terminal.displayName} server`,
     };
   }
 }

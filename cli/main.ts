@@ -20,6 +20,7 @@ import { evaluate, gather, report } from "./doctor.ts";
 import { loadAgentEnv } from "../shared/env-file.ts";
 import { getTerminalBackend } from "../daemon/terminal/index.ts";
 import { startLeader } from "../daemon/leader-start.ts";
+import { attachPlan, noAttachHints } from "./lead-attach.ts";
 import { managedExtensionDir, resolveExtensionSourceDir, writeExtension } from "./extension.ts";
 import { piAgentDir, readPiSettings } from "./pi-config.ts";
 import {
@@ -293,9 +294,10 @@ Commands:
   start [--daemon|-d]   Start the daemon (foreground, or in the background with -d;
                         its output then goes to daemon.log in the team directory)
   assistant [--no-attach]
-                        Start the assistant (the agent you chat with) in tmux and
-                        attach to it; the web UI's Start button does the same,
-                        without the attach. Its tmux window is named "leader"
+                        Start the assistant (the agent you chat with) in the team's
+                        terminal (tmux, or herdr) and attach to it; the web UI's
+                        Start button does the same, without the attach. Its window
+                        is named "leader"
   lead [--no-attach]    Alias for \`assistant\` (the original name)
   stop                  Stop the running daemon (sends SIGTERM)
   status                Check if the daemon is running and show a summary
@@ -344,9 +346,10 @@ function teamToken(teamDir: string): string | null {
 }
 
 /**
- * `mpt assistant` (alias `mpt lead`) — start the assistant in tmux and attach to it.
+ * `mpt assistant` (alias `mpt lead`) — start the assistant in the team's terminal
+ * (tmux, or herdr — `TeamConfig.terminal`) and attach to it.
  *
- * Internally the assistant is still the *leader*: member name, tmux window
+ * Internally the assistant is still the *leader*: member name, window
  * (`LEADER_WINDOW`), `--ppt-lead` and the `leader` template keep that name; only what
  * the user reads says "assistant".
  *
@@ -355,8 +358,9 @@ function teamToken(teamDir: string): string | null {
  * (docs/DESIGN.md "One Agent to Talk To", "Team Size: Declared, not Clicked").
  * Its window is opened by daemon/leader-start.ts `startLeader` — the same start the
  * web UI's Start button asks the daemon for (`POST /api/assistant/start`); this adds
- * the CLI's messages and the attach / switch-client on top. The leader itself never
- * touches tmux.
+ * the CLI's messages and the attach / switch-client on top (cli/lead-attach.ts:
+ * when to attach, move the current client, or print the command). The leader
+ * itself never touches the terminal.
  *
  * This is also the first consumer of the daemon's tmux module (P3-1), deliberately in
  * the easy case: a foreground command with the user's own environment, so it exercises
@@ -419,34 +423,44 @@ async function cmdLead(args: string[]): Promise<void> {
     console.log(`Assistant already running in ${session}:${LEADER_WINDOW} — attaching.`);
   } else {
     if (result.envWarning) console.log(`⚠️  ${result.envWarning} (run \`mpt doctor\`)`);
-    console.log(`✅ Assistant started in ${session}:${LEADER_WINDOW} (${projectDir})`);
+    const where = terminal.kind === "tmux" ? projectDir : `${terminal.displayName}, ${projectDir}`;
+    console.log(`✅ Assistant started in ${session}:${LEADER_WINDOW} (${where})`);
     if (result.envPath) console.log(`   Agent env: ${result.envKeys} variable(s) from ${result.envPath}`);
   }
   // Before attaching, so it's in the scrollback when the user detaches.
   if (daemonUp) await printOnboardingHint(port, resolveToken(config.apiToken as string | undefined), "   ");
 
   if (args.includes("--no-attach")) {
-    console.log(`   Attach with: tmux attach -t ${session}:${LEADER_WINDOW}`);
-    console.log(`   From inside tmux: tmux switch-client -t ${session}:${LEADER_WINDOW}`);
+    for (const line of noAttachHints(terminal, leader)) console.log(`   ${line}`);
     return;
   }
 
-  // Inside tmux already, attaching would nest; move this client instead. Selecting
-  // the window alone isn't enough: a client showing another session (say
-  // `mpt-services`) wouldn't move.
-  if (terminal.insideClient()) {
+  // cli/lead-attach.ts decides: move the client we're in, attach, or (where
+  // attaching would nest one terminal in another) print the command.
+  const plan = attachPlan(terminal);
+  if (plan.action === "focus") {
+    // Inside the backend already, attaching would nest; move this client instead.
+    // (tmux: selecting the window alone isn't enough — a client showing another
+    // session, say `mpt-services`, wouldn't move — so it's switch-client.)
     const failed = terminal.focusClient(leader);
     if (failed) {
-      console.log(`   Could not switch automatically (${failed}). Run: tmux switch-client -t ${session}:${LEADER_WINDOW}`);
+      console.log(`   Could not switch automatically (${failed}). To get there: ${terminal.switchHint(leader)}`);
     } else {
       console.log(`   Switched to ${session}:${LEADER_WINDOW}.`);
     }
     return;
   }
+  if (plan.action === "print") {
+    // Bring the leader to the front first, so the attach lands on it.
+    terminal.focusWindow(leader);
+    console.log(`   ${plan.why}.`);
+    console.log(`   Attach from a terminal outside it with: ${terminal.attachCommand(leader)}`);
+    return;
+  }
 
   // Hand the terminal over. `attach` needs a tty, so it inherits ours.
   if (!terminal.attach(leader)) {
-    console.log(`   Could not attach automatically. Run: tmux attach -t ${session}`);
+    console.log(`   Could not attach automatically. Run: ${terminal.attachCommand(leader)}`);
   }
 }
 

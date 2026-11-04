@@ -4,7 +4,7 @@
  * (components/assistant/StartAssistant.tsx renders it).
  *
  * The daemon is the one that starts it — `POST /api/assistant/start`, the only
- * component that drives tmux (docs/DESIGN.md "The Daemon Is the Supervisor") —
+ * component that drives the terminal (docs/DESIGN.md "The Daemon Is the Supervisor") —
  * and says beforehand whether it can (`/health`'s `assistantStartable`). This
  * module turns those two answers into what the button shows: whether to offer it
  * at all (`startAvailability`), and what a click led to (`startOutcome`):
@@ -44,9 +44,13 @@ export function startAvailability(health: StartHealth | null | undefined): Start
 export interface StartResponse {
   success?: boolean;
   status?: "started" | "already-running" | "error";
-  /** Where it runs (on success): the tmux session and window. */
+  /** Where it runs (on success): the team's container (tmux session, herdr workspace) and window. */
   session?: string;
   window?: string;
+  /** Which terminal it runs in ("tmux", "herdr"); absent from an older daemon. */
+  terminal?: string;
+  /** The command that shows its window (`tmux attach -t mpt:leader`, `herdr`, …); absent from an older daemon. */
+  attach?: string;
   /** On a refusal: what went wrong and how to fix it. */
   reason?: string;
   fix?: string;
@@ -61,6 +65,10 @@ export type StartOutcome =
     where: string | null;
     /** True when it was already running (a window existed, or a leader was connected). */
     already: boolean;
+    /** The terminal it runs in, to name in the note ("tmux", "herdr"); null if unknown. */
+    terminal: string | null;
+    /** The command that shows the window, for the "still nothing?" hint; null if unknown. */
+    attach: string | null;
   }
   | { kind: "error"; message: string };
 
@@ -76,6 +84,9 @@ export function startOutcome(res: StartResponse | null | undefined): StartOutcom
       kind: "starting",
       where: res.session && res.window ? `${res.session}:${res.window}` : null,
       already: res.status === "already-running",
+      terminal: res.terminal || null,
+      // An older daemon doesn't say; it only ever ran tmux.
+      attach: res.attach || (res.session && !res.terminal ? `tmux attach -t ${res.session}` : null),
     };
   }
   if (res?.reason) {

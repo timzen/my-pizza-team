@@ -33,14 +33,19 @@ test("startAvailability: offered until /health says otherwise", () => {
 
 test("startOutcome: started and already-running are both Starting…", () => {
   assertEquals(
-    startOutcome({ success: true, status: "started", session: "mpt", window: "leader" }),
-    { kind: "starting", where: "mpt:leader", already: false },
+    startOutcome({ success: true, status: "started", session: "mpt", window: "leader", terminal: "herdr", attach: "herdr" }),
+    { kind: "starting", where: "mpt:leader", already: false, terminal: "herdr", attach: "herdr" },
   );
   assertEquals(
-    startOutcome({ success: true, status: "already-running", session: "mpt", window: "leader" }),
-    { kind: "starting", where: "mpt:leader", already: true },
+    startOutcome({ success: true, status: "already-running", session: "mpt", window: "leader", terminal: "tmux", attach: "tmux attach -t mpt:leader" }),
+    { kind: "starting", where: "mpt:leader", already: true, terminal: "tmux", attach: "tmux attach -t mpt:leader" },
   );
-  assertEquals(startOutcome({ success: true, status: "started" }), { kind: "starting", where: null, already: false });
+  assertEquals(startOutcome({ success: true, status: "started" }), { kind: "starting", where: null, already: false, terminal: null, attach: null });
+  // An older daemon names no terminal: it only ever ran tmux.
+  assertEquals(
+    startOutcome({ success: true, status: "started", session: "mpt", window: "leader" }),
+    { kind: "starting", where: "mpt:leader", already: false, terminal: null, attach: "tmux attach -t mpt" },
+  );
 });
 
 test("startOutcome: a refusal is the daemon's reason and fix", () => {

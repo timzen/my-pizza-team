@@ -104,6 +104,11 @@ file, and a tmux server keeps the environment it started with, often weeks ago. 
 assistant's window (named `leader`) rather than starting a nested tmux. If that switch fails, it prints
 the `tmux switch-client` command to run yourself.
 
+**`mpt assistant` with herdr.** In a plain terminal it opens a herdr client on the
+`leader` tab. From a herdr pane of the team's server it just focuses that tab. From
+inside tmux (or a pane of a different herdr server) it doesn't nest one terminal in
+another: it prints the `herdr` command to run from a plain terminal.
+
 ## Keyboard and screen readers
 
 Everything works without a mouse, and you can always see where you are: the control

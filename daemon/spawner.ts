@@ -38,6 +38,7 @@ import {
   terminalOptions,
   type TerminalBackend,
   type TerminalBackendOptions,
+  type TerminalStatus,
 } from "./terminal/index.ts";
 import type { HerdrExec, HerdrLaunch } from "./terminal/herdr.ts";
 import { renderTemplate, unresolvedPlaceholders } from "./terminal/template.ts";
@@ -138,6 +139,29 @@ export function cachedTerminalCapability(
     const capability = probeTerminalCapability(make(config));
     cache.set(key, { at: now(), capability });
     return capability;
+  };
+}
+
+/**
+ * The configured terminal's `TerminalStatus` (daemon/terminal/backend.ts), cached
+ * for `ttlMs` per (kind, herdr session) like `cachedTerminalCapability`:
+ * `/health` reports it on every read, and herdr's answer is several process spawns.
+ * For a non-tmux backend only: tmux's is taken once at startup (daemon/start.ts).
+ */
+export function cachedTerminalStatus(
+  ttlMs = TERMINAL_PROBE_TTL_MS,
+  make: (config: Partial<TeamConfig>) => TerminalBackend = (config) =>
+    createTerminalBackend(resolveTerminal(config), terminalOptions(config)),
+  now: () => number = Date.now,
+): (config: Partial<TeamConfig>) => TerminalStatus {
+  const cache = new Map<string, { at: number; status: TerminalStatus }>();
+  return (config) => {
+    const key = `${resolveTerminal(config)}\u0000${config.herdrSession ?? ""}`;
+    const hit = cache.get(key);
+    if (hit && now() - hit.at < ttlMs) return hit.status;
+    const status = make(config).describe();
+    cache.set(key, { at: now(), status });
+    return status;
   };
 }
 

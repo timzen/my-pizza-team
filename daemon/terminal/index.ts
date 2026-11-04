@@ -22,7 +22,7 @@
  */
 
 import { resolveTerminal, type TeamConfig, type TerminalKind } from "../../shared/types.ts";
-import type { TerminalBackend } from "./backend.ts";
+import type { TerminalBackend, TerminalStatus } from "./backend.ts";
 import { createHerdrBackend, type HerdrExec, type HerdrLaunch } from "./herdr.ts";
 import { createTmuxBackend, realTmux, type TmuxExec } from "./tmux.ts";
 
@@ -68,4 +68,21 @@ export function getTerminalBackend(
   opts: TerminalBackendOptions = {},
 ): TerminalBackend {
   return createTerminalBackend(resolveTerminal(config), terminalOptions(config, opts));
+}
+
+/**
+ * One line naming a terminal and its state, as the daemon's startup log and `mpt
+ * doctor` print it: `herdr 0.9.5 — session "default", server running (socket …)`,
+ * `tmux 3.4 — server not running (socket …)`, or the reason it can't be used.
+ * `fallback` names the backend when there is no status at all.
+ */
+export function formatTerminalStatus(status: TerminalStatus | null, fallback: string): string {
+  if (!status) return `${fallback} (status unknown)`;
+  const name = status.version ? `${status.displayName} ${status.version}` : status.displayName;
+  if (!status.available) return `${name} — unavailable: ${status.reason ?? "unknown reason"}`;
+  const parts: string[] = [];
+  if (status.session) parts.push(`session "${status.session}"`);
+  if (status.serverRunning !== null) parts.push(status.serverRunning ? "server running" : "server not running");
+  const where = status.identity ? ` (socket ${status.identity})` : "";
+  return parts.length > 0 ? `${name} — ${parts.join(", ")}${where}` : `${name}${where}`;
 }

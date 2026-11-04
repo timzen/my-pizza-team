@@ -13,7 +13,7 @@
  * - Agent-facing: inbox/ack (deliver to Pi), bubbles (mirror out), thoughts, session report
  * - Sessions: list, new chat, resume, markdown snapshot
  * - Persona: read/swap (a swap ends the session and starts a new one)
- * - Start: open the leader's tmux window (the UI's Start button; daemon/leader-start.ts)
+ * - Start: open the leader's terminal window (the UI's Start button; daemon/leader-start.ts)
  */
 
 import type { RouteContext } from "./types.ts";
@@ -86,14 +86,16 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
   // ─── Start ─────────────────────────────────────────────────────────
 
   /**
-   * Start the assistant — the leader — in `<tmuxSession>:leader`, in the project
-   * directory, so a new user isn't sent to a terminal to run `mpt lead`. Run by the
-   * daemon, the only component that drives tmux (docs/DESIGN.md "The Daemon Is the
+   * Start the assistant — the leader — in `<tmuxSession>:leader` (a tmux window or a
+   * herdr tab, per `TeamConfig.terminal`), in the project directory, so a new user
+   * isn't sent to a terminal to run `mpt lead`. Run by the daemon, the only
+   * component that drives the terminal (docs/DESIGN.md "The Daemon Is the
    * Supervisor"). Idempotent: a window that exists, or a leader already connected,
-   * is `already-running` (200), never a second leader. Refused with 409 and the
-   * reason + fix when the daemon can't reach tmux or the default harness has no
-   * usable leader template (the same answer `/health`'s `assistantStartable` gives).
-   * Start only: there is no stop or restart.
+   * is `already-running` (200), never a second leader. Either answer carries
+   * `terminal` and `attach` (the command that shows the window), for the UI's hint.
+   * Refused with 409 and the reason + fix when the daemon can't reach the terminal
+   * or the default harness has no usable leader template (the same answer
+   * `/health`'s `assistantStartable` gives). Start only: there is no stop or restart.
    */
   app.post("/api/assistant/start", (c) => {
     const result = startLeader({
@@ -107,7 +109,7 @@ export function registerAssistantRoutes(ctx: RouteContext): void {
     if (result.status === "error") {
       return fail(c, 409, `${result.reason} — fix: ${result.fix}`, { code: result.code, reason: result.reason, fix: result.fix });
     }
-    if (result.status === "started") console.log(`   Assistant started in ${result.session}:${result.window} (${result.cwd})`);
+    if (result.status === "started") console.log(`   Assistant started in ${result.terminal} ${result.session}:${result.window} (${result.cwd})`);
     if (result.status === "started" && result.envWarning) console.error(`⚠️  Assistant started without its agent env: ${result.envWarning}`);
     return c.json({ success: true, ...result }, result.status === "started" ? 201 : 200);
   });

@@ -36,7 +36,8 @@ import {
   type ExtensionRegistration,
 } from "./pi-config.ts";
 import { managedExtensionDir, readExtensionVersion, resolveExtensionSourceDir } from "./extension.ts";
-import { createTerminalBackend } from "../daemon/terminal/index.ts";
+import { createTerminalBackend, formatTerminalStatus, getTerminalBackend } from "../daemon/terminal/index.ts";
+import type { TerminalStatus } from "../daemon/terminal/backend.ts";
 import { findPreCutoffLayout, type PreCutoffFinding } from "../daemon/layout-check.ts";
 import { MIN_UPGRADE_FROM_VERSION, PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
 import {
@@ -116,6 +117,15 @@ export interface DoctorFacts {
    */
   daemonTerminal?: string | null;
   agentsOnOtherTerminal?: Array<{ name: string; terminal: string }> | null;
+  /**
+   * The team's configured terminal as this CLI sees it (`TerminalBackend.describe`:
+   * available, version, server running, socket; herdr's session), and as the running
+   * daemon does (`/health` `terminalStatus`). Absent/null = not known (no team
+   * config, the daemon down or older). For herdr, the two sockets are compared like
+   * tmux's.
+   */
+  terminal?: TerminalStatus | null;
+  daemonTerminalStatus?: TerminalStatus | null;
   serviceInstalled: boolean;
   /** Which Node runs mpt, and how that compares to the service and this process. Absent = not checked. */
   node?: NodeFacts;
@@ -182,6 +192,65 @@ export function compareVersions(a: string, b: string): number | null {
 }
 
 /**
+ * The terminal checks: tmux (the default) and, when the team uses it, herdr — the
+ * selected backend's version, server and session, from this CLI's side — plus
+ * herdr's same-server check (the daemon's socket vs this shell's, like tmux's below).
+ *
+ * tmux missing fails only while tmux is the team's terminal: a herdr team doesn't
+ * need it (agents started under tmux before a switch are the "Terminal" check's
+ * business).
+ */
+function terminalChecks(f: DoctorFacts): Check[] {
+  const checks: Check[] = [];
+  const selected = f.terminal?.kind ?? f.daemonTerminal ?? "tmux";
+  if (!f.tmuxPresent && selected !== "tmux") {
+    checks.push({ name: "tmux", status: "ok", detail: `not found (not needed: this team's terminal is ${selected})` });
+  } else if (!f.tmuxPresent) {
+    checks.push({
+      name: "tmux",
+      status: "fail",
+      detail: "not found on PATH — teammates run in tmux windows",
+      fix: "brew install tmux (or your platform's package manager)",
+    });
+  } else if (f.terminal?.kind === "tmux") {
+    checks.push({ name: "tmux", status: "ok", detail: `the team's terminal: ${formatTerminalStatus(f.terminal, "tmux")}` });
+  } else {
+    checks.push({ name: "tmux", status: "ok", detail: "found" });
+  }
+
+  if (f.terminal?.kind === "herdr") {
+    const t = f.terminal;
+    checks.push(
+      t.available
+        ? {
+          name: "herdr",
+          status: "ok",
+          detail: `the team's terminal: ${formatTerminalStatus(t, "herdr")}` +
+            (t.serverRunning === false ? " — mpt starts it when it opens the next window" : ""),
+        }
+        : {
+          name: "herdr",
+          status: "fail",
+          detail: `the team's terminal, but ${t.reason ?? "it can't be used from this shell"}`,
+          fix: t.fix ?? "install herdr (https://herdr.dev), or set Terminal back to tmux in Config → General",
+        },
+    );
+    // Same herdr server: the socket comes from $XDG_CONFIG_HOME / $HOME, so a daemon
+    // launched with a different environment talks to a server `herdr` never attaches to.
+    const daemonSocket = f.daemonRunning && f.daemonTerminalStatus?.kind === "herdr" ? f.daemonTerminalStatus.identity : null;
+    if (daemonSocket && t.identity && daemonSocket !== t.identity) {
+      checks.push({
+        name: "herdr server",
+        status: "warn",
+        detail: `the daemon uses ${daemonSocket}, this shell uses ${t.identity} — its windows open on a server you don't attach to`,
+        fix: "restart the daemon from this shell (mpt stop && mpt start; for the login service, mpt install) so they match",
+      });
+    }
+  }
+  return checks;
+}
+
+/**
  * Turn gathered facts into a checklist. Pure, so every branch is testable without
  * a Pi install, a daemon, or a real home directory.
  */
@@ -210,16 +279,7 @@ export function evaluate(f: DoctorFacts): Check[] {
     );
   }
 
-  checks.push(
-    f.tmuxPresent
-      ? { name: "tmux", status: "ok", detail: "found" }
-      : {
-        name: "tmux",
-        status: "fail",
-        detail: "not found on PATH — teammates run in tmux windows",
-        fix: "brew install tmux (or your platform's package manager)",
-      },
-  );
+  checks.push(...terminalChecks(f));
 
   // ── Pi settings ──────────────────────────────────────────────────
   if (!f.settingsReadable) {
@@ -319,7 +379,7 @@ export function evaluate(f: DoctorFacts): Check[] {
   if (f.daemonRunning && f.spawning) {
     checks.push(
       f.spawning.canSpawn
-        ? { name: "Spawning", status: "ok", detail: "daemon-driven (it can reach tmux)" }
+        ? { name: "Spawning", status: "ok", detail: `daemon-driven (it can reach ${f.daemonTerminalStatus?.displayName ?? f.daemonTerminal ?? "tmux"})` }
         : {
           name: "Spawning",
           status: "fail",
@@ -635,6 +695,7 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   let daemonTmuxSocket: string | null = null;
   let daemonTerminal: string | null = null;
   let agentsOnOtherTerminal: DoctorFacts["agentsOnOtherTerminal"] = null;
+  let daemonTerminalStatus: TerminalStatus | null = null;
   try {
     const health = await fetch(`${opts.daemonUrl}/health`, { signal: AbortSignal.timeout(1500) });
     if (health.ok) {
@@ -643,11 +704,13 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
         tmuxSocket?: string | null;
         terminal?: string;
         agentsOnOtherTerminal?: Array<{ name: string; terminal: string }>;
+        terminalStatus?: TerminalStatus | null;
       };
       spawning = body.spawning ?? null;
       daemonTmuxSocket = body.tmuxSocket ?? null;
       daemonTerminal = body.terminal ?? null;
       agentsOnOtherTerminal = body.agentsOnOtherTerminal ?? null;
+      daemonTerminalStatus = body.terminalStatus ?? null;
     }
   } catch { /* covered by the daemon check below */ }
   try {
@@ -673,6 +736,8 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
   // tmux specifically: its presence and socket are what the checks below compare
   // (the daemon's tmux server), whatever the team's `terminal` says.
   const terminal = createTerminalBackend("tmux");
+  // And the team's configured terminal, described from this shell (never starts a server).
+  const selected = configuredTerminalStatus(opts.teamDir);
   return {
     piVersion: await probeVersion("pi"),
     tmuxPresent: terminal.available(),
@@ -696,12 +761,33 @@ export async function gather(opts: GatherOptions): Promise<DoctorFacts> {
     cliTmuxSocket: daemonTmuxSocket ? terminal.identity() : null,
     daemonTerminal,
     agentsOnOtherTerminal,
+    terminal: selected,
+    daemonTerminalStatus,
     serviceInstalled: opts.serviceInstalled,
     node: gatherNodeFacts(opts.service ?? null),
     experimentalHarnesses: experimentalHarnessFacts(opts.teamDir),
     plugins,
     agentEnv: agentEnvFacts(opts.teamDir),
   };
+}
+
+/**
+ * The team's configured terminal (`terminal`, `herdrSession` in config.json), as
+ * this shell can reach it; null when config.json can't be read. tmux's status
+ * comes from the same calls doctor makes anyway; herdr's from `herdr status`.
+ */
+function configuredTerminalStatus(teamDir: string): TerminalStatus | null {
+  let config: Record<string, unknown> | undefined;
+  try {
+    config = readTeamConfigFile(teamDir) as Record<string, unknown> | undefined;
+  } catch {
+    return null;
+  }
+  try {
+    return getTerminalBackend(config ?? {}).describe();
+  } catch {
+    return null; // an unknown `terminal` value: the daemon's Spawning check says so
+  }
 }
 
 /** The agent env file as `mpt doctor` reports it (path, problem, key count), or undefined when config.json can't be read. */

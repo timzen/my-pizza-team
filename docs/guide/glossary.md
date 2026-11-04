@@ -25,7 +25,7 @@ A workflow step worked by teammates. Entering it gives the task a fresh
 
 The one agent that isn't a teammate: the [agent you chat with](04-assistant.md),
 started by **Start the assistant** in the web UI or `mpt assistant`. Internally it's
-called the [leader](#leader) (its tmux window, member name and config key), and
+called the [leader](#leader) (its window, member name and config key), and
 `mpt lead` is an alias for `mpt assistant`.
 
 ## Board task
@@ -88,7 +88,8 @@ See [The Inbox](01-tasks-and-runs.md#the-inbox).
 ## Leader
 
 The internal name of the [assistant](#assistant). You still see it in a few places:
-its tmux window is called `leader` (`tmux attach -t <session>:leader`), it registers
+its window is called `leader` (`tmux attach -t <session>:leader`; under herdr, the
+`leader` tab), it registers
 with the daemon as the member `leader` (so the Team API, logs and a task's activity
 may show that name), its Pi flag is `--ppt-lead`, its command template is
 `harnesses.<harness>.leader` in `config.json`, and its routes are `/api/leader/*`.

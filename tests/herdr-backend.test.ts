@@ -33,6 +33,7 @@ import {
 import { createTerminalBackend, getTerminalBackend } from "../daemon/terminal/index.ts";
 import {
   cachedTerminalCapability,
+  cachedTerminalStatus,
   focusMember,
   probeSpawnCapability,
   probeTerminalCapability,
@@ -258,6 +259,83 @@ test("insideClient is true only inside a pane of this server", () => {
   assertEquals(t.insideClient({ HERDR_ENV: "1", HERDR_SOCKET_PATH: socket }), true);
   assertEquals(t.insideClient({ HERDR_ENV: "1", HERDR_SOCKET_PATH: "/other.sock" }), false);
   assertEquals(t.insideClient({ TMUX: "/tmp/tmux-1/default,1,0" }), false);
+});
+
+test("describe: version, server, session and socket — without starting a server", () => {
+  const h = fakeHerdr({ running: false });
+  const idle = backend(h, "mine").describe();
+  assertEquals(idle.kind, "herdr");
+  assertEquals(idle.available, true);
+  assertEquals(idle.version, "0.9.5");
+  assertEquals(idle.serverRunning, false);
+  assertEquals(idle.session, "mine");
+  assertEquals(h.launched, [], "describing never starts a server");
+
+  const up = backend(fakeHerdr()).describe();
+  assertEquals([up.serverRunning, up.identity, up.session], [true, "/tmp/herdr-sandbox/c/herdr/sessions/mpt-sandbox/herdr.sock", "default"]);
+
+  const old = fakeHerdr({ version: "0.9.1" });
+  const tooOld = backend(old).describe();
+  assertEquals([tooOld.available, tooOld.version], [false, "0.9.1"]);
+  assertStringIncludes(tooOld.reason ?? "", "older than 0.9.5");
+
+  const gone = fakeHerdr();
+  gone.state.missing = true;
+  const missing = backend(gone).describe();
+  assertEquals([missing.available, missing.version, missing.serverRunning, missing.identity], [false, null, null, null]);
+  assertStringIncludes(missing.fix ?? "", "herdr");
+});
+
+test("attach command: plain `herdr` for the default session, `herdr session attach <name>` otherwise", () => {
+  const ref = backend().windowRef("team", "leader");
+  assertEquals(backend().attachCommand(ref), "herdr");
+  assertEquals(backend(fakeHerdr(), "mine").attachCommand(ref), "herdr session attach mine");
+  assertStringIncludes(backend().switchHint(ref), '"leader" tab');
+  assertStringIncludes(backend().switchHint(ref), '"team" workspace');
+});
+
+test("focusClient focuses the tab (server-wide), and fails clearly for a window that isn't there", () => {
+  const h = fakeHerdr();
+  const t = backend(h);
+  t.openWindow({ session: "team", window: "leader", cwd: "/p", command: "lead" });
+  assertEquals(t.focusClient(t.windowRef("team", "leader")), null);
+  assertEquals(made(h).filter((c) => c.startsWith("tab focus")), [`tab focus ${h.tab("team", "leader")!.id}`]);
+  assertEquals(t.focusClient(t.windowRef("team", "gone")), "no herdr window team:gone");
+});
+
+test("cachedTerminalStatus reuses an answer for its TTL, per kind and session", () => {
+  let made = 0;
+  let clock = 0;
+  const status = cachedTerminalStatus(5000, (cfg) => {
+    made += 1;
+    return backend(fakeHerdr(), cfg.herdrSession);
+  }, () => clock);
+  assertEquals(status(config({ terminal: "herdr" })).session, "default");
+  status(config({ terminal: "herdr" }));
+  assertEquals(made, 1);
+  assertEquals(status(config({ terminal: "herdr", herdrSession: "b" })).session, "b");
+  assertEquals(made, 2);
+  clock = 6000;
+  status(config({ terminal: "herdr" }));
+  assertEquals(made, 3);
+});
+
+test("/health reports the configured terminal's status (herdr: its session and socket)", async () => {
+  await withTeam({ terminal: "herdr", herdrSession: "mine" }, async ({ app, store }) => {
+    store.setTerminalStatusProbe((cfg) => backend(fakeHerdr(), cfg.herdrSession).describe());
+    const health = await (await get(app, "/health")).json() as {
+      terminal: string; terminalStatus: { kind: string; version: string; session: string; identity: string };
+    };
+    assertEquals(health.terminal, "herdr");
+    assertEquals(health.terminalStatus.kind, "herdr");
+    assertEquals(health.terminalStatus.version, "0.9.5");
+    assertEquals(health.terminalStatus.session, "mine");
+  });
+
+  // tmux: what the startup probe recorded (none in a test store = null).
+  await withTeam(undefined, async ({ app }) => {
+    assertEquals((await (await get(app, "/health")).json() as { terminalStatus: unknown }).terminalStatus, null);
+  });
 });
 
 // ─── Wiring: getTerminalBackend, the capability probe, the spawner ───

@@ -95,7 +95,9 @@ mpt assistant           # alias: mpt lead
 It opens the same assistant (in a tmux window named `leader`) and attaches you to
 it; detach with `Ctrl-b d`, and `mpt assistant` again reattaches. Already inside
 tmux, it switches your client to that window instead. It never starts a second
-assistant: if the web UI already started one, it just attaches.
+assistant: if the web UI already started one, it just attaches. (A team that uses
+[herdr](docs/guide/08-configuration.md) instead of tmux gets a `leader` tab and a
+herdr client; see that page.)
 
 </details>
 

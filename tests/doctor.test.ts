@@ -36,6 +36,7 @@ import {
   agentEnvCheck,
 } from "../cli/doctor.ts";
 import { PRE_CUTOFF_UPGRADE_MESSAGE } from "../shared/types.ts";
+import type { TerminalStatus } from "../daemon/terminal/backend.ts";
 
 /** A fully healthy system; each test perturbs one fact. */
 function healthy(over: Partial<DoctorFacts> = {}): DoctorFacts {
@@ -294,6 +295,63 @@ test("agents still running under another terminal after a switch warn, naming th
   // None left, or an older daemon that doesn't report it: no check.
   assertEquals(evaluate(healthy({ daemonTerminal: "herdr", agentsOnOtherTerminal: [] })).some((x) => x.name === "Terminal"), false);
   assertEquals(evaluate(healthy()).some((x) => x.name === "Terminal"), false);
+});
+
+// ─── The selected terminal (tmux or herdr) ───────────────────────────
+
+const herdrStatus = (over: Partial<TerminalStatus> = {}): TerminalStatus => ({
+  kind: "herdr", displayName: "herdr", available: true, version: "0.9.5",
+  serverRunning: true, identity: "/home/u/.config/herdr/herdr.sock", session: "default", ...over,
+});
+
+test("a herdr team: herdr reports version, session and server; tmux isn't needed", () => {
+  const checks = evaluate(healthy({ tmuxPresent: false, terminal: herdrStatus(), daemonTerminal: "herdr", daemonTerminalStatus: herdrStatus() }));
+  const h = find(checks, "herdr");
+  assertEquals(h.status, "ok");
+  assertStringIncludes(h.detail, "the team's terminal: herdr 0.9.5");
+  assertStringIncludes(h.detail, 'session "default", server running');
+  assertEquals(find(checks, "tmux").status, "ok", "a herdr team doesn't need tmux");
+  assertStringIncludes(find(checks, "tmux").detail, "not needed");
+  assertStringIncludes(find(checks, "Spawning").detail, "reach herdr");
+  assertEquals(statuses(checks).has("fail"), false);
+  assertEquals(checks.some((c) => c.name === "herdr server"), false, "same socket: no warning");
+
+  const stopped = find(evaluate(healthy({ terminal: herdrStatus({ serverRunning: false }) })), "herdr");
+  assertStringIncludes(stopped.detail, "server not running");
+  assertStringIncludes(stopped.detail, "mpt starts it when it opens the next window");
+});
+
+test("a herdr team without a usable herdr fails, with herdr's reason and fix", () => {
+  const c = find(evaluate(healthy({
+    terminal: herdrStatus({ available: false, version: "0.9.1", reason: "herdr 0.9.1 is older than 0.9.5", fix: "upgrade herdr" }),
+  })), "herdr");
+  assertEquals(c.status, "fail");
+  assertStringIncludes(c.detail, "older than 0.9.5");
+  assertEquals(c.fix, "upgrade herdr");
+});
+
+test("a daemon on a different herdr server than this shell warns", () => {
+  const c = find(evaluate(healthy({
+    terminal: herdrStatus(),
+    daemonTerminalStatus: herdrStatus({ identity: "/var/lib/svc/.config/herdr/herdr.sock" }),
+  })), "herdr server");
+  assertEquals(c.status, "warn");
+  assertStringIncludes(c.detail, "/var/lib/svc/.config/herdr/herdr.sock");
+  assertStringIncludes(c.fix!, "mpt stop && mpt start");
+  // The daemon not running: nothing to compare.
+  assertEquals(evaluate(healthy({
+    daemonRunning: false, leaderConnected: null, spawning: null, terminal: herdrStatus(),
+    daemonTerminalStatus: herdrStatus({ identity: "/elsewhere" }),
+  })).some((x) => x.name === "herdr server"), false);
+});
+
+test("a tmux team's tmux check names its version and server", () => {
+  const c = find(evaluate(healthy({
+    terminal: { kind: "tmux", displayName: "tmux", available: true, version: "3.4", serverRunning: true, identity: "/tmp/tmux-501/default", session: null },
+  })), "tmux");
+  assertEquals(c.status, "ok");
+  assertStringIncludes(c.detail, "the team's terminal: tmux 3.4 — server running (socket /tmp/tmux-501/default)");
+  assertEquals(evaluate(healthy()).some((x) => x.name === "herdr"), false);
 });
 
 test("no spawning check when the daemon isn't running to report it", () => {

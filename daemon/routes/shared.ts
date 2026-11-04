@@ -82,6 +82,11 @@ export function registerSharedRoutes(ctx: RouteContext): void {
       // new windows only, so `mpt doctor` warns while any remain.
       terminal: resolveTerminal(config),
       agentsOnOtherTerminal: agentsOnOtherTerminal(store.getMembers(), config),
+      // That terminal as the daemon sees it (daemon/terminal/backend.ts
+      // `TerminalStatus`): available, version, server running, which server (herdr:
+      // its session and socket). `mpt doctor` reports it and compares the server with
+      // its own; null when unknown. `tmuxSocket` above stays for older doctors.
+      terminalStatus: store.getTerminalStatus(),
     });
   });
 

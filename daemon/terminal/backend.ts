@@ -79,6 +79,32 @@ export type TerminalUnavailableReason = "none" | "not-installed" | "not-permitte
 export type ControlKey = "C-c";
 
 /**
+ * What `mpt doctor`, `/health` and the daemon's startup log say about a backend:
+ * which one, whether it can run, its version, whether its server is up, and which
+ * server that is. Gathering it never starts a server.
+ */
+export interface TerminalStatus {
+  kind: TerminalBackendKind;
+  displayName: string;
+  /** Can this process drive it (`TerminalBackend.available`)? */
+  available: boolean;
+  /** Why not, and how to fix it — only when `available` is false. */
+  reason?: string;
+  fix?: string;
+  /** The installed version (`tmux -V`'s `3.4`, herdr's `0.9.5`), or null when unknown. */
+  version: string | null;
+  /** Is its server running? Null when that can't be told (the backend can't run). */
+  serverRunning: boolean | null;
+  /** Which server (`TerminalBackend.identity`: the socket path), or null when unknown. */
+  identity: string | null;
+  /**
+   * The backend's own name for that server: herdr's session (`TeamConfig.herdrSession`,
+   * default `default`); null for tmux, which uses the user's default server.
+   */
+  session: string | null;
+}
+
+/**
  * A terminal multiplexer the daemon runs agents in.
  *
  * Every method is synchronous and argv-only (no shell between mpt and the
@@ -103,6 +129,8 @@ export interface TerminalBackend {
    * CLI's own. Never starts a server.
    */
   identity(): string | null;
+  /** Everything above at once, for doctor, `/health` and the startup log (`TerminalStatus`). Never starts a server. */
+  describe(): TerminalStatus;
 
   // ─── Windows ─────────────────────────────────────────────────────
   /** Ensure the team container exists; true when it was just created. `env` goes to its first window. */
@@ -137,4 +165,16 @@ export interface TerminalBackend {
   focusClient(ref: WindowRef): string | null;
   /** Hand this process's terminal to the backend, showing the window. True when the attach succeeded. */
   attach(ref: WindowRef): boolean;
+  /**
+   * The command a user runs in a plain terminal to see the window (tmux: `tmux attach
+   * -t <session>:<window>`; herdr: `herdr`, or `herdr session attach <name>`). For the
+   * hints `mpt assistant --no-attach` and the web UI print.
+   */
+  attachCommand(ref: WindowRef): string;
+  /**
+   * What a user does from *inside* the backend to get there: a command (tmux:
+   * `tmux switch-client -t <session>:<window>`) or, where there is none to type,
+   * where to look (herdr: the window's tab in the team's workspace).
+   */
+  switchHint(ref: WindowRef): string;
 }

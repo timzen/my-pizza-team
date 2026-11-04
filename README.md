@@ -58,8 +58,9 @@ Commands:
   doctor                Read-only checklist of prerequisites, with a fix for each problem
   start [--daemon|-d]   Start the daemon (foreground, or background with -d)
   assistant [--no-attach]
-                        Start the assistant (the agent you chat with) in tmux and
-                        attach to it; the web UI's Start button does the same
+                        Start the assistant (the agent you chat with) in the team's
+                        terminal (tmux, or herdr) and attach to it; the web UI's
+                        Start button does the same
   lead [--no-attach]    Alias for `assistant` (the original name)
   stop                  Stop the running daemon
   status                Check if the daemon is running + show a summary
@@ -125,13 +126,18 @@ Work Source plugin"; using one from the web UI is in
 [docs/guide/07-sources.md](docs/guide/07-sources.md).
 
 `mpt assistant` (alias `mpt lead`) opens the assistant in the project directory,
-running the harness's `leader` command. Internally the assistant is the *leader*,
-so its tmux window is named `leader`, it registers as the member `leader`, and its
+running the harness's `leader` command, in the team's terminal (tmux, or
+[herdr](#configuration)). Internally the assistant is the *leader*,
+so its window (a tmux window, or a herdr tab) is named `leader`, it registers as the member `leader`, and its
 config key is `harnesses.<harness>.leader`; only what you read in the UI, CLI and
 `mpt doctor` says "assistant". Running it again attaches to the existing assistant rather than
 starting a second one. Run from inside tmux, it doesn't nest an attach: it switches
 your client to `<session>:leader` (`tmux switch-client`), even from another session.
-`--no-attach` does neither and prints both commands. A new assistant window gets the
+Under herdr it focuses the `leader` tab and attaches with `herdr` (or
+`herdr session attach <herdrSession>`); from inside a herdr pane of the team's server
+it just focuses the tab, and from inside tmux (or another herdr server) it prints the
+attach command instead of nesting one terminal in another.
+`--no-attach` does none of these and prints the attach command and how to get there from inside. A new assistant window gets the
 team's [`agentEnvFile`](#configuration) variables, like every teammate window.
 The daemon can start the same assistant itself (`POST /api/assistant/start`, also
 idempotent), so it can be started without a terminal. The built-in Pi leader
@@ -691,13 +697,15 @@ integration. It ships **inside the `my-pizza-team` npm package** and `mpt setup`
 versions — `mpt upgrade` moves both together.
 
 The **assistant** (internally the leader) is the Pi you chat with; the web UI's **Start the assistant** or `mpt assistant` starts it. **Teammates** are
-started by the daemon in their own tmux windows and run an autonomous loop: poll →
+started by the daemon in their own windows (tmux, or herdr) and run an autonomous loop: poll →
 claim → execute → set state → repeat. The daemon is the only thing that opens and
 closes their windows: if it can't reach tmux (possible when it runs as a login
 service without your PATH), a spawn fails at once with the reason and a fix, shown
-in the Team tab, and `mpt doctor` fails its "Spawning" check. `mpt doctor` also
-warns when the daemon talks to a different tmux server than your shell (its windows
-would open where `tmux attach -t mpt` doesn't look).
+in the Team tab, and `mpt doctor` fails its "Spawning" check. `mpt doctor` reports
+the team's terminal — its version and whether its server is running (for herdr, also
+the session) — and warns when the daemon talks to a different tmux (or herdr) server
+than your shell (its windows would open where `tmux attach -t mpt` or `herdr`
+doesn't look).
 
 Recommended: `@gotgenes/pi-permission-system`, which lets teammates work
 autonomously. Without it they stop at the first permission prompt (the extension

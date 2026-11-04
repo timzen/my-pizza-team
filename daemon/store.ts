@@ -22,6 +22,7 @@
 import { DatabaseSync } from "node:sqlite";
 import {
   DEFAULT_DAEMON_URL,
+  resolveTerminal,
   type Assignment,
   type BuiltinPersonaId,
   type Comment,
@@ -56,7 +57,8 @@ import { normalizeDirectory } from "../shared/directory.ts";
 import { saveTeamConfig } from "../shared/team-config.ts";
 import type { PluginLoadStatus } from "../shared/protocol.ts";
 import type { TeamPersonaInput } from "./personas/library.ts";
-import type { SpawnCapability } from "./spawner.ts";
+import { cachedTerminalStatus, type SpawnCapability } from "./spawner.ts";
+import type { TerminalStatus } from "./terminal/backend.ts";
 import type { AssistantStartability } from "./leader-start.ts";
 import type { PackagePersonaFile, PackagePersonaResult, PackagePersonas } from "./personas/packages.ts";
 import { triageWorkDefId, type TriageSkipReason } from "./triage.ts";
@@ -1038,6 +1040,31 @@ export class Store {
   /** The tmux server socket the daemon talks to, for /health and `mpt doctor`'s same-server check. */
   getTmuxSocket(): string | null {
     return this.tmuxSocket;
+  }
+
+  /** tmux's `TerminalStatus`, taken once at startup (daemon/start.ts) like its capability; null when unknown. */
+  private tmuxStatus: TerminalStatus | null = null;
+  /** The configured non-tmux terminal's status (herdr), cached for a few seconds; replaceable for tests. */
+  private terminalStatusProbe: (config: TeamConfig) => TerminalStatus | null = cachedTerminalStatus();
+
+  /** Record tmux's status (found once at startup). */
+  setTmuxStatus(status: TerminalStatus | null): void {
+    this.tmuxStatus = status;
+  }
+
+  /** Replace the non-tmux status probe (tests: a fake herdr's answer, or none). */
+  setTerminalStatusProbe(probe: (config: TeamConfig) => TerminalStatus | null): void {
+    this.terminalStatusProbe = probe;
+  }
+
+  /**
+   * The *configured* terminal's status (daemon/terminal/backend.ts `TerminalStatus`):
+   * backend, availability, version, server running, which server. On `/health`, so
+   * `mpt doctor` can report the daemon's side and compare servers. Null when unknown
+   * (tmux in a store nobody probed).
+   */
+  getTerminalStatus(): TerminalStatus | null {
+    return resolveTerminal(this.config) === "tmux" ? this.tmuxStatus : this.terminalStatusProbe(this.config);
   }
 
   // --- Team readiness (see TeamReadiness) ---

@@ -43,6 +43,7 @@ import type {
   OpenedWindow,
   OpenWindowOptions,
   TerminalBackend,
+  TerminalStatus,
   TerminalUnavailableReason,
   WindowRef,
 } from "./backend.ts";
@@ -502,6 +503,31 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
     return p.status?.socket ?? defaultHerdrSocketPath(session, env);
   };
 
+  /** The probe, the version, the server and its socket at once (doctor, `/health`). Never starts a server. */
+  const describe = (): TerminalStatus => {
+    const base = { kind: "herdr" as const, displayName: "herdr", session };
+    const p = probe();
+    if (!p.ok) {
+      // Too old or incompatible still has a version worth reporting.
+      const st = p.kind === "unsupported-version" ? status() : null;
+      return {
+        ...base, available: false, reason: p.reason, fix: p.fix,
+        version: st?.version ?? null, serverRunning: st ? st.running : null, identity: null,
+      };
+    }
+    return {
+      ...base,
+      available: true,
+      version: p.status?.version ?? null,
+      serverRunning: p.status ? p.status.running : serverRunning(),
+      identity: p.status?.socket ?? defaultHerdrSocketPath(session, env),
+    };
+  };
+
+  /** The plain-terminal command that attaches to this server: plain `herdr` is the default session. */
+  const attachCommand = (): string =>
+    session === DEFAULT_HERDR_SESSION ? "herdr" : `herdr session attach ${session}`;
+
   return {
     kind: "herdr",
     displayName: "herdr",
@@ -515,6 +541,7 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
       return p.ok ? null : { reason: p.reason, fix: p.fix };
     },
     identity,
+    describe,
     ensureContainer: (sessionLabel, vars) => {
       assertLabel("session", sessionLabel);
       ensureServer();
@@ -547,5 +574,8 @@ export function createHerdrBackend(opts: HerdrBackendOptions = {}): TerminalBack
       focusWindow(w);
       return spawnSync("herdr", sessionArgs, { stdio: "inherit", env: herdrEnv() }).status === 0;
     },
+    attachCommand: () => attachCommand(),
+    // No per-client switch command: inside herdr, the user picks the tab.
+    switchHint: (w) => `switch to the "${w.window}" tab in herdr's "${w.session}" workspace`,
   };
 }

@@ -2,7 +2,7 @@
 
 The **assistant** is the agent you chat with, started from the web UI or with
 `mpt assistant` (internally it's the [leader](glossary.md#leader), which is why its
-tmux window is called `leader`). It isn't one of the teammates:
+window — a tmux window, or a herdr tab — is called `leader`). It isn't one of the teammates:
 it helps you plan, and it creates and edits work for you. It lives in the **Assistant** tab of the dock (on the left, unless you
 [move it](10-tips.md#getting-around)), on every page.
 
@@ -22,9 +22,11 @@ It only offers the kinds of work your team has switched on (see
 
 When the assistant isn't running, the top of the chat says so — anything you send waits,
 queued, until it starts — and offers **Start the assistant**. The daemon opens it in
-its tmux window (`<session>:leader`, in your project directory); the button reads
-**Starting…** until it connects, then the notice goes. If it can't be started from the
-web UI (tmux unreachable, or no assistant command for your harness), the notice says why
+its window (`<session>:leader`, in your project directory, in your team's
+[terminal](08-configuration.md#terminal)); the button reads
+**Starting…** until it connects, then the notice goes — if that takes a minute, it
+shows the command that lets you look at the window (`tmux attach -t …`, or `herdr`). If it can't be started from the
+web UI (the terminal unreachable, or no assistant command for your harness), the notice says why
 and how to fix it. **Or from a terminal** shows the same start as a command,
 `mpt assistant` (or its alias `mpt lead`), which also attaches you to the window. The same button is on the Welcome
 checklist, the empty Team tab and the team-size dialog.

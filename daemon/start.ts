@@ -18,11 +18,11 @@ import {
 } from "./lifecycle.ts";
 import { resolveToken, validateBindSafety } from "./auth.ts";
 import { probeTerminalCapability, realizePending } from "./spawner.ts";
-import { createTerminalBackend } from "./terminal/index.ts";
+import { createTerminalBackend, formatTerminalStatus } from "./terminal/index.ts";
 import { startReadinessLoop } from "./readiness.ts";
 import { mptInvocation } from "./self.ts";
 import { findPreCutoffLayout, formatPreCutoffMessage } from "./layout-check.ts";
-import { TEAM_DIR } from "../shared/types.ts";
+import { resolveTerminal, TEAM_DIR } from "../shared/types.ts";
 import { readTeamConfigFile } from "../shared/team-config.ts";
 import { serve } from "@hono/node-server";
 import * as path from "node:path";
@@ -124,7 +124,9 @@ export async function startDaemonInProcess(
   const tmuxCapability = terminal ? probeTerminalCapability(terminal) : null;
   if (store && terminal && tmuxCapability) {
     store.setTmuxCapability(tmuxCapability);
-    store.setTmuxSocket(tmuxCapability.canSpawn ? terminal.identity() : null);
+    const tmuxStatus = terminal.describe();
+    store.setTmuxStatus(tmuxStatus);
+    store.setTmuxSocket(tmuxCapability.canSpawn ? tmuxStatus.identity : null);
     // The `{url}` a leader started from the web UI is given (POST /api/assistant/start).
     store.setDaemonUrl(`http://localhost:${port}`);
   }
@@ -158,8 +160,11 @@ export async function startDaemonInProcess(
   let spawnTimer: ReturnType<typeof setInterval> | undefined;
   if (store && tmuxCapability) {
     const spawnCapability = store.getSpawnCapability();
+    // Name the backend new windows open in (it can change live; this is at startup).
+    const status = store.getTerminalStatus();
+    console.log(`   Terminal: ${formatTerminalStatus(status, resolveTerminal(store.getConfig()))}`);
     if (spawnCapability.canSpawn) {
-      console.log(`   Spawning: daemon-driven (tmux server ${store.getTmuxSocket() ?? "unknown"})`);
+      console.log(`   Spawning: daemon-driven (${status?.displayName ?? resolveTerminal(store.getConfig())} server ${status?.identity ?? "unknown"})`);
     } else {
       console.error(`⚠️  Spawning: unavailable — ${spawnCapability.reason}`);
       console.error(`     ${spawnCapability.fix}`);
